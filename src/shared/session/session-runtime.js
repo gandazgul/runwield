@@ -3214,7 +3214,7 @@ export class SessionRuntime {
      * consumer. Only the opaque runtime id and public metadata cross the core
      * boundary.
      *
-     * @param {{ cwd: string, mode?: "new" | "continue", enableManagedActivation?: boolean, deferManagedActivationUntilAgentReady?: boolean }} options
+     * @param {{ cwd: string, mode?: "new" | "continue", enableManagedActivation?: boolean, adoptManagedActivation?: boolean, deferManagedActivationUntilAgentReady?: boolean }} options
      */
     async createInteractiveSession(options) {
         if (!options?.cwd || !isAbsolute(options.cwd)) {
@@ -3256,7 +3256,6 @@ export class SessionRuntime {
                 };
             }
         }
-        const requestedManagedNew = this.#shouldUseManagedActivation(options) && (options.mode || "new") === "new";
         const creationClassification = await classifyRootSessionLocator({
             cwd: options.cwd,
             ownerCoordinationStore,
@@ -3264,6 +3263,9 @@ export class SessionRuntime {
         if (creationClassification.kind === "blocked") {
             throw new Error(`Session Manager create is blocked: ${creationClassification.reason}`);
         }
+        const requestedManagedNew = (this.#shouldUseManagedActivation(options) ||
+            (options.adoptManagedActivation === true && creationClassification.kind === "managed")) &&
+            (options.mode || "new") === "new";
         if (creationClassification.kind === "managed" && !requestedManagedNew) {
             throw new Error("Session Manager create is blocked: managed_activation_required");
         }

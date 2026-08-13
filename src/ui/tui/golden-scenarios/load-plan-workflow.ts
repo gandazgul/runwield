@@ -17,7 +17,7 @@ interface GoldenScenarioResult {
 
 interface CapturedPlan {
     name?: string;
-    attrs?: { status?: string; worktreeStatus?: string; planId?: string } | null;
+    attrs?: { status?: string; worktreeStatus?: string; planId?: string; failureReason?: string } | null;
 }
 
 interface CapturedProjectState {
@@ -483,6 +483,53 @@ export const loadPlanMalformedFrontMatterScenario = {
     ],
 };
 
+export const loadPlanValidateWaivedObjectiveChecksScenario = {
+    name: "load-plan-validate-waived-objective-checks-reaches-semantic-failure",
+    composedTui: true,
+    initialAgentName: "guide",
+    terminal: { columns: 100, rows: 30 },
+    timeoutMs: 120000,
+    coverage: ["workflow:load-plan", "recovery:workflow-validation"],
+    committedProjectFiles: [
+        { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
+        {
+            path: "docs/plans/waived-validate.md",
+            text:
+                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Waived Objective Check validation\naffectedPaths: []\nobjectiveChecks:\n  - id: OC1\n    command: "false"\nobjectiveCheckWaivers:\n  - id: OC1\n    command: "false"\n    source: engineer_report\n    explanation: Golden waiver.\n    waivedAt: "2026-08-13T00:00:00.000Z"\nstatus: draft\n---\n# Waived validate\n',
+        },
+    ],
+    scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery", value: "validate" }],
+    actions: [
+        { type: "seedActiveWorktree", planName: "waived-validate", status: "implemented" },
+        { type: "type", text: "/load-plan waived-validate" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "sleep", ms: 1000 },
+        { type: "waitForIdle", timeoutMs: 90000 },
+        { type: "sleep", ms: 1000 },
+        { type: "captureProjectState", planNames: ["waived-validate"] },
+    ],
+    assertions: [
+        assertsGoldenCoverage("workflow:load-plan", (result: GoldenScenarioResult) => {
+            assertEventIncludes(result, "terminal:type:/load-plan waived-validate");
+            assertScreenIncludes(result, "All Objective-Failing Checks for waived-validate are waived");
+            assertScreenIncludes(result, "Build, tests, and Objective-Failing Checks passed.");
+            assertScreenIncludes(result, "Semantic Code Review cannot start");
+        }),
+        assertsGoldenCoverage("recovery:workflow-validation", (result: GoldenScenarioResult) => {
+            const plan = projectState(result).plans?.find((entry) => entry.name === "waived-validate");
+            assert(
+                plan?.attrs?.status === "implemented",
+                `Expected validation failure to return to implemented; got ${plan?.attrs?.status}`,
+            );
+            assert(
+                String(plan?.attrs?.failureReason || "").includes("No implementation changes detected"),
+                `Expected visible semantic failure reason to be stored; got ${plan?.attrs?.failureReason}`,
+            );
+        }),
+    ],
+};
+
 export const loadPlanWorkflowScenarios = [
     loadPlanActionsScenario,
     loadPlanResetReviewArchiveScenario,
@@ -490,4 +537,5 @@ export const loadPlanWorkflowScenarios = [
     loadPlanWorktreeInspectResetScenario,
     loadPlanAbandonProgressScenario,
     loadPlanMalformedFrontMatterScenario,
+    loadPlanValidateWaivedObjectiveChecksScenario,
 ];

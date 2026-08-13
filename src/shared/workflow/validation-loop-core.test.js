@@ -79,7 +79,7 @@ async function makePlannedReviewWorktree() {
         planName: "p",
         worktreeRoot,
     });
-    const { hostedSession } = makeValidationUi();
+    const { uiAPI, hostedSession } = makeValidationUi();
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE", status: "validated_ci" },
@@ -95,6 +95,7 @@ async function makePlannedReviewWorktree() {
     return {
         projectRoot,
         hostedSession,
+        uiAPI,
         cleanup: async () => {
             await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
             await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
@@ -180,8 +181,8 @@ Deno.test("shouldContinueParentEpicAfterValidation ignores standalone FEATURE pl
     assertEquals(plan?.attrs.deliveryEvidence, { version: 1, mode: "non_git_in_place" });
 });
 
-Deno.test("runValidationLoop fails FEATURE validation when workflow diff is empty", async () => {
-    const { projectRoot, hostedSession, cleanup } = await makePlannedReviewWorktree();
+Deno.test("runValidationLoop shows why FEATURE validation fails when workflow diff is empty", async () => {
+    const { projectRoot, hostedSession, uiAPI, cleanup } = await makePlannedReviewWorktree();
     try {
         const result = await runValidationLoop({
             hostedSession,
@@ -195,6 +196,11 @@ Deno.test("runValidationLoop fails FEATURE validation when workflow diff is empt
         assertEquals(result.kind, "failed");
         assertStringIncludes(result.reason || "", "No implementation changes detected");
         assertEquals(plan?.attrs.status, "implemented");
+        const messages = /** @type {string[]} */ (uiAPI.messages);
+        assertEquals(
+            messages.some((message) => message.includes("No implementation changes detected")),
+            true,
+        );
     } finally {
         await cleanup();
     }
@@ -267,6 +273,120 @@ Deno.test("runValidationLoop runs Objective-Failing Checks after CI before mecha
     assertEquals(ciCalls, 1);
     assertEquals(result.kind, "paused");
     assertEquals(plan?.attrs.status, "validated_ci");
+});
+
+Deno.test("runValidationLoop advances from waived Objective-Failing Checks into semantic review", async () => {
+    const objectiveChecks = [{ id: "OC1", command: "false", rationale: "waived for test" }];
+    const projectRoot = await makeRepo();
+    await savePlan(projectRoot, "p", "# p\n\nvalidation fixture\n", {
+        classification: "PLANNED_CHANGE",
+        status: "implemented",
+        summary: "validation fixture",
+        affectedPaths: [],
+    });
+    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["commit", "-m", "validation baseline"]);
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-validation-waived-worktree-" });
+    const worktree = await createTestWorktreeAttempt({
+        projectRoot,
+        planName: "p",
+        worktreeRoot,
+    });
+    const baselinePlan = await loadPlan(projectRoot, "p");
+    const validationAttrs = /** @type {import("../../plan-store.js").PlanFrontMatterInput} */ ({
+        classification: "PLANNED_CHANGE",
+        status: "implemented",
+        summary: "validation fixture",
+        affectedPaths: [],
+        humanReviewMode: "always",
+        objectiveChecks: /** @type {any} */ (objectiveChecks),
+        objectiveCheckWaivers: /** @type {any} */ ([{
+            id: "OC1",
+            command: "false",
+            source: "mechanical_detection",
+            waivedAt: "2026-01-01T00:00:00.000Z",
+            explanation: "waived for test",
+        }]),
+        executionMode: "worktree",
+        executionBaselineTree: worktree.baseTree,
+        worktreeId: worktree.id,
+        worktreePath: worktree.path,
+        worktreeBranch: worktree.branch,
+        worktreeBaseBranch: worktree.baseBranch,
+        worktreeStatus: "completed",
+    });
+    await savePlan(projectRoot, "p", "# p\n\nvalidation fixture\n", validationAttrs, {
+        expectedRevision: baselinePlan?.revision,
+    });
+    const worktreePlan = await loadPlan(worktree.path, "p");
+    await savePlan(worktree.path, "p", "# p\n\nvalidation fixture\n", validationAttrs, {
+        expectedRevision: worktreePlan?.revision,
+    });
+    await Deno.writeTextFile(`${worktree.path}/workflow.js`, "export const scopedWorkflowChange = true;\n");
+    const { hostedSession } = makeValidationUi();
+    const triageMeta = /** @type {any} */ ({
+        classification: "PLANNED_CHANGE",
+        status: "implemented",
+        humanReviewMode: "always",
+        objectiveChecks,
+        objectiveCheckWaivers: [{
+            id: "OC1",
+            command: "false",
+            source: "mechanical_detection",
+            waivedAt: "2026-01-01T00:00:00.000Z",
+            explanation: "waived for test",
+        }],
+    });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta,
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: worktree.path,
+        executionMode: "worktree",
+        baselineTree: worktree.baseTree,
+        worktreeId: worktree.id,
+        worktreeBranch: worktree.branch,
+        worktreeBaseBranch: worktree.baseBranch,
+    });
+
+    let reviewCalls = 0;
+    const result = await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta,
+        semanticReviewPort: {
+            runIsolatedAgentSession: () => {
+                reviewCalls += 1;
+                return Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "review_diff",
+                        details: { command: "list", scope: "full", fileCount: 1 },
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: {
+                            outcome: "approved",
+                            approved: true,
+                            feedback: "",
+                            findings: [],
+                            advisories: [],
+                        },
+                    }]),
+                );
+            },
+        },
+        localCI: {
+            run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+        },
+    });
+
+    const plan = await loadPlan(projectRoot, "p");
+    assertEquals(result.kind, "paused", JSON.stringify(result));
+    assertEquals(reviewCalls, 1, JSON.stringify({ result, status: plan?.attrs.status }));
+    assertEquals(plan?.attrs.status, "validated_reviewer");
 });
 
 Deno.test("runValidationLoop advances from met Objective-Failing Checks into semantic review", async () => {

@@ -1339,22 +1339,32 @@ async function runComposedTuiScenario(scenario, options) {
                     const loaded = await loadPlan(Deno.cwd(), planName);
                     if (!loaded) throw new Error(`Cannot seed worktree for missing Plan ${planName}`);
                     const { createTestWorktreeAttempt } = await import("../../../shared/worktree-test-helpers.js");
+                    const { updateEntry } = await import("../../../shared/worktree-registry.js");
                     const { updatePlanFrontMatter } = await import("../../../plan-store.js");
                     const entry = await createTestWorktreeAttempt({
                         projectRoot: Deno.cwd(),
                         planName,
                         planId: String(loaded.attrs.planId || `golden:${planName}`),
                     });
+                    const status = typed.status === "implemented" ? "implemented" : "in_progress";
+                    const registryStatus = typed.registryStatus === "validation_failed"
+                        ? "validation_failed"
+                        : typed.registryStatus === "completed" || status === "implemented"
+                        ? "completed"
+                        : "active";
+                    if (registryStatus !== "active") {
+                        await updateEntry(Deno.cwd(), entry.id, { status: registryStatus });
+                    }
                     await updatePlanFrontMatter(
                         Deno.cwd(),
                         planName,
                         {
-                            status: "in_progress",
+                            status,
                             worktreeId: entry.id,
                             worktreePath: entry.path,
                             worktreeBranch: entry.branch,
                             worktreeBaseBranch: entry.baseBranch,
-                            worktreeStatus: "active",
+                            worktreeStatus: registryStatus,
                         },
                         loaded.attrs,
                         { expectedRevision: loaded.revision },

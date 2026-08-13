@@ -166,9 +166,12 @@ export async function startInteractiveSession(
     };
     options.onLifecycleReady?.(lifecycleHandle);
     try {
+        const sessionStartMode = options.sessionStartMode || "new";
+        const sessionCwd = getCwd();
         const createdSession = await sessionRuntime.createInteractiveSession({
-            cwd: getCwd(),
-            mode: options.sessionStartMode || "new",
+            cwd: sessionCwd,
+            mode: sessionStartMode,
+            adoptManagedActivation: true,
         });
         let sessionId = createdSession.sessionId;
         const runtimeSnapshot = () => getRuntimeSnapshot(sessionRuntime, sessionId);

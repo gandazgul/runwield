@@ -78,6 +78,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
         const reason = diffText.trim()
             ? "No implementation changes detected in workflow diff; only plan document changes were found."
             : "No implementation changes detected in workflow diff.";
+        emitStatus(args, `Semantic Code Review cannot start: ${reason}`, "error");
         await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", reason);
         return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
     }
