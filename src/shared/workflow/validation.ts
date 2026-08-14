@@ -20,6 +20,7 @@ import type { ValidationPhaseResult, WorkflowValidationResult } from "./validati
 import type { ValidationLoopArgs as EngineValidationLoopArgs } from "./validation-types.ts";
 import type { LocalCIPort } from "./validation-local-ci.ts";
 import type { ValidationCheckpoint, ValidationCheckpointPhase } from "./validation-checkpoint.ts";
+import { getValidationPosition } from "./validation-position.ts";
 
 export {
     hasTrustedClaudeMcpReview,
@@ -44,6 +45,7 @@ type ActiveExecutionWorkflow = import("../session/hosted-session.js").ActiveExec
 type HostedSession = import("../session/hosted-session.js").HostedSession;
 type GitPort = import("../git-port.ts").GitPort;
 type WorkRecordMnemosynePort = import("../work-records/mnemosyne-port.ts").WorkRecordMnemosynePort;
+type BrokenObjectiveCheckReport = import("./objective-checks.ts").BrokenObjectiveCheckReport;
 
 /**
  * The public loop arguments, unchanged from before the split.
@@ -64,6 +66,7 @@ export type ValidationLoopArgs = {
     localCI: LocalCIPort;
     workRecordMnemosynePort: WorkRecordMnemosynePort;
     supportsSemanticRepairHandoff?: boolean;
+    engineerReportedBrokenObjectiveChecks?: BrokenObjectiveCheckReport[];
     /** Durable phase selected by the validation supervisor. */
     continuationPhase?: ValidationCheckpointPhase;
     /** Durable attempt record selected by the validation supervisor. */
@@ -114,6 +117,7 @@ export function createEngineValidationArgs(args: ValidationLoopArgs): EngineVali
     const session: ValidationSessionPort = createValidationSessionPort(args.hostedSession, {
         semanticReviewPort: args.semanticReviewPort,
     });
+    const rememberedPosition = getValidationPosition(args.hostedSession, args.planName);
     return {
         planName: args.planName,
         planContent: args.planContent,
@@ -126,8 +130,11 @@ export function createEngineValidationArgs(args: ValidationLoopArgs): EngineVali
             run: ({ cwd }) => args.localCI.run({ hostedSession: args.hostedSession, cwd }),
         },
         workRecordMnemosynePort: args.workRecordMnemosynePort,
+        ...(args.engineerReportedBrokenObjectiveChecks?.length
+            ? { engineerReportedBrokenObjectiveChecks: args.engineerReportedBrokenObjectiveChecks }
+            : {}),
         supportsSemanticRepairHandoff: args.supportsSemanticRepairHandoff,
-        continuationPhase: args.continuationPhase,
+        continuationPhase: args.continuationPhase || rememberedPosition?.phase,
         validationCheckpoint: args.validationCheckpoint,
     };
 }

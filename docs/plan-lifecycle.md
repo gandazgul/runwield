@@ -4,15 +4,10 @@ Plan status is the durable state machine for saved Plans. Workflow code records 
 Lifecycle decides the next status and front matter updates.
 
 Plan lifecycle metadata is canonical in the primary project checkout even when implementation runs in a linked execution
-worktree. Validation reads facts in this order: the primary Plan owns identity, policy, and status; the worktree record
-owns the path, branch, target, and baseline; Git proves the files, refs, commits, and ancestry. Session and caller data
-are rebuilt from those facts and cannot block a proven attempt. A versioned `validationCheckpoint` records the current
-owner and next step across process loss. It is not a second status state machine.
-
-During Workflow Validation, the execution worktree Plan can propose a Plan Amendment for reviewable definition fields.
-RunWield uses it only after explicit user approval, then synchronizes the primary and execution Plan copies. Worktree
-paths, branches, registry records, Plan Status, Delivery Evidence, validation counters, and waiver records remain
-RunWield-owned lifecycle state.
+worktree. During Workflow Validation, the execution worktree Plan can propose a Plan Amendment for reviewable definition
+fields. RunWield uses it only after explicit user approval, then synchronizes the primary and execution Plan copies.
+Worktree paths, branches, registry records, Plan Status, Delivery Evidence, validation counters, and waiver records
+remain RunWield-owned lifecycle state.
 
 Every PROJECT Plan is an Epic container. PROJECT Plans are decomposed interactively by the Slicer into child FEATURE
 Plans under `docs/plans/<epic-name>/` and are not executed as implementation work themselves. Child FEATURE Plans point
@@ -116,7 +111,7 @@ changing the Plan state machine.
 | `epic_done_enough`                   | `ready_for_work`, `verified`                                                                    | `verified`                    | The user marked an Epic complete enough for now; child FEATURE Plans remain visible and loadable.                                                                                                                              |
 | `manual_status_change`               | Board-safe non-terminal statuses                                                                | Dynamic target                | User-driven board movement among `draft`, `feedback`, `approved`, `ready_for_work`, `in_progress`, `implemented`; `ready_for_decomposition` is included only for Epics. Records an event instead of editing `status` directly. |
 | `manual_closed_without_verification` | Board-safe non-terminal statuses                                                                | `closed_without_verification` | Terminal manual closure without Workflow Validation; does not set `verifiedAt` or review metadata.                                                                                                                             |
-| `manual_user_verified`               | Board-safe, `validated_ci`, or `validated_reviewer`                                             | `user_verified`               | Terminal user attestation with required `userVerificationNote`; sets `userVerifiedAt`, never sets `verifiedAt`, and preserves failure, execution, review, Delivery Evidence, and worktree facts as history.                    |
+| `manual_user_verified`               | Board-safe non-terminal statuses                                                                | `user_verified`               | Terminal user attestation with required `userVerificationNote`; sets `userVerifiedAt`, never sets `verifiedAt`, and preserves failure, execution, review, Delivery Evidence, and worktree facts as history.                    |
 | `plan_held`                          | Any non-terminal, non-closed status                                                             | `on_hold`                     | Records `heldFromStatus`, `heldAt`, optional `holdReason`, and optional `holdStalenessBaseline`; preserves recovery/worktree metadata.                                                                                         |
 | `hold_resumed`                       | `on_hold`                                                                                       | `heldFromStatus`              | Caller must run the Resume Check first and provide/read the held-from status; clears hold metadata.                                                                                                                            |
 | `hold_reset_to_draft`                | `on_hold`                                                                                       | `draft`                       | Clears hold and execution/recovery/validation fields while preserving identity/context fields and Plan body.                                                                                                                   |
@@ -258,11 +253,10 @@ For worktree-backed plans:
    checkpoint leaves the Plan `in_progress` and the worktree recoverable. The registry keeps the immutable worktree
    creation tree separate from the execution-attempt baseline, which may advance when a failed worktree is reused.
    Completion does not merge into the primary checkout.
-3. Workflow Validation reads `validationCiAttempts`, `validationSemanticRounds`, and the versioned
-   `validationCheckpoint` from fresh Plan Front Matter, runs exactly one lifecycle phase for the current Plan Status,
-   records at most one Plan Event for that phase, and returns. It uses replacement semantics: removed `objectiveChecks`
-   or `objectiveCheckWaivers` are absent on the next attempt. Repeated calls resume from durable status instead of an
-   in-memory validation loop.
+3. Workflow Validation reads `validationCiAttempts` and `validationSemanticRounds` from fresh Plan Front Matter, runs
+   exactly one lifecycle phase for the current Plan Status, records at most one Plan Event for that phase, and returns.
+   It uses replacement semantics: removed `objectiveChecks` or `objectiveCheckWaivers` are absent on the next attempt.
+   Repeated calls resume from durable status instead of an in-memory validation loop.
 4. The `validated_ci` phase computes the workflow diff and starts semantic review rounds in the execution worktree.
    Review narrows as rounds progress: rounds one and two review the implementation against the whole Plan, and rounds
    three and above only verify the open findings and check the latest repair for regressions. Two full sweeps give a
@@ -272,19 +266,12 @@ For worktree-backed plans:
    The Reviewer never receives an inlined diff — it reads changes through the bounded `review_diff` tool in every round,
    so there is one delivery path regardless of size. A decision reached without inspecting the diff is not accepted.
 
-   Findings carry stable identities in a Review Issue Ledger stored in the attempt's validation checkpoint. The active
-   Session workflow is only a projection of that ledger. Semantic feedback atomically commits the open ledger, repair
-   baseline, consume-once repair identity, and status rollback to `implemented`; a process restart can therefore rebuild
-   the exact repair handoff without Session memory. Later rounds resolve items, keep them open, and append newly
-   discovered ones; identities are never reused or renumbered. Code smells are reported as non-blocking advisories
-   rather than as findings, so an accumulating maintainability backlog cannot stall the loop.
+   Findings carry stable identities in a Review Issue Ledger that lives for the attempt. Later rounds resolve items,
+   keep them open, and append newly discovered ones; identities are never reused or renumbered. Code smells are reported
+   as non-blocking advisories rather than as findings, so an accumulating maintainability backlog cannot stall the loop.
 5. A rejection dispatches the Reviewer-Feedback Engineer, which repairs the open findings in a fresh isolated session
    seeded with the Plan, the findings, and diff access. It does not inherit the execution transcript, and it reports a
-   per-item disposition that the next round independently verifies — a repair claim is evidence, never resolution. The
-   exact repair completion is recorded mechanically against its checkpoint generation before Mechanical Validation
-   consumes it; duplicate or stale completions cannot advance the Plan.
-
-   The complete authority and recovery matrix is in [Workflow Validation Authority](validation-authority.md).
+   per-item disposition that the next round independently verifies — a repair claim is evidence, never resolution.
 6. After three automatic rounds without approval, RunWield stops and asks whether to run another verification round or
    open human code review now. There is no dead end: the work is never left with nowhere to go.
 7. If `codereview` is `ask` or `always`, RunWield opens or offers Plannotator human code review after semantic review
@@ -471,10 +458,6 @@ The parenthesized value is the recorded worktree branch when available, otherwis
 Validation. The canonical event is `manual_user_verified`; it requires a trimmed, non-empty `userVerificationNote` and
 records `userVerifiedAt`. It does not set `verifiedAt`, synthesize Delivery Evidence, clean up worktrees, erase prior
 `failureReason`, or relabel human review/validation history.
-
-The user may attest from `validated_ci` or `validated_reviewer` when work was verified outside RunWield or was already
-merged without completing RunWield publication. This does not claim the remaining Workflow Validation phases passed; the
-retained validation and review fields show exactly where the automated workflow stopped.
 
 User Verified Plans satisfy child dependencies and Epic completion accounting, but reports must keep them separate from
 proof-bearing RunWield `verified` Plans. A mixed Epic can advance when every child is either RunWield Verified with
