@@ -7,10 +7,12 @@ import { join } from "@std/path";
 import {
     buildPlanDefinitionProjection,
     loadPlan,
+    loadPlanStrict,
     PLAN_AMENDMENT_DEFINITION_KEYS,
     PLAN_AMENDMENT_EXECUTION_SHAPING_KEYS,
     savePlan,
 } from "../../plan-store.js";
+import { runPlanAmendmentTransition } from "./state-transition.ts";
 import {
     classifyObjectiveChecksBaseline,
     type ObjectiveCheck,
@@ -37,6 +39,7 @@ export type PlanAmendmentProposal = {
 
 type PlanFrontMatter = import("../../plan-store.js").PlanFrontMatter;
 type LoadedPlan = NonNullable<Awaited<ReturnType<typeof loadPlan>>>;
+type ExecutionPlanRollbackState = { revision?: string };
 
 function stringify(value: PlanFrontMatter[keyof PlanFrontMatter] | string): string {
     if (typeof value === "string") return value;
@@ -57,9 +60,27 @@ function commandById(checks: ObjectiveCheck[] | undefined): Map<string, string> 
     return result;
 }
 
+function checkById(checks: ObjectiveCheck[] | undefined): Map<string, ObjectiveCheck> {
+    const result = new Map<string, ObjectiveCheck>();
+    for (const check of checks || []) result.set(check.id, check);
+    return result;
+}
+
 function changedChecks(primaryChecks: ObjectiveCheck[] | undefined, executionChecks: ObjectiveCheck[] | undefined) {
     const primary = commandById(primaryChecks);
     return (executionChecks || []).filter((check) => primary.get(check.id) !== check.command);
+}
+
+async function loadPlanForAmendment(cwd: string, planName: string, label: string): Promise<LoadedPlan> {
+    const result = await loadPlanStrict(cwd, planName);
+    if (result.kind === "loaded") return result;
+    if (result.kind === "malformed") throw result.error;
+    if (result.kind === "not_found") {
+        throw new Error(`${label} Plan is missing and validation cannot safely continue: ${result.path}`);
+    }
+    if ("message" in result) throw new Error(result.message);
+    if ("error" in result) throw new Error(result.error.message);
+    throw new Error(`${label} Plan could not be loaded.`);
 }
 
 function summarizeDiffs(diffs: PlanAmendmentDiff[]): string {
@@ -85,22 +106,30 @@ function blockedExecutionShapingChanges(primary: LoadedPlan, execution: LoadedPl
     );
 }
 
+function assertMatchingPlanIdentity(primary: LoadedPlan, execution: LoadedPlan, planName: string): void {
+    if (!primary.attrs.planId || !execution.attrs.planId) {
+        throw new Error(
+            `Execution-worktree Plan identity is missing for ${planName}; user review is required before a Plan amendment can be proposed.`,
+        );
+    }
+    if (primary.attrs.planId !== execution.attrs.planId) {
+        throw new Error(
+            `Execution-worktree Plan identity does not match the primary Plan for ${planName}; user review is required.`,
+        );
+    }
+}
+
 export async function detectValidationPlanAmendment(
     projectRoot: string,
     executionCwd: string,
     planName: string,
 ): Promise<PlanAmendmentProposal | null> {
     if (projectRoot === executionCwd) return null;
-    const primary = await loadPlan(projectRoot, planName);
-    const execution = await loadPlan(executionCwd, planName);
-    if (!primary || !execution) return null;
+    const primary = await loadPlanForAmendment(projectRoot, planName, "Primary");
+    const execution = await loadPlanForAmendment(executionCwd, planName, "Execution-worktree");
     await assertPlanFileSafe(primary, "Primary");
     await assertPlanFileSafe(execution, "Execution-worktree");
-    if (primary.attrs.planId && execution.attrs.planId && primary.attrs.planId !== execution.attrs.planId) {
-        throw new Error(
-            `Execution-worktree Plan identity does not match the primary Plan for ${planName}; user review is required.`,
-        );
-    }
+    assertMatchingPlanIdentity(primary, execution, planName);
     const blocked = blockedExecutionShapingChanges(primary, execution);
     if (blocked.length) {
         throw new Error(
@@ -119,21 +148,48 @@ export async function detectValidationPlanAmendment(
         const executionValue = execution.attrs[key as keyof PlanFrontMatter];
         if (sameJson(primaryValue, executionValue)) continue;
         if (key === "objectiveChecks") {
-            const primaryCommands = commandById(primary.attrs.objectiveChecks);
+            const primaryChecks = checkById(primary.attrs.objectiveChecks);
             for (const check of execution.attrs.objectiveChecks || []) {
-                const previous = primaryCommands.get(check.id);
-                if (previous !== check.command) {
+                const previous = primaryChecks.get(check.id);
+                if (!previous) {
+                    diffs.push({ field: `objectiveChecks.${check.id}.id`, before: "<absent>", after: check.id });
                     diffs.push({
                         field: `objectiveChecks.${check.id}.command`,
-                        before: previous || "<absent>",
+                        before: "<absent>",
                         after: check.command,
+                    });
+                    if (check.rationale !== undefined) {
+                        diffs.push({
+                            field: `objectiveChecks.${check.id}.rationale`,
+                            before: "<absent>",
+                            after: check.rationale,
+                        });
+                    }
+                    continue;
+                }
+                if (previous.command !== check.command) {
+                    diffs.push({
+                        field: `objectiveChecks.${check.id}.command`,
+                        before: previous.command,
+                        after: check.command,
+                    });
+                }
+                if ((previous.rationale ?? null) !== (check.rationale ?? null)) {
+                    diffs.push({
+                        field: `objectiveChecks.${check.id}.rationale`,
+                        before: previous.rationale ?? "<absent>",
+                        after: check.rationale ?? "<absent>",
                     });
                 }
             }
             const executionIds = new Set((execution.attrs.objectiveChecks || []).map((check) => check.id));
             for (const check of primary.attrs.objectiveChecks || []) {
                 if (!executionIds.has(check.id)) {
-                    diffs.push({ field: `objectiveChecks.${check.id}`, before: check.command, after: "<removed>" });
+                    diffs.push({
+                        field: `objectiveChecks.${check.id}`,
+                        before: stringify(check.command),
+                        after: "<removed>",
+                    });
                 }
             }
         } else {
@@ -215,42 +271,77 @@ export async function applyValidationPlanAmendment(
     executionCwd: string,
     planName: string,
     proposal: PlanAmendmentProposal,
+    worktreeId?: string,
 ): Promise<LoadedPlan> {
-    const primary = await loadPlan(projectRoot, planName);
-    const execution = await loadPlan(executionCwd, planName);
-    if (!primary || !execution) throw new Error(`Plan disappeared while applying amendment: ${planName}`);
-    if (proposal.primaryRevision && primary.revision !== proposal.primaryRevision) {
-        throw new Error("Primary Plan changed while the amendment was awaiting approval. Review the new diff.");
-    }
-    if (proposal.executionRevision && execution.revision !== proposal.executionRevision) {
+    const transition = await runPlanAmendmentTransition<LoadedPlan>({
+        projectRoot,
+        planName,
+        worktreeId,
+        expectedRevision: proposal.primaryRevision,
+        settle: async ({ markEffect, registerRollback }) => {
+            const primary = await loadPlanForAmendment(projectRoot, planName, "Primary");
+            const execution = await loadPlanForAmendment(executionCwd, planName, "Execution-worktree");
+            await assertPlanFileSafe(primary, "Primary");
+            await assertPlanFileSafe(execution, "Execution-worktree");
+            if (proposal.primaryRevision && primary.revision !== proposal.primaryRevision) {
+                throw new Error("Primary Plan changed while the amendment was awaiting approval. Review the new diff.");
+            }
+            if (proposal.executionRevision && execution.revision !== proposal.executionRevision) {
+                throw new Error(
+                    "Execution-worktree Plan changed while the amendment was awaiting approval. Review the new diff.",
+                );
+            }
+            let nextAttrs = acceptedAttrs(primary, execution);
+            if (proposal.objectiveChecksChanged) {
+                nextAttrs = {
+                    ...nextAttrs,
+                    objectiveChecksBaseline: undefined,
+                    objectiveCheckWaivers: filterWaiversForCurrentCommands(nextAttrs),
+                };
+            }
+            await savePlan(projectRoot, planName, execution.body, nextAttrs, { expectedRevision: primary.revision });
+            const canonical = await loadPlan(projectRoot, planName);
+            if (!canonical) throw new Error(`Primary Plan disappeared after applying amendment: ${planName}`);
+            await markEffect("primary_plan_amended", { revision: canonical.revision });
+            const executionRollback: ExecutionPlanRollbackState = {};
+            registerRollback("restore execution Plan before amendment synchronization", async () => {
+                if (!executionRollback.revision) return;
+                await savePlan(executionCwd, planName, execution.body, execution.attrs, {
+                    expectedRevision: executionRollback.revision,
+                });
+            });
+            await savePlan(executionCwd, planName, canonical.body, canonical.attrs, {
+                expectedRevision: execution.revision,
+            });
+            const reconciled = await loadPlan(executionCwd, planName);
+            if (!reconciled) throw new Error(`Execution Plan disappeared after applying amendment: ${planName}`);
+            executionRollback.revision = reconciled.revision;
+            if (
+                canonical.body !== reconciled.body ||
+                JSON.stringify(canonical.attrs) !== JSON.stringify(reconciled.attrs)
+            ) {
+                throw new Error(`Plan amendment synchronization did not produce matching Plan copies for ${planName}.`);
+            }
+            await markEffect("execution_plan_synchronized", { revision: reconciled.revision });
+            // Prove the canonical file is still under the expected docs/plans location. This catches path surprises early.
+            if (
+                !canonical.path.endsWith(join("docs", "plans", `${planName}.md`)) &&
+                !canonical.path.includes(join("docs", "plans"))
+            ) {
+                throw new Error(`Plan amendment wrote an unexpected primary Plan path: ${canonical.path}`);
+            }
+            return canonical;
+        },
+        verifyAmendment: (canonical) => ({ revision: canonical.revision || "" }),
+    });
+    if (transition.status !== "committed") {
         throw new Error(
-            "Execution-worktree Plan changed while the amendment was awaiting approval. Review the new diff.",
+            transition.status === "needs_recovery"
+                ? `Plan Amendment needs recovery before validation can continue. ${
+                    transition.message || "Inspect the transition journal with wld plans doctor."
+                }`
+                : transition.message || `Plan Amendment did not commit: ${transition.status}`,
         );
     }
-    let nextAttrs = acceptedAttrs(primary, execution);
-    if (proposal.objectiveChecksChanged) {
-        nextAttrs = {
-            ...nextAttrs,
-            objectiveChecksBaseline: undefined,
-            objectiveCheckWaivers: filterWaiversForCurrentCommands(nextAttrs),
-        };
-    }
-    const body = execution.body;
-    await savePlan(projectRoot, planName, body, nextAttrs, { expectedRevision: primary.revision });
-    const canonical = await loadPlan(projectRoot, planName);
-    if (!canonical) throw new Error(`Primary Plan disappeared after applying amendment: ${planName}`);
-    await savePlan(executionCwd, planName, canonical.body, canonical.attrs, { expectedRevision: execution.revision });
-    const reconciled = await loadPlan(executionCwd, planName);
-    if (!reconciled) throw new Error(`Execution Plan disappeared after applying amendment: ${planName}`);
-    if (canonical.body !== reconciled.body || JSON.stringify(canonical.attrs) !== JSON.stringify(reconciled.attrs)) {
-        throw new Error(`Plan amendment synchronization did not produce matching Plan copies for ${planName}.`);
-    }
-    // Prove the canonical file is still under the expected docs/plans location. This catches path surprises early.
-    if (
-        !canonical.path.endsWith(join("docs", "plans", `${planName}.md`)) &&
-        !canonical.path.includes(join("docs", "plans"))
-    ) {
-        throw new Error(`Plan amendment wrote an unexpected primary Plan path: ${canonical.path}`);
-    }
-    return canonical;
+    return transition.value as LoadedPlan;
 }

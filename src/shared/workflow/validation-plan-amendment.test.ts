@@ -65,6 +65,83 @@ Deno.test("worktree Objective Check amendment becomes canonical only after user 
     }
 });
 
+Deno.test("missing execution Plan fails closed instead of being ignored", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    const executionCwd = await Deno.makeTempDir();
+    try {
+        await savePlan(projectRoot, "feature", "# Primary body", {
+            planId: "plan-1",
+            classification: "PLANNED_CHANGE",
+            status: "implemented",
+            summary: "Primary",
+        });
+
+        await assertRejects(
+            () => detectValidationPlanAmendment(projectRoot, executionCwd, "feature"),
+            Error,
+            "Execution-worktree Plan is missing and validation cannot safely continue",
+        );
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
+        await Deno.remove(executionCwd, { recursive: true }).catch(() => undefined);
+    }
+});
+
+Deno.test("execution Plan without matching identity fails closed", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    const executionCwd = await Deno.makeTempDir();
+    try {
+        await savePlan(projectRoot, "feature", "# Primary body", {
+            planId: "plan-1",
+            classification: "PLANNED_CHANGE",
+            status: "implemented",
+            summary: "Primary",
+        });
+        await savePlan(executionCwd, "feature", "# Changed body", {
+            classification: "PLANNED_CHANGE",
+            status: "implemented",
+            summary: "Worktree",
+        });
+
+        await assertRejects(
+            () => detectValidationPlanAmendment(projectRoot, executionCwd, "feature"),
+            Error,
+            "Execution-worktree Plan identity is missing for feature",
+        );
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
+        await Deno.remove(executionCwd, { recursive: true }).catch(() => undefined);
+    }
+});
+
+Deno.test("Objective Check rationale amendments are proposed", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    const executionCwd = await Deno.makeTempDir();
+    try {
+        await savePlan(projectRoot, "feature", "# Body", {
+            planId: "plan-1",
+            classification: "PLANNED_CHANGE",
+            status: "implemented",
+            summary: "Plan",
+            objectiveChecks: [{ id: "OC1", command: "false", rationale: "old reason" }],
+        });
+        await savePlan(executionCwd, "feature", "# Body", {
+            planId: "plan-1",
+            classification: "PLANNED_CHANGE",
+            status: "implemented",
+            summary: "Plan",
+            objectiveChecks: [{ id: "OC1", command: "false", rationale: "new reason" }],
+        });
+
+        const proposal = await detectValidationPlanAmendment(projectRoot, executionCwd, "feature");
+        assertEquals(proposal?.objectiveChecksChanged, true);
+        assertStringIncludes(proposal?.summary || "", "objectiveChecks.OC1.rationale");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
+        await Deno.remove(executionCwd, { recursive: true }).catch(() => undefined);
+    }
+});
+
 Deno.test("changed Objective Checks are proven red against the recorded execution baseline", async () => {
     const cwd = await Deno.makeTempDir();
     try {

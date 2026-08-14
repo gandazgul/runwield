@@ -27,10 +27,12 @@ export type WorkflowValidationResult = {
     classification?: string;
     reason?: string;
     epicContinuation?: { completedPlanName: string; projectRoot: string };
+    retainTaskCompletionClaim?: true;
 };
 
 export type ValidationPhaseResult = WorkflowValidationResult & {
     awaitingTaskCompletion?: true;
+    retainTaskCompletionClaim?: true;
 };
 
 /** Triage metadata the engine reads Plan front matter through. */
@@ -92,7 +94,13 @@ export type PublicationOutcome = {
     recorded: boolean;
 };
 
-export type UserActionChoice = "engineer_follow_up" | "retry" | "stop" | "waive" | "approve_amendment";
+export type UserActionChoice =
+    | "engineer_follow_up"
+    | "retry"
+    | "stop"
+    | "waive"
+    | "approve_amendment"
+    | "waive_defective_checks";
 
 export type UserActionOption = {
     value: UserActionChoice;
@@ -128,6 +136,7 @@ export type ObjectiveCheckPhaseOutcome =
     | { kind: "passed" }
     | { kind: "skipped" }
     | { kind: "canceled" }
+    | { kind: "stale_report"; reason: string; reports: BrokenObjectiveCheckReport[]; results: ObjectiveCheckResult[] }
     | { kind: "unmet"; reason: string; results: ObjectiveCheckResult[] }
     | { kind: "broken"; reason: string; results: ObjectiveCheckResult[] };
 

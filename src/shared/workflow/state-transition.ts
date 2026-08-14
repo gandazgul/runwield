@@ -1522,6 +1522,26 @@ export async function runValidationOutcomeTransition<T>(
     });
 }
 
+export async function runPlanAmendmentTransition<T>(
+    opts: TransitionOptionsBase & {
+        settle: (ctx: RollbackTransitionContext) => Promise<T>;
+        verifyAmendment?: (value: T) => Promise<Record<string, unknown> | void> | Record<string, unknown> | void;
+    },
+): Promise<TransitionResult> {
+    const resources: TransitionResource[] = [{ kind: "catalog" }, { kind: "plan", id: opts.planName }];
+    if (opts.worktreeId) resources.push({ kind: "attempt", id: opts.worktreeId });
+    return await runSemanticTransition({
+        projectRoot: opts.projectRoot,
+        planName: opts.planName,
+        operation: "validation_plan_amendment",
+        resources,
+        expectedRevision: opts.expectedRevision,
+        expectedEffects: ["primary_plan_amended", "execution_plan_synchronized"],
+        apply: async (ctx) => await opts.settle(ctx),
+        verify: opts.verifyAmendment ? async (value) => await opts.verifyAmendment?.(value) : undefined,
+    });
+}
+
 /**
  * Semantic boundary for proof-bearing Direct Delivery publication.
  */

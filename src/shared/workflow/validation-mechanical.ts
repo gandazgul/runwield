@@ -5,6 +5,7 @@
  */
 
 import { isPlannedChangeClassification } from "../../constants.js";
+import { loadPlan, savePlan } from "../../plan-store.js";
 import { type ObjectiveCheckResult, runObjectiveChecks, summarizeObjectiveChecks } from "./objective-checks.ts";
 import { objectiveChecksWithoutWaivers, persistObjectiveCheckWaiver } from "./objective-check-waivers.ts";
 import type { ValidationLocalCIResult } from "./validation-ports.ts";
@@ -17,6 +18,7 @@ import type {
     ValidationPhaseResult,
 } from "./validation-types.ts";
 import {
+    getProjectRoot,
     preserveValidationContinuationState,
     readCiAttempts,
     readSemanticRound,
@@ -41,12 +43,114 @@ const ENGINEER_FOLLOW_UP_OPTIONS: UserActionOption[] = [
     { value: "stop", label: "Stop" },
 ];
 
+type PlanAmendmentDecision =
+    | { kind: "none" }
+    | { kind: "amended" }
+    | { kind: "waived" }
+    | { kind: "engineer_follow_up"; feedback: string }
+    | { kind: "stop" };
+
+type ObjectiveCheckWaiverDecision =
+    | { kind: "waived" }
+    | { kind: "rejected"; feedback: string }
+    | { kind: "engineer_follow_up"; feedback: string }
+    | { kind: "stop" };
+
+function shouldRetainTaskCompletionClaim(args: ValidationLoopArgs): boolean {
+    return (args.engineerReportedBrokenObjectiveChecks || []).length > 0;
+}
+
+function pausedResult(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    reason: string,
+): ValidationPhaseResult {
+    return {
+        kind: "paused",
+        planName: args.planName,
+        projectRoot: context.projectRoot,
+        reason,
+        ...(shouldRetainTaskCompletionClaim(args) ? { retainTaskCompletionClaim: true as const } : {}),
+    };
+}
+
+async function requestEngineerFollowUpFeedback(
+    args: ValidationLoopArgs,
+    prompt: string,
+    defaultValue: string,
+): Promise<string> {
+    const feedbackResponse = await requestInteraction(args, {
+        type: ValidationInteractionTypes.TEXT,
+        prompt,
+        defaultValue,
+    });
+    return typeof feedbackResponse.value === "string" && feedbackResponse.value.trim()
+        ? feedbackResponse.value.trim()
+        : defaultValue;
+}
+
+async function requestStaleEngineerReportDecision(
+    args: ValidationLoopArgs,
+    reason: string,
+): Promise<{ kind: "engineer_follow_up"; feedback: string } | { kind: "stop" }> {
+    emitStatus(args, reason, "warning");
+    const response = await requestInteraction(args, {
+        type: ValidationInteractionTypes.SELECT,
+        prompt: `${reason}\n\nWhat should RunWield do?`,
+        options: [
+            { value: "engineer_follow_up", label: "Engineer follow-up" },
+            { value: "stop", label: "Stop" },
+        ],
+    });
+    if (response.outcome === "selected" && response.value === "engineer_follow_up") {
+        const feedback = await requestEngineerFollowUpFeedback(
+            args,
+            "Tell the Engineer how to refresh the defective-check report.",
+            "RunWield could not match the Engineer defective-check report to the current Objective-Failing Checks. Provide a new brokenObjectiveChecks report with the current check id and exact command, or revise the Plan Amendment.",
+        );
+        return { kind: "engineer_follow_up", feedback };
+    }
+    return { kind: "stop" };
+}
+
+async function reloadValidationPlanSnapshot(args: ValidationLoopArgs): Promise<ValidationPhaseResult | null> {
+    const projectRoot = getProjectRoot(args);
+    const plan = await loadPlan(projectRoot, args.planName);
+    if (!plan) {
+        const reason = `Plan is missing and Mechanical Validation cannot safely continue: ${args.planName}`;
+        emitStatus(args, reason, "error");
+        return {
+            kind: "failed",
+            planName: args.planName,
+            projectRoot,
+            reason,
+            ...(shouldRetainTaskCompletionClaim(args) ? { retainTaskCompletionClaim: true as const } : {}),
+        };
+    }
+    args.triageMeta = plan.attrs as ValidationLoopArgs["triageMeta"];
+    args.planContent = plan.markdown;
+    return null;
+}
+
+async function reconcileExecutionPlanToCanonical(args: ValidationLoopArgs, context: PhaseContext): Promise<void> {
+    const canonical = await loadPlan(context.projectRoot, args.planName);
+    if (!canonical) throw new Error(`Primary Plan disappeared while reconciling ${args.planName}.`);
+    const execution = await loadPlan(context.executionCwd, args.planName);
+    if (!execution) throw new Error(`Execution Plan disappeared while reconciling ${args.planName}.`);
+    await savePlan(context.executionCwd, args.planName, canonical.body, canonical.attrs, {
+        expectedRevision: execution.revision,
+    });
+    args.triageMeta = canonical.attrs as ValidationLoopArgs["triageMeta"];
+    args.planContent = canonical.markdown;
+    context.workflowBase.triageMeta = args.triageMeta;
+}
+
 async function resolveValidationPlanAmendment(
     args: ValidationLoopArgs,
     context: PhaseContext,
-): Promise<"none" | "amended" | "engineer_follow_up" | "stop"> {
+): Promise<PlanAmendmentDecision> {
     const proposal = await detectValidationPlanAmendment(context.projectRoot, context.executionCwd, args.planName);
-    if (!proposal) return "none";
+    if (!proposal) return { kind: "none" };
     try {
         await validateAmendedObjectiveChecksAgainstBaseline(
             context.executionCwd,
@@ -64,16 +168,26 @@ async function resolveValidationPlanAmendment(
                 { value: "stop", label: "Stop" },
             ],
         });
-        return response.outcome === "selected" && response.value === "engineer_follow_up"
-            ? "engineer_follow_up"
-            : "stop";
+        if (response.outcome === "selected" && response.value === "engineer_follow_up") {
+            const feedback = await requestEngineerFollowUpFeedback(
+                args,
+                "Tell the Engineer what to fix before this Plan Amendment can be approved.",
+                `The Plan Amendment needs Engineer follow-up before validation can continue. ${reason}`,
+            );
+            return { kind: "engineer_follow_up", feedback };
+        }
+        return { kind: "stop" };
     }
+    const hasEngineerDefectiveCheckClaim = (args.engineerReportedBrokenObjectiveChecks || []).length > 0;
     const response = await requestInteraction(args, {
         type: ValidationInteractionTypes.SELECT,
         prompt:
             `${proposal.summary}\n\nApprove this Plan Amendment before RunWield uses these execution-worktree changes?`,
         options: [
             { value: "approve_amendment", label: "Approve command changes and retry" },
+            ...(hasEngineerDefectiveCheckClaim
+                ? [{ value: "waive_defective_checks", label: "Waive defective checks" }]
+                : []),
             { value: "engineer_follow_up", label: "Engineer follow-up" },
             { value: "stop", label: "Stop" },
         ],
@@ -84,6 +198,7 @@ async function resolveValidationPlanAmendment(
             context.executionCwd,
             args.planName,
             proposal,
+            context.worktreeId,
         );
         args.triageMeta = canonical.attrs as ValidationLoopArgs["triageMeta"];
         args.planContent = canonical.markdown;
@@ -92,44 +207,97 @@ async function resolveValidationPlanAmendment(
             "Plan Amendment approved and synchronized. Mechanical Validation will reload the Plan.",
             "success",
         );
-        return "amended";
+        return { kind: "amended" };
     }
-    if (response.outcome === "selected" && response.value === "engineer_follow_up") return "engineer_follow_up";
-    return "stop";
+    if (response.outcome === "selected" && response.value === "waive_defective_checks") {
+        const reports = args.engineerReportedBrokenObjectiveChecks || [];
+        const objectiveOutcome = await runPlanObjectiveChecks(args, context, readCiAttempts(args.triageMeta), reports);
+        if (objectiveOutcome.kind !== "broken") {
+            const feedback = await requestEngineerFollowUpFeedback(
+                args,
+                "Tell the Engineer what defective-check evidence is missing before RunWield can waive the check.",
+                "RunWield could not match the Engineer defective-check report to fresh Objective-Failing Check output. Provide a current brokenObjectiveChecks report with the exact check id and command, or revise the Plan Amendment.",
+            );
+            return { kind: "engineer_follow_up", feedback };
+        }
+        const judgement = await requestObjectiveCheckWaiver(
+            args,
+            context,
+            `${proposal.summary}\n\n${objectiveOutcome.reason}`,
+            objectiveOutcome.results,
+            "engineer_report",
+        );
+        if (judgement.kind === "waived") {
+            await reconcileExecutionPlanToCanonical(args, context);
+            return { kind: "waived" };
+        }
+        if (judgement.kind === "engineer_follow_up") return judgement;
+        if (judgement.kind === "rejected") return { kind: "engineer_follow_up", feedback: judgement.feedback };
+        return { kind: "stop" };
+    }
+    if (response.outcome === "selected" && response.value === "engineer_follow_up") {
+        const feedback = await requestEngineerFollowUpFeedback(
+            args,
+            "Tell the Engineer what to change before this Plan Amendment can be approved.",
+            "The Plan Amendment was not approved. Revise the Plan amendment or the implementation using the current Plan and fresh Objective-Failing Check output.",
+        );
+        return { kind: "engineer_follow_up", feedback };
+    }
+    return { kind: "stop" };
+}
+
+function finishPlanAmendmentDecision(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    amendmentAction: PlanAmendmentDecision,
+): ValidationPhaseResult | null {
+    if (amendmentAction.kind === "amended") {
+        return {
+            kind: "paused",
+            planName: args.planName,
+            projectRoot: context.projectRoot,
+            reason: "Plan Amendment approved; Mechanical Validation will restart with fresh Plan state.",
+        };
+    }
+    if (amendmentAction.kind === "waived") {
+        return {
+            kind: "paused",
+            planName: args.planName,
+            projectRoot: context.projectRoot,
+            reason:
+                "Defective Objective-Failing Checks were waived; Mechanical Validation will restart with fresh Plan state.",
+        };
+    }
+    if (amendmentAction.kind === "engineer_follow_up") {
+        return pauseForEngineerFollowUp(
+            args,
+            context,
+            `Plan Amendment needs Engineer follow-up.\n\nUser feedback:\n${amendmentAction.feedback}`,
+        );
+    }
+    if (amendmentAction.kind === "stop") {
+        return pausedResult(
+            args,
+            context,
+            "Workflow Validation stopped with a pending Plan Amendment decision.",
+        );
+    }
+    return null;
 }
 
 export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
-    const phase = await resolvePhaseContext(args);
-    if (phase.kind === "blocked") return phase.result;
-
     const localCI = args.localCI;
-    // Counted here rather than re-read from `args` each pass, because a user Retry
-    // buys a fresh set of rounds: the `validation_failed` recorded below resets the
-    // durable counter, and this has to follow it or the very next run would report
-    // the limit again without running anything.
     let attempts = readCiAttempts(args.triageMeta);
 
     for (;;) {
+        const reloadFailure = await reloadValidationPlanSnapshot(args);
+        if (reloadFailure) return reloadFailure;
+        const phase = await resolvePhaseContext(args);
+        if (phase.kind === "blocked") return phase.result;
+        attempts = readCiAttempts(args.triageMeta);
         const amendmentAction = await resolveValidationPlanAmendment(args, phase.context);
-        if (amendmentAction === "amended") {
-            return {
-                kind: "paused",
-                planName: args.planName,
-                projectRoot: phase.context.projectRoot,
-                reason: "Plan Amendment approved; Mechanical Validation will restart with fresh Plan state.",
-            };
-        }
-        if (amendmentAction === "engineer_follow_up") {
-            return pauseForEngineerFollowUp(args, phase.context, "Plan Amendment needs Engineer follow-up.");
-        }
-        if (amendmentAction === "stop") {
-            return {
-                kind: "paused",
-                planName: args.planName,
-                projectRoot: phase.context.projectRoot,
-                reason: "Workflow Validation stopped with a pending Plan Amendment decision.",
-            };
-        }
+        const amendmentResult = finishPlanAmendmentDecision(args, phase.context, amendmentAction);
+        if (amendmentResult) return amendmentResult;
         // A test suite can run for minutes. Saying so beforehand is the difference
         // between "it is working" and "it has hung" — publication had gone quiet here
         // too, leaving the longest wait in the workflow completely unannounced.
@@ -167,14 +335,15 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             if (action === "engineer_follow_up") {
                 return pauseForEngineerFollowUp(args, phase.context, pause.whatHappened);
             }
-            return {
-                kind: "paused",
-                planName: args.planName,
-                projectRoot: phase.context.projectRoot,
-                reason: `${pause.whatHappened} Run this Plan again when you are ready.`,
-            };
+            return pausedResult(
+                args,
+                phase.context,
+                `${pause.whatHappened} Run this Plan again when you are ready.`,
+            );
         }
         if (ciResult.exitCode === 0) {
+            const objectiveReloadFailure = await reloadValidationPlanSnapshot(args);
+            if (objectiveReloadFailure) return objectiveReloadFailure;
             const objectiveCheckOutcome = await runPlanObjectiveChecks(
                 args,
                 phase.context,
@@ -197,12 +366,26 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 if (action === "engineer_follow_up") {
                     return pauseForEngineerFollowUp(args, phase.context, pause.whatHappened);
                 }
-                return {
-                    kind: "paused",
-                    planName: args.planName,
-                    projectRoot: phase.context.projectRoot,
-                    reason: `${pause.whatHappened} Run this Plan again when you are ready.`,
-                };
+                return pausedResult(
+                    args,
+                    phase.context,
+                    `${pause.whatHappened} Run this Plan again when you are ready.`,
+                );
+            }
+            if (objectiveCheckOutcome.kind === "stale_report") {
+                const staleDecision = await requestStaleEngineerReportDecision(args, objectiveCheckOutcome.reason);
+                if (staleDecision.kind === "engineer_follow_up") {
+                    return pauseForEngineerFollowUp(
+                        args,
+                        phase.context,
+                        `${objectiveCheckOutcome.reason}\n\nUser feedback:\n${staleDecision.feedback}`,
+                    );
+                }
+                return pausedResult(
+                    args,
+                    phase.context,
+                    "Workflow Validation stopped with a stale Engineer defective-check report pending.",
+                );
             }
             if (objectiveCheckOutcome.kind === "passed") {
                 await recordLifecycleEvent(
@@ -279,15 +462,18 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                     };
                 }
                 if (judgement.kind === "engineer_follow_up") {
-                    return pauseForEngineerFollowUp(args, phase.context, objectiveCheckOutcome.reason);
+                    return pauseForEngineerFollowUp(
+                        args,
+                        phase.context,
+                        `${objectiveCheckOutcome.reason}\n\nUser feedback:\n${judgement.feedback}`,
+                    );
                 }
                 if (judgement.kind === "stop") {
-                    return {
-                        kind: "paused",
-                        planName: args.planName,
-                        projectRoot: phase.context.projectRoot,
-                        reason: "Workflow Validation stopped at Objective-Failing Check judgement.",
-                    };
+                    return pausedResult(
+                        args,
+                        phase.context,
+                        "Workflow Validation stopped at Objective-Failing Check judgement.",
+                    );
                 }
                 const repair = await dispatchObjectiveCheckRepair(
                     args,
@@ -355,6 +541,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                     planName: args.planName,
                     projectRoot: phase.context.projectRoot,
                     reason: `${pause.whatHappened} ${pause.doThis}`,
+                    ...(shouldRetainTaskCompletionClaim(args) ? { retainTaskCompletionClaim: true as const } : {}),
                 };
             }
 
@@ -388,6 +575,16 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 };
             }
             if (repair.brokenObjectiveChecks.length) {
+                args.engineerReportedBrokenObjectiveChecks = repair.brokenObjectiveChecks;
+                const postRepairAmendmentAction = await resolveValidationPlanAmendment(args, phase.context);
+                const postRepairAmendmentResult = finishPlanAmendmentDecision(
+                    args,
+                    phase.context,
+                    postRepairAmendmentAction,
+                );
+                if (postRepairAmendmentResult) return postRepairAmendmentResult;
+                const postRepairReloadFailure = await reloadValidationPlanSnapshot(args);
+                if (postRepairReloadFailure) return postRepairReloadFailure;
                 const reportedResults = resolveEngineerReportedBrokenChecks(
                     args.triageMeta.objectiveChecks || [],
                     repair.brokenObjectiveChecks,
@@ -407,6 +604,21 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                         projectRoot: phase.context.projectRoot,
                         reason: "Mechanical Validation passed.",
                     };
+                }
+                if (rerun.kind === "stale_report") {
+                    const staleDecision = await requestStaleEngineerReportDecision(args, rerun.reason);
+                    if (staleDecision.kind === "engineer_follow_up") {
+                        return pauseForEngineerFollowUp(
+                            args,
+                            phase.context,
+                            `${rerun.reason}\n\nUser feedback:\n${staleDecision.feedback}`,
+                        );
+                    }
+                    return pausedResult(
+                        args,
+                        phase.context,
+                        "Workflow Validation stopped with a stale Engineer defective-check report pending.",
+                    );
                 }
                 if (rerun.kind === "broken") {
                     const reportedIds = new Set(reportedResults.map((reported) => reported.id));
@@ -442,14 +654,17 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                                 };
                             }
                         } else if (judgement.kind === "engineer_follow_up") {
-                            return pauseForEngineerFollowUp(args, phase.context, rerun.reason);
+                            return pauseForEngineerFollowUp(
+                                args,
+                                phase.context,
+                                `${rerun.reason}\n\nUser feedback:\n${judgement.feedback}`,
+                            );
                         } else if (judgement.kind === "stop") {
-                            return {
-                                kind: "paused",
-                                planName: args.planName,
-                                projectRoot: phase.context.projectRoot,
-                                reason: "Workflow Validation stopped at Objective-Failing Check judgement.",
-                            };
+                            return pausedResult(
+                                args,
+                                phase.context,
+                                "Workflow Validation stopped at Objective-Failing Check judgement.",
+                            );
                         } else {
                             await dispatchObjectiveCheckRepair(args, phase.context, rerun.results, judgement.feedback);
                             return {
@@ -503,6 +718,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 planName: args.planName,
                 projectRoot: phase.context.projectRoot,
                 reason: `${pause.whatHappened} ${pause.doThis}`,
+                ...(shouldRetainTaskCompletionClaim(args) ? { retainTaskCompletionClaim: true as const } : {}),
             };
         }
 
@@ -529,6 +745,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 projectRoot: phase.context.projectRoot,
                 reason,
                 awaitingTaskCompletion: true,
+                ...(shouldRetainTaskCompletionClaim(args) ? { retainTaskCompletionClaim: true as const } : {}),
             };
         }
         return {
@@ -536,6 +753,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             planName: args.planName,
             projectRoot: phase.context.projectRoot,
             reason: "Mechanical Validation failed; repair required.",
+            ...(shouldRetainTaskCompletionClaim(args) ? { retainTaskCompletionClaim: true as const } : {}),
         };
     }
 }
@@ -570,6 +788,12 @@ export async function runPlanObjectiveChecks(
     attempts: number,
     engineerReports: BrokenObjectiveCheckReport[] = [],
 ): Promise<ObjectiveCheckPhaseOutcome> {
+    const plan = await loadPlan(context.projectRoot, args.planName);
+    if (!plan) throw new Error(`Plan is missing and Objective-Failing Checks cannot safely continue: ${args.planName}`);
+    args.triageMeta = plan.attrs as ValidationLoopArgs["triageMeta"];
+    args.planContent = plan.markdown;
+    context.args = args;
+    context.workflowBase.triageMeta = args.triageMeta;
     if (!isPlannedChangeClassification(args.triageMeta.classification)) return { kind: "skipped" };
     const checks = args.triageMeta.objectiveChecks || [];
     if (!checks.length) return { kind: "skipped" };
@@ -636,11 +860,12 @@ export async function runPlanObjectiveChecks(
         };
     }
     if (engineerReports.length && !reportedResults.length) {
-        emitStatus(
-            args,
-            "Engineer-reported defective Objective-Failing Checks did not match current Plan commands; waiver is not available for stale reports.",
-            "warning",
-        );
+        return {
+            kind: "stale_report",
+            reason: buildStaleEngineerReportReason(results, engineerReports, summary.block),
+            reports: engineerReports,
+            results,
+        };
     }
     if (summary.broken > 0) {
         return { kind: "broken", reason: `Objective-Failing Check defect.\n\n${summary.block}`, results };
@@ -657,9 +882,7 @@ export async function requestObjectiveCheckWaiver(
     reason: string,
     results: ObjectiveCheckResult[],
     source: "mechanical_detection" | "engineer_report",
-): Promise<
-    { kind: "waived" } | { kind: "rejected"; feedback: string } | { kind: "engineer_follow_up" } | { kind: "stop" }
-> {
+): Promise<ObjectiveCheckWaiverDecision> {
     const prompt = source === "engineer_report"
         ? `The execution agent reported broken Objective-Failing Checks for "${args.planName}".`
         : `RunWield detected broken Objective-Failing Checks for "${args.planName}".`;
@@ -678,19 +901,20 @@ export async function requestObjectiveCheckWaiver(
         ],
     });
     if (response.outcome === "selected" && response.value === "engineer_follow_up") {
-        return { kind: "engineer_follow_up" };
+        const feedback = await requestEngineerFollowUpFeedback(
+            args,
+            "Tell the Engineer what to fix about these defective Objective-Failing Checks.",
+            "The defective Objective-Failing Check judgement needs Engineer follow-up. Use the current Plan and fresh check output to repair the check definition or implementation.",
+        );
+        return { kind: "engineer_follow_up", feedback };
     }
     if (response.outcome === "selected" && response.value === "stop") return { kind: "stop" };
     if (response.outcome !== "selected" || response.value !== "waive") {
-        const feedbackResponse = await requestInteraction(args, {
-            type: ValidationInteractionTypes.TEXT,
-            prompt: "Tell the Engineer what to fix about these broken Objective-Failing Checks.",
-            defaultValue:
-                "The broken Objective-Failing Check waiver was rejected. Fix the check definition or implementation so validation can make a reliable decision.",
-        });
-        const feedback = typeof feedbackResponse.value === "string" && feedbackResponse.value.trim()
-            ? feedbackResponse.value.trim()
-            : "The broken Objective-Failing Check waiver was rejected. Fix the check definition or implementation so validation can make a reliable decision.";
+        const feedback = await requestEngineerFollowUpFeedback(
+            args,
+            "Tell the Engineer what to fix about these broken Objective-Failing Checks.",
+            "The broken Objective-Failing Check waiver was rejected. Fix the check definition or implementation so validation can make a reliable decision.",
+        );
         return { kind: "rejected", feedback };
     }
     const noteResponse = await requestInteraction(args, {
@@ -710,6 +934,25 @@ export async function requestObjectiveCheckWaiver(
         results,
     });
     return { kind: "waived" };
+}
+
+function buildStaleEngineerReportReason(
+    results: ObjectiveCheckResult[],
+    reports: BrokenObjectiveCheckReport[],
+    freshSummary: string,
+): string {
+    const currentCommands = new Map(results.map((result) => [result.id, result.command]));
+    const mismatches = reports.map((report) => {
+        const currentCommand = currentCommands.get(report.id);
+        if (!currentCommand) return `- ${report.id}: the current Plan does not contain this active check.`;
+        if (report.command && report.command !== currentCommand) {
+            return `- ${report.id}: reported command ${JSON.stringify(report.command)} does not match current command ${
+                JSON.stringify(currentCommand)
+            }.`;
+        }
+        return `- ${report.id}: the report did not match the current Objective-Failing Check output.`;
+    }).join("\n");
+    return `Engineer-reported defective Objective-Failing Checks did not match the current Plan commands, so the report is stale and cannot authorize a waiver or amendment.\n\n${mismatches}\n\nFresh run result:\n\n${freshSummary}`;
 }
 
 function matchEngineerReportedBrokenResults(

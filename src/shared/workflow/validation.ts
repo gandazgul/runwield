@@ -43,6 +43,7 @@ type ActiveExecutionWorkflow = import("../session/hosted-session.js").ActiveExec
 type HostedSession = import("../session/hosted-session.js").HostedSession;
 type GitPort = import("../git-port.ts").GitPort;
 type WorkRecordMnemosynePort = import("../work-records/mnemosyne-port.ts").WorkRecordMnemosynePort;
+type BrokenObjectiveCheckReport = import("./objective-checks.ts").BrokenObjectiveCheckReport;
 
 /**
  * The public loop arguments, unchanged from before the split.
@@ -62,6 +63,7 @@ export type ValidationLoopArgs = {
     semanticReviewPort?: SemanticReviewPort;
     localCI: LocalCIPort;
     workRecordMnemosynePort: WorkRecordMnemosynePort;
+    engineerReportedBrokenObjectiveChecks?: BrokenObjectiveCheckReport[];
 };
 
 type MechanicalValidationArgs = {
@@ -120,5 +122,8 @@ function toEngineArgs(args: ValidationLoopArgs): EngineValidationLoopArgs {
             run: ({ cwd }) => args.localCI.run({ hostedSession: args.hostedSession, cwd }),
         },
         workRecordMnemosynePort: args.workRecordMnemosynePort,
+        ...(args.engineerReportedBrokenObjectiveChecks?.length
+            ? { engineerReportedBrokenObjectiveChecks: args.engineerReportedBrokenObjectiveChecks }
+            : {}),
     };
 }
