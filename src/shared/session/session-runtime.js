@@ -1402,6 +1402,7 @@ export class SessionRuntime {
             activeWorkflow: { ...workflow, ...handoff.activeWorkflow },
             executionOwner: workflow.executionAgent || AGENTS.ENGINEER,
             semanticRound: handoff.semanticRound,
+            repairGeneration: handoff.repairGeneration,
             reviewLedger: handoff.reviewLedger,
             repairBaselineTree: handoff.repairBaselineTree,
             lastRepairReport: handoff.lastRepairReport,
@@ -1485,6 +1486,15 @@ export class SessionRuntime {
                     reason: "Semantic repair segment paused before task_completed.",
                 };
             }
+            const { recordValidationRepairCompletion } = await import(
+                "../workflow/validation-supervisor.ts"
+            );
+            await recordValidationRepairCompletion({
+                projectRoot,
+                planName: continuation.plan.planName,
+                repairGeneration: continuation.repair.repairGeneration,
+                report,
+            });
             return {
                 kind: "semantic_repair_completed",
                 planName: continuation.plan.planName || options.planName,
@@ -1500,6 +1510,8 @@ export class SessionRuntime {
                 planName: continuation.plan.planName || options.planName,
                 planContent: continuation.plan.markdown || options.planContent,
                 executionContext: session.getActiveExecutionWorkflow?.(),
+                trigger: "repair",
+                taskCompletionId: continuation.repair.repairGeneration,
             });
         }
         return repairResult;

@@ -82,6 +82,8 @@ export type ValidationWorkflowState = {
     worktreeBaseCommit?: string;
     nonGitInPlace?: boolean;
     validationContinuation?: boolean;
+    /** Consume-once identity for the semantic repair currently owned by the checkpoint. */
+    validationRepairGeneration?: string;
     semanticRound?: number;
     reviewLedger?: ReviewLedger;
     repairBaselineTree?: string;

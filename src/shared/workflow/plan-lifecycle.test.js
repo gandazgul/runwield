@@ -518,6 +518,20 @@ Deno.test("manual user verification records user attestation without RunWield pr
     assertEquals(updates.failureReason, "Workflow Validation failed.");
     assertEquals(updates.worktreeStatus, "validation_failed");
 
+    const reviewed = buildPlanEventUpdates("manual_user_verified", "validated_reviewer", {
+        now: () => new Date("2026-01-02T03:04:05.000Z"),
+        userVerificationNote: "Implementation was merged and checked by the owner.",
+        triageMeta: {
+            humanReviewDecision: "approved",
+            humanReviewedAt: "2026-01-01T00:00:00.000Z",
+            executionMode: "worktree",
+        },
+    });
+    assertEquals(reviewed.status, "user_verified");
+    assertEquals(reviewed.verifiedAt, undefined);
+    assertEquals(reviewed.humanReviewDecision, "approved");
+    assertEquals(reviewed.executionMode, "worktree");
+
     assertThrows(
         () => buildPlanEventUpdates("manual_user_verified", "implemented", { userVerificationNote: "  " }),
         Error,
@@ -528,6 +542,13 @@ Deno.test("manual user verification records user attestation without RunWield pr
         Error,
         'manual_user_verified cannot apply to status "verified"',
     );
+});
+
+Deno.test("validated Plans expose user verification without exposing generic board movement", () => {
+    const actions = getPlanLifecycleActionMetadata("validated_reviewer", { classification: "PLANNED_CHANGE" });
+    assertEquals(actions.canUserVerify, true);
+    assertEquals(actions.allowedManualTargetStatuses, []);
+    assertEquals(actions.canCloseWithoutVerification, false);
 });
 
 Deno.test("hold events create, resume, and reset hold metadata", () => {

@@ -42,6 +42,7 @@ import { persistHumanReviewMetadata, runHumanReviewPhase } from "./validation-hu
 import { runPublicationPhase } from "./validation-publication.ts";
 import { UserActionPause } from "./validation-types.ts";
 import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
+import { makeValidationCheckpoint, type ValidationReviewState } from "./validation-checkpoint.ts";
 
 export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
     const phase = await resolvePhaseContext(args);
@@ -190,18 +191,37 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
 
         const repairBaselineTree = await captureWorktreeTree(context.executionCwd);
         const findingsSection = openCount > 0 ? renderOpenItems(review.ledger) : review.outcome.feedback;
+        const priorCheckpoint = args.validationCheckpoint || args.triageMeta.validationCheckpoint;
+        const repairGeneration = crypto.randomUUID();
+        const reviewState: ValidationReviewState = {
+            semanticRound: nextRound,
+            reviewLedger: review.ledger,
+            repairBaselineTree,
+        };
+        const repairCheckpoint = makeValidationCheckpoint({
+            attemptId: context.worktreeId || "in-place",
+            generation: priorCheckpoint?.generation || crypto.randomUUID(),
+            status: "implemented",
+            phase: "mechanical",
+            state: "awaiting_repair",
+            repairKind: "semantic",
+            repairGeneration,
+            reviewState,
+        });
         await recordLifecycleEvent(
             args,
             context.projectRoot,
             "semantic_review_feedback",
             "validated_ci",
             review.outcome.feedback || "Semantic Code Review requested changes.",
+            { validationCheckpoint: repairCheckpoint },
         );
         args.session.setActiveWorkflow({
             ...context.workflowBase,
             semanticRound: nextRound,
             reviewLedger: review.ledger,
             repairBaselineTree,
+            validationRepairGeneration: repairGeneration,
         });
         if (!args.supportsSemanticRepairHandoff) {
             const repair = await dispatchReviewFeedbackRepair(args, context, {
@@ -213,6 +233,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                     semanticRound: nextRound,
                     reviewLedger: review.ledger,
                     repairBaselineTree,
+                    validationRepairGeneration: repairGeneration,
                 },
             });
             if (!repair.completed) {
@@ -286,6 +307,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             reason: `Review round ${nextRound} found ${openCount || "open"} issue(s). Dispatching repair...`,
             semanticRepairHandoff: {
                 semanticRound: nextRound,
+                repairGeneration,
                 reviewLedger: review.ledger,
                 repairBaselineTree,
                 diffText,
@@ -294,6 +316,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                     semanticRound: nextRound,
                     reviewLedger: review.ledger,
                     repairBaselineTree,
+                    validationRepairGeneration: repairGeneration,
                 },
             },
         };

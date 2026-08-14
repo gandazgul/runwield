@@ -104,6 +104,7 @@ function buildStalePlanStatusMessage(planName, currentStatus, canonicalStatus) {
  * @property {string|null} [humanReviewedAt]
  * @property {number} [validationCiAttempts]
  * @property {number} [validationSemanticRounds]
+ * @property {import('./validation-checkpoint.ts').ValidationCheckpoint|null} [validationCheckpoint]
  * @property {string} [epicDoneEnoughSummary]
  * @property {import('../../plan-store.js').ExecutionMode} [executionMode]
  * @property {import('../../plan-store.js').DeliveryEvidence} [deliveryEvidence]
@@ -296,6 +297,20 @@ function isManualBoardStatus(status, attrs) {
 }
 
 /**
+ * User attestation may close an ordinary board Plan or an already-partially-
+ * validated Plan. It never converts RunWield validation history into proof:
+ * `manual_user_verified` keeps that history and does not synthesize Delivery
+ * Evidence or `verifiedAt`.
+ *
+ * @param {PlanStatus} status
+ * @param {import('../../plan-store.js').PlanFrontMatterInput | undefined} attrs
+ * @returns {boolean}
+ */
+function isManualUserVerificationStatus(status, attrs) {
+    return isManualBoardStatus(status, attrs) || status === "validated_ci" || status === "validated_reviewer";
+}
+
+/**
  * @param {PlanStatus} status
  * @param {import('../../plan-store.js').PlanFrontMatterInput | undefined} attrs
  * @returns {boolean}
@@ -364,7 +379,7 @@ export function getPlanLifecycleActionMetadata(currentStatus, attrs = {}) {
         status !== currentStatus
     );
     const canCloseWithoutVerification = isManualBoardStatus(currentStatus, attrs);
-    const canUserVerify = isManualBoardStatus(currentStatus, attrs);
+    const canUserVerify = isManualUserVerificationStatus(currentStatus, attrs);
     const canPutOnHold = currentStatus !== "verified" && currentStatus !== "user_verified" &&
         currentStatus !== "closed_without_verification" &&
         currentStatus !== "on_hold";
@@ -381,7 +396,7 @@ export function getPlanLifecycleActionMetadata(currentStatus, attrs = {}) {
             "Only active manual board statuses can be closed without Workflow Validation.";
     }
     if (!canUserVerify) {
-        blockedReasons.user_verify = "Only active manual board statuses can be marked User Verified.";
+        blockedReasons.user_verify = "Only active or partially validated Plans can be marked User Verified.";
     }
     if (!canPutOnHold) {
         blockedReasons.put_on_hold = "Verified, closed, and already held Plans cannot be put on hold.";
@@ -487,11 +502,18 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.validationSemanticRounds = currentRounds + 1;
         updates.validationCiAttempts = 0;
         updates.failureReason = details.failureReason || "Semantic Code Review requested changes.";
+        // The open Review Issues and repair identity must commit with the status
+        // move back to implemented. A later Session projection cannot fill this
+        // in safely after the fact: the process may stop between these writes.
+        if (details.validationCheckpoint !== undefined) {
+            updates.validationCheckpoint = details.validationCheckpoint;
+        }
     }
 
     if (event === "semantic_review_passed") {
         updates.failureReason = null;
         updates.failedAt = null;
+        updates.validationCheckpoint = null;
     }
 
     if (event === "manual_closed_without_verification") {
@@ -513,7 +535,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "manual_user_verified") {
-        if (!isManualBoardStatus(currentStatus, details.triageMeta)) {
+        if (!isManualUserVerificationStatus(currentStatus, details.triageMeta)) {
             throw new Error(
                 `Invalid Plan Lifecycle transition: manual_user_verified cannot apply to status "${currentStatus}".`,
             );

@@ -12,7 +12,7 @@ import type { ReviewLedger } from "./review-ledger.ts";
 import type { ResolvedValidationContext } from "./execution-context.ts";
 import type { ValidationLocalCIPort, ValidationSessionPort, ValidationWorkflowState } from "./validation-ports.ts";
 import type { ObjectiveCheckResult } from "./objective-checks.ts";
-import type { ValidationCheckpointPhase } from "./validation-checkpoint.ts";
+import type { ValidationCheckpoint, ValidationCheckpointPhase } from "./validation-checkpoint.ts";
 import type { ValidationRecoveryResult } from "./validation-recovery.ts";
 
 type PlanFrontMatter = import("../../plan-store.js").PlanFrontMatter;
@@ -35,6 +35,7 @@ export type WorkflowValidationResult = {
 
 export type SemanticRepairHandoff = {
     semanticRound: number;
+    repairGeneration: string;
     reviewLedger: ReviewLedger;
     repairBaselineTree: string;
     lastRepairReport?: string;
@@ -73,6 +74,8 @@ export type ValidationLoopArgs = {
     engineerReportedBrokenObjectiveChecks?: import("./objective-checks.ts").BrokenObjectiveCheckReport[];
     /** Durable phase claimed by the validation supervisor. */
     continuationPhase?: ValidationCheckpointPhase;
+    /** Durable attempt record claimed by the validation supervisor. */
+    validationCheckpoint?: ValidationCheckpoint;
 };
 
 /** The resolved execution facts a phase runs against. */

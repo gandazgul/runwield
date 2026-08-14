@@ -19,7 +19,7 @@ import type { ValidationSessionPort } from "./validation-ports.ts";
 import type { ValidationPhaseResult, WorkflowValidationResult } from "./validation-types.ts";
 import type { ValidationLoopArgs as EngineValidationLoopArgs } from "./validation-types.ts";
 import type { LocalCIPort } from "./validation-local-ci.ts";
-import type { ValidationCheckpointPhase } from "./validation-checkpoint.ts";
+import type { ValidationCheckpoint, ValidationCheckpointPhase } from "./validation-checkpoint.ts";
 
 export {
     hasTrustedClaudeMcpReview,
@@ -66,6 +66,8 @@ export type ValidationLoopArgs = {
     supportsSemanticRepairHandoff?: boolean;
     /** Durable phase selected by the validation supervisor. */
     continuationPhase?: ValidationCheckpointPhase;
+    /** Durable attempt record selected by the validation supervisor. */
+    validationCheckpoint?: ValidationCheckpoint;
 };
 
 type MechanicalValidationArgs = {
@@ -88,7 +90,7 @@ export const runMechanicalValidation = runQuickFixMechanicalValidation as (
  * port and hands the call over.
  */
 export async function runValidationPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
-    return await engine.runValidationPhase(toEngineArgs(args));
+    return await engine.runValidationPhase(createEngineValidationArgs(args));
 }
 
 /**
@@ -98,7 +100,7 @@ export async function runValidationPhase(args: ValidationLoopArgs): Promise<Vali
  * the call over.
  */
 export async function runValidationLoop(args: ValidationLoopArgs): Promise<WorkflowValidationResult> {
-    return await engine.runValidationLoop(toEngineArgs(args));
+    return await engine.runValidationLoop(createEngineValidationArgs(args));
 }
 
 /**
@@ -108,7 +110,7 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
  * the engine passes only the working directory and the real session stays bound
  * here at the composition root.
  */
-function toEngineArgs(args: ValidationLoopArgs): EngineValidationLoopArgs {
+export function createEngineValidationArgs(args: ValidationLoopArgs): EngineValidationLoopArgs {
     const session: ValidationSessionPort = createValidationSessionPort(args.hostedSession, {
         semanticReviewPort: args.semanticReviewPort,
     });
@@ -126,5 +128,6 @@ function toEngineArgs(args: ValidationLoopArgs): EngineValidationLoopArgs {
         workRecordMnemosynePort: args.workRecordMnemosynePort,
         supportsSemanticRepairHandoff: args.supportsSemanticRepairHandoff,
         continuationPhase: args.continuationPhase,
+        validationCheckpoint: args.validationCheckpoint,
     };
 }

@@ -177,10 +177,13 @@ Workflow validation applies to executable saved plan work: standalone FEATURE pl
 non-Epic PROJECT plans. PROJECT Epics do not run an implementation validation loop themselves; their child FEATURE plans
 run local validation, semantic review, delivery evidence capture, and merge-back proof before being marked verified.
 Semantic review runs in narrowing rounds — two full Plan reviews, then verification-only rounds — with findings carried
-across rounds in a Review Issue Ledger and repaired by the Reviewer-Feedback Engineer in an independent repair session.
-The repair Agent reads the Plan from the linked worktree path when needed. See `docs/plan-lifecycle.md` for the full
-sequence. Missing worktree context for a Git-backed FEATURE is a hard validation failure unless RunWield can recover the
-exact plan/worktree identity from durable plan metadata, the worktree registry, and Git facts.
+across rounds in a Review Issue Ledger owned by the durable validation checkpoint and repaired by the Reviewer-Feedback
+Engineer in an independent repair session. Session workflow data projects that checkpoint and cannot close findings or
+advance validation. The repair's exact generation is recorded once before checks resume. The repair Agent reads the Plan
+from the linked worktree path when needed. See `docs/plan-lifecycle.md` for the full sequence. Missing worktree context
+for a Git-backed FEATURE is a hard validation failure unless RunWield can recover the exact plan/worktree identity from
+durable plan metadata, the worktree registry, and Git facts. The full canonical-store, writer, cleanup, and resume rules
+are documented in [Workflow Validation Authority](validation-authority.md).
 
 ## Completion-time Work Records
 

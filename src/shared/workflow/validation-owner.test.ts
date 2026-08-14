@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertExists } from "@std/assert";
+import { assert, assertEquals, assertExists, assertRejects } from "@std/assert";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
@@ -8,7 +8,13 @@ import {
     listPendingTaskCompletions,
     recordAcceptedTaskCompletion,
 } from "../session/task-completion-session.ts";
-import { isValidationCheckpoint, makeValidationCheckpoint } from "./validation-checkpoint.ts";
+import {
+    isValidationCheckpoint,
+    makeValidationCheckpoint,
+    readValidationReviewState,
+} from "./validation-checkpoint.ts";
+import { recordPlanEvent } from "./plan-lifecycle.js";
+import { recordValidationRepairCompletion } from "./validation-supervisor.ts";
 
 type HostedSessionManager = NonNullable<ConstructorParameters<typeof HostedSession>[0]["sessionManager"]>;
 
@@ -68,9 +74,130 @@ Deno.test("validation checkpoint survives a new Plan load", async () => {
         assertExists(reopened);
         const value = reopened.attrs.validationCheckpoint;
         assert(value && typeof value === "object" && !Array.isArray(value));
-        assert(isValidationCheckpoint(value as Record<string, string | number | undefined>));
+        assert(isValidationCheckpoint(value));
         assertEquals(value.generation, "generation-one");
         assertEquals(value.repairGeneration, "repair-one");
+    } finally {
+        await Deno.remove(root, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("semantic feedback commits open Review Issues with the lifecycle transition", async () => {
+    const root = await Deno.makeTempDir({ prefix: "runwield-validation-review-authority-" });
+    try {
+        await savePlan(root, "demo", "# Demo\n", {
+            planId: "plan-demo",
+            classification: "PLANNED_CHANGE",
+            status: "validated_ci",
+            worktreeId: "wt-demo",
+        });
+        const plan = await loadPlan(root, "demo");
+        assertExists(plan);
+        const checkpoint = makeValidationCheckpoint({
+            attemptId: "wt-demo",
+            generation: "validation-one",
+            status: "implemented",
+            phase: "mechanical",
+            state: "awaiting_repair",
+            repairKind: "semantic",
+            repairGeneration: "repair-one",
+            reviewState: {
+                semanticRound: 1,
+                reviewLedger: {
+                    sequence: 1,
+                    items: [{
+                        id: "R1-1",
+                        openedInRound: 1,
+                        resolvedInRound: null,
+                        title: "Keep the saved candidate",
+                        requirement: "Non-success outcomes preserve work.",
+                        evidence: "The cleanup path removed it.",
+                    }],
+                },
+                repairBaselineTree: "tree-before-repair",
+            },
+        });
+        await recordPlanEvent({
+            cwd: root,
+            planName: "demo",
+            event: "semantic_review_feedback",
+            currentStatus: "validated_ci",
+            details: {
+                triageMeta: plan.attrs,
+                failureReason: "One issue remains.",
+                validationCheckpoint: checkpoint,
+            },
+        });
+
+        const reopened = await loadPlan(root, "demo");
+        assertExists(reopened);
+        assertEquals(reopened.attrs.status, "implemented");
+        assertEquals(reopened.attrs.validationCheckpoint?.state, "awaiting_repair");
+        assertEquals(readValidationReviewState(reopened.attrs.validationCheckpoint)?.reviewLedger.items[0].id, "R1-1");
+    } finally {
+        await Deno.remove(root, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("semantic repair completion is an idempotent mechanical receipt", async () => {
+    const root = await Deno.makeTempDir({ prefix: "runwield-validation-repair-receipt-" });
+    try {
+        await savePlan(root, "demo", "# Demo\n", {
+            planId: "plan-demo",
+            classification: "PLANNED_CHANGE",
+            status: "implemented",
+            worktreeId: "wt-demo",
+        });
+        const plan = await loadPlan(root, "demo");
+        assertExists(plan);
+        const checkpoint = makeValidationCheckpoint({
+            attemptId: "wt-demo",
+            generation: "validation-one",
+            status: "implemented",
+            phase: "mechanical",
+            state: "awaiting_repair",
+            repairKind: "semantic",
+            repairGeneration: "repair-one",
+            reviewState: {
+                semanticRound: 1,
+                reviewLedger: { sequence: 0, items: [] },
+                repairBaselineTree: "tree-before-repair",
+            },
+        });
+        await updatePlanFrontMatter(root, "demo", { validationCheckpoint: checkpoint }, plan.attrs, {
+            expectedRevision: plan.revision,
+        });
+
+        await recordValidationRepairCompletion({
+            projectRoot: root,
+            planName: "demo",
+            repairGeneration: "repair-one",
+            report: "Fixed R1-1.",
+        });
+        await recordValidationRepairCompletion({
+            projectRoot: root,
+            planName: "demo",
+            repairGeneration: "repair-one",
+            report: "This duplicate must not replace the first receipt.",
+        });
+
+        const reopened = await loadPlan(root, "demo");
+        assertExists(reopened);
+        assertEquals(reopened.attrs.validationCheckpoint?.state, "ready");
+        assertEquals(reopened.attrs.validationCheckpoint?.repairCompletedOperationId, "repair-one");
+        assertEquals(reopened.attrs.validationCheckpoint?.lastSettledOperationId, undefined);
+        assertEquals(readValidationReviewState(reopened.attrs.validationCheckpoint)?.lastRepairReport, "Fixed R1-1.");
+        await assertRejects(
+            () =>
+                recordValidationRepairCompletion({
+                    projectRoot: root,
+                    planName: "demo",
+                    repairGeneration: "different-repair",
+                    report: "Wrong repair.",
+                }),
+            Error,
+            "does not match",
+        );
     } finally {
         await Deno.remove(root, { recursive: true }).catch(() => {});
     }
