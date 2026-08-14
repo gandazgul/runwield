@@ -45,45 +45,6 @@ objectiveChecks:
     - id: "OC4"
       command: "bash -lc 'set -euo pipefail; test -f src/shared/workflow/validation-plan-amendment.test.ts; grep -qF \"publication preserves an accepted execution Plan definition amendment\" src/shared/workflow/validation-plan-amendment.test.ts; out=$(deno run -A scripts/run-tests.js --filter \"publication preserves an accepted execution Plan definition amendment\" src/shared/workflow/validation-plan-amendment.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed .*0 failed\"'"
       rationale: "Fails today because publication overwrites the execution Plan from the primary copy. The regression must prove an accepted amendment survives staging and delivery."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-13T03:22:13.078Z"
-    results:
-        - id: "OC1"
-          command: "bash -lc 'set -euo pipefail; test -f src/shared/workflow/validation-plan-amendment.test.ts; grep -qF \"worktree Objective Check amendment becomes canonical only after user approval\" src/shared/workflow/validation-plan-amendment.test.ts; out=$(deno run -A scripts/run-tests.js --filter \"worktree Objective Check amendment becomes canonical only after user approval\" src/shared/workflow/validation-plan-amendment.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed .*0 failed\"'"
-          rationale: "Fails today because the worktree-amendment module and real-Git regression do not exist. It must prove user-confirmed synchronization and fresh command use."
-          status: "unmet"
-          stdout: "all tests passed\n"
-          stderr: ""
-          exitCode: 1
-          durationMs: 2097
-          output: "all tests passed\n\n"
-        - id: "OC2"
-          command: "bash -lc 'set -euo pipefail; grep -qF \"Engineer-reported defective checks reach user judgement for met unmet and broken results\" src/shared/workflow/validation-loop-repair.test.js; out=$(deno run -A scripts/run-tests.js --filter \"Engineer-reported defective checks reach user judgement for met unmet and broken results\" src/shared/workflow/validation-loop-repair.test.js 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed .*0 failed\"'"
-          rationale: "Fails today because Engineer claims are ignored for mechanically met or unmet checks. The regression must exercise all result classifications through user judgement."
-          status: "unmet"
-          stdout: "all tests passed\n"
-          stderr: ""
-          exitCode: 1
-          durationMs: 2758
-          output: "all tests passed\n\n"
-        - id: "OC3"
-          command: "bash -lc 'set -euo pipefail; test -f src/shared/session/task-completion-session.test.ts; grep -qF \"defective-check claim survives process resume until validation handles it\" src/shared/session/task-completion-session.test.ts; out=$(deno run -A scripts/run-tests.js --filter \"defective-check claim survives process resume until validation handles it\" src/shared/session/task-completion-session.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed .*0 failed\"'"
-          rationale: "Fails today because the structured claim can be acknowledged before validation handles it. The regression must prove durable resume and consume-once behavior."
-          status: "unmet"
-          stdout: "all tests passed\n"
-          stderr: ""
-          exitCode: 1
-          durationMs: 1435
-          output: "all tests passed\n\n"
-        - id: "OC4"
-          command: "bash -lc 'set -euo pipefail; test -f src/shared/workflow/validation-plan-amendment.test.ts; grep -qF \"publication preserves an accepted execution Plan definition amendment\" src/shared/workflow/validation-plan-amendment.test.ts; out=$(deno run -A scripts/run-tests.js --filter \"publication preserves an accepted execution Plan definition amendment\" src/shared/workflow/validation-plan-amendment.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed .*0 failed\"'"
-          rationale: "Fails today because publication overwrites the execution Plan from the primary copy. The regression must prove an accepted amendment survives staging and delivery."
-          status: "unmet"
-          stdout: "all tests passed\n"
-          stderr: ""
-          exitCode: 1
-          durationMs: 1733
-          output: "all tests passed\n\n"
 objectiveCheckWaivers:
     - id: "OC1"
       command: "bash -lc 'set -euo pipefail; test -f src/shared/workflow/validation-plan-amendment.test.ts; grep -qF \"worktree Objective Check amendment becomes canonical only after user approval\" src/shared/workflow/validation-plan-amendment.test.ts; out=$(deno run -A scripts/run-tests.js --filter \"worktree Objective Check amendment becomes canonical only after user approval\" src/shared/workflow/validation-plan-amendment.test.ts 2>&1); printf \"%s\\n\" \"$out\"; printf \"%s\\n\" \"$out\" | grep -Eq \"1 passed .*0 failed\"'"
@@ -112,22 +73,23 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T12:23:35-04:00"
-updatedAt: "2026-08-14T17:53:33.599Z"
-status: "validated_reviewer"
+updatedAt: "2026-08-14T18:31:54.041Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-08-13T03:34:02.044Z"
+verifiedAt: "2026-08-14T18:31:54.041Z"
 userVerifiedAt: null
 executionReport: "- Confirmed implementation already exists at HEAD `b3d5834a` for `prevent-objective-check-repair-loops`; no code changes were needed in this run.\n- Verified targeted Plan suite passed: `deno run -A scripts/run-tests.js src/tools/__tests__/task-completed.test.js src/shared/session/task-completion-session.test.ts src/shared/workflow/workflow-results.test.js src/shared/workflow/validation-completion-gating.test.ts src/shared/workflow/validation-loop-repair.test.js src/shared/workflow/validation-plan-amendment.test.ts src/shared/workflow/validation-lifecycle-resume.test.js src/shared/workflow/execution-context.test.js src/shared/workflow/validation-loop-delivery.test.js src/plan-store.test.js` exited 0.\n- Verified `deno task seams:check` exited 0 and `deno task test` exited 0 (`283 files passed`).\n- `deno task ci` first failed because `src/ui/tui/golden-scenarios/project-workflow.test.js` timed out waiting for `runtime:agent:planner`; reran that exact test and it passed, then reran full `deno task ci` and it passed (`283 files passed`).\n- Mutation proof attempted by copying changed regression tests into a detached `HEAD^` worktree; it failed there with missing pre-implementation production module `validation-plan-amendment.ts`, confirming the tests are not empty pass-throughs against prior code.\n- Manual interactive validation scenarios were not run in this non-interactive check; automated orchestration tests cover the reported primary/worktree divergence, claim routing, resume, waiver, amendment, and publication paths.\n- Working tree still has the pre-existing modified Plan file `docs/plans/prevent-objective-check-repair-loops.md`; I did not edit or clean it."
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 validationCheckpoint: null
 executionMode: "worktree"
-executionBaselineTree: "1804ca07e103c3edf7499d9aa7df50baef7f67e7"
-worktreeId: "4bdc9e95"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-prevent-objective-check-repair-loops-4bdc9e95"
-worktreeBranch: "worktree/prevent-objective-check-repair-loops-4bdc9e95"
-worktreeBaseBranch: "main"
-worktreeStatus: "validation_failed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "65b3f6017d3d474d984215630af0a63d83ddc666"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "c85587e3c720675a41913ad43e1bc636a3c49859"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "fix objective check loop"
 validationCiAttempts: 0
