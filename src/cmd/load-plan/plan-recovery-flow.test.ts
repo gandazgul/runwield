@@ -99,15 +99,19 @@ async function makeRealRecoveryProject(attrs: Partial<PlanFrontMatter> = {}): Pr
     return { projectRoot, plan, baselineTree };
 }
 
-function makeOptions(plan: RecoveryFlowPlan, uiAPI: UiAPI): HandlePlanRecoveryOptions {
+function makeOptions(
+    plan: RecoveryFlowPlan,
+    uiAPI: UiAPI,
+    projectRoot = "/tmp/runwield-recovery-test",
+): HandlePlanRecoveryOptions {
     const options = {
-        projectRoot: "/tmp/runwield-recovery-test",
+        projectRoot,
         plan,
         agentName: "engineer",
         uiAPI,
         session: {
             id: "session-1",
-            cwd: "/tmp/runwield-recovery-test",
+            cwd: projectRoot,
             getActiveAgentName: () => null,
             switchAgent: () => Promise.resolve(null),
             executePlan: () => Promise.resolve({ result: "complete" }),
@@ -122,8 +126,7 @@ function makeOptions(plan: RecoveryFlowPlan, uiAPI: UiAPI): HandlePlanRecoveryOp
         },
         ports: {
             recordWorkflowMetric: () => Promise.resolve(null),
-            probeGitRepository: () =>
-                Promise.resolve({ ok: true, state: "available", cwd: "/tmp/runwield-recovery-test" }),
+            probeGitRepository: () => Promise.resolve({ ok: true, state: "available", cwd: projectRoot }),
         },
     };
     return Object.assign({} as HandlePlanRecoveryOptions, options);
@@ -134,9 +137,10 @@ async function runRecovery(
     attrs: Partial<PlanFrontMatter> = {},
     configure: (options: HandlePlanRecoveryOptions) => void = () => {},
 ): Promise<RunRecoveryResult> {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-recovery-fake-" });
     const plan = makePlan(attrs);
     const ui = makeUi(selections);
-    const options = makeOptions(plan, ui);
+    const options = makeOptions(plan, ui, projectRoot);
     configure(options);
     const result = await handlePlanRecovery(options);
     return { result, plan, ui };
