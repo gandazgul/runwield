@@ -99,6 +99,17 @@ jobs:
             - name: Run source-quality gate
               run: deno task ci
 
+            - name: Print source-quality failure logs
+              if: failure()
+              run: |
+                  for log in /tmp/tests-failure-*.log; do
+                    if [[ -f "$log" ]]; then
+                      echo "::group::$log"
+                      cat "$log"
+                      echo "::endgroup::"
+                    fi
+                  done
+
     release-check:
         runs-on: ubuntu-latest
         needs:
