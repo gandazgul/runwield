@@ -12,8 +12,10 @@ import {
     type ValidationCheckpoint,
     validationPhaseForStatus,
 } from "./validation-checkpoint.ts";
+import { retryValidationLater } from "./validation-recovery.ts";
 import type { WorkflowValidationResult } from "./validation-types.ts";
 import { validationUserMessage } from "./validation-user-messages.ts";
+import { resumeValidationPlanAmendment } from "./validation-plan-amendment.ts";
 
 export type ValidationTrigger =
     | "execution_completion"
@@ -36,7 +38,8 @@ type ClaimResult =
         planContent: string;
         triageMeta: ValidationLoopArgs["triageMeta"];
     }
-    | { kind: "active"; projectRoot: string };
+    | { kind: "active"; projectRoot: string }
+    | { kind: "settled_completion"; projectRoot: string };
 
 function checkpointRecord(value: import("../../plan-store.js").PlanFrontMatter["validationCheckpoint"]):
     | ValidationCheckpoint
@@ -51,6 +54,18 @@ async function ownerIsAlive(checkpoint: ValidationCheckpoint): Promise<boolean> 
     return await isPidAlive(checkpoint.ownerPid);
 }
 
+function checkpointAgreesWithPlan(
+    checkpoint: ValidationCheckpoint | undefined,
+    attemptId: string,
+    status: string,
+    phase: ValidationCheckpoint["nextPhase"],
+): checkpoint is ValidationCheckpoint {
+    return Boolean(
+        checkpoint && checkpoint.attemptId === attemptId && checkpoint.expectedStatus === status &&
+            checkpoint.nextPhase === phase,
+    );
+}
+
 async function claimValidation(args: ContinueWorkflowValidationArgs): Promise<ClaimResult> {
     const projectRoot = args.hostedSession.cwd;
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -58,34 +73,28 @@ async function claimValidation(args: ContinueWorkflowValidationArgs): Promise<Cl
         if (!plan) throw new Error(`Plan not found: ${args.planName}`);
         const phase = validationPhaseForStatus(plan.attrs.status);
         if (!phase) {
-            return {
-                kind: "claimed",
-                checkpoint: makeValidationCheckpoint({
-                    attemptId: plan.attrs.worktreeId || "in-place",
-                    generation: crypto.randomUUID(),
-                    status: plan.attrs.status,
-                    phase: "delivery",
-                    state: "ready",
-                }),
-                planContent: plan.markdown,
-                triageMeta: plan.attrs as ValidationLoopArgs["triageMeta"],
-            };
+            return { kind: "settled_completion", projectRoot };
         }
+        const attemptId = plan.attrs.worktreeId || "in-place";
         const prior = checkpointRecord(plan.attrs.validationCheckpoint);
-        if (prior && prior.attemptId === (plan.attrs.worktreeId || "in-place") && await ownerIsAlive(prior)) {
+        const compatible = checkpointAgreesWithPlan(prior, attemptId, plan.attrs.status, phase);
+        if (compatible && args.taskCompletionId && prior.lastSettledOperationId === args.taskCompletionId) {
+            return { kind: "settled_completion", projectRoot };
+        }
+        if (compatible && await ownerIsAlive(prior)) {
             return { kind: "active", projectRoot };
         }
         const checkpoint = makeValidationCheckpoint({
-            attemptId: plan.attrs.worktreeId || "in-place",
-            generation: prior?.generation || crypto.randomUUID(),
+            attemptId,
+            generation: compatible ? prior.generation : crypto.randomUUID(),
             status: plan.attrs.status,
-            phase,
+            phase: compatible ? prior.nextPhase : phase,
             state: "running",
             ownerPid: Deno.pid,
             ownerHostname: getLockHostname(),
-            repairGeneration: prior?.repairGeneration,
-            repairKind: prior?.repairKind,
-            lastSettledOperationId: prior?.lastSettledOperationId,
+            repairGeneration: compatible ? prior.repairGeneration : undefined,
+            repairKind: compatible ? prior.repairKind : undefined,
+            lastSettledOperationId: compatible ? prior.lastSettledOperationId : undefined,
         });
         try {
             await updatePlanFrontMatter(
@@ -147,23 +156,59 @@ async function settleValidation(
     }
 }
 
+function pausedResult(
+    args: ContinueWorkflowValidationArgs,
+    code: string,
+    phase?: ValidationCheckpoint["nextPhase"],
+): WorkflowValidationResult {
+    const message = validationUserMessage("retry_pause");
+    return {
+        kind: "paused",
+        planName: args.planName,
+        projectRoot: args.hostedSession.cwd,
+        reason: message,
+        recovery: retryValidationLater(code, message, phase),
+    };
+}
+
 /** Reconcile canonical Plan state, claim one owner, run, and durably settle. */
 export async function continueWorkflowValidation(
     args: ContinueWorkflowValidationArgs,
 ): Promise<WorkflowValidationResult> {
-    // Repair provable RunWield bookkeeping before it can block validation. Doctor
-    // never resets working changes or removes an unmerged worktree.
-    await runPlansDoctor(args.hostedSession.cwd, true);
-    const claim = await claimValidation(args);
-    if (claim.kind === "active") {
-        return {
-            kind: "paused",
-            planName: args.planName,
-            projectRoot: claim.projectRoot,
-            reason: validationUserMessage("already_running"),
-        };
-    }
+    let claim: Extract<ClaimResult, { kind: "claimed" }> | undefined;
     try {
+        // Finish a journaled approved amendment before general repair scans. This
+        // keeps the primary revision authoritative after a process stop.
+        await resumeValidationPlanAmendment(args.hostedSession.cwd, args.planName);
+        // Repair provable RunWield bookkeeping before it can block validation. Doctor
+        // never resets working changes or removes an unmerged worktree.
+        await runPlansDoctor(args.hostedSession.cwd, true);
+        const claimed = await claimValidation(args);
+        if (claimed.kind === "active") {
+            const message = validationUserMessage("already_running");
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: claimed.projectRoot,
+                reason: message,
+                recovery: retryValidationLater("validation_owner_active", message),
+            };
+        }
+        if (claimed.kind === "settled_completion") {
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: claimed.projectRoot,
+                reason: validationUserMessage("completion_already_used"),
+                recovery: {
+                    kind: "terminal",
+                    code: "task_completion_already_settled",
+                    message: validationUserMessage("completion_already_used"),
+                    action: "none",
+                },
+            };
+        }
+        claim = claimed;
         const activeWorkflow = args.hostedSession.getActiveExecutionWorkflow();
         if (activeWorkflow) {
             args.hostedSession.setActiveExecutionWorkflow({
@@ -176,18 +221,18 @@ export async function continueWorkflowValidation(
             planContent: claim.planContent,
             triageMeta: claim.triageMeta,
             executionContext: undefined,
+            continuationPhase: claim.checkpoint.nextPhase,
         });
         await settleValidation(args, claim.checkpoint, result);
         return result;
     } catch (error) {
-        const result: WorkflowValidationResult = {
-            kind: "paused",
-            planName: args.planName,
-            projectRoot: args.hostedSession.cwd,
-            reason: validationUserMessage("retry_pause"),
-        };
-        await settleValidation(args, claim.checkpoint, result).catch(() => {});
-        console.error("[RunWield] Validation operation failed", error);
+        const result = pausedResult(args, "validation_operation_failed", claim?.checkpoint.nextPhase);
+        if (claim) {
+            await settleValidation(args, claim.checkpoint, result).catch((settlementError) => {
+                console.error("[RunWield] validation_pause_write_failed", settlementError);
+            });
+        }
+        console.error("[RunWield] validation_operation_failed", error);
         return result;
     }
 }

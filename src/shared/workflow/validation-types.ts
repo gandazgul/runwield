@@ -12,6 +12,8 @@ import type { ReviewLedger } from "./review-ledger.ts";
 import type { ResolvedValidationContext } from "./execution-context.ts";
 import type { ValidationLocalCIPort, ValidationSessionPort, ValidationWorkflowState } from "./validation-ports.ts";
 import type { ObjectiveCheckResult } from "./objective-checks.ts";
+import type { ValidationCheckpointPhase } from "./validation-checkpoint.ts";
+import type { ValidationRecoveryResult } from "./validation-recovery.ts";
 
 type PlanFrontMatter = import("../../plan-store.js").PlanFrontMatter;
 type GitPort = import("../git-port.ts").GitPort;
@@ -28,6 +30,7 @@ export type WorkflowValidationResult = {
     reason?: string;
     epicContinuation?: { completedPlanName: string; projectRoot: string };
     semanticRepairHandoff?: SemanticRepairHandoff;
+    recovery?: ValidationRecoveryResult;
 };
 
 export type SemanticRepairHandoff = {
@@ -68,6 +71,8 @@ export type ValidationLoopArgs = {
     workRecordMnemosynePort: WorkRecordMnemosynePort;
     supportsSemanticRepairHandoff?: boolean;
     engineerReportedBrokenObjectiveChecks?: import("./objective-checks.ts").BrokenObjectiveCheckReport[];
+    /** Durable phase claimed by the validation supervisor. */
+    continuationPhase?: ValidationCheckpointPhase;
 };
 
 /** The resolved execution facts a phase runs against. */

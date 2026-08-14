@@ -565,6 +565,8 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     localCI: systemLocalCIPort,
                     workRecordMnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
                     semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
+                    ...(acceptedCompletion.completionId ? { taskCompletionId: acceptedCompletion.completionId } : {}),
+                    trigger: "task_completion",
                 });
                 acknowledgeCompletion();
                 if (validationResult?.epicContinuation) {

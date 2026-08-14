@@ -336,7 +336,7 @@ Deno.test("runValidationPhase nudges the same reviewer session when review_compl
     assertStringIncludes(reviewOpts[1].userRequest, "have not called review_complete");
     assertEquals(reviewOpts[1].userRequest.includes("Approved Plan"), false);
     assertEquals(reviewOpts[0].sessionManager, reviewOpts[1].sessionManager);
-    assertStringIncludes(uiAPI.messages.join(" "), "Nudging Semantic Reviewer");
+    assertStringIncludes(uiAPI.messages.join(" "), "reviewer needs more time");
 });
 
 Deno.test("runValidationPhase pauses at validated_ci when the reviewer never finishes", async () => {
@@ -361,7 +361,8 @@ Deno.test("runValidationPhase pauses at validated_ci when the reviewer never fin
     assertEquals(result.kind, "paused");
     assertEquals(plan?.attrs.status, "validated_ci");
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.semanticRound, 1);
-    assertStringIncludes(uiAPI.messages.join(" "), "Semantic Reviewer execution failed");
+    assertStringIncludes(uiAPI.messages.join(" "), "The code review for p stopped.");
+    assertEquals(uiAPI.messages.join(" ").includes("Context window exceeded"), false);
 });
 
 Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Feedback Engineer and records feedback event", async () => {
@@ -418,7 +419,7 @@ Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Fe
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
     assertEquals(plan?.attrs.status, "implemented");
     assertEquals(plan?.attrs.validationSemanticRounds, 1);
-    assertStringIncludes(uiAPI.messages.join(" "), "Semantic Code Review round");
+    assertStringIncludes(uiAPI.messages.join(" "), "Code review 1 of 3 has begun");
 });
 
 Deno.test("runValidationPhase carries existing ledger identities and repair report into the next semantic round", async () => {
@@ -464,6 +465,32 @@ Deno.test("runValidationPhase carries existing ledger identities and repair repo
     assertStringIncludes(reviewPrompts[0], "added the guard in file.js");
     assertStringIncludes(reviewPrompts[0], "claims to verify, not proof");
     assertEquals(plan?.attrs.status, "validated_reviewer");
+});
+
+Deno.test("an interrupted semantic repair pauses without recording validation failure", async () => {
+    const { projectRoot, hostedSession } = await makeValidatedCiRun();
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+        supportsSemanticRepairHandoff: false,
+        semanticReviewPort: reviewPort({
+            runIsolatedAgentSession: (/** @type {any} */ opts) =>
+                Promise.resolve(
+                    opts.agentName === "reviewer-feedback-engineer" ? [] : reviewerMessages({
+                        approved: false,
+                        feedback: "Missing guard",
+                        findings: [{ title: "Missing guard" }],
+                    }),
+                ),
+        }),
+    });
+
+    assertEquals(result.kind, "paused");
+    const plan = await loadPlan(projectRoot, "p");
+    assertEquals(plan?.attrs.status, "implemented");
+    assertEquals(plan?.attrs.worktreeStatus, undefined);
 });
 
 Deno.test("runValidationPhase gives later semantic rounds a repair-scoped review_diff", async () => {

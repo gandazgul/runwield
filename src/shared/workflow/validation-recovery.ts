@@ -7,10 +7,13 @@ export type ValidationRecoveryKind =
     | "user_action"
     | "terminal";
 
+export type ValidationRecoveryAction = "retry_now" | "retry_later" | "correct_agent_output" | "choose" | "none";
+
 export type ValidationRecoveryResult = {
     kind: ValidationRecoveryKind;
     code: string;
     message: string;
+    action: ValidationRecoveryAction;
     nextPhase?: "mechanical" | "semantic" | "delivery";
 };
 
@@ -19,9 +22,9 @@ export function retryValidationLater(
     message: string,
     nextPhase?: ValidationRecoveryResult["nextPhase"],
 ): ValidationRecoveryResult {
-    return { kind: "retry_later", code, message, ...(nextPhase ? { nextPhase } : {}) };
+    return { kind: "retry_later", code, message, action: "retry_later", ...(nextPhase ? { nextPhase } : {}) };
 }
 
 export function validationNeedsUserChoice(code: string, message: string): ValidationRecoveryResult {
-    return { kind: "user_action", code, message };
+    return { kind: "user_action", code, message, action: "choose" };
 }

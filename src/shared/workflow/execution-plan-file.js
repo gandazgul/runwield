@@ -21,22 +21,22 @@ import {
  * @property {{ from: string|undefined, to: string }} [healedPlanId] - Set when a diverged execution-copy Plan ID was reconciled to the canonical one.
  */
 
-/** @param {unknown} value */
+/** @param {import('../../plan-store.js').PlanFrontMatter[keyof import('../../plan-store.js').PlanFrontMatter]} value */
 function isPlanId(value) {
     return typeof value === "string" && value.trim().length > 0;
 }
 
 /**
- * @param {unknown} canonicalPlanId
- * @param {unknown} executionPlanId
+ * @param {import('../../plan-store.js').PlanFrontMatter["planId"]} canonicalPlanId
+ * @param {import('../../plan-store.js').PlanFrontMatter["planId"]} executionPlanId
  */
 function mustReconcilePlanId(canonicalPlanId, executionPlanId) {
     return isPlanId(canonicalPlanId) && canonicalPlanId !== executionPlanId;
 }
 
 /**
- * @param {unknown} canonicalPlanId
- * @param {unknown} executionPlanId
+ * @param {import('../../plan-store.js').PlanFrontMatter["planId"]} canonicalPlanId
+ * @param {import('../../plan-store.js').PlanFrontMatter["planId"]} executionPlanId
  */
 function hasPlanIdConflict(canonicalPlanId, executionPlanId) {
     return isPlanId(canonicalPlanId) && isPlanId(executionPlanId) && canonicalPlanId !== executionPlanId;
@@ -74,6 +74,56 @@ function executionMetadataOverrides(canonicalAttrs, executionAttrs) {
         "parentPlan",
         "order",
         "dependencies",
+        // Plan Lifecycle owns these values. The worktree copy can propose body and
+        // definition edits, but it cannot propose an older review, attempt, or
+        // delivery state back to the primary Plan.
+        "createdAt",
+        "updatedAt",
+        "objectiveChecksBaseline",
+        "objectiveCheckWaivers",
+        "failureReason",
+        "failedAt",
+        "implementedAt",
+        "verifiedAt",
+        "userVerifiedAt",
+        "userVerificationNote",
+        "closedWithoutVerificationReason",
+        "executionReport",
+        "workRecord",
+        "humanReviewMode",
+        "humanReviewDecision",
+        "humanReviewedAt",
+        "validationMergeRepairWorktree",
+        "validationCheckpoint",
+        "validationCiAttempts",
+        "validationSemanticRounds",
+        "epicCompletionMode",
+        "epicDoneEnoughAt",
+        "epicDoneEnoughSummary",
+        "executionMode",
+        "deliveryEvidence",
+        "executionBaselineTree",
+        "worktreeId",
+        "worktreePath",
+        "worktreeBranch",
+        "worktreeBaseBranch",
+        "worktreeStatus",
+        "heldFromStatus",
+        "heldAt",
+        "holdReason",
+        "holdStalenessBaseline",
+        "archivedAt",
+        "archiveReason",
+        "archivedFromStatus",
+        "archivedFromPath",
+        "restoredAt",
+        "restoredFromPath",
+        "collaborationState",
+        "collaborationServerUrl",
+        "collaborationSpaceId",
+        "collaborationRevision",
+        "collaborationBodyHash",
+        "collaborationSyncedAt",
     ];
     for (const key of primaryOwnedKeys) {
         if (JSON.stringify(canonicalAttrs[key]) !== JSON.stringify(executionAttrs[key])) {
@@ -325,12 +375,14 @@ export async function ensureExecutionPlanFile({ executionCwd, planName, canonica
     let targetInfo;
     try {
         targetInfo = await lstatOrNull(targetPath);
-    } catch {
+    } catch (error) {
         return {
             kind: "unreadable",
             path: targetPath,
             relativePath,
-            reason: `Cannot inspect execution Plan path ${relativePath}. Existing evidence was preserved.`,
+            reason: `Cannot inspect execution Plan path ${relativePath}: ${
+                String(error)
+            }. Existing evidence was preserved.`,
         };
     }
     if (targetInfo) {
@@ -348,12 +400,14 @@ export async function ensureExecutionPlanFile({ executionCwd, planName, canonica
         let markdown;
         try {
             markdown = await Deno.readTextFile(targetPath);
-        } catch {
+        } catch (error) {
             return {
                 kind: "unreadable",
                 path: targetPath,
                 relativePath,
-                reason: `Execution Plan path ${relativePath} is unreadable. Existing evidence was preserved.`,
+                reason: `Execution Plan path ${relativePath} is unreadable: ${
+                    String(error)
+                }. Existing evidence was preserved.`,
             };
         }
         try {
@@ -414,13 +468,13 @@ export async function ensureExecutionPlanFile({ executionCwd, planName, canonica
             }
             return { kind: "present", path: targetPath, relativePath };
         } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
             return {
                 kind: "malformed",
                 path: targetPath,
                 relativePath,
-                reason:
-                    `Execution Plan path ${relativePath} has malformed Front Matter: ${reason}. Existing evidence was preserved.`,
+                reason: `Execution Plan path ${relativePath} is malformed: ${
+                    String(error)
+                }. Existing evidence was preserved.`,
             };
         }
     }

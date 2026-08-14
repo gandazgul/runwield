@@ -16,6 +16,7 @@ import { getAgentDisplayName } from "../session/agents.js";
 import { runIsolatedAgentSession } from "../session/session.js";
 import { type LocalCIPort, runLocalCI } from "./validation-local-ci.ts";
 import { verifyPostMergeCandidatePublished } from "./validation-merge-verification.ts";
+import { buildValidationUserMessage } from "./validation-user-messages.ts";
 import { loadManualQaPrompt, loadReviewerFeedbackEngineerDef, loadReviewerPrompt } from "./validation-prompts.ts";
 import {
     completeValidationProgress,
@@ -37,10 +38,7 @@ import { recordManualQaChecklistMessage } from "../session/workflow-messages.js"
 import { recordWorkflowMetric } from "./metrics.js";
 
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.ts";
-import {
-    autoGenerateWorkRecordForCompletedPlan,
-    formatWorkRecordAutoGenerationResult,
-} from "../work-records/auto-generation.js";
+import { autoGenerateWorkRecordForCompletedPlan } from "../work-records/auto-generation.js";
 import type { WorkRecordMnemosynePort } from "../work-records/mnemosyne-port.ts";
 import {
     confirmWorkRecordSupersessionProposal,
@@ -125,7 +123,11 @@ export function resolveWorkRecordSupersessionProposalsWithUi({
         mnemosynePort,
         choose: async (proposal) => {
             const answer = await uiAPI.promptSelect(
-                `Should the new Work Record supersede ${proposal.recordId}? Reason: ${proposal.reason}`,
+                buildValidationUserMessage({
+                    kind: "work_record_prompt",
+                    recordId: proposal.recordId,
+                    reason: proposal.reason,
+                }),
                 [
                     { value: "confirm", label: "Confirm supersession" },
                     { value: "reject", label: "Reject proposal" },
@@ -136,7 +138,12 @@ export function resolveWorkRecordSupersessionProposalsWithUi({
                 ? answer as WorkRecordSupersessionDecision
                 : null;
         },
-        notify: (message, warning = false) => uiAPI.appendSystemMessage(message, warning, "RunWield"),
+        notify: (message, warning = false) =>
+            uiAPI.appendSystemMessage(
+                buildValidationUserMessage({ kind: "work_record_notice", message }),
+                warning,
+                "RunWield",
+            ),
     });
 }
 
@@ -235,10 +242,10 @@ async function presentManualQaChecklist(
     try {
         await runManualQaChecklistPrompt({ hostedSession, name, classification, context, cwd });
     } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
+        console.error("[RunWield] manual_qa_list_failed", error);
         emitRunWieldSystemStatus(
             hostedSession,
-            `Automated verification passed, but the manual QA checklist could not be generated: ${reason}`,
+            buildValidationUserMessage({ kind: "manual_qa_failed" }),
             true,
         );
     }
@@ -271,9 +278,7 @@ export async function runFeaturePostVerificationHandoffs({
     const isEpicChild = typeof plan?.attrs.parentPlan === "string" && plan.attrs.parentPlan.trim().length > 0;
     emitRunWieldSystemStatus(
         hostedSession,
-        isEpicChild
-            ? "Preparing post-verification Work Record generation."
-            : "Preparing post-verification Manual QA checklist and Work Record generation.",
+        buildValidationUserMessage({ kind: "handoff_prepare", includeQa: !isEpicChild }),
     );
     const manualQaPromise = isEpicChild ? Promise.resolve() : presentManualQaChecklist({
         hostedSession,
@@ -282,28 +287,34 @@ export async function runFeaturePostVerificationHandoffs({
         context: planContent,
         cwd: projectRoot,
     });
-    emitRunWieldSystemStatus(hostedSession, `Creating work record for plan ${planName}...`, "info");
+    emitRunWieldSystemStatus(
+        hostedSession,
+        buildValidationUserMessage({ kind: "work_record_start", planName }),
+        "info",
+    );
     const workRecordPromise = autoGenerateWorkRecordForCompletedPlan({
         cwd: projectRoot,
         planName,
         mnemosynePort,
     }).catch((error) => {
-        const reason = error instanceof Error ? error.message : String(error);
+        console.error("[RunWield] work_record_failed", error);
         return {
             status: "failed" as const,
             planName,
-            error: reason,
-            message:
-                `Work Record generation failed for ${planName}: ${reason}. The Plan terminal state was preserved; run wld wr backfill after repair.`,
+            message: buildValidationUserMessage({ kind: "work_record_result", status: "failed" }),
         };
     });
     const [, workRecordResult] = await Promise.all([manualQaPromise, workRecordPromise]);
     if (workRecordResult.status === "generated" || workRecordResult.status === "linked") {
-        emitRunWieldSystemStatus(hostedSession, "Work record created.", "success");
+        emitRunWieldSystemStatus(
+            hostedSession,
+            buildValidationUserMessage({ kind: "work_record_result", status: workRecordResult.status }),
+            "success",
+        );
     }
     emitRunWieldSystemStatus(
         hostedSession,
-        workRecordResult.message || formatWorkRecordAutoGenerationResult(workRecordResult),
+        buildValidationUserMessage({ kind: "work_record_result", status: workRecordResult.status }),
         workRecordResult.status === "failed" ? "warning" : "info",
     );
     if (
@@ -320,8 +331,11 @@ export async function runFeaturePostVerificationHandoffs({
                     hostedSession,
                     {
                         type: RuntimeInteractionTypes.SELECT,
-                        prompt:
-                            `Should the new Work Record supersede ${proposal.recordId}?\nReason: ${proposal.reason}`,
+                        prompt: buildValidationUserMessage({
+                            kind: "work_record_prompt",
+                            recordId: proposal.recordId,
+                            reason: proposal.reason,
+                        }),
                         options: [
                             { value: "confirm", label: "Confirm supersession" },
                             { value: "reject", label: "Reject proposal" },
@@ -337,7 +351,11 @@ export async function runFeaturePostVerificationHandoffs({
                     : null;
             },
             notify: (message, warning = false) =>
-                emitRunWieldSystemStatus(hostedSession, message, warning ? "warning" : "info"),
+                emitRunWieldSystemStatus(
+                    hostedSession,
+                    buildValidationUserMessage({ kind: "work_record_notice", message }),
+                    warning ? "warning" : "info",
+                ),
         });
     }
 }
@@ -587,7 +605,12 @@ export async function runMechanicalValidation({
         planName: "quick-fix",
         details: { maxRepairAttempts },
     });
-    emitRunWieldSystemStatus(hostedSession, "Starting QUICK_FIX Mechanical Validation.", "info", progress);
+    emitRunWieldSystemStatus(
+        hostedSession,
+        buildValidationUserMessage({ kind: "quick_fix_start" }),
+        "info",
+        progress,
+    );
 
     while (true) {
         progress = updateValidationProgress(progress, {
@@ -599,7 +622,11 @@ export async function runMechanicalValidation({
         });
         emitRunWieldSystemStatus(
             hostedSession,
-            `Running QUICK_FIX CI Validation (Repair Attempts ${repairAttempts}/${maxRepairAttempts})...`,
+            buildValidationUserMessage({
+                kind: "quick_fix_running",
+                attempt: repairAttempts,
+                maxAttempts: maxRepairAttempts,
+            }),
             "info",
             progress,
         );
@@ -617,14 +644,18 @@ export async function runMechanicalValidation({
             },
         });
         if (ciResult.canceled) {
-            const reason = "QUICK_FIX Mechanical Validation canceled. Staying with Engineer so messages can continue.";
             progress = updateValidationProgress(progress, {
                 outcome: "paused",
                 stage: "terminal",
-                message: reason,
+                message: buildValidationUserMessage({ kind: "quick_fix_canceled" }),
                 checks: { ci: "canceled" },
             });
-            emitRunWieldSystemStatus(hostedSession, reason, false, progress);
+            emitRunWieldSystemStatus(
+                hostedSession,
+                buildValidationUserMessage({ kind: "quick_fix_canceled" }),
+                false,
+                progress,
+            );
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "mechanical_validation_finished",
@@ -638,7 +669,7 @@ export async function runMechanicalValidation({
             progress = updateValidationProgress(progress, { checks: { ci: "passed" } });
             emitRunWieldSystemStatus(
                 hostedSession,
-                "QUICK_FIX Mechanical Validation passed CI.",
+                buildValidationUserMessage({ kind: "quick_fix_ci_passed" }),
                 "success",
                 progress,
             );
@@ -655,7 +686,7 @@ export async function runMechanicalValidation({
             });
             emitRunWieldSystemStatus(
                 hostedSession,
-                "Preparing QUICK_FIX manual QA checklist.",
+                buildValidationUserMessage({ kind: "quick_fix_qa" }),
                 "info",
                 progress,
             );
@@ -666,10 +697,14 @@ export async function runMechanicalValidation({
                 context: manualQaContext,
                 cwd: validationCwd,
             });
-            progress = completeValidationProgress(progress, true, "QUICK_FIX Mechanical Validation passed.");
+            progress = completeValidationProgress(
+                progress,
+                true,
+                buildValidationUserMessage({ kind: "quick_fix_passed" }),
+            );
             emitRunWieldSystemStatus(
                 hostedSession,
-                "QUICK_FIX Mechanical Validation passed.",
+                buildValidationUserMessage({ kind: "quick_fix_passed" }),
                 "success",
                 progress,
             );
@@ -683,9 +718,14 @@ export async function runMechanicalValidation({
             progress = completeValidationProgress(
                 updateValidationProgress(progress, { checks: { ci: "failed" } }),
                 false,
-                reason,
+                buildValidationUserMessage({ kind: "quick_fix_failed", maxAttempts: maxRepairAttempts }),
             );
-            emitRunWieldSystemStatus(hostedSession, reason, true, progress);
+            emitRunWieldSystemStatus(
+                hostedSession,
+                buildValidationUserMessage({ kind: "quick_fix_failed", maxAttempts: maxRepairAttempts }),
+                true,
+                progress,
+            );
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "mechanical_validation_finished",
@@ -713,9 +753,12 @@ export async function runMechanicalValidation({
         });
         emitRunWieldSystemStatus(
             hostedSession,
-            `QUICK_FIX CI failed. Dispatching ${
-                getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
-            } for repair attempt ${repairAttempts}/${maxRepairAttempts}...`,
+            buildValidationUserMessage({
+                kind: "quick_fix_repair",
+                agent: getAgentDisplayName(AGENTS.ENGINEER, projectRoot),
+                attempt: repairAttempts,
+                maxAttempts: maxRepairAttempts,
+            }),
             true,
             progress,
         );
@@ -743,14 +786,17 @@ export async function runMechanicalValidation({
             } stopped without task_completed during QUICK_FIX repair.`;
             progress = updateValidationProgress(progress, {
                 outcome: "paused",
-                message: reason,
+                message: buildValidationUserMessage({
+                    kind: "quick_fix_waiting",
+                    agent: getAgentDisplayName(AGENTS.ENGINEER, projectRoot),
+                }),
             });
             emitRunWieldSystemStatus(
                 hostedSession,
-                `${reason} Staying with ${
-                    getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
-                } so the user can continue the session. ` +
-                    "Mechanical Validation will resume after task_completed.",
+                buildValidationUserMessage({
+                    kind: "quick_fix_waiting",
+                    agent: getAgentDisplayName(AGENTS.ENGINEER, projectRoot),
+                }),
                 true,
                 progress,
             );

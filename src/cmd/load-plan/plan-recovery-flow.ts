@@ -3,9 +3,15 @@
  * The Plan Recovery menu coordinator for in-progress, failed, and implemented Plans.
  */
 
-import { resolvePlanExecutionPolicy } from "../../plan-store.js";
+import { loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { probeGitRepository } from "../../shared/git.js";
 import { createGitPort } from "../../shared/git-port.ts";
+import {
+    buildPlanRecoveryUserMessage,
+    buildValidationUserMessage,
+    validationUserMessage,
+} from "../../shared/workflow/validation-user-messages.ts";
+import { runPlansDoctor } from "../plans/doctor.ts";
 import { isInValidation } from "../../shared/workflow/plan-lifecycle.js";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
 import {
@@ -84,6 +90,25 @@ interface RecoveryMenuOption extends Record<string, string> {
 
 export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promise<"handled" | "review"> {
     const { projectRoot, plan, uiAPI } = opts;
+    try {
+        await runPlansDoctor(projectRoot, true);
+        const refreshed = await loadPlan(projectRoot, plan.planName);
+        if (refreshed) {
+            plan.path = refreshed.path;
+            plan.markdown = refreshed.markdown;
+            plan.body = refreshed.body;
+            plan.attrs = refreshed.attrs;
+            plan.revision = refreshed.revision;
+        }
+    } catch (error) {
+        console.error("[RunWield] recovery_safe_repair_failed", error);
+        uiAPI.appendSystemMessage(
+            buildValidationUserMessage({ kind: "recovery_repair_failed" }),
+            true,
+            "RunWield",
+        );
+        return "handled";
+    }
     const initialPolicy = resolvePlanExecutionPolicy(plan.attrs);
     const loadedWorktreeId = plan.attrs.worktreeId;
     if (!initialPolicy.ok && initialPolicy.reason !== "project_epic") {
@@ -164,7 +189,26 @@ async function isAttemptPhysicallyLost(
     const branchExists = await createGitPort().branchHead(projectRoot, worktree.branch)
         .then(() => true)
         .catch(() => false);
-    return !branchExists;
+    if (branchExists) return false;
+    const command = new Deno.Command("git", {
+        cwd: projectRoot,
+        args: ["worktree", "list", "--porcelain"],
+        stdout: "piped",
+        stderr: "null",
+    });
+    const output = await command.output().catch(() => null);
+    if (!output || !output.success) return true;
+    const records = new TextDecoder().decode(output.stdout).trim().split(/\n\n+/);
+    const record = records.find((value) => value.split("\n").includes(`worktree ${worktree.path}`));
+    const head = record?.split("\n").find((line) => line.startsWith("HEAD "))?.slice(5);
+    if (!head) return true;
+    const proof = await new Deno.Command("git", {
+        cwd: projectRoot,
+        args: ["rev-parse", "--verify", `${head}^{commit}`],
+        stdout: "null",
+        stderr: "null",
+    }).output().catch(() => null);
+    return !proof?.success;
 }
 
 async function promptRecoveryAction(
@@ -176,7 +220,7 @@ async function promptRecoveryAction(
 ): Promise<RecoveryMenuAnswer | null | undefined> {
     if (physicallyLost) {
         return await context.uiAPI.promptSelect(
-            "The worktree and branch are gone. The Plan says they should be here. What do you want to do?",
+            validationUserMessage("lost_attempt"),
             [
                 { value: "reset", label: "Try the implementation again" },
                 { value: "review", label: "Send the Plan back to Planner" },
@@ -243,7 +287,7 @@ async function dispatchRecoveryAction(
 ): Promise<RecoveryActionOutcome> {
     if (gitRecoveryBlocked && ["continue", "validate", "merge"].includes(action)) {
         context.uiAPI.appendSystemMessage(
-            `Cannot ${action} this Plan recovery state because Git is not available for the project. Git is required for recorded Worktree/baseline recovery operations. Use metadata-only reset or abandon cleanup, or initialize Git and try again.`,
+            buildPlanRecoveryUserMessage({ kind: "git_blocked" }),
             true,
             "RunWield",
         );

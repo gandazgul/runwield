@@ -21,6 +21,7 @@ import {
 } from "../../shared/workflow/execution-context.ts";
 import { formatCommitHeadsUp } from "./plan-presentation.ts";
 import { reportInvalidRecoveryPolicy } from "./plan-recovery-worktree.ts";
+import { buildValidationRecoveryNotice } from "../../shared/workflow/validation-user-messages.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { UiAPI } from "../../ui/tui/types.js";
 import type { PlanSessionSurface, RecoveryWorktreeContext, ReviewImage } from "./plan-session-types.ts";
@@ -300,7 +301,7 @@ export async function validateCompletedExecution(
         );
     }
     for (const notice of resolution.selfHealNotices || []) {
-        if (uiAPI) uiAPI.appendSystemMessage(notice, false, "RunWield");
+        if (uiAPI) uiAPI.appendSystemMessage(buildValidationRecoveryNotice(notice), false, "RunWield");
     }
     const resolvedContext = resolution.context;
     const workflow = buildWorkflow(resolvedContext);

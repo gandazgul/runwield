@@ -17,6 +17,11 @@ import { PLAN_STATUSES, VALIDATION_PLAN_STATUSES } from "./plan-lifecycle.js";
 import { getProjectRoot, recordLifecycleEvent } from "./validation-context.ts";
 import { emitStatus } from "./validation-emit.ts";
 import { validationPhaseForStatus } from "./validation-checkpoint.ts";
+import {
+    buildValidationUserMessage,
+    validationPhasePauseMessage,
+    validationUserMessage,
+} from "./validation-user-messages.ts";
 import { runMechanicalValidationPhase } from "./validation-mechanical.ts";
 import { runSemanticReviewPhase, runValidatedReviewerPhase } from "./validation-semantic.ts";
 import type { ValidationPhaseName } from "./validation-ports.ts";
@@ -63,13 +68,10 @@ export async function runValidationPhase(args: ValidationLoopArgs): Promise<Vali
 }
 
 /**
- * Which phase runs next: what the loop remembers, or failing that, the Plan.
+ * Which phase runs next: the durable supervisor claim, or the canonical Plan.
  *
- * Memory wins because it is strictly better informed. It was written by the phase
- * that last knew where it was going, whereas status is a three-valued summary that
- * anything writing to the Plan can move — including a repair Agent's own
- * `task_completed`, which is how a run could skip its remaining checks and go
- * straight to publication.
+ * Session memory is not an authority. A new process or Session receives the same
+ * phase from the Plan's validation checkpoint.
  */
 function resolveNextPhase(
     args: ValidationLoopArgs,
@@ -80,7 +82,7 @@ function resolveNextPhase(
         : status === "validated_ci"
         ? "semantic"
         : "mechanical";
-    return args.session.getPosition(args.planName)?.phase || fromStatus;
+    return args.continuationPhase || fromStatus;
 }
 
 /**
@@ -108,7 +110,7 @@ async function healStatusAheadOfPhase(
         PHASE_STATUS[phase]
     }. Those checks did not run, so validation is starting again from the build.`;
     const projectRoot = getProjectRoot(args);
-    emitStatus(args, reason, "warning");
+    emitStatus(args, buildValidationUserMessage({ kind: "status_repaired" }), "warning");
     await recordLifecycleEvent(args, projectRoot, "validation_failed", status as PlanEventStatus, reason);
     return true;
 }
@@ -155,17 +157,17 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
         // any longer, the snapshot goes stale and its contradiction check ends the run:
         // a semantic repair would land, round two would never open, and the workflow
         // stopped without a word.
-        phaseArgs = { ...phaseArgs, executionContext: undefined };
+        phaseArgs = { ...phaseArgs, executionContext: undefined, continuationPhase: undefined };
     }
     const plan = await loadPlan(projectRoot, args.planName);
     const phase = validationPhaseForStatus(plan?.attrs.status);
-    args.session.emitStatus("Validation needs more time. Your work is safe. Run it again.", "warning");
+    emitStatus(args, validationUserMessage("retry_pause"), "warning");
     return {
         kind: "paused",
         planName: args.planName,
         projectRoot,
         classification: plan?.attrs.classification,
-        reason: phase ? `Validation paused before ${phase}.` : "Validation paused.",
+        reason: validationPhasePauseMessage(phase || undefined),
     };
 }
 

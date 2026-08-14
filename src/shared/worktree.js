@@ -9,11 +9,7 @@ import { encodeCwdForSessionDir } from "./session/root-session.js";
 import { assertGitRepository, GitRepositoryRequiredError } from "./git.js";
 import { getWorkflowDiff } from "./workflow/git-snapshot.js";
 import { addEntry, listEntries, pruneStaleEntries, removeEntry } from "./worktree-registry.js";
-import {
-    isRunWieldOwnedRuntimePath,
-    RUNWIELD_OWNED_RUNTIME_PATHS,
-    runwieldOwnedPathspecExclusions,
-} from "./runwield-owned-paths.ts";
+import { isRunWieldOwnedRuntimePath, RUNWIELD_OWNED_RUNTIME_PATHS } from "./runwield-owned-paths.ts";
 
 /**
  * @param {string} cwd
@@ -235,6 +231,23 @@ async function restoreExistingPathsFromHead(cwd, paths) {
     if (existingPaths.length > 0) {
         await runGit(cwd, ["restore", "--worktree", "--source=HEAD", "--", ...existingPaths]);
     }
+}
+
+/**
+ * Stage all changed files except RunWield-owned runtime files.
+ * Listing paths first avoids passing ignored exclusion paths to `git add`.
+ *
+ * @param {string} worktreePath
+ */
+async function stageDirtyPathsExceptOwnedRuntime(worktreePath) {
+    const tracked = parseNameOnlyPaths(
+        await runGit(worktreePath, ["diff", "--name-only", "--no-renames", "HEAD", "--"]),
+    );
+    const untracked = parseNameOnlyPaths(
+        await runGit(worktreePath, ["ls-files", "--others", "--exclude-standard"]),
+    );
+    const paths = [...new Set([...tracked, ...untracked])].filter((path) => !isRunWieldOwnedRuntimePath(path));
+    if (paths.length > 0) await runGit(worktreePath, ["add", "-A", "--", ...paths]);
 }
 
 /**
@@ -497,7 +510,7 @@ function buildWorktreeCommitMessage({ planName, planDescription, branch, stagedP
 /**
  * @param {string} worktreePath
  * @param {string} branch
- * @param {Record<string, unknown>} [messageOptions]
+ * @param {WorktreeCommitMessageOptions} [messageOptions]
  * @param {string[]} [allowedDirtyPaths]
  * @param {string} [mergeTargetRef]
  */
@@ -526,14 +539,13 @@ async function commitDirtyWorktreeState(
         const allowedPathNeedsOwnedExclusion = RUNWIELD_OWNED_RUNTIME_PATHS.some((ownedPath) =>
             isAllowedDirtyPath(ownedPath, allowedPathSet)
         );
-        const pathspecs = allowedPathNeedsOwnedExclusion
-            ? [...allowedDirtyPaths, ...runwieldOwnedPathspecExclusions]
-            : allowedDirtyPaths;
-        await runGit(worktreePath, ["add", "-A", "--", ...pathspecs]);
+        if (allowedPathNeedsOwnedExclusion) {
+            await stageDirtyPathsExceptOwnedRuntime(worktreePath);
+        } else {
+            await runGit(worktreePath, ["add", "-A", "--", ...allowedDirtyPaths]);
+        }
     } else {
-        const status = await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
-        const dirtyPaths = parseStatusPaths(status).filter((path) => !isRunWieldOwnedRuntimePath(path));
-        if (dirtyPaths.length > 0) await runGit(worktreePath, ["add", "-A", "--", ...dirtyPaths]);
+        await stageDirtyPathsExceptOwnedRuntime(worktreePath);
     }
     if (mergeTargetRef) await untrackOwnedRuntimePathsAbsentFromMergeTarget(worktreePath, mergeTargetRef);
     const stagedDiff = await runGit(worktreePath, ["diff", "--cached", "--name-only"]);

@@ -34,7 +34,7 @@ import {
     detectValidationPlanAmendment,
     validateAmendedObjectiveChecksAgainstBaseline,
 } from "./validation-plan-amendment.ts";
-import { validationUserMessage } from "./validation-user-messages.ts";
+import { buildValidationUserMessage, validationUserMessage } from "./validation-user-messages.ts";
 
 const ENGINEER_FOLLOW_UP_OPTIONS: UserActionOption[] = [
     { value: "engineer_follow_up", label: "Engineer follow-up" },
@@ -55,12 +55,12 @@ async function resolveValidationPlanAmendment(
             proposal.changedObjectiveChecks,
         );
     } catch (error) {
-        console.error("[RunWield] Plan change check failed", error);
+        console.error("[RunWield] plan_change_check_failed", error);
         const message = validationUserMessage("amendment_check_failed");
         emitStatus(args, message, "warning");
         const response = await requestInteraction(args, {
             type: ValidationInteractionTypes.SELECT,
-            prompt: `${message}\n\nWhat should RunWield do?`,
+            prompt: buildValidationUserMessage({ kind: "amendment_failed_prompt" }),
             options: [
                 { value: "engineer_follow_up", label: "Engineer follow-up" },
                 { value: "stop", label: "Stop" },
@@ -72,8 +72,7 @@ async function resolveValidationPlanAmendment(
     }
     const response = await requestInteraction(args, {
         type: ValidationInteractionTypes.SELECT,
-        prompt:
-            `${proposal.summary}\n\nApprove this Plan Amendment before RunWield uses these execution-worktree changes?`,
+        prompt: buildValidationUserMessage({ kind: "amendment_prompt", summary: proposal.summary }),
         options: [
             { value: "approve_amendment", label: "Approve command changes and retry" },
             { value: "engineer_follow_up", label: "Engineer follow-up" },
@@ -91,7 +90,7 @@ async function resolveValidationPlanAmendment(
         args.planContent = canonical.markdown;
         emitStatus(
             args,
-            "Plan Amendment approved and synchronized. Mechanical Validation will reload the Plan.",
+            buildValidationUserMessage({ kind: "amendment_approved" }),
             "success",
         );
         return "amended";
@@ -135,13 +134,18 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
         // A test suite can run for minutes. Saying so beforehand is the difference
         // between "it is working" and "it has hung" — publication had gone quiet here
         // too, leaving the longest wait in the workflow completely unannounced.
-        emitProgress(args, `Running CI Validation in ${phase.context.executionCwd}.`, "info", {
-            outcome: "running",
-            stage: "ci",
-            repairAttempt: attempts > 0 ? clampCycle(attempts) : null,
-            maxRepairAttempts: attempts > 0 ? AUTOMATIC_ROUNDS : null,
-            checks: { ci: "running" },
-        });
+        emitProgress(
+            args,
+            buildValidationUserMessage({ kind: "ci_running", cwd: phase.context.executionCwd }),
+            "info",
+            {
+                outcome: "running",
+                stage: "ci",
+                repairAttempt: attempts > 0 ? clampCycle(attempts) : null,
+                maxRepairAttempts: attempts > 0 ? AUTOMATIC_ROUNDS : null,
+                checks: { ci: "running" },
+            },
+        );
         const ciResult = await localCI.run({ cwd: phase.context.executionCwd });
         await recordMetric(args, phase.context.projectRoot, {
             category: "validation",
@@ -214,10 +218,15 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                     "implemented",
                 );
                 preserveValidationContinuationState(args, phase.context);
-                emitProgress(args, "Build, tests, and Objective-Failing Checks passed.", "success", {
-                    stage: "cycle",
-                    checks: { ci: "passed" },
-                });
+                emitProgress(
+                    args,
+                    buildValidationUserMessage({ kind: "checks_passed", objectiveChecks: true }),
+                    "success",
+                    {
+                        stage: "cycle",
+                        checks: { ci: "passed" },
+                    },
+                );
                 return {
                     kind: "paused",
                     planName: args.planName,
@@ -233,10 +242,15 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                     "implemented",
                 );
                 preserveValidationContinuationState(args, phase.context);
-                emitProgress(args, "Build and tests passed.", "success", {
-                    stage: "cycle",
-                    checks: { ci: "passed" },
-                });
+                emitProgress(
+                    args,
+                    buildValidationUserMessage({ kind: "checks_passed", objectiveChecks: false }),
+                    "success",
+                    {
+                        stage: "cycle",
+                        checks: { ci: "passed" },
+                    },
+                );
                 return {
                     kind: "paused",
                     planName: args.planName,
@@ -266,7 +280,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                     preserveValidationContinuationState(args, phase.context);
                     emitProgress(
                         args,
-                        "Build and tests passed; defective Objective-Failing Checks were waived by user.",
+                        buildValidationUserMessage({ kind: "checks_passed", objectiveChecks: true, waived: true }),
                         "success",
                         {
                             stage: "cycle",
@@ -308,7 +322,17 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                     const reason = `${
                         args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
                     } stopped without task_completed during broken Objective-Failing Check repair.`;
-                    emitStatus(args, `${reason} Validation will resume after task_completed.`, "warning");
+                    emitStatus(
+                        args,
+                        buildValidationUserMessage({
+                            kind: "repair_waiting",
+                            agent: args.session.getAgentDisplayName(
+                                phase.context.executionAgent,
+                                phase.context.projectRoot,
+                            ),
+                        }),
+                        "warning",
+                    );
                     return {
                         kind: "paused",
                         planName: args.planName,
@@ -378,7 +402,13 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 } stopped without task_completed during Objective-Failing Check repair.`;
                 emitStatus(
                     args,
-                    `${reason} Validation will resume after task_completed.`,
+                    buildValidationUserMessage({
+                        kind: "repair_waiting",
+                        agent: args.session.getAgentDisplayName(
+                            phase.context.executionAgent,
+                            phase.context.projectRoot,
+                        ),
+                    }),
                     "warning",
                 );
                 return {
@@ -522,7 +552,13 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             } stopped without task_completed during CI repair.`;
             emitStatus(
                 args,
-                `${reason} Validation will resume after task_completed.`,
+                buildValidationUserMessage({
+                    kind: "repair_waiting",
+                    agent: args.session.getAgentDisplayName(
+                        phase.context.executionAgent,
+                        phase.context.projectRoot,
+                    ),
+                }),
                 "warning",
             );
             return {
@@ -550,9 +586,10 @@ function pauseForEngineerFollowUp(
     args.session.setActiveWorkflow({ ...context.workflowBase });
     emitStatus(
         args,
-        `Validation is paused. Send follow-up instructions to ${
-            args.session.getAgentDisplayName(context.executionAgent, context.projectRoot)
-        } in this session when you are ready.`,
+        buildValidationUserMessage({
+            kind: "engineer_follow_up",
+            agent: args.session.getAgentDisplayName(context.executionAgent, context.projectRoot),
+        }),
         "warning",
     );
     return {
@@ -577,16 +614,23 @@ export async function runPlanObjectiveChecks(
     if (!checks.length) return { kind: "skipped" };
     const activeChecks = objectiveChecksWithoutWaivers(checks, args.triageMeta.objectiveCheckWaivers);
     if (!activeChecks.length) {
-        emitStatus(args, `All Objective-Failing Checks for ${args.planName} are waived; skipping them.`, "success");
+        emitStatus(
+            args,
+            buildValidationUserMessage({ kind: "objective_all_waived", planName: args.planName }),
+            "success",
+        );
         return { kind: "passed" };
     }
     const skippedCount = checks.length - activeChecks.length;
 
     emitStatus(
         args,
-        `Running Objective-Failing Checks for ${args.planName}: ${activeChecks.map((check) => check.id).join(", ")}.${
-            skippedCount ? ` Skipping ${skippedCount} waived check${skippedCount === 1 ? "" : "s"}.` : ""
-        }`,
+        buildValidationUserMessage({
+            kind: "objective_running",
+            planName: args.planName,
+            checkIds: activeChecks.map((check) => check.id),
+            skippedCount,
+        }),
     );
     // Register the whole phase as a Session active interaction so Escape reaches
     // it exactly like it reaches local CI: one abort, whole process trees stop,
@@ -623,10 +667,14 @@ export async function runPlanObjectiveChecks(
     if (canceled) {
         // Cancellation is a user pause, not a check defect: report it apart from
         // broken/unmet so the caller never stages a failure or a repair for it.
-        emitStatus(args, "Objective-Failing Checks canceled.", "warning");
+        emitStatus(args, buildValidationUserMessage({ kind: "objective_canceled" }), "warning");
         return { kind: "canceled" };
     }
-    emitStatus(args, summary.compactBlock, summary.broken || summary.unmet ? "warning" : "success");
+    emitStatus(
+        args,
+        buildValidationUserMessage({ kind: "objective_summary", summary: summary.compactBlock }),
+        summary.broken || summary.unmet ? "warning" : "success",
+    );
     const reportedResults = matchEngineerReportedBrokenResults(results, engineerReports);
     if (reportedResults.length) {
         const reportedSummary = summarizeObjectiveChecks(reportedResults).block;
@@ -638,11 +686,7 @@ export async function runPlanObjectiveChecks(
         };
     }
     if (engineerReports.length && !reportedResults.length) {
-        emitStatus(
-            args,
-            "Engineer-reported defective Objective-Failing Checks did not match current Plan commands; waiver is not available for stale reports.",
-            "warning",
-        );
+        emitStatus(args, buildValidationUserMessage({ kind: "objective_report_stale" }), "warning");
     }
     if (summary.broken > 0) {
         return { kind: "broken", reason: `Objective-Failing Check defect.\n\n${summary.block}`, results };
@@ -662,17 +706,25 @@ export async function requestObjectiveCheckWaiver(
 ): Promise<
     { kind: "waived" } | { kind: "rejected"; feedback: string } | { kind: "engineer_follow_up" } | { kind: "stop" }
 > {
-    const prompt = source === "engineer_report"
-        ? `The execution agent reported broken Objective-Failing Checks for "${args.planName}".`
-        : `RunWield detected broken Objective-Failing Checks for "${args.planName}".`;
+    const messageSource = source === "engineer_report" ? "agent" : "runwield";
     emitStatus(
         args,
-        `${prompt}\n\n${reason}\n\nAccept a waiver only if the check itself is broken and the implementation should continue.`,
+        buildValidationUserMessage({
+            kind: "objective_waiver_notice",
+            source: messageSource,
+            planName: args.planName,
+            reason,
+        }),
         "warning",
     );
     const response = await requestInteraction(args, {
         type: ValidationInteractionTypes.SELECT,
-        prompt: `${prompt}\n\n${reason}\n\nWhat should RunWield do?`,
+        prompt: buildValidationUserMessage({
+            kind: "objective_waiver_prompt",
+            source: messageSource,
+            planName: args.planName,
+            reason,
+        }),
         options: [
             { value: "waive", label: "Waive defective checks" },
             { value: "engineer_follow_up", label: "Engineer follow-up" },
@@ -686,18 +738,17 @@ export async function requestObjectiveCheckWaiver(
     if (response.outcome !== "selected" || response.value !== "waive") {
         const feedbackResponse = await requestInteraction(args, {
             type: ValidationInteractionTypes.TEXT,
-            prompt: "Tell the Engineer what to fix about these broken Objective-Failing Checks.",
-            defaultValue:
-                "The broken Objective-Failing Check waiver was rejected. Fix the check definition or implementation so validation can make a reliable decision.",
+            prompt: buildValidationUserMessage({ kind: "objective_feedback_prompt" }),
+            defaultValue: buildValidationUserMessage({ kind: "objective_feedback_default" }),
         });
         const feedback = typeof feedbackResponse.value === "string" && feedbackResponse.value.trim()
             ? feedbackResponse.value.trim()
-            : "The broken Objective-Failing Check waiver was rejected. Fix the check definition or implementation so validation can make a reliable decision.";
+            : buildValidationUserMessage({ kind: "objective_feedback_default" });
         return { kind: "rejected", feedback };
     }
     const noteResponse = await requestInteraction(args, {
         type: ValidationInteractionTypes.TEXT,
-        prompt: "Optional note for the Objective Check waiver record.",
+        prompt: buildValidationUserMessage({ kind: "objective_note_prompt" }),
         allowEmpty: true,
     });
     const userNote = typeof noteResponse.value === "string" ? noteResponse.value.trim() : "";
@@ -759,9 +810,10 @@ export async function dispatchObjectiveCheckRepair(
     args.session.setActiveWorkflow({ ...context.workflowBase });
     emitStatus(
         args,
-        `Objective-Failing Checks are unmet. Dispatching ${
-            args.session.getAgentDisplayName(context.executionAgent, context.projectRoot)
-        } to satisfy them...`,
+        buildValidationUserMessage({
+            kind: "objective_repair",
+            agent: args.session.getAgentDisplayName(context.executionAgent, context.projectRoot),
+        }),
         "warning",
     );
     return await args.session.runIndependentRepairTurn({
@@ -792,18 +844,12 @@ export async function dispatchCiRepair(
     ciResult: ValidationLocalCIResult,
 ): Promise<boolean> {
     args.session.setActiveWorkflow({ ...context.workflowBase });
-    // Pin the loop before the independent repair runs. Plan state can advance while
-    // the repair is active, but this CI attempt has not passed. The remembered phase
-    // prevents a later dispatch from trusting that newer status and skipping CI.
-    args.session.rememberPosition(args.planName, {
-        phase: "mechanical",
-        awaiting: "ci_repair",
-    });
     emitProgress(
         args,
-        `Build failed. Dispatching ${
-            args.session.getAgentDisplayName(context.executionAgent, context.projectRoot)
-        } to fix the CI failure...`,
+        buildValidationUserMessage({
+            kind: "ci_repair",
+            agent: args.session.getAgentDisplayName(context.executionAgent, context.projectRoot),
+        }),
         "warning",
         { outcome: "running", stage: "engineer_repair", checks: { ci: "failed" } },
     );

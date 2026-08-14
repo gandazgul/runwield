@@ -4,7 +4,20 @@
  */
 
 import { join } from "@std/path";
-import { buildPlanDefinitionProjection, loadPlan, PLAN_AMENDMENT_DEFINITION_KEYS, savePlan } from "../../plan-store.js";
+import {
+    buildPlanDefinitionProjection,
+    getPlanRevisionForText,
+    getStoredPlanPath,
+    injectFrontMatter,
+    loadPlan,
+    PLAN_AMENDMENT_DEFINITION_KEYS,
+    writePlanMarkdownWithRevision,
+} from "../../plan-store.js";
+import {
+    listTransitionRecoveryRecords,
+    reconcileTransitionRecoveryRecords,
+    runPlanAmendmentTransition,
+} from "./state-transition.ts";
 import {
     classifyObjectiveChecksBaseline,
     type ObjectiveCheck,
@@ -181,6 +194,65 @@ function filterWaiversForCurrentCommands(attrs: PlanFrontMatter): PlanFrontMatte
     return (attrs.objectiveCheckWaivers || []).filter((waiver) => currentCommands.get(waiver.id) === waiver.command);
 }
 
+type AmendmentSyncProof = {
+    executionCwd?: string;
+    primaryRevision?: string;
+    executionRevision?: string;
+    canonicalRevision?: string;
+    canonicalMarkdown?: string;
+};
+
+type AmendmentJournalRecord = {
+    transitionId?: string;
+    operation?: string;
+    planName?: string;
+    completedEffects?: Array<{ effect?: string; proof?: AmendmentSyncProof }>;
+};
+
+/** Finish an accepted primary-to-execution write after process loss. */
+export async function resumeValidationPlanAmendment(
+    projectRoot: string,
+    planName: string,
+): Promise<boolean> {
+    const records = await listTransitionRecoveryRecords(projectRoot) as AmendmentJournalRecord[];
+    const record = records.find((candidate) =>
+        candidate.operation === "validation_plan_amendment" && candidate.planName === planName
+    );
+    const intent = record?.completedEffects?.find((effect) => effect.effect === "plan_amendment_sync_required")?.proof;
+    if (
+        !record || !intent?.executionCwd || !intent.primaryRevision || !intent.executionRevision ||
+        !intent.canonicalRevision || !intent.canonicalMarkdown
+    ) return false;
+    const executionCwd = intent.executionCwd;
+    const primary = await loadPlan(projectRoot, planName);
+    const execution = await loadPlan(executionCwd, planName);
+    if (!primary || !execution) throw new Error(`Plan amendment recovery could not load ${planName}.`);
+    if (primary.revision === intent.primaryRevision) {
+        await writePlanMarkdownWithRevision(primary.path, intent.canonicalMarkdown, primary.revision);
+    } else if (primary.revision !== intent.canonicalRevision) {
+        throw new Error(`The primary Plan changed after its amendment was approved: ${planName}.`);
+    }
+    if (execution.revision === intent.executionRevision) {
+        await writePlanMarkdownWithRevision(execution.path, intent.canonicalMarkdown, execution.revision);
+    } else if (execution.revision !== intent.canonicalRevision) {
+        throw new Error(`The execution Plan changed after its amendment was approved: ${planName}.`);
+    }
+    await reconcileTransitionRecoveryRecords(projectRoot, {
+        apply: true,
+        proveEffect: async (_effect, journal) => {
+            if (journal.operation !== "validation_plan_amendment" || journal.planName !== planName) {
+                return { settled: false, reason: "this repair owns another operation" };
+            }
+            const canonical = await loadPlan(projectRoot, planName);
+            const copy = await loadPlan(executionCwd, planName);
+            const settled = canonical?.revision === intent.canonicalRevision &&
+                copy?.revision === intent.canonicalRevision;
+            return { settled, reason: settled ? "both Plan copies match" : "Plan copies do not match" };
+        },
+    });
+    return true;
+}
+
 export async function applyValidationPlanAmendment(
     projectRoot: string,
     executionCwd: string,
@@ -206,14 +278,39 @@ export async function applyValidationPlanAmendment(
             objectiveCheckWaivers: filterWaiversForCurrentCommands(nextAttrs),
         };
     }
-    const body = execution.body;
-    await savePlan(projectRoot, planName, body, nextAttrs, { expectedRevision: primary.revision });
+    const canonicalMarkdown = injectFrontMatter(execution.body, nextAttrs);
+    const canonicalRevision = await getPlanRevisionForText(canonicalMarkdown);
+    const transition = await runPlanAmendmentTransition({
+        projectRoot,
+        planName,
+        worktreeId: typeof primary.attrs.worktreeId === "string" ? primary.attrs.worktreeId : undefined,
+        expectedRevision: primary.revision,
+        apply: async ({ markEffect }) => {
+            await markEffect("plan_amendment_sync_required", {
+                executionCwd,
+                primaryRevision: primary.revision,
+                executionRevision: execution.revision,
+                canonicalRevision,
+                canonicalMarkdown,
+            });
+            await writePlanMarkdownWithRevision(primary.path, canonicalMarkdown, primary.revision);
+            await markEffect("primary_plan_amended", { canonicalRevision });
+            await writePlanMarkdownWithRevision(
+                getStoredPlanPath(executionCwd, planName),
+                canonicalMarkdown,
+                execution.revision,
+            );
+            await markEffect("execution_plan_synchronized", { executionCwd, canonicalRevision });
+            return { canonicalRevision };
+        },
+    });
+    if (transition.status !== "committed") {
+        throw new Error(transition.message || `Plan amendment needs recovery for ${planName}.`);
+    }
     const canonical = await loadPlan(projectRoot, planName);
-    if (!canonical) throw new Error(`Primary Plan disappeared after applying amendment: ${planName}`);
-    await savePlan(executionCwd, planName, canonical.body, canonical.attrs, { expectedRevision: execution.revision });
     const reconciled = await loadPlan(executionCwd, planName);
-    if (!reconciled) throw new Error(`Execution Plan disappeared after applying amendment: ${planName}`);
-    if (canonical.body !== reconciled.body || JSON.stringify(canonical.attrs) !== JSON.stringify(reconciled.attrs)) {
+    if (!canonical || !reconciled) throw new Error(`Plan disappeared after applying amendment: ${planName}`);
+    if (canonical.revision !== canonicalRevision || reconciled.revision !== canonicalRevision) {
         throw new Error(`Plan amendment synchronization did not produce matching Plan copies for ${planName}.`);
     }
     // Prove the canonical file is still under the expected docs/plans location. This catches path surprises early.

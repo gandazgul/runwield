@@ -539,13 +539,14 @@ Deno.test("runValidationPhase re-runs CI after a repair even when the Plan statu
         });
         assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
 
-        // Status now says Semantic Review is next. The loop knows better: it dispatched a
-        // CI repair and never saw CI pass, so it goes back to CI.
+        // Status now says Semantic Review is next. The durable checkpoint still says
+        // that CI never passed, so a replacement Session receives mechanical next.
         const second = await runValidationPhase({
             hostedSession,
             planName: "p",
             planContent: "# p",
             triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+            continuationPhase: "mechanical",
             localCI,
         });
 

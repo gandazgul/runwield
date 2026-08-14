@@ -1129,7 +1129,7 @@ async function runComposedTuiScenario(scenario, options) {
                     const recordedWorktreeBranch = String(planAttrs.worktreeBranch || "");
                     const deliveryTranscript = `${terminal.getScreenText()}\n${terminal.getScrollbackText?.() || ""}`;
                     const deliveredBranchMatch = deliveryTranscript.match(
-                        /Merging validated worktree branch\s+([^\s]+)\s+into target branch/,
+                        /Merging branch\s+([^\s]+)\s+into branch/,
                     );
                     const worktreeBranch = recordedWorktreeBranch || deliveredBranchMatch?.[1] || "";
                     const validatedWorktreeHead = worktreeBranch

@@ -198,7 +198,7 @@ Deno.test("runValidationLoop shows why FEATURE validation fails when workflow di
         assertEquals(plan?.attrs.status, "implemented");
         const messages = /** @type {string[]} */ (uiAPI.messages);
         assertEquals(
-            messages.some((message) => message.includes("No implementation changes detected")),
+            messages.some((message) => message.includes("Code review needs a code change")),
             true,
         );
     } finally {

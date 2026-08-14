@@ -1,12 +1,13 @@
 import { updatePlanFrontMatter } from "../../plan-store.js";
+import { AGENTS } from "../../constants.js";
 import { buildPlanEventUpdates } from "../../shared/workflow/plan-lifecycle.js";
 import {
     closeTransitionRecordByAttestation,
-    getTransitionJournalDir,
     runPlanFrontMatterTransition,
     runRecoveryTransition,
 } from "../../shared/workflow/state-transition.ts";
 import { healSettledTransitionRecords } from "../../shared/workflow/transition-recovery.ts";
+import { buildPlanRecoveryUserMessage } from "../../shared/workflow/validation-user-messages.ts";
 import {
     appendRecoveryReport,
     confirmRecoveryWorktreeAvailable,
@@ -23,7 +24,7 @@ import {
     updateEntry as updateWorktreeRegistryEntry,
 } from "../../shared/worktree-registry.js";
 import { markPlanUserVerified, putPlanOnHold } from "./plan-hold.ts";
-import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../../shared/git.js";
+import { isGitRepositoryRequiredError } from "../../shared/git.js";
 import { transitionFailureError } from "./transition-failure.ts";
 
 import type { PlanFrontMatter } from "../../plan-store.js";
@@ -92,7 +93,7 @@ export async function stopLostRecoveryPlan(context: RecoveryActionContext): Prom
     if (transition.status !== "committed") {
         throw transitionFailureError(transition, `Could not stop recovery for ${plan.planName}.`);
     }
-    context.uiAPI.appendSystemMessage("Stopped here. The Plan is ready for work.", false, "RunWield");
+    context.uiAPI.appendSystemMessage(buildPlanRecoveryUserMessage({ kind: "stopped" }), false, "RunWield");
     await context.recordRecoveryResult("stop_lost", "ready_for_work");
     return { kind: "handled" };
 }
@@ -101,7 +102,7 @@ export async function restoreRecoveryWorktreeRecord(context: RecoveryActionConte
     const { projectRoot, plan, uiAPI, worktreeContext } = context;
     if (!worktreeContext?.id || !worktreeContext.path || !worktreeContext.branch || !worktreeContext.baseBranch) {
         uiAPI.appendSystemMessage(
-            "Cannot restore the worktree record because the Plan does not record a complete worktree id, path, branch, and target branch.",
+            buildPlanRecoveryUserMessage({ kind: "record_incomplete" }),
             true,
             "RunWield",
         );
@@ -123,7 +124,7 @@ export async function restoreRecoveryWorktreeRecord(context: RecoveryActionConte
     });
     if (!restored.restored || !restored.entry) {
         uiAPI.appendSystemMessage(
-            `Could not restore the worktree record: ${restored.reason || "evidence did not agree"}`,
+            buildPlanRecoveryUserMessage({ kind: "record_restore_failed" }),
             true,
             "RunWield",
         );
@@ -133,7 +134,7 @@ export async function restoreRecoveryWorktreeRecord(context: RecoveryActionConte
         return { kind: "menu" };
     }
     uiAPI.appendSystemMessage(
-        `Restored worktree record ${restored.entry.id}: ${restored.entry.path} on ${restored.entry.branch}, targeting ${restored.entry.baseBranch}.`,
+        buildPlanRecoveryUserMessage({ kind: "record_restored", planName: plan.planName }),
         true,
         "RunWield",
     );
@@ -150,9 +151,7 @@ export async function settleRecoveryRecords(context: RecoveryActionContext): Pro
     context.unresolvedRecords = recheck ? recheck.remaining : context.unresolvedRecords;
     if (recheck && recheck.closed.length > 0) {
         uiAPI.appendSystemMessage(
-            `Closed ${recheck.closed.length} lifecycle record${
-                recheck.closed.length === 1 ? "" : "s"
-            } that the repository now proves are settled.`,
+            buildPlanRecoveryUserMessage({ kind: "records_settled", count: recheck.closed.length }),
             false,
             "RunWield",
         );
@@ -161,9 +160,9 @@ export async function settleRecoveryRecords(context: RecoveryActionContext): Pro
         await context.recordRecoveryResult("settle_records", "handled", { byProof: true });
         return { kind: "menu" };
     }
-    for (const record of context.unresolvedRecords) {
+    for (const _record of context.unresolvedRecords) {
         uiAPI.appendSystemMessage(
-            `Unfinished ${record.operation || "lifecycle operation"} on ${plan.planName}: ${record.reason}`,
+            buildPlanRecoveryUserMessage({ kind: "record_unfinished", planName: plan.planName }),
             false,
             "RunWield",
         );
@@ -188,9 +187,7 @@ export async function settleRecoveryRecords(context: RecoveryActionContext): Pro
     }
     context.unresolvedRecords = [];
     uiAPI.appendSystemMessage(
-        `Closed on your confirmation. The records were kept, not deleted — they are under ${
-            getTransitionJournalDir(projectRoot)
-        }/attested if you need to look back. Lifecycle changes to ${plan.planName} are unblocked.`,
+        buildPlanRecoveryUserMessage({ kind: "records_attested", planName: plan.planName }),
         false,
         "RunWield",
     );
@@ -314,7 +311,11 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
     if (!(await confirmWorktreeAction(plan.planName, uiAPI, "Delete/abandon"))) {
         return { kind: "menu" };
     }
-    uiAPI.appendSystemMessage(`Deleting recorded worktree for "${plan.planName}"...`, false, "RunWield");
+    uiAPI.appendSystemMessage(
+        buildPlanRecoveryUserMessage({ kind: "deleting_worktree", planName: plan.planName }),
+        false,
+        "RunWield",
+    );
     let removedWorktree = true;
     const transition = await runRecoveryTransition({
         projectRoot,
@@ -343,9 +344,7 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
                     }
                     removedWorktree = false;
                     uiAPI.appendSystemMessage(
-                        `Git is required to delete the recorded worktree. Proceeding with metadata-only abandon: ${
-                            formatGitRequiredMessage(error)
-                        }`,
+                        buildPlanRecoveryUserMessage({ kind: "git_delete_skipped" }),
                         true,
                         "RunWield",
                     );
@@ -361,7 +360,7 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
                     const missingEntryMessage = `Worktree registry entry not found: ${context.worktreeContext.id}`;
                     if (message !== missingEntryMessage) throw error;
                     uiAPI.appendSystemMessage(
-                        `Worktree registry entry ${context.worktreeContext.id} was already absent. Proceeding with Plan metadata abandon.`,
+                        buildPlanRecoveryUserMessage({ kind: "record_already_gone" }),
                         true,
                         "RunWield",
                     );
@@ -383,9 +382,7 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
     plan.attrs = transitionValue.value as PlanFrontMatter;
     context.worktreeContext = null;
     uiAPI.appendSystemMessage(
-        removedWorktree
-            ? "Worktree abandoned and removed."
-            : "Worktree metadata abandoned; recorded path was left untouched because Git is unavailable.",
+        buildPlanRecoveryUserMessage({ kind: "abandon_done", removed: removedWorktree }),
         false,
         "RunWield",
     );
@@ -401,6 +398,7 @@ export async function reviewRecoveryPlan(context: RecoveryActionContext): Promis
         worktreeContext: context.worktreeContext,
         session: context.session,
     });
+    await context.session.switchAgent(AGENTS.PLANNER, { allowReturnToRouter: false });
     await context.recordRecoveryResult("review", "review");
     return { kind: "review" };
 }

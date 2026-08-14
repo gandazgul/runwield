@@ -18,6 +18,7 @@ import { getDiffText, getPlanAttrs, recordLifecycleEvent } from "./validation-co
 import { emitProgress } from "./validation-emit.ts";
 import { pauseForUserAction, requestInteraction } from "./validation-interactions.ts";
 import { dispatchReviewFeedbackRepair } from "./validation-semantic.ts";
+import { buildValidationUserMessage } from "./validation-user-messages.ts";
 
 type HumanReviewAnnotations = Array<{ file?: string; line?: number; text?: string; body?: string }>;
 
@@ -48,7 +49,7 @@ export async function runHumanReviewPhase(
     if (mode === "ask" && args.triageMeta.humanReviewDecision !== "changes_requested") {
         const response = await requestInteraction(args, {
             type: ValidationInteractionTypes.SELECT,
-            prompt: "Semantic review passed. Open code review before merge-back?",
+            prompt: buildValidationUserMessage({ kind: "human_review_offer" }),
             options: [
                 { value: "open", label: "Open code review" },
                 { value: "skip", label: "Skip code review" },
@@ -79,7 +80,7 @@ export async function runHumanReviewPhase(
         stats: {},
     };
     for (;;) {
-        emitProgress(args, "Waiting for User Code Review...", "info", {
+        emitProgress(args, buildValidationUserMessage({ kind: "human_review_wait" }), "info", {
             outcome: "running",
             stage: "human_review",
             checks: { humanReview: "running" },
@@ -105,7 +106,7 @@ export async function runHumanReviewPhase(
     > {
         const humanReviewResponse = await requestInteraction(args, {
             type: ValidationInteractionTypes.CODE_REVIEW,
-            prompt: `Review implementation diff for "${args.planName}"`,
+            prompt: buildValidationUserMessage({ kind: "human_review_prompt", planName: args.planName }),
             _meta: {
                 planName: args.planName,
                 planContent: args.planContent,
@@ -122,7 +123,7 @@ export async function runHumanReviewPhase(
                 humanReviewDecision: "approved",
                 humanReviewedAt: new Date().toISOString(),
             });
-            emitProgress(args, "User Code Review Approved.", "success", {
+            emitProgress(args, buildValidationUserMessage({ kind: "human_review_approved" }), "success", {
                 stage: "human_review",
                 checks: { humanReview: "passed" },
             });

@@ -1678,21 +1678,25 @@ export async function atomicWriteTextFile(path, content) {
  * @param {string} content
  */
 export async function atomicWriteTextFileIfAbsent(path, content) {
-    await Deno.mkdir(dirname(path), { recursive: true });
+    const parent = dirname(path);
+    await Deno.mkdir(parent, { recursive: true });
+    const temporaryPath = await Deno.makeTempFile({ dir: parent, prefix: ".rw-create-", suffix: ".tmp" });
     let file;
     try {
-        file = await Deno.open(path, { createNew: true, write: true });
+        file = await Deno.open(temporaryPath, { write: true, truncate: true });
         await file.write(new TextEncoder().encode(content));
         await file.sync();
         file.close();
         file = undefined;
-        await syncDirectory(dirname(path));
+        // Linking a complete same-filesystem file publishes all bytes at once and
+        // still fails when another writer already owns the target path.
+        await Deno.link(temporaryPath, path);
+        await syncDirectory(parent);
     } catch (error) {
         if (file) file.close();
-        // Never remove or replace the target path from create-if-absent writes:
-        // if another process created evidence while we were writing, preserving
-        // those bytes is the whole point of this helper.
         throw error;
+    } finally {
+        await Deno.remove(temporaryPath).catch(() => {});
     }
 }
 

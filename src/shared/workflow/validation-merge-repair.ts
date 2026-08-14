@@ -7,6 +7,7 @@
 import { runPlanFrontMatterTransition } from "./state-transition.ts";
 import type { PhaseContext, PublicationOutcome, UserActionPause, ValidationLoopArgs } from "./validation-types.ts";
 import { emitStatus } from "./validation-emit.ts";
+import { buildValidationUserMessage, validationMergeRepairMessage } from "./validation-user-messages.ts";
 import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
 
 /**
@@ -120,7 +121,7 @@ export function describeMergePause(
     planName: string,
     targetBranch: string,
     error: unknown,
-    reason: string,
+    _reason: string,
     context: PhaseContext,
 ): UserActionPause {
     const kind = getMergeFailureKind(error);
@@ -148,9 +149,10 @@ export function describeMergePause(
                 `Open ${repairCwd}, fix the files git marked as conflicted, run "git add" on each one, then pick Retry.`,
         };
     }
+    console.error("[RunWield] merge_pause", { planName, targetBranch });
     return {
-        whatHappened: `RunWield could not add "${planName}" to your ${targetBranch} branch. Git said: ${reason}`,
-        doThis: `Fix that in ${repairCwd}, then pick Retry.`,
+        whatHappened: `RunWield could not add "${planName}" to your ${targetBranch} branch. The merge stopped.`,
+        doThis: `Check the files in ${repairCwd}, then pick Retry.`,
     };
 }
 
@@ -166,8 +168,16 @@ export async function dispatchMergeRepair(
     // explanation reads as RunWield doing something unprompted: the user sees tool
     // calls about merge conflicts they were never told about, in a directory they did
     // not choose.
-    emitStatus(args, `Merge failed while publishing ${args.planName}: ${reason}`, "warning");
-    emitStatus(args, `Dispatching ${context.executionAgent} to resolve the conflict in ${repairCwd}.`);
+    console.error("[RunWield] merge_repair_started", { planName: args.planName });
+    emitStatus(args, validationMergeRepairMessage(args.planName), "warning");
+    emitStatus(
+        args,
+        buildValidationUserMessage({
+            kind: "merge_dispatch",
+            agent: context.executionAgent,
+            cwd: repairCwd,
+        }),
+    );
     args.session.setActiveWorkflow({ ...context.workflowBase });
     const outcome = await args.session.runIndependentRepairTurn({
         agentName: context.executionAgent,

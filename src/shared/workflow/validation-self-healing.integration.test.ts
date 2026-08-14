@@ -182,7 +182,7 @@ Deno.test("stale RunWield state self-heals and validation continues", async () =
         assertEquals(shown.includes("execution-shaping"), false);
         assertEquals(shown.includes("planId"), false);
         assertEquals(shown.includes("collaborationRecommendation"), false);
-        assertStringIncludes(shown, "Running CI Validation");
+        assertStringIncludes(shown, "Running the tests in");
     } finally {
         await removeFixture(testFixture);
     }
@@ -248,7 +248,7 @@ Deno.test("a missing worktree is restored from its branch", async () => {
                 await Deno.realPath(testFixture.executionCwd),
             );
             assertEquals(
-                resolution.selfHealNotices?.some((notice) => notice.startsWith("Restored the worktree")),
+                resolution.selfHealNotices?.some((notice) => notice.kind === "worktree_restored"),
                 true,
             );
         }

@@ -34,6 +34,10 @@ Deno.test("every production entry uses one validation owner", async () => {
     const supervisor = await Deno.readTextFile(new URL("./validation-supervisor.ts", import.meta.url));
     assert(supervisor.includes("export async function continueWorkflowValidation"));
     assert(supervisor.includes("await runValidationLoop"));
+    assert(supervisor.includes("continuationPhase: claim.checkpoint.nextPhase"));
+    assert(supervisor.includes("prior.lastSettledOperationId === args.taskCompletionId"));
+    const handler = await Deno.readTextFile(new URL("../session/agent-handler.ts", import.meta.url));
+    assert(handler.includes("taskCompletionId: acceptedCompletion.completionId"));
 });
 
 Deno.test("validation checkpoint survives a new Plan load", async () => {

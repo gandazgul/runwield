@@ -11,6 +11,7 @@ import { type ValidationInteractionRequest, ValidationInteractionTypes } from ".
 import type { ValidationInteractionResponse } from "./validation-ports.ts";
 import type { UserActionChoice, UserActionPause, ValidationLoopArgs } from "./validation-types.ts";
 import { emitStatus } from "./validation-emit.ts";
+import { buildValidationUserMessage } from "./validation-user-messages.ts";
 
 export async function requestInteraction(
     args: ValidationLoopArgs,
@@ -35,15 +36,20 @@ export async function pauseForUserAction(
     args: ValidationLoopArgs,
     pause: UserActionPause,
 ): Promise<UserActionChoice> {
-    const detailLines = pause.details?.length ? `\n\n${pause.details.map((detail) => `  ${detail}`).join("\n")}` : "";
+    const message = buildValidationUserMessage({
+        kind: "user_action",
+        whatHappened: pause.whatHappened,
+        doThis: pause.doThis,
+        details: pause.details,
+    });
     const options = pause.options || [
         { value: "retry" as const, label: "Retry" },
         { value: "stop" as const, label: "Stop" },
     ];
-    emitStatus(args, `${pause.whatHappened}${detailLines}\n\n${pause.doThis}`, "warning");
+    emitStatus(args, message, "warning");
     const response = await requestInteraction(args, {
         type: ValidationInteractionTypes.SELECT,
-        prompt: `${pause.whatHappened}${detailLines}\n\n${pause.doThis}`,
+        prompt: message,
         options,
     });
     const selectedValue = response.outcome === "selected" && typeof response.value === "string"

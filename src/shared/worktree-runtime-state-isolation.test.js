@@ -5,6 +5,7 @@ import { checkpointExecutionWorktree, mergeExecutionWorktree } from "./worktree.
 
 const repo = defineGitFixture(async (repoPath) => {
     await Deno.writeTextFile(join(repoPath, "README.md"), "base\n");
+    await Deno.writeTextFile(join(repoPath, ".gitignore"), ".wld/plan-locks\n");
     await git(repoPath, ["add", "."]);
     await git(repoPath, ["commit", "-m", "base"]);
 });
@@ -26,6 +27,7 @@ Deno.test("execution runtime state does not enter the merge when primary .wld is
         await Deno.mkdir(join(cwd, ".wld"), { recursive: true });
         await Deno.writeTextFile(join(cwd, ".wld", "worktrees.json"), "primary registry\n");
         const registryBefore = await Deno.readTextFile(join(cwd, ".wld", "worktrees.json"));
+        await Deno.mkdir(join(worktreePath, ".wld", "plan-locks"), { recursive: true });
         await Deno.mkdir(join(worktreePath, ".wld", "plan-transitions"), { recursive: true });
         await Deno.writeTextFile(join(worktreePath, ".wld", "plan-transitions", "x.json"), "{}\n");
         await Deno.writeTextFile(join(worktreePath, "feature.txt"), "work\n");

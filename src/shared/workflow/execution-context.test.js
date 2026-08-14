@@ -111,6 +111,51 @@ Deno.test("resolveValidationExecutionContext allows a legacy creation tree to di
     }
 });
 
+Deno.test("resolveValidationExecutionContext fixes a stale registry path from Git", async () => {
+    const projectRoot = await baseRepo.checkout();
+    const parent = await Deno.makeTempDir();
+    try {
+        const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+        const actualPath = `${parent}/actual`;
+        const stalePath = `${parent}/gone`;
+        const branch = "runwield/worktree/p-stale-path";
+        await git(projectRoot, ["worktree", "add", "-b", branch, actualPath, "HEAD"]);
+        await savePlan(actualPath, "p", "# Plan", { classification: "FEATURE", status: "implemented" });
+        await savePlan(projectRoot, "p", "# Plan", {
+            planId: "plan-p",
+            classification: "FEATURE",
+            status: "implemented",
+            executionMode: "worktree",
+            worktreeId: "wt-stale",
+        });
+        await addEntry(projectRoot, {
+            id: "wt-stale",
+            planName: "p",
+            planId: "plan-p",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
+            baseTree: baselineTree,
+            executionBaselineTree: baselineTree,
+            branch,
+            path: stalePath,
+            status: "completed",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+
+        const result = await resolveValidationExecutionContext({ projectRoot, planName: "p" });
+
+        assertEquals(result.kind, "ok");
+        if (result.kind === "ok") assertEquals(result.context.executionCwd, await Deno.realPath(actualPath));
+        const fixedPath = (await findById(projectRoot, "wt-stale"))?.path;
+        assertEquals(fixedPath ? await Deno.realPath(fixedPath) : null, await Deno.realPath(actualPath));
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(parent, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("resolveValidationExecutionContext recovers missing worktree metadata from registry by plan name", async () => {
     const projectRoot = await baseRepo.checkout();
     const parent = await Deno.makeTempDir();
@@ -371,7 +416,7 @@ Deno.test("resolveValidationExecutionContext heals a diverged worktree Plan ID i
         if (result.kind !== "ok") return;
         const notices = result.selfHealNotices || [];
         assertEquals(notices.length, 2, "both the worktree copy and the registry entry are reported");
-        for (const notice of notices) assertStringIncludes(notice, "canonical-plan-id");
+        assertEquals(notices.map((notice) => notice.kind).sort(), ["execution_plan_fixed", "worktree_record_fixed"]);
 
         // All three converge on the canonical id, so nothing is left to strand a
         // later recovery that looks the attempt up by planId.

@@ -4,6 +4,11 @@ import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "../..
 import { runDirectDeliveryPublicationTransition } from "../../shared/workflow/state-transition.ts";
 import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
 import {
+    buildPlanRecoveryUserMessage,
+    buildValidationRecoveryNotice,
+    planRecoveryMessage,
+} from "../../shared/workflow/validation-user-messages.ts";
+import {
     checkpointExecutionWorktree,
     deleteMergedWorktreeBranch,
     getBranchHead,
@@ -32,7 +37,7 @@ export async function mergeRecoveredWorktree(context: RecoveryActionContext): Pr
     context.worktreeContext = await context.refreshRecoveryWorktree();
     if (!canManuallyMergeRecoveredWorktree(context.worktreeContext)) {
         uiAPI.appendSystemMessage(
-            "Manual worktree merge is only available after Workflow Validation passed but merge-back failed. Retry Workflow Validation first.",
+            buildPlanRecoveryUserMessage({ kind: "manual_merge_unavailable" }),
             true,
             "RunWield",
         );
@@ -49,12 +54,12 @@ export async function mergeRecoveredWorktree(context: RecoveryActionContext): Pr
         return { kind: "menu" };
     }
     if (!context.worktreeContext?.branch || !context.worktreeContext.path) {
-        uiAPI.appendSystemMessage("Cannot merge because no worktree branch or path is recorded.", true, "RunWield");
+        uiAPI.appendSystemMessage(buildPlanRecoveryUserMessage({ kind: "missing_worktree" }), true, "RunWield");
         return { kind: "menu" };
     }
     if (!context.loadedWorktreeId) {
         uiAPI.appendSystemMessage(
-            `Cannot merge recovered worktree ${context.worktreeContext.branch} because the loaded Plan did not contain a canonical worktreeId. Retry Workflow Validation; RunWield will not publish Delivery Evidence from branch-name recovery alone.`,
+            buildPlanRecoveryUserMessage({ kind: "missing_plan_pointer" }),
             true,
             "RunWield",
         );
@@ -63,7 +68,7 @@ export async function mergeRecoveredWorktree(context: RecoveryActionContext): Pr
     }
     if (!context.worktreeContext.baseBranch) {
         uiAPI.appendSystemMessage(
-            `Cannot merge recovered worktree ${context.worktreeContext.branch} because no concrete target branch is recorded. Run Workflow Validation or reset recovery metadata; RunWield will not publish Delivery Evidence with an ambiguous target.`,
+            buildPlanRecoveryUserMessage({ kind: "missing_target" }),
             true,
             "RunWield",
         );
@@ -87,7 +92,7 @@ export async function mergeRecoveredWorktree(context: RecoveryActionContext): Pr
     });
     if (manualResolution.kind === "blocked") {
         uiAPI.appendSystemMessage(
-            `Cannot merge recovered worktree because validation context proof failed: ${manualResolution.message}`,
+            buildPlanRecoveryUserMessage({ kind: "proof_failed" }),
             true,
             "RunWield",
         );
@@ -96,18 +101,21 @@ export async function mergeRecoveredWorktree(context: RecoveryActionContext): Pr
     }
     if (manualResolution.restoredPlanFile) {
         uiAPI.appendSystemMessage(
-            `Restored missing execution worktree Plan file from the canonical Project Plan: ${manualResolution.restoredPlanFile.relativePath}. Continuing Workflow Validation.`,
+            buildPlanRecoveryUserMessage({
+                kind: "plan_restored",
+                path: manualResolution.restoredPlanFile.relativePath,
+            }),
             false,
             "RunWield",
         );
     }
     for (const notice of manualResolution.selfHealNotices || []) {
-        uiAPI.appendSystemMessage(notice, false, "RunWield");
+        uiAPI.appendSystemMessage(buildValidationRecoveryNotice(notice), false, "RunWield");
     }
     const manualContext = manualResolution.context;
     if (manualContext.executionMode !== "worktree") {
         uiAPI.appendSystemMessage(
-            "Cannot merge recovered worktree because the resolved validation context is not a worktree execution.",
+            buildPlanRecoveryUserMessage({ kind: "not_worktree" }),
             true,
             "RunWield",
         );
@@ -119,7 +127,7 @@ export async function mergeRecoveredWorktree(context: RecoveryActionContext): Pr
     const manualTargetBranch = manualContext.worktreeBaseBranch;
     if (!manualWorktreePath || !manualWorktreeBranch || !manualTargetBranch) {
         uiAPI.appendSystemMessage(
-            "Cannot merge recovered worktree because resolved validation context is missing path, branch, or target branch.",
+            buildPlanRecoveryUserMessage({ kind: "incomplete_worktree" }),
             true,
             "RunWield",
         );
@@ -219,7 +227,11 @@ async function attemptManualPublication(
                     });
                 }
                 uiAPI.appendSystemMessage(
-                    `Merging worktree branch ${manualWorktreeBranch} into target branch ${manualTargetBranch}.`,
+                    buildPlanRecoveryUserMessage({
+                        kind: "merge_progress",
+                        sourceBranch: manualWorktreeBranch,
+                        targetBranch: manualTargetBranch,
+                    }),
                 );
                 const mergeResult = await mergeExecutionWorktree({
                     projectRoot,
@@ -248,11 +260,9 @@ async function attemptManualPublication(
                         try {
                             await restorePrimaryPlanPathAfterMergeFailure(snapshot);
                         } catch (restoreError) {
-                            const restoreReason = restoreError instanceof Error
-                                ? restoreError.message
-                                : String(restoreError);
+                            console.error("[RunWield] primary_plan_snapshot_restore_failed", restoreError);
                             uiAPI.appendSystemMessage(
-                                `Worktree merged, but restoring the primary Plan snapshot failed: ${restoreReason}`,
+                                buildPlanRecoveryUserMessage({ kind: "snapshot_restore_failed" }),
                                 true,
                                 "RunWield",
                             );
@@ -291,11 +301,9 @@ async function attemptManualPublication(
                             status: "merged",
                         });
                     } catch (registryError) {
-                        const registryReason = registryError instanceof Error
-                            ? registryError.message
-                            : String(registryError);
+                        console.error("[RunWield] worktree_result_save_failed", registryError);
                         uiAPI.appendSystemMessage(
-                            `Worktree merged, but updating its registry status failed: ${registryReason}`,
+                            buildPlanRecoveryUserMessage({ kind: "registry_update_failed" }),
                             true,
                             "RunWield",
                         );
@@ -325,16 +333,17 @@ async function attemptManualPublication(
                 }
             } catch (cleanupError) {
                 const cleanupReason = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
-                uiAPI.appendSystemMessage(`Worktree merged, but cleanup failed: ${cleanupReason}`, true, "RunWield");
+                console.error("[RunWield] Worktree cleanup failed", cleanupReason);
+                uiAPI.appendSystemMessage(planRecoveryMessage("merge_cleanup_failed"), true, "RunWield");
             }
         }
-        uiAPI.appendSystemMessage("Worktree changes merged and plan marked verified.", false, "RunWield");
+        uiAPI.appendSystemMessage(buildPlanRecoveryUserMessage({ kind: "merged" }), false, "RunWield");
         try {
             await context.recordRecoveryResult("merge", "merged", { cleanupMergedWorktrees });
         } catch (metricError) {
-            const metricReason = metricError instanceof Error ? metricError.message : String(metricError);
+            console.error("[RunWield] recovery_result_save_failed", metricError);
             uiAPI.appendSystemMessage(
-                `Worktree merged, but recording the recovery result failed: ${metricReason}`,
+                buildPlanRecoveryUserMessage({ kind: "result_record_failed" }),
                 true,
                 "RunWield",
             );
@@ -342,7 +351,8 @@ async function attemptManualPublication(
     } catch (error) {
         if (mergeCompleted) {
             const reason = error instanceof Error ? error.message : String(error);
-            uiAPI.appendSystemMessage(`Worktree merged, but post-merge processing failed: ${reason}`, true, "RunWield");
+            console.error("[RunWield] Post-merge step failed", reason);
+            uiAPI.appendSystemMessage(planRecoveryMessage("handoff_failed"), true, "RunWield");
             return { kind: "handled" };
         }
         let reason = isGitRepositoryRequiredError(error)
@@ -360,16 +370,17 @@ async function attemptManualPublication(
                 }
             }
         }
-        uiAPI.appendSystemMessage(`Worktree merge failed: ${reason}`, true, "RunWield");
+        console.error("[RunWield] Worktree merge failed", reason);
+        uiAPI.appendSystemMessage(planRecoveryMessage("merge_failed"), true, "RunWield");
         if (context.worktreeContext?.id) {
             try {
                 await updateWorktreeRegistryEntry(projectRoot, context.worktreeContext.id, {
                     status: "merge_conflict",
                 });
             } catch (metadataError) {
-                const metadataReason = metadataError instanceof Error ? metadataError.message : String(metadataError);
+                console.error("[RunWield] merge_conflict_worktree_save_failed", metadataError);
                 uiAPI.appendSystemMessage(
-                    `Could not update worktree registry while merge conflict is active: ${metadataReason}`,
+                    buildPlanRecoveryUserMessage({ kind: "conflict_state_save_failed" }),
                     true,
                     "RunWield",
                 );
@@ -392,9 +403,9 @@ async function attemptManualPublication(
                 },
             });
         } catch (metadataError) {
-            const metadataReason = metadataError instanceof Error ? metadataError.message : String(metadataError);
+            console.error("[RunWield] merge_conflict_plan_save_failed", metadataError);
             uiAPI.appendSystemMessage(
-                `Could not update plan metadata while merge conflict is active: ${metadataReason}`,
+                buildPlanRecoveryUserMessage({ kind: "conflict_state_save_failed" }),
                 true,
                 "RunWield",
             );

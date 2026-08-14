@@ -412,8 +412,8 @@ export const loadPlanAbandonProgressScenario = {
     ],
     assertions: [
         assertsGoldenCoverage("block:abandon-progress", (result: GoldenScenarioResult) => {
-            assertScreenIncludes(result, 'Deleting recorded worktree for "recover-abandon"');
-            assertScreenIncludes(result, "Worktree abandoned and removed.");
+            assertScreenIncludes(result, "RunWield will now take out the worktree for recover-abandon.");
+            assertScreenIncludes(result, "The worktree is gone. The work is stopped.");
         }),
         assertsGoldenCoverage("recovery:load-plan-worktree", (result: GoldenScenarioResult) => {
             assert(
@@ -512,9 +512,9 @@ export const loadPlanValidateWaivedObjectiveChecksScenario = {
     assertions: [
         assertsGoldenCoverage("workflow:load-plan", (result: GoldenScenarioResult) => {
             assertEventIncludes(result, "terminal:type:/load-plan waived-validate");
-            assertScreenIncludes(result, "All Objective-Failing Checks for waived-validate are waived");
-            assertScreenIncludes(result, "Build, tests, and Objective-Failing Checks passed.");
-            assertScreenIncludes(result, "Semantic Code Review cannot start");
+            assertScreenIncludes(result, "All checks for waived-validate are waived");
+            assertScreenIncludes(result, "The build, tests, and checks passed.");
+            assertScreenIncludes(result, "Code review needs a code change");
         }),
         assertsGoldenCoverage("recovery:workflow-validation", (result: GoldenScenarioResult) => {
             const plan = projectState(result).plans?.find((entry) => entry.name === "waived-validate");

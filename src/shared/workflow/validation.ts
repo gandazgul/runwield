@@ -19,6 +19,7 @@ import type { ValidationSessionPort } from "./validation-ports.ts";
 import type { ValidationPhaseResult, WorkflowValidationResult } from "./validation-types.ts";
 import type { ValidationLoopArgs as EngineValidationLoopArgs } from "./validation-types.ts";
 import type { LocalCIPort } from "./validation-local-ci.ts";
+import type { ValidationCheckpointPhase } from "./validation-checkpoint.ts";
 
 export {
     hasTrustedClaudeMcpReview,
@@ -63,6 +64,8 @@ export type ValidationLoopArgs = {
     localCI: LocalCIPort;
     workRecordMnemosynePort: WorkRecordMnemosynePort;
     supportsSemanticRepairHandoff?: boolean;
+    /** Durable phase selected by the validation supervisor. */
+    continuationPhase?: ValidationCheckpointPhase;
 };
 
 type MechanicalValidationArgs = {
@@ -122,5 +125,6 @@ function toEngineArgs(args: ValidationLoopArgs): EngineValidationLoopArgs {
         },
         workRecordMnemosynePort: args.workRecordMnemosynePort,
         supportsSemanticRepairHandoff: args.supportsSemanticRepairHandoff,
+        continuationPhase: args.continuationPhase,
     };
 }
