@@ -24,6 +24,7 @@ parentPlan: "personal-remote-workspace-v1"
 order: 17
 dependencies:
     - "16-workspace-plan-review-and-approve-ui"
+planId: "6ae27038-fabf-4e8f-939f-cb2bef4c2a59"
 ---
 
 # Workspace UX Hardening Pass
