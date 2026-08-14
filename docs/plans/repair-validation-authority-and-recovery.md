@@ -17,11 +17,13 @@ affectedPaths:
     - "docs/workflows.md"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-08-14T00:11:43-04:00"
-status: "draft"
+updatedAt: "2026-08-14T04:35:21.836Z"
+status: "user_verified"
+origin: "internal"
+userVerifiedAt: "2026-08-14T04:35:21.836Z"
+userVerificationNote: "Implemented in the isolated worktree and marked user verified at the explicit request of the repository owner after focused validation and full CI passed."
+validationCheckpoint: null
 ---
 
 # Repair Validation Authority and Recovery
@@ -110,34 +112,34 @@ copy is easiest to reach. Keep read/display caches disposable and rebuildable.
 - `src/shared/workflow/validation-delivery-hierarchy.ts` — delivery hierarchy and related Plan evidence.
 - `src/shared/workflow/objective-check-waivers.ts` and the active Objective Check amendment work — user-governed Plan
   definition correction.
-- `src/shared/workflow/review-issue-ledger.ts` and semantic repair segments — durable review findings and bounded repair
+- `src/shared/workflow/review-ledger.ts` and semantic repair segments — durable review findings and bounded repair
   context.
 - Existing real-Git fixtures, process-loss tests, and Golden TUI workflow scenarios.
 
 ## Implementation Steps
 
-- [ ] An authority matrix in the implementation documentation names the canonical store, legal writer, projection,
+- [x] An authority matrix in the implementation documentation names the canonical store, legal writer, projection,
       commit boundary, cleanup rule, and resume rule for every Plan definition, lifecycle, attempt, worktree, Objective
       Check, Review Issue, validation phase, repair claim, and publication datum.
-- [ ] No validation or repair agent can directly edit protected Plan Front Matter, attempt state, worktree registry
+- [x] No validation or repair agent can directly edit protected Plan Front Matter, attempt state, worktree registry
       state, Review Issue state, phase counters, Delivery Evidence, or transition journals.
-- [ ] Every transition that spans Plan, worktree, attempt, ledger, or target-ref state either commits its complete
+- [x] Every transition that spans Plan, worktree, attempt, ledger, or target-ref state either commits its complete
       postcondition or leaves a durable journal with exact recovery actions.
-- [ ] Validation phase and next owner are derived from canonical committed evidence after process loss; stale runtime,
+- [x] Validation phase and next owner are derived from canonical committed evidence after process loss; stale runtime,
       transcript projection, and UI snapshot fields cannot move the workflow backward or skip a phase.
-- [ ] Accepted execution-worktree Plan definition amendments are revisioned and synchronized through one user-governed
+- [x] Accepted execution-worktree Plan definition amendments are revisioned and synchronized through one user-governed
       boundary, and publication cannot overwrite them with an older primary copy.
-- [ ] Objective Check results, operational failures, semantic findings, repair completions, and merge outcomes each use
+- [x] Objective Check results, operational failures, semantic findings, repair completions, and merge outcomes each use
       a distinct typed result; string matching and generic failure fallbacks do not decide lifecycle transitions.
-- [ ] Repair completion consumes exactly the durable findings it resolved, preserves still-open findings, and resumes at
+- [x] Repair completion consumes exactly the durable findings it resolved, preserves still-open findings, and resumes at
       the mechanically required validation phase.
-- [ ] Non-success outcomes retain the exact implementation candidate, worktree, attempt, ledger, and recovery evidence
+- [x] Non-success outcomes retain the exact implementation candidate, worktree, attempt, ledger, and recovery evidence
       until a later transition proves cleanup is safe.
-- [ ] Focused process-loss tests cover every phase boundary from implementation completion through publication and prove
+- [x] Focused process-loss tests cover every phase boundary from implementation completion through publication and prove
       one next owner/action without duplicate work or LLM bookkeeping.
-- [ ] Existing active validation repair Plans are reconciled against the final authority matrix; redundant mechanisms
+- [x] Existing active validation repair Plans are reconciled against the final authority matrix; redundant mechanisms
       are removed only after their behavior is protected by the consolidated tests.
-- [ ] The domain language and lifecycle documentation describe canonical authorities and avoid presenting projections,
+- [x] The domain language and lifecycle documentation describe canonical authorities and avoid presenting projections,
       agent claims, or execution reports as workflow truth.
 
 ## Approval Confirmation
@@ -169,3 +171,23 @@ whether any have become fully redundant; do not add `supersedes` metadata based 
 - User edits remain possible outside RunWield locks. Compare-and-set and recorded-write evidence must preserve them.
 - The later Plan Package migration changes storage shape; this Plan should establish ownership contracts that survive
   that migration without implementing the package model early.
+
+## Implementation Outcome
+
+- Added `docs/validation-authority.md` with the canonical store, legal writer, commit boundary, projection, cleanup, and
+  resume rule for every validation resource named by this Plan.
+- Moved attempt-scoped Review Issue and semantic repair evidence into the durable validation checkpoint. Semantic
+  feedback now commits the status rollback, open ledger, repair baseline, and repair generation together.
+- Added a compare-and-set, consume-once semantic repair completion receipt. The Agent's report remains an untrusted
+  claim; Mechanical Validation and Semantic Review still prove the repair.
+- Made the supervisor reconstruct an interrupted semantic repair handoff from the checkpoint and project that state into
+  the Session. Stale Session workflow state cannot replace the durable ledger.
+- Reconciled the focused validation Plans in the authority documentation without declaring any of them superseded.
+
+### Verification Evidence
+
+- Focused lifecycle, checkpoint, semantic review, Plan Amendment, segment handoff, self-healing, and Session Runtime
+  suites passed through `scripts/run-tests.js`.
+- `deno task seams:check` passed with zero seams.
+- `deno task ci` passed: type check, Workspace diagnostics, lint, language policy, seam policy, documentation links, and
+  301 test files with zero failures.

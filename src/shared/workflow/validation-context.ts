@@ -31,6 +31,7 @@ import type {
 import type { ValidationWorkflowState } from "./validation-ports.ts";
 import { emitHalted } from "./validation-emit.ts";
 import { buildValidationUserMessage } from "./validation-user-messages.ts";
+import { readValidationReviewState } from "./validation-checkpoint.ts";
 
 export async function resolvePhaseContext(
     args: ValidationLoopArgs,
@@ -140,6 +141,17 @@ export function readSemanticRound(meta: Partial<PlanFrontMatter>): number {
 
 export function readSemanticRoundState(args: ValidationLoopArgs, context: PhaseContext): SemanticRoundState {
     const activeWorkflow = context.workflowBase;
+    const durableReview = readValidationReviewState(
+        args.validationCheckpoint || args.triageMeta.validationCheckpoint,
+    );
+    if (durableReview) {
+        return {
+            semanticRound: durableReview.semanticRound,
+            reviewLedger: durableReview.reviewLedger,
+            repairBaselineTree: durableReview.repairBaselineTree,
+            lastRepairReport: durableReview.lastRepairReport || "",
+        };
+    }
     return {
         semanticRound: readSemanticRound(args.triageMeta),
         reviewLedger: normalizeLedger(activeWorkflow.reviewLedger),

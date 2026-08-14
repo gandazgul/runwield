@@ -28,7 +28,7 @@ import {
     getCurrentValidationProgress,
     setCurrentValidationProgress,
 } from "./validation-progress.ts";
-import { clearValidationPosition } from "./validation-position.ts";
+import { clearValidationPosition, rememberValidationPosition } from "./validation-position.ts";
 import {
     hasTrustedClaudeMcpReview,
     runFeaturePostVerificationHandoffs,
@@ -220,6 +220,7 @@ export function createValidationSessionPort(
         cwd: hostedSession.cwd,
         getActiveWorkflow: () => hostedSession.getActiveExecutionWorkflow?.() || null,
         setActiveWorkflow: (workflow) => hostedSession.setActiveExecutionWorkflow?.(workflow),
+        rememberPosition: (planName, position) => rememberValidationPosition(hostedSession, planName, position),
         clearPosition: (planName) => clearValidationPosition(hostedSession, planName),
         getCurrentProgress: () => getCurrentValidationProgress(hostedSession),
         setCurrentProgress: (progress) => setCurrentValidationProgress(hostedSession, progress),

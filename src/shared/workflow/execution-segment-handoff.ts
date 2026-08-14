@@ -35,6 +35,7 @@ export type SemanticRepairSegmentContinuation = {
     executionOwner: "engineer" | "frontend-engineer";
     repair: {
         semanticRound: number;
+        repairGeneration: string;
         reviewLedger: JsonValue;
         repairBaselineTree?: string;
         lastRepairReport?: string;
@@ -90,6 +91,7 @@ export type BuildSemanticRepairContinuationArgs = {
     activeWorkflow: Record<string, JsonValue>;
     executionOwner: "engineer" | "frontend-engineer";
     semanticRound: number;
+    repairGeneration: string;
     reviewLedger: JsonValue;
     repairBaselineTree?: string;
     lastRepairReport?: string;
@@ -120,6 +122,9 @@ export function buildSemanticRepairSegmentContinuation(
     if (!Number.isInteger(args.semanticRound) || args.semanticRound < 1) {
         throw new Error("semantic repair handoff requires a positive semantic round");
     }
+    if (!args.repairGeneration.trim()) {
+        throw new Error("semantic repair handoff requires a repair generation");
+    }
     return {
         version: 1,
         kind: "semantic_repair",
@@ -130,6 +135,7 @@ export function buildSemanticRepairSegmentContinuation(
         executionOwner: args.executionOwner,
         repair: {
             semanticRound: args.semanticRound,
+            repairGeneration: args.repairGeneration,
             reviewLedger: args.reviewLedger,
             repairBaselineTree: args.repairBaselineTree,
             lastRepairReport: args.lastRepairReport,

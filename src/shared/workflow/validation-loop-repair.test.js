@@ -14,7 +14,7 @@ import {
     runValidationLoop,
     runValidationPhase,
 } from "./validation-test-helpers.js";
-import { runPlanObjectiveChecks } from "./validation-mechanical.ts";
+import { requestObjectiveCheckWaiver, runPlanObjectiveChecks } from "./validation-mechanical.ts";
 import { createValidationSessionPort } from "./validation-session-adapter.ts";
 
 function makeValidationUi(cwd = Deno.cwd()) {
@@ -157,6 +157,119 @@ Deno.test("Engineer-reported defective checks reach user judgement for met unmet
         assertEquals(outcome.results.map((result) => result.id), ["OC1", "OC2", "OC3"]);
         assertEquals(outcome.results.map((result) => result.status), ["met", "unmet", "broken"]);
         assertStringIncludes(outcome.reason, "Engineer reported defective Objective-Failing Checks");
+    } finally {
+        hostedSession.dispose();
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
+    }
+});
+
+Deno.test("stale Engineer defective-check reports pause for follow-up instead of passing", async () => {
+    const objectiveChecks = [{ id: "OC1", command: "true" }];
+    const projectRoot = await makeValidationProjectRoot("p", {
+        classification: "PLANNED_CHANGE",
+        status: "implemented",
+        objectiveChecks,
+    });
+    const { hostedSession, uiAPI } = makeValidationUi(projectRoot);
+    const offeredOptions = /** @type {string[]} */ ([]);
+    selectAndCaptureOptions(uiAPI, offeredOptions, "stop");
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: true,
+    });
+    try {
+        const result = await runValidationPhase({
+            hostedSession,
+            planName: "p",
+            planContent: "# p",
+            triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+            engineerReportedBrokenObjectiveChecks: [
+                { id: "OC1", command: "false", explanation: "the old command is invalid" },
+            ],
+            semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+            localCI: { run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }) },
+        });
+
+        const plan = await loadPlan(projectRoot, "p");
+        assertEquals(result.kind, "paused");
+        assertStringIncludes(result.reason || "", "stale Engineer defective-check report");
+        assertEquals(result.retainTaskCompletionClaim, true);
+        assertEquals(offeredOptions, ["Engineer follow-up", "Stop"]);
+        assertEquals(plan?.attrs.status, "implemented");
+    } finally {
+        hostedSession.dispose();
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
+    }
+});
+
+Deno.test("Objective-Failing Check waiver follow-up collects user feedback", async () => {
+    const objectiveChecks = [{ id: "OC1", command: "not-a-real-runwield-command" }];
+    const projectRoot = await makeValidationProjectRoot("p", {
+        classification: "PLANNED_CHANGE",
+        status: "implemented",
+        objectiveChecks,
+    });
+    const { hostedSession, uiAPI } = makeValidationUi(projectRoot);
+    const offeredOptions = /** @type {string[]} */ ([]);
+    selectAndCaptureOptions(uiAPI, offeredOptions, "engineer_follow_up");
+    uiAPI.promptText = () => Promise.resolve("Use the renamed test file and include the fresh failure output.");
+    try {
+        const session = createValidationSessionPort(hostedSession);
+        /** @type {import('./validation-types.ts').ValidationLoopArgs} */
+        const loopArgs = {
+            session,
+            planName: "p",
+            planContent: "# p",
+            triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+            localCI: { run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }) },
+            git: /** @type {import('../git-port.ts').GitPort} */ ({}),
+            workRecordMnemosynePort:
+                /** @type {import('../work-records/mnemosyne-port.ts').WorkRecordMnemosynePort} */ ({}),
+        };
+        const judgement = await requestObjectiveCheckWaiver(
+            loopArgs,
+            {
+                args: loopArgs,
+                projectRoot,
+                executionContext: /** @type {import('./execution-context.ts').ResolvedValidationContext} */ ({
+                    planName: "p",
+                    projectRoot,
+                    executionCwd: projectRoot,
+                    executionMode: "non_git_in_place",
+                    source: "active_session",
+                }),
+                executionCwd: projectRoot,
+                executionAgent: "engineer",
+                nonGitInPlace: true,
+                workflowBase: {
+                    planName: "p",
+                    triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+                    executionAgent: "engineer",
+                },
+            },
+            "fresh output: command not found",
+            [{
+                id: "OC1",
+                command: "not-a-real-runwield-command",
+                status: "broken",
+                stdout: "",
+                stderr: "command not found",
+                exitCode: null,
+                durationMs: 1,
+                output: "command not found",
+                reason: "command not found",
+            }],
+            "engineer_report",
+        );
+
+        assertEquals(judgement.kind, "engineer_follow_up");
+        if (judgement.kind !== "engineer_follow_up") throw new Error("expected follow-up judgement");
+        assertEquals(judgement.feedback, "Use the renamed test file and include the fresh failure output.");
+        assertEquals(offeredOptions, ["Waive defective checks", "Engineer follow-up", "Stop"]);
     } finally {
         hostedSession.dispose();
         await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
@@ -539,14 +652,13 @@ Deno.test("runValidationPhase re-runs CI after a repair even when the Plan statu
         });
         assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
 
-        // Status now says Semantic Review is next. The durable checkpoint still says
-        // that CI never passed, so a replacement Session receives mechanical next.
+        // Status now says Semantic Review is next. The loop knows better: it dispatched a
+        // CI repair and never saw CI pass, so it goes back to CI.
         const second = await runValidationPhase({
             hostedSession,
             planName: "p",
             planContent: "# p",
             triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
-            continuationPhase: "mechanical",
             localCI,
         });
 

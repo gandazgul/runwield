@@ -1,7 +1,7 @@
 ---
 kind: "work_record"
 recordId: "9774371f-a810-4b43-8f23-fc338a569a18"
-status: "approved"
+status: "superseded"
 scope: "planned_change"
 workKind: "MAINTENANCE"
 origin: "internal"
@@ -10,6 +10,7 @@ createdAt: "2026-08-07T03:49:04.911Z"
 provenance:
     sourcePlans:
         - "5f04e6ca-3c88-49d5-9d3e-cffa84a6597c"
+supersededBy: "61aca895-8b29-413f-8b46-ea76b384dd6b"
 ---
 
 # Objective Check waivers added

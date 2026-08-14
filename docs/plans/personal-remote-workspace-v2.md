@@ -16,6 +16,7 @@ createdAt: "2026-08-13T00:24:38-04:00"
 updatedAt: "2026-08-13T00:24:38-04:00"
 status: "draft"
 origin: "internal"
+planId: "a342bf39-b529-49ba-909b-40e5d53d0ee7"
 ---
 
 # Personal Remote Workspace v2

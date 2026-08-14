@@ -57,6 +57,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {boolean} [nonGitInPlace]
  * @property {boolean} [validationContinuation]
  * @property {string} [validationGeneration] - Durable validation owner generation for consume-once repair completion.
+ * @property {string} [validationRepairGeneration] - Durable consume-once identity for the current semantic repair.
  * @property {string} [manualQaName]
  * @property {string} [manualQaContext]
  * @property {number} [semanticRound] - Absolute semantic review round. Carried here rather than in a

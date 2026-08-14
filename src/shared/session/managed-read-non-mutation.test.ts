@@ -22,6 +22,25 @@ type WritablePiResult = string | Promise<string> | { getSessionId?: () => string
 type WritablePiFunction = (...args: WritablePiArgument[]) => WritablePiResult;
 type WritablePiManager = Partial<Record<WritablePiName, WritablePiFunction>>;
 
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function removeTempDir(path: string): Promise<void> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            await Deno.remove(path, { recursive: true });
+            return;
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) return;
+            const isRetryable = error instanceof Error &&
+                /Directory not empty|resource busy|os error 66|os error 16/i.test(error.message);
+            if (!isRetryable || attempt === 4) throw error;
+            await delay(25 * (attempt + 1));
+        }
+    }
+}
+
 export async function sha256File(path: string): Promise<string> {
     const bytes = await Deno.readFile(path);
     const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -71,25 +90,6 @@ export async function assertTranscriptUnchangedDuring(
 function idFactory(prefix: string): () => string {
     let index = 0;
     return () => `${prefix}-${++index}`;
-}
-
-async function delay(ms: number): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function removeTempDir(path: string): Promise<void> {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-        try {
-            await Deno.remove(path, { recursive: true });
-            return;
-        } catch (error) {
-            if (error instanceof Deno.errors.NotFound) return;
-            const isRetryable = error instanceof Error &&
-                /Directory not empty|resource busy|os error 66|os error 16/i.test(error.message);
-            if (!isRetryable || attempt === 4) throw error;
-            await delay(25 * (attempt + 1));
-        }
-    }
 }
 
 async function writeManagedTranscript(cwd: string, piSessionId: string): Promise<string> {

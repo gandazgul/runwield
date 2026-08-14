@@ -12,7 +12,7 @@ import type { ReviewLedger } from "./review-ledger.ts";
 import type { ResolvedValidationContext } from "./execution-context.ts";
 import type { ValidationLocalCIPort, ValidationSessionPort, ValidationWorkflowState } from "./validation-ports.ts";
 import type { ObjectiveCheckResult } from "./objective-checks.ts";
-import type { ValidationCheckpointPhase } from "./validation-checkpoint.ts";
+import type { ValidationCheckpoint, ValidationCheckpointPhase } from "./validation-checkpoint.ts";
 import type { ValidationRecoveryResult } from "./validation-recovery.ts";
 
 type PlanFrontMatter = import("../../plan-store.js").PlanFrontMatter;
@@ -31,10 +31,12 @@ export type WorkflowValidationResult = {
     epicContinuation?: { completedPlanName: string; projectRoot: string };
     semanticRepairHandoff?: SemanticRepairHandoff;
     recovery?: ValidationRecoveryResult;
+    retainTaskCompletionClaim?: true;
 };
 
 export type SemanticRepairHandoff = {
     semanticRound: number;
+    repairGeneration: string;
     reviewLedger: ReviewLedger;
     repairBaselineTree: string;
     lastRepairReport?: string;
@@ -45,6 +47,7 @@ export type SemanticRepairHandoff = {
 
 export type ValidationPhaseResult = WorkflowValidationResult & {
     awaitingTaskCompletion?: true;
+    retainTaskCompletionClaim?: true;
 };
 
 /** Triage metadata the engine reads Plan front matter through. */
@@ -73,6 +76,8 @@ export type ValidationLoopArgs = {
     engineerReportedBrokenObjectiveChecks?: import("./objective-checks.ts").BrokenObjectiveCheckReport[];
     /** Durable phase claimed by the validation supervisor. */
     continuationPhase?: ValidationCheckpointPhase;
+    /** Durable attempt record claimed by the validation supervisor. */
+    validationCheckpoint?: ValidationCheckpoint;
 };
 
 /** The resolved execution facts a phase runs against. */
@@ -109,7 +114,13 @@ export type PublicationOutcome = {
     recorded: boolean;
 };
 
-export type UserActionChoice = "engineer_follow_up" | "retry" | "stop" | "waive" | "approve_amendment";
+export type UserActionChoice =
+    | "engineer_follow_up"
+    | "retry"
+    | "stop"
+    | "waive"
+    | "approve_amendment"
+    | "waive_defective_checks";
 
 export type UserActionOption = {
     value: UserActionChoice;
@@ -145,6 +156,7 @@ export type ObjectiveCheckPhaseOutcome =
     | { kind: "passed" }
     | { kind: "skipped" }
     | { kind: "canceled" }
+    | { kind: "stale_report"; reason: string; reports: BrokenObjectiveCheckReport[]; results: ObjectiveCheckResult[] }
     | { kind: "unmet"; reason: string; results: ObjectiveCheckResult[] }
     | { kind: "broken"; reason: string; results: ObjectiveCheckResult[] };
 
