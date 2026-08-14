@@ -271,9 +271,7 @@ export type ValidationSessionPort = {
     /** Active execution workflow state (session-owned; coordinator owns its equivalent later). */
     getActiveWorkflow(): ValidationWorkflowState | null;
     setActiveWorkflow(workflow: ValidationWorkflowState): void;
-    /** Per-run phase position memory. */
-    getPosition(planName: string): ValidationPosition | undefined;
-    rememberPosition(planName: string, position: ValidationPosition): void;
+    /** Clear legacy process-local display state after a terminal result. */
     clearPosition(planName: string): void;
     /** Progress panel + status lines. */
     getCurrentProgress(): ValidationProgressRecord | undefined;

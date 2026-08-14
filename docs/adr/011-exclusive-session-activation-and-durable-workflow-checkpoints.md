@@ -92,6 +92,12 @@ Lease timeout alone does not prove that an interrupted effect is safe to repeat.
 reloaded, but arbitrary model requests, commands, tools, open subprocesses, filesystem effects, and pending Promises are
 never replayed automatically.
 
+After the heartbeat deadline, an owner may run explicit **Forced Session Control Recovery**. The recovery validates the
+ordered segment manifest and the structurally valid current transcript before it changes coordination state. Exact
+published evidence returns the Session to idle. A valid transcript-ahead extension can become the next committed
+generation. Corrupt, truncated, rewritten, sealed-segment, or ambiguous history blocks recovery. The recovery bumps the
+fence so the old owner cannot heartbeat, change phase, or publish later coordination state.
+
 ### Ordered Pi Session Transcript Segments
 
 One stable RunWield Session owns ordered **Session Transcript Segments** backed by separate Pi JSONL files. Prior

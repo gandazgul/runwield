@@ -388,6 +388,35 @@ export async function captureTranscriptEvidence(options) {
 }
 
 /**
+ * @param {{ transcriptPath: string, transcriptCwd: string, committedGeneration: { generation: number, byteLength: number, terminalEntryId: string | null, digestHex: string } }} options
+ */
+export async function validateExpiredControlTranscriptEvidence(options) {
+    const committed = options.committedGeneration;
+    const committedEvidence = await captureTranscriptEvidence({
+        transcriptPath: options.transcriptPath,
+        transcriptCwd: options.transcriptCwd,
+        byteLength: committed.byteLength,
+    });
+    if (committedEvidence.digestHex !== committed.digestHex) {
+        throw new Error("Committed transcript digest does not match published evidence");
+    }
+    if (committedEvidence.terminalEntryId !== committed.terminalEntryId) {
+        throw new Error("Committed transcript terminal entry does not match published evidence");
+    }
+    const fullEvidence = await captureTranscriptEvidence({
+        transcriptPath: options.transcriptPath,
+        transcriptCwd: options.transcriptCwd,
+    });
+    if (fullEvidence.byteLength < committed.byteLength) throw new Error("Current transcript was truncated");
+    return {
+        generation: fullEvidence.byteLength === committed.byteLength ? committed.generation : committed.generation + 1,
+        byteLength: fullEvidence.byteLength,
+        terminalEntryId: fullEvidence.terminalEntryId,
+        digestHex: fullEvidence.digestHex,
+    };
+}
+
+/**
  * @param {{ sessionPath: string, sessionDir: string, cwd: string, generation: number, byteLength: number, digestHex: string, terminalEntryId: string | null, runtimeSessionId?: string, cursorEventId?: string, cursorEventOrdinal?: number | null, limit?: number }} options
  */
 /**

@@ -252,6 +252,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {HumanReviewDecision} [humanReviewDecision] - Human code review outcome included in final validation; cleared when execution restarts or review reopens
  * @property {string|null} [humanReviewedAt] - ISO timestamp when human review approved final validation; cleared when execution restarts or review reopens
  * @property {string|null} [validationMergeRepairWorktree] - Detached merge worktree path for status-preserving Direct Delivery repair continuation.
+ * @property {import('./shared/workflow/validation-checkpoint.ts').ValidationCheckpoint|null} [validationCheckpoint] - Durable validation continuation facts for the current attempt.
  * @property {number} [validationCiAttempts] - Mechanical Validation attempts spent for the current implementation.
  * @property {number} [validationSemanticRounds] - Semantic Code Review repair rounds spent for the current implementation.
  * @property {"done_enough"|null} [epicCompletionMode] - Explicit Epic completion mode when an Epic is marked done enough for now
@@ -434,9 +435,9 @@ function appendYamlValue(lines, key, value, indent, options = {}) {
     if (Array.isArray(value)) {
         lines.push(`${pad}${key}:`);
         if (value.length === 0) {
-            if (options.emptyArrays !== false) lines.push(`${pad}    []`);
+            if (options.emptyArrays !== false) lines.push(`${pad}  []`);
         } else {
-            for (const item of value) appendYamlListItem(lines, item, indent + 4, options);
+            for (const item of value) appendYamlListItem(lines, item, indent + 2, options);
         }
         return;
     }
@@ -452,7 +453,7 @@ function appendYamlValue(lines, key, value, indent, options = {}) {
         });
         if (!entries.length) return;
         lines.push(`${pad}${key}:`);
-        for (const [childKey, childValue] of entries) appendYamlValue(lines, childKey, childValue, indent + 4, options);
+        for (const [childKey, childValue] of entries) appendYamlValue(lines, childKey, childValue, indent + 2, options);
         return;
     }
 
@@ -481,7 +482,7 @@ function appendYamlListItem(lines, value, indent, options) {
             lines.push(`${pad}- ${firstKey}: ${String(firstValue)}`);
         } else {
             lines.push(`${pad}- ${firstKey}:`);
-            appendYamlListItem(lines, firstValue, indent + 4, options);
+            appendYamlListItem(lines, firstValue, indent + 2, options);
         }
         for (const [childKey, childValue] of entries.slice(1)) {
             appendYamlValue(lines, childKey, childValue, indent + 2, options);
@@ -537,6 +538,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewDecision, fm.humanReviewDecision);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewedAt, fm.humanReviewedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.validationMergeRepairWorktree, fm.validationMergeRepairWorktree);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.validationCheckpoint, fm.validationCheckpoint);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicCompletionMode, fm.epicCompletionMode);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicDoneEnoughAt, fm.epicDoneEnoughAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicDoneEnoughSummary, fm.epicDoneEnoughSummary);
@@ -1249,6 +1251,9 @@ export function injectFrontMatter(markdown, overrides = {}) {
         ),
         humanReviewedAt: optionalFrontMatterValue(overrides, existingFm, "humanReviewedAt"),
         validationMergeRepairWorktree: optionalFrontMatterValue(overrides, existingFm, "validationMergeRepairWorktree"),
+        validationCheckpoint: Object.hasOwn(overrides, "validationCheckpoint")
+            ? overrides.validationCheckpoint
+            : existingFm.validationCheckpoint,
         epicCompletionMode: /** @type {"done_enough" | null | undefined} */ (
             optionalFrontMatterValue(overrides, existingFm, "epicCompletionMode") === "done_enough"
                 ? "done_enough"
@@ -1378,6 +1383,11 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             validationMergeRepairWorktree: typeof attrs.validationMergeRepairWorktree === "string"
                 ? attrs.validationMergeRepairWorktree
                 : attrs.validationMergeRepairWorktree === null
+                ? null
+                : undefined,
+            validationCheckpoint: attrs.validationCheckpoint && typeof attrs.validationCheckpoint === "object"
+                ? attrs.validationCheckpoint
+                : attrs.validationCheckpoint === null
                 ? null
                 : undefined,
             epicCompletionMode: attrs.epicCompletionMode === "done_enough" ? attrs.epicCompletionMode : undefined,
@@ -1668,21 +1678,25 @@ export async function atomicWriteTextFile(path, content) {
  * @param {string} content
  */
 export async function atomicWriteTextFileIfAbsent(path, content) {
-    await Deno.mkdir(dirname(path), { recursive: true });
+    const parent = dirname(path);
+    await Deno.mkdir(parent, { recursive: true });
+    const temporaryPath = await Deno.makeTempFile({ dir: parent, prefix: ".rw-create-", suffix: ".tmp" });
     let file;
     try {
-        file = await Deno.open(path, { createNew: true, write: true });
+        file = await Deno.open(temporaryPath, { write: true, truncate: true });
         await file.write(new TextEncoder().encode(content));
         await file.sync();
         file.close();
         file = undefined;
-        await syncDirectory(dirname(path));
+        // Linking a complete same-filesystem file publishes all bytes at once and
+        // still fails when another writer already owns the target path.
+        await Deno.link(temporaryPath, path);
+        await syncDirectory(parent);
     } catch (error) {
         if (file) file.close();
-        // Never remove or replace the target path from create-if-absent writes:
-        // if another process created evidence while we were writing, preserving
-        // those bytes is the whole point of this helper.
         throw error;
+    } finally {
+        await Deno.remove(temporaryPath).catch(() => {});
     }
 }
 

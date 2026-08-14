@@ -43,10 +43,10 @@ function assertRealPlanReviewRevisionAndApproval(result) {
     assertEventIncludes(result, "runtime:tool:start:task_completed");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
-    assertScreenIncludes(result, "Running CI Validation");
+    assertScreenIncludes(result, "Running the tests in");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
-    assertScreenIncludes(result, "Semantic Code Review Approved");
-    assertScreenIncludes(result, "Merging validated worktree branch");
+    assertScreenIncludes(result, "found no need for a fix");
+    assertScreenIncludes(result, "Merging branch");
     assertEventIncludes(result, "workflow:durability:delivery-checked");
     assertEventIncludes(result, "workflow:durability:registry-clean");
     assertEventIncludes(result, "workflow:durability:ancestry-checked");
@@ -114,7 +114,7 @@ export const plannedChangeReviewRepairValidationScenario = {
     ],
     reviewedPlan: "# Golden PLANNED_CHANGE\n\nGolden PLANNED_CHANGE revised content.\n",
     scriptedInteractions: [
-        { type: "text", promptIncludes: "Enter the command to validate this project", value: "true" },
+        { type: "text", promptIncludes: "Enter the command that runs this project's tests", value: "true" },
     ],
     script: [
         {
@@ -299,10 +299,10 @@ export const plannedChangeReviewRepairValidationScenario = {
         assertsGoldenCoverage("workflow:PLANNED_CHANGE", assertRealPlanReviewRevisionAndApproval),
         assertsGoldenCoverage("recovery:reviewer-rejection", (result) => {
             assertEventIncludes(result, "runtime:tool:start:review_complete");
-            assertScreenIncludes(result, "Semantic Code Review Approved");
+            assertScreenIncludes(result, "found no need for a fix");
         }),
         assertsGoldenCoverage("recovery:workflow-validation", (result) => {
-            assertScreenIncludes(result, "Running CI Validation");
+            assertScreenIncludes(result, "Running the tests in");
             assertEventIncludes(result, "workflow:durability:terminal-ready");
         }),
         assertsGoldenCoverage("durable:plan-lifecycle", (result) => {
@@ -356,7 +356,7 @@ export const plannedChangeBlockedMergePauseScenario = {
         { path: "golden-planned-change.txt", text: "committed baseline\n" },
     ],
     scriptedInteractions: [
-        { type: "text", promptIncludes: "Enter the command to validate this project", value: "true" },
+        { type: "text", promptIncludes: "Enter the command that runs this project's tests", value: "true" },
         {
             type: "select",
             promptIncludes: "have not saved to git yet",
@@ -526,14 +526,14 @@ export const plannedChangeCiRepairReentryScenario = {
     assertions: [
         assertsGoldenCoverage("recovery:ci-repair", (result) => {
             // CI really failed and the repair was really dispatched.
-            assertScreenIncludes(result, "Build failed");
+            assertScreenIncludes(result, "The build failed");
             // ...and then the loop went back and ran CI again, rather than moving on or
             // starting the Plan over.
-            assertScreenIncludes(result, "Running CI Validation");
+            assertScreenIncludes(result, "Running the tests in");
             // Semantic Review is only reachable once Mechanical Validation passes, so
             // this is the proof that re-entry landed in the right place.
-            assertScreenIncludes(result, "Semantic Code Review Approved");
-            assertScreenIncludes(result, "Merging validated worktree branch");
+            assertScreenIncludes(result, "found no need for a fix");
+            assertScreenIncludes(result, "Merging branch");
             const durability =
                 /** @type {{ goldenFileExists?: boolean, trackedFiles?: string, worktreeBranchPublished?: boolean } | undefined} */ (result
                     .state.workflowDurability);
@@ -571,7 +571,7 @@ export const plannedChangeNonGitInPlaceScenario = {
     ],
     scriptedInteractions: [
         { type: "select", promptIncludes: "Git is not available for this project", value: "proceed" },
-        { type: "text", promptIncludes: "Enter the command to validate this project", value: "deno task test" },
+        { type: "text", promptIncludes: "Enter the command that runs this project's tests", value: "deno task test" },
     ],
     script: [
         {
@@ -773,13 +773,13 @@ export const plannedChangeValidationFailureRetryScenario = {
     ],
     assertions: [
         assertsGoldenCoverage("recovery:validation-failure-retry", (result) => {
-            assertScreenIncludes(result, "Running CI Validation");
-            assertScreenIncludes(result, "Dispatching");
+            assertScreenIncludes(result, "Running the tests in");
+            assertScreenIncludes(result, "will fix it now");
             const projectState =
                 /** @type {{ plans?: Array<{ attrs?: Record<string, unknown> | null }> }} */ (result.state
                     .projectState);
             const attrs = projectState.plans?.[0]?.attrs;
-            const ciRuns = countVisibleOccurrences(result, "Running CI Validation");
+            const ciRuns = countVisibleOccurrences(result, "Running the tests in");
             assert(ciRuns >= 2, `Expected failed CI plus retry CI; saw ${ciRuns} CI runs.`);
             const completedTurns = result.events.filter((event) =>
                 event === "runtime:tool:start:task_completed"
@@ -874,7 +874,7 @@ export const plannedChangeValidationExhaustedScenario = {
     ],
     assertions: [
         assertsGoldenCoverage("recovery:validation-exhausted", (result) => {
-            assertScreenIncludes(result, "Build failed");
+            assertScreenIncludes(result, "The build failed");
             assertScreenIncludes(result, "tests for");
             const projectState =
                 /** @type {{ plans?: Array<{ attrs?: Record<string, unknown> | null }>, registryEntries?: unknown[] }} */ (result
@@ -896,7 +896,7 @@ export const plannedChangeValidationExhaustedScenario = {
                 `Expected recoverable validation_failed worktree status; got ${attrs?.worktreeStatus}`,
             );
             assert(attrs?.planId, "Expected exhausted recoverable state to preserve Plan identity.");
-            const ciRuns = countVisibleOccurrences(result, "Running CI Validation");
+            const ciRuns = countVisibleOccurrences(result, "Running the tests in");
             assert(ciRuns >= 3, `Expected exhausted scenario to show at least three CI attempts; saw ${ciRuns}.`);
         }),
     ],

@@ -147,6 +147,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         /** @type {{ operationId: string, status: string, observed: number, attempts: number } | null} */ (null),
     );
     const [submitting, setSubmitting] = useState(false);
+    const [newSessionText, setNewSessionText] = useState("");
+    const [interruptedOperation, setInterruptedOperation] = useState(false);
     const operationRef = useRef(operation);
     operationRef.current = operation;
 
@@ -260,7 +262,37 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             timelineComplete: timeline?.complete !== false,
             truncated: timeline?.truncated,
             localOperationActive: Boolean(operation && !["completed", "failed", "unknown"].includes(operation.status)),
+            controlRenewing: timeline?.controlRenewing,
+            forceAvailableAt: timeline?.forceAvailableAt,
         }), [listData, timeline, operation]);
+
+    async function createSession() {
+        const text = newSessionText;
+        if (!text.trim() || submitting) return;
+        setSubmitting(true);
+        setListError("");
+        try {
+            const payload = await ownerFetch(`/api/owner/projects/${encodeURIComponent(projectId)}/sessions`, {
+                method: "POST",
+                body: JSON.stringify({ requestId: crypto.randomUUID(), text }),
+            });
+            setNewSessionText("");
+            if (payload.runwieldSessionId) {
+                globalThis.location.href = `/projects/${encodeURIComponent(projectId)}/sessions/${
+                    encodeURIComponent(payload.runwieldSessionId)
+                }`;
+                return;
+            }
+            if (payload.operationId) {
+                setListError("Session creation started. Open the Session after it appears in the list.");
+                await loadList();
+            }
+        } catch (error) {
+            setListError(errorMessage(error));
+        } finally {
+            setSubmitting(false);
+        }
+    }
 
     async function prepareSession() {
         if (!availability.canPrepare || submitting) return;
@@ -358,8 +390,19 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 );
                 const events = Array.isArray(payload.events) ? payload.events : [];
                 const nextEvents = events.slice(current.observed);
-                if (nextEvents.length) {
-                    setTransientItems(reduceOperationTransientItems(events));
+                let items = reduceOperationTransientItems(events);
+                if (payload.liveInteraction?.interactionId) {
+                    items = [...items, {
+                        kind: "interaction",
+                        key: `interaction:${payload.liveInteraction.interactionId}`,
+                        interactionId: payload.liveInteraction.interactionId,
+                        operationId: current.operationId,
+                        request: payload.liveInteraction.request,
+                        source: "transient",
+                    }];
+                }
+                if (nextEvents.length || payload.liveInteraction?.interactionId) {
+                    setTransientItems(items);
                 }
                 const next = {
                     operationId: current.operationId,
@@ -373,6 +416,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                         localStorage.removeItem(requestKey);
                         setMessage("Operation completed. Reconciled committed timeline.");
                     } else {
+                        if (next.status === "unknown") setInterruptedOperation(true);
                         setMessage(
                             next.status === "unknown"
                                 ? "Operation is unknown after reconnect. Reloaded committed state; do not replay automatically."
@@ -396,6 +440,45 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         };
     }, [operation?.operationId, requestKey]);
 
+    async function answerInteraction(operationId, interactionId, response) {
+        try {
+            await ownerFetch(
+                `/api/owner/projects/${encodeURIComponent(projectId)}/session-operations/${
+                    encodeURIComponent(operationId)
+                }/interactions/${encodeURIComponent(interactionId)}/answer`,
+                { method: "POST", body: JSON.stringify({ response }) },
+            );
+            setMessage("Interaction answer sent.");
+        } catch (error) {
+            setMessage(errorMessage(error));
+        }
+    }
+
+    async function forceRecovery() {
+        if (timeline?.generation == null || !timeline?.forceAvailableAt) return;
+        const warning =
+            "Take control only if the other process stopped renewing. A prior command or process may still finish. RunWield fences later writes, but it cannot undo external effects.";
+        if (!globalThis.confirm(`${warning}\n\nTake control of this Session?`)) return;
+        try {
+            await ownerFetch(
+                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                    encodeURIComponent(runwieldSessionId)
+                }/force-recovery`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({
+                        expectedGeneration: timeline.generation,
+                        expectedCurrentSegmentId: timeline.currentSegmentId || null,
+                    }),
+                },
+            );
+            setMessage("Session control recovered. Review the committed timeline before sending.");
+            await loadTimeline();
+        } catch (error) {
+            setMessage(errorMessage(error));
+        }
+    }
+
     if (mode === "list") {
         return (
             <SessionList
@@ -403,12 +486,32 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 data={listData}
                 loading={loadingList}
                 error={listError}
+                newSessionText={newSessionText}
+                creating={submitting}
+                onNewSessionTextChange={setNewSessionText}
+                onCreateSession={createSession}
                 onRetry={loadList}
             />
         );
     }
 
-    const allItems = [...timelineItems, ...transientItems];
+    const allItems = [
+        ...timelineItems,
+        ...transientItems.map((item) =>
+            item.kind === "interaction"
+                ? {
+                    ...item,
+                    onAnswer: () => {
+                        const value = globalThis.prompt(item.request?.prompt || "Answer the agent") || "";
+                        if (value) {
+                            answerInteraction(item.operationId, item.interactionId, { outcome: "text", value });
+                        }
+                    },
+                }
+                : item
+        ),
+        ...(interruptedOperation ? [{ kind: "interruption", key: "interruption:lost-workspace-operation" }] : []),
+    ];
     return (
         <section className="session-surface">
             <div className="session-surface-status" aria-live="polite">{message}</div>
@@ -448,6 +551,13 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                     </RunWieldButton>
                                 )
                                 : null}
+                            {availability.canForceRecover
+                                ? (
+                                    <RunWieldButton type="button" variant="secondary" onClick={forceRecovery}>
+                                        Take control
+                                    </RunWieldButton>
+                                )
+                                : null}
                         </section>
                         <SessionTimeline items={allItems} />
                         <form
@@ -470,7 +580,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                         sendRequest();
                                     }
                                 }}
-                                placeholder="Type the exact request to send to Ideator…"
+                                placeholder="Type the exact request to send to the active Agent…"
                             />
                             <div className="session-composer-actions">
                                 <RunWieldButton

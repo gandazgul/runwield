@@ -9,6 +9,8 @@
  * @property {boolean} [timelineComplete]
  * @property {boolean} [localOperationActive]
  * @property {boolean} [truncated]
+ * @property {boolean} [controlRenewing]
+ * @property {string | null | undefined} [forceAvailableAt]
  */
 
 const SURFACE_LABELS = {
@@ -36,7 +38,7 @@ function surfaceLabel(value) {
 
 /**
  * @param {SessionAvailabilityInput} input
- * @returns {{ key: string, label: string, explanation: string, intent: "success" | "warning" | "danger" | "info", canPrepare: boolean, canContinue: boolean }}
+ * @returns {{ key: string, label: string, explanation: string, intent: "success" | "warning" | "danger" | "info", canPrepare: boolean, canContinue: boolean, canForceRecover?: boolean }}
  */
 export function deriveSessionAvailability(input) {
     const protocolEnabled = input.protocol?.enabled !== false && input.protocol?.status !== "disabled";
@@ -94,42 +96,48 @@ export function deriveSessionAvailability(input) {
         const label = input.activeSurface === "workspace"
             ? "Running in Workspace"
             : `In use in ${surfaceLabel(input.activeSurface)}`;
+        const forceTime = input.forceAvailableAt ? Date.parse(input.forceAvailableAt) : Number.NaN;
+        const canForceRecover = Boolean(input.forceAvailableAt) && !input.controlRenewing &&
+            Number.isFinite(forceTime) && forceTime <= Date.now();
         return {
-            key: "active",
-            label,
-            explanation: "Another surface currently owns this Session. Refresh after it becomes idle.",
+            key: canForceRecover ? "force-available" : "active",
+            label: canForceRecover ? "Control expired" : label,
+            explanation: canForceRecover
+                ? "The other surface stopped renewing. You can take control after accepting the risk."
+                : `Another surface owns this Session until ${input.forceAvailableAt || "its heartbeat expires"}.`,
             intent: "warning",
             canPrepare: false,
             canContinue: false,
+            canForceRecover,
         };
     }
     const activeAgent = String(input.snapshot?.activeAgent || "");
-    if (activeAgent && activeAgent !== "Ideator") {
-        return {
-            key: "non-ideator",
-            label: "Readable only",
-            explanation: `This tracer bullet can continue only idle Ideator Sessions. Current agent: ${activeAgent}.`,
-            intent: "info",
-            canPrepare: false,
-            canContinue: false,
-        };
-    }
     if (input.snapshot?.workflowContext) {
         return {
             key: "workflow-context",
             label: "Workflow Session",
             explanation:
-                "This Session already has workflow context. Phone continuation is limited to ordinary Ideator conversations.",
+                "This Session has workflow context. It is read-only until Workspace Plan actions are available.",
             intent: "info",
             canPrepare: false,
             canContinue: false,
         };
     }
-    if (input.state === "idle" && activeAgent === "Ideator") {
+    if (input.state === "idle" && activeAgent) {
         return {
             key: "available",
             label: "Available",
-            explanation: "Idle Ideator Session with a complete committed timeline.",
+            explanation: `Idle ${activeAgent} Session with a complete committed timeline.`,
+            intent: "success",
+            canPrepare: false,
+            canContinue: true,
+        };
+    }
+    if (input.state === "idle") {
+        return {
+            key: "available",
+            label: "Available",
+            explanation: "Idle conversational Session with a complete committed timeline.",
             intent: "success",
             canPrepare: false,
             canContinue: true,

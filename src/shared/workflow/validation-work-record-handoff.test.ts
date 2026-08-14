@@ -113,12 +113,12 @@ Deno.test("post-verification handoffs run real Work Record machinery through the
             assertStringIncludes(JSON.stringify(checklist.data), "Exercise the verified feature");
         }
         const creationStartIndex = ui.messages.findIndex((message: string) =>
-            message === "Creating work record for plan verified-feature..."
+            message === "RunWield will make a new Work Record for verified-feature now."
         );
-        const creationDoneIndex = ui.messages.findIndex((message: string) => message === "Work record created.");
+        const creationDoneIndex = ui.messages.findIndex((message: string) => message === "The Work Record is ready.");
         assertEquals(creationStartIndex >= 0, true);
         assertEquals(creationDoneIndex > creationStartIndex, true);
-        assertEquals(ui.messages.some((message: string) => message.includes("Work Record generated")), true);
+        assertEquals(ui.messages.some((message: string) => message === "The Work Record is ready."), true);
         assertEquals(
             ui.messages.some((message: string) =>
                 message.includes(`Supersession proposal remains pending: ${PREDECESSOR_RECORD_ID}`) &&

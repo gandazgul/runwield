@@ -16,6 +16,7 @@ import {
     unaccountedOpenItems,
 } from "./review-ledger.ts";
 import { hasImplementationDiff, requiresImplementationDiff } from "./validation-scope.ts";
+import { buildValidationUserMessage, validationReviewerPauseMessage } from "./validation-user-messages.ts";
 import type { OpaqueToolDefinition, ValidationReviewOutcome, ValidationWorkflowState } from "./validation-ports.ts";
 import type {
     PhaseContext,
@@ -75,9 +76,11 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
     let ledger = state.reviewLedger;
     let diffText = await getDiffText(context.baselineTree, context.executionCwd);
     if (requiresImplementationDiff(args.triageMeta) && !hasImplementationDiff(diffText, args.planName)) {
-        const reason = diffText.trim()
+        const planOnly = Boolean(diffText.trim());
+        const reason = planOnly
             ? "No implementation changes detected in workflow diff; only plan document changes were found."
             : "No implementation changes detected in workflow diff.";
+        emitStatus(args, buildValidationUserMessage({ kind: "semantic_diff_missing", planOnly }), "error");
         await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", reason);
         return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
     }
@@ -105,7 +108,12 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
         // which kind it is — a verify round reads very differently from a sweep.
         emitProgress(
             args,
-            `Semantic Code Review round ${nextRound}/${AUTOMATIC_ROUNDS} (${reviewMode}) in progress...`,
+            buildValidationUserMessage({
+                kind: "semantic_round",
+                round: nextRound,
+                maxRounds: AUTOMATIC_ROUNDS,
+                mode: reviewMode,
+            }),
             "info",
             {
                 outcome: "running",
@@ -148,7 +156,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                     advisoryCount: review.outcome.advisories.length,
                 },
             });
-            emitProgress(args, `Semantic Code Review Approved (round ${nextRound}).`, "success", {
+            emitProgress(args, buildValidationUserMessage({ kind: "semantic_approved", round: nextRound }), "success", {
                 stage: "semantic_review",
                 cycle: clampCycle(nextRound),
                 maxCycles: AUTOMATIC_ROUNDS,
@@ -210,17 +218,17 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             if (!repair.completed) {
                 const reason = repair.reason ||
                     "Reviewer-Feedback Engineer stopped without task_completed during semantic repair.";
-                await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", reason);
-                return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
+                return { kind: "paused", planName: args.planName, projectRoot: context.projectRoot, reason };
             }
             if (nextRound >= AUTOMATIC_ROUNDS) {
-                args.session.rememberPosition(args.planName, { phase: "semantic" });
-                emitStatus(args, `Running CI Validation in ${context.executionCwd}.`);
+                emitStatus(args, buildValidationUserMessage({ kind: "ci_running", cwd: context.executionCwd }));
                 const ciResult = await args.localCI.run({ cwd: context.executionCwd });
                 const testsPass = ciResult.exitCode === 0 && ciResult.canceled !== true;
                 emitStatus(
                     args,
-                    testsPass ? "Build and tests passed." : "Build and tests are failing after the repair.",
+                    testsPass
+                        ? buildValidationUserMessage({ kind: "checks_passed", objectiveChecks: false })
+                        : validationReviewerPauseMessage(args.planName),
                     testsPass ? "success" : "warning",
                 );
                 const action = await promptForSemanticRoundLimit(args, nextRound, openCount, testsPass);
@@ -344,7 +352,11 @@ export async function runReviewerRound(
         if (attempt > 1) {
             emitStatus(
                 args,
-                `Nudging Semantic Reviewer to finish round ${state.semanticRound} (${attempt}/3)...`,
+                buildValidationUserMessage({
+                    kind: "reviewer_nudge",
+                    round: state.semanticRound,
+                    attempt,
+                }),
                 "info",
             );
         }
@@ -386,15 +398,13 @@ export async function runReviewerRound(
                 latestOutcome = outcome;
             }
         } catch (error) {
-            lastReviewerFailure = `Semantic Reviewer execution failed: ${
-                error instanceof Error ? error.message : String(error)
-            }`;
+            console.error("[RunWield] semantic_reviewer_failed", error);
+            lastReviewerFailure = "The code review stopped before it was done.";
         }
     }
 
     if (!latestOutcome) {
-        const reason =
-            `The reviewer could not finish looking at "${args.planName}". ${lastReviewerFailure} Run this Plan again when you are ready — it picks up at this same round, with the findings so far kept.`;
+        const reason = validationReviewerPauseMessage(args.planName);
         args.session.setActiveWorkflow({
             ...context.workflowBase,
             ...(args.session.getActiveWorkflow() || {}),
@@ -403,7 +413,7 @@ export async function runReviewerRound(
             repairBaselineTree: state.repairBaselineTree,
             lastRepairReport: state.lastRepairReport,
         });
-        emitStatus(args, reason, "warning");
+        emitStatus(args, validationReviewerPauseMessage(args.planName), "warning");
         return {
             kind: "paused",
             result: { kind: "paused", planName: args.planName, projectRoot: context.projectRoot, reason },
@@ -496,7 +506,7 @@ export async function dispatchReviewFeedbackRepair(
     context: PhaseContext,
     packet: ReviewFeedbackRepairPacket,
 ): Promise<{ completed: boolean; report: string; reason?: string }> {
-    emitStatus(args, packet.reason, "warning");
+    emitStatus(args, buildValidationUserMessage({ kind: "review_repair", repairKind: packet.repairKind }), "warning");
     try {
         const workflowState: ValidationWorkflowState = { ...context.workflowBase, ...packet.activeWorkflow };
         args.session.setActiveWorkflow(workflowState);
@@ -557,10 +567,13 @@ export async function promptForSemanticRoundLimit(
 ): Promise<"continue" | "code_review" | "stop"> {
     const response = await requestInteraction(args, {
         type: ValidationInteractionTypes.SELECT,
-        prompt:
-            `The reviewer has looked at "${args.planName}" ${semanticRound} times and still is not happy with it. ${openFindingCount} thing(s) are still open, and the latest fix ${
-                testsPass ? "builds and passes the tests" : "does not pass the tests"
-            }.\n\nYou can have the reviewer take another look at just those, read the changes yourself, or leave it here for now — nothing is lost either way.`,
+        prompt: buildValidationUserMessage({
+            kind: "semantic_limit",
+            planName: args.planName,
+            rounds: semanticRound,
+            openCount: openFindingCount,
+            testsPass,
+        }),
         options: [
             { value: "continue", label: "Have the reviewer look again" },
             { value: "code_review", label: "Let me read the changes" },

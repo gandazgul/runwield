@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
 import { getSettingsManager } from "../../shared/settings.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { NO_OPEN_BROWSER_PORT } from "../../shared/browser-port.ts";
@@ -107,6 +108,40 @@ Deno.test("chat session starts a real composed TUI through the public compositio
             assertStringIncludes(terminal.getScreenText(), "RunWield");
         } finally {
             await composition.dispose();
+        }
+    });
+});
+
+Deno.test("chat session starts in a Project registered by Workspace", async () => {
+    await withRuntimeCommandFixture("chat-session-managed-project-startup-", async ({ projectRoot }) => {
+        const store = openOwnerCoordinationStore();
+        const terminal = new VirtualTerminal({ columns: 100, rows: 30 });
+        const readySessions: string[] = [];
+        try {
+            store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
+            store.registerProject({ root: projectRoot, now: () => "2026-01-01T00:00:01.000Z" });
+            Deno.chdir(projectRoot);
+            const composition = await createInteractiveTuiComposition(null, {
+                browser: NO_OPEN_BROWSER_PORT,
+                terminal,
+                skipModelWelcome: true,
+                sessionStartMode: "new",
+                initialAgentName: "operator",
+                onSessionReady: (sessionId) => readySessions.push(sessionId),
+            });
+            try {
+                await composition.waitForIdle();
+                assertEquals(readySessions, [composition.sessionId]);
+                assertEquals(
+                    composition.runtime.getSessionSnapshot(composition.sessionId)?.managed?.projectId !== undefined,
+                    true,
+                );
+                assertStringIncludes(terminal.getScreenText(), "RunWield");
+            } finally {
+                await composition.dispose();
+            }
+        } finally {
+            store.close();
         }
     });
 });

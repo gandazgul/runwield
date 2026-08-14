@@ -236,7 +236,7 @@ Deno.test("Plan Recovery menu outcomes re-prompt without fallthrough", async () 
     const proofContext = makeActionContext(proofProject.projectRoot, proofProject.plan, proofUi);
     proofContext.unresolvedRecords = [{ transitionId: "proof-record", operation: "reset", reason: "pending" }];
     assertEquals(await settleRecoveryRecords(proofContext), { kind: "menu" });
-    assertEquals(proofUi.messages.some((message) => message.includes("repository now proves")), true);
+    assertEquals(proofUi.messages.some((message) => message.includes("1 old work note is done")), true);
     assertEquals(proofContext.unresolvedRecords.length, 0);
 
     const declineProject = await makeRealRecoveryProject();
@@ -264,7 +264,7 @@ Deno.test("Plan Recovery menu outcomes re-prompt without fallthrough", async () 
         { transitionId: "attested-record", operation: "reset", reason: "pending" },
     ];
     assertEquals(await settleRecoveryRecords(attestationContext), { kind: "menu" });
-    assertEquals(attestationUi.messages.some((message) => message.includes("Closed on your confirmation")), true);
+    assertEquals(attestationUi.messages.some((message) => message.includes("Closed on your word")), true);
     assertEquals(attestationContext.unresolvedRecords.length, 0);
 
     const inspect = await runRecovery(["inspect", null], {
@@ -275,13 +275,13 @@ Deno.test("Plan Recovery menu outcomes re-prompt without fallthrough", async () 
     assertEquals(inspect.result, "handled");
     assertEquals(inspect.ui.prompts.length, 2);
     assertEquals(
-        inspect.ui.messages.some((message) => message.includes("Worktree path:   /tmp/inspected-worktree")),
+        inspect.ui.messages.some((message) => message.includes("Worktree path: /tmp/inspected-worktree")),
         true,
     );
 
     const resetPreflight = await runRecovery(["reset", null]);
     assertEquals(resetPreflight.result, "handled");
-    assertEquals(resetPreflight.ui.messages.some((message) => message.includes("no execution baseline tree")), true);
+    assertEquals(resetPreflight.ui.messages.some((message) => message.includes("No test base is saved")), true);
     assertEquals(resetPreflight.ui.prompts.length, 2);
 
     const validateBlocked = await runRecovery(["validate", null], { status: "implemented" });
@@ -305,8 +305,6 @@ Deno.test("Plan Recovery menu outcomes re-prompt without fallthrough", async () 
 
     const abandonDecline = await runRecovery(["abandon", "cancel", null], {
         worktreeId: "worktree-1",
-        worktreePath: "/tmp/worktree",
-        worktreeBranch: "rw/test",
     });
     assertEquals(abandonDecline.result, "handled");
     assertEquals(abandonDecline.plan.attrs.worktreeId, "worktree-1");
@@ -362,7 +360,7 @@ Deno.test("Plan Recovery actions preserve live context", async () => {
     inspectedStatusPath = inspectContext.worktreeContext?.path || "";
     assertEquals(inspectContext.worktreeContext?.path, "/tmp/refreshed-worktree");
     assertEquals(inspectedStatusPath, "/tmp/refreshed-worktree");
-    assertEquals(inspectUi.messages.some((message) => message.includes("refreshed before report")), true);
+    assertEquals(inspectUi.messages.some((message) => message.includes("last run stopped")), true);
 
     const inspect = await runRecovery(["inspect", null], {
         worktreeId: "worktree-1",
@@ -429,7 +427,7 @@ Deno.test("Plan Recovery actions preserve live context", async () => {
     assertEquals(Boolean(abandonMissingRegistry.plan.attrs.worktreeId), false);
     assertEquals(
         abandonMissingRegistry.ui.messages.some((message) =>
-            message.includes("Worktree registry entry missing-worktree-1 was already absent")
+            message.includes("saved worktree details were already gone")
         ),
         true,
     );
@@ -464,4 +462,25 @@ Deno.test("Plan Recovery actions preserve live context", async () => {
     });
     assertEquals(mergeAttemptFailure.result, "handled");
     assertEquals(mergeAttemptFailure.ui.messages.length > 0, true);
+});
+
+Deno.test("lost worktree recovery offers three choices and Stop here leaves ready for work", async () => {
+    const project = await makeRealRecoveryProject({
+        executionMode: "worktree",
+        worktreeId: "lost-worktree",
+        worktreePath: `${await Deno.makeTempDir()}/gone`,
+        worktreeBranch: "rw/gone",
+        worktreeBaseBranch: "main",
+    });
+    const ui = makeUi(["stop_lost"]);
+    const options = makeOptions(project.plan, ui);
+    options.projectRoot = project.projectRoot;
+    options.session.cwd = project.projectRoot;
+
+    assertEquals(await handlePlanRecovery(options), "handled");
+    assertEquals(
+        ui.prompts[0],
+        "The worktree and branch are gone. The Plan says they should be here. What do you want to do?:reset,review,stop_lost",
+    );
+    assertEquals((await loadPlan(project.projectRoot, project.plan.planName))?.attrs.status, "ready_for_work");
 });

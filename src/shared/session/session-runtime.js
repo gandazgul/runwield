@@ -1322,7 +1322,8 @@ export class SessionRuntime {
         const pendingResult = await this.#resumePendingExecutionSegmentHandoff(session, options);
         if (pendingResult) return pendingResult;
         const result = await this.#runWorkflowOperation(session, "runValidation", options, async () => {
-            const { runValidationLoop, SYSTEM_SEMANTIC_REVIEW_PORT } = await import("../workflow/validation.ts");
+            const { SYSTEM_SEMANTIC_REVIEW_PORT } = await import("../workflow/validation.ts");
+            const { continueWorkflowValidation } = await import("../workflow/validation-supervisor.ts");
             const { createGitPort } = await import("../git-port.ts");
             const { systemLocalCIPort } = await import("../workflow/validation-local-ci.ts");
             const { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } = await import("../work-records/mnemosyne-port.ts");
@@ -1332,7 +1333,7 @@ export class SessionRuntime {
                 localCI: systemLocalCIPort,
                 workRecordMnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
             };
-            let latestResult = await runValidationLoop(
+            let latestResult = await continueWorkflowValidation(
                 /** @type {any} */ ({
                     ...options,
                     hostedSession: session,
@@ -1347,7 +1348,7 @@ export class SessionRuntime {
                 if (!plan) break;
                 const status = plan.attrs?.status;
                 if (status !== "validated_ci" && status !== "validated_reviewer") break;
-                latestResult = await runValidationLoop(
+                latestResult = await continueWorkflowValidation(
                     /** @type {any} */ ({
                         ...options,
                         hostedSession: session,
@@ -3214,7 +3215,7 @@ export class SessionRuntime {
      * consumer. Only the opaque runtime id and public metadata cross the core
      * boundary.
      *
-     * @param {{ cwd: string, mode?: "new" | "continue", enableManagedActivation?: boolean, deferManagedActivationUntilAgentReady?: boolean }} options
+     * @param {{ cwd: string, mode?: "new" | "continue", enableManagedActivation?: boolean, adoptManagedActivation?: boolean, deferManagedActivationUntilAgentReady?: boolean }} options
      */
     async createInteractiveSession(options) {
         if (!options?.cwd || !isAbsolute(options.cwd)) {
@@ -3256,7 +3257,6 @@ export class SessionRuntime {
                 };
             }
         }
-        const requestedManagedNew = this.#shouldUseManagedActivation(options) && (options.mode || "new") === "new";
         const creationClassification = await classifyRootSessionLocator({
             cwd: options.cwd,
             ownerCoordinationStore,
@@ -3264,6 +3264,9 @@ export class SessionRuntime {
         if (creationClassification.kind === "blocked") {
             throw new Error(`Session Manager create is blocked: ${creationClassification.reason}`);
         }
+        const requestedManagedNew = (this.#shouldUseManagedActivation(options) ||
+            (options.adoptManagedActivation === true && creationClassification.kind === "managed")) &&
+            (options.mode || "new") === "new";
         if (creationClassification.kind === "managed" && !requestedManagedNew) {
             throw new Error("Session Manager create is blocked: managed_activation_required");
         }
@@ -3899,4 +3902,36 @@ export function createSessionRuntime(options = {}) {
         ownerProcessKind: options.ownerProcessKind ?? "test",
         ownerInstanceId: options.ownerInstanceId ?? crypto.randomUUID(),
     });
+}
+
+/**
+ * @param {{ activation?: { state?: string | null } | null, generation?: { generation?: number | null } | null, projection?: { ok?: boolean, complete?: boolean, snapshot?: { activeAgent?: string | null, workflowContext?: unknown, activeExecutionWorkflow?: unknown } | null } | null, expectedGeneration?: number | null }} facts
+ */
+export function deriveManagedSessionContinuationDecision(facts) {
+    if (facts.activation?.state !== "idle") {
+        return { ok: false, code: "active_owner", message: "This Session is not idle." };
+    }
+    const generation = facts.generation?.generation ?? null;
+    if (generation === null || generation !== facts.expectedGeneration) {
+        return { ok: false, code: "stale_generation", message: "Refresh the Session before continuing." };
+    }
+    if (!facts.projection?.ok || facts.projection.complete === false) {
+        return { ok: false, code: "incomplete_projection", message: "The committed timeline is not complete." };
+    }
+    const snapshot = facts.projection.snapshot || {};
+    if (snapshot.workflowContext || snapshot.activeExecutionWorkflow) {
+        return {
+            ok: false,
+            code: "active_workflow_read_only",
+            message: "This workflow Session is read-only until Workspace Plan actions are available.",
+        };
+    }
+    return {
+        ok: true,
+        code: "continue",
+        agentName: typeof snapshot.activeAgent === "string" && snapshot.activeAgent
+            ? snapshot.activeAgent
+            : AGENTS.ROUTER,
+        message: "This idle conversational Session can continue.",
+    };
 }

@@ -219,7 +219,7 @@ Deno.test("Mechanical Validation stops after three real Engineer repair completi
         assertEquals(result.attempts, 3);
         assertEquals(ci.calls.length, 4);
         assertEquals(
-            fixture.ui.messages.some((message) => message.includes("failed after 3 Engineer repair attempts")),
+            fixture.ui.messages.some((message) => message.includes("quick fix tests still fail after 3 tries")),
             true,
         );
         assertEquals(
@@ -250,7 +250,7 @@ Deno.test("Mechanical Validation preserves the Engineer session when local CI is
         assertEquals(result, { passed: false, attempts: 0, reason: "canceled" });
         assertEquals(fixture.hostedSession.getRootAgentName(), "engineer");
         assertEquals(
-            fixture.ui.messages.some((message) => message.includes("Mechanical Validation canceled")),
+            fixture.ui.messages.some((message) => message.includes("quick fix tests were stopped")),
             true,
         );
         fixture.hostedSession.dispose();

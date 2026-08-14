@@ -3,8 +3,15 @@
  * The Plan Recovery menu coordinator for in-progress, failed, and implemented Plans.
  */
 
-import { resolvePlanExecutionPolicy } from "../../plan-store.js";
+import { loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { probeGitRepository } from "../../shared/git.js";
+import { createGitPort } from "../../shared/git-port.ts";
+import {
+    buildPlanRecoveryUserMessage,
+    buildValidationUserMessage,
+    validationUserMessage,
+} from "../../shared/workflow/validation-user-messages.ts";
+import { runPlansDoctor } from "../plans/doctor.ts";
 import { isInValidation } from "../../shared/workflow/plan-lifecycle.js";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
 import {
@@ -22,13 +29,14 @@ import {
     restoreRecoveryWorktreeRecord,
     reviewRecoveryPlan,
     settleRecoveryRecords,
+    stopLostRecoveryPlan,
     userVerifyRecoveryPlan,
     validateRecoveryPlan,
 } from "./plan-recovery-actions.ts";
 import { resetRecoveryPlan } from "./plan-recovery-reset.ts";
 import { mergeRecoveredWorktree } from "./plan-recovery-merge.ts";
 
-import type { PlanSessionSurface } from "./plan-session-types.ts";
+import type { PlanSessionSurface, RecoveryWorktreeContext } from "./plan-session-types.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { UiAPI } from "../../ui/tui/types.js";
 import type {
@@ -82,6 +90,25 @@ interface RecoveryMenuOption extends Record<string, string> {
 
 export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promise<"handled" | "review"> {
     const { projectRoot, plan, uiAPI } = opts;
+    try {
+        await runPlansDoctor(projectRoot, true);
+        const refreshed = await loadPlan(projectRoot, plan.planName);
+        if (refreshed) {
+            plan.path = refreshed.path;
+            plan.markdown = refreshed.markdown;
+            plan.body = refreshed.body;
+            plan.attrs = refreshed.attrs;
+            plan.revision = refreshed.revision;
+        }
+    } catch (error) {
+        console.error("[RunWield] recovery_safe_repair_failed", error);
+        uiAPI.appendSystemMessage(
+            buildValidationUserMessage({ kind: "recovery_repair_failed" }),
+            true,
+            "RunWield",
+        );
+        return "handled";
+    }
     const initialPolicy = resolvePlanExecutionPolicy(plan.attrs);
     const loadedWorktreeId = plan.attrs.worktreeId;
     if (!initialPolicy.ok && initialPolicy.reason !== "project_epic") {
@@ -126,7 +153,14 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
         const hasGitRecoveryMetadata = hasWorktree ||
             (plan.attrs.executionMode !== "non_git_in_place" && Boolean(plan.attrs.executionBaselineTree));
         const gitRecoveryBlocked = !gitProbe.ok && hasGitRecoveryMetadata;
-        const answer = await promptRecoveryAction(context, gitRecoveryBlocked, hasWorktree, canMergeWorktree);
+        const physicallyLost = await isAttemptPhysicallyLost(projectRoot, context.worktreeContext);
+        const answer = await promptRecoveryAction(
+            context,
+            gitRecoveryBlocked,
+            hasWorktree,
+            canMergeWorktree,
+            physicallyLost,
+        );
         await opts.ports.recordWorkflowMetric({
             category: "recovery",
             event: "recovery_action_selected",
@@ -145,12 +179,55 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
     }
 }
 
+async function isAttemptPhysicallyLost(
+    projectRoot: string,
+    worktree: RecoveryWorktreeContext | null,
+): Promise<boolean> {
+    if (!worktree?.id || !worktree.path || !worktree.branch) return false;
+    const pathExists = await Deno.stat(worktree.path).then((info) => info.isDirectory).catch(() => false);
+    if (pathExists) return false;
+    const branchExists = await createGitPort().branchHead(projectRoot, worktree.branch)
+        .then(() => true)
+        .catch(() => false);
+    if (branchExists) return false;
+    const command = new Deno.Command("git", {
+        cwd: projectRoot,
+        args: ["worktree", "list", "--porcelain"],
+        stdout: "piped",
+        stderr: "null",
+    });
+    const output = await command.output().catch(() => null);
+    if (!output || !output.success) return true;
+    const records = new TextDecoder().decode(output.stdout).trim().split(/\n\n+/);
+    const record = records.find((value) => value.split("\n").includes(`worktree ${worktree.path}`));
+    const head = record?.split("\n").find((line) => line.startsWith("HEAD "))?.slice(5);
+    if (!head) return true;
+    const proof = await new Deno.Command("git", {
+        cwd: projectRoot,
+        args: ["rev-parse", "--verify", `${head}^{commit}`],
+        stdout: "null",
+        stderr: "null",
+    }).output().catch(() => null);
+    return !proof?.success;
+}
+
 async function promptRecoveryAction(
     context: RecoveryActionContext,
     gitRecoveryBlocked: boolean,
     hasWorktree: boolean,
     canMergeWorktree: boolean,
+    physicallyLost: boolean,
 ): Promise<RecoveryMenuAnswer | null | undefined> {
+    if (physicallyLost) {
+        return await context.uiAPI.promptSelect(
+            validationUserMessage("lost_attempt"),
+            [
+                { value: "reset", label: "Try the implementation again" },
+                { value: "review", label: "Send the Plan back to Planner" },
+                { value: "stop_lost", label: "Stop here" },
+            ],
+        ) as RecoveryMenuAnswer | null;
+    }
     const resetLabel = gitRecoveryBlocked
         ? "Clear stale Git recovery metadata"
         : hasWorktree
@@ -210,7 +287,7 @@ async function dispatchRecoveryAction(
 ): Promise<RecoveryActionOutcome> {
     if (gitRecoveryBlocked && ["continue", "validate", "merge"].includes(action)) {
         context.uiAPI.appendSystemMessage(
-            `Cannot ${action} this Plan recovery state because Git is not available for the project. Git is required for recorded Worktree/baseline recovery operations. Use metadata-only reset or abandon cleanup, or initialize Git and try again.`,
+            buildPlanRecoveryUserMessage({ kind: "git_blocked" }),
             true,
             "RunWield",
         );
@@ -222,6 +299,8 @@ async function dispatchRecoveryAction(
             return await settleRecoveryRecords(context);
         case "restore_record":
             return await restoreRecoveryWorktreeRecord(context);
+        case "stop_lost":
+            return await stopLostRecoveryPlan(context);
         case "hold":
             return await holdRecoveryPlan(context);
         case "user_verify":

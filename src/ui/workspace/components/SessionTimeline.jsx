@@ -1,6 +1,6 @@
 import { MarkdownView } from "./MarkdownView.jsx";
 
-const MESSAGE_TYPES = new Set(["message", "thinking", "tool", "status", "usage"]);
+const MESSAGE_TYPES = new Set(["message", "thinking", "tool", "status", "usage", "interaction", "interruption"]);
 
 /** @param {unknown} value */
 function asRecord(value) {
@@ -94,6 +94,31 @@ export function reduceSessionEvents(events, options = {}) {
             if (timestamp) item.timestamp = timestamp;
             return;
         }
+        if (type === "interaction_requested") {
+            ensure(`interaction:${text(event.interactionId || id)}`, {
+                kind: "interaction",
+                key: event.eventId || `interaction:${text(event.interactionId || id)}`,
+                interactionId: text(event.interactionId || id),
+                request: {
+                    prompt: text(event.prompt || "The agent needs input."),
+                    type: text(event.interactionType || "text"),
+                },
+                timestamp,
+                source,
+            });
+            return;
+        }
+        if (type === "interaction_resolved" || type === "interaction_canceled") {
+            ensure(`status:${id}:${index}`, {
+                kind: "status",
+                key: event.eventId || `interaction-result:${id}:${index}`,
+                level: type === "interaction_canceled" ? "warning" : "info",
+                text: text(event.message || `Interaction ${text(event.outcome || "completed")}`),
+                timestamp,
+                source,
+            });
+            return;
+        }
         if (type === "system_status" || type === "terminal_error" || type === "cancellation") {
             ensure(`status:${id}:${index}`, {
                 kind: "status",
@@ -162,6 +187,25 @@ export function SessionTimeline({ items, events, emptyMessage = "No committed ti
                                 <p>{item.status}{item.output ? ` · ${item.output}` : ""}</p>
                             </article>
                         )
+                        : item.kind === "interaction"
+                        ? (
+                            <article className="session-live-interaction">
+                                <strong>Agent needs input</strong>
+                                <p>{item.request?.prompt || "The agent is waiting for your answer."}</p>
+                                {item.onAnswer
+                                    ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => item.onAnswer(item)}
+                                        >
+                                            Answer interaction
+                                        </button>
+                                    )
+                                    : null}
+                            </article>
+                        )
+                        : item.kind === "interruption"
+                        ? <p className="session-interruption">The agent was interrupted. Ask it to continue.</p>
                         : <p className={`session-status-row level-${item.level || "info"}`}>{item.text}</p>}
                 </li>
             ))}

@@ -33,6 +33,7 @@ import {
     runGitLines,
 } from "../../shared/workflow/transition-recovery.ts";
 import { isLockHolderGone, isLockHolderUnattributable } from "../../shared/process-liveness.ts";
+import { doctorCheckMessage, doctorCleanMessage, doctorNeedsHelpMessage } from "./doctor-messages.ts";
 import {
     inspectWorktreeRegistry,
     listEntries,
@@ -75,11 +76,13 @@ interface IssueGuidance {
 
 type PlansDoctorCommandOptions = Record<never, never>;
 
+const READ_ONLY_DOCTOR_FLAG = "--check";
+
 function printHelp() {
     console.log(`Usage:
-  ${CLI_BIN} plans doctor [--repair]
+  ${CLI_BIN} plans doctor [${READ_ONLY_DOCTOR_FLAG}]
 
-Diagnoses Plan, lifecycle journal, and worktree registry drift. --repair only applies non-destructive metadata repairs.`);
+Fixes safe Plan problems. Use ${READ_ONLY_DOCTOR_FLAG} to only look. --repair is kept as an alias.`);
 }
 
 function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
@@ -253,7 +256,7 @@ function summarizeIssueSeverities(issues: DoctorIssue[]): string {
     ).join(" · ");
 }
 
-function formatDoctorReport(issues: DoctorIssue[]) {
+function _formatDoctorReport(issues: DoctorIssue[]) {
     const byCategory = new Map<string, DoctorIssue[]>();
     for (const issue of issues) {
         const guidance = getIssueGuidance(issue);
@@ -301,7 +304,7 @@ function formatDoctorReport(issues: DoctorIssue[]) {
     return lines.join("\n").trimEnd();
 }
 
-function formatDoctorRepairReport(repaired: number, remainingIssues: DoctorIssue[]): string {
+function _formatDoctorRepairReport(repaired: number, remainingIssues: DoctorIssue[]): string {
     const lines = [
         `[RunWield] Applied ${repaired} safe repair${repaired === 1 ? "" : "s"}.`,
         `[RunWield] ${remainingIssues.length} problem${remainingIssues.length === 1 ? " remains" : "s remain"}.`,
@@ -618,7 +621,7 @@ async function collectStalePlanLockIssues(
     return results;
 }
 
-export async function runPlansDoctor(projectRoot: string, repair = false) {
+async function runPlansDoctorPass(projectRoot: string, repair: boolean) {
     const issues: DoctorIssue[] = [];
     let repaired = 0;
 
@@ -921,26 +924,44 @@ export async function runPlansDoctor(projectRoot: string, repair = false) {
     return { issues, repaired };
 }
 
+export async function runPlansDoctor(projectRoot: string, repair = true) {
+    if (!repair) return await runPlansDoctorPass(projectRoot, false);
+    let repaired = 0;
+    let lastIssueKey = "";
+    for (let pass = 0; pass < 8; pass += 1) {
+        const result = await runPlansDoctorPass(projectRoot, true);
+        repaired += result.repaired;
+        const remaining = await runPlansDoctorPass(projectRoot, false);
+        if (remaining.issues.length === 0) return { issues: [], repaired };
+        const issueKey = remaining.issues.map((issue) =>
+            `${issue.kind}:${issue.planName || ""}:${issue.worktreeId || ""}`
+        ).sort().join("|");
+        if (result.repaired === 0 || issueKey === lastIssueKey) return { issues: remaining.issues, repaired };
+        lastIssueKey = issueKey;
+    }
+    const remaining = await runPlansDoctorPass(projectRoot, false);
+    return { issues: remaining.issues, repaired };
+}
+
 export async function runPlansDoctorCommand(
     argv: string[],
     _options: PlansDoctorCommandOptions = {},
 ) {
-    const parsed = parseArgs(argv, { boolean: ["help", "repair"], alias: { h: "help" } });
+    const parsed = parseArgs(argv, { boolean: ["help", "repair", "check"], alias: { h: "help" } });
     if (parsed.help) {
         printHelp();
         return;
     }
-    const repair = Boolean(parsed.repair);
+    const checkOnly = Boolean(parsed.check);
     const projectRoot = getCwd();
-    const result = await runPlansDoctor(projectRoot, repair);
-    if (repair) {
-        const remaining = await runPlansDoctor(projectRoot, false);
-        console.log(formatDoctorRepairReport(result.repaired, remaining.issues));
+    const result = await runPlansDoctor(projectRoot, !checkOnly);
+    if (checkOnly) {
+        console.log(doctorCheckMessage(result.issues.length));
         return;
     }
-    if (result.issues.length === 0) {
-        console.log("[RunWield] Plans doctor found no lifecycle/worktree drift.");
-        return;
-    }
-    console.log(formatDoctorReport(result.issues));
+    console.log(
+        result.issues.length === 0
+            ? doctorCleanMessage(result.repaired)
+            : doctorNeedsHelpMessage(result.repaired, result.issues.length),
+    );
 }

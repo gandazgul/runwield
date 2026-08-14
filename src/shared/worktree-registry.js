@@ -680,6 +680,36 @@ export async function restoreEntryFromPlanEvidence(projectRoot, evidence) {
  * @param {string} id
  * @param {{ planName?: string, planId?: string }} identity
  */
+/**
+ * Update a registry location only after a caller has proved it from Git.
+ *
+ * @param {string} projectRoot
+ * @param {string} id
+ * @param {{ path: string, branch: string }} location
+ */
+export async function reconcileEntryGitLocation(projectRoot, id, location) {
+    return await withWorktreeRegistryLock(projectRoot, async () => {
+        const entries = await readRegistry(projectRoot);
+        const index = entries.findIndex((entry) => entry.id === id);
+        if (index === -1) throw new Error(`Worktree registry entry not found: ${id}`);
+        entries[index] = {
+            ...entries[index],
+            path: location.path,
+            branch: location.branch,
+            updatedAt: new Date().toISOString(),
+        };
+        assertNoDuplicateNonterminalAttempt(entries.filter((entry) => entry.id !== id), entries[index]);
+        await writeRegistry(projectRoot, entries);
+        return entries[index];
+    });
+}
+
+/**
+ * Repair an entry's Plan identity after the caller proves the pairing.
+ * @param {string} projectRoot
+ * @param {string} id
+ * @param {{ planName?: string, planId?: string }} identity
+ */
 export async function reconcileEntryIdentity(projectRoot, id, identity) {
     return await withWorktreeRegistryLock(projectRoot, async () => {
         const entries = await readRegistry(projectRoot);

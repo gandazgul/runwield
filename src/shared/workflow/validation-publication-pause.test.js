@@ -112,7 +112,7 @@ function runPublication(projectRoot, hostedSession) {
     );
 }
 
-Deno.test("resumes publication from stored repaired merge worktree", async () => {
+Deno.test("published candidate settlement resumes without a second merge", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
     let worktree;

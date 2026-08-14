@@ -107,7 +107,7 @@ Deno.test("Epic child Manual QA failure does not block verified delivery or cont
     assertEquals((await loadPlan(projectRoot, "epic/01-one"))?.attrs.status, "verified");
     assert(
         uiAPI.systemCalls.some((call: { level: string; message: string }) =>
-            call.level === "warning" && call.message.toLowerCase().includes("manual qa checklist")
+            call.level === "warning" && call.message.includes("RunWield could not save the test note")
         ),
     );
 });

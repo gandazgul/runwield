@@ -24,6 +24,7 @@ import {
 } from "../session/session-runtime-events.js";
 import { describeRuntimeTool } from "../session/tool-event-title.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
+import { buildValidationUserMessage } from "./validation-user-messages.ts";
 
 const VALIDATION_STREAM_OUTPUT_LIMIT_BYTES = PROCESS_STREAM_OUTPUT_LIMIT_BYTES;
 
@@ -42,12 +43,12 @@ async function getOrAskForValidationCommand(
         return (existingCommand as string);
     }
 
-    emitSystemStatus(hostedSession, "No validation command found in project settings.");
+    emitSystemStatus(hostedSession, buildValidationUserMessage({ kind: "validation_command_missing" }));
     const response = await requestHostedSessionInteraction(
         hostedSession,
         {
             type: RuntimeInteractionTypes.TEXT,
-            prompt: "Enter the command to validate this project (e.g., 'deno task ci', 'npm test'): ",
+            prompt: buildValidationUserMessage({ kind: "validation_command_prompt" }),
             allowEmpty: false,
         },
         undefined,
@@ -62,7 +63,10 @@ async function getOrAskForValidationCommand(
     const newCommand = userInput.trim();
     await setCustomSetting("verification_command", newCommand, "project", projectRoot);
 
-    emitSystemStatus(hostedSession, `Saved validation command: '${newCommand}'`);
+    emitSystemStatus(
+        hostedSession,
+        buildValidationUserMessage({ kind: "validation_command_saved", command: newCommand }),
+    );
     return newCommand;
 }
 

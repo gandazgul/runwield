@@ -34,8 +34,9 @@ Global flags:
 
 - `wld plans`: list active saved Plans.
 - `wld plans read <plan>`: open active or archived Plan Markdown read-only in a browser.
-- `wld plans doctor`: inspect Plan/worktree lifecycle drift without changing files.
-- `wld plans doctor --repair`: apply safe metadata repairs only.
+- `wld plans doctor`: fix all safe Plan and worktree problems.
+- `wld plans doctor --repair`: same repair behavior, kept for compatibility.
+- `wld plans doctor --check`: report problems without changing files.
 - `wld plans share <plan>`: publish an encrypted Shared Space and print secret URLs once.
 - `wld plans pull <url-or-plan>`: fetch remote revisions/comments and update or create a locked local Plan.
 - `wld plans push <plan>`: publish the local shared Plan as the next encrypted remote revision.

@@ -11,5 +11,5 @@ const runwieldSessionId = Astro.params.runwieldSessionId ?? "";
         <h1>Session Continuation</h1>
         <p>Committed transcript history is canonical. Live Workspace progress is temporary and reconciles after settlement.</p>
     </section>
-    <SessionSurface projectId={projectId} runwieldSessionId={runwieldSessionId} mode="detail" client:load />
+    <SessionSurface projectId={projectId} runwieldSessionId={runwieldSessionId} mode="detail" client:only="react" />
 </WorkspaceLayout>

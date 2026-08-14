@@ -78,6 +78,11 @@ _Avoid_: Partial segment, dangling Session, recovery segment
 interactions for a live Session; observation does not require control. Session Control is not mutation authority without
 Session Activation. _Avoid_: Plan ownership, Session ownership, Agent ownership
 
+**Forced Session Control Recovery**: An explicit owner action after a Session Activation heartbeat deadline. It
+validates ordered transcript evidence, fences the old owner, and returns a valid exact or transcript-ahead Session to
+idle. It does not replay a request or prove that external side effects stopped. _Avoid_: Automatic takeover, lease
+steal, replay recovery
+
 **Terminal Title**: The terminal emulator window or tab label RunWield sets for an interactive TUI session. _Avoid_: Tab
 name, shell title
 
@@ -463,8 +468,13 @@ Done message, final response
 **Scope Escalation**: An execution-time discovery that active work is larger than the current Routing Intent and must
 return to Router with context before continuing. _Avoid_: Surprise return, silent reroute
 
-**Workflow Validation**: RunWield's independent validation pass after a completed executable Plan loop. _Avoid_: Agent
-self-check, final summary
+**Workflow Validation**: RunWield's independent validation pass after a completed executable Plan loop. One supervisor
+reloads the primary Plan, worktree record, and Git facts before each run. _Avoid_: Agent self-check, final summary
+
+**Validation Checkpoint**: A small, versioned Plan field that says which validation step is next and which repair turn
+it waits for. Plan Status still selects the validation phase. The checkpoint only lets a new process continue the same
+run. It is cleared when validation ends, review reopens, or the implementation attempt is replaced. _Avoid_: Second
+status, Session state
 
 **Session-Independent Validation Engine**: The Workflow Validation sequencing, convergence policy, and gate predicates
 run on a session-independent engine (`src/shared/workflow/validation-engine.ts` and its phase modules) that consumes

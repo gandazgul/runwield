@@ -8,9 +8,13 @@
  */
 
 import { resolvePlanExecutionPolicy } from "../../plan-store.js";
-import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../../shared/git.js";
 import { buildPlanEventUpdates } from "../../shared/workflow/plan-lifecycle.js";
 import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
+import {
+    buildPlanRecoveryUserMessage,
+    buildValidationRecoveryNotice,
+    planRecoveryMessage,
+} from "../../shared/workflow/validation-user-messages.ts";
 import { runPlanFrontMatterTransition, runReviewReopenTransition } from "../../shared/workflow/state-transition.ts";
 import { getWorkflowDiff } from "../../shared/workflow/git-snapshot.js";
 import { getWorktreeStatus } from "../../shared/worktree.js";
@@ -273,11 +277,11 @@ export async function pathExists(path: string | undefined): Promise<boolean> {
 export function reportInvalidRecoveryPolicy(
     action: string,
     planName: string,
-    error: string | undefined,
+    _error: string | undefined,
     uiAPI: UiAPI,
 ): void {
     uiAPI.appendSystemMessage(
-        `Cannot ${action} Plan recovery for "${planName}" because its execution policy is invalid: ${error} Fix the Plan front matter or re-open it for review before retrying recovery.`,
+        buildPlanRecoveryUserMessage({ kind: "invalid_policy", action, planName }),
         true,
         "RunWield",
     );
@@ -329,20 +333,21 @@ export async function rehydrateActiveRecoveryWorkflow(
         });
         if (resolution.kind === "blocked") {
             if (uiAPI) {
-                uiAPI.appendSystemMessage(`Recovery ${action} blocked: ${resolution.message}`, false, "RunWield");
+                console.error("[RunWield] Recovery action blocked", { action, reason: resolution.message });
+                uiAPI.appendSystemMessage(planRecoveryMessage("action_blocked"), false, "RunWield");
                 return false;
             }
             throw new Error(resolution.message);
         }
         if (resolution.restoredPlanFile && uiAPI) {
             uiAPI.appendSystemMessage(
-                `Restored missing execution worktree Plan file from the canonical Project Plan: ${resolution.restoredPlanFile.relativePath}. Continuing Workflow Validation.`,
+                buildPlanRecoveryUserMessage({ kind: "plan_restored", path: resolution.restoredPlanFile.relativePath }),
                 false,
                 "RunWield",
             );
         }
         for (const notice of resolution.selfHealNotices || []) {
-            if (uiAPI) uiAPI.appendSystemMessage(notice, false, "RunWield");
+            if (uiAPI) uiAPI.appendSystemMessage(buildValidationRecoveryNotice(notice), false, "RunWield");
         }
         resolvedContext = resolution.context;
     }
@@ -380,20 +385,10 @@ export async function appendRecoveryReport(
     uiAPI: UiAPI,
     worktreeContext: RecoveryWorktreeContext | null,
 ): Promise<void> {
-    const lines = [buildPlanSummary(plan)];
-    if (plan.attrs.failureReason) {
-        lines.push(`Failure reason:\n${plan.attrs.failureReason}`);
-    }
+    let gitStatus: string | undefined;
+    let diff: string | undefined;
+    let inspectionFailed = false;
     if (hasWorktreeContext(worktreeContext)) {
-        lines.push(
-            [
-                `Worktree status: ${worktreeContext?.status || "unknown"}`,
-                `Worktree path:   ${worktreeContext?.path || "(unknown)"}`,
-                `Worktree branch: ${worktreeContext?.branch || "(unknown)"}`,
-                `Worktree target: ${worktreeContext?.baseBranch || "(unknown)"}`,
-                `Worktree base:   ${worktreeContext?.baseCommit || worktreeContext?.baseRef || "(unknown)"}`,
-            ].join("\n"),
-        );
         if (worktreeContext?.path) {
             try {
                 const status = await getWorktreeStatus({
@@ -403,42 +398,44 @@ export async function appendRecoveryReport(
                     baseTree: plan.attrs.executionBaselineTree || worktreeContext.executionBaselineTree ||
                         worktreeContext.baseTree || worktreeContext.baseCommit || undefined,
                 });
-                lines.push(
-                    status.exists
-                        ? `Git status:\n${status.statusText.trim() || "clean"}`
-                        : "Git status: missing worktree path",
-                );
-                lines.push(
-                    status.diff?.trim()
-                        ? `Changes since execution baseline:\n${status.diff}`
-                        : "No changes since baseline.",
-                );
+                gitStatus = status.exists ? status.statusText.trim() : "missing worktree path";
+                diff = status.diff?.trim() || "";
             } catch (error) {
-                const message = isGitRepositoryRequiredError(error)
-                    ? formatGitRequiredMessage(error)
-                    : error instanceof Error
-                    ? error.message
-                    : String(error);
-                lines.push(`Could not inspect worktree: ${message}`);
+                console.error("[RunWield] recovery_report_worktree_check_failed", error);
+                inspectionFailed = true;
             }
         }
     } else if (plan.attrs.executionBaselineTree) {
-        lines.push(`Execution baseline tree: ${plan.attrs.executionBaselineTree}`);
         try {
-            const diff = await getWorkflowDiff(projectRoot, plan.attrs.executionBaselineTree);
-            lines.push(diff.trim() ? `Changes since execution baseline:\n${diff}` : "No changes since baseline.");
+            diff = (await getWorkflowDiff(projectRoot, plan.attrs.executionBaselineTree)).trim();
         } catch (error) {
-            const message = isGitRepositoryRequiredError(error)
-                ? formatGitRequiredMessage(error)
-                : error instanceof Error
-                ? error.message
-                : String(error);
-            lines.push(`Could not compute baseline diff: ${message}`);
+            console.error("[RunWield] recovery_report_diff_failed", error);
+            inspectionFailed = true;
         }
-    } else {
-        lines.push("No execution baseline tree is recorded for this plan.");
     }
-    uiAPI.appendSystemMessage(lines.join("\n\n"), false, "Plan Recovery");
+    uiAPI.appendSystemMessage(
+        buildPlanRecoveryUserMessage({
+            kind: "recovery_report",
+            summary: buildPlanSummary(plan),
+            lastRunStopped: Boolean(plan.attrs.failureReason),
+            ...(hasWorktreeContext(worktreeContext)
+                ? {
+                    worktree: {
+                        status: worktreeContext?.status,
+                        path: worktreeContext?.path,
+                        branch: worktreeContext?.branch,
+                        target: worktreeContext?.baseBranch,
+                    },
+                }
+                : {}),
+            ...(gitStatus !== undefined ? { gitStatus } : {}),
+            ...(diff !== undefined ? { diff } : {}),
+            ...(inspectionFailed ? { inspectionFailed: true } : {}),
+            ...(!hasWorktreeContext(worktreeContext) && !plan.attrs.executionBaselineTree ? { noBaseline: true } : {}),
+        }),
+        false,
+        "Plan Recovery",
+    );
 }
 
 /**
@@ -464,9 +461,9 @@ export async function confirmBaselineReset(planName: string, uiAPI: UiAPI): Prom
  * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @returns {Promise<boolean>}
  */
-export async function confirmMetadataOnlyRecoveryCleanup(planName: string, uiAPI: UiAPI): Promise<boolean> {
+export async function confirmMetadataOnlyRecoveryCleanup(_planName: string, uiAPI: UiAPI): Promise<boolean> {
     uiAPI.appendSystemMessage(
-        `Git is not available for this project, so RunWield cannot inspect, restore, recreate, continue, validate, or merge the recorded Git recovery state for "${planName}". It can safely clear only the stale Plan/Worktree metadata; no project files or recorded paths will be modified.`,
+        buildPlanRecoveryUserMessage({ kind: "git_blocked" }),
         true,
         "RunWield",
     );
@@ -503,10 +500,11 @@ export async function confirmMissingWorktreeRecreate(
     uiAPI: UiAPI,
 ): Promise<boolean> {
     const path = worktreeContext?.path;
-    const message = path
-        ? `The recorded worktree for "${planName}" does not exist at ${path}. Recreating it will abandon the stale metadata and start implementation from a new worktree.`
-        : `The recorded worktree for "${planName}" has no usable path. Recreating it will abandon the stale metadata and start implementation from a new worktree.`;
-    uiAPI.appendSystemMessage(message, true, "RunWield");
+    uiAPI.appendSystemMessage(
+        buildPlanRecoveryUserMessage({ kind: "recreate_warning", planName, ...(path ? { path } : {}) }),
+        true,
+        "RunWield",
+    );
     const answer = await uiAPI.promptSelect("Recreate the worktree and start over?", [
         { value: "confirm", label: "Yes, create a new worktree and start over" },
         { value: "cancel", label: "Cancel" },
@@ -536,7 +534,7 @@ export async function confirmRecoveryWorktreeAvailable(
     if (!hasWorktreeContext(worktreeContext)) return true;
     if (worktreeContext?.status === "abandoned") {
         uiAPI.appendSystemMessage(
-            `Cannot continue recovery for "${planName}" because the recorded worktree is abandoned. Use Delete/recreate worktree and start over to recreate it explicitly.`,
+            buildPlanRecoveryUserMessage({ kind: "worktree_abandoned", planName }),
             true,
             "RunWield",
         );
@@ -544,7 +542,7 @@ export async function confirmRecoveryWorktreeAvailable(
     }
     if (!worktreeContext?.path) {
         uiAPI.appendSystemMessage(
-            `Cannot continue recovery for "${planName}" because no worktree path is recorded. Use Delete/recreate worktree and start over to recreate it explicitly.`,
+            buildPlanRecoveryUserMessage({ kind: "worktree_path_missing", planName }),
             true,
             "RunWield",
         );
@@ -552,7 +550,7 @@ export async function confirmRecoveryWorktreeAvailable(
     }
     if (!(await pathExists(worktreeContext.path))) {
         uiAPI.appendSystemMessage(
-            `Cannot continue recovery for "${planName}" because the recorded worktree path is missing or stale: ${worktreeContext.path}. Use Delete/recreate worktree and start over to recreate it explicitly.`,
+            buildPlanRecoveryUserMessage({ kind: "worktree_missing", planName, path: worktreeContext.path }),
             true,
             "RunWield",
         );
@@ -567,7 +565,7 @@ export async function confirmRecoveryWorktreeAvailable(
         });
         if (!status.exists) {
             uiAPI.appendSystemMessage(
-                `Cannot continue recovery for "${planName}" because the recorded worktree is missing or stale: ${worktreeContext.path}. Use Delete/recreate worktree and start over to recreate it explicitly.`,
+                buildPlanRecoveryUserMessage({ kind: "worktree_missing", planName, path: worktreeContext.path }),
                 true,
                 "RunWield",
             );
@@ -575,16 +573,16 @@ export async function confirmRecoveryWorktreeAvailable(
         }
         if (worktreeContext.branch && status.branch && status.branch !== worktreeContext.branch) {
             uiAPI.appendSystemMessage(
-                `Cannot continue recovery for "${planName}" because the recorded worktree branch is stale: expected ${worktreeContext.branch}, found ${status.branch}. Use Delete/recreate worktree and start over to recreate it explicitly.`,
+                buildPlanRecoveryUserMessage({ kind: "worktree_branch_changed", planName }),
                 true,
                 "RunWield",
             );
             return false;
         }
     } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
+        console.error("[RunWield] recovery_worktree_inspection_failed", error);
         uiAPI.appendSystemMessage(
-            `Cannot continue recovery for "${planName}" because the recorded worktree could not be inspected: ${reason}. Use Delete/recreate worktree and start over to recreate it explicitly.`,
+            buildPlanRecoveryUserMessage({ kind: "worktree_inspection_failed", planName }),
             true,
             "RunWield",
         );

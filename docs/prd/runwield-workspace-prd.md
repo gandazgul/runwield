@@ -88,6 +88,9 @@ Product principles:
   per-repository opt-in, not the default human review loop.
 - **Local-first does not mean browser-bound.** Work continues safely when the browser disconnects and stops only at
   completion, cancellation, failure, or the next required human decision.
+- **Expired control recovery is explicit.** Workspace does not take over a renewing TUI, Workspace, or ACP owner. After
+  the heartbeat deadline, the owner can accept the risk and recover control only from valid transcript evidence.
+  RunWield fences later coordination writes from the old owner but does not claim to undo external side effects.
 - **Preserve local agency.** Personal mode does not force every QUICK_FIX, manual edit, or supported in-place workflow
   into a Plan worktree.
 - **Explicit scope beats ambient reach.** Cross-Project source search and future Agent access must never silently

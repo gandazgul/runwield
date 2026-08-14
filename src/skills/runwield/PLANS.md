@@ -71,9 +71,10 @@ unsupported status, or needs user planning/approval.
 
 ## Recovery
 
-Use `wld plans doctor` to inspect Plan/worktree drift. Add `--repair` only for safe metadata repairs. Interrupted
-lifecycle transactions can leave recovery records under `.wld/plan-transitions/`; later `wld load-plan`, validation
-retry, or doctor runs use them to decide whether to complete, roll back, or ask the user.
+Use `wld plans doctor` to fix safe Plan and worktree problems. It repairs by default and repeats until no more safe fix
+is available. `--repair` is a compatible alias. Use `--check` for a read-only report. Doctor does not delete an unmerged
+worktree or reset working changes. It asks before either action. Plan loading and validation use the same safe repair
+rules before they ask the user.
 
 ## Work Records
 

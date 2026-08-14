@@ -30,6 +30,7 @@ import type {
 } from "./validation-types.ts";
 import type { ValidationWorkflowState } from "./validation-ports.ts";
 import { emitHalted } from "./validation-emit.ts";
+import { buildValidationUserMessage } from "./validation-user-messages.ts";
 
 export async function resolvePhaseContext(
     args: ValidationLoopArgs,
@@ -50,7 +51,7 @@ export async function resolvePhaseContext(
         // happens, ever.
         emitHalted(
             args,
-            `RunWield cannot continue validating ${args.planName}: ${resolution.message}`,
+            buildValidationUserMessage({ kind: "context_blocked", planName: args.planName }),
             resolution.message,
         );
         await recordLifecycleEvent(
@@ -187,18 +188,6 @@ export async function recordLifecycleEvent(
         currentStatus,
         details: { triageMeta: args.triageMeta, failureReason, ...extraDetails },
     });
-    // Move the remembered position with the transition the loop just made, in one
-    // place rather than at each call site. Scattering it meant a path that recorded
-    // a status change without also updating the memory left the two disagreeing,
-    // and dispatch trusts the memory — human-review feedback sent the Plan back to
-    // `implemented` while the memory still said `semantic`, and the next phase tried
-    // to review a Plan that had already moved past it.
-    //
-    // Only transitions validation performs land here. That is the point: a status
-    // moved by anything else — a repair Agent's own `task_completed` — leaves the
-    // memory alone, which is exactly the jump this is meant to refuse.
-    const nextPhase = phaseForRecordedStatus(event);
-    if (nextPhase) args.session.rememberPosition(args.planName, { phase: nextPhase });
     return result;
 }
 

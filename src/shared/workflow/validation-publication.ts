@@ -51,6 +51,7 @@ import {
 import { recordLifecycleEvent } from "./validation-context.ts";
 import { completeProgressRecord, emitProgress, emitStatus } from "./validation-emit.ts";
 import { pauseForUserAction } from "./validation-interactions.ts";
+import { buildValidationUserMessage, validationUserMessage } from "./validation-user-messages.ts";
 
 type DeliveryEvidence = import("../../plan-store.js").DeliveryEvidence;
 type WorktreeDeliveryEvidence = import("../../plan-store.js").WorktreeDeliveryEvidence;
@@ -70,7 +71,7 @@ async function prepareEpicChildManualQaArtifact(args: ValidationLoopArgs, cwd: s
     if (parent?.attrs.classification !== "PROJECT") return;
 
     try {
-        args.session.emitStatus(`Preparing durable Manual QA checklist for ${args.planName}.`, "info");
+        emitStatus(args, buildValidationUserMessage({ kind: "qa_prepare", planName: args.planName }), "info");
         const userRequest = [
             "Prepare this Epic child's Manual QA checklist.",
             `Name: ${args.planName}`,
@@ -100,28 +101,22 @@ async function prepareEpicChildManualQaArtifact(args: ValidationLoopArgs, cwd: s
             sessionManager: args.session.createInMemorySessionManager(cwd),
         });
         if (outcome.outcome === "recorded" || outcome.outcome === "already_present") {
-            args.session.emitStatus(
-                outcome.relativePath
-                    ? `Manual QA checklist ${
-                        outcome.outcome === "recorded" ? "recorded" : "already exists"
-                    }: ${outcome.relativePath}.`
-                    : "Manual QA checklist artifact is ready.",
+            emitStatus(
+                args,
+                buildValidationUserMessage({
+                    kind: "qa_ready",
+                    path: outcome.relativePath,
+                    existed: outcome.outcome === "already_present",
+                }),
                 "info",
             );
             return;
         }
-        args.session.emitStatus(
-            `Automated verification passed, but the durable Manual QA checklist was not generated: ${
-                outcome.warning || outcome.outcome
-            }`,
-            "warning",
-        );
+        console.error("[RunWield] test_note_not_generated");
+        emitStatus(args, validationUserMessage("publication_note_failed"), "warning");
     } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        args.session.emitStatus(
-            `Automated verification passed, but the durable Manual QA checklist was not generated: ${reason}`,
-            "warning",
-        );
+        console.error("[RunWield] test_note_generation_failed", error);
+        emitStatus(args, validationUserMessage("publication_note_failed"), "warning");
     }
 }
 
@@ -320,7 +315,11 @@ export async function runPublicationPhase(
                 // about it: the branch moved with nothing in the transcript saying so.
                 emitProgress(
                     args,
-                    `Merging validated worktree branch ${executionBranch} into target branch ${targetBranch}.`,
+                    buildValidationUserMessage({
+                        kind: "merge_progress",
+                        sourceBranch: executionBranch,
+                        targetBranch,
+                    }),
                     "info",
                     { outcome: "running", stage: "merge", checks: { merge: "running" } },
                 );
@@ -497,9 +496,13 @@ export function buildVerifiedResult(args: ValidationLoopArgs, projectRoot: strin
     if (current) {
         emitStatus(
             args,
-            `${args.planName} is verified and published.`,
+            buildValidationUserMessage({ kind: "verified", planName: args.planName }),
             "success",
-            completeProgressRecord(current, true, `${args.planName} is verified and published.`),
+            completeProgressRecord(
+                current,
+                true,
+                buildValidationUserMessage({ kind: "verified", planName: args.planName }),
+            ),
         );
     }
     return {

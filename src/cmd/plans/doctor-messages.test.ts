@@ -1,0 +1,18 @@
+import { assert, assertEquals } from "@std/assert";
+import { doctorCheckMessage, doctorCleanMessage, doctorNeedsHelpMessage } from "./doctor-messages.ts";
+
+Deno.test("doctor messages stay plain", () => {
+    const messages = [
+        doctorCleanMessage(0),
+        doctorCleanMessage(3),
+        doctorNeedsHelpMessage(2, 1),
+        doctorCheckMessage(0),
+        doctorCheckMessage(4),
+    ];
+    const forbidden = ["registry", "front matter", "lifecycle", "checkpoint", "settlement", "planid"];
+    for (const message of messages) {
+        const lower = message.toLowerCase();
+        assert(message.split(/\s+/).length <= 20, message);
+        for (const term of forbidden) assertEquals(lower.includes(term), false, message);
+    }
+});

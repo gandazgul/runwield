@@ -1455,12 +1455,29 @@
 .session-message,
 .session-tool,
 .session-thinking,
-.session-status-row {
+.session-status-row,
+.session-live-interaction,
+.session-interruption {
     border: 1px solid var(--rw-border);
     border-radius: 1rem;
     padding: 0.85rem;
     background: var(--rw-surface-raised);
     overflow-wrap: anywhere;
+}
+
+.session-live-interaction {
+    border-color: color-mix(in srgb, var(--rw-warning) 65%, var(--rw-border));
+    background: color-mix(in srgb, var(--rw-warning) 10%, var(--rw-surface-raised));
+}
+
+.session-live-interaction button,
+.session-create-card button {
+    min-height: 44px;
+}
+
+.session-interruption {
+    color: var(--rw-text-muted);
+    border-style: dashed;
 }
 
 .session-message header {
@@ -1500,7 +1517,8 @@
     font-weight: 700;
 }
 
-.session-composer textarea {
+.session-composer textarea,
+.session-create-card textarea {
     min-height: 8rem;
     resize: vertical;
     border: 1px solid var(--rw-border);
@@ -1512,8 +1530,20 @@
     line-height: 1.45;
 }
 
+.session-create-card {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.session-create-card label {
+    font-weight: 700;
+}
+
 .session-composer textarea:focus-visible,
 .session-composer button:focus-visible,
+.session-create-card textarea:focus-visible,
+.session-create-card button:focus-visible,
+.session-live-interaction button:focus-visible,
 .session-card a:focus-visible {
     outline: 3px solid var(--rw-accent);
     outline-offset: 2px;

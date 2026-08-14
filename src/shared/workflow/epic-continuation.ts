@@ -14,7 +14,8 @@ import { recordPlanEvent } from "./plan-lifecycle.js";
 import { executePlan, runPlanningAgent } from "./workflow.js";
 import { decidePostExecution, decidePostPlanning } from "./decisions.js";
 import { buildTriageReport } from "./workflow-prompts.js";
-import { runValidationLoop, SYSTEM_SEMANTIC_REVIEW_PORT } from "./validation.ts";
+import { SYSTEM_SEMANTIC_REVIEW_PORT } from "./validation.ts";
+import { continueWorkflowValidation } from "./validation-supervisor.ts";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { HostedSession } from "../session/hosted-session.js";
@@ -227,7 +228,7 @@ export async function runEpicChildContinuation(
     });
     if (executionDecision.kind !== "run_validation") return null;
     const latestPlan = await loadPlan(hostedSession.cwd, planName);
-    return /** @type {any} */ (await runValidationLoop({
+    return /** @type {any} */ (await continueWorkflowValidation({
         hostedSession,
         planName,
         planContent: latestPlan?.markdown || plan.markdown || plan.body || "",

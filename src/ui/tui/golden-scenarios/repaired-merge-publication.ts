@@ -104,9 +104,9 @@ export const repairedMergePublicationScenario = {
                 "Expected no Semantic Review in the restarted process.",
             );
             const resumedTranscript = `${result.scrollbackText || ""}\n${result.screenText}`;
-            assert(!resumedTranscript.includes("Running CI Validation"));
-            assert(!resumedTranscript.includes("Semantic Code Review"));
-            assertStringIncludes(resumedTranscript, "Merging validated worktree branch");
+            assert(!resumedTranscript.includes("Running the tests in"));
+            assert(!resumedTranscript.includes("Code review"));
+            assertStringIncludes(resumedTranscript, "Merging branch");
 
             const interactions = result.state.scriptedInteractions as CapturedInteraction[];
             assertEquals(interactions.map((entry) => entry.interaction?.value), ["validate"]);

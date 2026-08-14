@@ -244,7 +244,7 @@ export const engineerQuickFixMechanicalValidationScenario = {
         "durable:quick-fix-delivery",
     ],
     scriptedInteractions: [
-        { type: "text", promptIncludes: "Enter the command to validate", value: "true" },
+        { type: "text", promptIncludes: "Enter the command that runs this project's tests", value: "true" },
     ],
     script: [
         triageTurn("QUICK_FIX"),
@@ -291,10 +291,10 @@ export const engineerQuickFixMechanicalValidationScenario = {
         assertRuntimeEvent("role:engineer", "runtime:agent:engineer"),
         assertsGoldenCoverage("intent:QUICK_FIX", (result) => {
             assertEventIncludes(result, "runtime:tool:start:task_completed");
-            assertScreenIncludes(result, "QUICK_FIX Mechanical Validation passed.");
+            assertScreenIncludes(result, "The quick fix checks passed.");
         }),
         assertsGoldenCoverage("recovery:workflow-validation", (result) => {
-            assertScreenIncludes(result, "Saved validation command: 'true'");
+            assertScreenIncludes(result, "The test command is saved: true");
         }),
         assertRuntimeEvent("recovery:steered-task-completion", "runtime:queue"),
         // QUICK_FIX drives the mechanical panel. Asserting a `task_completed` tool

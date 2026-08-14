@@ -1,6 +1,7 @@
 import { loadPlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { buildPlanEventUpdates, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { runRecoveryTransition } from "../../shared/workflow/state-transition.ts";
+import { buildPlanRecoveryUserMessage, planRecoveryMessage } from "../../shared/workflow/validation-user-messages.ts";
 import {
     createWorktreeGitArtifacts,
     deleteMergedWorktreeBranch,
@@ -48,7 +49,7 @@ export async function resetRecoveryPlan(
     const hasWorktree = hasWorktreeContext(context.worktreeContext);
     if (!hasWorktree && !plan.attrs.executionBaselineTree) {
         uiAPI.appendSystemMessage(
-            "Cannot reset this plan because no execution baseline tree is recorded.",
+            buildPlanRecoveryUserMessage({ kind: "reset_baseline_missing" }),
             true,
             "RunWield",
         );
@@ -99,7 +100,7 @@ export async function resetRecoveryPlan(
         plan.attrs = transitionValue.value as PlanFrontMatter;
         context.worktreeContext = null;
         uiAPI.appendSystemMessage(
-            "Cleared stale Git recovery metadata. No project files or recorded paths were modified; the plan is ready for work.",
+            buildPlanRecoveryUserMessage({ kind: "reset_done" }),
             false,
             "RunWield",
         );
@@ -124,7 +125,8 @@ export async function resetRecoveryPlan(
                 : error instanceof Error
                 ? error.message
                 : String(error);
-            uiAPI.appendSystemMessage(`Cannot reset baseline tree: ${message}`, true, "RunWield");
+            console.error("[RunWield] Baseline reset failed", message);
+            uiAPI.appendSystemMessage(planRecoveryMessage("baseline_reset_failed"), true, "RunWield");
             return { kind: "menu" };
         }
     }
@@ -155,7 +157,7 @@ export async function resetRecoveryPlan(
         agentName: context.agentName,
         uiAPI,
         executePlan: context.session.executePlan,
-        runValidationLoop: context.session.runValidation,
+        continueWorkflowValidation: context.session.runValidation,
         session: context.session,
     });
     await context.recordRecoveryResult("reset", "handled");
@@ -168,7 +170,7 @@ async function recreateRecoveryWorktree(context: RecoveryActionContext): Promise
     const recreateBaseRef = getRecordedWorktreeRecreateBase(worktreeContext);
     if (!recreateBaseRef) {
         uiAPI.appendSystemMessage(
-            "Cannot recreate this worktree because no recorded base commit or base ref is available. Retry Workflow Validation or re-open the plan for review instead of recreating from the primary checkout.",
+            buildPlanRecoveryUserMessage({ kind: "recreate_base_missing" }),
             true,
             "RunWield",
         );
@@ -287,7 +289,8 @@ async function recreateRecoveryWorktree(context: RecoveryActionContext): Promise
             : error instanceof Error
             ? error.message
             : String(error);
-        uiAPI.appendSystemMessage(`Cannot recreate the recorded worktree: ${message}`, true, "RunWield");
+        console.error("[RunWield] Worktree recreation failed", message);
+        uiAPI.appendSystemMessage(planRecoveryMessage("worktree_recreate_failed"), true, "RunWield");
         return null;
     }
 }

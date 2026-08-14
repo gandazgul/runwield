@@ -1,0 +1,459 @@
+/**
+ * Plain user messages for validation and recovery.
+ * Raw errors belong in logs, not in these messages.
+ */
+
+export type ValidationUserMessageKey =
+    | "running_tests"
+    | "plan_fixed"
+    | "amendment_check_failed"
+    | "publication_note_failed"
+    | "merge_failed"
+    | "retry_pause"
+    | "already_running"
+    | "completion_already_used"
+    | "lost_attempt";
+
+const MESSAGES: Record<ValidationUserMessageKey, string> = {
+    running_tests: "Running the tests now.",
+    plan_fixed: "The Plan copy is fixed. We will go on.",
+    amendment_check_failed: "RunWield could not check the Plan change. Your work is safe. Try again.",
+    publication_note_failed: "The checks passed. RunWield could not save the test note. Your work is safe. Try again.",
+    merge_failed: "The merge did not work. Your work is safe. RunWield will try to fix it.",
+    retry_pause: "The check stopped. Your work is safe. Try again.",
+    already_running: "The check is still on.",
+    completion_already_used: "This work note was used. The check will not run twice.",
+    lost_attempt: "The worktree and branch are gone. The Plan says they should be here. What do you want to do?",
+};
+
+export type ValidationMessageRequest =
+    | { kind: "amendment_failed_prompt" }
+    | { kind: "amendment_prompt"; summary: string }
+    | { kind: "amendment_approved" }
+    | { kind: "ci_running"; cwd: string }
+    | { kind: "checks_passed"; objectiveChecks: boolean; waived?: boolean }
+    | { kind: "repair_waiting"; agent: string }
+    | { kind: "engineer_follow_up"; agent: string }
+    | { kind: "objective_all_waived"; planName: string }
+    | { kind: "objective_running"; planName: string; checkIds: string[]; skippedCount: number }
+    | { kind: "objective_canceled" }
+    | { kind: "objective_summary"; summary: string }
+    | { kind: "objective_report_stale" }
+    | { kind: "objective_waiver_notice"; source: "agent" | "runwield"; planName: string; reason: string }
+    | { kind: "objective_waiver_prompt"; source: "agent" | "runwield"; planName: string; reason: string }
+    | { kind: "objective_feedback_prompt" }
+    | { kind: "objective_feedback_default" }
+    | { kind: "objective_note_prompt" }
+    | { kind: "objective_repair"; agent: string }
+    | { kind: "ci_repair"; agent: string }
+    | { kind: "semantic_round"; round: number; maxRounds: number; mode: "discovery" | "verify" }
+    | { kind: "semantic_diff_missing"; planOnly: boolean }
+    | { kind: "semantic_approved"; round: number }
+    | { kind: "review_repair"; repairKind: "semantic" | "human_feedback" }
+    | { kind: "reviewer_nudge"; round: number; attempt: number }
+    | { kind: "semantic_limit"; planName: string; rounds: number; openCount: number; testsPass: boolean }
+    | { kind: "human_review_offer" }
+    | { kind: "human_review_wait" }
+    | { kind: "human_review_prompt"; planName: string }
+    | { kind: "human_review_approved" }
+    | { kind: "qa_prepare"; planName: string }
+    | { kind: "qa_ready"; path?: string; existed?: boolean }
+    | { kind: "merge_progress"; sourceBranch: string; targetBranch: string }
+    | { kind: "merge_dispatch"; agent: string; cwd: string }
+    | { kind: "verified"; planName: string }
+    | { kind: "status_repaired" }
+    | { kind: "context_blocked"; planName: string }
+    | { kind: "validation_command_missing" }
+    | { kind: "validation_command_prompt" }
+    | { kind: "validation_command_saved"; command: string }
+    | { kind: "work_record_prompt"; recordId: string; reason: string }
+    | { kind: "work_record_notice"; message: string }
+    | { kind: "manual_qa_failed" }
+    | { kind: "handoff_prepare"; includeQa: boolean }
+    | { kind: "work_record_start"; planName: string }
+    | { kind: "work_record_result"; status: "disabled" | "skipped" | "generated" | "linked" | "failed" }
+    | { kind: "quick_fix_start" }
+    | { kind: "quick_fix_running"; attempt: number; maxAttempts: number }
+    | { kind: "quick_fix_canceled" }
+    | { kind: "quick_fix_ci_passed" }
+    | { kind: "quick_fix_qa" }
+    | { kind: "quick_fix_passed" }
+    | { kind: "quick_fix_failed"; maxAttempts: number }
+    | { kind: "quick_fix_repair"; agent: string; attempt: number; maxAttempts: number }
+    | { kind: "quick_fix_waiting"; agent: string }
+    | { kind: "recovery_repair_failed" }
+    | { kind: "user_action"; whatHappened: string; doThis: string; details?: string[] };
+
+export type ValidationRecoveryNotice =
+    | { kind: "session_plan_fixed"; planName: string }
+    | { kind: "worktree_record_rebuilt"; planName: string }
+    | { kind: "worktree_record_fixed"; planName: string }
+    | { kind: "worktree_path_fixed"; planName: string }
+    | { kind: "branch_restored"; branch: string }
+    | { kind: "worktree_restored"; planName: string; branch: string }
+    | { kind: "execution_plan_fixed"; planName: string }
+    | { kind: "merge_plan_preserved"; planName: string };
+
+export function buildValidationRecoveryNotice(notice: ValidationRecoveryNotice): string {
+    switch (notice.kind) {
+        case "session_plan_fixed":
+            return `The saved Plan facts for ${notice.planName} are fixed.`;
+        case "worktree_record_rebuilt":
+            return `The saved worktree facts for ${notice.planName} are back.`;
+        case "worktree_record_fixed":
+            return `The saved worktree facts for ${notice.planName} are fixed.`;
+        case "worktree_path_fixed":
+            return `The worktree path for ${notice.planName} is fixed.`;
+        case "branch_restored":
+            return `Branch ${notice.branch} is back.`;
+        case "worktree_restored":
+            return `The worktree for ${notice.planName} is back on branch ${notice.branch}.`;
+        case "execution_plan_fixed":
+            return `The Plan file for ${notice.planName} is now fixed and safe to use.`;
+        case "merge_plan_preserved":
+            return `The checked Plan copy for ${notice.planName} is safe while the merge runs.`;
+    }
+}
+
+/** Build text only at a user display edge. */
+export function buildValidationUserMessage(request: ValidationMessageRequest): string {
+    switch (request.kind) {
+        case "amendment_failed_prompt":
+            return `${MESSAGES.amendment_check_failed}\n\nWhat should RunWield do?`;
+        case "amendment_prompt":
+            return `${request.summary}\n\nDo you approve this Plan change?`;
+        case "amendment_approved":
+            return "The Plan change is saved. The tests will start again.";
+        case "ci_running":
+            return `Running the tests in ${request.cwd}.`;
+        case "checks_passed":
+            if (request.waived) return "The build and tests passed. You waived the broken checks.";
+            return request.objectiveChecks ? "The build, tests, and checks passed." : "The build and tests passed.";
+        case "repair_waiting":
+            return `${request.agent} stopped. The repair is not done. The check will start when the work note comes.`;
+        case "engineer_follow_up":
+            return `The check is on hold. Send a note to ${request.agent} when you are ready.`;
+        case "objective_all_waived":
+            return `All checks for ${request.planName} are waived. RunWield will skip them.`;
+        case "objective_running": {
+            const skipped = request.skippedCount > 0 ? ` ${request.skippedCount} waived check(s) will be skipped.` : "";
+            return `Running checks for ${request.planName}: ${request.checkIds.join(", ")}.${skipped}`;
+        }
+        case "objective_canceled":
+            return "The checks were stopped.";
+        case "objective_summary":
+            return request.summary;
+        case "objective_report_stale":
+            return "The agent report does not match the current checks. A waiver is not ready.";
+        case "objective_waiver_notice": {
+            const lead = request.source === "agent" ? "The agent found broken checks" : "RunWield found broken checks";
+            return `${lead} for ${request.planName}.\n\n${request.reason}\n\nWaive a check only when the check is broken.`;
+        }
+        case "objective_waiver_prompt": {
+            const lead = request.source === "agent" ? "The agent found broken checks" : "RunWield found broken checks";
+            return `${lead} for ${request.planName}.\n\n${request.reason}\n\nWhat should RunWield do?`;
+        }
+        case "objective_feedback_prompt":
+            return "Tell the Engineer what to fix in these checks.";
+        case "objective_feedback_default":
+            return "The waiver was not approved. Fix the check or the work, then run it again.";
+        case "objective_note_prompt":
+            return "You can add a short note for this waiver.";
+        case "objective_repair":
+            return `The checks did not pass. ${request.agent} will fix them now.`;
+        case "ci_repair":
+            return `The build failed. ${request.agent} will fix it now.`;
+        case "semantic_round":
+            return request.mode === "discovery"
+                ? `Code review ${request.round} of ${request.maxRounds} has begun. It will check all the work.`
+                : `Code review ${request.round} of ${request.maxRounds} has begun. It will check the last fixes.`;
+        case "semantic_diff_missing":
+            return request.planOnly
+                ? "Code review needs a code change. Only the Plan changed."
+                : "Code review needs a code change. No changes were found.";
+        case "semantic_approved":
+            return `Code review ${request.round} is done. It found no need for a fix.`;
+        case "review_repair":
+            return request.repairKind === "human_feedback"
+                ? "Your code review found issues. A repair will start now."
+                : "The code review found issues. A repair will start now.";
+        case "reviewer_nudge":
+            return `The reviewer needs more time for round ${request.round}. Try ${request.attempt} of 3.`;
+        case "semantic_limit":
+            return `The reviewer checked ${request.planName} ${request.rounds} times. ${request.openCount} item(s) stay open. The tests ${
+                request.testsPass ? "pass" : "do not pass"
+            }. Look once more, read it, or stop.`;
+        case "human_review_offer":
+            return "The code review passed. Do you want to read the changes before the merge?";
+        case "human_review_wait":
+            return "Waiting for your code review.";
+        case "human_review_prompt":
+            return `Read the changes for ${request.planName}.`;
+        case "human_review_approved":
+            return "Your code check is done. You said it is good.";
+        case "qa_prepare":
+            return `Making the test list for ${request.planName}.`;
+        case "qa_ready":
+            if (!request.path) return "The test list is ready.";
+            return request.existed
+                ? `The test list is at ${request.path}.`
+                : `The test list was saved at ${request.path}.`;
+        case "merge_progress":
+            return `Merging branch ${request.sourceBranch} into branch ${request.targetBranch}.`;
+        case "merge_dispatch":
+            return `${request.agent} will fix the merge in ${request.cwd}.`;
+        case "verified":
+            return `${request.planName} is done and on its target branch.`;
+        case "status_repaired":
+            return "RunWield found an old check state. It fixed it and will run the tests again.";
+        case "context_blocked":
+            return `RunWield cannot check ${request.planName} now. Your work is safe. Try again.`;
+        case "validation_command_missing":
+            return "This project has no test command yet.";
+        case "validation_command_prompt":
+            return "Enter the command that runs this project's tests:";
+        case "validation_command_saved":
+            return `The test command is saved: ${request.command}`;
+        case "work_record_prompt":
+            return `Should the new Work Record replace ${request.recordId}?\n\nReason: ${request.reason}`;
+        case "work_record_notice":
+            return request.message;
+        case "manual_qa_failed":
+            return "The checks passed. RunWield could not make the test list. Try again later.";
+        case "handoff_prepare":
+            return request.includeQa
+                ? "RunWield will make the test list and Work Record now."
+                : "RunWield will make the Work Record now.";
+        case "work_record_start":
+            return `RunWield will make a new Work Record for ${request.planName} now.`;
+        case "work_record_result":
+            if (request.status === "generated" || request.status === "linked") return "The Work Record is ready.";
+            if (request.status === "failed") {
+                return "RunWield could not make the Work Record. The finished Plan is safe.";
+            }
+            return "No Work Record was made.";
+        case "quick_fix_start":
+            return "The quick fix checks have begun.";
+        case "quick_fix_running":
+            return `Running the quick fix tests. Fix try ${request.attempt} of ${request.maxAttempts}.`;
+        case "quick_fix_canceled":
+            return "The quick fix tests were stopped. You can keep work with the Engineer.";
+        case "quick_fix_ci_passed":
+            return "The quick fix build and tests passed.";
+        case "quick_fix_qa":
+            return "Making the quick fix test list.";
+        case "quick_fix_passed":
+            return "The quick fix checks passed.";
+        case "quick_fix_failed":
+            return `The quick fix tests still fail after ${request.maxAttempts} tries.`;
+        case "quick_fix_repair":
+            return `The quick fix tests failed. ${request.agent} will fix them. Try ${request.attempt} of ${request.maxAttempts}.`;
+        case "quick_fix_waiting":
+            return `${request.agent} stopped. The fix is not done. Send a work note when it is done.`;
+        case "recovery_repair_failed":
+            return "RunWield could not check for safe fixes. Your work is safe. Try again.";
+        case "user_action": {
+            const details = request.details?.length
+                ? `\n\n${request.details.map((detail) => `  ${detail}`).join("\n")}`
+                : "";
+            return `${request.whatHappened}${details}\n\n${request.doThis}`;
+        }
+    }
+}
+
+export function validationUserMessage(key: ValidationUserMessageKey): string {
+    return MESSAGES[key];
+}
+
+export function validationPhasePauseMessage(phase?: "mechanical" | "semantic" | "delivery"): string {
+    if (!phase) return "The check is on hold. Your work is safe.";
+    const names = { mechanical: "tests", semantic: "code review", delivery: "merge" } as const;
+    return `The check stopped before the ${names[phase]}. Your work is safe.`;
+}
+
+export function validationMergeRepairMessage(planName: string): string {
+    return `The merge for ${planName} did not work. Your work is safe. RunWield will fix it.`;
+}
+
+export function validationReviewerPauseMessage(planName: string): string {
+    return `The code review for ${planName} stopped. Your work is safe. Try again.`;
+}
+
+export type PlanRecoveryMessageKey =
+    | "merge_cleanup_failed"
+    | "handoff_failed"
+    | "merge_failed"
+    | "baseline_reset_failed"
+    | "worktree_recreate_failed"
+    | "action_blocked";
+
+export type PlanRecoveryMessageRequest =
+    | { kind: "manual_merge_unavailable" }
+    | { kind: "missing_worktree" }
+    | { kind: "missing_plan_pointer" }
+    | { kind: "missing_target" }
+    | { kind: "proof_failed" }
+    | { kind: "plan_restored"; path: string }
+    | { kind: "not_worktree" }
+    | { kind: "incomplete_worktree" }
+    | { kind: "merge_progress"; sourceBranch: string; targetBranch: string }
+    | { kind: "snapshot_restore_failed" }
+    | { kind: "registry_update_failed" }
+    | { kind: "merged" }
+    | { kind: "result_record_failed" }
+    | { kind: "conflict_state_save_failed" }
+    | { kind: "invalid_policy"; action: string; planName: string }
+    | { kind: "git_blocked" }
+    | { kind: "recreate_warning"; planName: string; path?: string }
+    | { kind: "worktree_abandoned"; planName: string }
+    | { kind: "worktree_path_missing"; planName: string }
+    | { kind: "worktree_missing"; planName: string; path?: string }
+    | { kind: "worktree_branch_changed"; planName: string }
+    | { kind: "worktree_inspection_failed"; planName: string }
+    | { kind: "reset_baseline_missing" }
+    | { kind: "reset_done" }
+    | { kind: "recreate_base_missing" }
+    | { kind: "stopped" }
+    | { kind: "record_incomplete" }
+    | { kind: "record_restore_failed" }
+    | { kind: "record_restored"; planName: string }
+    | { kind: "records_settled"; count: number }
+    | { kind: "record_unfinished"; planName: string }
+    | { kind: "records_attested"; planName: string }
+    | { kind: "deleting_worktree"; planName: string }
+    | { kind: "git_delete_skipped" }
+    | { kind: "record_already_gone" }
+    | { kind: "abandon_done"; removed: boolean }
+    | {
+        kind: "recovery_report";
+        summary: string;
+        lastRunStopped: boolean;
+        worktree?: { status?: string; path?: string; branch?: string; target?: string };
+        gitStatus?: string;
+        diff?: string;
+        inspectionFailed?: boolean;
+        noBaseline?: boolean;
+    };
+
+export function buildPlanRecoveryUserMessage(request: PlanRecoveryMessageRequest): string {
+    switch (request.kind) {
+        case "manual_merge_unavailable":
+            return "Manual worktree merge is not ready. Run the checks again.";
+        case "missing_worktree":
+            return "The saved worktree is not ready. Your work is safe.";
+        case "missing_plan_pointer":
+            return "The Plan does not point to this worktree. Run the checks again.";
+        case "missing_target":
+            return "The Plan has no target branch. Run the checks again.";
+        case "proof_failed":
+            return "RunWield could not prove this merge is safe. Your work is safe.";
+        case "plan_restored":
+            return `The Plan copy is back at ${request.path}.`;
+        case "not_worktree":
+            return "This Plan does not use a worktree merge.";
+        case "incomplete_worktree":
+            return "The saved worktree details are incomplete. Your work is safe.";
+        case "merge_progress":
+            return `Merging branch ${request.sourceBranch} into branch ${request.targetBranch}.`;
+        case "snapshot_restore_failed":
+            return "The merge is done. RunWield could not restore the local Plan copy.";
+        case "registry_update_failed":
+            return "The merge is done. RunWield could not save the worktree result.";
+        case "merged":
+            return "The worktree changes are merged. The Plan is done.";
+        case "result_record_failed":
+            return "The merge is done. RunWield could not save the final note.";
+        case "conflict_state_save_failed":
+            return "The merge stopped. RunWield could not save the recovery state.";
+        case "invalid_policy":
+            return `RunWield cannot ${request.action} ${request.planName}. Send the Plan back for review.`;
+        case "git_blocked":
+            return "Git is not ready. Clear the saved attempt or set up Git, then try again.";
+        case "recreate_warning":
+            return request.path
+                ? `The worktree for ${request.planName} is gone from ${request.path}. A new try will start fresh.`
+                : `The worktree for ${request.planName} has no saved path. A new try will start fresh.`;
+        case "worktree_abandoned":
+            return `The worktree for ${request.planName} was stopped. Start a new try to go on.`;
+        case "worktree_path_missing":
+            return `The worktree for ${request.planName} has no saved path. Start a new try.`;
+        case "worktree_missing":
+            return request.path
+                ? `The worktree for ${request.planName} is not at ${request.path}. Start a new try.`
+                : `The worktree for ${request.planName} is gone. Start a new try.`;
+        case "worktree_branch_changed":
+            return `The worktree for ${request.planName} is on a new branch. Start a new try.`;
+        case "worktree_inspection_failed":
+            return `RunWield could not check the worktree for ${request.planName}. Your work is safe.`;
+        case "reset_baseline_missing":
+            return "No test base is saved. RunWield cannot reset this Plan.";
+        case "reset_done":
+            return "The old Git details are clear. No project files changed. The Plan is ready.";
+        case "recreate_base_missing":
+            return "RunWield cannot make the worktree because no start point is saved.";
+        case "stopped":
+            return "Stopped here. The Plan is ready for work.";
+        case "record_incomplete":
+            return "Some worktree facts are missing. RunWield cannot put them back.";
+        case "record_restore_failed":
+            return "RunWield could not restore the saved worktree details. Your work is safe.";
+        case "record_restored":
+            return `The saved worktree details for ${request.planName} are back.`;
+        case "records_settled":
+            return `The ${request.count} old work note${request.count === 1 ? " is" : "s are"} done.`;
+        case "record_unfinished":
+            return `An old work note for ${request.planName} is not done.`;
+        case "records_attested":
+            return `Closed on your word. The old notes for ${request.planName} were kept.`;
+        case "deleting_worktree":
+            return `RunWield will now take out the worktree for ${request.planName}.`;
+        case "git_delete_skipped":
+            return "Git is not ready. RunWield will clear only the saved details.";
+        case "record_already_gone":
+            return "The saved worktree details were already gone. RunWield will go on.";
+        case "abandon_done":
+            return request.removed
+                ? "The worktree is gone. The work is stopped."
+                : "The saved worktree details are clear. The files were left in place.";
+        case "recovery_report": {
+            const parts = [request.summary];
+            if (request.lastRunStopped) parts.push("The last run stopped before it was done.");
+            if (request.worktree) {
+                parts.push([
+                    `Worktree status: ${request.worktree.status || "unknown"}`,
+                    `Worktree path: ${request.worktree.path || "unknown"}`,
+                    `Worktree branch: ${request.worktree.branch || "unknown"}`,
+                    `Target branch: ${request.worktree.target || "unknown"}`,
+                ].join("\n"));
+            }
+            if (request.inspectionFailed) parts.push("RunWield could not check the saved Git work.");
+            else if (request.gitStatus !== undefined) parts.push(`Git status:\n${request.gitStatus || "clean"}`);
+            if (request.diff !== undefined) {
+                parts.push(request.diff ? `Changes:\n${request.diff}` : "No file changes found.");
+            }
+            if (request.noBaseline) parts.push("No test base is saved for this Plan.");
+            return parts.join("\n\n");
+        }
+    }
+}
+
+const RECOVERY_MESSAGES: Record<PlanRecoveryMessageKey, string> = {
+    merge_cleanup_failed: "The merge is done. Cleanup stopped. Your worktree is safe. Try again.",
+    handoff_failed: "The merge is done. The next step stopped. Try again.",
+    merge_failed: "The merge did not work. Your worktree is safe. Try again.",
+    baseline_reset_failed: "RunWield could not clear the old test base. No files changed.",
+    worktree_recreate_failed: "RunWield could not make the worktree. No files changed.",
+    action_blocked: "RunWield could not do that now. No files changed.",
+};
+
+export function planRecoveryMessage(key: PlanRecoveryMessageKey): string {
+    return RECOVERY_MESSAGES[key];
+}
+
+export function listPlanRecoveryMessages(): readonly string[] {
+    return Object.values(RECOVERY_MESSAGES);
+}
+
+export function listValidationUserMessages(): ReadonlyArray<{ key: ValidationUserMessageKey; message: string }> {
+    return Object.entries(MESSAGES).map(([key, message]) => ({ key: key as ValidationUserMessageKey, message }));
+}

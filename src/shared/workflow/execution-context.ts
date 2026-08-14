@@ -10,11 +10,13 @@ import {
     findById as findWorktreeRegistryEntryById,
     findByPlanId as findWorktreeRegistryEntryByPlanId,
     findByPlanName as findWorktreeRegistryEntryByPlanName,
+    reconcileEntryGitLocation,
     restoreEntryFromPlanEvidence,
 } from "../worktree-registry.js";
 import { prepareExecutionPlanFile } from "./execution-plan-file.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import { isInValidation } from "./plan-lifecycle.js";
+import type { ValidationRecoveryNotice } from "./validation-user-messages.ts";
 
 const VALIDATION_ELIGIBLE_WORKTREE_STATUSES = new Set(["active", "completed", "validation_failed", "merge_conflict"]);
 
@@ -73,7 +75,7 @@ export interface ValidationContextResolutionOk {
     context: ResolvedValidationContext;
     persistedLegacyExecutionMode?: boolean;
     restoredPlanFile?: { relativePath: string };
-    selfHealNotices?: string[];
+    selfHealNotices?: ValidationRecoveryNotice[];
 }
 
 export type ValidationContextResolution = ValidationContextResolutionOk | BlockedValidationContext;
@@ -106,6 +108,26 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
     const stderr = new TextDecoder().decode(output.stderr).trim();
     if (output.code !== 0) throw new Error(stderr || stdout || `git ${args.join(" ")} failed`);
     return stdout;
+}
+
+type AttachedWorktree = { path: string; head?: string; branch?: string };
+
+async function listAttachedWorktrees(projectRoot: string): Promise<AttachedWorktree[]> {
+    const output = await runGit(projectRoot, ["worktree", "list", "--porcelain"]);
+    return output.trim().split(/\n\n+/).filter(Boolean).map((block) => {
+        const fields = new Map(
+            block.split("\n").map((line) => {
+                const split = line.indexOf(" ");
+                return split < 0 ? [line, ""] : [line.slice(0, split), line.slice(split + 1)];
+            }),
+        );
+        const branchRef = fields.get("branch");
+        return {
+            path: fields.get("worktree") || "",
+            ...(fields.get("HEAD") ? { head: fields.get("HEAD") } : {}),
+            ...(branchRef?.startsWith("refs/heads/") ? { branch: branchRef.slice("refs/heads/".length) } : {}),
+        };
+    }).filter((entry) => entry.path.length > 0);
 }
 
 function isNonEmptyString(value: ScalarValue): value is string {
@@ -222,61 +244,15 @@ export async function resolveValidationExecutionContext({
         );
     }
 
-    if (explicitContext?.planName && activeWorkflow?.planName) {
-        for (
-            const [key, explicitValue, activeValue] of [
-                [
-                    "planName",
-                    normalizePlanIdentity(explicitContext.planName),
-                    normalizePlanIdentity(activeWorkflow.planName),
-                ],
-                [
-                    "executionMode",
-                    normalizeExecutionMode(explicitContext.executionMode),
-                    normalizeExecutionMode(activeWorkflow.executionMode),
-                ],
-                ["executionCwd", asString(explicitContext.executionCwd), asString(activeWorkflow.executionCwd)],
-                ["worktreeId", asString(explicitContext.worktreeId), asString(activeWorkflow.worktreeId)],
-                ["worktreeBranch", asString(explicitContext.worktreeBranch), asString(activeWorkflow.worktreeBranch)],
-                [
-                    "worktreeBaseBranch",
-                    asString(explicitContext.worktreeBaseBranch),
-                    asString(activeWorkflow.worktreeBaseBranch),
-                ],
-                ["baselineTree", asString(explicitContext.baselineTree), asString(activeWorkflow.baselineTree)],
-                [
-                    "worktreeBaseRef",
-                    asString(explicitContext.worktreeBaseRef),
-                    asString(activeWorkflow.worktreeBaseRef),
-                ],
-                [
-                    "worktreeBaseCommit",
-                    asString(explicitContext.worktreeBaseCommit),
-                    asString(activeWorkflow.worktreeBaseCommit),
-                ],
-            ]
-        ) {
-            if (explicitValue && activeValue && explicitValue !== activeValue) {
-                return blocked(
-                    "execution_context_mismatch",
-                    `Explicit execution context ${key} contradicts the active execution workflow.`,
-                );
-            }
-        }
-    }
-
+    // Session and caller data fill only facts the durable records do not have.
+    // Registry and Git facts below always override them, so stale process state
+    // cannot veto a proven attempt.
     const selected = selectCandidateContext({ explicitContext, activeWorkflow });
     const candidate = selected.context || {};
     const candidateMode = candidate.nonGitInPlace === true ? "non_git_in_place" : candidate.executionMode;
     const normalizedCandidateMode = normalizeExecutionMode(candidateMode);
     const durableMode = normalizeExecutionMode(attrs.executionMode);
-    if (normalizedCandidateMode && durableMode && normalizedCandidateMode !== durableMode) {
-        return blocked(
-            "execution_mode_mismatch",
-            `Execution context mode ${normalizedCandidateMode} contradicts Plan metadata mode ${durableMode}.`,
-        );
-    }
-    const candidateWorktreeId = asString(candidate.worktreeId) || asString(attrs.worktreeId);
+    const candidateWorktreeId = asString(attrs.worktreeId) || asString(candidate.worktreeId);
     const canonicalPlanId = asString(attrs.planId);
     let recoveredRegistryEntry: Awaited<ReturnType<typeof findWorktreeRegistryEntryById>>;
     try {
@@ -293,7 +269,7 @@ export async function resolveValidationExecutionContext({
         if (!described) throw error;
         return blocked("worktree_registry_ambiguous", described);
     }
-    const executionMode = normalizedCandidateMode || durableMode || (recoveredRegistryEntry ? "worktree" : undefined);
+    const executionMode = durableMode || (recoveredRegistryEntry ? "worktree" : undefined) || normalizedCandidateMode;
     if (!executionMode) {
         const hasCompleteLegacyWorktree = attrs.worktreeId && attrs.worktreePath && attrs.worktreeBranch;
         if (!hasCompleteLegacyWorktree) {
@@ -368,7 +344,7 @@ export async function resolveValidationExecutionContext({
     if (candidate.planName && !planIdentityMatches(candidate.planName, planName)) {
         return blocked("plan_name_mismatch", `Execution context belongs to ${candidate.planName}, not ${planName}.`);
     }
-    const selfHealNotices: string[] = [];
+    const selfHealNotices: ValidationRecoveryNotice[] = [];
     if (attrs.planId && candidate.triageMeta?.planId && attrs.planId !== candidate.triageMeta.planId) {
         // The Plan name already matched above, which binds this context to this Plan.
         // A differing id therefore means the id was minted twice, not that two
@@ -376,21 +352,8 @@ export async function resolveValidationExecutionContext({
         // continues. `attrs` is what flows downstream, and the session-scoped triage
         // copy is not durable state, so nothing is written and nothing is lost.
         // Blocking here stranded Plans at "implemented" over metadata RunWield owns.
-        selfHealNotices.push(
-            `Reconciled a stale in-session Plan ID for ${planName} to the canonical ${attrs.planId}. Continuing Workflow Validation.`,
-        );
+        selfHealNotices.push({ kind: "session_plan_fixed", planName });
     }
-    if (candidateWorktreePath && recoveredRegistryEntry?.path) {
-        const canonicalCandidatePath = await realPath(candidateWorktreePath);
-        const canonicalRegistryPath = await realPath(recoveredRegistryEntry.path);
-        if (!canonicalCandidatePath || !canonicalRegistryPath || canonicalCandidatePath !== canonicalRegistryPath) {
-            return blocked(
-                "plan_worktree_path_mismatch",
-                `Execution worktree path does not match the worktree registry for ${worktreeId}.`,
-            );
-        }
-    }
-
     let registryEntry = recoveredRegistryEntry || await findWorktreeRegistryEntryById(projectRoot, worktreeId);
     if (!registryEntry) {
         const restored = await restoreEntryFromPlanEvidence(projectRoot, {
@@ -407,9 +370,7 @@ export async function resolveValidationExecutionContext({
         });
         if (restored.restored && restored.entry) {
             registryEntry = restored.entry;
-            selfHealNotices.push(
-                `Rebuilt missing worktree record ${worktreeId} for ${planName}. Continuing Workflow Validation.`,
-            );
+            selfHealNotices.push({ kind: "worktree_record_rebuilt", planName });
         } else {
             return blocked(
                 "missing_registry_entry",
@@ -431,12 +392,6 @@ export async function resolveValidationExecutionContext({
             `Worktree registry entry ${worktreeId} is ${registryEntry.status}, not validation-eligible.`,
         );
     }
-    if (candidate.worktreeBranch && registryEntry.branch !== candidate.worktreeBranch) {
-        return blocked("registry_identity_mismatch", `Execution branch does not match the worktree registry.`);
-    }
-    if (candidate.worktreeBaseBranch && registryEntry.baseBranch !== candidate.worktreeBaseBranch) {
-        return blocked("registry_identity_mismatch", `Execution target branch does not match the worktree registry.`);
-    }
     // Every pairing check above has passed, so this entry is the attempt the
     // canonical Plan names. A registry planId that disagrees is therefore a
     // twice-minted id, and leaving it in place would make recovery-by-planId miss
@@ -451,34 +406,12 @@ export async function resolveValidationExecutionContext({
             reason: error instanceof Error ? error.message : String(error),
         }));
         if (adopted.rebound) {
-            selfHealNotices.push(
-                `Reconciled the worktree registry Plan ID for ${planName} to the canonical ${attrs.planId} (was ${
-                    adopted.from ?? "unset"
-                }).`,
-            );
+            selfHealNotices.push({ kind: "worktree_record_fixed", planName });
         }
     }
     if (!baselineTree) baselineTree = asString(registryEntry.executionBaselineTree) || asString(registryEntry.baseTree);
-    if (registryEntry.executionBaselineTree && baselineTree && registryEntry.executionBaselineTree !== baselineTree) {
-        return blocked(
-            "registry_base_tree_mismatch",
-            `Worktree registry execution baseline for ${worktreeId} does not match Plan metadata.`,
-        );
-    }
     const candidateBaseCommit = asString(candidate.worktreeBaseCommit) || asString(candidate.baseCommit);
-    if (candidateBaseCommit && registryEntry.baseCommit && registryEntry.baseCommit !== candidateBaseCommit) {
-        return blocked(
-            "registry_base_commit_mismatch",
-            `Worktree registry base commit for ${worktreeId} does not match execution context.`,
-        );
-    }
     const candidateBaseRef = asString(candidate.worktreeBaseRef) || asString(candidate.baseRef);
-    if (candidateBaseRef && registryEntry.baseRef && registryEntry.baseRef !== candidateBaseRef) {
-        return blocked(
-            "registry_base_ref_mismatch",
-            `Worktree registry base ref for ${worktreeId} does not match execution context.`,
-        );
-    }
     if (!baselineTree) {
         const baselineRef = candidateBaseCommit || asString(registryEntry.baseCommit) || candidateBaseRef ||
             asString(registryEntry.baseRef);
@@ -497,12 +430,52 @@ export async function resolveValidationExecutionContext({
             `RunWield found the worktree for "${planName}", but it cannot recover the execution baseline needed for validation. Use /load-plan ${planName}, inspect the recovery report, then choose "Delete/recreate worktree and start over" or "Re-open for review".`,
         );
     }
-    const canonicalRegistryPath = await realPath(registryEntry.path);
-    const canonicalWorktreePath = await realPath(worktreePath);
+    const attachedWorktrees = await listAttachedWorktrees(projectRoot);
+    const attachedForBranch = attachedWorktrees.filter((entry) => entry.branch === worktreeBranch);
+    let canonicalRegistryPath = await realPath(registryEntry.path);
+    let canonicalWorktreePath = await realPath(worktreePath);
+    if (attachedForBranch.length === 1) {
+        const gitPath = await realPath(attachedForBranch[0].path);
+        if (gitPath && (!canonicalRegistryPath || canonicalRegistryPath !== gitPath)) {
+            registryEntry = await reconcileEntryGitLocation(projectRoot, worktreeId, {
+                path: attachedForBranch[0].path,
+                branch: worktreeBranch,
+            });
+            canonicalRegistryPath = gitPath;
+            canonicalWorktreePath = gitPath;
+            selfHealNotices.push({ kind: "worktree_path_fixed", planName });
+        }
+    }
+    if (!canonicalRegistryPath && !canonicalWorktreePath) {
+        let branchExists = await runGit(projectRoot, ["rev-parse", "--verify", `refs/heads/${worktreeBranch}`])
+            .then(() => true)
+            .catch(() => false);
+        if (!branchExists) {
+            const staleRecord = attachedWorktrees.find((entry) =>
+                entry.path === registryEntry.path || entry.branch === worktreeBranch
+            );
+            if (staleRecord?.head) {
+                await runGit(projectRoot, ["rev-parse", "--verify", `${staleRecord.head}^{commit}`]);
+                await runGit(projectRoot, ["worktree", "prune"]);
+                await runGit(projectRoot, ["branch", worktreeBranch, staleRecord.head]);
+                branchExists = true;
+                selfHealNotices.push({ kind: "branch_restored", branch: worktreeBranch });
+            }
+        }
+        if (branchExists) {
+            // The folder is derived from the branch. Pruning an absent worktree's
+            // Git admin record removes no files and lets Git attach it again.
+            await runGit(projectRoot, ["worktree", "prune"]);
+            await runGit(projectRoot, ["worktree", "add", registryEntry.path, worktreeBranch]);
+            canonicalRegistryPath = await realPath(registryEntry.path);
+            canonicalWorktreePath = canonicalRegistryPath;
+            selfHealNotices.push({ kind: "worktree_restored", planName, branch: worktreeBranch });
+        }
+    }
     if (!canonicalRegistryPath || !canonicalWorktreePath || canonicalRegistryPath !== canonicalWorktreePath) {
         return blocked(
             "worktree_path_mismatch",
-            `Recorded worktree path for ${worktreeId} is unavailable or inconsistent.`,
+            `The saved worktree path is not ready. RunWield kept all files.`,
         );
     }
     const projectCommonDir = await runGit(projectRoot, ["rev-parse", "--git-common-dir"]);
@@ -519,7 +492,15 @@ export async function resolveValidationExecutionContext({
             `Execution worktree ${worktreeId} is not attached to the Project repository.`,
         );
     }
-    const checkedOutBranch = await runGit(canonicalWorktreePath, ["branch", "--show-current"]);
+    let checkedOutBranch = await runGit(canonicalWorktreePath, ["branch", "--show-current"]);
+    const recordedBranchExists = await runGit(projectRoot, ["rev-parse", "--verify", `refs/heads/${worktreeBranch}`])
+        .then(() => true)
+        .catch(() => false);
+    if (!recordedBranchExists) {
+        await runGit(canonicalWorktreePath, ["switch", "-c", worktreeBranch]);
+        checkedOutBranch = worktreeBranch;
+        selfHealNotices.push({ kind: "branch_restored", branch: worktreeBranch });
+    }
     if (checkedOutBranch !== worktreeBranch) {
         return blocked(
             "worktree_branch_mismatch",
@@ -556,11 +537,7 @@ export async function resolveValidationExecutionContext({
         }
         restoredPlanFile = planFile.kind === "restored" ? { relativePath: planFile.relativePath } : undefined;
         if (planFile.healedPlanId) {
-            selfHealNotices.push(
-                `Reconciled the execution worktree Plan ID for ${planName} to the canonical ${planFile.healedPlanId.to} (was ${
-                    planFile.healedPlanId.from ?? "unset"
-                }). The superseded value remains in the worktree branch history. Continuing Workflow Validation.`,
-            );
+            selfHealNotices.push({ kind: "execution_plan_fixed", planName });
         }
     } else {
         // The detached repair merge already contains the execution Plan metadata
@@ -568,9 +545,7 @@ export async function resolveValidationExecutionContext({
         // intentionally remains validated_reviewer until that merge is published.
         // Reconciling its status back into the execution branch would create a new
         // metadata commit that the repaired merge cannot possibly contain.
-        selfHealNotices.push(
-            `Preserving the staged execution Plan for ${planName} while resuming its repaired Direct Delivery merge.`,
-        );
+        selfHealNotices.push({ kind: "merge_plan_preserved", planName });
     }
 
     let persistedLegacyExecutionMode = false;

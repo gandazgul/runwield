@@ -455,7 +455,7 @@ Deno.test("startActiveExecutionWorkflow rejects an unsafe canonical source befor
     assertEquals((await git(projectRoot, ["worktree", "list", "--porcelain"])).includes("refs/heads/worktree/"), false);
 });
 
-Deno.test("startActiveExecutionWorkflow preserves reused worktree when Plan preparation blocks", async () => {
+Deno.test("startActiveExecutionWorkflow preserves a malformed derived Plan and blocks", async () => {
     const projectRoot = await makeWorkflowProject([{ name: "p", status: "ready_for_work" }]);
     const hostedSession = makeHostedSession("reused-plan-block", projectRoot);
     const reused = await settleWorktreeAttempt(
@@ -484,14 +484,13 @@ Deno.test("startActiveExecutionWorkflow preserves reused worktree when Plan prep
                     },
                 }),
             Error,
-            "docs/plans/p.md",
+            "is malformed",
         );
 
-        // Preservation is the point: a worktree someone may have work in survives a
-        // blocked preparation, and the Plan never moved.
         assertEquals((await Deno.stat(reused.path)).isDirectory, true);
         assertEquals((await findWorktreeRegistryEntryById(projectRoot, reused.id))?.status, "active");
         assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "ready_for_work");
+        assertStringIncludes(await Deno.readTextFile(`${reused.path}/docs/plans/p.md`), "not: [valid");
     } finally {
         await Deno.remove(getTransitionJournalDir(hostedSession.cwd), { recursive: true }).catch(() => {});
     }

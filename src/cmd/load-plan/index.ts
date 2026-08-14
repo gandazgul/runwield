@@ -174,7 +174,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
     const projectRoot = session.cwd;
     const executePlan = session.executePlan;
     const runPlanningAgent = session.runPlanningAgent;
-    const runValidationLoop = session.runValidation;
+    const continueWorkflowValidation = session.runValidation;
     const runSlicerAgent = session.runSlicerAgent;
     const switchPlanAgent = session.switchAgent;
 
@@ -447,7 +447,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         agentName,
                         uiAPI,
                         executePlan,
-                        runValidationLoop,
+                        continueWorkflowValidation,
                         session,
                     });
                     return;
@@ -481,7 +481,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         fallbackPlanContent: plan.markdown || plan.body || "",
                         uiAPI,
                         executePlan,
-                        runValidationLoop,
+                        continueWorkflowValidation,
                         runSlicerAgent,
                         session,
                     });
@@ -651,7 +651,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                                 executionDecision,
                                 executionResult: execRes,
                                 fallbackPlanContent: plan.markdown || plan.body || "",
-                                runValidationLoop,
+                                continueWorkflowValidation,
                                 session,
                                 uiAPI,
                             });
@@ -686,7 +686,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         fallbackPlanContent: plan.markdown || plan.body || "",
                         uiAPI,
                         executePlan,
-                        runValidationLoop,
+                        continueWorkflowValidation,
                         runSlicerAgent,
                         session,
                     });
@@ -758,7 +758,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             fallbackPlanContent: plan.markdown || plan.body || "",
             uiAPI,
             executePlan,
-            runValidationLoop,
+            continueWorkflowValidation,
             runSlicerAgent,
             session,
         });

@@ -11,6 +11,7 @@ import {
     markSessionReconcileRequiredWithProof,
     markSessionUncertain,
     publishGenerationAndRelease,
+    recoverExpiredSessionControl,
     updateOperationReceipt,
 } from "./session-activations.js";
 
@@ -284,6 +285,75 @@ Deno.test("plan_action operation receipts preserve bounded results", async () =>
                     kind: "plan_action",
                 })
             );
+        } finally {
+            database.close();
+        }
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("recoverExpiredSessionControl adopts exact or transcript-ahead evidence only after expiry", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-recover-expired-" });
+    try {
+        const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+        try {
+            insertCatalogedSession(database);
+            const initialProof = acquireSessionActivation(database, {
+                runwieldSessionId: "session-1",
+                projectId: "project-1",
+                ownerInstanceId: "owner-1",
+                ownerProcessKind: "test",
+                operationId: "op-1",
+                expectedGeneration: null,
+                phase: "bootstrap",
+                now: () => "2026-01-01T00:00:00.000Z",
+            });
+            const checkpointProof = changeSessionActivationPhase(database, initialProof, "checkpointing", {
+                now: () => "2026-01-01T00:00:01.000Z",
+            });
+            publishGenerationAndRelease(database, checkpointProof, {
+                generation: 0,
+                byteLength: 1,
+                terminalEntryId: "entry-0",
+                digestHex: "a".repeat(64),
+            }, { now: () => "2026-01-01T00:00:02.000Z" });
+            const staleProof = acquireSessionActivation(database, {
+                runwieldSessionId: "session-1",
+                projectId: "project-1",
+                ownerInstanceId: "owner-2",
+                ownerProcessKind: "test",
+                operationId: "op-2",
+                expectedGeneration: 0,
+                phase: "preparing",
+                now: () => "2026-01-01T00:01:00.000Z",
+            });
+            recoverExpiredSessionControl(database, {
+                runwieldSessionId: "session-1",
+                projectId: "project-1",
+                expectedFence: staleProof.fence,
+                expectedGeneration: 0,
+                ownerInstanceId: "workspace-owner",
+                ownerProcessKind: "workspace",
+                operationId: "recover-op",
+                transcriptEvidence: {
+                    generation: 1,
+                    byteLength: 2,
+                    terminalEntryId: "entry-1",
+                    digestHex: "b".repeat(64),
+                },
+                now: () => "2026-01-01T00:02:00.000Z",
+            });
+            const inspected = inspectSessionActivation(database, "session-1");
+            assertEquals(inspected.activation?.state, "idle");
+            assertEquals(inspected.generation?.generation, 1);
+            assertThrows(() =>
+                publishGenerationAndRelease(database, { ...staleProof, phase: "checkpointing" }, {
+                    generation: 1,
+                    byteLength: 2,
+                    terminalEntryId: "entry-1",
+                    digestHex: "c".repeat(64),
+                }), Error);
         } finally {
             database.close();
         }

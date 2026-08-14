@@ -363,7 +363,7 @@ Deno.test("Plan Work Record metadata round trips with nested YAML", () => {
         lastAttemptAt: "2026-07-14T08:32:00-04:00",
     });
     assertStringIncludes(withFm, "closedWithoutVerificationReason:");
-    assertStringIncludes(withFm, "workRecord:\n    status:");
+    assertStringIncludes(withFm, "workRecord:\n  status:");
 });
 
 Deno.test("Objective-Failing Checks front matter round trips as ordered known metadata", () => {
@@ -2724,7 +2724,7 @@ testWithFs("Plan front matter normalizes and preserves Ticket References", async
         });
         const loaded = await loadPlan(cwd, "ticketed");
         assertEquals(loaded?.attrs.tickets, [{ url: "https://example.com/tickets/ABC-123", label: "ABC", count: 1 }]);
-        assertStringIncludes(loaded?.markdown || "", 'tickets:\n    - url: "https://example.com/tickets/ABC-123"');
+        assertStringIncludes(loaded?.markdown || "", 'tickets:\n  - url: "https://example.com/tickets/ABC-123"');
 
         const updated = await updatePlanFrontMatterForTest(cwd, "ticketed", { status: "approved" });
         assertEquals(updated.tickets, [{ url: "https://example.com/tickets/ABC-123", label: "ABC", count: 1 }]);

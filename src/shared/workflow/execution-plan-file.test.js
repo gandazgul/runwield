@@ -30,7 +30,7 @@ Deno.test("prepareExecutionPlanFile restores absent top-level and nested executi
     assertEquals(await Deno.readTextFile(join(executionRoot, "docs", "plans", "epic", "child.md")), markdown);
 });
 
-Deno.test("prepareExecutionPlanFile preserves valid legacy execution Plan without Plan ID", async () => {
+Deno.test("prepareExecutionPlanFile fills a missing Plan ID from the primary Plan", async () => {
     const projectRoot = await makeTempProject();
     const executionRoot = await makeTempProject();
     await Deno.writeTextFile(
@@ -42,8 +42,10 @@ Deno.test("prepareExecutionPlanFile preserves valid legacy execution Plan withou
 
     const result = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
 
-    assertEquals(result.kind, "present");
-    assertEquals(await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")), legacy);
+    assertEquals(result.kind, "reconciled");
+    const healed = parsePlanFrontMatter(await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")));
+    assertEquals(healed.attrs.planId, "plan-1");
+    assertEquals(healed.body, "# Legacy");
 });
 
 Deno.test("prepareExecutionPlanFile reconciles stale execution metadata without replacing its Plan body", async () => {
@@ -55,24 +57,56 @@ Deno.test("prepareExecutionPlanFile reconciles stale execution metadata without 
             planId: "plan-1",
             classification: "PLANNED_CHANGE",
             status: "ready_for_work",
+            executionAgent: "engineer",
+            collaborationRecommendation: "autonomous",
+            implementedAt: "2026-01-01T00:00:00.000Z",
+            validationCiAttempts: 2,
+            validationCheckpoint: {
+                version: 1,
+                attemptId: "attempt-1",
+                generation: "generation-1",
+                expectedStatus: "ready_for_work",
+                nextPhase: "mechanical",
+                state: "paused",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+            },
         }),
     );
     const executionMarkdown = injectFrontMatter("# Worktree body\n\nPreserve this exact prose.", {
         planId: "plan-1",
         classification: "QUICK_FIX",
         status: "approved",
+        executionAgent: "frontend-engineer",
+        collaborationRecommendation: "pair",
+        implementedAt: null,
+        validationCiAttempts: 0,
+        validationCheckpoint: null,
         summary: "keep-me",
-    });
+    }) + "\n";
     await Deno.writeTextFile(join(executionRoot, "docs", "plans", "demo.md"), executionMarkdown);
 
     const result = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
 
     assertEquals(result.kind, "reconciled");
-    const reconciled = parsePlanFrontMatter(await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")));
+    const reconciledMarkdown = await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md"));
+    assertStringIncludes(reconciledMarkdown, "validationCheckpoint:\n  version: 1");
+    assertEquals(reconciledMarkdown.includes("validationCheckpoint:\n    version: 1"), false);
+    const formatCheck = await new Deno.Command(Deno.execPath(), {
+        args: ["fmt", "--check", join(executionRoot, "docs", "plans", "demo.md")],
+        stdout: "piped",
+        stderr: "piped",
+    }).output();
+    assertEquals(formatCheck.success, true, new TextDecoder().decode(formatCheck.stderr));
+    const reconciled = parsePlanFrontMatter(reconciledMarkdown);
     assertEquals(reconciled.attrs.classification, "PLANNED_CHANGE");
     assertEquals(reconciled.attrs.status, "ready_for_work");
+    assertEquals(reconciled.attrs.executionAgent, "engineer");
+    assertEquals(reconciled.attrs.collaborationRecommendation, "autonomous");
+    assertEquals(reconciled.attrs.implementedAt, "2026-01-01T00:00:00.000Z");
+    assertEquals(reconciled.attrs.validationCiAttempts, 2);
+    assertEquals(reconciled.attrs.validationCheckpoint?.generation, "generation-1");
     assertEquals(reconciled.attrs.summary, "keep-me");
-    assertEquals(reconciled.body, "# Worktree body\n\nPreserve this exact prose.");
+    assertEquals(reconciled.body, "# Worktree body\n\nPreserve this exact prose.\n");
 });
 
 Deno.test("prepareExecutionPlanFile heals a diverged Plan ID toward canonical and blocks symlinked parents", async () => {
@@ -157,24 +191,45 @@ Deno.test("loadCanonicalExecutionPlanSource rejects symlinked and non-directory 
     assertEquals(nonDirectoryParent.relativePath, "docs/plans/epic/child.md");
 });
 
-Deno.test("prepareExecutionPlanFile blocks target symlink directory and malformed target evidence", async () => {
+Deno.test("prepareExecutionPlanFile preserves a symlink and blocks", async () => {
     const projectRoot = await makeTempProject();
     const executionRoot = await makeTempProject();
-    await Deno.writeTextFile(join(projectRoot, "docs", "plans", "demo.md"), injectFrontMatter("# Canonical", {}));
-
+    const canonical = injectFrontMatter("# Canonical", {});
+    await Deno.writeTextFile(join(projectRoot, "docs", "plans", "demo.md"), canonical);
     await Deno.symlink(await Deno.makeTempFile(), join(executionRoot, "docs", "plans", "demo.md"));
-    const symlink = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
-    assertEquals(symlink.kind, "symlink");
 
-    await Deno.remove(join(executionRoot, "docs", "plans", "demo.md"));
+    const result = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
+
+    assertEquals(result.kind, "symlink");
+    assertEquals((await Deno.lstat(join(executionRoot, "docs", "plans", "demo.md"))).isSymlink, true);
+});
+
+Deno.test("prepareExecutionPlanFile preserves a non-file path and blocks", async () => {
+    const projectRoot = await makeTempProject();
+    const executionRoot = await makeTempProject();
+    const canonical = injectFrontMatter("# Canonical", {});
+    await Deno.writeTextFile(join(projectRoot, "docs", "plans", "demo.md"), canonical);
+    await Deno.remove(join(executionRoot, "docs", "plans", "demo.md")).catch(() => {});
     await Deno.mkdir(join(executionRoot, "docs", "plans", "demo.md"));
-    const directory = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
-    assertEquals(directory.kind, "non_regular");
 
-    await Deno.remove(join(executionRoot, "docs", "plans", "demo.md"));
-    await Deno.writeTextFile(join(executionRoot, "docs", "plans", "demo.md"), "---\n: bad\n---\n# Bad");
-    const malformed = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
-    assertEquals(malformed.kind, "malformed");
+    const result = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
+
+    assertEquals(result.kind, "non_regular");
+    assertEquals((await Deno.stat(join(executionRoot, "docs", "plans", "demo.md"))).isDirectory, true);
+});
+
+Deno.test("prepareExecutionPlanFile preserves malformed bytes and blocks", async () => {
+    const projectRoot = await makeTempProject();
+    const executionRoot = await makeTempProject();
+    const canonical = injectFrontMatter("# Canonical", {});
+    const malformed = "---\n: bad\n---\n# Bad";
+    await Deno.writeTextFile(join(projectRoot, "docs", "plans", "demo.md"), canonical);
+    await Deno.writeTextFile(join(executionRoot, "docs", "plans", "demo.md"), malformed);
+
+    const result = await prepareExecutionPlanFile({ projectRoot, executionCwd: executionRoot, planName: "demo" });
+
+    assertEquals(result.kind, "malformed");
+    assertEquals(await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")), malformed);
 });
 
 Deno.test("prepareExecutionPlanFile reports restore failure when plans parent cannot be created", async () => {
@@ -209,14 +264,14 @@ Deno.test("ensureExecutionPlanFile handles real concurrent publication without o
     assertEquals(await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")), canonicalMarkdown);
 });
 
-Deno.test("ensureExecutionPlanFile preserves concurrently created target and cleans temporary file", async () => {
+Deno.test("ensureExecutionPlanFile keeps a concurrent body while fixing owned metadata", async () => {
     const projectRoot = await makeTempProject();
     const executionRoot = await makeTempProject();
-    const canonicalMarkdown = injectFrontMatter("# Canonical", { planId: "plan-1" });
+    const canonicalMarkdown = injectFrontMatter("# Canonical", { planId: "plan-1", status: "implemented" });
     await Deno.writeTextFile(join(projectRoot, "docs", "plans", "demo.md"), canonicalMarkdown);
     const source = await loadCanonicalExecutionPlanSource(projectRoot, "demo");
     if (source.kind !== "loaded") throw new Error("source did not load");
-    const concurrent = injectFrontMatter("# Concurrent", { planId: "plan-1" });
+    const concurrent = injectFrontMatter("# Concurrent", { planId: "plan-1", status: "approved" });
     await Deno.writeTextFile(join(executionRoot, "docs", "plans", "demo.md"), concurrent);
 
     const result = await ensureExecutionPlanFile({
@@ -225,8 +280,13 @@ Deno.test("ensureExecutionPlanFile preserves concurrently created target and cle
         canonicalSource: source,
     });
 
-    assertEquals(result.kind, "present");
-    assertEquals(await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")), concurrent);
+    assertEquals(result.kind, "reconciled");
+    const resultPlan = parsePlanFrontMatter(
+        await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")),
+    );
+    assertEquals(resultPlan.body, "# Concurrent");
+    assertEquals(resultPlan.attrs.planId, "plan-1");
+    assertEquals(resultPlan.attrs.status, "implemented");
     const entries = [];
     for await (const entry of Deno.readDir(join(executionRoot, "docs", "plans"))) entries.push(entry.name);
     assertEquals(entries.some((name) => name.startsWith(".rw-plan-")), false);
