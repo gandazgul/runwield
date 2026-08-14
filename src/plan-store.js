@@ -435,9 +435,9 @@ function appendYamlValue(lines, key, value, indent, options = {}) {
     if (Array.isArray(value)) {
         lines.push(`${pad}${key}:`);
         if (value.length === 0) {
-            if (options.emptyArrays !== false) lines.push(`${pad}    []`);
+            if (options.emptyArrays !== false) lines.push(`${pad}  []`);
         } else {
-            for (const item of value) appendYamlListItem(lines, item, indent + 4, options);
+            for (const item of value) appendYamlListItem(lines, item, indent + 2, options);
         }
         return;
     }
@@ -453,7 +453,7 @@ function appendYamlValue(lines, key, value, indent, options = {}) {
         });
         if (!entries.length) return;
         lines.push(`${pad}${key}:`);
-        for (const [childKey, childValue] of entries) appendYamlValue(lines, childKey, childValue, indent + 4, options);
+        for (const [childKey, childValue] of entries) appendYamlValue(lines, childKey, childValue, indent + 2, options);
         return;
     }
 
@@ -482,7 +482,7 @@ function appendYamlListItem(lines, value, indent, options) {
             lines.push(`${pad}- ${firstKey}: ${String(firstValue)}`);
         } else {
             lines.push(`${pad}- ${firstKey}:`);
-            appendYamlListItem(lines, firstValue, indent + 4, options);
+            appendYamlListItem(lines, firstValue, indent + 2, options);
         }
         for (const [childKey, childValue] of entries.slice(1)) {
             appendYamlValue(lines, childKey, childValue, indent + 2, options);
