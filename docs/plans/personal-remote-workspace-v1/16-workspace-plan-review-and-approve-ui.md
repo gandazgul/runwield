@@ -1,4 +1,5 @@
 ---
+planId: "f2df38b8-4a48-4e28-b41d-08a72c966536"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
@@ -17,31 +18,31 @@ affectedPaths:
     - "src/ui/workspace/react/"
     - "src/ui/workspace/static/workspace.css"
     - "docs/design-system.md"
+objectiveChecks:
+    - id: "OC1"
+      command: "test -f src/shared/workflow/plan-review-actions.test.ts && grep -Fq \"shared Plan review rejects stale revision status and worktree before mutation\" src/shared/workflow/plan-review-actions.test.ts && grep -Fq \"shared Plan review commits edited Feedback and approval notes with classification-correct outcomes\" src/shared/workflow/plan-review-actions.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/plan-review-actions.test.ts"
+      rationale: "The adapter-neutral review action and its focused behavioral suite do not exist. This requires canonical evidence rejection, direct Plan edits, Feedback, non-blocking approval notes, and real approval transitions."
+    - id: "OC2"
+      command: "test -f src/ui/workspace/workspace-plan-review.integration.test.ts && grep -Fq \"stable Plan page switches from live review to settled detail\" src/ui/workspace/workspace-plan-review.integration.test.ts && grep -Fq \"Workspace Plan review returns Feedback to the same live Core interaction\" src/ui/workspace/workspace-plan-review.integration.test.ts && grep -Fq \"lost review interaction prepares but does not send Agent resubmission\" src/ui/workspace/workspace-plan-review.integration.test.ts && deno run -A scripts/run-tests.js src/ui/workspace/workspace-plan-review.integration.test.ts"
+      rationale: "Workspace has no Project-scoped Plan detail route or owner review journey. This requires one stable Plan surface, live Core Feedback, and the explicit cross-surface resubmission flow."
+    - id: "OC3"
+      command: "test -f src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Phone Plan review keeps full editing annotations and actions reachable\" src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Feedback and Run return to Session while Later stays on confirmation\" src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Plan and Epic reviews expose classification-correct actions\" src/ui/workspace/workspace-plan-review-ux.test.tsx && deno run -A scripts/run-tests.js src/ui/workspace/workspace-plan-review-ux.test.tsx"
+      rationale: "The owner review UI and responsive state tests do not exist. This requires the selected full phone workflow, outcome-specific navigation, and correct Run versus Slice journeys."
+executionAgent: "frontend-engineer"
+collaborationRecommendation: "pair"
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-26T20:48:25.378Z"
-status: "draft"
+updatedAt: "2026-08-14T03:23:14.136Z"
+status: "ready_for_work"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 16
 dependencies:
     - "15-complete-workspace-session-navigation-and-timeline-ux"
     - "13-execution-segment-handoff-backend"
-planId: "f2df38b8-4a48-4e28-b41d-08a72c966536"
-objectiveChecks:
-    - id: "OC1"
-      command: "test -f src/shared/workflow/plan-review-actions.test.ts && grep -Fq \"shared Plan review rejects stale revision status and worktree before mutation\" src/shared/workflow/plan-review-actions.test.ts && grep -Fq \"shared Plan review commits Feedback and classification-correct approval outcomes\" src/shared/workflow/plan-review-actions.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/plan-review-actions.test.ts"
-      rationale: "The adapter-neutral review action and its focused behavioral suite do not exist. The check requires canonical evidence rejection and real Feedback/approval transitions."
-    - id: "OC2"
-      command: "test -f src/ui/workspace/workspace-plan-review.integration.test.ts && grep -Fq \"Workspace Plan review returns Feedback to the same live Core interaction\" src/ui/workspace/workspace-plan-review.integration.test.ts && grep -Fq \"Approve for Later creates no execution segment while Approve and Run uses the execution handoff\" src/ui/workspace/workspace-plan-review.integration.test.ts && grep -Fq \"lost review interaction requires Agent resubmission across surfaces\" src/ui/workspace/workspace-plan-review.integration.test.ts && deno run -A scripts/run-tests.js src/ui/workspace/workspace-plan-review.integration.test.ts"
-      rationale: "Workspace currently reduces plan_review to a generic wait and has no owner review journey. This requires full managed-Session proof for Feedback, approval, execution handoff, and process-loss resubmission."
-    - id: "OC3"
-      command: "test -f src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Phone Plan review keeps document readable and actions reachable\" src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Plan review preserves Overall feedback and annotations across stale refresh\" src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Plan and Epic reviews expose classification-correct actions\" src/ui/workspace/workspace-plan-review-ux.test.tsx && deno run -A scripts/run-tests.js src/ui/workspace/workspace-plan-review-ux.test.tsx"
-      rationale: "The owner review UI and responsive state tests do not exist. This requires phone action accessibility, preserved input on stale evidence, and the correct Run versus Slice journeys."
-executionAgent: "frontend-engineer"
-collaborationRecommendation: "pair"
-updatedAt: "2026-08-13T20:59:58.360Z"
+userVerifiedAt: null
 ---
 
 # Workspace Plan Review and Approve UI
@@ -57,11 +58,13 @@ canonical Project Plan pages and generic live-interaction handling, but its Plan
 `plan_review` interaction exposes only a plain “Agent needs input” item. The review decision logic also lives in
 `src/ui/review/plan-review.ts`, even though its Plan Lifecycle and worktree effects are Core workflow behavior.
 
-This slice makes these parts one product surface. A Planner or Architect working through Workspace returns a link to an
-integrated Workspace review route. TUI uses the same review component and Core decision contract rather than a second
-Plan review product. The process that currently runs the Core turn still owns its unanswered interaction. If that
-process stops and the Session is resumed from the other surface, the model resubmits the Plan and creates a new review
-interaction. Transferring an unanswered in-memory review between processes is intentionally deferred.
+This slice makes these parts one product surface. A Planner or Architect working through Workspace returns a link to the
+stable Project-scoped Plan page. That page renders the existing `PlanReviewSurface` while the linked Session has a live
+review interaction and the existing `PlanDetail` after settlement. TUI uses the same review component and Core decision
+contract rather than a second Plan review product. The process that currently runs the Core turn still owns its
+unanswered interaction. If that process stops and the Session is resumed from the other surface, the model resubmits the
+Plan and creates a new review interaction. Transferring an unanswered in-memory review between processes is
+intentionally deferred.
 
 Slices 12 and 13 are verified. Slice 12 supplies action-time Plan revision, Plan Status, and worktree evidence checks;
 slice 13 supplies the planning-to-execution Session Transcript Segment handoff. Slice 15 supplies Workspace Session
@@ -91,33 +94,38 @@ navigation, live operations, interaction answers, interruption handling, and the
 1. The owner talks to Planner or Architect in a Workspace Session.
 2. When the Agent submits the Plan, the timeline adds a distinct **Plan ready for review** card with Plan title, Plan
    Status, and a primary **Review Plan** link. It does not look like a generic question.
-3. The review route opens in the same Workspace shell. A compact context header shows **Projects → Session → Plan**, the
-   acting Session name, current Plan Status, and whether the review is live.
-4. The owner reads the Plan, adds inline annotations or an **Overall feedback** comment, and selects **Send Feedback**.
-   Feedback must not require a text selection or image attachment.
-5. After the decision commits, Workspace returns to the Session timeline. The review card becomes **Feedback sent**,
-   annotations are visible as submitted context, and the Planner or Architect revision appears in the same timeline.
+3. The stable Project Plan page opens in live-review mode inside the Workspace shell. A compact context header shows
+   **Projects → Session → Plan**, the acting Session name, current Plan Status, and whether the review is live.
+4. The owner can directly edit the Plan markdown, add inline annotations, or add an **Overall feedback** comment. Direct
+   editing preserves the current Plan review capability; Feedback does not require a text selection or image.
+5. Selecting **Send Feedback** means “revise this Plan.” After the decision commits, Workspace returns to the Session
+   timeline. The review card becomes **Feedback sent**, submitted context remains visible, and the Planner or Architect
+   revision appears in the same timeline.
 6. When the Agent resubmits, the new review card links to the latest canonical revision. The old link is visibly settled
    and cannot submit another decision.
 
 #### 2. Workspace planning → Approve for Later
 
-1. The owner opens the same review route and can inspect the planned execution owner and collaboration recommendation.
+1. The owner opens the same stable Plan page in live-review mode and can inspect the planned execution owner and
+   collaboration recommendation.
 2. The approval split action describes the consequence before submission: the Plan is prepared but no implementation
    starts. For an Epic, no Slicer starts.
-3. On success, a short confirmation states the resulting Plan Status, then Workspace returns to the Session timeline.
-4. The timeline shows **Approved for later** and the canonical next action. It must not show an Engineer, execution
-   segment, or running indicator.
+3. On success, the Plan page stays on a clear **Approved for later** confirmation that states the resulting Plan Status
+   and provides **Return to Session**. It does not navigate automatically because no running work needs observation.
+4. After the owner returns, the timeline shows **Approved for later** and the canonical next action. It must not show an
+   Engineer, execution segment, or running indicator.
 
 #### 3. Workspace planning → Approve & Run or Approve & Slice
 
 1. For a PLANNED_CHANGE Plan, the dominant action is **Approve & Run**. For a PROJECT Epic, it is **Approve & Slice**.
 2. The owner can review or change the allowed execution policy before approval. Pair is available only for Frontend
    Engineer, as in the existing review surface.
-3. Submission disables all decision controls and announces progress without clearing annotations.
-4. On success, Workspace returns to the Session timeline automatically. The timeline becomes the progress surface:
+3. Annotations present at approval become clearly labeled non-blocking implementation or Slicer notes. They do not ask
+   Planner or Architect for another Revision; **Send Feedback** is the explicit revision action.
+4. Submission disables all decision controls and announces progress without clearing annotations.
+5. On success, Workspace returns to the Session timeline automatically. The timeline becomes the progress surface:
    readiness, execution/Slicer handoff, Agent change, tools, validation, and failures appear there.
-5. A persistent **View Plan** link remains available from the timeline. The owner is not left on a completed overlay
+6. A persistent **View Plan** link remains available from the timeline. The owner is not left on a completed overlay
    that only says to return to RunWield.
 
 #### 4. TUI planning → review → continue in TUI
@@ -133,8 +141,10 @@ navigation, live operations, interaction answers, interruption handling, and the
 2. The owner resumes the stable Session from the other surface and sees the standard interruption message, not a
    recreated or silently answered review.
 3. The owner asks the Planner or Architect to continue. The Agent reloads canonical Plan state and resubmits review.
-4. The new review card/link is active. The earlier link explains that its review is no longer active and offers **Return
-   to Session**; it cannot mutate the Plan.
+4. The earlier Plan page explains that its review is no longer active and offers **Return to Session** with a prepared
+   “Please resubmit this Plan for review” composer message. The owner must explicitly send it; the page cannot mutate
+   the Plan or start an Agent turn itself.
+5. The Agent's new submission makes the same stable Plan page enter live-review mode for the new interaction.
 
 #### 6. Stale Plan or worktree while reviewing
 
@@ -165,8 +175,9 @@ the same `PlanReviewSurface`, submit the same decision shape, and receive the sa
 ```text
 Planner or Architect calls plan_written
   → Core requests plan_review with Plan ID + expected evidence
-  → active adapter returns one Workspace review link
-  → shared PlanReviewSurface loads canonical owner-safe Plan data
+  → active adapter links the stable Project Plan page
+  → Plan page selects live PlanReviewSurface or settled PlanDetail
+  → PlanReviewSurface loads canonical owner-safe Plan data
   → Feedback / Later / Run / Slice submits a request ID
   → active process verifies live interaction + Session Activation
   → shared review decision rechecks Plan/worktree evidence and records review outcome
@@ -216,8 +227,9 @@ but it requires a session-independent continuation protocol and is not necessary
 - `src/ui/workspace/routes/owner-session-api.js`, `owner-api.js`, and `src/ui/workspace/server.js` — register
   authenticated, Project-bound review-document and decision endpoints with Origin, cross-site request forgery (CSRF),
   request-size, request-ID, and response-redaction checks.
-- `src/ui/workspace/pages/projects/[projectId]/sessions/[runwieldSessionId]/plans/[planId]/review.astro` — host the
-  integrated owner review route and provide Session/Plan navigation.
+- `src/ui/workspace/pages/projects/[projectId]/plans/[planId].astro` — provide one stable owner Plan page that renders
+  the existing `PlanReviewSurface` for a matching live Session review and `PlanDetail` otherwise; preserve the acting
+  Session in navigation without creating a second review URL.
 - `src/ui/workspace/react/PlanReviewSurface.tsx` and supporting Plannotator components — accept a transport-neutral
   review payload, render canonical status/evidence/acting-Session context, and submit the classification-correct actions
   to either active adapter.
@@ -266,25 +278,27 @@ Approve for Later, Approve & Run, Plan Action Evidence Check, Session Activation
       resolves the Runtime interaction. Safe results distinguish refresh, recovery, expired interaction, and invalid
       action without exposing local paths.
 - [ ] A Workspace-owned `plan_review` interaction appears in operation status and the Session timeline as a direct link
-      to the integrated Project → Session → Plan review route. Generic Pending Structured Interactions retain their
+      to the stable Project-scoped Plan page. The page enters live-review mode only for the matching Session
+      interaction; after settlement it renders normal Plan detail. Generic Pending Structured Interactions retain their
       existing inline answer behavior.
-- [ ] The owner review page loads the canonical Plan and current evidence, identifies the acting Session and active
-      review state, renders Plannotator annotations and existing execution-policy controls, and never treats browser
-      payloads or timeline projection as authority. Its context header provides Project, Session, and Plan navigation
-      without exposing IDs as the primary user label.
+- [ ] The stable Plan page loads the canonical Plan and current evidence, identifies the acting Session and active
+      review state, and never treats browser payloads or timeline projection as authority. Live mode reuses
+      `PlanReviewSurface`; settled mode reuses `PlanDetail`. Its context header provides Project, Session, and Plan
+      navigation without exposing IDs as the primary user label or rebuilding either existing surface.
 - [ ] PLANNED_CHANGE controls submit Feedback, Approve for Later, and Approve & Run. PROJECT controls submit Feedback,
       Approve for Later, and Approve & Slice. The existing classification normalization and invalid-action fallback
       remain covered; the browser does not offer Run for an Epic or Slice for a PLANNED_CHANGE Plan.
-- [ ] Feedback supports both inline annotations and a visible Plan-level **Overall feedback** field. It commits the
-      canonical review transition, resolves the exact live Core interaction with normalized text and images, and lets
-      the same Planner or Architect continue its Revision. It does not require an annotation selection, start a new
-      Session, or bypass `plan_written`.
+- [ ] Live review preserves the current direct markdown editor and supports inline annotations plus a visible Plan-level
+      **Overall feedback** field. **Send Feedback** commits the edited canonical Plan and review transition, resolves
+      the exact live Core interaction with normalized text and images, and lets the same Planner or Architect continue
+      its Revision. It does not require an annotation selection, start a new Session, or bypass `plan_written`.
 - [ ] Approve for Later commits review approval and lets `plan_written` pass the classification-aware Readiness Gate. A
       PLANNED_CHANGE Plan becomes Ready For Work with no execution segment; a PROJECT Epic follows its established
       ready-for-decomposition/later outcome with no Slicer or execution segment.
 - [ ] Approve & Run commits approval, passes readiness, and follows the existing slice 13 managed execution handoff.
-      Approve & Slice follows the established Architect-to-Slicer decision. Neither path copies Planner/Architect
-      transcript history into its successor context.
+      Approve & Slice follows the established Architect-to-Slicer decision. Existing annotations at approval are carried
+      as explicitly non-blocking Engineer/Slicer notes. Neither path copies Planner/Architect transcript history into
+      its successor context.
 - [ ] Each owner decision includes a bounded request ID. An exact completed duplicate returns its stored safe status and
       body without another Plan transition or interaction resolution. A reused ID with changed input conflicts. A new ID
       rechecks the live interaction and canonical evidence; it cannot act after process loss or after the review was
@@ -293,12 +307,13 @@ Approve for Later, Approve & Run, Plan Action Evidence Check, Session Activation
       replaying the decision. Recovery-required and expired-interaction errors preserve annotations locally and explain
       that deeper recovery or Agent resubmission is required; this slice adds no destructive recovery control.
 - [ ] Losing the active Workspace or TUI process leaves no answerable review interaction. Session reload shows the
-      standard interruption line. Continuing from either surface asks the current Planner or Architect to resubmit; the
-      resulting new interaction points to the same review surface and reloads canonical Plan state.
-- [ ] Successful Feedback, Approve for Later, Approve & Run, and Approve & Slice show a brief outcome confirmation and
-      return to the stable Session timeline automatically, with a user-controlled **Return to Session** action available
-      immediately. Execution or decomposition progress uses the slice 15 timeline; this slice does not add a dedicated
-      progress view or leave the owner stranded behind the generic completion overlay.
+      standard interruption line. The settled Plan page offers **Return to Session** with a prepared resubmission
+      message in the composer, but does not send it. After the owner explicitly sends, the current Planner or Architect
+      resubmits and the same stable Plan page reloads canonical state in live-review mode.
+- [ ] Successful Feedback, Approve & Run, and Approve & Slice show a brief outcome confirmation and return to the stable
+      Session timeline automatically. Approve for Later stays on an **Approved for later** confirmation with resulting
+      Plan Status and **Return to Session**. Execution or decomposition progress uses the slice 15 timeline; this slice
+      does not add a dedicated progress view or leave the owner behind the generic completion overlay.
 - [ ] Paired-owner auth, registered-Project containment, exact Origin, CSRF, Session/Plan association, and device scope
       protect owner routes. Public Shared Plan capability links cannot read owner Session context or submit owner review
       decisions, although they can continue to reuse visual components behind their separate authorization path.
@@ -353,15 +368,17 @@ No Work Record is superseded by this Plan.
   `deno task workspace:dev` at `http://127.0.0.1:5173` only for hot-module visual work; verify live Core interactions
   against the paired owner-server URL.
 - Manual pair checkpoint 1, desktop at approximately 1440×900: start a Workspace Planner Session, inspect the **Plan
-  ready for review** timeline card, open the review route, and confirm the Project/Session/Plan context and three-area
-  layout make the next action clear without duplicating the Workspace shell.
+  ready for review** timeline card, open the stable Plan page in live mode, and confirm the Project/Session/Plan context
+  and three-area layout make the next action clear. Settle the review and confirm the same URL renders normal Plan
+  detail rather than a duplicate review or Workspace shell.
 - Manual pair checkpoint 2, phone at approximately 390×844: review a long Plan, navigate by the table-of-contents
   drawer, add one inline annotation and Overall feedback, inspect/change execution policy, and use the sticky action
   bar. Confirm no clipped toolbar, covered content, lost text, inaccessible drawer/menu, unsafe-area collision, or
   whole-page horizontal overflow.
-- Manual pair checkpoint 3: exercise Feedback, Approve for Later, Approve & Run, Approve & Slice, stale refresh,
-  recovery-required, and expired-interaction states. Confirm each message names its consequence, preserves user input
-  when correction is possible, and returns to the correct Session rather than a generic completion screen.
+- Manual pair checkpoint 3: exercise direct Plan editing, Feedback, approval with non-blocking notes, Approve for Later,
+  Approve & Run, Approve & Slice, stale refresh, recovery-required, and expired-interaction states. Confirm Feedback and
+  Run/Slice return to Session, Later stays on confirmation, and expired review pre-fills but does not send the
+  resubmission request.
 - Manual pair checkpoint 4, cross-surface: start planning in TUI and confirm its Plan review uses the same
   Workspace-styled component and action language. Stop the TUI before answering, resume the stable Session in Workspace,
   ask the Agent to continue, and confirm it resubmits one new review link without accepting the old pending interaction.
