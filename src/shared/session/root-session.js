@@ -33,7 +33,13 @@ export function getRunWieldSessionsBaseDir() {
  * @returns {string}
  */
 export function getRunWieldSessionDir(cwd) {
-    return join(getRunWieldSessionsBaseDir(), encodeCwdForSessionDir(cwd));
+    let canonicalCwd = resolve(cwd);
+    try {
+        canonicalCwd = Deno.realPathSync(canonicalCwd);
+    } catch {
+        // A not-yet-created cwd still gets a stable absolute locator.
+    }
+    return join(getRunWieldSessionsBaseDir(), encodeCwdForSessionDir(canonicalCwd));
 }
 
 /**
@@ -109,7 +115,7 @@ async function ensureCreatedSessionTranscriptFile(sessionManager, transcriptPath
 /** @param {string} cwd @param {any} sessionManager */
 export async function resolveCreatedRootSessionPath(cwd, sessionManager) {
     const piSessionId = sessionManager.getSessionId?.();
-    if (!piSessionId) throw new Error("Created managed Session has no Pi session id");
+    if (!piSessionId) throw new Error("The Session could not be persisted");
     const sessions = await listPersistedRootSessions(cwd);
     const match = sessions.find((session) => session.id === piSessionId);
     if (match?.path) return match.path;
@@ -177,7 +183,7 @@ function getManagerCwd(value) {
 
 /**
  * @typedef {Object} RootSessionLocatorClassification
- * @property {"unmanaged_proven" | "managed" | "blocked"} kind
+ * @property {"uncataloged" | "managed" | "blocked"} kind
  * @property {string} [reason]
  * @property {import('../owner-coordination/sessions.js').CatalogedSession} [session]
  * @property {{ projectId: string, cwd: string }} [project]
@@ -190,10 +196,10 @@ function isSameOrInsidePath(child, parent) {
 }
 
 /**
- * Resolve whether a root Session locator belongs to managed owner coordination
- * before any Pi SessionManager API is used.
+ * Resolve a root Session locator through the file-backed Session catalog before
+ * any Pi SessionManager API is used.
  *
- * @param {{ cwd: string, sessionId?: string, sessionPath?: string, ownerCoordinationStore?: import('../owner-coordination/index.js').OwnerCoordinationStore | null, allowCatalog?: boolean }} options
+ * @param {{ cwd: string, sessionId?: string, sessionPath?: string, ownerCoordinationStore?: ReturnType<typeof import('./file-session-store.ts').openFileSessionStore> | null, allowCatalog?: boolean }} options
  * @returns {Promise<RootSessionLocatorClassification>}
  */
 export async function classifyRootSessionLocator(options) {
@@ -201,42 +207,49 @@ export async function classifyRootSessionLocator(options) {
         return { kind: "blocked", reason: "invalid_cwd" };
     }
     const store = options.ownerCoordinationStore || null;
-    if (!store) return { kind: "blocked", reason: "owner_coordination_unavailable" };
+    if (!store) return { kind: "blocked", reason: "session_store_unavailable" };
     let realCwd;
     try {
         realCwd = await Deno.realPath(options.cwd);
     } catch {
         realCwd = resolve(options.cwd);
     }
-    const projects = store.listProjects();
+    const projects = store.listSessionProjects();
     if (projects.length === 0) {
-        return { kind: "unmanaged_proven", reason: "owner_coordination_no_registered_projects" };
+        return { kind: "uncataloged", reason: "session_catalog_empty" };
     }
+    const requestedCwd = resolve(options.cwd);
     /** @type {Array<{ projectId: string, lifecycle: string, currentRoot: string }>} */
-    const currentProjects = [];
+    const exactCurrentProjects = [];
     /** @type {Array<{ projectId: string, lifecycle: string, currentRoot: string }>} */
-    const historicalProjects = [];
+    const canonicalCurrentProjects = [];
+    /** @type {Array<{ projectId: string, lifecycle: string, currentRoot: string }>} */
+    const exactHistoricalProjects = [];
+    /** @type {Array<{ projectId: string, lifecycle: string, currentRoot: string }>} */
+    const canonicalHistoricalProjects = [];
     for (const project of projects) {
         const roots = store.listProjectRootEvidence(project.projectId);
-        if (
-            roots.some((root) =>
-                root.rootState === "current" &&
-                (isSameOrInsidePath(realCwd, root.canonicalRoot) ||
-                    isSameOrInsidePath(resolve(options.cwd), root.enteredRoot))
-            )
-        ) {
-            currentProjects.push(project);
-        }
-        if (
-            roots.some((root) =>
-                root.rootState === "historical" &&
-                (isSameOrInsidePath(realCwd, root.canonicalRoot) ||
-                    isSameOrInsidePath(resolve(options.cwd), root.enteredRoot))
-            )
-        ) {
-            historicalProjects.push(project);
-        }
+        const exactCurrent = roots.some((root) =>
+            root.rootState === "current" && requestedCwd === resolve(root.enteredRoot)
+        );
+        const canonicalCurrent = roots.some((root) =>
+            root.rootState === "current" && isSameOrInsidePath(realCwd, root.canonicalRoot)
+        );
+        const exactHistorical = roots.some((root) =>
+            root.rootState === "historical" && requestedCwd === resolve(root.enteredRoot)
+        );
+        const canonicalHistorical = roots.some((root) =>
+            root.rootState === "historical" && isSameOrInsidePath(realCwd, root.canonicalRoot)
+        );
+        if (exactCurrent) exactCurrentProjects.push(project);
+        else if (canonicalCurrent) canonicalCurrentProjects.push(project);
+        if (exactHistorical) exactHistoricalProjects.push(project);
+        else if (canonicalHistorical) canonicalHistoricalProjects.push(project);
     }
+    const currentProjects = exactCurrentProjects.length > 0 ? exactCurrentProjects : canonicalCurrentProjects;
+    const historicalProjects = exactHistoricalProjects.length > 0
+        ? exactHistoricalProjects
+        : canonicalHistoricalProjects;
     if (currentProjects.length > 1 || historicalProjects.length > 1) {
         return { kind: "blocked", reason: "locator_conflict" };
     }
@@ -244,8 +257,7 @@ export async function classifyRootSessionLocator(options) {
         return { kind: "blocked", reason: "historical_project_root" };
     }
     const project = currentProjects[0] || null;
-    if (!project) return { kind: "blocked", reason: "owner_coordination_project_evidence_absent" };
-    const requestedCwd = resolve(options.cwd);
+    if (!project) return { kind: "uncataloged", reason: "session_project_absent" };
     const currentRoots = store.listProjectRootEvidence(project.projectId)
         .filter((root) =>
             root.rootState === "current" &&
@@ -260,18 +272,9 @@ export async function classifyRootSessionLocator(options) {
     }
     if (project.lifecycle !== "enabled") return { kind: "blocked", reason: "project_not_enabled" };
     try {
-        store.requireEnabledProjectRoot(project.projectId);
+        store.requireSessionProjectRoot(project.projectId);
     } catch {
         return { kind: "blocked", reason: "project_root_unavailable" };
-    }
-    const protocolStatus = store.getActivationProtocolStatus();
-    if (!protocolStatus.enabled) {
-        const reason = protocolStatus.state === "epoch_mismatch"
-            ? "activation_protocol_epoch_mismatch"
-            : protocolStatus.state === "unsupported_version" || protocolStatus.state === "invalid_marker"
-            ? "activation_protocol_marker_mismatch"
-            : `activation_protocol_${protocolStatus.state}`;
-        return { kind: "blocked", reason };
     }
     if (!options.sessionPath && !options.sessionId) {
         return { kind: "managed", project: { projectId: project.projectId, cwd: realCwd } };

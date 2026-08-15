@@ -253,7 +253,6 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
 
     const availability = useMemo(() =>
         deriveSessionAvailability({
-            protocol: listData?.protocol || timeline?.protocol,
             state: timeline?.state,
             activeSurface: timeline?.activeSurface,
             bootstrapRequired: timeline?.bootstrapRequired,
@@ -262,8 +261,6 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             timelineComplete: timeline?.complete !== false,
             truncated: timeline?.truncated,
             localOperationActive: Boolean(operation && !["completed", "failed", "unknown"].includes(operation.status)),
-            controlRenewing: timeline?.controlRenewing,
-            forceAvailableAt: timeline?.forceAvailableAt,
         }), [listData, timeline, operation]);
 
     async function createSession() {
@@ -289,30 +286,6 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             }
         } catch (error) {
             setListError(errorMessage(error));
-        } finally {
-            setSubmitting(false);
-        }
-    }
-
-    async function prepareSession() {
-        if (!availability.canPrepare || submitting) return;
-        setSubmitting(true);
-        setMessage("");
-        try {
-            const requestId = crypto.randomUUID();
-            const payload = await ownerFetch(
-                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
-                    encodeURIComponent(runwieldSessionId)
-                }/bootstrap`,
-                {
-                    method: "POST",
-                    body: JSON.stringify({ requestId }),
-                },
-            );
-            setMessage(payload.status === "completed" ? "Session prepared." : "Preparation accepted.");
-            await loadTimeline();
-        } catch (error) {
-            setMessage(errorMessage(error));
         } finally {
             setSubmitting(false);
         }
@@ -454,31 +427,6 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }
     }
 
-    async function forceRecovery() {
-        if (timeline?.generation == null || !timeline?.forceAvailableAt) return;
-        const warning =
-            "Take control only if the other process stopped renewing. A prior command or process may still finish. RunWield fences later writes, but it cannot undo external effects.";
-        if (!globalThis.confirm(`${warning}\n\nTake control of this Session?`)) return;
-        try {
-            await ownerFetch(
-                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
-                    encodeURIComponent(runwieldSessionId)
-                }/force-recovery`,
-                {
-                    method: "POST",
-                    body: JSON.stringify({
-                        expectedGeneration: timeline.generation,
-                        expectedCurrentSegmentId: timeline.currentSegmentId || null,
-                    }),
-                },
-            );
-            setMessage("Session control recovered. Review the committed timeline before sending.");
-            await loadTimeline();
-        } catch (error) {
-            setMessage(errorMessage(error));
-        }
-    }
-
     if (mode === "list") {
         return (
             <SessionList
@@ -534,30 +482,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             <p className="kicker">Session</p>
                             <h2>{timeline.snapshot?.name || runwieldSessionId}</h2>
                             <p>
-                                Generation {timeline.generation ?? "not prepared"} · Agent{" "}
+                                Generation {timeline.generation ?? "unavailable"} · Agent{" "}
                                 {timeline.snapshot?.activeAgent || "unknown"}
                             </p>
                             <SessionBackendDisclosure snapshot={timeline.snapshot} />
                             <SessionActivationStatus availability={availability} />
-                            {availability.canPrepare
-                                ? (
-                                    <RunWieldButton
-                                        type="button"
-                                        variant="primary"
-                                        disabled={submitting}
-                                        onClick={prepareSession}
-                                    >
-                                        {submitting ? "Preparing…" : "Prepare Session"}
-                                    </RunWieldButton>
-                                )
-                                : null}
-                            {availability.canForceRecover
-                                ? (
-                                    <RunWieldButton type="button" variant="secondary" onClick={forceRecovery}>
-                                        Take control
-                                    </RunWieldButton>
-                                )
-                                : null}
                         </section>
                         <SessionTimeline items={allItems} />
                         <form

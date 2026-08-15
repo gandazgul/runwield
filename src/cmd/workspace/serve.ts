@@ -18,7 +18,6 @@ export interface WorkspaceServeOptions {
     publicOrigin: string;
     trustTlsTerminator: boolean;
     noOpen: boolean;
-    enableSessionActivation: boolean;
     help: boolean;
 }
 
@@ -32,7 +31,7 @@ export function normalizePublicOrigin(value: string): string {
 
 export function parseWorkspaceServeArgs(argv: string[]): WorkspaceServeOptions {
     const parsed = parseArgs(argv, {
-        boolean: ["help", "no-open", "trust-tls-terminator", "enable-session-activation"],
+        boolean: ["help", "no-open", "trust-tls-terminator"],
         string: ["bind", "host", "port", "public-origin"],
         alias: { h: "help" },
     });
@@ -58,14 +57,13 @@ export function parseWorkspaceServeArgs(argv: string[]): WorkspaceServeOptions {
         publicOrigin,
         trustTlsTerminator,
         noOpen: Boolean(parsed["no-open"]),
-        enableSessionActivation: Boolean(parsed["enable-session-activation"]),
         help: Boolean(parsed.help),
     };
 }
 
 export function printWorkspaceServeHelp(): void {
     console.log(
-        `Usage: ${CLI_BIN} workspace serve [--bind <host>|--host <host>] [--port <port>] [--public-origin <origin>] [--trust-tls-terminator] [--enable-session-activation] [--no-open]`,
+        `Usage: ${CLI_BIN} workspace serve [--bind <host>|--host <host>] [--port <port>] [--public-origin <origin>] [--trust-tls-terminator] [--no-open]`,
     );
     console.log("Starts the persistent owner Workspace using the owner coordination database.");
     console.log("Defaults: --bind 127.0.0.1 --port 8787.");
@@ -98,12 +96,6 @@ export async function runWorkspaceServeCommand(argv: string[]): Promise<void> {
     const removeShutdownHandlers = installShutdownHandlers(controller);
     const store = openOwnerCoordinationStore();
     try {
-        if (parsed.enableSessionActivation) {
-            console.error(
-                "[RunWield] Enabling Session Activation protocol. Confirm all pre-v3 TUI, ACP, and Workspace processes are stopped and will not run concurrently.",
-            );
-            store.acknowledgeActivationProtocol();
-        }
         const { startWorkspaceServer } = await import("../../ui/workspace/server.js");
         const server = startWorkspaceServer({
             mode: "owner",
@@ -117,11 +109,6 @@ export async function runWorkspaceServeCommand(argv: string[]): Promise<void> {
         const url = parsed.publicOrigin;
         console.log(`[RunWield] Owner Workspace: ${url}`);
         console.log(`[RunWield] Owner database: ${store.path || getOwnerCoordinationDatabasePath()}`);
-        if (!store.getActivationProtocolStatus().enabled) {
-            console.log(
-                "[RunWield] Session continuation disabled. Restart with --enable-session-activation after stopping incompatible processes.",
-            );
-        }
         if (!parsed.noOpen) await SYSTEM_BROWSER_PORT.open(url);
         await server.finished;
     } finally {

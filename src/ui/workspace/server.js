@@ -76,7 +76,7 @@ import {
     isStateChangingRequest,
     withOwnerSecurityHeaders,
 } from "./server/owner-origin.js";
-import { listOwnerProjects, requireOwnerProjectRoot } from "./server/owner-projects.js";
+import { listOwnerProjects, requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./server/owner-projects.js";
 import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
 import { setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
 
@@ -829,7 +829,7 @@ async function renderOwnerProjectSessionsPage(ctx) {
 async function renderOwnerProjectSessionDetailPage(ctx) {
     const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
     const session = ctx.state.store.getSessionById(ctx.params.runwieldSessionId);
-    if (!session || session.projectId !== ctx.params.projectId) {
+    if (!session || !sessionBelongsToOwnerProject(ctx.state.store, session, ctx.params.projectId)) {
         return ownerHtmlResponse(
             "Session not found",
             `<section class="error-panel"><h2>Session not found</h2><p>The requested Session is not cataloged under this Project.</p></section>`,

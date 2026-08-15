@@ -13,6 +13,7 @@ import {
     getCommittedTranscriptAuthorityFacts,
     validateExpiredControlTranscriptEvidence,
 } from "../../../shared/session/session-transcript-projection.js";
+import { sessionBelongsToOwnerProject } from "./owner-projects.js";
 
 /** @param {unknown} value */
 function stableHash(value) {
@@ -41,6 +42,7 @@ function browserTimelineProjection(projection) {
     return safeProjection;
 }
 
+/** @param {import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore} store @param {{ transcriptCwd: string }} session @param {string} projectId */
 /**
  * @typedef {Object} WorkspaceOperationRecord
  * @property {string} status
@@ -61,7 +63,7 @@ export class WorkspaceSessionContinuationService {
         this.store = options.store;
         this.ownerInstanceId = crypto.randomUUID();
         this.runtime = createSessionRuntime({
-            ownerCoordinationStore: this.store,
+            sessionStore: this.store,
             ownerProcessKind: "workspace",
             ownerInstanceId: this.ownerInstanceId,
         });
@@ -77,33 +79,37 @@ export class WorkspaceSessionContinuationService {
 
     /** @param {string} projectId */
     async listSessions(projectId) {
-        const protocol = this.store.getActivationProtocolStatus();
         const { sessions, diagnostics } = await this.store.listProjectSessions(projectId, { catalog: true });
         return {
-            protocol,
             diagnostics,
-            sessions: sessions.map((session) => {
-                const inspected = this.store.inspectSessionActivation(session.runwieldSessionId);
+            sessions: await Promise.all(sessions.map(async (session) => {
+                let inspected = this.store.inspectSessionActivation(session.runwieldSessionId);
+                if (
+                    !inspected.generation &&
+                    ["uninitialized", "uncertain", "reconcile_required"].includes(inspected.activation?.state || "")
+                ) {
+                    try {
+                        await this.runtime.ensureInitialSessionGeneration(session.runwieldSessionId);
+                        inspected = this.store.inspectSessionActivation(session.runwieldSessionId);
+                    } catch {
+                        // A genuinely damaged transcript stays blocked and visible.
+                    }
+                }
                 return {
                     runwieldSessionId: session.runwieldSessionId,
-                    projectId: session.projectId,
+                    projectId,
                     displayName: session.displayName,
                     state: inspected.activation?.state || "missing_activation",
                     generation: inspected.generation?.generation ?? null,
                     activeSurface: inspected.activation?.state === "active"
                         ? inspected.activation.ownerProcessKind
                         : null,
-                    controlRenewing:
-                        inspected.activation?.state === "active" && Boolean(inspected.activation.heartbeatDeadlineAt)
-                            ? Date.parse(inspected.activation.heartbeatDeadlineAt) > Date.now()
-                            : false,
-                    forceAvailableAt: inspected.activation?.heartbeatDeadlineAt || null,
                     recoveryCategory: inspected.activation?.state === "active"
                         ? "wait_for_owner"
                         : inspected.activation?.state || "idle",
                     bootstrapRequired: inspected.activation?.state === "uninitialized",
                 };
-            }),
+            })),
         };
     }
 
@@ -113,22 +119,25 @@ export class WorkspaceSessionContinuationService {
      */
     async timeline(runwieldSessionId, options = {}) {
         const session = this.store.getSessionById(runwieldSessionId);
-        if (!session || (options.projectId && session.projectId !== options.projectId)) {
+        if (
+            !session || (options.projectId && !sessionBelongsToOwnerProject(this.store, session, options.projectId))
+        ) {
             throw new Error("Session not found.");
         }
-        const inspected = this.store.inspectSessionActivation(runwieldSessionId);
+        let inspected = this.store.inspectSessionActivation(runwieldSessionId);
+        if (
+            !inspected.generation &&
+            ["uninitialized", "uncertain", "reconcile_required"].includes(inspected.activation?.state || "")
+        ) {
+            await this.runtime.ensureInitialSessionGeneration(runwieldSessionId);
+            inspected = this.store.inspectSessionActivation(runwieldSessionId);
+        }
         const state = inspected.activation?.state || "uninitialized";
         const activeSurface = state === "active" ? inspected.activation?.ownerProcessKind || null : null;
-        const controlRenewing = state === "active" && inspected.activation?.heartbeatDeadlineAt
-            ? Date.parse(inspected.activation.heartbeatDeadlineAt) > Date.now()
-            : false;
-        const forceAvailableAt = inspected.activation?.heartbeatDeadlineAt || null;
         if (!inspected.generation) {
             return {
                 state,
                 activeSurface,
-                controlRenewing,
-                forceAvailableAt,
                 recoveryCategory: state,
                 bootstrapRequired: true,
                 generation: null,
@@ -148,8 +157,6 @@ export class WorkspaceSessionContinuationService {
         return {
             state: state || "idle",
             activeSurface,
-            controlRenewing,
-            forceAvailableAt,
             recoveryCategory: state || "idle",
             bootstrapRequired: false,
             ...browserTimelineProjection(projection),
@@ -160,9 +167,10 @@ export class WorkspaceSessionContinuationService {
      * @param {{ deviceId?: string | null, projectId: string, runwieldSessionId: string, requestId: string }} options
      */
     async bootstrap(options) {
-        this.store.requireActivationProtocolEnabled();
         const session = this.store.getSessionById(options.runwieldSessionId);
-        if (!session || session.projectId !== options.projectId) throw new Error("Session not found.");
+        if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {
+            throw new Error("Session not found.");
+        }
         const receipt = requireReceipt(this.store.createOrGetOperationReceipt({
             deviceId: options.deviceId || null,
             requestId: options.requestId,
@@ -179,6 +187,15 @@ export class WorkspaceSessionContinuationService {
                 generation: existing.generation.generation,
                 status: "completed",
             };
+        }
+        if (["uncertain", "reconcile_required"].includes(existing.activation?.state || "")) {
+            const recovered = await this.runtime.ensureInitialSessionGeneration(options.runwieldSessionId);
+            const generation = recovered.generation?.generation ?? 0;
+            this.store.updateOperationReceipt(receipt.operationId, {
+                status: "completed",
+                resultGeneration: generation,
+            });
+            return { operationId: receipt.operationId, generation, status: "completed" };
         }
         const proof = this.store.acquireSessionActivation({
             runwieldSessionId: options.runwieldSessionId,
@@ -291,7 +308,6 @@ export class WorkspaceSessionContinuationService {
                 generation: operation?.generation ?? null,
             };
         }
-        this.store.requireActivationProtocolEnabled();
         const operationId = crypto.randomUUID();
         this.createRequests.set(createKey, { requestHash, operationId });
         this.operations.set(operationId, {
@@ -307,7 +323,6 @@ export class WorkspaceSessionContinuationService {
                 const created = await this.runtime.createInteractiveSession({
                     cwd: project.currentRoot,
                     mode: "new",
-                    enableManagedActivation: true,
                     deferManagedActivationUntilAgentReady: true,
                 });
                 sessionId = created.sessionId;
@@ -369,12 +384,13 @@ export class WorkspaceSessionContinuationService {
                 generation: existingReceipt.resultGeneration,
             };
         }
-        this.store.requireActivationProtocolEnabled();
         const session = this.store.getSessionById(options.runwieldSessionId);
-        if (!session || session.projectId !== options.projectId) throw new Error("Session not found.");
+        if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {
+            throw new Error("Session not found.");
+        }
         const inspected = this.store.inspectSessionActivation(options.runwieldSessionId);
         if (inspected.activation?.state !== "idle") {
-            throw new Error("Continuation requires an idle managed Session.");
+            throw new Error("This Session is still busy. Wait for it to finish, then try again.");
         }
         if (!inspected.generation || inspected.generation.generation !== options.expectedGeneration) {
             throw new Error("Continuation requires the exact committed generation.");
@@ -500,11 +516,14 @@ export class WorkspaceSessionContinuationService {
      * @param {{ projectId: string, runwieldSessionId: string, expectedGeneration: number, expectedCurrentSegmentId?: string | null }} options
      */
     async forceRecoverSessionControl(options) {
-        this.store.requireActivationProtocolEnabled();
         const session = this.store.getSessionById(options.runwieldSessionId);
-        if (!session || session.projectId !== options.projectId) throw new Error("Session not found.");
+        if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {
+            throw new Error("Session not found.");
+        }
         const inspected = this.store.inspectSessionActivation(options.runwieldSessionId);
-        if (!inspected.generation) throw new Error("Committed generation is required before recovery.");
+        if (!inspected.generation) {
+            return await this.runtime.ensureInitialSessionGeneration(options.runwieldSessionId);
+        }
         const projection = await projectAggregateTranscript({
             cwd: session.transcriptCwd,
             sessionDir: getRunWieldSessionDir(session.transcriptCwd),
@@ -522,7 +541,7 @@ export class WorkspaceSessionContinuationService {
             transcriptCwd: currentSegment.transcriptCwd,
             committedGeneration: inspected.generation,
         });
-        return this.store.recoverExpiredSessionControl({
+        return this.store.recoverSessionControl({
             runwieldSessionId: options.runwieldSessionId,
             projectId: options.projectId,
             expectedFence: inspected.activation?.fence ?? 0,
@@ -539,7 +558,9 @@ export class WorkspaceSessionContinuationService {
      */
     async startPlanExecutionHandoff(options) {
         const session = this.store.getSessionById(options.runwieldSessionId);
-        if (!session || session.projectId !== options.projectId) throw new Error("Session not found.");
+        if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {
+            throw new Error("Session not found.");
+        }
         const inspected = this.store.inspectSessionActivation(options.runwieldSessionId);
         if (!inspected.generation || inspected.generation.generation !== options.expectedGeneration) {
             throw new Error("Plan execution requires the exact committed generation.");

@@ -4,8 +4,7 @@ export type SessionRuntimeMethodPolicy =
     | "initializer_adopter"
     | "fenced_standalone_mutation"
     | "nested_only_mutation"
-    | "cancellation_cleanup"
-    | "unmanaged_only_compatibility";
+    | "cancellation_cleanup";
 
 export const SESSION_RUNTIME_METHOD_POLICY = {
     adoptManagedSession: "initializer_adopter",
@@ -45,14 +44,15 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     persistSessionImage: "fenced_standalone_mutation",
     preflightSessionImages: "read_only",
     promptManagedSession: "nested_only_mutation",
-    promptSession: "unmanaged_only_compatibility",
+    promptSession: "fenced_standalone_mutation",
     promptUserTurn: "fenced_standalone_mutation",
     queueNextTurnMessage: "fenced_standalone_mutation",
+    ensureInitialSessionGeneration: "fenced_standalone_mutation",
     reconfigureSessionModel: "fenced_standalone_mutation",
     reloadSession: "fenced_standalone_mutation",
     renameSession: "fenced_standalone_mutation",
     replaySession: "projection_adapter_local",
-    requestInteraction: "projection_adapter_local",
+    requestInteraction: "fenced_standalone_mutation",
     requestSessionHelp: "read_only",
     rollManagedSessionSegment: "fenced_standalone_mutation",
     runIsolatedAgent: "nested_only_mutation",

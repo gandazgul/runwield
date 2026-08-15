@@ -68,7 +68,7 @@ Deno.test("HostedSession stores mutable root runtime state per session", () => {
     session.setProjectStateContext("project note");
     session.setActiveExecutionWorkflow({
         planName: "plan-a",
-        triageMeta: { intent: "FEATURE" },
+        triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
         executionCwd: "/exec/a",
     });
@@ -87,7 +87,7 @@ Deno.test("HostedSession stores mutable root runtime state per session", () => {
     assertEquals(session.getProjectStateContext(), "project note");
     assertEquals(session.getActiveExecutionWorkflow(), {
         planName: "plan-a",
-        triageMeta: { intent: "FEATURE" },
+        triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
         executionCwd: "/exec/a",
     });
@@ -195,8 +195,15 @@ Deno.test("HostedSession dehydrates managed sessions by clearing live activation
     assertEquals(session.getActiveAgentName(), "");
     assertEquals(session.getActiveModelState(), { model: "", provider: "" });
     assertEquals(session.getThinkingLevel(), "off");
-    assertEquals(session.getWorkflowContext(), null);
-    assertEquals(session.getActiveExecutionWorkflow(), null);
+    assertEquals(session.getWorkflowContext(), {
+        routingIntent: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+    });
+    assertEquals(session.getActiveExecutionWorkflow(), {
+        planName: "managed-dehydrate-plan",
+        triageMeta: {},
+        executionAgent: "engineer",
+    });
     assertEquals(session.getManagedMetadata()?.activeAgent, "router");
 });
 
@@ -679,9 +686,7 @@ function makeManagedCapability() {
             expectedGeneration: 0,
         },
         settled: false,
-        heartbeatFailureReason: null,
         updateProof: () => {},
-        latchHeartbeatFailure: () => {},
         assertLive: () => {},
         settle: () => {},
     };

@@ -9,6 +9,7 @@ import { parseArgs } from "@std/cli/parse-args";
 import { AGENTS, CLI_BIN } from "../../constants.js";
 import {
     archivePlan,
+    ensurePlanIdentity,
     listPlans,
     loadPlan,
     onboardExternalPlan,
@@ -63,6 +64,7 @@ import {
     recordPlanEvent,
 } from "../../shared/workflow/plan-lifecycle.js";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../../shared/workflow/plan-approval.js";
+import { loadPlanActionEvidence } from "../../shared/workflow/plan-actions.ts";
 import {
     appendSessionCompleteGuidance,
     requestRecoverablePlanReview,
@@ -166,7 +168,17 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
     const runtime = sessionRuntime;
     const activeSessionId = runtimeSessionId;
     const session = createPlanSessionSurface(runtime, activeSessionId, {
-        executePlan: (options) => runtime.executePlan(activeSessionId, options),
+        executePlan: async (options) => {
+            const planId = typeof options.triageMeta?.planId === "string" ? options.triageMeta.planId : "";
+            const evidence = planId ? await loadPlanActionEvidence(projectRoot, planId) : null;
+            if (evidence?.kind !== "success") {
+                console.error("[RunWield] plan_execution_evidence_unavailable", evidence?.kind || "missing_plan_id");
+            }
+            return await runtime.executePlan(activeSessionId, {
+                ...options,
+                ...(evidence?.kind === "success" ? { approvalEvidence: evidence.evidence } : {}),
+            });
+        },
         runPlanningAgent: (options) => runtime.runPlanningAgent(activeSessionId, options),
         runValidation: (options) => runtime.runValidation(activeSessionId, options),
         runSlicerAgent: (options) => runtime.runSlicerAgent(activeSessionId, options),
@@ -238,6 +250,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 plan.attrs = adopted.resource.attrs;
                 plan.markdown = adopted.resource.markdown;
                 plan.body = adopted.resource.body;
+                plan.revision = adopted.resource.revision;
                 uiAPI.appendSystemMessage(
                     `Adopted ${plan.planName} as a RunWield Plan: added front matter (status draft, external origin) ` +
                         "and left your text untouched.",
@@ -245,6 +258,13 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                     "RunWield",
                 );
             }
+        }
+        if (!plan.attrs.planId) {
+            const identified = await ensurePlanIdentity(projectRoot, plan.planName);
+            plan.attrs = identified.attrs;
+            plan.markdown = identified.markdown;
+            plan.body = identified.body;
+            plan.revision = identified.revision;
         }
         uiAPI.appendSystemMessage(`Plan loaded: ${plan.planName}`, false, "RunWield");
         uiAPI.appendSystemMessage(
@@ -255,7 +275,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
 
         // Set terminal title and session name to the plan's name
         setTerminalTitleForName(plan.planName);
-        session.rename(plan.planName);
+        await session.rename(plan.planName);
 
         const triageMeta = plan.attrs;
         const agentName = triageMeta.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
@@ -554,7 +574,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                     // The reviewer's transaction may have abandoned the execution
                     // generation this session was still pointing at.
                     if (!isPlanReviewableWithoutReopen(plan.attrs.status)) {
-                        session.clearActiveExecutionWorkflow();
+                        await session.clearActiveExecutionWorkflow();
                     }
 
                     if (reviewResult.approved) {

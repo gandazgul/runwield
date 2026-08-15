@@ -258,6 +258,7 @@ function parseContinuation(payload: JsonValue):
 function hasLaterTurnEntry(entries: PendingSegmentMarker["entries"], markerIndex: number): boolean {
     for (let index = markerIndex + 1; index < entries.length; index += 1) {
         const entry = entries[index];
+        if (entry.type === "message") return true;
         if (entry.type === "user" || entry.type === "assistant" || entry.type === "tool_result") return true;
         if (entry.role === "user" || entry.role === "assistant" || entry.role === "tool") return true;
     }

@@ -256,6 +256,7 @@ Deno.test("ACP session/load replays a real persisted Session and accepts another
                     message.method === "session/update" &&
                     message.params?.update?.sessionUpdate === "user_message_chunk"
                 ),
+                JSON.stringify(loaded.messages),
             );
             assert(
                 loaded.messages.some((message) =>

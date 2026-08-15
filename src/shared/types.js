@@ -4,6 +4,42 @@
  */
 
 /**
+ * @typedef {Object} ActiveExecutionWorkflow
+ * @property {string} planName
+ * @property {import('../tools/plan-written.ts').TriageMeta} triageMeta
+ * @property {"engineer"|"frontend-engineer"} executionAgent
+ * @property {boolean} [executionStarted]
+ * @property {number} [executionAttemptStartedAtMs]
+ * @property {"autonomous"|"pair"} [collaborationStyle]
+ * @property {"autonomous"|"pair"} [collaborationRecommendation]
+ * @property {number} [pairCheckpointCount]
+ * @property {boolean} [pairSwitchedToAutonomous]
+ * @property {boolean} [pairCapabilityLost]
+ * @property {"stop"|"canceled"} [pairPauseReason]
+ * @property {boolean} [pairStopRequested]
+ * @property {"worktree"|"non_git_in_place"} [executionMode]
+ * @property {string} [baselineTree]
+ * @property {string} [projectRoot]
+ * @property {string} [executionCwd]
+ * @property {string} [worktreeId]
+ * @property {string} [worktreeBranch]
+ * @property {string} [worktreeBaseBranch]
+ * @property {string} [worktreeBaseRef]
+ * @property {string} [worktreeBaseCommit]
+ * @property {boolean} [nonGitInPlace]
+ * @property {boolean} [validationContinuation]
+ * @property {string} [validationGeneration]
+ * @property {string} [validationRepairGeneration]
+ * @property {string} [manualQaName]
+ * @property {string} [manualQaContext]
+ * @property {number} [semanticRound]
+ * @property {import('./workflow/review-ledger.ts').ReviewLedger} [reviewLedger]
+ * @property {string} [repairBaselineTree]
+ * @property {string} [lastRepairReport]
+ * @property {number} [humanReviewCycle]
+ */
+
+/**
  * @typedef {Object} ProjectContext
  * @property {string} projectRoot - Absolute root used for project-local configuration and persistence.
  */
@@ -95,6 +131,7 @@
  * @property {string | null} [parentSegmentId]
  * @property {string | null} [parentPiSessionId]
  * @property {string | null} [lineageGroupKey]
+ * @property {'planning' | 'execution' | 'semantic_repair'} [kind]
  */
 
 /**

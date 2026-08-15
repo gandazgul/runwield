@@ -1,6 +1,6 @@
 /** Owner Workspace backend Plan action service. */
 
-import { requireOwnerProjectRoot } from "./owner-projects.js";
+import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
 import {
     executePlanAction,
     type PlanActionRequest,
@@ -25,8 +25,8 @@ export type OwnerPlanActionHttpResult = {
 };
 
 type OwnerCoordinationStore = {
-    requireActivationProtocolEnabled: () => void;
-    getSessionById: (runwieldSessionId: string) => { projectId: string } | null;
+    getSessionById: (runwieldSessionId: string) => { projectId: string; transcriptCwd: string } | null;
+    getProjectById: (projectId: string) => { currentRoot: string } | null;
     inspectSessionActivation: (
         runwieldSessionId: string,
     ) => {
@@ -104,9 +104,8 @@ export async function runOwnerPlanAction(
     store: OwnerCoordinationStore,
     request: OwnerPlanActionServiceRequest,
 ): Promise<OwnerPlanActionHttpResult> {
-    store.requireActivationProtocolEnabled();
     const session = store.getSessionById(request.runwieldSessionId);
-    if (!session || session.projectId !== request.projectId) {
+    if (!session || !sessionBelongsToOwnerProject(store, session, request.projectId)) {
         return { status: 404, body: { result: { kind: "invalid_action", message: "Session not found for Project." } } };
     }
     const root = requireOwnerProjectRoot(store, request.projectId);

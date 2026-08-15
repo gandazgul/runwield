@@ -21,7 +21,7 @@ function hostedSessionManager(sessionManager: SessionManager): HostedSessionMana
     return sessionManager as HostedSessionManager;
 }
 
-function executionWorkflow(planName: string) {
+function executionWorkflow(planName: string): import("../types.js").ActiveExecutionWorkflow {
     return {
         planName,
         triageMeta: { classification: "PLANNED_CHANGE" },

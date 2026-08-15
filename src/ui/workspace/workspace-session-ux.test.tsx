@@ -17,29 +17,15 @@ Deno.test("Session surface preserves drafts and replaces a lost live wait with o
     assertEquals(interrupted[0]?.text, "The agent was interrupted. Ask it to continue.");
 });
 
-Deno.test("Session availability exposes Take control only after the owner stops renewing", () => {
-    const future = new Date(Date.now() + 60_000).toISOString();
-    const past = new Date(Date.now() - 60_000).toISOString();
+Deno.test("file-locked Sessions wait for the active surface without offering takeover", () => {
+    const availability = deriveSessionAvailability({
+        state: "active",
+        activeSurface: "tui",
+        generation: 0,
+    });
+    assertEquals(availability.key, "active");
     assertEquals(
-        deriveSessionAvailability({
-            protocol: { enabled: true },
-            state: "active",
-            activeSurface: "tui",
-            generation: 0,
-            forceAvailableAt: future,
-            controlRenewing: true,
-        }).canForceRecover,
-        false,
-    );
-    assertEquals(
-        deriveSessionAvailability({
-            protocol: { enabled: true },
-            state: "active",
-            activeSurface: "tui",
-            generation: 0,
-            forceAvailableAt: past,
-            controlRenewing: false,
-        }).canForceRecover,
-        true,
+        availability.explanation,
+        "Another RunWield surface is using this Session. It becomes available when that surface stops.",
     );
 });

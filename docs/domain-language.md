@@ -48,8 +48,9 @@ _Avoid_: Agent Control Protocol, Agent Communication Protocol
 clients. _Avoid_: TUI backend, daemon, adapter
 
 **Session**: A durable user-facing conversation and workflow thread within one Project. A Session has its own history
-and Session Name, persists across Agent handoffs, and may contain multiple Agent Sessions. _Avoid_: Agent Session,
-HostedSession, Task, Work Item
+and Session Name, persists across Agent handoffs, contains one or more ordered Session Transcript Segments, and may
+contain multiple Agent Sessions. RunWield catalogs every local Session automatically; Workspace Project registration is
+a separate access decision. _Avoid_: Managed Session, unmanaged Session, Agent Session, HostedSession, Task, Work Item
 
 **Session Transcript**: The private raw message and event history of one Session. Its owner may resume or search it, but
 it is not shared project knowledge or a source for cross-Session Agent retrieval. Pi persists completed tool calls and
@@ -64,24 +65,27 @@ transfer Session Transcript, workflow, lifecycle, or replay authority away from 
 model-history context while remaining part of the Session's continuous user-visible history. _Avoid_: Sub-session, new
 Session, Agent Session, JSONL file
 
-**Session Transcript Segment Rollover**: The fenced mutation that seals the current Session Transcript Segment, creates
+**Session Transcript Segment Rollover**: The locked mutation that seals the current Session Transcript Segment, creates
 its successor, moves the activation segment pointer, and publishes the successor's committed generation indivisibly. No
 Aggregate Transcript Projection should observe a successor segment that no committed generation names. _Avoid_: Segment
 switch, transcript swap, context reset
 
-**Orphan Rollover Candidate**: A successor transcript file that carries Session Transcript Segment lineage but has no
-owner-coordination segment row because the process stopped before the rollover transaction committed. It is invisible to
-readers and discardable only while it contains no entries beyond its header, lineage marker, and continuation marker.
-_Avoid_: Partial segment, dangling Session, recovery segment
+**Orphan Rollover Candidate**: A successor transcript file that carries Session Transcript Segment lineage but is not in
+the committed Session manifest because the process stopped before rollover committed. It is invisible to readers and
+discardable only while it contains no entries beyond its header, lineage marker, and continuation marker. _Avoid_:
+Partial segment, dangling Session, recovery segment
+
+**Session Writer Lock**: The exclusive operating-system file lock that permits one RunWield process to mutate a Session.
+It is released by the operating system when that process exits. _Avoid_: Session lease, heartbeat takeover, database
+lock
 
 **Session Control**: The right of one attached client to submit user messages or answer process-local pending
 interactions for a live Session; observation does not require control. Session Control is not mutation authority without
-Session Activation. _Avoid_: Plan ownership, Session ownership, Agent ownership
+the Session Writer Lock. _Avoid_: Plan ownership, Session ownership, Agent ownership
 
-**Forced Session Control Recovery**: An explicit owner action after a Session Activation heartbeat deadline. It
-validates ordered transcript evidence, fences the old owner, and returns a valid exact or transcript-ahead Session to
-idle. It does not replay a request or prove that external side effects stopped. _Avoid_: Automatic takeover, lease
-steal, replay recovery
+**Session Manifest**: The atomic JSON record beside a Session's Pi transcripts that stores stable identity, ordered
+segments, committed generation evidence, and current writer state. Transcript-adjacent recovery descriptors and Pi
+lineage can rebuild it without a Workspace database. _Avoid_: Session database, Workspace catalog authority
 
 **Terminal Title**: The terminal emulator window or tab label RunWield sets for an interactive TUI session. _Avoid_: Tab
 name, shell title
@@ -238,8 +242,8 @@ _Avoid_: Phase, stage
 update
 
 **Plan Action Evidence Check**: The action-time reload of canonical Plan status, Plan revision, and worktree registry
-evidence before a consequential Plan action runs under Session Activation. _Avoid_: Plan ownership, durable Plan lock,
-separate ownership record
+evidence before a consequential Plan action runs under the Session Writer Lock. _Avoid_: Plan ownership, durable Plan
+lock, separate ownership record
 
 **Approved Plan**: A Plan whose Review Loop ended in user approval but whose pre-execution preparation may still be
 unfinished. _Avoid_: Ready plan, executable plan
@@ -644,7 +648,7 @@ continuation, database interaction record
 - A **Plan Event** is the only input that asks the **Plan Lifecycle** to change **Plan Status**.
 - A **Plan Action Evidence Check** reloads canonical **Plan Status**, Plan revision, and worktree evidence before any
   consequential Plan action mutates lifecycle or worktree state.
-- **Session Control** may let a client submit an answer, but **Session Activation** is required before the owning
+- **Session Control** may let a client submit an answer, but the **Session Writer Lock** is required before the owning
   process mutates Session history.
 - An **Approved Plan** passes through the **Readiness Gate** before becoming **Ready For Work**.
 - **Approve & Run** authorizes the current Session to continue after readiness; **Approve for Later** stops at Ready For
@@ -681,7 +685,7 @@ continuation, database interaction record
   user-visible history.
 - A root Agent Session receives model history from only the active Session Transcript Segment.
 - A live Session may have multiple observers, one holder of **Session Control**, and only one active mutation owner
-  under **Session Activation**.
+  holding the **Session Writer Lock**.
 - A Session Transcript is private to its owner and excluded from **Project Knowledge Search** and **Workspace
   Intelligence Search**.
 - A fresh Session receives prior conclusions through explicitly referenced durable artifacts, not another Session's

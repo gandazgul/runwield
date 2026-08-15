@@ -11,6 +11,13 @@ export const SEGMENT_LINEAGE_CUSTOM_TYPE = "runwield.segment_lineage";
 export const PENDING_SEGMENT_CONTINUATION_CUSTOM_TYPE = "runwield.pending_segment_continuation";
 
 /**
+ * @typedef {Object} LineageSessionManager
+ * @property {(customType: string, data: import('../types.js').SessionSegmentLineageEvidence) => string | void} [appendCustomEntry]
+ * @property {() => unknown[]} [getBranch]
+ * @property {() => unknown[]} [getEntries]
+ */
+
+/**
  * @typedef {Object} WorkflowContext
  * @property {string} [routingIntent]
  * @property {string} [complexity]
@@ -103,7 +110,20 @@ export function recordWorkflowPlanName(sessionManager, planName) {
 }
 
 /**
- * @param {{ planName?: unknown, triageMeta?: Record<string, unknown> | null } | null | undefined} workflow
+ * @typedef {Object} WorkflowContextTriageMeta
+ * @property {string} [routingIntent]
+ * @property {string} [classification]
+ * @property {string} [complexity]
+ */
+
+/**
+ * @typedef {Object} WorkflowContextInput
+ * @property {string | null} [planName]
+ * @property {WorkflowContextTriageMeta | null} [triageMeta]
+ */
+
+/**
+ * @param {WorkflowContextInput | null | undefined} workflow
  * @param {unknown} [planName]
  * @returns {WorkflowContext | null}
  */
@@ -181,7 +201,7 @@ function recordWorkflowContext(sessionManager, context) {
  * @returns {boolean}
  */
 /**
- * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} sessionManager
+ * @param {LineageSessionManager | undefined | null} sessionManager
  * @param {import('../types.js').SessionSegmentLineageEvidence} lineage
  * @returns {import('../types.js').SessionSegmentLineageEvidence | null}
  */
@@ -190,6 +210,15 @@ export function recordSegmentLineageEvidence(sessionManager, lineage) {
     if (!normalized) return readPersistedSegmentLineageEvidence(sessionManager);
     if (!sessionManager?.appendCustomEntry) return normalized;
     try {
+        const existing = readPersistedSegmentLineageEvidence(sessionManager);
+        if (
+            existing?.segmentId === normalized.segmentId &&
+            existing.runwieldSessionId === normalized.runwieldSessionId &&
+            existing.parentSegmentId === normalized.parentSegmentId &&
+            existing.parentPiSessionId === normalized.parentPiSessionId &&
+            existing.lineageGroupKey === normalized.lineageGroupKey &&
+            existing.kind === normalized.kind
+        ) return existing;
         sessionManager.appendCustomEntry(SEGMENT_LINEAGE_CUSTOM_TYPE, normalized);
     } catch (_e) {
         return normalized;
@@ -198,7 +227,7 @@ export function recordSegmentLineageEvidence(sessionManager, lineage) {
 }
 
 /**
- * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} sessionManager
+ * @param {LineageSessionManager | undefined | null} sessionManager
  * @returns {import('../types.js').SessionSegmentLineageEvidence | null}
  */
 export function readPersistedSegmentLineageEvidence(sessionManager) {
@@ -284,6 +313,9 @@ export function normalizeSegmentLineageEvidence(lineage) {
         lineageGroupKey: typeof lineage.lineageGroupKey === "string" && lineage.lineageGroupKey.trim()
             ? lineage.lineageGroupKey.trim()
             : null,
+        kind: typeof lineage.kind === "string" && ["planning", "execution", "semantic_repair"].includes(lineage.kind)
+            ? lineage.kind
+            : undefined,
     };
 }
 
@@ -299,7 +331,7 @@ export function workflowContextsEqual(left, right) {
 }
 
 /**
- * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} sessionManager
+ * @param {LineageSessionManager | undefined | null} sessionManager
  * @returns {unknown[]}
  */
 function getSessionEntries(sessionManager) {

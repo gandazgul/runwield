@@ -156,7 +156,7 @@ Deno.test("agent handler replays accepted task_completed after HostedSession rep
         });
         original.setActiveExecutionWorkflow({
             planName: "durable-operation",
-            triageMeta: { classification: "OPERATION" },
+            triageMeta: {},
             executionAgent: "engineer",
             executionStarted: true,
             executionAttemptStartedAtMs: 1234,

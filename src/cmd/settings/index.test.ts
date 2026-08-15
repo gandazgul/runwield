@@ -299,7 +299,7 @@ Deno.test("runSettingsCommand applies a selected model preset to the active Sess
                 "Agent context reloaded with the new model preset.",
             ]);
             assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
-                model: "runtime-command-fixture/fixture-model",
+                model: "fixture-model",
                 provider: "runtime-command-fixture",
             });
         } finally {

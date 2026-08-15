@@ -31,45 +31,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @typedef {"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"} ThinkingLevel
  */
 
-/**
- * @typedef {Object} ActiveExecutionWorkflow
- * @property {string} planName
- * @property {any} triageMeta
- * @property {"engineer"|"frontend-engineer"} executionAgent
- * @property {boolean} [executionStarted]
- * @property {number} [executionAttemptStartedAtMs]
- * @property {"autonomous"|"pair"} [collaborationStyle]
- * @property {"autonomous"|"pair"} [collaborationRecommendation]
- * @property {number} [pairCheckpointCount]
- * @property {boolean} [pairSwitchedToAutonomous]
- * @property {boolean} [pairCapabilityLost]
- * @property {"stop"|"canceled"} [pairPauseReason]
- * @property {boolean} [pairStopRequested]
- * @property {"worktree"|"non_git_in_place"} [executionMode]
- * @property {string} [baselineTree]
- * @property {string} [projectRoot]
- * @property {string} [executionCwd]
- * @property {string} [worktreeId]
- * @property {string} [worktreeBranch]
- * @property {string} [worktreeBaseBranch]
- * @property {string} [worktreeBaseRef]
- * @property {string} [worktreeBaseCommit]
- * @property {boolean} [nonGitInPlace]
- * @property {boolean} [validationContinuation]
- * @property {string} [validationGeneration] - Durable validation owner generation for consume-once repair completion.
- * @property {string} [validationRepairGeneration] - Durable consume-once identity for the current semantic repair.
- * @property {string} [manualQaName]
- * @property {string} [manualQaContext]
- * @property {number} [semanticRound] - Absolute semantic review round. Carried here rather than in a
- *   `runValidationLoop` local because validation exits on every pause and is re-entered from scratch.
- * @property {import('../workflow/review-ledger.ts').ReviewLedger} [reviewLedger]
- * @property {string} [repairBaselineTree] - Worktree tree captured before the current repair dispatch,
- *   used to compute the repair-scoped diff for the next verification round.
- * @property {string} [lastRepairReport] - The repair agent's per-item disposition report, verified by the next round.
- * @property {number} [humanReviewCycle] - How many times human code review has returned feedback. Display and metrics
- *   only: the human review loop is uncapped and ends only on approval or exit. A non-zero value also means the change
- *   is already in the human's hands, so a resumed validation must not restart automatic semantic rounds.
- */
+/** @typedef {import('../types.js').ActiveExecutionWorkflow} ActiveExecutionWorkflow */
 
 /**
  * @typedef {Object} DisposableLike
@@ -88,6 +50,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {() => string} [getCwd]
  * @property {() => string | undefined} [getSessionName]
  * @property {(name: string) => void} [appendSessionInfo]
+ * @property {(level: ThinkingLevel) => void} [appendThinkingLevelChange]
  * @property {() => unknown[]} [getBranch]
  * @property {() => unknown[]} [getEntries]
  * @property {(message: unknown) => string} [appendMessage]
@@ -406,7 +369,7 @@ export class HostedSession {
     /** @param {{ piSessionId: string, transcriptPath: string, currentSegmentId: string, sessionManager: MinimalSessionManagerLike }} segment */
     replaceManagedTranscriptSegment(segment) {
         this.assertActive();
-        if (!this.managed) throw new Error("Managed Session metadata is absent");
+        if (!this.managed) throw new Error("Session metadata is unavailable");
         disposeIfPresent(this.rootSessionManager);
         this.rootSessionManager = segment.sessionManager;
         this.managed = {
@@ -457,9 +420,6 @@ export class HostedSession {
         this.subAgentSessions.clear();
         this.delegatedReaderCount = 0;
         this.delegatedWriterActive = false;
-        this.workflowContext = null;
-        this.activeExecutionWorkflow = null;
-        this.pendingTaskCompletion = null;
         this.activeTurnId = null;
         this.steeringTargetStack = [];
         this.managedOperationCapability = null;
@@ -741,7 +701,7 @@ export class HostedSession {
         }
     }
 
-    /** @param {{ planName?: unknown, triageMeta?: Record<string, unknown> | null }} details */
+    /** @param {import('./workflow-context-session.js').WorkflowContextInput} details */
     setWorkflowExecutionContext(details) {
         if (this.disposed) return;
         const nextContext = deriveWorkflowContextFromExecutionWorkflow(details);

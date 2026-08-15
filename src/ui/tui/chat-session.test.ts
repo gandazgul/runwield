@@ -74,7 +74,7 @@ Deno.test("getActiveModel reads the real Runtime snapshot", async () => {
         const runtime = createSessionRuntime();
         try {
             const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
-            runtime.setSessionModel(sessionId, "model-a", "provider-a");
+            await runtime.setSessionModel(sessionId, "model-a", "provider-a");
             assertEquals(getActiveModel(runtime, sessionId), "model-a");
         } finally {
             runtime.closeAllSessions();
@@ -118,7 +118,6 @@ Deno.test("chat session starts in a Project registered by Workspace", async () =
         const terminal = new VirtualTerminal({ columns: 100, rows: 30 });
         const readySessions: string[] = [];
         try {
-            store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
             store.registerProject({ root: projectRoot, now: () => "2026-01-01T00:00:01.000Z" });
             Deno.chdir(projectRoot);
             const composition = await createInteractiveTuiComposition(null, {
@@ -147,8 +146,8 @@ Deno.test("chat session starts in a Project registered by Workspace", async () =
 });
 
 Deno.test("submit handoff loop invokes one Runtime prompt by opaque id", async () => {
-    const runtime = createSessionRuntime();
     await withRuntimeCommandFixture("chat-session-handoff-", async ({ projectRoot }) => {
+        const runtime = createSessionRuntime();
         try {
             const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
             const calls: string[] = [];

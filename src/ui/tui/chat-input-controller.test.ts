@@ -55,13 +55,14 @@ async function startComposition(
     return { composition, terminal };
 }
 
-async function seedActiveElsewhereManagedSession(projectRoot: string): Promise<void> {
+async function seedActiveElsewhereManagedSession(
+    projectRoot: string,
+): Promise<ReturnType<typeof openOwnerCoordinationStore>> {
     const store = openOwnerCoordinationStore();
     try {
-        store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
         store.registerProject({ root: projectRoot, now: () => "2026-01-01T00:00:01.000Z" });
         const runtime = createSessionRuntime({
-            ownerCoordinationStore: store,
+            sessionStore: store,
             ownerProcessKind: "test",
             ownerInstanceId: "chat-input-managed-seed",
         });
@@ -69,7 +70,6 @@ async function seedActiveElsewhereManagedSession(projectRoot: string): Promise<v
             const created = await runtime.createInteractiveSession({
                 cwd: projectRoot,
                 mode: "new",
-                enableManagedActivation: true,
             });
             await runtime.switchAgent(created.sessionId, { agentName: "operator" });
             const managed = runtime.getSessionSnapshot(created.sessionId)?.managed;
@@ -85,8 +85,10 @@ async function seedActiveElsewhereManagedSession(projectRoot: string): Promise<v
         } finally {
             await runtime.closeAllSessionsWhenIdle?.();
         }
-    } finally {
+        return store;
+    } catch (error) {
         store.close();
+        throw error;
     }
 }
 
@@ -273,15 +275,15 @@ Deno.test("chat input controller preserves input while model setup blocks throug
     }, { providerState: "provider-no-model" });
 });
 
-Deno.test("chat input controller preserves input while managed-session state blocks through the composed TUI", async () => {
+Deno.test("chat input controller preserves input while another surface is active", async () => {
     await withRuntimeCommandFixture("chat-input-real-managed-block-", async ({ alternateRoot }) => {
-        await seedActiveElsewhereManagedSession(alternateRoot);
+        const activeStore = await seedActiveElsewhereManagedSession(alternateRoot);
         const { composition, terminal } = await startComposition("continue");
         try {
             await composition.runtime.synchronizeManagedSession(composition.sessionId);
             assertEquals(
                 composition.runtime.getUserTurnSubmissionBlockMessage(composition.sessionId),
-                "This managed Session is active in workspace. Wait for it to finish before sending from this surface.",
+                "This Session is active in workspace. Wait for it to finish before sending from this surface.",
             );
             await submitText(terminal, "keep managed draft");
             await waitFor(() => terminal.getScreenText().includes("keep managed draft"), "typed managed draft");
@@ -290,6 +292,7 @@ Deno.test("chat input controller preserves input while managed-session state blo
             assertEquals(composition.runtime.getQueuedMessages(composition.sessionId).length, 0);
         } finally {
             await composition.dispose();
+            activeStore.close();
         }
     });
 });

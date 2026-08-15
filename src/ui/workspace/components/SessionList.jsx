@@ -28,13 +28,11 @@ export function SessionList({
     const sessions = Array.isArray(data?.sessions) ? [...data.sessions] : [];
     sessions.sort((a, b) => {
         const aa = deriveSessionAvailability({
-            protocol: data?.protocol,
             ...a,
             timelineComplete: true,
             snapshot: a.snapshot,
         });
         const bb = deriveSessionAvailability({
-            protocol: data?.protocol,
             ...b,
             timelineComplete: true,
             snapshot: b.snapshot,
@@ -103,14 +101,6 @@ export function SessionList({
     return (
         <section className="session-list-surface" aria-label="Project Sessions">
             {createForm}
-            {data?.protocol
-                ? (
-                    <p className="notice session-protocol-notice">
-                        Activation protocol:{" "}
-                        {data.protocol.enabled === false ? "disabled" : data.protocol.status || "enabled"}
-                    </p>
-                )
-                : null}
             {diagnostics.length
                 ? (
                     <details className="notice warning session-diagnostics">
@@ -122,7 +112,6 @@ export function SessionList({
             <div className="session-card-list">
                 {sessions.map((session) => {
                     const availability = deriveSessionAvailability({
-                        protocol: data?.protocol,
                         ...session,
                         timelineComplete: true,
                         snapshot: session.snapshot,

@@ -25,7 +25,7 @@ import {
     isEmptyProjectDirectory,
 } from "../../shared/project-state.js";
 import { listAvailableAgents } from "../../shared/session/agents.js";
-import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
+import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
 import { getSettingsManager, initSettings } from "../../shared/settings.js";
 import {
     isInitDone as isInitDoneFn,
@@ -129,8 +129,8 @@ export async function startInteractiveSession(
 ): Promise<UiAPI> {
     const chatBuiltinSlashNames = new Set<string>();
     for (const command of getSlashCommandDefinitions()) chatBuiltinSlashNames.add(command.name);
-    const ownerCoordinationStore = openOwnerCoordinationStore();
-    const sessionRuntime = createSessionRuntime({ ownerCoordinationStore, ownerProcessKind: "tui" });
+    const sessionStore = openFileSessionStore();
+    const sessionRuntime = createSessionRuntime({ sessionStore, ownerProcessKind: "tui" });
     const disposables: Array<() => void | Promise<void>> = [];
     let uiAPIForDispose: UiAPI | null = null;
     let lifecycleDisposed = false;
@@ -159,6 +159,11 @@ export async function startInteractiveSession(
             } catch (error) {
                 recordCleanupError(error instanceof Error ? error : new Error(String(error)));
             }
+            try {
+                sessionStore.close();
+            } catch (error) {
+                recordCleanupError(error instanceof Error ? error : new Error(String(error)));
+            }
             if (cleanupErrors.length > 0) {
                 throw new AggregateError(cleanupErrors, "Interactive TUI cleanup failed.");
             }
@@ -171,7 +176,6 @@ export async function startInteractiveSession(
         const createdSession = await sessionRuntime.createInteractiveSession({
             cwd: sessionCwd,
             mode: sessionStartMode,
-            adoptManagedActivation: true,
         });
         let sessionId = createdSession.sessionId;
         const runtimeSnapshot = () => getRuntimeSnapshot(sessionRuntime, sessionId);

@@ -11,7 +11,6 @@ const POLICY_VALUES = new Set([
     "fenced_standalone_mutation",
     "nested_only_mutation",
     "cancellation_cleanup",
-    "unmanaged_only_compatibility",
 ]);
 
 function publicMethodNames(prototype: typeof SessionRuntime.prototype): string[] {

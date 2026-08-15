@@ -98,7 +98,6 @@ Deno.test("workspace serve parser defaults to loopback and rejects unsafe non-lo
         publicOrigin: "http://127.0.0.1:8787",
         trustTlsTerminator: false,
         noOpen: false,
-        enableSessionActivation: false,
         help: false,
     });
     const safe = parseWorkspaceServeArgs([
@@ -144,7 +143,6 @@ Deno.test("workspace serve and pair complete the real browser pairing lifecycle"
             "--port",
             String(fixture.port),
             "--no-open",
-            "--enable-session-activation",
         ];
         const serverChild = new Deno.Command(Deno.execPath(), workspaceCommandOptions(fixture, serveArgs)).spawn();
         let serverOutput: Deno.CommandOutput | undefined;
@@ -202,11 +200,8 @@ Deno.test("workspace serve and pair complete the real browser pairing lifecycle"
         assertEquals([0, 130].includes(serverOutput.code), true);
         assertStringIncludes(decoder.decode(serverOutput.stdout), `[RunWield] Owner Workspace: ${fixture.origin}`);
         assertStringIncludes(decoder.decode(serverOutput.stdout), `[RunWield] Owner database: ${fixture.databasePath}`);
-        assertStringIncludes(decoder.decode(serverOutput.stderr), "Enabling Session Activation protocol");
-
         const store = openOwnerCoordinationStore({ dbPath: fixture.databasePath });
         try {
-            assertEquals(store.getActivationProtocolStatus().enabled, true);
             assertEquals(store.listDevices().length, 1);
         } finally {
             store.close();

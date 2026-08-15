@@ -37,7 +37,7 @@ export async function runNewCommand(argv: string[], options: NewCommandOptions =
         cwd: projectRoot,
         agentName: AGENTS.ROUTER,
     });
-    if (sessionName) options.sessionRuntime.renameSession(nextSessionId, sessionName);
+    if (sessionName) await options.sessionRuntime.renameSession(nextSessionId, sessionName);
     options.replaceRuntimeSession(nextSessionId);
     setTerminalTitleForName(sessionName || projectRoot);
     uiAPI.clearMessages?.();

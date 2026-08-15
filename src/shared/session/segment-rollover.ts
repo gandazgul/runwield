@@ -3,9 +3,8 @@
  * Transactional Session Transcript Segment Rollover orchestration.
  */
 
-import type { OwnerCoordinationStore } from "../owner-coordination/index.js";
 import type { ManagedSessionMetadata } from "./hosted-session.js";
-import { createRootSessionManager, openPersistedRootSession, resolveCreatedRootSessionPath } from "./root-session.js";
+import { createRootSessionManager, resolveCreatedRootSessionPath } from "./root-session.js";
 import { captureTranscriptEvidence, syncTranscriptFileAndParent } from "./session-transcript-projection.js";
 import { recordPendingSegmentContinuation, recordSegmentLineageEvidence } from "./workflow-context-session.js";
 
@@ -29,7 +28,7 @@ type HostedManagedSession = {
 
 type RollSessionTranscriptSegmentOptions = {
     hostedSession: HostedManagedSession;
-    ownerCoordinationStore: OwnerCoordinationStore;
+    ownerCoordinationStore: ReturnType<typeof import("./file-session-store.ts").openFileSessionStore>;
     ownerInstanceId: string;
     ownerProcessKind: "workspace" | "tui" | "acp" | "test";
     kind: RolloverKind;
@@ -70,10 +69,10 @@ export async function rollSessionTranscriptSegment(
     options: RollSessionTranscriptSegmentOptions,
 ): Promise<SegmentRolloverResult> {
     const managed = options.hostedSession.getManagedMetadata();
-    if (!managed) throw new Error("Managed Session metadata is required for segment rollover");
+    if (!managed) throw new Error("Session metadata is required for transcript rollover");
     const predecessor = options.ownerCoordinationStore.listSessionTranscriptSegments(managed.runwieldSessionId)
         .find((segment) => segment.segmentId === managed.currentSegmentId);
-    if (!predecessor) throw new Error("Managed Session current segment is absent");
+    if (!predecessor) throw new Error("The current Session transcript segment is unavailable");
 
     let proof = options.ownerCoordinationStore.acquireSessionActivation({
         runwieldSessionId: managed.runwieldSessionId,
@@ -109,6 +108,7 @@ export async function rollSessionTranscriptSegment(
             parentSegmentId: predecessor.segmentId,
             parentPiSessionId: predecessor.piSessionId,
             lineageGroupKey: options.lineageGroupKey ?? predecessor.lineageGroupKey ?? predecessor.segmentId,
+            kind: options.kind,
         });
         recordPendingSegmentContinuation(successorManager, options.continuation);
         await disposeManager(successorManager as { dispose?: () => void | Promise<void> });
@@ -151,21 +151,13 @@ export async function rollSessionTranscriptSegment(
             now: options.now,
         });
         const successor = committed.successor;
-        const { sessionManager: installedSuccessorManager } = await openPersistedRootSession({
-            cwd: options.hostedSession.cwd,
-            sessionId: successor.piSessionId,
-            sessionPath: successor.transcriptPath,
-        });
-        options.hostedSession.replaceManagedTranscriptSegment({
-            piSessionId: successor.piSessionId,
-            transcriptPath: successor.transcriptPath,
-            currentSegmentId: successor.segmentId,
-            sessionManager: installedSuccessorManager as { dispose?: () => void | Promise<void> },
-        });
         const nextManaged = options.hostedSession.getManagedMetadata();
         if (nextManaged) {
             options.hostedSession.setManagedMetadata({
                 ...nextManaged,
+                piSessionId: successor.piSessionId,
+                transcriptPath: successor.transcriptPath,
+                currentSegmentId: successor.segmentId,
                 generation,
                 acknowledgedGeneration: generation,
                 acknowledgedEventId: null,

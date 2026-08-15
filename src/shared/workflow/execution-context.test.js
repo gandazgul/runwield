@@ -215,7 +215,7 @@ Deno.test("resolveValidationExecutionContext recovers missing worktree metadata 
     }
 });
 
-Deno.test("resolveValidationExecutionContext prefers registry baseline over duplicated Plan metadata", async () => {
+Deno.test("resolveValidationExecutionContext repairs a saved baseline that hides completed code", async () => {
     const projectRoot = await baseRepo.checkout();
     const parent = await Deno.makeTempDir();
     try {
@@ -256,8 +256,10 @@ Deno.test("resolveValidationExecutionContext prefers registry baseline over dupl
         const result = await resolveValidationExecutionContext({ projectRoot, planName: "p" });
         assertEquals(result.kind, "ok");
         if (result.kind === "ok" && result.context.executionMode === "worktree") {
-            assertEquals(result.context.baselineTree, registryBaselineTree);
+            assertEquals(result.context.baselineTree, creationTree);
+            assertEquals(result.selfHealNotices, [{ kind: "review_range_fixed", planName: "p" }]);
         }
+        assertEquals((await findById(projectRoot, "wt-1"))?.executionBaselineTree, creationTree);
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(parent, { recursive: true }).catch(() => {});

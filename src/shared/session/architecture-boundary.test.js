@@ -122,6 +122,22 @@ Deno.test("TUI, ACP, and Workspace remain sibling Runtime consumers", async () =
     assertEquals(violations, []);
 });
 
+Deno.test("Core session surfaces do not open or import the Workspace database", async () => {
+    const violations = await findViolations(["src/ui/tui", "src/acp"], [
+        {
+            label: "Workspace database dependency",
+            pattern: /shared\/owner-coordination|openOwnerCoordination|owner-coordination\.sqlite3/,
+        },
+    ]);
+    const runtimeSource = await Deno.readTextFile(join(REPO_ROOT, "src/shared/session/session-runtime.js"));
+    const runtimeImportsWorkspaceStore = /from\s+["'][^"']*owner-coordination\/index\.js["']/.test(runtimeSource) ||
+        /openOwnerCoordinationStore\s*\(/.test(runtimeSource);
+    if (runtimeImportsWorkspaceStore) {
+        violations.push("src/shared/session/session-runtime.js: Workspace database dependency");
+    }
+    assertEquals(violations, []);
+});
+
 Deno.test("TUI, ACP, Workspace, commands, and scripts use the public Runtime surface only", async () => {
     const violations = await findViolations(["src/ui/tui", "src/acp", "src/ui/workspace", "src/cmd", "scripts"], [
         { label: "HostedSession reference", pattern: /HostedSession|hosted-session/ },
@@ -168,7 +184,7 @@ Deno.test("writable transcript hydration stays inside SessionRuntime lease enfor
     assertEquals(violations, []);
 });
 
-Deno.test("owner-coordination lease mutators stay behind approved state-machine seams", async () => {
+Deno.test("Session writer mutators stay behind approved state-machine seams", async () => {
     const violations = await findViolations(["src", "scripts"], [
         {
             label: "Session Activation Lease mutator outside Runtime or approved coordination service",
@@ -176,6 +192,9 @@ Deno.test("owner-coordination lease mutators stay behind approved state-machine 
                 /\b(?:acquireSessionActivation|changeSessionActivationPhase|heartbeatSessionActivation|publishGenerationAndRelease|releaseUnchangedActivation|markSessionUncertain|markSessionReconcileRequired)\s*\(/,
             allowPath: (path) =>
                 path.startsWith("src/shared/owner-coordination/") ||
+                path === "src/shared/session/file-session-store.ts" ||
+                path === "src/shared/session/file-session-control.ts" ||
+                path === "src/shared/session/file-session-store-types.ts" ||
                 path === "src/shared/session/segment-rollover.ts" ||
                 path === "src/shared/session/session-runtime.js" ||
                 path === "src/ui/workspace/server/session-continuation.js" ||
@@ -183,6 +202,15 @@ Deno.test("owner-coordination lease mutators stay behind approved state-machine 
         },
     ]);
     assertEquals(violations, []);
+});
+
+Deno.test("the file Session contract is host-neutral and the store remains decomposed", async () => {
+    const contract = await Deno.readTextFile(join(REPO_ROOT, "src/shared/session/file-session-store-types.ts"));
+    assertEquals(/owner-coordination|heartbeat|activation.?protocol|expired/i.test(contract), false);
+
+    const facade = await Deno.readTextFile(join(REPO_ROOT, "src/shared/session/file-session-store.ts"));
+    assertEquals(facade.split("\n").length <= 650, true);
+    assertEquals(facade.includes("createFileSessionControl"), true);
 });
 
 Deno.test("non-owning Session generation synchronization remains read-only", async () => {
@@ -368,6 +396,7 @@ Deno.test("SessionRuntime public surface remains adapter-neutral and explicit", 
         "createPromptReadySession",
         "cycleSessionThinkingLevel",
         "dequeueLastQueuedMessage",
+        "ensureInitialSessionGeneration",
         "executePlan",
         "expandSessionPromptTemplate",
         "expandSessionSkillCommand",

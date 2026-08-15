@@ -46,6 +46,7 @@ async function makeLifecycleRun(status, attrs = {}) {
         ...attrs,
     });
     const { hostedSession } = makeValidationUi();
+    /** @type {import('../../tools/plan-written.ts').TriageMeta} */
     const triageMeta = { classification: "QUICK_FIX", status, ...attrs };
     hostedSession.setWorkflowExecutionContext({
         planName: "p",
@@ -198,7 +199,7 @@ Deno.test("runValidationLoop shows why FEATURE validation fails when workflow di
         assertEquals(plan?.attrs.status, "implemented");
         const messages = /** @type {string[]} */ (uiAPI.messages);
         assertEquals(
-            messages.some((message) => message.includes("Code review needs a code change")),
+            messages.some((message) => message.includes("Ask the Engineer to restore the code")),
             true,
         );
     } finally {

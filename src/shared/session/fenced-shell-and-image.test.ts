@@ -20,10 +20,10 @@ function idFactory(prefix: string): () => string {
 
 async function createDormantManagedSession(prefix: string) {
     const home = await Deno.makeTempDir({ prefix });
+    Deno.env.set("HOME", home);
     const cwd = join(home, "project");
     await Deno.mkdir(cwd, { recursive: true });
     const store = openOwnerCoordinationStore({ dbPath: join(home, "owner.sqlite3") });
-    store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
     const project = store.registerProject({ root: cwd, idFactory: idFactory("project") });
     const piSessionId = "pi-dormant";
     const sessionDir = getRunWieldSessionDir(cwd);
@@ -63,7 +63,7 @@ async function createDormantManagedSession(prefix: string) {
         digestHex: await digestHex(bytes),
     });
     const runtime = createSessionRuntime({
-        ownerCoordinationStore: store,
+        sessionStore: store,
         ownerProcessKind: "test",
         ownerInstanceId: `${prefix}-runtime-owner`,
     });

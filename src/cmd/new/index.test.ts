@@ -32,7 +32,7 @@ Deno.test("runNewCommand creates and names a real Router session in the active p
             const replacement = runtime.getSessionSnapshot(replacementId);
             assertEquals(replacement?.cwd, projectRoot);
             assertEquals(replacement?.name, "build coverage");
-            assertEquals(runtime.getRuntimeActiveAgentName(replacementId), "router");
+            assertEquals(replacement?.activeAgent, "router");
             assertEquals(cleared, true);
             assertEquals(runtime.listSessions().length, 2);
         } finally {
@@ -55,7 +55,7 @@ Deno.test("runNewCommand uses the fixture cwd when there is no current session",
             const replacement = runtime.getSessionSnapshot(replacementId);
             assertEquals(replacement?.cwd, alternateRoot);
             assertEquals(replacement?.name, null);
-            assertEquals(runtime.getRuntimeActiveAgentName(replacementId), "router");
+            assertEquals(replacement?.activeAgent, "router");
         } finally {
             runtime.closeAllSessions();
         }

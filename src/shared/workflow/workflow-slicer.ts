@@ -546,6 +546,7 @@ export async function runSlicerAgent({
         });
         return { ok: true };
     } catch (e) {
+        console.error("[RunWield] slicer_agent_failed", e);
         restoreFailedSlicerContextPhase(boundary);
         if (previousAgentName && hostedSession.getRootAgentName() !== previousAgentName) {
             await agentSwitching.switchActiveAgent(hostedSession, { agentName: previousAgentName });

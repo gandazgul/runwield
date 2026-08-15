@@ -348,6 +348,22 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         assertEquals([200, 503].includes(sessionsPage.status), true);
         assertStringIncludes(await sessionsPage.text(), "Project Sessions");
 
+        /** @type {any} */ (store).getSessionById = (runwieldSessionId) =>
+            runwieldSessionId === "session-owned"
+                ? {
+                    runwieldSessionId,
+                    projectId: "file-project-identity",
+                    transcriptCwd: projectRoot,
+                }
+                : null;
+        const sessionDetailPage = await app(
+            new Request(
+                `http://127.0.0.1:8787/projects/${project.projectId}/sessions/session-owned`,
+                { headers: { cookie: cookiePair(claimed.credential) } },
+            ),
+        );
+        assertEquals(sessionDetailPage.status === 404, false);
+
         store.catalogProjectSessions = () =>
             Promise.resolve({
                 cataloged: [],

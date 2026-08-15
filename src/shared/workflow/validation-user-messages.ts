@@ -94,6 +94,7 @@ export type ValidationRecoveryNotice =
     | { kind: "branch_restored"; branch: string }
     | { kind: "worktree_restored"; planName: string; branch: string }
     | { kind: "execution_plan_fixed"; planName: string }
+    | { kind: "review_range_fixed"; planName: string }
     | { kind: "merge_plan_preserved"; planName: string };
 
 export function buildValidationRecoveryNotice(notice: ValidationRecoveryNotice): string {
@@ -112,6 +113,8 @@ export function buildValidationRecoveryNotice(notice: ValidationRecoveryNotice):
             return `The worktree for ${notice.planName} is back on branch ${notice.branch}.`;
         case "execution_plan_fixed":
             return `The Plan file for ${notice.planName} is now fixed and safe to use.`;
+        case "review_range_fixed":
+            return "RunWield found the code and fixed its review. The review will go on.";
         case "merge_plan_preserved":
             return `The checked Plan copy for ${notice.planName} is safe while the merge runs.`;
     }
@@ -171,8 +174,8 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
                 : `Code review ${request.round} of ${request.maxRounds} has begun. It will check the last fixes.`;
         case "semantic_diff_missing":
             return request.planOnly
-                ? "Code review needs a code change. Only the Plan changed."
-                : "Code review needs a code change. No changes were found.";
+                ? "RunWield found Plan edits but no code. Ask the Engineer to restore the code, then try again."
+                : "RunWield found no code. Ask the Engineer to restore the code, then try again.";
         case "semantic_approved":
             return `Code review ${request.round} is done. It found no need for a fix.`;
         case "review_repair":

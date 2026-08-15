@@ -39,7 +39,7 @@ Deno.test("rejects changed canonical Plan and worktree evidence before handoff",
     assertEquals(result.kind, "refresh_required");
 });
 
-Deno.test("treats a marker as pending only before the first seeded turn entry", async () => {
+Deno.test("treats a marker as consumed after Pi's first seeded message entry", async () => {
     const continuation = buildExecutionSegmentContinuation({
         runwieldSessionId: "session-one",
         planId: "plan-demo",
@@ -64,7 +64,7 @@ Deno.test("treats a marker as pending only before the first seeded turn entry", 
         marker: {
             payload: continuation,
             entryIndex: 0,
-            entries: [{ type: "custom" }, { type: "assistant" }],
+            entries: [{ type: "custom" }, { type: "message" }],
         },
         projectRoot: "/not-read-because-consumed",
         runwieldSessionId: "session-one",

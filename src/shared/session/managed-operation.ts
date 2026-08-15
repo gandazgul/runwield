@@ -1,5 +1,7 @@
 type ActivationProof = import("../owner-coordination/session-activations.js").ActivationProof;
 
+type ManagedTurnStarted = (context: { turnId: string }) => void | (() => void);
+
 export type ManagedOperationName =
     | "prompt"
     | "rename"
@@ -25,6 +27,7 @@ export type ManagedOperationDescriptor = {
         customTools?: import("@earendil-works/pi-coding-agent").ToolDefinition[];
         allowReturnToRouter?: boolean;
         includeEditFallback?: boolean;
+        onTurnStarted?: ManagedTurnStarted;
     };
     hydrate?: boolean;
     activateAgent?: boolean;
@@ -51,11 +54,9 @@ export type ManagedOperationCapability = {
     readonly operationId: string;
     readonly proof: ActivationProof;
     readonly settled: boolean;
-    readonly heartbeatFailureReason: string | null;
     readonly signal?: AbortSignal;
     cancel?(): void;
     updateProof(proof: ActivationProof): void;
-    latchHeartbeatFailure(error: Error | string): void;
     assertLive(): void;
     settle(): void;
 };

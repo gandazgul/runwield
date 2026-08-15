@@ -10,6 +10,8 @@ import type { PlanFrontMatter } from "../../plan-store.js";
 import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.js";
 import type { PlanActionRequest, PlanActionResult } from "../../shared/workflow/plan-actions.ts";
 
+type ActiveExecutionWorkflow = import("../../shared/types.js").ActiveExecutionWorkflow;
+
 /** An image attached to a review decision. */
 export interface ReviewImage {
     base64: string;
@@ -65,13 +67,11 @@ export interface PlanSessionSurface {
     // deno-lint-ignore no-explicit-any
     runSlicerAgent: (options: Record<string, any>) => Promise<any>;
     runPlanAction?: (request: PlanActionRequest) => Promise<PlanActionResult>;
-    // deno-lint-ignore no-explicit-any
-    getActiveExecutionWorkflow: () => Record<string, any> | null;
-    // deno-lint-ignore no-explicit-any
-    setActiveExecutionWorkflow: (workflow: Record<string, any>) => void;
-    clearActiveExecutionWorkflow: () => void;
+    getActiveExecutionWorkflow: () => ActiveExecutionWorkflow | null;
+    setActiveExecutionWorkflow: (workflow: ActiveExecutionWorkflow) => Promise<void>;
+    clearActiveExecutionWorkflow: () => Promise<void>;
     reviewPlan: (meta: PlanReviewRequest) => Promise<PlanReviewOutcome>;
-    rename: (name: string) => void;
+    rename: (name: string) => Promise<void>;
 }
 
 /**

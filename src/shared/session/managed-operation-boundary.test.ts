@@ -41,10 +41,9 @@ Deno.test("managed prompt re-entry is rejected while a real operation holds the 
             ]);
             const store = openOwnerCoordinationStore({ dbPath: `${home}/owner.sqlite3` });
             try {
-                store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
                 store.registerProject({ root: cwd, now: () => "2026-01-01T00:00:01.000Z" });
                 const runtime = createSessionRuntime({
-                    ownerCoordinationStore: store,
+                    sessionStore: store,
                     ownerProcessKind: "test",
                     ownerInstanceId: "managed-operation-boundary-owner",
                 });
@@ -57,16 +56,15 @@ Deno.test("managed prompt re-entry is rejected while a real operation holds the 
                     const created = await runtime.createInteractiveSession({
                         cwd,
                         mode: "new",
-                        enableManagedActivation: true,
                     });
                     await runtime.switchAgent(created.sessionId, { agentName: "engineer" });
                     const dormant = runtime.getSessionSnapshot(created.sessionId);
-                    assertEquals(dormant?.managed?.generation, 0);
-                    assertEquals(dormant?.sessionManagerId, null);
+                    assertEquals(dormant?.managed?.generation, 1);
+                    assertEquals(typeof dormant?.sessionManagerId, "string");
 
                     firstPrompt = runtime.promptManagedSession(created.sessionId, {
                         initialRequest: "first managed prompt",
-                        expectedGeneration: 0,
+                        expectedGeneration: 1,
                     });
                     let hydrated = runtime.getSessionSnapshot(created.sessionId);
                     for (let attempt = 0; attempt < 1_000 && hydrated?.managed?.dormant !== false; attempt += 1) {
@@ -78,7 +76,7 @@ Deno.test("managed prompt re-entry is rejected while a real operation holds the 
 
                     const second = await runtime.promptManagedSession(created.sessionId, {
                         initialRequest: "second managed prompt",
-                        expectedGeneration: 0,
+                        expectedGeneration: 1,
                     });
                     assertEquals(second, {
                         ok: false,
@@ -87,22 +85,22 @@ Deno.test("managed prompt re-entry is rejected while a real operation holds the 
                         handoffLimitReached: false,
                         error: "managed_operation_in_progress",
                     });
-                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 0);
+                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 1);
                     const cataloged = store.getSessionById(dormant?.managed?.runwieldSessionId || "");
                     const transcriptBeforeFirstCompletes = await Deno.readTextFile(cataloged?.transcriptPath || "");
                     assertEquals(transcriptBeforeFirstCompletes.includes("second managed prompt"), false);
 
                     const first = await firstPrompt;
                     assertEquals(first.ok, true);
-                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 1);
-                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, null);
+                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 2);
+                    assertEquals(typeof runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, "string");
 
                     const third = await runtime.promptManagedSession(created.sessionId, {
                         initialRequest: "third managed prompt",
-                        expectedGeneration: 1,
+                        expectedGeneration: 2,
                     });
                     assertEquals(third.ok, true);
-                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 2);
+                    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 3);
                 } finally {
                     if (firstPrompt) await firstPrompt.catch(() => undefined);
                     await runtime.closeAllSessionsWhenIdle?.();

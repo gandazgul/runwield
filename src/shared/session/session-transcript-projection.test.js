@@ -299,7 +299,7 @@ Deno.test("^projection replays Claude backend failure entries as display-only st
     ]);
     assertEquals(events[0].message, "Claude Code authentication failed. Sign in to Claude Code, then retry this turn.");
     assertEquals(getCommittedTranscriptAuthorityFacts({ snapshot: summarizeProjectedEntries(entries) }), {
-        activeAgent: "Engineer",
+        activeAgent: "engineer",
         workflowContext: null,
         model: null,
         provider: null,

@@ -536,11 +536,21 @@ export async function startActiveExecutionWorkflow(
                     `${preparationError.message}; execution worktree evidence was preserved at ${worktree.path} on branch ${worktree.branch}.`,
                 );
             }
-            const baselineTree =
-                existing?.planName === planName && existing.executionCwd === worktree.path && existing.baselineTree &&
-                    planFile.kind === "present"
+            // Re-entering an in-progress attempt must keep the tree from before the
+            // implementation began. Capturing the current tree here makes completed
+            // code disappear from the later review diff, especially after RunWield
+            // reconciles the Plan copy while resuming the worktree.
+            const recordedBaselineTree = continuingReusableWorktree
+                ? existing?.planName === planName && existing.executionCwd === worktree.path &&
+                        existing.baselineTree
                     ? existing.baselineTree
-                    : await captureTree(worktree.path);
+                    : "executionBaselineTree" in worktree && typeof worktree.executionBaselineTree === "string"
+                    ? worktree.executionBaselineTree
+                    : "baseTree" in worktree && typeof worktree.baseTree === "string"
+                    ? worktree.baseTree
+                    : undefined
+                : undefined;
+            const baselineTree = recordedBaselineTree || await captureTree(worktree.path);
             const workflow = {
                 planName,
                 triageMeta: effectiveTriageMeta,

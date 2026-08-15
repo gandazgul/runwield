@@ -24,7 +24,7 @@ Deno.test("implementation checkpoint acknowledges its accepted task_completed JS
     });
     const root = { dispose: () => {} };
     hostedSession.setRootAgentSession(root);
-    const workflow = {
+    const workflow: import("../types.js").ActiveExecutionWorkflow = {
         planName: "p",
         triageMeta: { classification: "PLANNED_CHANGE", status: "in_progress" },
         executionAgent: "engineer" as const,

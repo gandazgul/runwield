@@ -175,11 +175,12 @@ wld workspace serve
 wld workspace pair <code>
 ```
 
-`wld workspace serve` uses the owner coordination database under `~/.wld/` and binds to `127.0.0.1:8787` by default. An
-unpaired browser shows a short-lived pairing code and a copyable command such as `wld workspace pair ABC123`. Approving
-that code locally pairs that specific browser; the browser then receives a persistent, revocable device credential
-stored in cookies. The pairing code is not a password or bearer token, and owner credentials are not stored in Plans,
-Session Transcripts, URLs, or repository files.
+`wld workspace serve` uses a Workspace database under `~/.wld/` for registration, pairing, receipts, and projections;
+Session history and writer safety remain file-backed independently. It binds to `127.0.0.1:8787` by default. An unpaired
+browser shows a short-lived pairing code and a copyable command such as `wld workspace pair ABC123`. Approving that code
+locally pairs that specific browser; the browser then receives a persistent, revocable device credential stored in
+cookies. The pairing code is not a password or bearer token, and owner credentials are not stored in Plans, Session
+Transcripts, URLs, or repository files.
 
 Owner Workspace is authorization, not encryption. Loopback HTTP is safe for same-machine use. For phone access, put the
 loopback listener behind Tailscale Serve, WireGuard plus a trusted HTTPS terminator, or an equivalent private-network
@@ -214,30 +215,26 @@ Projects must be explicitly registered before Workspace can show their Plans. Th
 Plan Board inside the registered Project boundary. In the bootstrap slice, owner Project Plan views are read-only until
 later Plan Workflow Lease enforcement enables consequential remote Plan mutations safely.
 
-Session continuation is activation-gated and disabled by default. To allow owner Workspace to continue registered
-Project Sessions, stop all older pre-v3 RunWield TUI, ACP, and Workspace processes first, then restart with:
+Every RunWield Session uses a stable local identity, an OS writer lock, and ordered transcript segments. New Sessions
+are cataloged automatically. When an older local transcript is opened, RunWield migrates it automatically and resumes it
+under the same visible conversation; there is no migration prompt or activation flag. This local cataloging does not
+register the Project with Workspace or expose it remotely. Projects must still be registered explicitly before they
+appear in Workspace.
 
-```bash
-wld workspace serve --enable-session-activation
-```
+Supported Workspace continuation is conversation-only for idle Sessions; remote Plan materialization, workflow gates,
+shell/repository actions, image turns, and other consequential direct mutations remain separately authorized. Writer
+conflicts, stale generations, and transcript mismatches are reported conservatively. A process crash releases its file
+lock automatically; RunWield never uses a timeout to steal control or replay unfinished effects.
 
-The flag records an owner-only acknowledgement for the current coordination database epoch. If the database is replaced
-or the acknowledgement is missing, Workspace keeps Plan/Project reads available but Session continuation routes fail
-closed until the protocol is re-enabled. Supported continuation is conversation-only for idle managed Sessions; remote
-Plan materialization, workflow gates, shell/repository actions, image turns, and other consequential direct mutations
-are blocked until later lease slices. Activation conflicts, stale generations, transcript mismatches, heartbeat expiry,
-or lost database evidence are reported conservatively and require local recovery rather than automatic takeover or
-replay.
-
-When an already-open TUI is attached to an idle managed Session, it quietly observes committed Session generations from
+When an already-open TUI is attached to an idle Session, it quietly observes committed Session generations from
 Workspace or ACP. The TUI reads only verified committed transcript prefixes, shows new committed messages once,
 refreshes Session title/Agent/model/thinking/workflow summaries, and may display a compact read-only ownership/sync
 status such as another generic surface being active, blocked, or degraded. It does not show owner instance IDs,
 transcript paths, operation IDs, fences, or proof material, and it does not display live in-progress tokens from another
 surface. Automatic refresh preserves the exact unsent editor draft, pasted image previews/order, input history, and
 focus. If a submit loses the generation race, RunWield refreshes first, restores the draft unchanged, and requires an
-explicit second submit. Persistent projection/evidence failures leave managed submission disabled until a later safe
-refresh succeeds.
+explicit second submit. Persistent projection/evidence failures leave submission disabled until a later safe refresh
+succeeds.
 
 `wld plans ui` remains the temporary current-checkout compatibility launcher. Use it when you want a one-shot local Plan
 Board without registering the Project or pairing a device.

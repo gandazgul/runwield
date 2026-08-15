@@ -243,6 +243,9 @@ Deno.test("startActiveExecutionWorkflow trusts existing Objective-Failing Checks
         projectRoot,
         await createWorktreeGitArtifacts({ projectRoot, planName: "continued-plan", planId: PLAN_UNDER_TEST }),
     );
+    await Deno.writeTextFile(`${recorded.path}/continued-implementation.ts`, "export const continued = true;\n");
+    await git(recorded.path, ["add", "continued-implementation.ts"]);
+    await git(recorded.path, ["commit", "-m", "complete continued implementation"]);
 
     const workflow = await startActiveExecutionWorkflow({
         planName: "continued-plan",
@@ -254,6 +257,7 @@ Deno.test("startActiveExecutionWorkflow trusts existing Objective-Failing Checks
 
     assertEquals(workflow.worktreeId, recorded.id);
     assertEquals(workflow.executionCwd, recorded.path);
+    assertEquals(workflow.baselineTree, recorded.baseTree);
     const plan = await loadPlan(projectRoot, "continued-plan");
     assertEquals(plan?.attrs.status, "in_progress");
     assertEquals(plan?.attrs.objectiveChecksBaseline, undefined);

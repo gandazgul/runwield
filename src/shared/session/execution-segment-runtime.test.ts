@@ -24,7 +24,37 @@ Deno.test("execution handoff revalidates the approved Plan snapshot before prepa
 Deno.test("committed execution marker resumes in the same successor without a duplicate seed turn", async () => {
     const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
     assertStringIncludes(source, "resolvePendingSegmentHandoff");
-    assertStringIncludes(source, "resumeExecutionSegmentHandoff");
+    assertStringIncludes(source, "executePreparedPlanSegmentHandoff");
+});
+
+Deno.test("legacy Session load acquires its writer lock before opening Pi", async () => {
+    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
+    const loadStart = source.indexOf("async loadSession(options)");
+    const loadEnd = source.indexOf("\n    setInteractionAdapter(", loadStart);
+    const loadSource = source.slice(loadStart, loadEnd);
+    assert(loadStart >= 0 && loadEnd > loadStart);
+    assert(
+        loadSource.indexOf("ownerCoordinationStore.acquireSessionActivation") <
+            loadSource.indexOf("await openPersistedRootSession"),
+    );
+});
+
+Deno.test("managed operations rely on the OS lock without a heartbeat timer", async () => {
+    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
+    assert(!source.includes("setInterval(heartbeat"));
+    assert(!source.includes("heartbeatFailureReason"));
+});
+
+Deno.test("semantic repair always rolls into a successor transcript segment", async () => {
+    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
+    assert(!source.includes("if (!managed) return validationResult"));
+    assertStringIncludes(source, "runwieldSessionId: managed.runwieldSessionId");
+    assertStringIncludes(
+        source,
+        'if (!managed) throw new Error("Semantic repair handoff requires a segmented Session.")',
+    );
+    assertStringIncludes(source, 'kind: "semantic_repair"');
+    assertStringIncludes(source, "return await this.#runSemanticRepairContinuation");
 });
 
 Deno.test("execution seed excludes Planner history and carries approval images", async () => {

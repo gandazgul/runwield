@@ -194,6 +194,22 @@ matching root Agent Session and Agent Handler through the same private Runtime t
 in JavaScript private fields. The old object APIs (`createSession`, `adoptSession`, `getSession`), event-producer
 escape, and raw handler injection do not exist.
 
+Every interactive Runtime Session is cataloged under a stable RunWield Session ID and uses ordered transcript segments.
+Opening a legacy Pi transcript creates that catalog record and its first segment automatically. The local project
+identity used for this coordination is not Workspace registration: Workspace lists and authorizes only Projects the
+owner explicitly registered.
+
+Core persists this authority as an atomic Session manifest beside Pi JSONL transcripts under `~/.wld/sessions/`.
+Transcript-adjacent recovery descriptors and embedded Pi lineage rebuild a missing or damaged manifest. An exclusive OS
+file lock permits one writable Runtime across TUI, ACP, and Workspace and is released automatically when a process
+exits. Core does not open SQLite.
+
+Workspace's SQLite database is a separate product store for Project registration, paired devices, bounded HTTP request
+receipts, and rebuildable projections. It consumes the same file-backed Session store as TUI and ACP. Deleting the
+Workspace database does not delete or block local Sessions; the owner must only register Projects and pair devices
+again. A future hosted Session-store implementation may replace local files and OS locks behind the same Runtime
+contract without making Workspace projection state authoritative.
+
 ## Single outward event path
 
 ```mermaid

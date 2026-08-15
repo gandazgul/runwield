@@ -1,6 +1,5 @@
 /**
  * @typedef {Object} SessionAvailabilityInput
- * @property {{ enabled?: boolean, status?: string } | null | undefined} [protocol]
  * @property {string | null | undefined} [state]
  * @property {string | null | undefined} [activeSurface]
  * @property {boolean} [bootstrapRequired]
@@ -9,8 +8,6 @@
  * @property {boolean} [timelineComplete]
  * @property {boolean} [localOperationActive]
  * @property {boolean} [truncated]
- * @property {boolean} [controlRenewing]
- * @property {string | null | undefined} [forceAvailableAt]
  */
 
 const SURFACE_LABELS = {
@@ -38,20 +35,9 @@ function surfaceLabel(value) {
 
 /**
  * @param {SessionAvailabilityInput} input
- * @returns {{ key: string, label: string, explanation: string, intent: "success" | "warning" | "danger" | "info", canPrepare: boolean, canContinue: boolean, canForceRecover?: boolean }}
+ * @returns {{ key: string, label: string, explanation: string, intent: "success" | "warning" | "danger" | "info", canPrepare: boolean, canContinue: boolean }}
  */
 export function deriveSessionAvailability(input) {
-    const protocolEnabled = input.protocol?.enabled !== false && input.protocol?.status !== "disabled";
-    if (!protocolEnabled) {
-        return {
-            key: "protocol-disabled",
-            label: "Continuation disabled",
-            explanation: "Session activation is disabled for this Workspace server.",
-            intent: "danger",
-            canPrepare: false,
-            canContinue: false,
-        };
-    }
     if (input.localOperationActive) {
         return {
             key: "workspace-running",
@@ -64,11 +50,11 @@ export function deriveSessionAvailability(input) {
     }
     if (input.bootstrapRequired || input.state === "uninitialized" || input.generation === null) {
         return {
-            key: "prepare",
-            label: "Preparation needed",
-            explanation: "Prepare this legacy Session before reading or continuing its committed timeline.",
-            intent: "warning",
-            canPrepare: true,
+            key: "recovery-needed",
+            label: "Session needs repair",
+            explanation: "RunWield could not safely read this Session's transcript.",
+            intent: "danger",
+            canPrepare: false,
             canContinue: false,
         };
     }
@@ -96,19 +82,14 @@ export function deriveSessionAvailability(input) {
         const label = input.activeSurface === "workspace"
             ? "Running in Workspace"
             : `In use in ${surfaceLabel(input.activeSurface)}`;
-        const forceTime = input.forceAvailableAt ? Date.parse(input.forceAvailableAt) : Number.NaN;
-        const canForceRecover = Boolean(input.forceAvailableAt) && !input.controlRenewing &&
-            Number.isFinite(forceTime) && forceTime <= Date.now();
         return {
-            key: canForceRecover ? "force-available" : "active",
-            label: canForceRecover ? "Control expired" : label,
-            explanation: canForceRecover
-                ? "The other surface stopped renewing. You can take control after accepting the risk."
-                : `Another surface owns this Session until ${input.forceAvailableAt || "its heartbeat expires"}.`,
+            key: "active",
+            label,
+            explanation:
+                "Another RunWield surface is using this Session. It becomes available when that surface stops.",
             intent: "warning",
             canPrepare: false,
             canContinue: false,
-            canForceRecover,
         };
     }
     const activeAgent = String(input.snapshot?.activeAgent || "");

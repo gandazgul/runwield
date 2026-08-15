@@ -117,7 +117,7 @@ Deno.test("runResumeCommand loads, replaces, and replays a real persisted sessio
     await withRuntimeCommandFixture("runwield-resume-command-", async ({ homeDir, projectRoot }) => {
         const seeded = seedPersistedSession(projectRoot);
         const store = openOwnerCoordinationStore({ dbPath: `${homeDir}/owner.sqlite3` });
-        const runtime = createSessionRuntime({ ownerCoordinationStore: store });
+        const runtime = createSessionRuntime({ sessionStore: store });
         const current = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
         const ui = makeUi([seeded.path]);
         let replacementId = "";
@@ -131,7 +131,7 @@ Deno.test("runResumeCommand loads, replaces, and replays a real persisted sessio
             });
 
             assertEquals(runtime.getSessionSnapshot(replacementId)?.sessionManagerId, seeded.id);
-            assertEquals(runtime.getRuntimeActiveAgentName(replacementId), AGENTS.ROUTER);
+            assertEquals(runtime.getSessionSnapshot(replacementId)?.activeAgent, AGENTS.ROUTER);
             assertEquals(ui.clears, 1);
             assertEquals(ui.messages, [`Resumed session: ${seeded.id}`]);
         } finally {
@@ -146,7 +146,7 @@ Deno.test("runResumeCommand offers full session names with date-only description
         const longMessage = "inspect the workspace sidebar rendering path ".repeat(4).trim();
         const seeded = seedPersistedSession(projectRoot, longMessage);
         const store = openOwnerCoordinationStore({ dbPath: `${homeDir}/owner.sqlite3` });
-        const runtime = createSessionRuntime({ ownerCoordinationStore: store });
+        const runtime = createSessionRuntime({ sessionStore: store });
         const current = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
         const ui = makeUi([]);
         try {
@@ -182,7 +182,7 @@ Deno.test("runResumeCommand offers compaction from real transcript size and fixt
             await writeResumeThreshold(settingsPath, 1);
             const seeded = seedPersistedSession(projectRoot, "large fixture context ".repeat(2000));
             const store = openOwnerCoordinationStore({ dbPath: `${homeDir}/owner.sqlite3` });
-            const runtime = createSessionRuntime({ ownerCoordinationStore: store });
+            const runtime = createSessionRuntime({ sessionStore: store });
             const current = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
             const ui = makeUi([seeded.path, "cancel"]);
             let replacementId = "";
@@ -213,7 +213,7 @@ Deno.test("runResumeCommand compacts a real loaded session through the faux mode
             setModelResponse("Summary of the fixture session.");
             const seeded = seedPersistedSession(projectRoot, "compaction fixture context ".repeat(24000));
             const store = openOwnerCoordinationStore({ dbPath: `${homeDir}/owner.sqlite3` });
-            const runtime = createSessionRuntime({ ownerCoordinationStore: store });
+            const runtime = createSessionRuntime({ sessionStore: store });
             const current = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
             const ui = makeUi([seeded.path, "compact"]);
             let replacementId = "";

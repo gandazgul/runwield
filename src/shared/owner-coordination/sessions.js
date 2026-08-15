@@ -435,8 +435,14 @@ export async function validateSuccessorSegmentLocator(database, locator) {
     if (!matchingRoot) {
         throw new Error(`Transcript cwd does not match Project root evidence: ${locator.transcriptCwd}`);
     }
-    const sessionDir = getRunWieldSessionDir(locator.transcriptCwd);
-    if (!isPathInside(locator.transcriptPath, sessionDir)) {
+    const candidateSessionDirs = [
+        ...new Set([
+            getRunWieldSessionDir(matchingRoot.enteredRoot),
+            getRunWieldSessionDir(matchingRoot.canonicalRoot),
+        ]),
+    ];
+    const sessionDir = candidateSessionDirs.find((candidate) => isPathInside(locator.transcriptPath, candidate));
+    if (!sessionDir) {
         throw new Error(`Transcript path is outside the RunWield session directory for cwd: ${locator.transcriptPath}`);
     }
     const safeLocator = await readCatalogSafeRootSessionLocator({
@@ -1147,7 +1153,13 @@ export async function catalogProjectSessions(database, projectId, options = {}) 
             );
         }
     }
-    return { cataloged, diagnostics };
+    const distinctDiagnostics = diagnostics.filter((diagnostic, index) =>
+        diagnostics.findIndex((candidate) =>
+            candidate.sessionPath === diagnostic.sessionPath && candidate.code === diagnostic.code &&
+            candidate.message === diagnostic.message
+        ) === index
+    );
+    return { cataloged, diagnostics: distinctDiagnostics };
 }
 
 /**

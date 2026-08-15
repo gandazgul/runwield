@@ -90,11 +90,11 @@ export function createPlanSessionSurface(
         runSlicerAgent: runners.runSlicerAgent,
         runPlanAction: (request) => runtime.runPlanAction(sessionId, request),
         getActiveExecutionWorkflow: () => runtime.getRuntimeActiveExecutionWorkflow(sessionId),
-        setActiveExecutionWorkflow: (workflow) => {
-            runtime.setActiveExecutionWorkflow(sessionId, workflow);
+        setActiveExecutionWorkflow: async (workflow) => {
+            await runtime.setActiveExecutionWorkflow(sessionId, workflow);
         },
-        clearActiveExecutionWorkflow: () => {
-            runtime.clearActiveExecutionWorkflow(sessionId);
+        clearActiveExecutionWorkflow: async () => {
+            await runtime.clearActiveExecutionWorkflow(sessionId);
         },
         reviewPlan: async (meta) => {
             const response = await runtime.requestInteraction(sessionId, {
@@ -130,8 +130,8 @@ export function createPlanSessionSurface(
                 message: typeof response.message === "string" ? response.message : undefined,
             };
         },
-        rename: (name) => {
-            runtime.renameSession(sessionId, name);
+        rename: async (name) => {
+            await runtime.renameSession(sessionId, name);
         },
     };
 }

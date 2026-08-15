@@ -35,7 +35,7 @@ import {
     resolvePhaseContext,
 } from "./validation-context.ts";
 import { SEMANTIC_REVIEW_CYCLES } from "./validation-types.ts";
-import { clampCycle, emitProgress, emitStatus } from "./validation-emit.ts";
+import { clampCycle, emitHalted, emitProgress, emitStatus } from "./validation-emit.ts";
 import { pauseForUserAction, requestInteraction } from "./validation-interactions.ts";
 import { ValidationInteractionTypes } from "./validation-ports.ts";
 import { persistHumanReviewMetadata, runHumanReviewPhase } from "./validation-human-review.ts";
@@ -81,7 +81,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
         const reason = planOnly
             ? "No implementation changes detected in workflow diff; only plan document changes were found."
             : "No implementation changes detected in workflow diff.";
-        emitStatus(args, buildValidationUserMessage({ kind: "semantic_diff_missing", planOnly }), "error");
+        emitHalted(args, buildValidationUserMessage({ kind: "semantic_diff_missing", planOnly }), reason);
         await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", reason);
         return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
     }
@@ -379,6 +379,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 reason: "Semantic Code Review requested changes; repair dispatched.",
             };
         }
+        emitStatus(args, buildValidationUserMessage({ kind: "review_repair", repairKind: "semantic" }), "warning");
         return {
             kind: "semantic_repair_handoff",
             planName: args.planName,

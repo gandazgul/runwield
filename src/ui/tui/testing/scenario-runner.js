@@ -5,7 +5,7 @@
 
 import { dirname, join, relative } from "@std/path";
 import { createSessionRuntime } from "../../../shared/session/session-runtime.js";
-import { openOwnerCoordinationStore } from "../../../shared/owner-coordination/index.js";
+import { openFileSessionStore } from "../../../shared/session/file-session-store.ts";
 import { assert } from "@std/assert";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { findPlansByParent, getStoredPlanPath, loadPlan, parsePlanFrontMatter } from "../../../plan-store.js";
@@ -497,8 +497,8 @@ export async function runGoldenScenario(scenario, options = {}) {
  */
 async function seedGoldenPriorSession(priorSession, fauxProvider) {
     if (!priorSession) return null;
-    const ownerCoordinationStore = openOwnerCoordinationStore();
-    const runtime = createSessionRuntime({ ownerCoordinationStore, ownerProcessKind: "tui" });
+    const sessionStore = openFileSessionStore();
+    const runtime = createSessionRuntime({ sessionStore, ownerProcessKind: "tui" });
     try {
         fauxProvider.setResponses([() =>
             createFauxMessageForTurn({
@@ -514,7 +514,7 @@ async function seedGoldenPriorSession(priorSession, fauxProvider) {
         runtime.closeAllSessions();
         return { sessionId: created.sessionId, replayed: replay.replayed || 0 };
     } finally {
-        ownerCoordinationStore.close?.();
+        sessionStore.close?.();
     }
 }
 
@@ -960,6 +960,9 @@ async function runComposedTuiScenario(scenario, options) {
                 if (typed.type === "type") {
                     terminal.typeText(String(typed.text || ""));
                     events.push(`terminal:type:${typed.text || ""}`);
+                } else if (typed.type === "clearEditor") {
+                    terminal.input("\x15");
+                    events.push("terminal:clear-editor");
                 } else if (typed.type === "startConcurrentSession") {
                     const name = String(typed.name || `session-${concurrentSessions.size + 1}`);
                     const concurrentTerminal = new VirtualTerminal(typed.terminal || scenario.terminal);

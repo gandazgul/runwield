@@ -366,7 +366,11 @@ Deno.test("Approve for Later creates no execution segment", async () => {
                 editor: ui.editor,
             });
 
-            assertEquals((await loadPlan(projectRoot, "reviewed"))?.attrs.status, "ready_for_work");
+            assertEquals(
+                (await loadPlan(projectRoot, "reviewed"))?.attrs.status,
+                "ready_for_work",
+                ui.messages.join("\n"),
+            );
             assertEquals(runtime.getRuntimeActiveExecutionWorkflow(sessionId), null);
             assertStringIncludes(ui.messages.join("\n"), "Plan saved. Resume later");
         } finally {
@@ -421,7 +425,7 @@ Deno.test("load-plan runs the real Planner and plan_written machinery against th
                 });
 
                 assertEquals((await loadPlan(projectRoot, "planned"))?.attrs.status, "ready_for_work");
-                assertEquals(runtime.getRuntimeActiveAgentName(sessionId), "planner");
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "planner");
                 // The resumed Planner turn records the Plan it was opened on, so a
                 // compaction mid-draft still has a pointer back to the file.
                 assertEquals(runtime.getSessionSnapshot(sessionId)?.workflowContext?.planName, "planned");

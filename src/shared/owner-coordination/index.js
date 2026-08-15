@@ -12,6 +12,7 @@
  */
 
 import { getOwnerCoordinationDatabaseEpoch, openOwnerCoordinationDatabase } from "./database.js";
+import { openFileSessionStore } from "../session/file-session-store.ts";
 import { getOwnerCoordinationDatabasePath, OWNER_COORDINATION_DB_FILENAME } from "./paths.js";
 import { OWNER_COORDINATION_SCHEMA_VERSION } from "./schema.js";
 import {
@@ -26,21 +27,6 @@ import {
     restoreProject,
     setProjectEnabled,
 } from "./projects.js";
-import {
-    appendSessionTranscriptSegment,
-    catalogProjectSessions,
-    discardOrphanRolloverCandidate,
-    ensureSessionCatalogRecord,
-    findOrphanRolloverCandidates,
-    findSessionByLocator,
-    getCurrentSessionSegment,
-    getSessionById,
-    inspectSegmentRolloverRecovery,
-    listProjectSessions,
-    listSessionTranscriptSegments,
-    sealSessionTranscriptSegment,
-    validateSuccessorSegmentLocator,
-} from "./sessions.js";
 import { listDevices, revokeDevice, verifyDeviceCredential, verifyDeviceCsrf } from "./devices.js";
 import {
     approvePairingRequest,
@@ -49,25 +35,9 @@ import {
     getPairingRequestByProof,
 } from "./pairing.js";
 import {
-    acknowledgeActivationProtocol,
-    getActivationProtocolStatus,
-    requireActivationProtocolEnabled,
-} from "./activation-protocol.js";
-import {
-    acquireSessionActivation,
-    changeSessionActivationPhase,
-    commitSegmentRolloverAndPublish,
     createOrGetOperationReceipt,
     findOperationReceiptByRequest,
     getOperationReceipt,
-    heartbeatSessionActivation,
-    inspectSessionActivation,
-    markSessionReconcileRequired,
-    markSessionReconcileRequiredWithProof,
-    markSessionUncertain,
-    publishGenerationAndRelease,
-    recoverExpiredSessionControl,
-    releaseUnchangedActivation,
     updateOperationReceipt,
 } from "./session-activations.js";
 
@@ -79,7 +49,9 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {string} path
  * @property {() => void} close
  * @property {(options: Parameters<typeof registerProject>[1]) => ReturnType<typeof registerProject>} registerProject
+ * @property {ReturnType<typeof openFileSessionStore>['ensureRuntimeProject']} ensureRuntimeProject
  * @property {() => ReturnType<typeof listProjects>} listProjects
+ * @property {ReturnType<typeof openFileSessionStore>['listSessionProjects']} listSessionProjects
  * @property {(projectId: string) => ReturnType<typeof getProjectById>} getProjectById
  * @property {(projectId: string) => ReturnType<typeof getProjectHealth>} getProjectHealth
  * @property {(projectId: string) => ReturnType<typeof listProjectRootEvidence>} listProjectRootEvidence
@@ -88,19 +60,21 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {(projectId: string, options?: Parameters<typeof restoreProject>[2]) => ReturnType<typeof restoreProject>} restoreProject
  * @property {(options: Parameters<typeof relinkProject>[1]) => ReturnType<typeof relinkProject>} relinkProject
  * @property {(projectId: string) => ReturnType<typeof requireEnabledProjectRoot>} requireEnabledProjectRoot
- * @property {(locator: Parameters<typeof ensureSessionCatalogRecord>[1]) => ReturnType<typeof ensureSessionCatalogRecord>} ensureSessionCatalogRecord
- * @property {(locator: Parameters<typeof findSessionByLocator>[1]) => ReturnType<typeof findSessionByLocator>} findSessionByLocator
- * @property {(runwieldSessionId: string) => ReturnType<typeof getSessionById>} getSessionById
- * @property {(projectId: string, options?: Parameters<typeof listProjectSessions>[2]) => ReturnType<typeof listProjectSessions>} listProjectSessions
- * @property {(projectId: string, options?: Parameters<typeof catalogProjectSessions>[2]) => ReturnType<typeof catalogProjectSessions>} catalogProjectSessions
- * @property {(runwieldSessionId: string) => ReturnType<typeof listSessionTranscriptSegments>} listSessionTranscriptSegments
- * @property {(runwieldSessionId: string) => ReturnType<typeof getCurrentSessionSegment>} getCurrentSessionSegment
- * @property {(segment: Parameters<typeof appendSessionTranscriptSegment>[1]) => ReturnType<typeof appendSessionTranscriptSegment>} appendSessionTranscriptSegment
- * @property {(locator: Parameters<typeof validateSuccessorSegmentLocator>[1]) => ReturnType<typeof validateSuccessorSegmentLocator>} validateSuccessorSegmentLocator
- * @property {(options: Parameters<typeof sealSessionTranscriptSegment>[1]) => ReturnType<typeof sealSessionTranscriptSegment>} sealSessionTranscriptSegment
- * @property {(options: Parameters<typeof findOrphanRolloverCandidates>[1]) => ReturnType<typeof findOrphanRolloverCandidates>} findOrphanRolloverCandidates
- * @property {(options: Parameters<typeof inspectSegmentRolloverRecovery>[1]) => ReturnType<typeof inspectSegmentRolloverRecovery>} inspectSegmentRolloverRecovery
- * @property {(options: Parameters<typeof discardOrphanRolloverCandidate>[1]) => ReturnType<typeof discardOrphanRolloverCandidate>} discardOrphanRolloverCandidate
+ * @property {(projectId: string) => string} requireSessionProjectRoot
+ * @property {ReturnType<typeof openFileSessionStore>['ensureSessionCatalogRecord']} ensureSessionCatalogRecord
+ * @property {ReturnType<typeof openFileSessionStore>['ensureSessionCatalogRecordAndAcquire']} ensureSessionCatalogRecordAndAcquire
+ * @property {ReturnType<typeof openFileSessionStore>['findSessionByLocator']} findSessionByLocator
+ * @property {ReturnType<typeof openFileSessionStore>['getSessionById']} getSessionById
+ * @property {ReturnType<typeof openFileSessionStore>['listProjectSessions']} listProjectSessions
+ * @property {ReturnType<typeof openFileSessionStore>['catalogProjectSessions']} catalogProjectSessions
+ * @property {ReturnType<typeof openFileSessionStore>['listSessionTranscriptSegments']} listSessionTranscriptSegments
+ * @property {ReturnType<typeof openFileSessionStore>['getCurrentSessionSegment']} getCurrentSessionSegment
+ * @property {ReturnType<typeof openFileSessionStore>['appendSessionTranscriptSegment']} appendSessionTranscriptSegment
+ * @property {ReturnType<typeof openFileSessionStore>['validateSuccessorSegmentLocator']} validateSuccessorSegmentLocator
+ * @property {ReturnType<typeof openFileSessionStore>['sealSessionTranscriptSegment']} sealSessionTranscriptSegment
+ * @property {ReturnType<typeof openFileSessionStore>['findOrphanRolloverCandidates']} findOrphanRolloverCandidates
+ * @property {ReturnType<typeof openFileSessionStore>['inspectSegmentRolloverRecovery']} inspectSegmentRolloverRecovery
+ * @property {ReturnType<typeof openFileSessionStore>['discardOrphanRolloverCandidate']} discardOrphanRolloverCandidate
  * @property {(options?: Parameters<typeof createPairingRequest>[1]) => ReturnType<typeof createPairingRequest>} createPairingRequest
  * @property {(code: string, options?: Parameters<typeof approvePairingRequest>[2]) => ReturnType<typeof approvePairingRequest>} approvePairingRequest
  * @property {(proof: string, options?: Parameters<typeof getPairingRequestByProof>[2]) => ReturnType<typeof getPairingRequestByProof>} getPairingRequestByProof
@@ -110,20 +84,16 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {(deviceId: string, csrf: string) => ReturnType<typeof verifyDeviceCsrf>} verifyDeviceCsrf
  * @property {(deviceId: string, options?: Parameters<typeof revokeDevice>[2]) => ReturnType<typeof revokeDevice>} revokeDevice
  * @property {() => string | null} getDatabaseEpoch
- * @property {() => ReturnType<typeof getActivationProtocolStatus>} getActivationProtocolStatus
- * @property {(options?: Parameters<typeof acknowledgeActivationProtocol>[1]) => ReturnType<typeof acknowledgeActivationProtocol>} acknowledgeActivationProtocol
- * @property {() => ReturnType<typeof requireActivationProtocolEnabled>} requireActivationProtocolEnabled
- * @property {(runwieldSessionId: string) => ReturnType<typeof inspectSessionActivation>} inspectSessionActivation
- * @property {(options: Parameters<typeof acquireSessionActivation>[1]) => ReturnType<typeof acquireSessionActivation>} acquireSessionActivation
- * @property {(proof: Parameters<typeof heartbeatSessionActivation>[1], options?: Parameters<typeof heartbeatSessionActivation>[2]) => ReturnType<typeof heartbeatSessionActivation>} heartbeatSessionActivation
- * @property {(proof: Parameters<typeof changeSessionActivationPhase>[1], nextPhase: Parameters<typeof changeSessionActivationPhase>[2], options?: Parameters<typeof changeSessionActivationPhase>[3]) => ReturnType<typeof changeSessionActivationPhase>} changeSessionActivationPhase
- * @property {(proof: Parameters<typeof publishGenerationAndRelease>[1], evidence: Parameters<typeof publishGenerationAndRelease>[2], options?: Parameters<typeof publishGenerationAndRelease>[3]) => ReturnType<typeof publishGenerationAndRelease>} publishGenerationAndRelease
- * @property {(proof: Parameters<typeof commitSegmentRolloverAndPublish>[1], options: Parameters<typeof commitSegmentRolloverAndPublish>[2]) => ReturnType<typeof commitSegmentRolloverAndPublish>} commitSegmentRolloverAndPublish
- * @property {(proof: Parameters<typeof releaseUnchangedActivation>[1], options?: Parameters<typeof releaseUnchangedActivation>[2]) => ReturnType<typeof releaseUnchangedActivation>} releaseUnchangedActivation
- * @property {(options: Parameters<typeof recoverExpiredSessionControl>[1]) => ReturnType<typeof recoverExpiredSessionControl>} recoverExpiredSessionControl
- * @property {(session: Parameters<typeof markSessionReconcileRequired>[1], options?: Parameters<typeof markSessionReconcileRequired>[2]) => ReturnType<typeof markSessionReconcileRequired>} markSessionReconcileRequired
- * @property {(proof: Parameters<typeof markSessionReconcileRequiredWithProof>[1], options?: Parameters<typeof markSessionReconcileRequiredWithProof>[2]) => ReturnType<typeof markSessionReconcileRequiredWithProof>} markSessionReconcileRequiredWithProof
- * @property {(proof: Parameters<typeof markSessionUncertain>[1], options?: Parameters<typeof markSessionUncertain>[2]) => ReturnType<typeof markSessionUncertain>} markSessionUncertain
+ * @property {ReturnType<typeof openFileSessionStore>['inspectSessionActivation']} inspectSessionActivation
+ * @property {ReturnType<typeof openFileSessionStore>['acquireSessionActivation']} acquireSessionActivation
+ * @property {ReturnType<typeof openFileSessionStore>['changeSessionActivationPhase']} changeSessionActivationPhase
+ * @property {ReturnType<typeof openFileSessionStore>['publishGenerationAndRelease']} publishGenerationAndRelease
+ * @property {ReturnType<typeof openFileSessionStore>['commitSegmentRolloverAndPublish']} commitSegmentRolloverAndPublish
+ * @property {ReturnType<typeof openFileSessionStore>['releaseUnchangedActivation']} releaseUnchangedActivation
+ * @property {ReturnType<typeof openFileSessionStore>['recoverSessionControl']} recoverSessionControl
+ * @property {ReturnType<typeof openFileSessionStore>['markSessionReconcileRequired']} markSessionReconcileRequired
+ * @property {ReturnType<typeof openFileSessionStore>['markSessionReconcileRequiredWithProof']} markSessionReconcileRequiredWithProof
+ * @property {ReturnType<typeof openFileSessionStore>['markSessionUncertain']} markSessionUncertain
  * @property {(options: Parameters<typeof findOperationReceiptByRequest>[1]) => ReturnType<typeof findOperationReceiptByRequest>} findOperationReceiptByRequest
  * @property {(options: Parameters<typeof createOrGetOperationReceipt>[1]) => ReturnType<typeof createOrGetOperationReceipt>} createOrGetOperationReceipt
  * @property {(operationId: string, updates: Parameters<typeof updateOperationReceipt>[2]) => ReturnType<typeof updateOperationReceipt>} updateOperationReceipt
@@ -135,40 +105,86 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * Internal migration tests and service modules may import database.js directly;
  * adapters should consume this narrow method surface.
  *
- * @param {import('./database.js').OpenOwnerDatabaseOptions} [options]
+ * @param {import('./database.js').OpenOwnerDatabaseOptions & { sessionBaseDir?: string }} [options]
  * @returns {OwnerCoordinationStore}
  */
 export function openOwnerCoordinationStore(options = {}) {
     const database = openOwnerCoordinationDatabase(options);
+    const sessionStore = openFileSessionStore({ baseDir: options.sessionBaseDir });
+    /** @param {string} projectId */
+    const resolveSessionProject = (projectId) => {
+        const direct = sessionStore.getProjectById(projectId);
+        if (direct) return direct;
+        const workspaceProject = getProjectById(database, projectId);
+        return workspaceProject ? sessionStore.ensureRuntimeProject({ root: workspaceProject.registeredRoot }) : null;
+    };
     return {
         path: database.path,
-        close: () => database.close(),
+        close: () => {
+            sessionStore.close();
+            database.close();
+        },
         registerProject: (projectOptions) => registerProject(database, projectOptions),
+        ensureRuntimeProject: (projectOptions) => sessionStore.ensureRuntimeProject(projectOptions),
         listProjects: () => listProjects(database),
+        listSessionProjects: () => sessionStore.listSessionProjects(),
         getProjectById: (projectId) => getProjectById(database, projectId),
         getProjectHealth: (projectId) => getProjectHealth(database, projectId),
-        listProjectRootEvidence: (projectId) => listProjectRootEvidence(database, projectId),
+        listProjectRootEvidence: (projectId) =>
+            sessionStore.getProjectById(projectId)
+                ? sessionStore.listProjectRootEvidence(projectId)
+                : listProjectRootEvidence(database, projectId),
         setProjectEnabled: (projectId, enabled, projectOptions) =>
             setProjectEnabled(database, projectId, enabled, projectOptions),
         removeProject: (projectId, projectOptions) => removeProject(database, projectId, projectOptions),
         restoreProject: (projectId, projectOptions) => restoreProject(database, projectId, projectOptions),
         relinkProject: (projectOptions) => relinkProject(database, projectOptions),
         requireEnabledProjectRoot: (projectId) => requireEnabledProjectRoot(database, projectId),
-        ensureSessionCatalogRecord: (locator) => ensureSessionCatalogRecord(database, locator),
-        findSessionByLocator: (locator) => findSessionByLocator(database, locator),
-        getSessionById: (runwieldSessionId) => getSessionById(database, runwieldSessionId),
-        listProjectSessions: (projectId, sessionOptions) => listProjectSessions(database, projectId, sessionOptions),
-        catalogProjectSessions: (projectId, sessionOptions) =>
-            catalogProjectSessions(database, projectId, sessionOptions),
+        requireSessionProjectRoot: (projectId) =>
+            sessionStore.getProjectById(projectId)
+                ? sessionStore.requireSessionProjectRoot(projectId)
+                : requireEnabledProjectRoot(database, projectId),
+        ensureSessionCatalogRecord: (locator) => {
+            const project = resolveSessionProject(locator.projectId);
+            if (!project) throw new Error("Session project is unavailable");
+            return sessionStore.ensureSessionCatalogRecord({ ...locator, projectId: project.projectId });
+        },
+        ensureSessionCatalogRecordAndAcquire: (catalogOptions) => {
+            const project = resolveSessionProject(catalogOptions.locator.projectId);
+            if (!project) throw new Error("Session project is unavailable");
+            return sessionStore.ensureSessionCatalogRecordAndAcquire({
+                ...catalogOptions,
+                locator: { ...catalogOptions.locator, projectId: project.projectId },
+            });
+        },
+        findSessionByLocator: (locator) => sessionStore.findSessionByLocator(locator),
+        getSessionById: (runwieldSessionId) => sessionStore.getSessionById(runwieldSessionId),
+        listProjectSessions: async (projectId, sessionOptions) => {
+            const runtimeProject = resolveSessionProject(projectId);
+            return runtimeProject
+                ? await sessionStore.listProjectSessions(runtimeProject.projectId, sessionOptions)
+                : { sessions: [], diagnostics: [] };
+        },
+        catalogProjectSessions: async (projectId, sessionOptions) => {
+            const runtimeProject = resolveSessionProject(projectId);
+            return runtimeProject
+                ? await sessionStore.catalogProjectSessions(runtimeProject.projectId, sessionOptions)
+                : { cataloged: [], diagnostics: [] };
+        },
         listSessionTranscriptSegments: (runwieldSessionId) =>
-            listSessionTranscriptSegments(database, runwieldSessionId),
-        getCurrentSessionSegment: (runwieldSessionId) => getCurrentSessionSegment(database, runwieldSessionId),
-        appendSessionTranscriptSegment: (segment) => appendSessionTranscriptSegment(database, segment),
-        validateSuccessorSegmentLocator: (locator) => validateSuccessorSegmentLocator(database, locator),
-        sealSessionTranscriptSegment: (segmentOptions) => sealSessionTranscriptSegment(database, segmentOptions),
-        findOrphanRolloverCandidates: (orphanOptions) => findOrphanRolloverCandidates(database, orphanOptions),
-        inspectSegmentRolloverRecovery: (rolloverOptions) => inspectSegmentRolloverRecovery(database, rolloverOptions),
-        discardOrphanRolloverCandidate: (orphanOptions) => discardOrphanRolloverCandidate(database, orphanOptions),
+            sessionStore.listSessionTranscriptSegments(runwieldSessionId),
+        getCurrentSessionSegment: (runwieldSessionId) => sessionStore.getCurrentSessionSegment(runwieldSessionId),
+        appendSessionTranscriptSegment: (segment) => sessionStore.appendSessionTranscriptSegment(segment),
+        validateSuccessorSegmentLocator: (locator) => {
+            const project = resolveSessionProject(locator.projectId);
+            if (!project) throw new Error("Session project is unavailable");
+            return sessionStore.validateSuccessorSegmentLocator({ ...locator, projectId: project.projectId });
+        },
+        sealSessionTranscriptSegment: (segmentOptions) => sessionStore.sealSessionTranscriptSegment(segmentOptions),
+        findOrphanRolloverCandidates: (orphanOptions) => sessionStore.findOrphanRolloverCandidates(orphanOptions),
+        inspectSegmentRolloverRecovery: (rolloverOptions) =>
+            sessionStore.inspectSegmentRolloverRecovery(rolloverOptions),
+        discardOrphanRolloverCandidate: (orphanOptions) => sessionStore.discardOrphanRolloverCandidate(orphanOptions),
         createPairingRequest: (pairingOptions) => createPairingRequest(database, pairingOptions),
         approvePairingRequest: (code, pairingOptions) => approvePairingRequest(database, code, pairingOptions),
         getPairingRequestByProof: (proof, pairingOptions) => getPairingRequestByProof(database, proof, pairingOptions),
@@ -179,27 +195,22 @@ export function openOwnerCoordinationStore(options = {}) {
         verifyDeviceCsrf: (deviceId, csrf) => verifyDeviceCsrf(database, deviceId, csrf),
         revokeDevice: (deviceId, deviceOptions) => revokeDevice(database, deviceId, deviceOptions),
         getDatabaseEpoch: () => getOwnerCoordinationDatabaseEpoch(database.handle),
-        getActivationProtocolStatus: () => getActivationProtocolStatus(database),
-        acknowledgeActivationProtocol: (protocolOptions) => acknowledgeActivationProtocol(database, protocolOptions),
-        requireActivationProtocolEnabled: () => requireActivationProtocolEnabled(database),
-        inspectSessionActivation: (runwieldSessionId) => inspectSessionActivation(database, runwieldSessionId),
-        acquireSessionActivation: (activationOptions) => acquireSessionActivation(database, activationOptions),
-        heartbeatSessionActivation: (proof, heartbeatOptions) =>
-            heartbeatSessionActivation(database, proof, heartbeatOptions),
+        inspectSessionActivation: (runwieldSessionId) => sessionStore.inspectSessionActivation(runwieldSessionId),
+        acquireSessionActivation: (activationOptions) => sessionStore.acquireSessionActivation(activationOptions),
         changeSessionActivationPhase: (proof, nextPhase, activationOptions) =>
-            changeSessionActivationPhase(database, proof, nextPhase, activationOptions),
+            sessionStore.changeSessionActivationPhase(proof, nextPhase, activationOptions),
         publishGenerationAndRelease: (proof, evidence, activationOptions) =>
-            publishGenerationAndRelease(database, proof, evidence, activationOptions),
+            sessionStore.publishGenerationAndRelease(proof, evidence, activationOptions),
         commitSegmentRolloverAndPublish: (proof, rolloverOptions) =>
-            commitSegmentRolloverAndPublish(database, proof, rolloverOptions),
+            sessionStore.commitSegmentRolloverAndPublish(proof, rolloverOptions),
         releaseUnchangedActivation: (proof, activationOptions) =>
-            releaseUnchangedActivation(database, proof, activationOptions),
-        recoverExpiredSessionControl: (recoveryOptions) => recoverExpiredSessionControl(database, recoveryOptions),
+            sessionStore.releaseUnchangedActivation(proof, activationOptions),
+        recoverSessionControl: (recoveryOptions) => sessionStore.recoverSessionControl(recoveryOptions),
         markSessionReconcileRequired: (session, activationOptions) =>
-            markSessionReconcileRequired(database, session, activationOptions),
+            sessionStore.markSessionReconcileRequired(session, activationOptions),
         markSessionReconcileRequiredWithProof: (proof, activationOptions) =>
-            markSessionReconcileRequiredWithProof(database, proof, activationOptions),
-        markSessionUncertain: (proof, activationOptions) => markSessionUncertain(database, proof, activationOptions),
+            sessionStore.markSessionReconcileRequiredWithProof(proof, activationOptions),
+        markSessionUncertain: (proof, activationOptions) => sessionStore.markSessionUncertain(proof, activationOptions),
         findOperationReceiptByRequest: (operationOptions) => findOperationReceiptByRequest(database, operationOptions),
         createOrGetOperationReceipt: (operationOptions) => createOrGetOperationReceipt(database, operationOptions),
         updateOperationReceipt: (operationId, updates) => updateOperationReceipt(database, operationId, updates),

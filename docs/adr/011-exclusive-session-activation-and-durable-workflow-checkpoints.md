@@ -4,6 +4,10 @@ status: accepted
 
 # ADR-011: Exclusive Session Activation and Pi-Native Session Continuity
 
+> Storage amendment: [ADR-015](./015-file-authoritative-session-bundles.md) supersedes this ADR's SQLite Session
+> authority, renewable lease, heartbeat-expiry, and forced-takeover design. ADR-011 still defines exclusive mutation,
+> committed-history synchronization, and conservative non-replay boundaries.
+
 ## Context
 
 ADR-009 moved mutable runtime state into `HostedSession`, and ADR-010 established `SessionRuntime` as the shared

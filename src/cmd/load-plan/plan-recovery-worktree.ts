@@ -56,7 +56,7 @@ export interface RecoverablePlan extends RecoveryPlanRef {
  * Plan's own metadata or resolved fresh. Both shapes are read the same way here.
  */
 export interface RecoveryExecutionContext {
-    executionMode?: string | null;
+    executionMode?: "worktree" | "non_git_in_place" | null;
     executionCwd?: string | null;
     baselineTree?: string | null;
     worktreeId?: string | null;
@@ -68,11 +68,11 @@ export interface RecoveryExecutionContext {
 export interface RecoveryWorkflowState {
     planName: string;
     triageMeta: PlanFrontMatter;
-    executionAgent: string;
+    executionAgent: "engineer" | "frontend-engineer";
     projectRoot: string;
-    executionMode?: string;
+    executionMode?: "worktree" | "non_git_in_place";
     executionCwd?: string;
-    baselineTree?: string | null;
+    baselineTree?: string;
     worktreeId?: string;
     worktreeBranch?: string;
     worktreeBaseBranch?: string;
@@ -361,12 +361,12 @@ export async function rehydrateActiveRecoveryWorkflow(
     };
     if (resolvedContext.executionMode === "non_git_in_place") workflow.nonGitInPlace = true;
     if (resolvedContext.executionMode === "worktree") {
-        workflow.baselineTree = resolvedContext.baselineTree;
+        workflow.baselineTree = resolvedContext.baselineTree || undefined;
         workflow.worktreeId = resolvedContext.worktreeId || undefined;
         workflow.worktreeBranch = resolvedContext.worktreeBranch || undefined;
         workflow.worktreeBaseBranch = resolvedContext.worktreeBaseBranch || undefined;
     }
-    session.setActiveExecutionWorkflow(workflow);
+    await session.setActiveExecutionWorkflow(workflow);
     return true;
 }
 

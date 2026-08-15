@@ -5,6 +5,7 @@
 
 import { AGENTS, SUBAGENTS } from "../../constants.js";
 import { resolveResumeAgentName } from "./active-agent-session.js";
+import { getAgentDisplayName } from "./agents.js";
 import { runActiveAgentTurn, switchActiveAgent } from "./agent-switching.js";
 import {
     abortActiveSession as abortActiveSessionFn,
@@ -62,31 +63,43 @@ import {
 } from "./image-attachments.js";
 import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../models/model-registry.ts";
 import { spawnForegroundShell } from "../foreground-process.ts";
-import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
+import { openFileSessionStore } from "./file-session-store.ts";
 import { buildSessionContextReport } from "./session-context-report.js";
 import { getSettingsManager, setGlobalCompactionSetting } from "../settings.js";
 import { getSessionKeyboardHelp } from "./session-help.js";
 import {
     deriveWorkflowContextFromExecutionWorkflow,
     readPersistedPendingSegmentContinuationEntry,
+    recordSegmentLineageEvidence,
 } from "./workflow-context-session.js";
 import { executePlanAction } from "../workflow/plan-actions.ts";
 import { dirname, isAbsolute } from "@std/path";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 export const HANDOFF_LIMIT_MESSAGE =
     "return_to_router handoff limit reached — refusing further chained handoffs in this turn.";
 
 /**
+ * @typedef {Object} ManagedOperationContext
+ * @property {SessionRuntime} runtime
+ * @property {string} sessionId
+ * @property {import('./managed-operation.ts').ManagedOperationCapability} capability
+ */
+
+/** @type {AsyncLocalStorage<ManagedOperationContext>} */
+const ACTIVE_MANAGED_OPERATION = new AsyncLocalStorage();
+
+/**
  * @typedef {Object} SessionRuntimeComposition
  * @property {SessionHost} sessionHost
- * @property {import('../owner-coordination/index.js').OwnerCoordinationStore | null} ownerCoordinationStore
+ * @property {ReturnType<typeof import('./file-session-store.ts').openFileSessionStore> | null} sessionStore
  * @property {'workspace' | 'tui' | 'acp' | 'test'} ownerProcessKind
  * @property {string} ownerInstanceId
  */
 
 /**
  * @typedef {Object} CreateSessionRuntimeOptions
- * @property {import('../owner-coordination/index.js').OwnerCoordinationStore | null} [ownerCoordinationStore]
+ * @property {ReturnType<typeof import('./file-session-store.ts').openFileSessionStore> | null} [sessionStore]
  * @property {'workspace' | 'tui' | 'acp' | 'test'} [ownerProcessKind]
  * @property {string} [ownerInstanceId]
  */
@@ -152,7 +165,11 @@ export const HANDOFF_LIMIT_MESSAGE =
  * @property {string} sessionId
  * @property {string} [sessionPath]
  * @property {string} [modelOverride]
- * @property {boolean} [enableManagedActivation]
+ */
+
+/**
+ * @typedef {Object} DisposableSessionManager
+ * @property {() => void} [dispose]
  */
 
 /**
@@ -224,8 +241,6 @@ class ManagedOperationCapability {
     /** @type {import('../owner-coordination/session-activations.js').ActivationProof} */
     #proof;
     #settled = false;
-    /** @type {string | null} */
-    #heartbeatFailureReason = null;
     #abortController = new AbortController();
 
     get proof() {
@@ -234,10 +249,6 @@ class ManagedOperationCapability {
 
     get settled() {
         return this.#settled;
-    }
-
-    get heartbeatFailureReason() {
-        return this.#heartbeatFailureReason;
     }
 
     get signal() {
@@ -256,12 +267,6 @@ class ManagedOperationCapability {
             throw new Error("Managed operation proof does not match capability");
         }
         this.#proof = proof;
-    }
-
-    /** @param {Error | string} error */
-    latchHeartbeatFailure(error) {
-        if (this.#heartbeatFailureReason) return;
-        this.#heartbeatFailureReason = error instanceof Error ? error.message : error;
     }
 
     assertLive() {
@@ -299,7 +304,10 @@ function toRuntimeQueuedMessage(message) {
 function getRuntimeContextCapacity(session) {
     const sessions = [session.getRootAgentSession(), ...session.getSubAgentSessions()].filter(Boolean);
     const activeSession = /** @type {RuntimeContextAgentSession | undefined} */ (sessions.at(-1));
-    if (!activeSession) return { contextUsage: null, autoCompactionEnabled: null };
+    if (!activeSession) {
+        const compactionSettings = getSettingsManager(session.cwd).getCompactionSettings();
+        return { contextUsage: null, autoCompactionEnabled: compactionSettings.enabled !== false };
+    }
 
     const rawUsage = activeSession.getContextUsage?.();
     const contextWindow = Number(rawUsage?.contextWindow ?? activeSession.model?.contextWindow ?? 0) || 0;
@@ -316,6 +324,24 @@ function getRuntimeContextCapacity(session) {
         contextUsage,
         autoCompactionEnabled: compactionSettings?.enabled !== false,
     };
+}
+
+/**
+ * @param {string | null | undefined} value
+ * @returns {import('./hosted-session.js').ThinkingLevel}
+ */
+function normalizeThinkingLevel(value) {
+    switch (value) {
+        case "minimal":
+        case "low":
+        case "medium":
+        case "high":
+        case "xhigh":
+        case "max":
+            return value;
+        default:
+            return "off";
+    }
 }
 
 /**
@@ -389,8 +415,8 @@ export class SessionRuntime {
     #pendingManagedCreationProjects;
     /** @type {Map<string, string | null>} */
     #observedAttentionEventIds;
-    /** @type {import('../owner-coordination/index.js').OwnerCoordinationStore | null} */
-    #ownerCoordinationStore;
+    /** @type {ReturnType<typeof import('./file-session-store.ts').openFileSessionStore> | null} */
+    #sessionStore;
     /** @type {'workspace' | 'tui' | 'acp' | 'test'} */
     #ownerProcessKind;
     /** @type {string} */
@@ -409,7 +435,7 @@ export class SessionRuntime {
         this.#currentManagedOperationSettlements = new Map();
         this.#pendingManagedCreationProjects = new Map();
         this.#observedAttentionEventIds = new Map();
-        this.#ownerCoordinationStore = composition.ownerCoordinationStore;
+        this.#sessionStore = composition.sessionStore;
         this.#ownerProcessKind = composition.ownerProcessKind;
         this.#ownerInstanceId = composition.ownerInstanceId;
     }
@@ -434,7 +460,7 @@ export class SessionRuntime {
         const pendingAgentName = pendingManagedIntent.agentName || "";
         const rawSessionManagerId = sessionManager?.getSessionId?.();
         const sessionManagerId = managed
-            ? null
+            ? managed.piSessionId
             : typeof rawSessionManagerId === "string" && rawSessionManagerId
             ? rawSessionManagerId
             : null;
@@ -517,7 +543,7 @@ export class SessionRuntime {
      * activation hydrates one explicitly.
      *
      * @param {string} sessionId
-     * @returns {Record<string, any> | null}
+     * @returns {import('./hosted-session.js').ActiveExecutionWorkflow | null}
      */
     getRuntimeActiveExecutionWorkflow(sessionId) {
         const session = this.#sessionHost.getSession(sessionId);
@@ -548,12 +574,12 @@ export class SessionRuntime {
         const syncState = session?.getManagedMetadata?.()?.syncState || null;
         if (!syncState) return null;
         if (syncState.status === "active_elsewhere") {
-            return `This managed Session is active in ${
+            return `This Session is active in ${
                 syncState.owningSurfaceKind || "another surface"
             }. Wait for it to finish before sending from this surface.`;
         }
         if (syncState.status === "blocked" || syncState.status === "degraded") {
-            return syncState.message || "This managed Session needs recovery before accepting new input.";
+            return syncState.message || "This Session needs recovery before accepting new input.";
         }
         return null;
     }
@@ -623,6 +649,7 @@ export class SessionRuntime {
     /**
      * @param {import('./hosted-session.js').HostedSession | null | undefined} hostedSession
      * @param {string} operation
+     * @param {import('./managed-operation.ts').ManagedOperationCapability | null} [capability]
      */
     #rejectManagedPublicMutation(hostedSession, operation, capability = null) {
         if (!hostedSession?.getManagedMetadata?.()) return null;
@@ -734,7 +761,8 @@ export class SessionRuntime {
     async steerSession(sessionId, text, images = []) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, queued: false, error: "not_found" };
-        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "steerSession");
+        const capability = this.#currentManagedOperations.get(sessionId) || null;
+        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "steerSession", capability);
         if (managedRejection) return { ...managedRejection, queued: false };
         const activeTarget = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession?.());
         const rootSession = /** @type {any} */ (hostedSession.getRootAgentSession());
@@ -777,22 +805,6 @@ export class SessionRuntime {
     queueNextTurnMessage(sessionId, text, images = []) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, queued: false, error: "not_found" };
-        const managed = hostedSession.getManagedMetadata?.();
-        if (managed) {
-            if (hostedSession.getRootSessionManager?.()) {
-                return { ok: false, queued: false, error: "managed_operation_in_progress" };
-            }
-            return this.#runManagedStandaloneMutation(sessionId, "submit_user_turn", (activeSession) => {
-                const message = /** @type {RuntimeQueuedMessageState} */ ({
-                    id: crypto.randomUUID(),
-                    text,
-                    images: images.map((image) => ({ ...image })),
-                    delivery: "next_turn",
-                    queuedAt: new Date().toISOString(),
-                });
-                return { ok: true, queued: true, message: this.#trackQueuedMessage(activeSession, message) };
-            }, { activateAgent: false });
-        }
         const message = /** @type {RuntimeQueuedMessageState} */ ({
             id: crypto.randomUUID(),
             text,
@@ -814,7 +826,8 @@ export class SessionRuntime {
     takeNextTurnMessage(sessionId) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, message: null, error: "not_found" };
-        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "takeNextTurnMessage");
+        const capability = this.#currentManagedOperations.get(sessionId) || null;
+        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "takeNextTurnMessage", capability);
         if (managedRejection) return { ...managedRejection, message: null };
         const selected = (this.#queuedMessages.get(hostedSession.id) || [])
             .find((message) => message.delivery === "next_turn");
@@ -855,8 +868,6 @@ export class SessionRuntime {
     async dequeueLastQueuedMessage(sessionId) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, message: null, error: "not_found" };
-        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "dequeueLastQueuedMessage");
-        if (managedRejection) return { ...managedRejection, message: null };
         const queue = this.#queuedMessages.get(hostedSession.id) || [];
         const selected = queue.at(-1);
         if (!selected) return { ok: true, message: null };
@@ -870,6 +881,14 @@ export class SessionRuntime {
             );
             return { ok: true, message: publicMessage };
         }
+
+        const capability = this.#currentManagedOperations.get(sessionId) || null;
+        const managedRejection = this.#rejectManagedPublicMutation(
+            hostedSession,
+            "dequeueLastQueuedMessage",
+            capability,
+        );
+        if (managedRejection) return { ...managedRejection, message: null };
 
         const sourceSession = selected.sourceSession;
         if (!sourceSession) return { ok: false, message: null, error: "queue_not_mutable" };
@@ -979,13 +998,24 @@ export class SessionRuntime {
      * @param {string} sessionId
      * @param {import('./managed-operation.ts').ManagedOperationName} name
      * @param {(session: import('./hosted-session.js').HostedSession, capability: import('./managed-operation.ts').ManagedOperationCapability) => T | Promise<T>} operation
-     * @param {{ activateAgent?: boolean }} [options]
+     * @param {{ activateAgent?: boolean, hydrate?: boolean }} [options]
      * @returns {Promise<any>}
      */
     async #runManagedStandaloneMutation(sessionId, name, operation, options = {}) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return /** @type {any} */ ({ ok: false, error: "not_found" });
         const managed = session.getManagedMetadata?.();
+        const currentCapability = this.#currentManagedOperations.get(sessionId) || null;
+        if (currentCapability) {
+            const context = ACTIVE_MANAGED_OPERATION.getStore();
+            if (
+                context?.runtime === this && context.sessionId === sessionId && context.capability === currentCapability
+            ) {
+                return await operation(session, currentCapability);
+            }
+            await this.#awaitManagedOperationSettlement(sessionId);
+            return await this.#runManagedStandaloneMutation(sessionId, name, operation, options);
+        }
         if (this.#pendingManagedCreations.has(sessionId) || this.#pendingManagedCreationProjects.has(sessionId)) {
             return { ok: false, error: "managed_operation_in_progress" };
         }
@@ -1001,6 +1031,7 @@ export class SessionRuntime {
                 name,
                 options: { expectedGeneration: managed.generation ?? undefined },
                 activateAgent: options.activateAgent === true,
+                hydrate: options.hydrate !== false,
             },
             async ({ capability }) => await operation(session, capability),
         );
@@ -1098,20 +1129,25 @@ export class SessionRuntime {
     async runIsolatedAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runIsolatedAgent: session not found");
-        const managedRejection = this.#rejectManagedPublicMutation(session, "runIsolatedAgent");
-        if (managedRejection) throw new Error("managed_operation_required");
-        return await this.#runBusyOperation(session.id, () =>
-            runIsolatedAgentSession({
-                hostedSession: session,
-                agentName: options.agentName,
-                userRequest: options.userRequest,
-                images: options.images || [],
-                toolNames: options.toolNames,
-                customTools: options.customTools,
-                modelOverride: options.modelOverride,
-                allowReturnToRouter: options.allowReturnToRouter,
-                subAgentDefinition: options.subAgentDefinition,
-            }));
+        return await this.#runManagedStandaloneMutation(
+            sessionId,
+            "workflow_operation",
+            (activeSession, capability) =>
+                this.#runBusyOperation(activeSession.id, () =>
+                    runIsolatedAgentSession({
+                        hostedSession: activeSession,
+                        managedOperationCapability: capability,
+                        agentName: options.agentName,
+                        userRequest: options.userRequest,
+                        images: options.images || [],
+                        toolNames: options.toolNames,
+                        customTools: options.customTools,
+                        modelOverride: options.modelOverride,
+                        allowReturnToRouter: options.allowReturnToRouter,
+                        subAgentDefinition: options.subAgentDefinition,
+                    })),
+            { activateAgent: false },
+        );
     }
 
     /** @param {string} sessionId @param {Record<string, any>} workflow */
@@ -1143,6 +1179,18 @@ export class SessionRuntime {
         if (!managed) {
             return await this.#runBusyOperation(session.id, operation);
         }
+        const currentCapability = this.#currentManagedOperations.get(session.id) || null;
+        if (currentCapability) {
+            const context = ACTIVE_MANAGED_OPERATION.getStore();
+            if (
+                context?.runtime === this && context.sessionId === session.id &&
+                context.capability === currentCapability
+            ) {
+                return await this.#runBusyOperation(session.id, operation);
+            }
+            await this.#awaitManagedOperationSettlement(session.id);
+            return await this.#runWorkflowOperation(session, _operationName, options, operation);
+        }
         if (session.getRootSessionManager?.()) {
             throw new Error("managed_operation_in_progress");
         }
@@ -1163,7 +1211,7 @@ export class SessionRuntime {
     }
 
     /**
-     * Run a repository-only Plan action under managed Session Activation without hydrating Pi.
+     * Run a repository-only Plan action under Session writer protection without hydrating Pi.
      * @param {string} sessionId
      * @param {import('../workflow/plan-actions.ts').PlanActionRequest} request
      */
@@ -1211,33 +1259,40 @@ export class SessionRuntime {
     async executePlan(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.executePlan: session not found");
-        const managed = session.getManagedMetadata?.();
-        if (!managed) {
-            return await this.#runWorkflowOperation(session, "executePlan", options, async () => {
+        return await this.#runBusyOperation(sessionId, async () => {
+            const managed = session.getManagedMetadata?.();
+            if (!managed) {
+                return await this.#runWorkflowOperation(session, "executePlan", options, async () => {
+                    const { executePlan } = await import("../workflow/workflow.js");
+                    return await executePlan(/** @type {any} */ ({ ...options, hostedSession: session }));
+                });
+            }
+            const pendingResult = await this.#resumePendingExecutionSegmentHandoff(session, options);
+            if (pendingResult) return pendingResult;
+            const prepared = await this.#runWorkflowOperation(session, "prepareExecutePlan", options, async () => {
                 const { executePlan } = await import("../workflow/workflow.js");
-                return await executePlan(/** @type {any} */ ({ ...options, hostedSession: session }));
+                return await executePlan(
+                    /** @type {any} */ ({
+                        ...options,
+                        hostedSession: session,
+                        prepareSegmentHandoff: true,
+                    }),
+                );
             });
-        }
-        const pendingResult = await this.#resumePendingExecutionSegmentHandoff(session, options);
-        if (pendingResult) return pendingResult;
-        const prepared = await this.#runWorkflowOperation(session, "prepareExecutePlan", options, async () => {
-            const { executePlan } = await import("../workflow/workflow.js");
-            return await executePlan(
-                /** @type {any} */ ({
-                    ...options,
-                    hostedSession: session,
-                    prepareSegmentHandoff: true,
-                }),
-            );
+            if (!prepared?.executionSegmentHandoff) {
+                if (prepared?.error) {
+                    console.error("[RunWield] execution_handoff_preparation_failed", prepared.error);
+                }
+                return prepared;
+            }
+            const latestManaged = session.getManagedMetadata?.() || managed;
+            await this.rollManagedSessionSegment(sessionId, {
+                kind: "execution",
+                continuation: prepared.executionSegmentHandoff,
+                expectedGeneration: latestManaged.generation,
+            });
+            return await this.#resumePendingExecutionSegmentHandoff(session, options) || prepared;
         });
-        if (!prepared?.executionSegmentHandoff) return prepared;
-        const latestManaged = session.getManagedMetadata?.() || managed;
-        await this.rollManagedSessionSegment(sessionId, {
-            kind: "execution",
-            continuation: prepared.executionSegmentHandoff,
-            expectedGeneration: latestManaged.generation,
-        });
-        return await this.#resumePendingExecutionSegmentHandoff(session, options) || prepared;
     }
 
     /**
@@ -1248,14 +1303,14 @@ export class SessionRuntime {
     async #resumePendingExecutionSegmentHandoff(session, options) {
         const managed = session.getManagedMetadata?.();
         if (!managed) return null;
-        return await this.#runWorkflowOperation(session, "resumeExecutionSegmentHandoff", options, async () => {
+        return await this.#runManagedStandaloneMutation(session.id, "workflow_operation", async (activeSession) => {
             const marker = readPersistedPendingSegmentContinuationEntry(
-                /** @type {any} */ (session.getRootSessionManager?.()),
+                /** @type {any} */ (activeSession.getRootSessionManager?.()),
             );
             const { resolvePendingSegmentHandoff } = await import("../workflow/execution-segment-handoff.ts");
             const resolved = await resolvePendingSegmentHandoff({
                 marker: /** @type {any} */ (marker),
-                projectRoot: session.cwd,
+                projectRoot: activeSession.cwd,
                 runwieldSessionId: managed.runwieldSessionId,
             });
             if (resolved.kind === "absent" || resolved.kind === "consumed") return null;
@@ -1264,8 +1319,8 @@ export class SessionRuntime {
             }
             if (resolved.continuation.kind === "semantic_repair") {
                 return await this.#runSemanticRepairContinuation(
-                    session.id,
-                    session,
+                    activeSession.id,
+                    activeSession,
                     options,
                     resolved.continuation,
                     true,
@@ -1275,10 +1330,10 @@ export class SessionRuntime {
             return await executePreparedPlanSegmentHandoff(
                 /** @type {any} */ ({
                     continuation: resolved.continuation,
-                    hostedSession: session,
+                    hostedSession: activeSession,
                 }),
             );
-        });
+        }, { activateAgent: false });
     }
 
     /** @param {string} sessionId @param {Record<string, any>} options */
@@ -1382,7 +1437,7 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runSemanticRepairSegmentHandoff: session not found");
         const managed = session.getManagedMetadata?.();
-        if (!managed) return validationResult;
+        if (!managed) throw new Error("Semantic repair handoff requires a segmented Session.");
         const workflow = session.getActiveExecutionWorkflow?.() ||
             validationResult.semanticRepairHandoff?.activeWorkflow;
         if (!workflow) throw new Error("Semantic repair handoff requires an active execution workflow.");
@@ -1542,13 +1597,12 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         const managed = session?.getManagedMetadata?.() || null;
         if (!session || !managed) return { ok: false, error: "not_managed", message: "Session is not managed." };
-        if (!this.#ownerCoordinationStore) {
-            return { ok: false, error: "owner_coordination_unavailable", message: "Managed read is unavailable." };
+        if (!this.#sessionStore) {
+            return { ok: false, error: "session_store_unavailable", message: "This Session is unavailable." };
         }
         let inspected;
         try {
-            this.#ownerCoordinationStore.requireActivationProtocolEnabled();
-            inspected = this.#ownerCoordinationStore.inspectSessionActivation(managed.runwieldSessionId);
+            inspected = this.#sessionStore.inspectSessionActivation(managed.runwieldSessionId);
         } catch (_error) {
             return { ok: false, error: "managed_read_blocked", message: "Managed read is unavailable." };
         }
@@ -1556,7 +1610,7 @@ export class SessionRuntime {
             return { ok: false, error: "committed_generation_unavailable", message: "Managed read is unavailable." };
         }
         try {
-            const segments = this.#ownerCoordinationStore.listSessionTranscriptSegments(managed.runwieldSessionId);
+            const segments = this.#sessionStore.listSessionTranscriptSegments(managed.runwieldSessionId);
             const projection = await projectAggregateTranscript({
                 cwd: session.cwd,
                 sessionDir: dirname(managed.transcriptPath),
@@ -1606,29 +1660,18 @@ export class SessionRuntime {
         if (!session) throw new Error("SessionRuntime.persistSessionImage: session not found");
         const managed = session.getManagedMetadata?.();
         if (managed && !session.getRootSessionManager?.()) {
-            if (!this.#ownerCoordinationStore) {
+            if (!this.#sessionStore) {
                 throw new Error("Cannot persist image attachment: no active session is available.");
             }
-            try {
-                return await this.#runManagedOperation(
-                    sessionId,
-                    {
-                        name: "submit_user_turn",
-                        options: { expectedGeneration: managed.generation ?? undefined },
-                        activateAgent: false,
-                    },
-                    async () => await this.persistSessionImage(sessionId, image),
-                );
-            } catch (error) {
-                if (
-                    String(error instanceof Error ? error.message : error).includes(
-                        "activation protocol is not enabled",
-                    )
-                ) {
-                    throw new Error("Cannot persist image attachment: no active session is available.");
-                }
-                throw error;
-            }
+            return await this.#runManagedOperation(
+                sessionId,
+                {
+                    name: "submit_user_turn",
+                    options: { expectedGeneration: managed.generation ?? undefined },
+                    activateAgent: false,
+                },
+                async () => await this.persistSessionImage(sessionId, image),
+            );
         }
         return await this.#persistActiveSessionImage(session, image);
     }
@@ -1723,6 +1766,7 @@ export class SessionRuntime {
                 return { ok: false, error: "unsupported" };
             }
             session.setThinkingLevel(next);
+            session.getRootSessionManager()?.appendThinkingLevelChange?.(next);
             this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.THINKING_LEVEL_CHANGED, thinkingLevel: next });
             return { ok: true, thinkingLevel: next };
         };
@@ -1750,7 +1794,15 @@ export class SessionRuntime {
         if (!session) return { ok: false, exitCode: 1, output: "", error: "not_found" };
         const command = String(options?.command || "").trim();
         if (!command) return { ok: false, exitCode: 1, output: "", error: "empty_command" };
+        if (this.#pendingManagedCreations.has(sessionId) || this.#pendingManagedCreationProjects.has(sessionId)) {
+            await this.#activateSessionAgent(session, { agentName: AGENTS.ROUTER });
+            return await this.runLocalShellCommand(sessionId, options);
+        }
         const managed = session.getManagedMetadata?.();
+        const activeCapability = this.#currentManagedOperations.get(sessionId) || null;
+        if (managed && activeCapability) {
+            return await this.#runLocalShellCommandInSession(session, options, activeCapability);
+        }
         if (managed && !session.getRootSessionManager?.()) {
             return await this.#runManagedOperation(
                 sessionId,
@@ -2031,6 +2083,7 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return null;
         if (session.getManagedMetadata?.() && !session.getRootSessionManager?.()) {
+            const managed = session.getManagedMetadata?.();
             const projected = await this.#readManagedCommittedProjection(sessionId);
             if (!projected.ok) return { ok: false, error: projected.error, message: projected.message };
             const info = buildProjectedSessionInfo(projected.entries, {
@@ -2039,6 +2092,9 @@ export class SessionRuntime {
                 transcriptPath: session.getManagedMetadata?.()?.transcriptPath,
             });
             return buildSessionContextReport({
+                agentName: managed?.activeAgent || "",
+                agentDisplayName: managed?.activeAgent ? getAgentDisplayName(managed.activeAgent, session.cwd) : "",
+                model: { provider: managed?.provider || "", model: managed?.model || "" },
                 projection: buildProjectedSessionContextProjection(projected.entries),
                 contextUsage: null,
                 activeMessageTokens: info.inputTokens + info.outputTokens + info.cacheReadTokens +
@@ -2076,23 +2132,42 @@ export class SessionRuntime {
         if (!cwd || !isAbsolute(cwd)) {
             throw new Error("SessionRuntime.listResumableSessions requires an absolute cwd");
         }
-        if (!this.#ownerCoordinationStore) {
-            return { ok: false, error: "owner_coordination_unavailable", sessions: [] };
+        if (!this.#sessionStore) {
+            return { ok: false, error: "session_store_unavailable", sessions: [] };
         }
         const classified = await classifyRootSessionLocator({
             cwd,
-            ownerCoordinationStore: this.#ownerCoordinationStore,
+            ownerCoordinationStore: this.#sessionStore,
         });
         if (classified.kind === "managed") {
             const listed = await listCatalogSafeRootSessionLocators(cwd);
-            return listed.locators.map((locator) => ({
-                id: locator.piSessionId,
-                path: locator.sessionPath,
-                cwd: locator.headerCwd,
-                modified: locator.headerTimestamp || undefined,
-                messageCount: undefined,
-                firstMessage: undefined,
-                name: undefined,
+            return await Promise.all(listed.locators.map(async (locator) => {
+                const evidence = await captureTranscriptEvidence({
+                    transcriptPath: locator.sessionPath,
+                    transcriptCwd: locator.headerCwd,
+                });
+                const info = buildProjectedSessionInfo(evidence.entries, {
+                    sessionId: locator.piSessionId,
+                    cwd: locator.headerCwd,
+                    transcriptPath: locator.sessionPath,
+                });
+                const messages = evidence.entries.filter((entry) => /** @type {any} */ (entry)?.type === "message");
+                const firstUser = messages.find((entry) => /** @type {any} */ (entry)?.message?.role === "user");
+                const firstContent = /** @type {any} */ (firstUser)?.message?.content;
+                const firstMessage = typeof firstContent === "string"
+                    ? firstContent
+                    : Array.isArray(firstContent)
+                    ? firstContent.find((block) => block?.type === "text")?.text
+                    : undefined;
+                return {
+                    id: locator.piSessionId,
+                    path: locator.sessionPath,
+                    cwd: locator.headerCwd,
+                    modified: locator.headerTimestamp || undefined,
+                    messageCount: messages.length,
+                    firstMessage,
+                    name: info.name || undefined,
+                };
             }));
         }
         if (classified.kind === "blocked") {
@@ -2105,20 +2180,17 @@ export class SessionRuntime {
      * @param {{ cwd: string, sessionId: string, sessionPath?: string }} options
      */
     async #inspectUnmanagedResumableSession(options) {
-        const { estimateTokens } = await import("@earendil-works/pi-coding-agent");
-        const { sessionManager } = await openPersistedRootSession(options);
-        try {
-            const context = sessionManager.buildSessionContext?.();
-            const messages = Array.isArray(context?.messages) ? context.messages : [];
-            let estimatedTokens = 0;
-            for (const message of messages) estimatedTokens += estimateTokens(/** @type {any} */ (message));
-            const model = context?.model && typeof context.model === "object"
-                ? /** @type {{ provider: string, modelId: string }} */ (context.model)
-                : null;
-            return { estimatedTokens, messageCount: messages.length, model };
-        } finally {
-            /** @type {any} */ (sessionManager).dispose?.();
-        }
+        const { locators } = await listCatalogSafeRootSessionLocators(options.cwd);
+        const locator = locators.find((candidate) =>
+            candidate.piSessionId === options.sessionId &&
+            (!options.sessionPath || candidate.sessionPath === options.sessionPath)
+        );
+        if (!locator) throw new Error("The Session transcript is unavailable");
+        const evidence = await captureTranscriptEvidence({
+            transcriptPath: locator.sessionPath,
+            transcriptCwd: locator.headerCwd,
+        });
+        return inspectProjectedTranscript(evidence.entries);
     }
 
     /**
@@ -2128,33 +2200,27 @@ export class SessionRuntime {
      * @param {{ cwd: string, sessionId: string, sessionPath?: string }} options
      */
     async inspectResumableSession(options) {
-        if (!this.#ownerCoordinationStore) {
+        if (!this.#sessionStore) {
             return {
                 estimatedTokens: 0,
                 messageCount: 0,
                 model: null,
                 ok: false,
-                error: "owner_coordination_unavailable",
+                error: "session_store_unavailable",
             };
         }
         const classified = await classifyRootSessionLocator({
             cwd: options.cwd,
             sessionId: options.sessionId,
             sessionPath: options.sessionPath,
-            ownerCoordinationStore: this.#ownerCoordinationStore,
+            ownerCoordinationStore: this.#sessionStore,
         });
         if (classified.kind === "managed" && classified.session) {
-            const inspected = this.#ownerCoordinationStore?.inspectSessionActivation(
+            const inspected = this.#sessionStore?.inspectSessionActivation(
                 classified.session.runwieldSessionId,
             );
             if (!inspected?.generation) {
-                return {
-                    estimatedTokens: 0,
-                    messageCount: 0,
-                    model: null,
-                    ok: false,
-                    error: "committed_generation_unavailable",
-                };
+                return await this.#inspectUnmanagedResumableSession(options);
             }
             try {
                 const evidence = await captureTranscriptEvidence({
@@ -2252,6 +2318,7 @@ export class SessionRuntime {
         /** @param {import('./hosted-session.js').HostedSession} session */
         const run = (session) => {
             session.setThinkingLevel(thinkingLevel);
+            session.getRootSessionManager()?.appendThinkingLevelChange?.(thinkingLevel);
             this.#emitSessionEvent(session.id, { type: RuntimeEventTypes.THINKING_LEVEL_CHANGED, thinkingLevel });
             return { ok: true, thinkingLevel };
         };
@@ -2420,7 +2487,7 @@ export class SessionRuntime {
         let pendingCreation = this.#pendingManagedCreations.get(hostedSession.id);
         const pendingProject = this.#pendingManagedCreationProjects.get(hostedSession.id);
         if (!pendingCreation && pendingProject) {
-            if (!this.#ownerCoordinationStore) throw new Error("Managed Session requires an owner coordination store");
+            if (!this.#sessionStore) throw new Error("Session coordination is unavailable");
             let sessionManager = hostedSession.getRootSessionManager();
             let createdSessionManager = false;
             try {
@@ -2431,29 +2498,35 @@ export class SessionRuntime {
                     hostedSession.setRootSessionManager(sessionManager);
                     createdSessionManager = true;
                 }
-                if (!sessionManager) throw new Error("Managed Session root manager was not created");
+                if (!sessionManager) throw new Error("The Session could not be opened");
                 const activeSessionManager = sessionManager;
                 const piSessionId = activeSessionManager.getSessionId?.();
-                if (!piSessionId) throw new Error("Created managed Session has no Pi session id");
+                if (!piSessionId) throw new Error("The Session could not be persisted");
                 const transcriptPath = await this.#resolveCreatedSessionPath(hostedSession.cwd, activeSessionManager);
-                const managedSession = await this.#ownerCoordinationStore.ensureSessionCatalogRecord({
-                    projectId: pendingProject.projectId,
-                    piSessionId,
-                    transcriptPath,
-                    transcriptCwd: hostedSession.cwd,
-                    source: "created",
+                const acquired = await this.#sessionStore.ensureSessionCatalogRecordAndAcquire({
+                    locator: {
+                        projectId: pendingProject.projectId,
+                        piSessionId,
+                        transcriptPath,
+                        transcriptCwd: hostedSession.cwd,
+                        source: "created",
+                    },
+                    activation: {
+                        ownerInstanceId: this.#ownerInstanceId,
+                        ownerProcessKind: this.#ownerProcessKind,
+                        phase: "preparing",
+                    },
                 });
-                const managedSegment = this.#ownerCoordinationStore.getCurrentSessionSegment(
-                    managedSession.runwieldSessionId,
-                );
-                if (!managedSegment) throw new Error("Created managed Session has no current segment");
-                pendingCreation = this.#ownerCoordinationStore.acquireSessionActivation({
+                const managedSession = acquired.session;
+                const managedSegment = acquired.segment;
+                pendingCreation = acquired.proof;
+                recordSegmentLineageEvidence(activeSessionManager, {
+                    segmentId: managedSegment.segmentId,
                     runwieldSessionId: managedSession.runwieldSessionId,
-                    projectId: managedSession.projectId,
-                    ownerInstanceId: this.#ownerInstanceId,
-                    ownerProcessKind: this.#ownerProcessKind,
-                    expectedGeneration: null,
-                    phase: "preparing",
+                    parentSegmentId: null,
+                    parentPiSessionId: null,
+                    lineageGroupKey: managedSegment.segmentId,
+                    kind: "planning",
                 });
                 hostedSession.setManagedMetadata({
                     runwieldSessionId: managedSession.runwieldSessionId,
@@ -2478,6 +2551,13 @@ export class SessionRuntime {
                 this.#pendingManagedCreations.set(hostedSession.id, pendingCreation);
             } catch (error) {
                 this.#pendingManagedCreationProjects.delete(hostedSession.id);
+                if (pendingCreation) {
+                    try {
+                        this.#sessionStore.releaseUnchangedActivation(pendingCreation);
+                    } catch {
+                        // Preserve the creation failure after best-effort lock release.
+                    }
+                }
                 if (createdSessionManager) {
                     sessionManager?.dispose?.();
                     hostedSession.setRootSessionManager(null);
@@ -2486,10 +2566,10 @@ export class SessionRuntime {
             }
         }
         if (!pendingCreation) return await switchActiveAgent(hostedSession, options);
-        if (!this.#ownerCoordinationStore) throw new Error("Managed Session requires an owner coordination store");
+        if (!this.#sessionStore) throw new Error("Session coordination is unavailable");
         let activeProof = pendingCreation;
         const managed = hostedSession.getManagedMetadata?.();
-        if (!managed) throw new Error("Managed Session metadata disappeared during creation");
+        if (!managed) throw new Error("Session coordination was interrupted during creation");
         const capability = new ManagedOperationCapability({
             runtimeSessionId: hostedSession.id,
             runwieldSessionId: managed.runwieldSessionId,
@@ -2508,23 +2588,23 @@ export class SessionRuntime {
         hostedSession.setManagedOperationCapability(capability);
         let hydrated = false;
         try {
-            activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "hydrated");
+            activeProof = this.#sessionStore.changeSessionActivationPhase(activeProof, "hydrated");
             capability.updateProof(activeProof);
             hydrated = true;
             const result = await switchActiveAgent(hostedSession, {
                 ...options,
                 managedOperationCapability: capability,
             });
-            activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "checkpointing");
+            activeProof = this.#sessionStore.changeSessionActivationPhase(activeProof, "checkpointing");
             capability.updateProof(activeProof);
             const managed = hostedSession.getManagedMetadata?.();
-            if (!managed) throw new Error("Managed Session metadata disappeared during creation");
+            if (!managed) throw new Error("Session coordination was interrupted during creation");
             await syncTranscriptFileAndParent(managed.transcriptPath);
             const evidence = await captureTranscriptEvidence({
                 transcriptPath: managed.transcriptPath,
                 transcriptCwd: hostedSession.cwd,
             });
-            this.#ownerCoordinationStore.publishGenerationAndRelease(activeProof, {
+            this.#sessionStore.publishGenerationAndRelease(activeProof, {
                 generation: 0,
                 byteLength: evidence.byteLength,
                 terminalEntryId: evidence.terminalEntryId,
@@ -2542,11 +2622,11 @@ export class SessionRuntime {
             this.#pendingManagedCreationProjects.delete(hostedSession.id);
             try {
                 if (hydrated) {
-                    this.#ownerCoordinationStore.markSessionUncertain(activeProof, {
+                    this.#sessionStore.markSessionUncertain(activeProof, {
                         reason: error instanceof Error ? error.message : String(error),
                     });
                 } else {
-                    this.#ownerCoordinationStore.releaseUnchangedActivation(activeProof);
+                    this.#sessionStore.releaseUnchangedActivation(activeProof);
                 }
             } catch {
                 // Preserve the original creation/setup failure.
@@ -2575,35 +2655,9 @@ export class SessionRuntime {
     }
 
     /** @param {string} cwd */
-    #findEnabledManagedProjectForCwd(cwd) {
-        if (!this.#ownerCoordinationStore) return null;
-        let realCwd = "";
-        try {
-            realCwd = Deno.realPathSync(cwd);
-        } catch {
-            return null;
-        }
-        for (const project of this.#ownerCoordinationStore.listProjects()) {
-            if (project.lifecycle !== "enabled" || project.currentRoot !== realCwd) continue;
-            this.#ownerCoordinationStore.requireEnabledProjectRoot(project.projectId);
-            return project;
-        }
-        return null;
-    }
-
-    /**
-     * Managed activation is an explicit Runtime operation mode, not an ambient
-     * consequence of having an owner-coordination database or a cataloged
-     * transcript. Normal interactive consumers may run inside registered
-     * Projects and may resume cataloged transcripts; those flows must remain
-     * ordinary live sessions unless their caller explicitly opts into managed
-     * fencing.
-     *
-     * @param {{ enableManagedActivation?: boolean }} options
-     * @returns {boolean}
-     */
-    #shouldUseManagedActivation(options) {
-        return options.enableManagedActivation === true;
+    #ensureSessionProjectForCwd(cwd) {
+        if (!this.#sessionStore) return null;
+        return this.#sessionStore.ensureRuntimeProject({ root: cwd });
     }
 
     /** @param {any} sessionManager @param {string} transcriptPath */
@@ -2639,7 +2693,7 @@ export class SessionRuntime {
         if (!initialManaged) return { ok: true, managed: false, events: [] };
         let managed = initialManaged;
         if (hostedSession.getRootSessionManager()) return { ok: true, managed: true, dormant: false, events: [] };
-        if (!this.#ownerCoordinationStore) throw new Error("Managed Session requires an owner coordination store");
+        if (!this.#sessionStore) throw new Error("Session coordination is unavailable");
         const emitEvents = options.emitEvents !== false;
         const emitSyncState = (
             /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */ state,
@@ -2652,21 +2706,14 @@ export class SessionRuntime {
             if (processKind === "workspace" || processKind === "tui" || processKind === "acp") return processKind;
             return "unknown";
         };
-        try {
-            this.#ownerCoordinationStore.requireActivationProtocolEnabled();
-        } catch (_error) {
-            /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */
-            const state = {
-                type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
-                status: "blocked",
-                localGeneration: managed.acknowledgedGeneration ?? managed.generation ?? null,
-                latestGeneration: managed.generation ?? null,
-                message: "Managed activation protocol is not enabled.",
-            };
-            emitSyncState(state);
-            return { ok: false, error: "protocol_disabled", state };
+        let activationState = this.#sessionStore.inspectSessionActivation(managed.runwieldSessionId);
+        if (
+            !activationState.generation &&
+            ["uninitialized", "uncertain", "reconcile_required"].includes(activationState.activation?.state || "")
+        ) {
+            await this.ensureInitialSessionGeneration(managed.runwieldSessionId);
+            activationState = this.#sessionStore.inspectSessionActivation(managed.runwieldSessionId);
         }
-        const activationState = this.#ownerCoordinationStore.inspectSessionActivation(managed.runwieldSessionId);
         const latestGeneration = activationState.generation?.generation ?? null;
         const currentLocalGeneration = managed.acknowledgedGeneration ?? managed.generation ?? null;
         const activeOwnerKind = activationState.activation?.ownerProcessKind || null;
@@ -2744,7 +2791,7 @@ export class SessionRuntime {
                     runwieldSessionId: managed.runwieldSessionId,
                     runtimeSessionId: sessionId,
                     generation: activationState.generation,
-                    segments: this.#ownerCoordinationStore.listSessionTranscriptSegments(managed.runwieldSessionId),
+                    segments: this.#sessionStore.listSessionTranscriptSegments(managed.runwieldSessionId),
                     cursorEventId,
                     cursorEventOrdinal,
                     limit: options.limit,
@@ -2819,7 +2866,72 @@ export class SessionRuntime {
     }
 
     /**
-     * Adopt a managed Session as a dormant Runtime shell. This path deliberately
+     * Publish generation zero from the complete current transcript after an
+     * initial writer exited before its first checkpoint. The file store holds
+     * the OS lock and rejects any transcript or fence change during recovery.
+     *
+     * @param {string} runwieldSessionId
+     */
+    async ensureInitialSessionGeneration(runwieldSessionId) {
+        if (!this.#sessionStore) throw new Error("Session coordination is unavailable");
+        const session = this.#sessionStore.getSessionById(runwieldSessionId);
+        if (!session) throw new Error("Session identity is unavailable");
+        const state = this.#sessionStore.inspectSessionActivation(runwieldSessionId);
+        if (state.generation) return state;
+        const segment = this.#sessionStore.getCurrentSessionSegment(runwieldSessionId);
+        if (!segment) throw new Error("The Session transcript is unavailable");
+        const evidence = await captureTranscriptEvidence({
+            transcriptPath: segment.transcriptPath,
+            transcriptCwd: segment.transcriptCwd,
+        });
+        if (["uncertain", "reconcile_required"].includes(state.activation?.state || "")) {
+            return this.#sessionStore.recoverSessionControl({
+                runwieldSessionId,
+                projectId: session.projectId,
+                expectedFence: state.activation?.fence ?? 0,
+                expectedGeneration: null,
+                expectedCurrentSegmentId: segment.segmentId,
+                ownerInstanceId: this.#ownerInstanceId,
+                ownerProcessKind: this.#ownerProcessKind,
+                transcriptEvidence: {
+                    byteLength: evidence.byteLength,
+                    terminalEntryId: evidence.terminalEntryId,
+                    digestHex: evidence.digestHex,
+                    currentSegmentId: segment.segmentId,
+                },
+            });
+        }
+        if (state.activation?.state !== "uninitialized") {
+            throw new Error("The Session's initial transcript state is unavailable");
+        }
+        let proof = this.#sessionStore.acquireSessionActivation({
+            runwieldSessionId,
+            projectId: session.projectId,
+            ownerInstanceId: this.#ownerInstanceId,
+            ownerProcessKind: this.#ownerProcessKind,
+            expectedGeneration: null,
+            expectedCurrentSegmentId: segment.segmentId,
+            phase: "bootstrap",
+        });
+        try {
+            proof = this.#sessionStore.changeSessionActivationPhase(proof, "checkpointing");
+            return this.#sessionStore.publishGenerationAndRelease(proof, {
+                generation: 0,
+                byteLength: evidence.byteLength,
+                terminalEntryId: evidence.terminalEntryId,
+                digestHex: evidence.digestHex,
+                currentSegmentId: segment.segmentId,
+            });
+        } catch (error) {
+            this.#sessionStore.markSessionReconcileRequiredWithProof(proof, {
+                reason: error instanceof Error ? error.message : String(error),
+            });
+            throw error;
+        }
+    }
+
+    /**
+     * Adopt a Session as a dormant Runtime shell. This path deliberately
      * does not open a writable Pi Session Manager.
      *
      * @param {{ session: import('../owner-coordination/sessions.js').CatalogedSession, generation?: number | null, acknowledgedEventId?: string | null, name?: string | null, activeAgent?: string | null, model?: string | null, provider?: string | null, thinkingLevel?: string | null, workflowContext?: import('./workflow-context-session.js').WorkflowContext | null }} options
@@ -2837,7 +2949,7 @@ export class SessionRuntime {
                 piSessionId: cataloged.piSessionId,
                 transcriptPath: cataloged.transcriptPath,
                 currentSegmentId:
-                    this.#ownerCoordinationStore?.getCurrentSessionSegment(cataloged.runwieldSessionId)?.segmentId ||
+                    this.#sessionStore?.getCurrentSessionSegment(cataloged.runwieldSessionId)?.segmentId ||
                     "",
                 generation: options.generation ?? null,
                 acknowledgedGeneration: options.generation ?? null,
@@ -2867,9 +2979,8 @@ export class SessionRuntime {
 
     /**
      * Submit one user turn through the Runtime-owned authority path. Consumers
-     * provide the user's raw editor text; Runtime decides whether the session is
-     * managed, which generation fence applies, and how text should be normalized
-     * before the active root receives it.
+     * provide the user's raw editor text; Runtime applies the current generation
+     * fence before the active root receives it.
      *
      * @param {string} sessionId
      * @param {PromptSessionOptions} options
@@ -2879,20 +2990,18 @@ export class SessionRuntime {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) throw new Error("SessionRuntime.promptUserTurn: session not found");
         const managed = hostedSession.getManagedMetadata?.() || null;
-        const isManaged = Boolean(managed);
-        const submittedRequest = isManaged ? options.initialRequest : options.initialRequest.trim();
+        if (!managed) throw new Error("SessionRuntime.promptUserTurn: segmented Session metadata is unavailable");
+        const submittedRequest = options.initialRequest;
         const requestOptions = { ...options, initialRequest: submittedRequest };
         const buildResult = (
             /** @type {{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string }} */ result,
         ) => ({
             ...result,
-            managed: isManaged,
+            managed: true,
             submittedRequest,
-            restoreDraft: isManaged && Boolean(result.error),
+            restoreDraft: Boolean(result.error),
             ...(result.ok && submittedRequest.trim() ? { historyText: submittedRequest.trim() } : {}),
         });
-
-        if (!managed) return buildResult(await this.promptSession(sessionId, requestOptions));
 
         const expectedGenerationSource = managed.acknowledgedGeneration ?? managed.generation;
         const expectedGeneration = Number.isSafeInteger(expectedGenerationSource)
@@ -2926,9 +3035,8 @@ export class SessionRuntime {
                 error: "managed_operation_in_progress",
             };
         }
-        if (!this.#ownerCoordinationStore) throw new Error("Managed Session requires an owner coordination store");
-        this.#ownerCoordinationStore.requireActivationProtocolEnabled();
-        const state = this.#ownerCoordinationStore.inspectSessionActivation(managed.runwieldSessionId);
+        if (!this.#sessionStore) throw new Error("Session coordination is unavailable");
+        const state = this.#sessionStore.inspectSessionActivation(managed.runwieldSessionId);
         const latestGeneration = state.generation?.generation ?? null;
         const options = descriptor.options || {};
         const expectedGeneration = options.expectedGeneration ?? managed.generation ?? latestGeneration ?? 0;
@@ -2938,7 +3046,7 @@ export class SessionRuntime {
         /** @type {import('../owner-coordination/session-activations.js').ActivationProof} */
         let activeProof;
         try {
-            activeProof = this.#ownerCoordinationStore.acquireSessionActivation({
+            activeProof = this.#sessionStore.acquireSessionActivation({
                 runwieldSessionId: managed.runwieldSessionId,
                 projectId: managed.projectId,
                 ownerInstanceId: this.#ownerInstanceId,
@@ -2958,7 +3066,11 @@ export class SessionRuntime {
                     error: "refresh_required",
                 };
             }
-            if (message.includes("Session activation is not available") || message.includes("activation race lost")) {
+            if (
+                message.includes("Session activation is not available") ||
+                message.includes("activation race lost") ||
+                message.includes("another RunWield surface")
+            ) {
                 return {
                     ok: false,
                     turns: 0,
@@ -2986,21 +3098,13 @@ export class SessionRuntime {
         );
         hostedSession.setManagedOperationCapability(capability);
         let hydrated = false;
-        /** @type {ReturnType<typeof setInterval> | null} */
-        let heartbeatTimer = null;
+        /** @type {() => void} */
+        let cleanupTurnStart = () => {};
         this.#beginBusyOperation(sessionId);
-        const ownerCoordinationStore = this.#ownerCoordinationStore;
-        const heartbeat = () => {
-            try {
-                ownerCoordinationStore.heartbeatSessionActivation(activeProof);
-            } catch (error) {
-                capability.latchHeartbeatFailure(error instanceof Error ? error : String(error));
-            }
-        };
         try {
             const pendingIntent = hostedSession.getPendingManagedTurnIntent?.() || {};
             if (state.generation) {
-                const generationSegment = this.#ownerCoordinationStore.listSessionTranscriptSegments(
+                const generationSegment = this.#sessionStore.listSessionTranscriptSegments(
                     managed.runwieldSessionId,
                 )
                     .find((segment) => segment.segmentId === state.generation?.currentSegmentId);
@@ -3016,7 +3120,7 @@ export class SessionRuntime {
                     currentEvidence.digestHex !== state.generation.digestHex ||
                     currentEvidence.terminalEntryId !== state.generation.terminalEntryId
                 ) {
-                    this.#ownerCoordinationStore.markSessionReconcileRequiredWithProof(activeProof, {
+                    this.#sessionStore.markSessionReconcileRequiredWithProof(activeProof, {
                         reason: "transcript_ahead_or_mismatch",
                     });
                     return {
@@ -3028,28 +3132,16 @@ export class SessionRuntime {
                     };
                 }
             }
-            heartbeatTimer = setInterval(heartbeat, 10_000);
             const acceptedTurnId = options.turnId || crypto.randomUUID();
+            const turnStartCleanup = options.onTurnStarted?.({ turnId: acceptedTurnId });
+            if (typeof turnStartCleanup === "function") cleanupTurnStart = turnStartCleanup;
             const hasPendingImages = (options.initialImages || []).some((image) => !image.path && !image.ref);
             if (descriptor.hydrate === false) {
-                const result = await body({ acceptedTurnId, hasPendingImages, capability });
-                if (capability.heartbeatFailureReason) {
-                    try {
-                        this.#ownerCoordinationStore.markSessionUncertain(activeProof, {
-                            reason: capability.heartbeatFailureReason,
-                        });
-                    } catch {
-                        // Heartbeat expiry already moved the activation out of active state.
-                    }
-                    return {
-                        ok: false,
-                        turns: 0,
-                        handoffs: 0,
-                        handoffLimitReached: false,
-                        error: "reconcile_required",
-                    };
-                }
-                this.#ownerCoordinationStore.releaseUnchangedActivation(activeProof);
+                const result = await ACTIVE_MANAGED_OPERATION.run(
+                    { runtime: this, sessionId, capability },
+                    async () => await body({ acceptedTurnId, hasPendingImages, capability }),
+                );
+                this.#sessionStore.releaseUnchangedActivation(activeProof);
                 return result;
             }
             const shouldEmitPromptEvents = options.initialRequest !== undefined &&
@@ -3066,7 +3158,7 @@ export class SessionRuntime {
                     turnId: acceptedTurnId,
                 });
             }
-            activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "hydrated");
+            activeProof = this.#sessionStore.changeSessionActivationPhase(activeProof, "hydrated");
             capability.updateProof(activeProof);
             hydrated = true;
             const { sessionManager } = await openPersistedRootSession({
@@ -3077,8 +3169,14 @@ export class SessionRuntime {
             hostedSession.setRootSessionManager(/** @type {any} */ (sessionManager), capability);
             if (pendingIntent.model || pendingIntent.provider) {
                 hostedSession.setActiveModelState(pendingIntent.model || "", pendingIntent.provider || "", true);
+            } else if (managed.model || managed.provider) {
+                hostedSession.setActiveModelState(managed.model || "", managed.provider || "", true);
             }
-            if (pendingIntent.thinkingLevel) hostedSession.setThinkingLevel(pendingIntent.thinkingLevel);
+            if (pendingIntent.thinkingLevel || managed.thinkingLevel) {
+                hostedSession.setThinkingLevel(normalizeThinkingLevel(
+                    pendingIntent.thinkingLevel || managed.thinkingLevel,
+                ));
+            }
             let agentName = options.agentName || pendingIntent.agentName || null;
             if (descriptor.activateAgent !== false) {
                 agentName ||= await resolveResumeAgentName(sessionManager);
@@ -3098,28 +3196,20 @@ export class SessionRuntime {
                 });
             }
             hostedSession.consumePendingManagedTurnIntent?.();
-            activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "turning");
+            activeProof = this.#sessionStore.changeSessionActivationPhase(activeProof, "turning");
             capability.updateProof(activeProof);
-            const result = await body({ acceptedTurnId, hasPendingImages, capability });
-            if (capability.heartbeatFailureReason) {
-                try {
-                    this.#ownerCoordinationStore.markSessionUncertain(activeProof, {
-                        reason: capability.heartbeatFailureReason,
-                    });
-                } catch {
-                    // Heartbeat expiry already moved the activation out of active state.
-                }
-                hostedSession.dehydrateManagedSession();
-                this.#removeAllQueueSourceSubscriptions(sessionId);
-                return { ok: false, turns: 0, handoffs: 0, handoffLimitReached: false, error: "reconcile_required" };
-            }
-            activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "checkpointing");
+            const result = await ACTIVE_MANAGED_OPERATION.run(
+                { runtime: this, sessionId, capability },
+                async () => await body({ acceptedTurnId, hasPendingImages, capability }),
+            );
+            activeProof = this.#sessionStore.changeSessionActivationPhase(activeProof, "checkpointing");
             capability.updateProof(activeProof);
             const modelState = hostedSession.getActiveModelState?.() || {};
             const nextManaged = {
                 ...managed,
                 generation: expectedGeneration + 1,
                 acknowledgedGeneration: expectedGeneration + 1,
+                name: hostedSession.getRootSessionManager?.()?.getSessionName?.() || managed.name || null,
                 activeAgent: hostedSession.getRootAgentName?.() || null,
                 model: modelState.model || managed.model || "",
                 provider: modelState.provider || managed.provider || "",
@@ -3133,7 +3223,7 @@ export class SessionRuntime {
                 transcriptPath: managed.transcriptPath,
                 transcriptCwd: hostedSession.cwd,
             });
-            this.#ownerCoordinationStore.publishGenerationAndRelease(activeProof, {
+            this.#sessionStore.publishGenerationAndRelease(activeProof, {
                 generation: expectedGeneration + 1,
                 byteLength: evidence.byteLength,
                 terminalEntryId: evidence.terminalEntryId,
@@ -3144,24 +3234,68 @@ export class SessionRuntime {
             await this.synchronizeManagedSession(sessionId, { emitEvents: false });
             return result;
         } catch (error) {
+            if (hydrated && capability.signal?.aborted) {
+                try {
+                    activeProof = this.#sessionStore.changeSessionActivationPhase(
+                        activeProof,
+                        "checkpointing",
+                    );
+                    capability.updateProof(activeProof);
+                    const modelState = hostedSession.getActiveModelState?.() || {};
+                    const canceledManaged = {
+                        ...managed,
+                        generation: expectedGeneration + 1,
+                        acknowledgedGeneration: expectedGeneration + 1,
+                        name: hostedSession.getRootSessionManager?.()?.getSessionName?.() || managed.name || null,
+                        activeAgent: hostedSession.getRootAgentName?.() || null,
+                        model: modelState.model || managed.model || "",
+                        provider: modelState.provider || managed.provider || "",
+                        thinkingLevel: hostedSession.getThinkingLevel?.() || managed.thinkingLevel || "off",
+                        workflowContext: hostedSession.getWorkflowContext?.() || managed.workflowContext || null,
+                    };
+                    hostedSession.dehydrateManagedSession();
+                    this.#removeAllQueueSourceSubscriptions(sessionId);
+                    await syncTranscriptFileAndParent(managed.transcriptPath);
+                    const evidence = await captureTranscriptEvidence({
+                        transcriptPath: managed.transcriptPath,
+                        transcriptCwd: hostedSession.cwd,
+                    });
+                    this.#sessionStore.publishGenerationAndRelease(activeProof, {
+                        generation: expectedGeneration + 1,
+                        byteLength: evidence.byteLength,
+                        terminalEntryId: evidence.terminalEntryId,
+                        digestHex: evidence.digestHex,
+                        currentSegmentId: managed.currentSegmentId,
+                    });
+                    hostedSession.setManagedMetadata(canceledManaged);
+                    await this.synchronizeManagedSession(sessionId, { emitEvents: false });
+                    throw error;
+                } catch (checkpointError) {
+                    if (checkpointError === error) throw error;
+                    this.#sessionStore.markSessionUncertain(activeProof, {
+                        reason: checkpointError instanceof Error ? checkpointError.message : String(checkpointError),
+                    });
+                    throw error;
+                }
+            }
             hostedSession.dehydrateManagedSession();
             this.#removeAllQueueSourceSubscriptions(sessionId);
             if (!hydrated) {
                 try {
-                    this.#ownerCoordinationStore.releaseUnchangedActivation(activeProof);
+                    this.#sessionStore.releaseUnchangedActivation(activeProof);
                 } catch {
-                    this.#ownerCoordinationStore.markSessionUncertain(activeProof, {
+                    this.#sessionStore.markSessionUncertain(activeProof, {
                         reason: error instanceof Error ? error.message : String(error),
                     });
                 }
             } else {
-                this.#ownerCoordinationStore.markSessionUncertain(activeProof, {
+                this.#sessionStore.markSessionUncertain(activeProof, {
                     reason: error instanceof Error ? error.message : String(error),
                 });
             }
             throw error;
         } finally {
-            if (heartbeatTimer) clearInterval(heartbeatTimer);
+            cleanupTurnStart();
             capability.settle();
             this.#currentManagedOperations.delete(sessionId);
             this.#currentManagedOperationSettlements.delete(sessionId);
@@ -3179,7 +3313,7 @@ export class SessionRuntime {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) throw new Error("SessionRuntime.promptManagedSession: session not found");
         const managed = hostedSession.getManagedMetadata?.();
-        if (!managed) return await this.promptSession(sessionId, options);
+        if (!managed) throw new Error("SessionRuntime.promptManagedSession: segmented Session metadata is unavailable");
         const result = await this.#runManagedOperation(
             sessionId,
             { name: "prompt", options },
@@ -3187,10 +3321,11 @@ export class SessionRuntime {
                 await this.promptSession(sessionId, {
                     ...options,
                     turnId: acceptedTurnId,
+                    onTurnStarted: undefined,
                     emitInitialEvents: hasPendingImages,
                     suppressEpicContinuation: true,
                     signal: capability.signal,
-                }),
+                }, capability),
         );
         if (result?.ok && /** @type {any} */ (result)._validationResult?.epicContinuation) {
             const replacement = await this.#continueEpicAfterValidation(
@@ -3210,10 +3345,10 @@ export class SessionRuntime {
     async rollManagedSessionSegment(sessionId, options) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) throw new Error("SessionRuntime.rollManagedSessionSegment: session not found");
-        if (!this.#ownerCoordinationStore) throw new Error("Managed Session requires an owner coordination store");
+        if (!this.#sessionStore) throw new Error("Session storage is unavailable");
         return await rollSessionTranscriptSegment({
             hostedSession,
-            ownerCoordinationStore: this.#ownerCoordinationStore,
+            ownerCoordinationStore: this.#sessionStore,
             ownerInstanceId: this.#ownerInstanceId,
             ownerProcessKind: this.#ownerProcessKind,
             kind: options.kind,
@@ -3228,23 +3363,25 @@ export class SessionRuntime {
      * consumer. Only the opaque runtime id and public metadata cross the core
      * boundary.
      *
-     * @param {{ cwd: string, mode?: "new" | "continue", enableManagedActivation?: boolean, adoptManagedActivation?: boolean, deferManagedActivationUntilAgentReady?: boolean }} options
+     * @param {{ cwd: string, mode?: "new" | "continue", deferManagedActivationUntilAgentReady?: boolean }} options
      */
     async createInteractiveSession(options) {
         if (!options?.cwd || !isAbsolute(options.cwd)) {
             throw new Error("SessionRuntime.createInteractiveSession requires an absolute cwd");
         }
-        const ownerCoordinationStore = this.#ownerCoordinationStore;
+        const ownerCoordinationStore = this.#sessionStore;
         if (!ownerCoordinationStore) {
-            throw new Error("Session Manager access is blocked: owner_coordination_unavailable");
+            throw new Error("Session Manager access is blocked: session_store_unavailable");
         }
+        const managedProject = this.#ensureSessionProjectForCwd(options.cwd);
+        if (!managedProject) throw new Error("Session Manager create is blocked: project_identity_unavailable");
         if ((options.mode || "new") === "continue") {
             const classified = await classifyRootSessionLocator({
                 cwd: options.cwd,
                 ownerCoordinationStore,
             });
             if (classified.kind === "blocked") {
-                throw new Error(`Managed Session continue is blocked: ${classified.reason}`);
+                throw new Error(`Session continue is blocked: ${classified.reason}`);
             }
             const persistedSessions = classified.kind === "managed"
                 ? (await listCatalogSafeRootSessionLocators(options.cwd)).locators.map((locator) => ({
@@ -3260,7 +3397,6 @@ export class SessionRuntime {
                     cwd: options.cwd,
                     sessionId: latestSession.id,
                     sessionPath: latestSession.path,
-                    enableManagedActivation: classified.kind === "managed",
                 });
                 return {
                     sessionId: loaded.sessionId,
@@ -3270,29 +3406,6 @@ export class SessionRuntime {
                 };
             }
         }
-        const creationClassification = await classifyRootSessionLocator({
-            cwd: options.cwd,
-            ownerCoordinationStore,
-        });
-        if (creationClassification.kind === "blocked") {
-            throw new Error(`Session Manager create is blocked: ${creationClassification.reason}`);
-        }
-        const requestedManagedNew = (this.#shouldUseManagedActivation(options) ||
-            (options.adoptManagedActivation === true && creationClassification.kind === "managed")) &&
-            (options.mode || "new") === "new";
-        if (creationClassification.kind === "managed" && !requestedManagedNew) {
-            throw new Error("Session Manager create is blocked: managed_activation_required");
-        }
-        if (creationClassification.kind === "unmanaged_proven" && requestedManagedNew) {
-            throw new Error("Session Manager create is blocked: managed_project_unavailable");
-        }
-        const managedProject = requestedManagedNew && creationClassification.kind === "managed"
-            ? this.#findEnabledManagedProjectForCwd(options.cwd)
-            : null;
-        if (requestedManagedNew && creationClassification.kind === "managed" && !managedProject) {
-            throw new Error("Session Manager create is blocked: managed_project_unavailable");
-        }
-        if (managedProject) ownerCoordinationStore.requireActivationProtocolEnabled();
         const deferManagedCreation = Boolean(
             managedProject && ownerCoordinationStore && options.deferManagedActivationUntilAgentReady,
         );
@@ -3305,29 +3418,42 @@ export class SessionRuntime {
         if (managedProject && ownerCoordinationStore && !deferManagedCreation) {
             try {
                 const piSessionId = sessionManager?.getSessionId?.();
-                if (!piSessionId) throw new Error("Created managed Session has no Pi session id");
+                if (!piSessionId) throw new Error("The Session could not be persisted");
                 const transcriptPath = await this.#resolveCreatedSessionPath(options.cwd, sessionManager);
-                managedSession = await ownerCoordinationStore.ensureSessionCatalogRecord({
-                    projectId: managedProject.projectId,
-                    piSessionId,
-                    transcriptPath,
-                    transcriptCwd: options.cwd,
-                    source: "created",
+                const acquired = await ownerCoordinationStore.ensureSessionCatalogRecordAndAcquire({
+                    locator: {
+                        projectId: managedProject.projectId,
+                        piSessionId,
+                        transcriptPath,
+                        transcriptCwd: options.cwd,
+                        source: "created",
+                    },
+                    activation: {
+                        ownerInstanceId: this.#ownerInstanceId,
+                        ownerProcessKind: this.#ownerProcessKind,
+                        phase: "preparing",
+                    },
                 });
-                const managedSegment = ownerCoordinationStore.getCurrentSessionSegment(
-                    managedSession.runwieldSessionId,
-                );
-                if (!managedSegment) throw new Error("Created managed Session has no current segment");
-                managedCurrentSegmentId = managedSegment.segmentId;
-                managedProof = ownerCoordinationStore.acquireSessionActivation({
+                managedSession = acquired.session;
+                const managedSegment = acquired.segment;
+                managedProof = acquired.proof;
+                recordSegmentLineageEvidence(sessionManager, {
+                    segmentId: managedSegment.segmentId,
                     runwieldSessionId: managedSession.runwieldSessionId,
-                    projectId: managedSession.projectId,
-                    ownerInstanceId: this.#ownerInstanceId,
-                    ownerProcessKind: this.#ownerProcessKind,
-                    expectedGeneration: null,
-                    phase: "preparing",
+                    parentSegmentId: null,
+                    parentPiSessionId: null,
+                    lineageGroupKey: managedSegment.segmentId,
+                    kind: "planning",
                 });
+                managedCurrentSegmentId = managedSegment.segmentId;
             } catch (error) {
+                if (managedProof) {
+                    try {
+                        ownerCoordinationStore.releaseUnchangedActivation(managedProof);
+                    } catch {
+                        // Preserve the creation failure after best-effort lock release.
+                    }
+                }
                 /** @type {any} */ (sessionManager)?.dispose?.();
                 throw error;
             }
@@ -3366,6 +3492,46 @@ export class SessionRuntime {
             );
         }
         this.#attachRuntimeEventSink(hostedSession);
+        if (managedProof && managedSession) {
+            let activeProof = managedProof;
+            try {
+                activeProof = ownerCoordinationStore.changeSessionActivationPhase(activeProof, "hydrated");
+                activeProof = ownerCoordinationStore.changeSessionActivationPhase(activeProof, "checkpointing");
+                await syncTranscriptFileAndParent(managedSession.transcriptPath);
+                const evidence = await captureTranscriptEvidence({
+                    transcriptPath: managedSession.transcriptPath,
+                    transcriptCwd: hostedSession.cwd,
+                });
+                ownerCoordinationStore.publishGenerationAndRelease(activeProof, {
+                    generation: 0,
+                    byteLength: evidence.byteLength,
+                    terminalEntryId: evidence.terminalEntryId,
+                    digestHex: evidence.digestHex,
+                    currentSegmentId: managedCurrentSegmentId,
+                });
+                const createdMetadata = hostedSession.getManagedMetadata();
+                if (!createdMetadata) throw new Error("Session coordination was interrupted during creation");
+                hostedSession.setManagedMetadata({
+                    ...createdMetadata,
+                    generation: 0,
+                    acknowledgedGeneration: 0,
+                });
+                this.#pendingManagedCreations.delete(hostedSession.id);
+                hostedSession.dehydrateManagedSession();
+                await this.synchronizeManagedSession(hostedSession.id, { emitEvents: false, replayFromStart: true });
+            } catch (error) {
+                this.#pendingManagedCreations.delete(hostedSession.id);
+                try {
+                    ownerCoordinationStore.markSessionUncertain(activeProof, {
+                        reason: error instanceof Error ? error.message : String(error),
+                    });
+                } catch {
+                    // Preserve the creation failure.
+                }
+                hostedSession.dehydrateManagedSession();
+                throw error;
+            }
+        }
         this.#emitSessionEvent(hostedSession.id, {
             type: RuntimeEventTypes.SESSION_CREATED,
             cwd: hostedSession.cwd,
@@ -3391,9 +3557,10 @@ export class SessionRuntime {
         const hostedSession = this.#sessionHost.getSession(created.sessionId);
         if (!hostedSession) throw new Error("SessionRuntime failed to retain the new session");
         try {
-            await this.#activateSessionAgent(hostedSession, {
+            const switched = await this.switchAgent(hostedSession.id, {
                 agentName,
             });
+            if (!switched.ok) throw new Error(switched.error || "The Session could not start");
             return hostedSession.id;
         } catch (error) {
             await this.closeSession(hostedSession.id);
@@ -3412,59 +3579,124 @@ export class SessionRuntime {
         if (!options.sessionId || typeof options.sessionId !== "string") {
             throw new Error("SessionRuntime.loadSession requires a session id");
         }
-        const ownerCoordinationStore = this.#ownerCoordinationStore;
+        const ownerCoordinationStore = this.#sessionStore;
         if (!ownerCoordinationStore) {
-            throw new Error("Session Manager load is blocked: owner_coordination_unavailable");
+            throw new Error("Session Manager load is blocked: session_store_unavailable");
+        }
+        const managedProject = this.#ensureSessionProjectForCwd(options.cwd);
+        if (!managedProject) throw new Error("Session Manager load is blocked: project_identity_unavailable");
+        let sessionPath = options.sessionPath;
+        if (!sessionPath) {
+            const persisted = await listPersistedRootSessions(options.cwd);
+            sessionPath = persisted.find((session) => session.id === options.sessionId)?.path;
         }
         const classified = await classifyRootSessionLocator({
             cwd: options.cwd,
             sessionId: options.sessionId,
-            sessionPath: options.sessionPath,
+            sessionPath,
             ownerCoordinationStore,
         });
         if (classified.kind === "blocked") {
             throw new Error(`Session Manager load is blocked: ${classified.reason}`);
         }
         if (classified.kind === "managed") {
-            if (!this.#shouldUseManagedActivation(options)) {
-                throw new Error("Session Manager load is blocked: managed_activation_required");
-            }
             if (classified.session) {
                 const managedSession = classified.session;
-                ownerCoordinationStore.requireActivationProtocolEnabled();
-                const inspected = ownerCoordinationStore.inspectSessionActivation(
+                let inspected = ownerCoordinationStore.inspectSessionActivation(
                     managedSession.runwieldSessionId,
                 );
-                if (!inspected.generation) throw new Error("Managed Session requires bootstrap before load.");
-                const adopted = this.adoptManagedSession({
-                    session: managedSession,
-                    generation: inspected.generation.generation,
-                });
-                const sync = await this.synchronizeManagedSession(adopted.sessionId, { emitEvents: false });
-                return {
-                    sessionId: adopted.sessionId,
-                    cwd: adopted.cwd,
-                    replayEvents: sync.ok
-                        ? (sync.events || []).map((event) =>
-                            createSessionRuntimeEvent(adopted.sessionId, /** @type {any} */ (event))
-                        )
-                        : [],
-                    sessionManagerId: managedSession.runwieldSessionId,
-                    sessionPath: managedSession.transcriptPath,
-                };
+                if (
+                    !inspected.generation &&
+                    ["uninitialized", "uncertain", "reconcile_required"].includes(inspected.activation?.state || "")
+                ) {
+                    await this.ensureInitialSessionGeneration(managedSession.runwieldSessionId);
+                    inspected = ownerCoordinationStore.inspectSessionActivation(managedSession.runwieldSessionId);
+                }
+                if (inspected.generation) {
+                    const adopted = this.adoptManagedSession({
+                        session: managedSession,
+                        generation: inspected.generation.generation,
+                    });
+                    const sync = await this.synchronizeManagedSession(adopted.sessionId, { emitEvents: false });
+                    return {
+                        sessionId: adopted.sessionId,
+                        cwd: adopted.cwd,
+                        replayEvents: sync.ok
+                            ? (sync.events || []).map((event) =>
+                                createSessionRuntimeEvent(adopted.sessionId, /** @type {any} */ (event))
+                            )
+                            : [],
+                        sessionManagerId: managedSession.piSessionId,
+                        sessionPath: managedSession.transcriptPath,
+                    };
+                }
             }
         }
-        const { sessionManager, resolved } = await openPersistedRootSession({
-            cwd: options.cwd,
-            sessionId: options.sessionId,
-            sessionPath: options.sessionPath,
+        if (classified.kind !== "managed" || !classified.session) {
+            throw new Error("Session Manager load is blocked: session_identity_unavailable");
+        }
+        const managedSession = classified.session;
+        const managedSegment = ownerCoordinationStore.getCurrentSessionSegment(managedSession.runwieldSessionId);
+        if (!managedSegment) throw new Error("Session Manager load is blocked: session_segment_unavailable");
+        const managedProof = ownerCoordinationStore.acquireSessionActivation({
+            runwieldSessionId: managedSession.runwieldSessionId,
+            projectId: managedSession.projectId,
+            ownerInstanceId: this.#ownerInstanceId,
+            ownerProcessKind: this.#ownerProcessKind,
+            expectedGeneration: null,
+            phase: "preparing",
         });
-        const agentName = await resolveResumeAgentName(sessionManager);
+        /** @type {Awaited<ReturnType<typeof openPersistedRootSession>> | null} */
+        let opened = null;
+        let agentName = "";
+        try {
+            opened = await openPersistedRootSession({
+                cwd: options.cwd,
+                sessionId: options.sessionId,
+                sessionPath,
+            });
+            const sessionManager = opened.sessionManager;
+            recordSegmentLineageEvidence(sessionManager, {
+                segmentId: managedSegment.segmentId,
+                runwieldSessionId: managedSession.runwieldSessionId,
+                parentSegmentId: managedSegment.lineageParentSegmentId,
+                parentPiSessionId: managedSegment.lineageParentPiSessionId,
+                lineageGroupKey: managedSegment.lineageGroupKey || managedSegment.segmentId,
+                kind: /** @type {'planning' | 'execution' | 'semantic_repair'} */ (managedSegment.kind),
+            });
+            agentName = await resolveResumeAgentName(sessionManager);
+        } catch (error) {
+            /** @type {DisposableSessionManager} */ (opened?.sessionManager).dispose?.();
+            ownerCoordinationStore.releaseUnchangedActivation(managedProof);
+            throw error;
+        }
+        if (!opened) throw new Error("Session coordination was interrupted during load");
+        const { sessionManager, resolved } = opened;
         const hostedSession = this.#sessionHost.createSession({
             id: crypto.randomUUID(),
             sessionManager: /** @type {any} */ (sessionManager),
             cwd: options.cwd,
+            managed: {
+                runwieldSessionId: managedSession.runwieldSessionId,
+                projectId: managedSession.projectId,
+                piSessionId: managedSession.piSessionId,
+                transcriptPath: managedSession.transcriptPath,
+                currentSegmentId: managedSegment.segmentId,
+                generation: null,
+                acknowledgedGeneration: null,
+                acknowledgedEventId: null,
+                name: managedSession.displayName,
+                activeAgent: null,
+                workflowContext: null,
+                syncState: {
+                    type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                    status: "syncing",
+                    localGeneration: null,
+                    latestGeneration: null,
+                },
+            },
         });
+        this.#pendingManagedCreations.set(hostedSession.id, managedProof);
         this.#attachRuntimeEventSink(hostedSession);
         try {
             await this.#activateSessionAgent(hostedSession, {
@@ -3513,7 +3745,15 @@ export class SessionRuntime {
     async requestInteraction(sessionId, request, signal) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { outcome: "unsupported", message: "Session not found." };
-        return await requestHostedSessionInteraction(session, request, signal, null);
+        const capability = this.#currentManagedOperations.get(sessionId) || null;
+        if (capability) return await requestHostedSessionInteraction(session, request, signal, capability);
+        return await this.#runManagedStandaloneMutation(
+            sessionId,
+            "workflow_operation",
+            (activeSession, operationCapability) =>
+                requestHostedSessionInteraction(activeSession, request, signal, operationCapability),
+            { activateAgent: false, hydrate: false },
+        );
     }
 
     /**
@@ -3553,84 +3793,47 @@ export class SessionRuntime {
             const action = /** @type {"plan"|"readiness_execute"|"execute"} */ (resolution.kind);
 
             const adapter = currentOldSession.getInteractionAdapter();
-            const sourceManaged = currentOldSession.getManagedMetadata?.() || null;
-            /** @type {string} */
-            let newSessionId;
-            /** @type {import('./hosted-session.js').HostedSession | null | undefined} */
-            let newSession;
-            /** @type {any} */
-            let nextResult;
-            if (!sourceManaged) {
-                newSessionId = await this.createPromptReadySession({
-                    cwd: currentContinuation.projectRoot,
-                    agentName: action === "plan" ? AGENTS.PLANNER : AGENTS.ENGINEER,
-                });
-                newSession = this.#sessionHost.getSession(newSessionId);
-                if (!newSession) throw new Error("Epic continuation replacement session was not retained");
-                newSession.setInteractionAdapter(adapter);
-                await this.renameSession(newSessionId, `Epic child: ${resolution.childPlanName}`);
-                this.#emitSessionEvent(currentOldSession.id, {
-                    type: RuntimeEventTypes.SESSION_REPLACED,
-                    oldSessionId: currentOldSession.id,
-                    newSessionId,
-                    reason: "epic_continuation",
-                    parentPlanName: resolution.parentPlanName,
-                    completedPlanName: resolution.completedPlanName,
-                    childPlanName: resolution.childPlanName,
-                    action,
-                });
-                await this.closeSession(currentOldSession.id);
-                latestSessionId = newSessionId;
-                nextResult = await this.#runBusyOperation(newSessionId, () =>
-                    runEpicChildContinuation({
+            const created = await this.createInteractiveSession({
+                cwd: currentContinuation.projectRoot,
+                mode: "new",
+                deferManagedActivationUntilAgentReady: true,
+            });
+            const newSessionId = created.sessionId;
+            const newSession = this.#sessionHost.getSession(newSessionId);
+            if (!newSession) throw new Error("Epic continuation replacement session was not retained");
+            newSession.setInteractionAdapter(adapter);
+            await this.#activateSessionAgent(newSession, {
+                agentName: action === "plan" ? AGENTS.PLANNER : AGENTS.ENGINEER,
+            });
+            await this.renameSession(newSessionId, `Epic child: ${resolution.childPlanName}`);
+            this.#emitSessionEvent(currentOldSession.id, {
+                type: RuntimeEventTypes.SESSION_REPLACED,
+                oldSessionId: currentOldSession.id,
+                newSessionId,
+                reason: "epic_continuation",
+                parentPlanName: resolution.parentPlanName,
+                completedPlanName: resolution.completedPlanName,
+                childPlanName: resolution.childPlanName,
+                action,
+            });
+            await this.closeSession(currentOldSession.id);
+            latestSessionId = newSessionId;
+            const nextManaged = newSession.getManagedMetadata?.();
+            if (!nextManaged) throw new Error("Epic continuation destination is not managed");
+            const nextResult = await this.#runManagedOperation(
+                newSessionId,
+                {
+                    name: "workflow_operation",
+                    options: { expectedGeneration: nextManaged.generation ?? undefined },
+                    activateAgent: true,
+                },
+                async () =>
+                    await runEpicChildContinuation({
                         hostedSession: /** @type {import('./hosted-session.js').HostedSession} */ (newSession),
                         resolution,
                         sessionManager: /** @type {any} */ (newSession?.getRootSessionManager() || undefined),
-                    }));
-            } else {
-                const created = await this.createInteractiveSession({
-                    cwd: currentContinuation.projectRoot,
-                    mode: "new",
-                    enableManagedActivation: true,
-                    deferManagedActivationUntilAgentReady: true,
-                });
-                newSessionId = created.sessionId;
-                newSession = this.#sessionHost.getSession(newSessionId);
-                if (!newSession) throw new Error("Epic continuation replacement session was not retained");
-                newSession.setInteractionAdapter(adapter);
-                await this.#activateSessionAgent(newSession, {
-                    agentName: action === "plan" ? AGENTS.PLANNER : AGENTS.ENGINEER,
-                });
-                await this.renameSession(newSessionId, `Epic child: ${resolution.childPlanName}`);
-                this.#emitSessionEvent(currentOldSession.id, {
-                    type: RuntimeEventTypes.SESSION_REPLACED,
-                    oldSessionId: currentOldSession.id,
-                    newSessionId,
-                    reason: "epic_continuation",
-                    parentPlanName: resolution.parentPlanName,
-                    completedPlanName: resolution.completedPlanName,
-                    childPlanName: resolution.childPlanName,
-                    action,
-                });
-                await this.closeSession(currentOldSession.id);
-                latestSessionId = newSessionId;
-                const nextManaged = newSession.getManagedMetadata?.();
-                if (!nextManaged) throw new Error("Epic continuation destination is not managed");
-                nextResult = await this.#runManagedOperation(
-                    newSessionId,
-                    {
-                        name: "workflow_operation",
-                        options: { expectedGeneration: nextManaged.generation ?? undefined },
-                        activateAgent: true,
-                    },
-                    async () =>
-                        await runEpicChildContinuation({
-                            hostedSession: /** @type {import('./hosted-session.js').HostedSession} */ (newSession),
-                            resolution,
-                            sessionManager: /** @type {any} */ (newSession?.getRootSessionManager() || undefined),
-                        }),
-                );
-            }
+                    }),
+            );
             currentContinuation = nextResult?.epicContinuation || null;
             currentOldSession = newSession;
         }
@@ -3671,16 +3874,31 @@ export class SessionRuntime {
         const currentOperation = this.#currentManagedOperations.get(session.id) || null;
         if (currentOperation) {
             let aborted = false;
+            let operationCanceled = false;
+            let agentCanceled = false;
+            const turnActive = session.isTurnActive();
             try {
-                currentOperation.cancel?.();
-                aborted = true;
-                session.suppressNextAgentStoppedAttention();
+                operationCanceled = Boolean(session.cancelActiveInteractions?.());
+                const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
+                if (rootAgentSession?.isCompacting && rootAgentSession?.abortCompaction) {
+                    rootAgentSession.abortCompaction();
+                    operationCanceled = true;
+                }
+                this.#clearQueuedMessages(session, "session_cancel");
+                agentCanceled = abortActiveSessionFn(session);
+                if (agentCanceled || turnActive) session.suppressNextAgentStoppedAttention();
+                aborted = operationCanceled || agentCanceled;
             } finally {
                 this.#emitSessionEvent(session.id, {
                     type: RuntimeEventTypes.CANCELLATION,
                     aborted,
                     reason: "session_cancel",
-                    ...(aborted ? { scope: "operation", message: "Operation cancellation requested." } : {}),
+                    ...(aborted
+                        ? {
+                            scope: operationCanceled ? "operation" : "agent",
+                            message: operationCanceled ? "Operation canceled." : "Agent run canceled.",
+                        }
+                        : {}),
                 });
             }
             return { ok: true, aborted };
@@ -3727,11 +3945,27 @@ export class SessionRuntime {
     /**
      * @param {string} sessionId
      * @param {PromptSessionOptions} options
+     * @param {import('./managed-operation.ts').ManagedOperationCapability | null} [capability]
      * @returns {Promise<{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string }>}
      */
-    async promptSession(sessionId, options) {
+    async promptSession(sessionId, options, capability = null) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) throw new Error("SessionRuntime.promptSession: session not found");
+        if (
+            (hostedSession.isTurnActive() || this.#currentManagedOperations.has(sessionId)) &&
+            capability !== hostedSession.getManagedOperationCapability?.()
+        ) {
+            throw new SessionTurnInProgressError(hostedSession.id);
+        }
+        const managed = hostedSession.getManagedMetadata?.() || null;
+        if (!managed) throw new Error("SessionRuntime.promptSession: segmented Session metadata is unavailable");
+        if (!capability || capability !== hostedSession.getManagedOperationCapability?.()) {
+            const expectedGenerationSource = managed.acknowledgedGeneration ?? managed.generation;
+            const expectedGeneration = Number.isSafeInteger(expectedGenerationSource)
+                ? /** @type {number} */ (expectedGenerationSource)
+                : 0;
+            return await this.promptManagedSession(sessionId, { ...options, expectedGeneration });
+        }
         const turnId = options.turnId || crypto.randomUUID();
         const emitInitialEvents = options.emitInitialEvents !== false;
         await this.#alignActiveExecutionWorkflowOwner(hostedSession);
@@ -3903,15 +4137,22 @@ export class SessionRuntime {
 
 /**
  * Compose a SessionRuntime with RunWield's real in-process session machinery.
- * Callers select only whether managed owner coordination is available.
+ * Callers may provide the file-backed Session store used by their surface.
  *
  * @param {CreateSessionRuntimeOptions} [options]
  * @returns {SessionRuntime}
  */
 export function createSessionRuntime(options = {}) {
+    /** @type {ReturnType<typeof openFileSessionStore> | null} */
+    let sessionStore;
+    if (Object.hasOwn(options, "sessionStore")) {
+        sessionStore = options.sessionStore ?? null;
+    } else {
+        sessionStore = openFileSessionStore();
+    }
     return new SessionRuntime({
         sessionHost: new SessionHost(),
-        ownerCoordinationStore: options.ownerCoordinationStore ?? openOwnerCoordinationStore(),
+        sessionStore,
         ownerProcessKind: options.ownerProcessKind ?? "test",
         ownerInstanceId: options.ownerInstanceId ?? crypto.randomUUID(),
     });

@@ -5,7 +5,7 @@
 
 import { agent, methods, ndJsonStream, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk";
 import { isAbsolute } from "@std/path";
-import { openOwnerCoordinationStore } from "../shared/owner-coordination/index.js";
+import { openFileSessionStore } from "../shared/session/file-session-store.ts";
 import { createSessionRuntime, SessionTurnInProgressError } from "../shared/session/session-runtime.js";
 import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.js";
 import { mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
@@ -490,15 +490,15 @@ function createRunWieldAcpServer(context) {
  */
 export function startRunWieldAcpServer(input, output, options = {}) {
     const stream = ndJsonStream(output, input);
-    const ownerCoordinationStore = openOwnerCoordinationStore();
-    const runtime = createSessionRuntime({ ownerCoordinationStore, ownerProcessKind: "acp" });
+    const sessionStore = openFileSessionStore();
+    const runtime = createSessionRuntime({ sessionStore, ownerProcessKind: "acp" });
     const sessionMap = new AcpSessionMap();
     const connection = createRunWieldAcpServer({ runtime, sessionMap }).connect(stream);
     const closeMachinery = async () => {
         try {
             await closeAllMappedSessions(runtime, sessionMap);
         } finally {
-            ownerCoordinationStore.close();
+            sessionStore.close();
         }
     };
     connection.closed.then(closeMachinery, closeMachinery);

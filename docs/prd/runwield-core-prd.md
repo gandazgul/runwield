@@ -471,12 +471,15 @@ Runtime boundary described in [runwield-acp-protocol-prd.md](./runwield-acp-prot
 Core requirements for that layer:
 
 - assign a stable RunWield Session ID above Pi Session Manager IDs and in-process Hosted Session IDs;
-- map each stable Session to one Project and an ordered manifest of Pi transcript segments in an owner-only SQLite
-  database under `~/.wld/`, with exactly one current writable segment;
-- keep canonical Plans, PRDs, ADRs, Work Records, source code, worktree registry evidence, and private Session
-  Transcripts outside the owner coordination database;
-- acquire a fenced **Session Activation Lease** before any process opens or mutates a writable Pi `SessionManager` for
-  an existing Session;
+- map each stable Session to one Project and an ordered atomic file manifest beside its Pi transcripts under
+  `~/.wld/sessions/`, with exactly one current writable segment;
+- catalog every new local Session immediately and migrate an older Pi transcript automatically when it is opened,
+  without requiring Project registration or user confirmation;
+- keep local Session cataloging separate from Workspace access: only explicitly registered Projects appear in or are
+  addressable through Workspace;
+- keep Core Session identity, lineage, generations, writer safety, and recovery independent of the Workspace database;
+- acquire an exclusive operating-system **Session Writer Lock** before any process opens or mutates a writable Pi
+  `SessionManager` for an existing Session; process exit releases the lock without a lease timeout or takeover;
 - publish committed Session generations only after the corresponding transcript or repository effects are durable;
 - support transactional successor-segment rollover for planning-to-execution and semantic-repair context boundaries
   without changing stable Session identity or adding another persisted startup mechanism;
@@ -488,7 +491,7 @@ Core requirements for that layer:
   reconstructing the lost wait;
 - revalidate canonical Plan status/revision and worktree evidence at the start of each consequential Plan action;
 - use endpoint operation receipts only to deduplicate bounded HTTP request delivery;
-- treat stale activation, transcript/database reconciliation mismatches, stale Plan evidence, and partial filesystem
+- treat stale manifest evidence, transcript reconciliation mismatches, stale Plan evidence, and partial filesystem
   effects as recovery cases rather than replaying arbitrary model, command, tool, or filesystem work.
 
 These requirements sit below adapters and above consequential transcript, lifecycle, Plan, and worktree effects. They
@@ -515,8 +518,8 @@ Current:
 
 Future/open:
 
-- Personal Remote Workspace owner coordination: stable Session catalog, activation leases, committed generations,
-  ordered transcript segments, bounded endpoint receipts, and automatic synchronization.
+- Personal Remote Workspace coordination: file-authoritative stable Sessions, writer locks, committed generations,
+  ordered transcript segments, Workspace-only endpoint receipts, and automatic synchronization.
 - Per-Project isolated OS worker processes or containers after the Personal Workspace Project Runtime boundary is
   proven.
 - Token-level cross-process mirroring of live model streams, tool output, or terminal bytes; current coordination should
@@ -537,15 +540,15 @@ Current Core metrics:
 
 Future Core metrics:
 
-- All writable Session opening paths acquire activation before mutating an existing transcript.
+- All writable Session opening paths acquire the Session's OS file lock before mutating an existing transcript.
 - Idle non-owning TUI, Workspace, and ACP surfaces synchronize from committed Session generations without constructing
   writable managers.
 - Completed Pi interaction results remain visible after restart, while pending process-local waits require explicit
   retry after owner-process loss.
-- Consequential Plan actions across CLI, TUI, Workspace, ACP, validation, and recovery paths reject stale activation,
-  Plan revision/status, or worktree evidence.
-- Owner coordination state can be reconstructed conservatively from canonical Projects, transcript catalogs, Plan files,
-  and worktree evidence without deleting source, Plans, Work Records, worktrees, or Session Transcripts.
+- Consequential Plan actions across CLI, TUI, Workspace, ACP, validation, and recovery paths reject stale Session, Plan
+  revision/status, or worktree evidence.
+- Session manifests can be reconstructed conservatively from transcript-adjacent recovery descriptors and Pi lineage.
+  Deleting the Workspace database does not prevent Core from opening or continuing local Sessions.
 
 ### User Verified Plan lifecycle outcome
 

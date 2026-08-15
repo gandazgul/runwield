@@ -133,13 +133,14 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT]) {
     const prewarmEnv = await createSandboxEnv(sandboxRoot, "prewarm", denoDir);
     await prewarmDenoDir(prewarmEnv, ["-A", "--no-check", "--quiet", ...files]);
 
-    // Core count, measured: child startup is CPU-bound (module graph loading), so
-    // oversubscribing loses time — on a 12-core machine 12 ran in 40.9s, 18 in
-    // 49.8s, 24 in 45.4s. WLD_TEST_CONCURRENCY overrides it for other hardware.
+    // Golden TUI files create nested child processes. Running one worker per CPU
+    // can starve those children long enough to trigger false workflow timeouts,
+    // so the safe default is deliberately bounded. WLD_TEST_CONCURRENCY remains
+    // available for machines whose process budget has been measured separately.
     const configured = Number(Deno.env.get("WLD_TEST_CONCURRENCY") || "");
     const concurrency = Number.isFinite(configured) && configured > 0
         ? Math.floor(configured)
-        : Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 16));
+        : Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 4));
     const queue = [...files];
     /** @type {Array<{ file: string, failureLogPath: string }>} */
     const failures = [];

@@ -28,9 +28,13 @@ function makeStore(root: string) {
             if (projectId !== "project-1") throw new Error("Project not found");
             return root;
         },
-        requireActivationProtocolEnabled() {},
+        getProjectById(projectId: string) {
+            return projectId === "project-1" ? { currentRoot: root } : null;
+        },
         getSessionById(runwieldSessionId: string) {
-            return runwieldSessionId === "session-1" ? { projectId: "project-1" } : null;
+            return runwieldSessionId === "session-1"
+                ? { projectId: "file-project-identity", transcriptCwd: root }
+                : null;
         },
         inspectSessionActivation() {
             return {

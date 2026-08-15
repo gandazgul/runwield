@@ -2397,7 +2397,7 @@ export async function createPulledCollaborationPlan(cwd, options) {
  *
  * @param {string} cwd
  * @param {string} planName - Filename without .md
- * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string, revision?: string, frontMatterRevision?: string, hasFrontMatter?: boolean } | null>}
+ * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string, revision: string, frontMatterRevision?: string, hasFrontMatter?: boolean } | null>}
  */
 export async function loadPlan(cwd, planName) {
     if (isEpicArtifactPlanName(planName)) return null;
@@ -2427,7 +2427,7 @@ export async function loadPlan(cwd, planName) {
  * from any path. Applies defaults if front matter is missing.
  *
  * @param {string} absolutePath - Absolute path to the plan file
- * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string }>}
+ * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string, revision: string }>}
  */
 export async function loadExternalPlan(absolutePath) {
     const markdown = await Deno.readTextFile(absolutePath);
@@ -2437,9 +2437,15 @@ export async function loadExternalPlan(absolutePath) {
     // If front matter was missing, rewrite with defaults injected
     if (!hasFrontMatter(markdown)) {
         const withFm = injectFrontMatter(markdown, { origin: "external" });
-        return { path: absolutePath, markdown: withFm, attrs, body };
+        return {
+            path: absolutePath,
+            markdown: withFm,
+            attrs,
+            body,
+            revision: await getPlanRevisionForText(withFm),
+        };
     }
-    return { path: absolutePath, markdown, attrs, body };
+    return { path: absolutePath, markdown, attrs, body, revision: await getPlanRevisionForText(markdown) };
 }
 
 /**
@@ -3265,7 +3271,7 @@ function assertNoDuplicatePlanIds(byId) {
  * @property {PlanFrontMatter} attrs
  * @property {string} body
  * @property {string} markdown
- * @property {string} [revision]
+ * @property {string} revision
  */
 
 /**
@@ -3460,6 +3466,7 @@ export async function listPlanResources(cwd, options = {}) {
                     attrs: loaded.attrs,
                     body: loaded.body,
                     markdown: loaded.markdown,
+                    revision: loaded.revision,
                 });
                 continue;
             }
@@ -3825,7 +3832,7 @@ export function countChildPlanProgress(children) {
  *
  * @param {string} cwd
  * @param {string} arg - Plan name (e.g., "add-dark-mode" or "epic/feature1") or file path
- * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string, planName: string, hasFrontMatter?: boolean }>}
+ * @returns {Promise<{ path: string, markdown: string, attrs: PlanFrontMatter, body: string, revision: string, planName: string, hasFrontMatter?: boolean }>}
  */
 export async function resolvePlan(cwd, arg) {
     try {

@@ -3301,6 +3301,7 @@ export async function ensureRootAgentSession(opts) {
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {AbortSignal} [opts.signal]
  * @param {import('./request-dispatch.ts').RequestDispatchKind} [opts.dispatchKind]
+ * @param {import('./managed-operation.ts').ManagedOperationCapability} [opts.managedOperationCapability]
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runRootTurn({
@@ -3465,10 +3466,13 @@ export async function runNonInteractiveAgentPrompt({
  * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
  * @param {AbortSignal} [opts.signal] - Optional cancellation signal for transient delegated sessions.
  * @param {import('./request-dispatch.ts').RequestDispatchKind} [opts.dispatchKind]
+ * @param {import('./managed-operation.ts').ManagedOperationCapability} [opts.managedOperationCapability]
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runIsolatedAgentSession(opts) {
     const hostedSession = requireHostedSession(opts.hostedSession, "runIsolatedAgentSession");
+    const managedOperationCapability = opts.managedOperationCapability ||
+        hostedSession.getManagedOperationCapability?.() || null;
     const projectStateContext = opts.projectStateContext ?? hostedSession.getProjectStateContext();
 
     const built = await buildExecutionSession({
@@ -3504,7 +3508,7 @@ export async function runIsolatedAgentSession(opts) {
             : attachSessionEventSubscribers(session, agentDef, opts.debugLogPath, hostedSession);
         hostedSession.addSubAgentSession(
             steeringTarget,
-            /** @type {any} */ (opts).managedOperationCapability || null,
+            managedOperationCapability,
         );
         registeredSubAgent = true;
 

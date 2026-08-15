@@ -1,6 +1,6 @@
 /** @module ui/workspace/server/owner-projects */
 
-import { basename } from "@std/path";
+import { basename, resolve } from "@std/path";
 
 /** @param {string} root */
 export function sanitizeRootLabel(root) {
@@ -41,4 +41,22 @@ export function listOwnerProjects(store) {
 /** @param {any} store @param {string} projectId */
 export function requireOwnerProjectRoot(store, projectId) {
     return store.requireEnabledProjectRoot(projectId);
+}
+
+/**
+ * Workspace Project IDs and file-authoritative Session Project IDs belong to
+ * different identity domains. Membership is the canonical Project root.
+ *
+ * @param {{ getProjectById: (projectId: string) => { currentRoot: string } | null }} store
+ * @param {{ transcriptCwd: string }} session
+ * @param {string} projectId
+ */
+export function sessionBelongsToOwnerProject(store, session, projectId) {
+    const project = store.getProjectById(projectId);
+    if (!project) return false;
+    try {
+        return resolve(Deno.realPathSync(session.transcriptCwd)) === resolve(Deno.realPathSync(project.currentRoot));
+    } catch {
+        return resolve(session.transcriptCwd) === resolve(project.currentRoot);
+    }
 }

@@ -166,7 +166,7 @@ Deno.test("agent chooser switches the real Runtime session to a fixture definiti
         await writeFixtureAgent(projectRoot);
         const runtime = createSessionRuntime();
         const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
-        runtime.renameSession(sessionId, "Fixture session");
+        await runtime.renameSession(sessionId, "Fixture session");
         const harness = makeTuiHarness();
         try {
             const command = runAgentsCommand([], {

@@ -69,7 +69,7 @@ async function withSlashFixture(
             setModelResponse("Fixture turn complete.");
             const runtime = createSessionRuntime();
             const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
-            runtime.renameSession(created.sessionId, "Slash fixture");
+            await runtime.renameSession(created.sessionId, "Slash fixture");
             const messages: string[] = [];
             const submittedRequests: string[] = [];
             runtime.subscribeSessionEvents(created.sessionId, (event) => {
@@ -177,7 +177,7 @@ Deno.test("handleSlashCommand expands a real prompt template and submits a real 
     await withSlashFixture({ promptTemplate: true }, async ({ context, runtime, sessionId, submittedRequests }) => {
         assertEquals(await handleSlashCommand(context("/review focus on tests")), true);
         assertEquals(submittedRequests, ["Review the fixture carefully.\n\nfocus on tests"]);
-        assertEquals(runtime.getRuntimeActiveAgentName(sessionId), "operator");
+        assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "operator");
     });
 });
 

@@ -514,7 +514,8 @@ export const loadPlanValidateWaivedObjectiveChecksScenario = {
             assertEventIncludes(result, "terminal:type:/load-plan waived-validate");
             assertScreenIncludes(result, "All checks for waived-validate are waived");
             assertScreenIncludes(result, "The build, tests, and checks passed.");
-            assertScreenIncludes(result, "Code review needs a code change");
+            assertScreenIncludes(result, "Ask the Engineer to restore the code");
+            assertScreenIncludes(result, "Workflow Validation failed");
         }),
         assertsGoldenCoverage("recovery:workflow-validation", (result: GoldenScenarioResult) => {
             const plan = projectState(result).plans?.find((entry) => entry.name === "waived-validate");

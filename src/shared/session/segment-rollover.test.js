@@ -3,11 +3,15 @@ import { join } from "@std/path";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { HostedSession } from "./hosted-session.js";
-import { createRootSessionManager, resolveCreatedRootSessionPath } from "./root-session.js";
+import { createRootSessionManager, openPersistedRootSession, resolveCreatedRootSessionPath } from "./root-session.js";
 import { rollSessionTranscriptSegment } from "./segment-rollover.ts";
 import { projectAggregateTranscript } from "./session-transcript-manifest.ts";
 import { captureTranscriptEvidence, syncTranscriptFileAndParent } from "./session-transcript-projection.js";
-import { recordPendingSegmentContinuation, recordSegmentLineageEvidence } from "./workflow-context-session.js";
+import {
+    readPersistedPendingSegmentContinuation,
+    recordPendingSegmentContinuation,
+    recordSegmentLineageEvidence,
+} from "./workflow-context-session.js";
 
 function idFactory(prefix = "id") {
     let next = 0;
@@ -162,7 +166,16 @@ Deno.test("segment rollover keeps aggregate projection readable and rolls manage
             assertEquals(managed.transcriptPath, result.transcriptPath);
             assertEquals(managed.currentSegmentId, result.successorSegmentId);
             assertEquals(managed.generation, 1);
-            assertEquals(fixture.hosted.getRootSessionManager()?.getSessionId?.(), result.piSessionId);
+            assertEquals(fixture.hosted.getRootSessionManager(), null);
+            const { sessionManager: successorManager } = await openPersistedRootSession({
+                cwd: fixture.root,
+                sessionId: result.piSessionId,
+                sessionPath: result.transcriptPath,
+            });
+            assertEquals(readPersistedPendingSegmentContinuation(successorManager), { next: "engineer" });
+            await Promise.resolve(
+                (/** @type {{ dispose?: () => void | Promise<void> }} */ (successorManager)).dispose?.(),
+            );
             const postProof = fixture.store.acquireSessionActivation({
                 runwieldSessionId: managed.runwieldSessionId,
                 projectId: managed.projectId,
@@ -309,7 +322,6 @@ Deno.test("orphan rollover candidates are identifiable and discardable before an
             assertEquals(candidates.map((candidate) => candidate.transcriptPath), [orphanPath]);
             await fixture.store.discardOrphanRolloverCandidate({
                 runwieldSessionId: fixture.session.runwieldSessionId,
-                transcriptCwd: fixture.root,
                 transcriptPath: orphanPath,
             });
             const after = await fixture.store.findOrphanRolloverCandidates({

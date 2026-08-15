@@ -251,7 +251,7 @@ export async function validateCompletedExecution(
         effectiveMeta.status !== "user_verified";
     if (needsImplementationCheckpoint) {
         const completionReport = (executionResult as { completionReport?: unknown }).completionReport;
-        session.setActiveExecutionWorkflow(initialWorkflow);
+        await session.setActiveExecutionWorkflow(initialWorkflow);
         try {
             await finalizePlanImplementation({
                 projectRoot,
@@ -305,7 +305,7 @@ export async function validateCompletedExecution(
     }
     const resolvedContext = resolution.context;
     const workflow = buildWorkflow(resolvedContext);
-    session.setActiveExecutionWorkflow(workflow);
+    await session.setActiveExecutionWorkflow(workflow);
     await continueWorkflowValidation({
         planName,
         planContent,

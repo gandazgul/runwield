@@ -36,6 +36,7 @@ async function makeValidatedCiRun(attrs = {}) {
     await git(projectRoot, ["commit", "-m", "validation baseline"]);
     const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
     await Deno.writeTextFile(`${projectRoot}/workflow.js`, "export const scopedWorkflowChange = true;\n");
+    /** @type {import('../../tools/plan-written.ts').TriageMeta} */
     const triageMeta = { classification: "QUICK_FIX", status: "validated_ci", ...attrs };
     hostedSession.setWorkflowExecutionContext({
         planName: "p",

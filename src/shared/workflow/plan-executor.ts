@@ -23,7 +23,7 @@ import { ObjectiveChecksBaselineRejectionError } from "./objective-checks-baseli
 import { finalizePlanImplementation } from "./implementation-checkpoint.ts";
 import { runPlanningAgent } from "./planning-agent.ts";
 import { buildExecutionSegmentContinuation } from "./execution-segment-handoff.ts";
-import { loadPlanActionEvidence, type PlanWorktreeExpectation } from "./plan-actions.ts";
+import { loadPlanActionEvidence, type PlanActionEvidence, type PlanWorktreeExpectation } from "./plan-actions.ts";
 import { runEngineerWithPlan, runEngineerWithSegmentHandoff } from "./engineer-runner.ts";
 import { createExecutionStartPorts, startActiveExecutionWorkflow } from "./execution-start.ts";
 import { emitLaunchingExecutionAgent } from "./execution-preparation-progress.ts";
@@ -66,6 +66,7 @@ export interface ExecutePlanOptions {
     routerMessage?: string;
     reviewFeedback?: string;
     reviewImages?: Array<{ base64: string; mimeType: string }>;
+    approvalEvidence?: PlanActionEvidence;
     prepareSegmentHandoff?: boolean;
 }
 
@@ -74,6 +75,7 @@ export interface ExecuteSingleEngineerPlanOptions {
     planBody: string;
     approvedMarkdown?: string;
     approvalTriageMeta?: Partial<PlanFrontMatter>;
+    approvalEvidence?: PlanActionEvidence;
     triageMeta: Partial<PlanFrontMatter>;
     sessionManager?: SessionManager;
     currentStatus: import("./plan-lifecycle.js").PlanStatus;
@@ -94,6 +96,7 @@ export async function executePlan({
     routerMessage,
     reviewFeedback,
     reviewImages,
+    approvalEvidence,
     prepareSegmentHandoff = false,
 }: ExecutePlanOptions): Promise<PlanExecutionResult> {
     if (!hostedSession) throw new Error("executePlan: hostedSession is required");
@@ -393,6 +396,7 @@ export async function executePlan({
         planBody: plan.body,
         approvedMarkdown: plan.markdown,
         approvalTriageMeta: _triageMeta,
+        approvalEvidence,
         triageMeta: effectiveMeta,
         sessionManager,
         currentStatus: plan.attrs.status,
@@ -541,6 +545,7 @@ export async function executeSingleEngineerPlan(
         planBody,
         approvedMarkdown,
         approvalTriageMeta,
+        approvalEvidence,
         triageMeta,
         sessionManager,
         currentStatus,
@@ -553,12 +558,20 @@ export async function executeSingleEngineerPlan(
         prepareSegmentHandoff = false,
     }: ExecuteSingleEngineerPlanOptions,
 ): Promise<PlanExecutionResult> {
+    const approvalSnapshot = approvalEvidence
+        ? {
+            planId: approvalEvidence.planId,
+            revision: approvalEvidence.revision,
+            status: approvalEvidence.status,
+            worktree: approvalEvidence.worktree,
+        }
+        : normalizeApprovalSnapshotForHandoff(approvalTriageMeta);
     if (prepareSegmentHandoff) {
         const approvalValidation = await validateApprovedPlanSnapshotForHandoff({
             projectRoot: hostedSession.cwd,
             planName,
             triageMeta,
-            approvalTriageMeta,
+            approvalSnapshot,
             currentStatus,
         });
         if (approvalValidation.kind !== "ok") {
@@ -615,7 +628,6 @@ export async function executeSingleEngineerPlan(
                 error: "Managed execution handoff requires Session metadata.",
             };
         }
-        const approvalSnapshot = normalizeApprovalSnapshotForHandoff(approvalTriageMeta);
         if (!approvalSnapshot) {
             return {
                 repairRequired: false,
@@ -688,10 +700,9 @@ async function validateApprovedPlanSnapshotForHandoff({
     projectRoot,
     planName,
     triageMeta,
-    approvalTriageMeta,
+    approvalSnapshot,
     currentStatus,
 }) {
-    const approvalSnapshot = normalizeApprovalSnapshotForHandoff(approvalTriageMeta);
     if (!approvalSnapshot) {
         return {
             kind: "rejected",

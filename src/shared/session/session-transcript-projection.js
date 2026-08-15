@@ -576,7 +576,7 @@ export function summarizeProjectedEntries(entries) {
         const value = /** @type {any} */ (entry || {});
         if (value.type === "session" && typeof value.name === "string") name = value.name;
         if (value.type === "custom" && value.customType === ACTIVE_AGENT_CUSTOM_TYPE) {
-            if (typeof value.data?.agentName === "string") activeAgent = value.data.agentName;
+            if (typeof value.data?.agentName === "string") activeAgent = value.data.agentName.trim().toLowerCase();
         }
         if (value.type === "model_change") {
             if (typeof value.modelId === "string") model = value.modelId;

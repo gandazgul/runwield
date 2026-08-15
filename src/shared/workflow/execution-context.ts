@@ -12,10 +12,13 @@ import {
     findByPlanName as findWorktreeRegistryEntryByPlanName,
     reconcileEntryGitLocation,
     restoreEntryFromPlanEvidence,
+    updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
 import { prepareExecutionPlanFile } from "./execution-plan-file.js";
+import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import { isInValidation } from "./plan-lifecycle.js";
+import { hasImplementationDiff, requiresImplementationDiff } from "./validation-scope.ts";
 import type { ValidationRecoveryNotice } from "./validation-user-messages.ts";
 
 const VALIDATION_ELIGIBLE_WORKTREE_STATUSES = new Set(["active", "completed", "validation_failed", "merge_conflict"]);
@@ -51,6 +54,7 @@ export interface ResolvedWorktreeValidationContext {
     worktreeBaseBranch?: string;
     worktreeBaseRef?: string;
     worktreeBaseCommit?: string;
+    worktreeBaseTree?: string;
     source: ResolutionSource;
 }
 
@@ -517,6 +521,23 @@ export async function resolveValidationExecutionContext({
     }
     baselineTree = actualBaselineTree;
 
+    const worktreeBaseTree = asString(registryEntry.baseTree);
+    if (
+        worktreeBaseTree && worktreeBaseTree !== baselineTree && requiresImplementationDiff(attrs) &&
+        !hasImplementationDiff(await getWorkflowDiff(canonicalWorktreePath, baselineTree), planName) &&
+        hasImplementationDiff(await getWorkflowDiff(canonicalWorktreePath, worktreeBaseTree), planName)
+    ) {
+        // The attempt's creation tree is durable Git evidence. If the newer saved
+        // baseline hides all implementation work but the creation tree proves it,
+        // a resume accidentally replaced the review range. Repair that owned state
+        // instead of asking the user to reconstruct internal metadata.
+        baselineTree = worktreeBaseTree;
+        await updateWorktreeRegistryEntry(projectRoot, worktreeId, {
+            executionBaselineTree: worktreeBaseTree,
+        });
+        selfHealNotices.push({ kind: "review_range_fixed", planName });
+    }
+
     const hasStoredMergeRepairCandidate = attrs.status === "validated_reviewer" &&
         typeof attrs.validationMergeRepairWorktree === "string" &&
         attrs.validationMergeRepairWorktree.length > 0;
@@ -575,6 +596,7 @@ export async function resolveValidationExecutionContext({
             worktreeBaseBranch,
             worktreeBaseRef: candidateBaseRef,
             worktreeBaseCommit: candidateBaseCommit,
+            worktreeBaseTree,
             source: selected.source,
         },
         persistedLegacyExecutionMode,

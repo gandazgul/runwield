@@ -120,9 +120,9 @@ function makeOptions(
             runSlicerAgent: () => Promise.resolve(null),
             getActiveExecutionWorkflow: () => null,
             setActiveExecutionWorkflow: () => {},
-            clearActiveExecutionWorkflow: () => {},
+            clearActiveExecutionWorkflow: async () => {},
             reviewPlan: () => Promise.resolve({ action: "cancel" }),
-            rename: () => {},
+            rename: async () => {},
         },
         ports: {
             recordWorkflowMetric: () => Promise.resolve(null),
@@ -196,10 +196,10 @@ function makeSession(projectRoot: string): PlanSessionSurface {
         runValidation: () => Promise.resolve({ status: "blocked" }),
         runSlicerAgent: () => Promise.resolve({ kind: "done" }),
         getActiveExecutionWorkflow: () => null,
-        setActiveExecutionWorkflow: () => {},
-        clearActiveExecutionWorkflow: () => {},
+        setActiveExecutionWorkflow: async () => {},
+        clearActiveExecutionWorkflow: async () => {},
         reviewPlan: () => Promise.resolve({ canceled: true, approved: false }),
-        rename: () => {},
+        rename: async () => {},
     };
 }
 

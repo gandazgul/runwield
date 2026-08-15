@@ -121,7 +121,6 @@ Deno.test("managed read sweep drives read paths without writable Pi calls or tra
         const store = openOwnerCoordinationStore({ dbPath: join(home, "owner.sqlite3") });
         const instrumented = await instrumentRealPiWritableApis();
         try {
-            store.acknowledgeActivationProtocol({ now: () => "2026-01-01T00:00:00.000Z" });
             const project = store.registerProject({ root: cwd, idFactory: idFactory("project") });
             const piSessionId = "pi-dormant";
             const transcriptPath = await writeManagedTranscript(cwd, piSessionId);
@@ -152,7 +151,7 @@ Deno.test("managed read sweep drives read paths without writable Pi calls or tra
                 ),
             });
             const runtime = createSessionRuntime({
-                ownerCoordinationStore: store,
+                sessionStore: store,
                 ownerProcessKind: "test",
                 ownerInstanceId: "managed-read-test",
             });
