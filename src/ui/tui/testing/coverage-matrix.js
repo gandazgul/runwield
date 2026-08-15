@@ -4,8 +4,13 @@
  */
 
 import { assert } from "@std/assert";
+import { VALIDATION_WORKFLOW_BRANCHES } from "./validation-workflow-coverage.ts";
 
-/** @typedef {import('./scenario-runner.js').GoldenScenario} GoldenScenario */
+/** @typedef {import('./scenario-runner.js').GoldenScenario & { validationBranches?: string[] }} GoldenScenario */
+
+const VALIDATION_WORKFLOW_REQUIRED_CAPABILITIES = Object.freeze(
+    VALIDATION_WORKFLOW_BRANCHES.map((branch) => `validation:${branch.id}`),
+);
 
 export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
     roles: ["role:guide", "role:ideator", "role:operator", "role:engineer"],
@@ -44,7 +49,6 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
     ],
     recovery: [
         "recovery:tool-failure",
-        "recovery:workflow-validation",
         "recovery:steered-task-completion",
         "recovery:reviewer-rejection",
         // RunWield pauses rather than halting whenever it needs a person. That
@@ -61,10 +65,9 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         "recovery:ci-repair",
         "recovery:interrupted-execution",
         "recovery:load-plan-worktree",
-        "recovery:validation-failure-retry",
-        "recovery:validation-exhausted",
         "recovery:malformed-plan-front-matter",
     ],
+    validationWorkflow: VALIDATION_WORKFLOW_REQUIRED_CAPABILITIES,
     durableOutcomes: [
         "durable:plan-lifecycle",
         "durable:worktree-publication",
@@ -86,6 +89,12 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITY_IDS = Object.freeze(
     Object.values(GOLDEN_TUI_REQUIRED_CAPABILITIES).flat().sort(),
 );
 
+const GOLDEN_TUI_LEGACY_VALIDATION_CAPABILITY_IDS = Object.freeze([
+    "recovery:workflow-validation",
+    "recovery:validation-failure-retry",
+    "recovery:validation-exhausted",
+]);
+
 /**
  * @param {GoldenScenario[]} scenarios
  * @returns {Map<string, string[]>}
@@ -98,13 +107,19 @@ export function collectGoldenScenarioCoverage(scenarios) {
             list.push(scenario.name);
             owners.set(capability, list);
         }
+        for (const branchId of scenario.validationBranches || []) {
+            const capability = `validation:${branchId}`;
+            const list = owners.get(capability) || [];
+            list.push(scenario.name);
+            owners.set(capability, list);
+        }
     }
     return owners;
 }
 
 /** @param {GoldenScenario[]} scenarios */
 export function assertGoldenScenarioCoverage(scenarios) {
-    const known = new Set(GOLDEN_TUI_REQUIRED_CAPABILITY_IDS);
+    const known = new Set([...GOLDEN_TUI_REQUIRED_CAPABILITY_IDS, ...GOLDEN_TUI_LEGACY_VALIDATION_CAPABILITY_IDS]);
     const owners = collectGoldenScenarioCoverage(scenarios);
     const missing = GOLDEN_TUI_REQUIRED_CAPABILITY_IDS.filter((capability) => !owners.has(capability));
     assert(missing.length === 0, `Missing Golden TUI coverage: ${missing.join(", ")}`);

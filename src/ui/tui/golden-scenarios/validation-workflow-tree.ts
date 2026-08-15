@@ -1,47 +1,95 @@
-import {
-    EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS,
-    VALIDATION_WORKFLOW_BRANCHES,
-    validationEvidenceAssertion,
-    type ValidationWorkflowBranchId,
-} from "../testing/validation-workflow-coverage.ts";
+export {
+    validationTreeBrokenObjectiveDetectedRejectScenario,
+    validationTreeBrokenObjectiveDetectedWaiveScenario,
+    validationTreeBrokenObjectiveEngineerReportedRejectScenario,
+    validationTreeBrokenObjectiveEngineerReportedWaiveScenario,
+    validationTreeBrokenObjectiveFollowUpScenario,
+    validationTreeBrokenObjectiveStaleReportScenario,
+    validationTreeBrokenObjectiveStopScenario,
+    validationTreeCiCancelFollowUpScenario,
+    validationTreeCiCancelRetryScenario,
+    validationTreeCiCancelStopScenario,
+    validationTreeCiLoopScenario,
+    validationTreeCiRepairIncompleteScenario,
+    validationTreeCiRetrySuccessScenario,
+    validationTreeObjectiveCancelFollowUpScenario,
+    validationTreeObjectiveCancelRetryScenario,
+    validationTreeObjectiveCancelStopScenario,
+    validationTreeObjectiveExhaustedFollowUpScenario,
+    validationTreeObjectiveExhaustedRetryScenario,
+    validationTreeObjectiveExhaustedStopScenario,
+    validationTreeObjectiveMixedWaivedScenario,
+    validationTreeObjectiveNoneScenario,
+    validationTreeObjectiveRepairCompletedScenario,
+    validationTreeObjectiveRepairIncompleteScenario,
+    validationTreePlanAmendmentApproveScenario,
+    validationTreePlanAmendmentFollowUpScenario,
+    validationTreePlanAmendmentInvalidBaselineScenario,
+    validationTreePlanAmendmentStopScenario,
+    validationTreeValidationExhaustedFollowUpScenario,
+    validationTreeValidationExhaustedRetryScenario,
+    validationTreeValidationExhaustedStopScenario,
+    validationWorkflowMechanicalScenarios,
+} from "./validation-workflow-tree-mechanical.ts";
+export {
+    validationTreeEmptyDiffSkipScenario,
+    validationTreeNonGitDeliveryScenario,
+    validationTreePlanOnlyDiffFailsScenario,
+    validationTreeSemanticNudgeMissingDiffInspectionScenario,
+    validationTreeSemanticNudgeMissingReviewCompleteScenario,
+    validationTreeSemanticNudgeOmittedPriorFindingScenario,
+    validationTreeSemanticRepairIncompleteScenario,
+    validationTreeSemanticReviewerIncompletePauseScenario,
+    validationTreeSemanticReviewLoopScenario,
+    validationTreeSemanticRoundLimitContinueScenario,
+    validationTreeSemanticRoundLimitHumanReviewScenario,
+    validationTreeSemanticRoundLimitStopScenario,
+    validationTreeSemanticRoundModeDiscoveryToVerifyScenario,
+    validationWorkflowSemanticScenarios,
+} from "./validation-workflow-tree-semantic.ts";
+export {
+    validationTreeHumanReviewAlwaysApproveScenario,
+    validationTreeHumanReviewAskOpenApproveScenario,
+    validationTreeHumanReviewAskSkipScenario,
+    validationTreeHumanReviewFeedbackRepairApproveScenario,
+    validationTreeHumanReviewNoAnswerRetryScenario,
+    validationTreeHumanReviewNoAnswerStopScenario,
+    validationWorkflowHumanReviewScenarios,
+} from "./validation-workflow-tree-human-review.ts";
+export {
+    validationTreePublicationDirtyCheckoutScenario,
+    validationTreePublicationDirtyStopResumeScenario,
+    validationTreePublicationGenericGitFailureScenario,
+    validationTreePublicationMergeConflictRepairCompletedScenario,
+    validationTreePublicationMergeConflictRepairIncompleteRetryScenario,
+    validationTreePublicationMergeConflictRepairIncompleteStopScenario,
+    validationTreePublicationMissingTargetBranchScenario,
+    validationTreePublicationStaleRepairWorktreeScenario,
+    validationWorkflowPublicationScenarios,
+} from "./validation-workflow-tree-publication.ts";
+export {
+    validationTreeAheadStatusScenario,
+    validationTreeMalformedFrontMatterScenario,
+    validationTreeMismatchedWorktreeIdentityScenario,
+    validationTreeMissingExecutionContextScenario,
+    validationTreeMissingPlanScenario,
+    validationTreeResumeImplementedScenario,
+    validationTreeResumeValidatedCiScenario,
+    validationTreeResumeValidatedReviewerScenario,
+    validationTreeUnsupportedStatusScenario,
+    validationWorkflowLifecycleScenarios,
+} from "./validation-workflow-tree-lifecycle.ts";
 
-interface ValidationWorkflowTreeScenario {
-    name: string;
-    composedTui: boolean;
-    validationBranches: ValidationWorkflowBranchId[];
-    assertions: Array<ReturnType<typeof validationEvidenceAssertion>>;
-}
-
-function scenario(name: string): ValidationWorkflowTreeScenario {
-    const branches = EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS.filter((id) =>
-        VALIDATION_WORKFLOW_BRANCHES.find((branch) => branch.id === id)?.owner === name
-    );
-    return {
-        name,
-        composedTui: true,
-        validationBranches: branches,
-        assertions: branches.map((id) => validationEvidenceAssertion(id)),
-    };
-}
-
-export const validationTreeMechanicalPlanAmendmentScenario = scenario("validation-tree-mechanical-plan-amendment");
-export const validationTreeCiLoopScenario = scenario("validation-tree-ci-loop");
-export const validationTreeObjectiveCheckLoopScenario = scenario("validation-tree-objective-check-loop");
-export const validationTreeSemanticReviewLoopScenario = scenario("validation-tree-semantic-review-loop");
-export const validationTreeHumanReviewLoopScenario = scenario("validation-tree-human-review-loop");
-export const validationTreePublicationRecoveryScenario = scenario("validation-tree-publication-recovery");
-export const validationTreeLifecycleResumeScenario = scenario("validation-tree-lifecycle-resume");
-export const validationTreeNonGitDeliveryScenario = scenario("validation-tree-non-git-delivery");
-export const validationTreePublicationDirtyCheckoutScenario = scenario("validation-tree-publication-dirty-checkout");
+import { validationWorkflowMechanicalScenarios } from "./validation-workflow-tree-mechanical.ts";
+import { validationWorkflowSemanticScenarios } from "./validation-workflow-tree-semantic.ts";
+import { validationWorkflowHumanReviewScenarios } from "./validation-workflow-tree-human-review.ts";
+import { validationWorkflowPublicationScenarios } from "./validation-workflow-tree-publication.ts";
+import { validationWorkflowLifecycleScenarios } from "./validation-workflow-tree-lifecycle.ts";
 
 export const validationWorkflowTreeScenarios = [
-    validationTreeMechanicalPlanAmendmentScenario,
-    validationTreeCiLoopScenario,
-    validationTreeObjectiveCheckLoopScenario,
-    validationTreeSemanticReviewLoopScenario,
-    validationTreeHumanReviewLoopScenario,
-    validationTreePublicationRecoveryScenario,
-    validationTreeLifecycleResumeScenario,
-    validationTreeNonGitDeliveryScenario,
-    validationTreePublicationDirtyCheckoutScenario,
+    ...validationWorkflowMechanicalScenarios,
+    ...validationWorkflowSemanticScenarios,
+    ...validationWorkflowHumanReviewScenarios,
+    ...validationWorkflowPublicationScenarios,
+    ...validationWorkflowLifecycleScenarios,
 ];

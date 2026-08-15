@@ -3,6 +3,8 @@
  * Protocol-checked Plan Review and Runtime interaction fixtures.
  */
 
+import { getCwd } from "../../../constants.js";
+
 /**
  * @typedef {Object} ScriptedReviewDecision
  * @property {boolean} approved
@@ -25,7 +27,7 @@
  * @property {"select"|"text"|"approval"} type
  * @property {string} [promptIncludes]
  * @property {string|null} [value]
- * @property {{ path: string, text: string }} [userFixesFirst] what the user does in the
+ * @property {{ path: string, text: string, commands?: string[] }} [userFixesFirst] what the user does in the
  * project before answering. RunWield pauses precisely when it needs a person to change
  * something, so a scenario that cannot model the person changing it can only ever test
  * giving up — never the Retry that follows.
@@ -124,8 +126,20 @@ export class ScriptedInteractionSurface {
         }
         this.consumed.push({ request, interaction });
         if (interaction.userFixesFirst) {
-            const target = `${Deno.cwd()}/${interaction.userFixesFirst.path}`;
+            const cwd = getCwd();
+            const target = `${cwd}/${interaction.userFixesFirst.path}`;
             Deno.writeTextFileSync(target, interaction.userFixesFirst.text);
+            for (const command of interaction.userFixesFirst.commands || []) {
+                const output = new Deno.Command("bash", {
+                    cwd,
+                    args: ["-lc", command],
+                    stdout: "piped",
+                    stderr: "piped",
+                }).outputSync();
+                if (!output.success) {
+                    throw new Error(new TextDecoder().decode(output.stderr) || `User fix command failed: ${command}`);
+                }
+            }
         }
         return interaction.value ?? null;
     }

@@ -3,7 +3,7 @@
  * Golden TUI scenario action runner and diagnostics helpers.
  */
 
-import { join, relative } from "@std/path";
+import { dirname, join, relative } from "@std/path";
 import { createSessionRuntime } from "../../../shared/session/session-runtime.js";
 import { openOwnerCoordinationStore } from "../../../shared/owner-coordination/index.js";
 import { assert } from "@std/assert";
@@ -1385,6 +1385,35 @@ async function runComposedTuiScenario(scenario, options) {
                     };
                     events.push(`project:epic:work-record:${generated.status}`);
                     await writeHeartbeat();
+                } else if (typed.type === "deletePlanWorktreeBaseBranch") {
+                    const planName = String(typed.planName || "");
+                    const loaded = await loadPlan(Deno.cwd(), planName);
+                    if (!loaded) throw new Error(`Cannot delete base branch for missing Plan ${planName}`);
+                    const baseBranch = String(loaded.attrs.worktreeBaseBranch || "");
+                    if (!baseBranch) throw new Error(`Plan ${planName} has no worktreeBaseBranch to delete`);
+                    const replacementBranch = String(typed.replacementBranch || `golden-missing-target-${planName}`);
+                    await runGoldenGit(["switch", "-c", replacementBranch], Deno.cwd());
+                    await runGoldenGit(["branch", "-D", baseBranch], Deno.cwd());
+                    events.push(`project:base-branch-deleted:${planName}:${baseBranch}`);
+                    await writeHeartbeat();
+                } else if (typed.type === "commitPlanWorktreeBaseBranchFile") {
+                    const planName = String(typed.planName || "");
+                    const path = String(typed.path || "");
+                    if (!path) throw new Error("commitPlanWorktreeBaseBranchFile needs a path");
+                    const loaded = await loadPlan(Deno.cwd(), planName);
+                    if (!loaded) throw new Error(`Cannot edit base branch for missing Plan ${planName}`);
+                    const baseBranch = String(loaded.attrs.worktreeBaseBranch || "");
+                    if (!baseBranch) throw new Error(`Plan ${planName} has no worktreeBaseBranch to edit`);
+                    await runGoldenGit(["switch", baseBranch], Deno.cwd());
+                    await Deno.mkdir(dirname(join(Deno.cwd(), path)), { recursive: true });
+                    await Deno.writeTextFile(join(Deno.cwd(), path), String(typed.text || ""));
+                    await runGoldenGit(["add", path], Deno.cwd());
+                    await runGoldenGit(
+                        ["commit", "-m", String(typed.message || `seed ${planName} base conflict`)],
+                        Deno.cwd(),
+                    );
+                    events.push(`project:base-branch-file-committed:${planName}:${baseBranch}:${path}`);
+                    await writeHeartbeat();
                 } else if (typed.type === "seedActiveWorktree") {
                     const planName = String(typed.planName || "");
                     const loaded = await loadPlan(Deno.cwd(), planName);
@@ -1397,7 +1426,15 @@ async function runComposedTuiScenario(scenario, options) {
                         planName,
                         planId: String(loaded.attrs.planId || `golden:${planName}`),
                     });
-                    const status = typed.status === "implemented" ? "implemented" : "in_progress";
+                    if (Array.isArray(typed.files)) {
+                        for (const file of typed.files) {
+                            if (!isObject(file) || typeof file.path !== "string") continue;
+                            await Deno.writeTextFile(join(entry.path, file.path), String(file.text || ""));
+                        }
+                        await runGoldenGit(["add", "."], entry.path);
+                        await runGoldenGit(["commit", "-m", `seed ${planName} worktree diff`], entry.path);
+                    }
+                    const status = typeof typed.status === "string" ? typed.status : "in_progress";
                     const registryStatus = typed.registryStatus === "validation_failed"
                         ? "validation_failed"
                         : typed.registryStatus === "completed" || status === "implemented"
@@ -1416,11 +1453,17 @@ async function runComposedTuiScenario(scenario, options) {
                             worktreeBranch: entry.branch,
                             worktreeBaseBranch: entry.baseBranch,
                             worktreeStatus: registryStatus,
+                            ...(status === "validated_ci" || status === "validated_reviewer"
+                                ? { validationSemanticRounds: 0 }
+                                : {}),
+                            ...(status === "implemented" ? { validationCiAttempts: 0 } : {}),
+                            ...(isObject(typed.attrs) ? typed.attrs : {}),
                         },
                         loaded.attrs,
                         { expectedRevision: loaded.revision },
                     );
                     events.push(`project:worktree-seeded:${planName}`);
+                    events.push(`project:worktree-seeded:${planName}:${status}`);
                     await writeHeartbeat();
                 } else if (typed.type === "captureGitState") {
                     const paths = Array.isArray(typed.paths) ? typed.paths.map(String) : [];

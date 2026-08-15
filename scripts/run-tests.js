@@ -28,6 +28,7 @@
  *
  * Usage:
  *   deno run -A scripts/run-tests.js                    isolated run of every test file
+ *   deno run -A scripts/run-tests.js --isolated <paths> isolated parallel run of matching files
  *   deno run -A scripts/run-tests.js <deno test args>   single sandboxed `deno test` (subsets, filters)
  *
  * The passthrough form injects `-A` unless the caller passed their own
@@ -39,7 +40,7 @@
  * npm:vite on every run — a large registry download on cold caches. The type
  * gate is `deno task check`, not these sandboxed executions.
  */
-import { join, relative } from "@std/path";
+import { join, relative, resolve } from "@std/path";
 import { runWithSnip, writeSnipCommandResult } from "./run-with-snip.ts";
 
 const REPO_ROOT = new URL("..", import.meta.url).pathname;
@@ -113,13 +114,21 @@ async function prewarmDenoDir(env, testArgs) {
  *
  * @param {string} sandboxRoot
  * @param {string} denoDir
+ * @param {string[]} [roots]
  * @returns {Promise<number>} process exit code
  */
-async function runIsolatedSuite(sandboxRoot, denoDir) {
-    /** @type {string[]} */
-    const files = [];
-    for await (const file of findTestFiles(REPO_ROOT)) files.push(file);
-    files.sort();
+async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT]) {
+    const discovered = new Set();
+    for (const root of roots) {
+        const path = resolve(REPO_ROOT, root);
+        const stat = await Deno.stat(path);
+        if (stat.isFile) {
+            if (TEST_FILE_PATTERN.test(path)) discovered.add(path);
+            continue;
+        }
+        for await (const file of findTestFiles(path)) discovered.add(file);
+    }
+    const files = [...discovered].sort();
 
     const prewarmEnv = await createSandboxEnv(sandboxRoot, "prewarm", denoDir);
     await prewarmDenoDir(prewarmEnv, ["-A", "--no-check", "--quiet", ...files]);
@@ -179,7 +188,11 @@ await Deno.mkdir(denoDir, { recursive: true });
 // running finally blocks, which left ~600MB of sandboxes behind per run.
 let exitCode = 0;
 try {
-    if (Deno.args.length > 0) {
+    if (Deno.args[0] === "--isolated") {
+        const roots = Deno.args.slice(1);
+        if (roots.length === 0) throw new Error("--isolated requires at least one test file or directory.");
+        exitCode = await runIsolatedSuite(sandboxRoot, denoDir, roots);
+    } else if (Deno.args.length > 0) {
         // Explicit paths or flags: one sandboxed process, arguments passed through.
         const env = await createSandboxEnv(sandboxRoot, "single", denoDir);
         // Grant full permissions unless the caller passed their own permission

@@ -1,0 +1,187 @@
+import { plannedChangeReviewRepairValidationScenario } from "./planned-change-workflow.js";
+import { withValidationBranches } from "./validation-workflow-tree-shared.ts";
+
+export const validationTreeHumanReviewAskSkipScenario = withValidationBranches(
+    {
+        ...plannedChangeReviewRepairValidationScenario,
+        committedProjectFiles: [
+            {
+                path: ".wld/settings.json",
+                text: `${JSON.stringify({ codereview: "ask" }, null, 4)}\n`,
+            },
+        ],
+        scriptedInteractions: [
+            ...(plannedChangeReviewRepairValidationScenario.scriptedInteractions || []),
+            { type: "select", promptIncludes: "Open code review before merge-back", value: "skip" },
+        ],
+        actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
+            action.type !== "assertWorkflowDurability"
+        ),
+        assertions: [],
+    },
+    "validation-tree-human-review-ask-skip",
+    ["plan"],
+    ["human-review:ask-skip", "human-review:none"],
+);
+
+export const validationTreeHumanReviewAskOpenApproveScenario = withValidationBranches(
+    {
+        ...plannedChangeReviewRepairValidationScenario,
+        committedProjectFiles: [
+            {
+                path: ".wld/settings.json",
+                text: `${JSON.stringify({ codereview: "ask" }, null, 4)}\n`,
+            },
+        ],
+        scriptedInteractions: [
+            ...(plannedChangeReviewRepairValidationScenario.scriptedInteractions || []),
+            { type: "select", promptIncludes: "Open code review before merge-back", value: "open" },
+        ],
+        humanReviewDecisions: [{ approved: true, feedback: "Human approves the Golden implementation." }],
+        actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
+            action.type !== "assertWorkflowDurability"
+        ),
+        assertions: [],
+    },
+    "validation-tree-human-review-ask-open-approve",
+    ["plan"],
+    ["human-review:ask-open-approve"],
+);
+
+export const validationTreeHumanReviewAlwaysApproveScenario = withValidationBranches(
+    {
+        ...plannedChangeReviewRepairValidationScenario,
+        committedProjectFiles: [
+            {
+                path: ".wld/settings.json",
+                text: `${JSON.stringify({ codereview: "always" }, null, 4)}\n`,
+            },
+        ],
+        humanReviewDecisions: [{ approved: true, feedback: "Human always-review approves the Golden implementation." }],
+        actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
+            action.type !== "assertWorkflowDurability"
+        ),
+        assertions: [],
+    },
+    "validation-tree-human-review-always-approve",
+    ["plan"],
+    ["human-review:always-approve"],
+);
+
+export const validationTreeHumanReviewNoAnswerRetryScenario = withValidationBranches(
+    {
+        ...plannedChangeReviewRepairValidationScenario,
+        committedProjectFiles: [
+            {
+                path: ".wld/settings.json",
+                text: `${JSON.stringify({ codereview: "always" }, null, 4)}\n`,
+            },
+        ],
+        humanReviewDecisions: [
+            { canceled: true },
+            { approved: true, feedback: "Human approves after reopening the review." },
+        ],
+        scriptedInteractions: [
+            ...(plannedChangeReviewRepairValidationScenario.scriptedInteractions || []),
+            { type: "select", promptIncludes: "Pick Retry to open it again", value: "retry" },
+        ],
+        actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
+            action.type !== "assertWorkflowDurability"
+        ),
+        assertions: [],
+    },
+    "validation-tree-human-review-no-answer-retry",
+    ["plan"],
+    ["human-review:no-answer-retry"],
+);
+
+export const validationTreeHumanReviewNoAnswerStopScenario = withValidationBranches(
+    {
+        ...plannedChangeReviewRepairValidationScenario,
+        committedProjectFiles: [
+            {
+                path: ".wld/settings.json",
+                text: `${JSON.stringify({ codereview: "always" }, null, 4)}\n`,
+            },
+        ],
+        humanReviewDecisions: [{ canceled: true }],
+        scriptedInteractions: [
+            ...(plannedChangeReviewRepairValidationScenario.scriptedInteractions || []),
+            { type: "select", promptIncludes: "Pick Retry to open it again", value: "stop" },
+        ],
+        actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
+            action.type !== "assertWorkflowDurability"
+        ),
+        assertions: [],
+    },
+    "validation-tree-human-review-no-answer-stop",
+    ["plan"],
+    ["human-review:no-answer-stop"],
+);
+
+export const validationTreeHumanReviewFeedbackRepairApproveScenario = withValidationBranches(
+    {
+        ...plannedChangeReviewRepairValidationScenario,
+        committedProjectFiles: [
+            {
+                path: ".wld/settings.json",
+                text: `${JSON.stringify({ codereview: "always" }, null, 4)}\n`,
+            },
+        ],
+        humanReviewDecisions: [
+            { approved: false, feedback: "Human review requests one more durable note." },
+            { approved: true, feedback: "Human approves after feedback repair." },
+        ],
+        script: plannedChangeReviewRepairValidationScenario.script.filter((turn: { id?: string }) =>
+            turn.id !== "engineer-post-repair-turn-before-re-review" && turn.id !== "engineer-closes-after-delivery"
+        ).concat([
+            {
+                id: "engineer-repairs-human-review-feedback",
+                agent: "engineer",
+                phase: "engineer",
+                ordinal: 5,
+                requiredTools: ["write"],
+                thinking: "Repair after Local Human Code Review feedback.",
+                toolCalls: [{
+                    name: "write",
+                    arguments: { path: "golden-planned-change.txt", content: "golden-human-review-repaired" },
+                }],
+            },
+            {
+                id: "engineer-completes-human-review-feedback-repair",
+                agent: "engineer",
+                phase: "engineer",
+                ordinal: 6,
+                requiredTools: ["task_completed"],
+                thinking: "Report Local Human Code Review feedback repair complete.",
+                toolCalls: [{
+                    name: "task_completed",
+                    arguments: { message: "- Repaired Local Human Code Review feedback." },
+                }],
+            },
+            {
+                id: "engineer-idle-after-human-review-feedback-repair",
+                agent: "engineer",
+                phase: "engineer",
+                ordinal: 7,
+                text: "Human feedback repair is ready for approval.",
+            },
+        ]),
+        actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
+            action.type !== "assertWorkflowDurability"
+        ),
+        assertions: [],
+    },
+    "validation-tree-human-review-feedback-repair-approve",
+    ["plan"],
+    ["human-review:feedback-repair-approve"],
+);
+
+export const validationWorkflowHumanReviewScenarios = [
+    validationTreeHumanReviewAskSkipScenario,
+    validationTreeHumanReviewAskOpenApproveScenario,
+    validationTreeHumanReviewAlwaysApproveScenario,
+    validationTreeHumanReviewFeedbackRepairApproveScenario,
+    validationTreeHumanReviewNoAnswerRetryScenario,
+    validationTreeHumanReviewNoAnswerStopScenario,
+];
