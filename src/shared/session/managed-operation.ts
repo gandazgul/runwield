@@ -28,6 +28,7 @@ export type ManagedOperationDescriptor = {
         allowReturnToRouter?: boolean;
         includeEditFallback?: boolean;
         onTurnStarted?: ManagedTurnStarted;
+        emitBusyEvents?: boolean;
     };
     hydrate?: boolean;
     activateAgent?: boolean;

@@ -196,6 +196,7 @@ export function attachTuiRuntimeAdapter({
                 break;
             }
             case RuntimeEventTypes.ASSISTANT_THINKING_DELTA: {
+                if (value._meta?.replay) break;
                 if (!uiAPI.appendThinkingStart) break;
                 const messageId = value.messageId;
                 let appender = thinkingMessages.get(messageId);
@@ -207,6 +208,7 @@ export function attachTuiRuntimeAdapter({
                 break;
             }
             case RuntimeEventTypes.ASSISTANT_THINKING_END: {
+                if (value._meta?.replay) break;
                 const messageId = value.messageId;
                 thinkingMessages.get(messageId)?.end();
                 thinkingMessages.delete(messageId);

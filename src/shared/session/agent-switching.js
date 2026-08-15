@@ -6,6 +6,7 @@
 import { createAgentHandler } from "./agent-handler.js";
 import {
     ensureRootAgentSession,
+    getConfiguredAgentModel,
     getRootSessionSwitchState,
     runRootTurn,
     shouldReuseExistingRootSession,
@@ -61,7 +62,11 @@ export async function switchActiveAgent(hostedSession, options) {
     const previousSwitch = switchMetadata.get(hostedSession);
     const effectiveModel = rootSwitchState?.model ?? previousSwitch?.model ?? activeModelState.model;
     const modelOverride = options.model;
-    const modelChanged = modelOverride !== undefined && modelOverride !== effectiveModel;
+    const configuredModel = modelOverride === undefined
+        ? getConfiguredAgentModel(agentName, hostedSession.cwd)
+        : undefined;
+    const requestedModel = modelOverride ?? configuredModel;
+    const modelChanged = requestedModel !== undefined && requestedModel !== effectiveModel;
     const allowReturnToRouterProvided = Object.hasOwn(options, "allowReturnToRouter");
     const effectiveAllowReturnToRouter = rootSwitchState?.allowReturnToRouter ?? previousSwitch?.allowReturnToRouter;
     const allowReturnToRouterChanged = allowReturnToRouterProvided &&
@@ -95,7 +100,7 @@ export async function switchActiveAgent(hostedSession, options) {
     const shouldRebuildRoot = !canReuseRoot;
     const nextMetadata = {
         agentName,
-        model: options.model ?? effectiveModel,
+        model: requestedModel ?? effectiveModel,
         allowReturnToRouter: allowReturnToRouterProvided ? options.allowReturnToRouter : effectiveAllowReturnToRouter,
         cwd: cwdProvided ? options.cwd : effectiveCwd,
     };

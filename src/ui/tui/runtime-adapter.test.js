@@ -459,6 +459,29 @@ Deno.test("TUI renders Runtime cancellation events instead of key handlers rende
     assertEquals(transcript, ["system:info:Agent run canceled."]);
 });
 
+Deno.test("TUI adapter ignores replayed thinking because it is not active work", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("replayed-thinking");
+    const { uiAPI, transcript } = makeUi();
+
+    const registration = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
+        messageId: "thinking-1",
+        delta: "old thought",
+        agentName: "Engineer",
+        _meta: { replay: true },
+    });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.ASSISTANT_THINKING_END,
+        messageId: "thinking-1",
+        agentName: "Engineer",
+        _meta: { replay: true },
+    });
+    registration.dispose();
+
+    assertEquals(transcript, []);
+});
+
 Deno.test("TUI adapter renders normalized thinking deltas and one tool start", () => {
     const { runtime, sessionId } = makeRuntimeHarness("adapter-coalesce");
     const { transcript, uiAPI } = makeUi();

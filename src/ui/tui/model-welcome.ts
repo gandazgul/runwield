@@ -248,7 +248,7 @@ export async function maybeShowModelWelcome(options: MaybeShowModelWelcomeOption
     }
 
     try {
-        await options.sessionRuntime.switchAgent(options.sessionId, {
+        options.sessionRuntime.markPromptReadyAgent(options.sessionId, {
             agentName: options.initialAgentInternalName,
             model: options.initialAgentModel,
         });

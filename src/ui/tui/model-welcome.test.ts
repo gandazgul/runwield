@@ -99,7 +99,7 @@ Deno.test("a malformed models.json in the fixture HOME degrades to no configured
     }, { providerState: "none" });
 });
 
-Deno.test("a usable selected fixture model bypasses onboarding and activates the real root Session", async () => {
+Deno.test("a usable selected fixture model bypasses onboarding without eager Router activation", async () => {
     await withRuntimeCommandFixture("model-welcome-bypass-", async () => {
         const harness = await createInteractiveCompositionHarness({});
         try {
@@ -108,6 +108,8 @@ Deno.test("a usable selected fixture model bypasses onboarding and activates the
             assert(!screen.includes(WELCOME_TITLE), "a usable selected model must bypass the welcome prompt");
             const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);
             assertEquals(snapshot?.activeAgent, "router");
+            assertEquals(snapshot?.sessionManagerId, null);
+            assertEquals(snapshot?.managed, null);
             assertEquals(snapshot?.busy, false);
         } finally {
             await harness.dispose();
@@ -296,7 +298,8 @@ Deno.test("failed root activation returns focus to the editor with recovery guid
             provider.setOutcome({ kind: "success" });
             await completeOnboardingWithScriptedProvider(harness);
             const screen = await harness.waitForScreen("Failed to initialize root agent after model setup");
-            assertStringIncludes(screen, "Run /model to choose another model");
+            assertStringIncludes(screen, "Run /model");
+            assertStringIncludes(screen, "choose another model");
             const composition = await harness.waitForComposition(30_000);
             const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);
             assert(snapshot?.activeAgent !== "router", "failed root activation must not build the root Session");

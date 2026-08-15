@@ -176,6 +176,7 @@ export async function startInteractiveSession(
         const createdSession = await sessionRuntime.createInteractiveSession({
             cwd: sessionCwd,
             mode: sessionStartMode,
+            deferManagedActivationUntilAgentReady: sessionStartMode === "new",
         });
         let sessionId = createdSession.sessionId;
         const runtimeSnapshot = () => getRuntimeSnapshot(sessionRuntime, sessionId);
@@ -304,32 +305,11 @@ export async function startInteractiveSession(
                 initialAgentModel: options.initialAgentModel,
                 projectRoot: runtimeSnapshot().cwd,
             });
-        if (!modelWelcomeResult.shown && !options.skipModelWelcome) {
-            try {
-                await sessionRuntime.switchAgent(sessionId, {
-                    agentName: initialAgentInternalName,
-                    model: options.initialAgentModel,
-                });
-            } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                if (msg.includes("No configured model found")) {
-                    await maybeShowModelWelcome({
-                        uiAPI,
-                        editor: view.editor,
-                        tui,
-                        sessionId,
-                        sessionRuntime,
-                        initialAgentInternalName,
-                        initialAgentModel: options.initialAgentModel,
-                        projectRoot: runtimeSnapshot().cwd,
-                        forceModelSelection: true,
-                    });
-                } else {
-                    uiAPI.appendSystemMessage(
-                        `Failed to initialize root agent "${initialAgentInternalName}": ${msg}`,
-                    );
-                }
-            }
+        if (!modelWelcomeResult.noModel) {
+            sessionRuntime.markPromptReadyAgent(sessionId, {
+                agentName: initialAgentInternalName,
+                model: options.initialAgentModel,
+            });
         }
         const isModelSetupRecoveryCommand = (userRequest: string): boolean => {
             const commandName = userRequest.trim().slice(1).split(/\s+/, 1)[0];

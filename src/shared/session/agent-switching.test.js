@@ -1,7 +1,8 @@
-import { assertEquals, assertRejects, assertStrictEquals } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertStrictEquals } from "@std/assert";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { runActiveAgentTurn, switchActiveAgent } from "./agent-switching.js";
+import { __getRootSessionMetadataForTests } from "./session.js";
 import { HostedSession } from "./hosted-session.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import {
@@ -98,6 +99,131 @@ Deno.test("runActiveAgentTurn switches and completes a real root turn through th
 
             assertEquals(hostedSession.getRootAgentName(), "guide");
             assertEquals(JSON.stringify(messages).includes("The isolated Guide turn completed."), true);
+            hostedSession.dispose();
+        },
+    );
+});
+
+Deno.test("switchActiveAgent resolves the active preset model when Router dispatches QUICK_FIX to Engineer", async () => {
+    await withRuntimeCommandFixture(
+        "agent-switch-quick-fix-preset-",
+        async ({ homeDir, projectRoot, settingsPath }) => {
+            const { hostedSession, sessionManager } = makeSession(projectRoot);
+            await Deno.writeTextFile(
+                settingsPath,
+                JSON.stringify({
+                    activeModelPreset: "split-agents",
+                    modelPresets: {
+                        "split-agents": {
+                            agents: {
+                                router: { model: "runtime-command-fixture/router-model" },
+                                engineer: { model: "runtime-command-fixture/engineer-model" },
+                                guide: { model: "runtime-command-fixture/guide-model" },
+                            },
+                        },
+                        "alternate-agents": {
+                            agents: {
+                                engineer: { model: "runtime-command-fixture/engineer-alt-model" },
+                            },
+                        },
+                    },
+                    notifications: { enabled: false },
+                }),
+            );
+            await Deno.writeTextFile(
+                `${homeDir}/.wld/models.json`,
+                JSON.stringify({
+                    providers: {
+                        "runtime-command-fixture": {
+                            name: "Runtime Command Fixture Provider",
+                            baseUrl: "http://127.0.0.1:0",
+                            apiKey: "fixture-key",
+                            api: "runtime-command-faux",
+                            models: [
+                                {
+                                    id: "router-model",
+                                    name: "Router Model",
+                                    api: "runtime-command-faux",
+                                    input: ["text", "image"],
+                                    contextWindow: 128000,
+                                    maxTokens: 4096,
+                                },
+                                {
+                                    id: "engineer-model",
+                                    name: "Engineer Model",
+                                    api: "runtime-command-faux",
+                                    input: ["text", "image"],
+                                    contextWindow: 128000,
+                                    maxTokens: 4096,
+                                },
+                                {
+                                    id: "guide-model",
+                                    name: "Guide Model",
+                                    api: "runtime-command-faux",
+                                    input: ["text", "image"],
+                                    contextWindow: 128000,
+                                    maxTokens: 4096,
+                                },
+                                {
+                                    id: "engineer-alt-model",
+                                    name: "Engineer Alternate Model",
+                                    api: "runtime-command-faux",
+                                    input: ["text", "image"],
+                                    contextWindow: 128000,
+                                    maxTokens: 4096,
+                                },
+                            ],
+                        },
+                    },
+                }),
+            );
+
+            await switchActiveAgent(hostedSession, { agentName: "router", sessionManager });
+            const routerRoot = hostedSession.getRootAgentSession();
+            assert(routerRoot);
+            assertEquals(
+                __getRootSessionMetadataForTests(
+                    /** @type {import("@earendil-works/pi-coding-agent").AgentSession} */ (routerRoot),
+                )?.model,
+                "runtime-command-fixture/router-model",
+            );
+
+            await switchActiveAgent(hostedSession, { agentName: "guide", sessionManager });
+            const guideRoot = hostedSession.getRootAgentSession();
+            assert(guideRoot);
+            assertEquals(
+                __getRootSessionMetadataForTests(
+                    /** @type {import("@earendil-works/pi-coding-agent").AgentSession} */ (guideRoot),
+                )?.model,
+                "runtime-command-fixture/guide-model",
+            );
+
+            await switchActiveAgent(hostedSession, { agentName: "engineer", sessionManager });
+
+            assertEquals(hostedSession.getRootAgentName(), "engineer");
+            const engineerRoot = hostedSession.getRootAgentSession();
+            assert(engineerRoot);
+            assertEquals(
+                __getRootSessionMetadataForTests(
+                    /** @type {import("@earendil-works/pi-coding-agent").AgentSession} */ (engineerRoot),
+                )?.model,
+                "runtime-command-fixture/engineer-model",
+            );
+
+            const alternateSettings = JSON.parse(await Deno.readTextFile(settingsPath));
+            alternateSettings.activeModelPreset = "alternate-agents";
+            await Deno.writeTextFile(settingsPath, JSON.stringify(alternateSettings));
+            await switchActiveAgent(hostedSession, { agentName: "engineer", sessionManager });
+
+            const alternateEngineerRoot = hostedSession.getRootAgentSession();
+            assert(alternateEngineerRoot);
+            assertEquals(alternateEngineerRoot === engineerRoot, false);
+            assertEquals(
+                __getRootSessionMetadataForTests(
+                    /** @type {import("@earendil-works/pi-coding-agent").AgentSession} */ (alternateEngineerRoot),
+                )?.model,
+                "runtime-command-fixture/engineer-alt-model",
+            );
             hostedSession.dispose();
         },
     );

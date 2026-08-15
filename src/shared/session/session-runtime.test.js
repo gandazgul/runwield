@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertStrictEquals } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertStrictEquals } from "@std/assert";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -971,6 +971,125 @@ Deno.test("SessionRuntime emits accepted managed user message before hydration w
     assertEquals(hydrationIndex > userMessageIndex, true);
     assertEquals(bodyIndex > hydrationIndex, true);
     assertEquals(imageEventFallbackIndex > promptManagedIndex, true);
+});
+
+Deno.test("SessionRuntime clean agent starts and switches resolve each agent preset model", async () => {
+    await withRuntimeCommandFixture(
+        "runtime-router-engineer-preset-",
+        async ({ homeDir, projectRoot, settingsPath }) => {
+            await Deno.writeTextFile(
+                settingsPath,
+                JSON.stringify({
+                    activeModelPreset: "split-agents",
+                    modelPresets: {
+                        "split-agents": {
+                            agents: {
+                                router: { model: "runtime-command-fixture/router-model" },
+                                engineer: { model: "runtime-command-fixture/engineer-model" },
+                                guide: { model: "runtime-command-fixture/guide-model" },
+                            },
+                        },
+                    },
+                    notifications: { enabled: false },
+                }),
+            );
+            await Deno.writeTextFile(
+                `${homeDir}/.wld/models.json`,
+                JSON.stringify({
+                    providers: {
+                        "runtime-command-fixture": {
+                            name: "Runtime Command Fixture Provider",
+                            baseUrl: "http://127.0.0.1:0",
+                            apiKey: "fixture-key",
+                            api: "runtime-command-faux",
+                            models: [
+                                {
+                                    id: "router-model",
+                                    name: "Router Model",
+                                    api: "runtime-command-faux",
+                                    input: ["text", "image"],
+                                    contextWindow: 128000,
+                                    maxTokens: 4096,
+                                },
+                                {
+                                    id: "engineer-model",
+                                    name: "Engineer Model",
+                                    api: "runtime-command-faux",
+                                    input: ["text", "image"],
+                                    contextWindow: 128000,
+                                    maxTokens: 4096,
+                                },
+                                {
+                                    id: "guide-model",
+                                    name: "Guide Model",
+                                    api: "runtime-command-faux",
+                                    input: ["text", "image"],
+                                    contextWindow: 128000,
+                                    maxTokens: 4096,
+                                },
+                            ],
+                        },
+                    },
+                }),
+            );
+            const sessionHost = new SessionHost();
+            const runtime = makeRuntime({ sessionHost });
+            const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot });
+            const hostedSession = sessionHost.getSession(sessionId);
+            assert(hostedSession);
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                provider: "runtime-command-fixture",
+                model: "router-model",
+            });
+
+            const switched = await runtime.switchAgent(sessionId, { agentName: "engineer" });
+            assertEquals(switched.ok, true);
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                provider: "runtime-command-fixture",
+                model: "engineer-model",
+            });
+
+            const guideSwitched = await runtime.switchAgent(sessionId, { agentName: "guide" });
+            assertEquals(guideSwitched.ok, true);
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                provider: "runtime-command-fixture",
+                model: "guide-model",
+            });
+            await runtime.closeSession(sessionId);
+
+            const directGuideSessionId = await runtime.createPromptReadySession({
+                cwd: projectRoot,
+                agentName: "guide",
+            });
+            assertEquals(runtime.getSessionSnapshot(directGuideSessionId)?.activeAgent, "guide");
+            assertEquals(runtime.getSessionSnapshot(directGuideSessionId)?.activeModel, {
+                provider: "runtime-command-fixture",
+                model: "guide-model",
+            });
+            await runtime.closeSession(directGuideSessionId);
+        },
+    );
+});
+
+Deno.test("SessionRuntime managed hydration does not turn persisted display model into a user override", async () => {
+    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
+    const managedOperationIndex = source.indexOf("async #runManagedOperation(sessionId, descriptor, body)");
+    const openIndex = source.indexOf("await openPersistedRootSession({", managedOperationIndex);
+    const pendingIntentModelIndex = source.indexOf(
+        'hostedSession.setActiveModelState(pendingIntent.model || "", pendingIntent.provider || "", true);',
+        openIndex,
+    );
+    const managedDisplayModelOverrideIndex = source.indexOf(
+        'hostedSession.setActiveModelState(managed.model || "", managed.provider || "", true);',
+        openIndex,
+    );
+    const activateIndex = source.indexOf("await this.#activateSessionAgent(hostedSession, {", openIndex);
+
+    assertEquals(managedOperationIndex >= 0, true);
+    assertEquals(openIndex > managedOperationIndex, true);
+    assertEquals(pendingIntentModelIndex > openIndex, true);
+    assertEquals(managedDisplayModelOverrideIndex, -1);
+    assertEquals(activateIndex > pendingIntentModelIndex, true);
 });
 
 Deno.test("SessionRuntime managed prompt preserves pending local agent selection", async () => {

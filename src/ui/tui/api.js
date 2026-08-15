@@ -478,6 +478,7 @@ export function createUiApi(
         /** @param {import('../../shared/session/session-runtime-events.js').RuntimeManagedSyncStateEvent} state */
         setManagedSyncStatus: (state) => {
             if (!inputAccessoryContainer || outputSuppressed) return;
+            if (state.status === "syncing" && !managedSyncStatus) return;
             if (state.status === "current" && !state.owningSurfaceKind) {
                 if (managedSyncStatus) {
                     inputAccessoryContainer.removeChild(managedSyncStatus.block);

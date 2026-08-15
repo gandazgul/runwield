@@ -11,6 +11,7 @@ import {
     abortActiveSession as abortActiveSessionFn,
     expandPromptTemplate,
     expandSkillCommand,
+    getConfiguredAgentModel,
     getRootSessionContextProjection,
     getRootSessionRebuildOptions,
     listLoadedAgentMdFiles,
@@ -62,6 +63,7 @@ import {
     resolveVisionFallbackModel,
 } from "./image-attachments.js";
 import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../models/model-registry.ts";
+import { parseProviderModel } from "../models/model-validation.ts";
 import { spawnForegroundShell } from "../foreground-process.ts";
 import { openFileSessionStore } from "./file-session-store.ts";
 import { buildSessionContextReport } from "./session-context-report.js";
@@ -345,6 +347,21 @@ function normalizeThinkingLevel(value) {
 }
 
 /**
+ * @param {{ model?: string | null, provider?: string | null }} modelState
+ * @param {{ model?: string | null, provider?: string | null }} managed
+ * @returns {{ model: string, provider: string }}
+ */
+function normalizeManagedActiveModelState(modelState, managed) {
+    const model = modelState.model || managed.model || "";
+    const provider = modelState.provider || managed.provider || "";
+    if (model && provider && model.startsWith(`${provider}/`)) {
+        const parsed = parseProviderModel(model);
+        if (parsed.ok && parsed.provider === provider) return { model: parsed.id, provider };
+    }
+    return { model, provider };
+}
+
+/**
  * Decide whether a projected attention record is newly observed for a session.
  *
  * The projector reports the last attention entry in the entire committed
@@ -469,6 +486,7 @@ export class SessionRuntime {
             deriveWorkflowContextFromExecutionWorkflow(activeExecutionWorkflow) || null;
         const contextCapacity = getRuntimeContextCapacity(session);
         const activeModelState = session.getActiveModelState();
+        const activeAgentInfo = session.getActiveAgentInfo();
         const managedModel = managedDormant ? managed?.model || "" : "";
         const managedProvider = managedDormant ? managed?.provider || "" : "";
         const managedThinkingLevel = managedDormant ? managed?.thinkingLevel || "" : "";
@@ -500,11 +518,11 @@ export class SessionRuntime {
                     dormant: managedDormant,
                 }
                 : null,
-            activeAgent: pendingAgentName || session.getRootAgentName() ||
+            activeAgent: pendingAgentName || session.getRootAgentName() || activeAgentInfo?.agentName ||
                 (managedDormant ? managed?.activeAgent || null : null),
             activeAgentInfo: pendingAgentName
                 ? { displayName: pendingAgentName, model: "", provider: "", agentName: pendingAgentName }
-                : session.getActiveAgentInfo(),
+                : activeAgentInfo,
             activeModel: {
                 model: pendingManagedIntent.model || activeModelState.model || managedModel,
                 provider: pendingManagedIntent.provider || activeModelState.provider || managedProvider,
@@ -1029,12 +1047,48 @@ export class SessionRuntime {
             sessionId,
             {
                 name,
-                options: { expectedGeneration: managed.generation ?? undefined },
+                options: {
+                    expectedGeneration: managed.generation ?? undefined,
+                    emitBusyEvents: name !== "switch_agent",
+                },
                 activateAgent: options.activateAgent === true,
                 hydrate: options.hydrate !== false,
             },
             async ({ capability }) => await operation(session, capability),
         );
+    }
+
+    /**
+     * @param {string} sessionId
+     * @param {{ agentName?: string, model?: string }} [options]
+     */
+    markPromptReadyAgent(sessionId, options = {}) {
+        const hostedSession = this.#sessionHost.getSession(sessionId);
+        if (!hostedSession) return { ok: false, error: "not_found" };
+        const agentName = options.agentName || AGENTS.ROUTER;
+        const displayName = getAgentDisplayName(agentName, hostedSession.cwd);
+        const currentModel = hostedSession.getActiveModelState?.() || { model: "", provider: "" };
+        const configuredModelRef = options.model ?? getConfiguredAgentModel(agentName, hostedSession.cwd) ?? "";
+        const settingsManager = getSettingsManager(hostedSession.cwd);
+        let model = currentModel.model || settingsManager.getDefaultModel?.()?.trim() || "";
+        let provider = currentModel.provider || settingsManager.getDefaultProvider?.()?.trim() || "";
+        if (configuredModelRef) {
+            const parsedModel = parseProviderModel(configuredModelRef);
+            if (parsedModel.ok) {
+                model = parsedModel.id;
+                provider = parsedModel.provider;
+            } else {
+                model = configuredModelRef;
+                provider = "";
+            }
+        }
+        hostedSession.resetAgentInfoStack(displayName, model, provider, agentName);
+        this.#emitSessionEvent(sessionId, {
+            type: RuntimeEventTypes.AGENT_CHANGED,
+            agentName,
+            model: model || undefined,
+        });
+        return { ok: true, agentName, model };
     }
 
     /**
@@ -2611,7 +2665,20 @@ export class SessionRuntime {
                 digestHex: evidence.digestHex,
                 currentSegmentId: managed.currentSegmentId,
             });
-            hostedSession.setManagedMetadata({ ...managed, generation: 0, acknowledgedGeneration: 0 });
+            const managedModelState = normalizeManagedActiveModelState(
+                hostedSession.getActiveModelState?.() || {},
+                managed,
+            );
+            hostedSession.setManagedMetadata({
+                ...managed,
+                generation: 0,
+                acknowledgedGeneration: 0,
+                activeAgent: hostedSession.getRootAgentName?.() || null,
+                model: managedModelState.model,
+                provider: managedModelState.provider,
+                thinkingLevel: hostedSession.getThinkingLevel?.() || managed.thinkingLevel || "off",
+                workflowContext: hostedSession.getWorkflowContext?.() || managed.workflowContext || null,
+            });
             this.#pendingManagedCreations.delete(hostedSession.id);
             this.#pendingManagedCreationProjects.delete(hostedSession.id);
             hostedSession.dehydrateManagedSession();
@@ -2989,7 +3056,14 @@ export class SessionRuntime {
     async promptUserTurn(sessionId, options) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) throw new Error("SessionRuntime.promptUserTurn: session not found");
-        const managed = hostedSession.getManagedMetadata?.() || null;
+        let managed = hostedSession.getManagedMetadata?.() || null;
+        if (!managed && this.#pendingManagedCreationProjects.has(sessionId)) {
+            const activeAgentInfo = hostedSession.getActiveAgentInfo?.() || null;
+            await this.#activateSessionAgent(hostedSession, {
+                agentName: options.agentName || activeAgentInfo?.agentName || AGENTS.ROUTER,
+            });
+            managed = hostedSession.getManagedMetadata?.() || null;
+        }
         if (!managed) throw new Error("SessionRuntime.promptUserTurn: segmented Session metadata is unavailable");
         const submittedRequest = options.initialRequest;
         const requestOptions = { ...options, initialRequest: submittedRequest };
@@ -3100,7 +3174,8 @@ export class SessionRuntime {
         let hydrated = false;
         /** @type {() => void} */
         let cleanupTurnStart = () => {};
-        this.#beginBusyOperation(sessionId);
+        const shouldEmitBusyEvents = options.emitBusyEvents !== false;
+        if (shouldEmitBusyEvents) this.#beginBusyOperation(sessionId);
         try {
             const pendingIntent = hostedSession.getPendingManagedTurnIntent?.() || {};
             if (state.generation) {
@@ -3169,8 +3244,6 @@ export class SessionRuntime {
             hostedSession.setRootSessionManager(/** @type {any} */ (sessionManager), capability);
             if (pendingIntent.model || pendingIntent.provider) {
                 hostedSession.setActiveModelState(pendingIntent.model || "", pendingIntent.provider || "", true);
-            } else if (managed.model || managed.provider) {
-                hostedSession.setActiveModelState(managed.model || "", managed.provider || "", true);
             }
             if (pendingIntent.thinkingLevel || managed.thinkingLevel) {
                 hostedSession.setThinkingLevel(normalizeThinkingLevel(
@@ -3204,15 +3277,18 @@ export class SessionRuntime {
             );
             activeProof = this.#sessionStore.changeSessionActivationPhase(activeProof, "checkpointing");
             capability.updateProof(activeProof);
-            const modelState = hostedSession.getActiveModelState?.() || {};
+            const managedModelState = normalizeManagedActiveModelState(
+                hostedSession.getActiveModelState?.() || {},
+                managed,
+            );
             const nextManaged = {
                 ...managed,
                 generation: expectedGeneration + 1,
                 acknowledgedGeneration: expectedGeneration + 1,
                 name: hostedSession.getRootSessionManager?.()?.getSessionName?.() || managed.name || null,
                 activeAgent: hostedSession.getRootAgentName?.() || null,
-                model: modelState.model || managed.model || "",
-                provider: modelState.provider || managed.provider || "",
+                model: managedModelState.model,
+                provider: managedModelState.provider,
                 thinkingLevel: hostedSession.getThinkingLevel?.() || managed.thinkingLevel || "off",
                 workflowContext: hostedSession.getWorkflowContext?.() || managed.workflowContext || null,
             };
@@ -3241,15 +3317,18 @@ export class SessionRuntime {
                         "checkpointing",
                     );
                     capability.updateProof(activeProof);
-                    const modelState = hostedSession.getActiveModelState?.() || {};
+                    const managedModelState = normalizeManagedActiveModelState(
+                        hostedSession.getActiveModelState?.() || {},
+                        managed,
+                    );
                     const canceledManaged = {
                         ...managed,
                         generation: expectedGeneration + 1,
                         acknowledgedGeneration: expectedGeneration + 1,
                         name: hostedSession.getRootSessionManager?.()?.getSessionName?.() || managed.name || null,
                         activeAgent: hostedSession.getRootAgentName?.() || null,
-                        model: modelState.model || managed.model || "",
-                        provider: modelState.provider || managed.provider || "",
+                        model: managedModelState.model,
+                        provider: managedModelState.provider,
                         thinkingLevel: hostedSession.getThinkingLevel?.() || managed.thinkingLevel || "off",
                         workflowContext: hostedSession.getWorkflowContext?.() || managed.workflowContext || null,
                     };
@@ -3301,7 +3380,7 @@ export class SessionRuntime {
             this.#currentManagedOperationSettlements.delete(sessionId);
             settleManagedOperation();
             hostedSession.setManagedOperationCapability(null);
-            this.#endBusyOperation(sessionId);
+            if (shouldEmitBusyEvents) this.#endBusyOperation(sessionId);
         }
     }
 

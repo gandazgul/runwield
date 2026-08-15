@@ -190,6 +190,38 @@ Deno.test("createUiApi toggles one transient keyboard-help block outside the mes
     assertEquals(renders() > 0, true);
 });
 
+Deno.test("createUiApi does not flash a managed sync block for benign syncing", () => {
+    const { tui, messageList, renders } = makeTuiHarness();
+    const inputAccessory = makeContainer();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock(), inputAccessory));
+
+    ui.setManagedSyncStatus({
+        status: "syncing",
+        localGeneration: 0,
+        latestGeneration: 1,
+    });
+    ui.setManagedSyncStatus({
+        status: "current",
+        localGeneration: 1,
+        latestGeneration: 1,
+    });
+
+    assertEquals(inputAccessory.children, []);
+    assertEquals(renders(), 0);
+
+    ui.setManagedSyncStatus({
+        status: "blocked",
+        localGeneration: 0,
+        latestGeneration: 1,
+        message: "Needs recovery",
+    });
+
+    assertEquals(
+        inputAccessory.children.some((/** @type {any} */ child) => child instanceof ManagedSyncStatusBlock),
+        true,
+    );
+});
+
 Deno.test("createUiApi clearMessages removes input accessory resources", () => {
     const { tui, messageList } = makeTuiHarness();
     const inputAccessory = makeContainer();

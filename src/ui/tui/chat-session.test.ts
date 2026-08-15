@@ -131,11 +131,87 @@ Deno.test("chat session starts in a Project registered by Workspace", async () =
             try {
                 await composition.waitForIdle();
                 assertEquals(readySessions, [composition.sessionId]);
-                assertEquals(
-                    composition.runtime.getSessionSnapshot(composition.sessionId)?.managed?.projectId !== undefined,
-                    true,
-                );
+                const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);
+                assertEquals(snapshot?.activeAgent, "operator");
+                assertEquals(snapshot?.sessionManagerId, null);
+                assertEquals(snapshot?.managed, null);
+                const project = store.ensureRuntimeProject({ root: projectRoot });
+                assertEquals((await store.listProjectSessions(project.projectId)).sessions, []);
                 assertStringIncludes(terminal.getScreenText(), "RunWield");
+            } finally {
+                await composition.dispose();
+            }
+        } finally {
+            store.close();
+        }
+    });
+});
+
+Deno.test("chat session startup does not show busy or thinking output before a turn", async () => {
+    await withRuntimeCommandFixture("chat-session-no-phantom-startup-output-", async ({ projectRoot }) => {
+        const store = openOwnerCoordinationStore();
+        const terminal = new VirtualTerminal({ columns: 100, rows: 30 });
+        const transientEvents: string[] = [];
+        const busyStates: boolean[] = [];
+        let thinkingBlocks = 0;
+        let clearMessages = 0;
+        try {
+            store.registerProject({ root: projectRoot, now: () => "2026-01-01T00:00:01.000Z" });
+            Deno.chdir(projectRoot);
+            const composition = await createInteractiveTuiComposition(null, {
+                browser: NO_OPEN_BROWSER_PORT,
+                terminal,
+                sessionStartMode: "new",
+                configureUiAPI: (uiAPI) => {
+                    const originalSetBusy = uiAPI.setBusy?.bind(uiAPI);
+                    uiAPI.setBusy = (busy) => {
+                        busyStates.push(busy);
+                        if (busy) transientEvents.push("busy:true");
+                        originalSetBusy?.(busy);
+                    };
+                    const originalAppendThinkingStart = uiAPI.appendThinkingStart?.bind(uiAPI);
+                    uiAPI.appendThinkingStart = () => {
+                        thinkingBlocks += 1;
+                        transientEvents.push("thinking:start");
+                        return originalAppendThinkingStart?.() || { appendDelta: () => {}, end: () => {} };
+                    };
+                    const originalClearMessages = uiAPI.clearMessages?.bind(uiAPI);
+                    uiAPI.clearMessages = () => {
+                        clearMessages += 1;
+                        transientEvents.push("messages:clear");
+                        originalClearMessages?.();
+                    };
+                    const originalSetManagedSyncStatus = uiAPI.setManagedSyncStatus?.bind(uiAPI);
+                    uiAPI.setManagedSyncStatus = (status) => {
+                        originalSetManagedSyncStatus?.(status);
+                    };
+                    const originalSetRunningTasks = uiAPI.setRunningTasks?.bind(uiAPI);
+                    uiAPI.setRunningTasks = (tasks) => {
+                        if (tasks.length > 0) transientEvents.push("tasks:set");
+                        originalSetRunningTasks?.(tasks);
+                    };
+                    const originalStartToolExecution = uiAPI.startToolExecution?.bind(uiAPI);
+                    uiAPI.startToolExecution = (id, toolName, title) => {
+                        transientEvents.push(`tool:${toolName}`);
+                        return originalStartToolExecution?.(id, toolName, title) || {
+                            bodyText: "",
+                            startTime: Date.now(),
+                            setOutput: () => {},
+                            endExecution: () => {},
+                        };
+                    };
+                },
+            });
+            try {
+                await composition.waitForIdle();
+                assertEquals(transientEvents, []);
+                assertEquals(busyStates.includes(true), false);
+                assertEquals(thinkingBlocks, 0);
+                assertEquals(clearMessages, 0);
+                const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);
+                assertEquals(snapshot?.activeAgent, "router");
+                assertEquals(snapshot?.sessionManagerId, null);
+                assertEquals(snapshot?.managed, null);
             } finally {
                 await composition.dispose();
             }
