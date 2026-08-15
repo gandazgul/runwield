@@ -188,6 +188,74 @@ Deno.test("stale RunWield state self-heals and validation continues", async () =
     }
 });
 
+Deno.test("Engineer broken-check reports are not shown as Plan amendments", async () => {
+    const testFixture = await makeReportedMismatchFixture();
+    try {
+        const primary = await loadPlan(testFixture.projectRoot, "demo");
+        assertExists(primary);
+        const objectiveChecks = [{ id: "OC_REPORT", command: "not-a-real-runwield-command" }];
+        await savePlan(testFixture.projectRoot, "demo", primary.body, {
+            ...primary.attrs,
+            objectiveChecks,
+        }, { expectedRevision: primary.revision });
+
+        const recorder = makeUi();
+        const prompts: string[] = [];
+        recorder.promptSelect = (prompt: string) => {
+            prompts.push(prompt);
+            return Promise.resolve("stop");
+        };
+        const hostedSession = attachRecorder(
+            new HostedSession({ id: "validation-broken-report", cwd: testFixture.projectRoot }),
+            recorder,
+        );
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "demo",
+            triageMeta: { ...primary.attrs, objectiveChecks },
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionMode: "worktree",
+            executionCwd: testFixture.executionCwd,
+            worktreeId: "wt-demo",
+            worktreeBranch: testFixture.branch,
+            worktreeBaseBranch: "main",
+            baselineTree: testFixture.baselineTree,
+        });
+
+        const result = await continueWorkflowValidation({
+            trigger: "task_completion",
+            hostedSession,
+            planName: "demo",
+            planContent: primary.markdown,
+            triageMeta: { ...primary.attrs, objectiveChecks },
+            engineerReportedBrokenObjectiveChecks: [{
+                id: "OC_REPORT",
+                command: "not-a-real-runwield-command",
+                explanation: "The command does not exist.",
+            }],
+            git: createGitPort(),
+            localCI: {
+                run: () => Promise.resolve({ exitCode: 0, canceled: false, output: "ok" }),
+            },
+            semanticReviewPort: {
+                runIsolatedAgentSession: () => Promise.reject(new Error("semantic review must not run")),
+            },
+            workRecordMnemosynePort: {
+                run: () => Promise.reject(new Error("publication must not run")),
+            },
+        });
+
+        assertEquals(result.kind, "paused");
+        assertStringIncludes(prompts.join("\n"), "Engineer reported defective Objective-Failing Checks");
+        assertEquals(prompts.join("\n").includes("Plan Amendment"), false);
+        assertEquals(prompts.join("\n").includes("<removed>"), false);
+        const execution = await loadPlan(testFixture.executionCwd, "demo");
+        assertEquals(execution?.attrs.objectiveChecks, objectiveChecks);
+    } finally {
+        await removeFixture(testFixture);
+    }
+});
+
 Deno.test("derived Plan repair keeps an allowed definition proposal", async () => {
     const testFixture = await makeReportedMismatchFixture();
     try {

@@ -1,15 +1,7 @@
-import { relative } from "@std/path";
-import { getStoredPlanPath } from "../../plan-store.js";
-import { projectEngineerPlanBody } from "./engineer-plan-projection.ts";
-
 export type ValidationRepairPromptInput = {
-    planName: string;
-    projectRoot: string;
     executionCwd: string;
     repairCwd: string;
     repairsNeeded: string;
-    planContent?: string;
-    includePlanLink?: boolean;
     worktreeId?: string;
     worktreeBranch?: string;
     worktreeBaseBranch?: string;
@@ -21,18 +13,13 @@ export type ValidationRepairPromptInput = {
 /**
  * Build the bounded packet for an independent validation-repair session.
  *
- * The repair Agent gets the parsed Plan body, durable worktree references, and
- * the current failure. It never receives Plan Front Matter.
+ * The repair Agent gets only repair-scoped checkout facts and the current
+ * failure. It never receives the Plan or the general Engineer prompt.
  */
 export function buildValidationRepairPrompt(input: ValidationRepairPromptInput): string {
-    const planPath = input.includePlanLink === false ? "" : getStoredPlanPath(input.repairCwd, input.planName);
-    const planLabel = planPath ? relative(input.repairCwd, planPath).replaceAll("\\", "/") : "";
-    const planBody = input.planContent ? projectEngineerPlanBody(input.planContent) : "";
     const contextLines = [
         `- Repair checkout: \`${input.repairCwd}\``,
-        ...(planPath ? [`- Approved Plan file: [${planLabel}](<${planPath}>)`] : []),
         ...(input.executionCwd !== input.repairCwd ? [`- Original execution worktree: \`${input.executionCwd}\``] : []),
-        ...(input.projectRoot !== input.repairCwd ? [`- Primary project root: \`${input.projectRoot}\``] : []),
         ...(input.worktreeId ? [`- Worktree ID: \`${input.worktreeId}\``] : []),
         ...(input.worktreeBranch ? [`- Worktree branch: \`${input.worktreeBranch}\``] : []),
         ...(input.worktreeBaseBranch ? [`- Target branch: \`${input.worktreeBaseBranch}\``] : []),
@@ -40,18 +27,14 @@ export function buildValidationRepairPrompt(input: ValidationRepairPromptInput):
     ];
 
     return [
-        "You completed the implementation, but RunWield validation found a problem. Address the repair feedback below, verify the repair, and call task_completed again when the repair is complete.",
+        "RunWield validation found a problem. Address only the repair context below, verify the repair, and call task_completed when the repair is complete.",
         "",
-        "This is an independent repair session. Use the existing implementation as the starting point. Do not repeat the original implementation.",
-        ...(planBody
-            ? ["Use the approved Plan body below for requirements and constraints. Do not reread the raw Plan file; its Front Matter is orchestration metadata."]
-            : []),
+        "This is a focused repair session. Use the existing implementation as the starting point. Do not repeat the original implementation, broaden the task, or infer requirements outside the supplied repair context.",
         ...(input.authorityNote ? ["", input.authorityNote] : []),
         "",
         "## Work Context",
         "",
         ...contextLines,
-        ...(planBody ? ["", "## Approved Plan Body", "", planBody] : []),
         "",
         "## Repairs Needed",
         "",

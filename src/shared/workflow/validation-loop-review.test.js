@@ -443,6 +443,7 @@ Deno.test("runValidationPhase carries existing ledger identities and repair repo
         }),
     );
     const reviewPrompts = /** @type {string[]} */ ([]);
+    const reviewModes = /** @type {string[]} */ ([]);
 
     await runValidationPhase({
         hostedSession,
@@ -452,6 +453,7 @@ Deno.test("runValidationPhase carries existing ledger identities and repair repo
         semanticReviewPort: reviewPort({
             runIsolatedAgentSession: (/** @type {any} */ opts) => {
                 reviewPrompts.push(opts.userRequest);
+                reviewModes.push(opts.subAgentDefinition?.options?.reviewerMode);
                 return Promise.resolve(reviewerMessages({
                     findings: [{ id: "R1-1", resolved: true, title: "Missing guard" }],
                 }));
@@ -464,7 +466,28 @@ Deno.test("runValidationPhase carries existing ledger identities and repair repo
     assertStringIncludes(reviewPrompts[0], "R1-1");
     assertStringIncludes(reviewPrompts[0], "added the guard in file.js");
     assertStringIncludes(reviewPrompts[0], "claims to verify, not proof");
+    assertEquals(reviewModes, ["verify"]);
     assertEquals(plan?.attrs.status, "validated_reviewer");
+});
+
+Deno.test("a resumed review without persisted findings performs one broad recovery review", async () => {
+    const { hostedSession } = await makeValidatedCiRun({ validationSemanticRounds: 1 });
+    const reviewModes = /** @type {string[]} */ ([]);
+
+    await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 1 },
+        semanticReviewPort: reviewPort({
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                reviewModes.push(opts.subAgentDefinition?.options?.reviewerMode);
+                return Promise.resolve(reviewerMessages());
+            },
+        }),
+    });
+
+    assertEquals(reviewModes, ["discovery"]);
 });
 
 Deno.test("an interrupted semantic repair pauses without recording validation failure", async () => {

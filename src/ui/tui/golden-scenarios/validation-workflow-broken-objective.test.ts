@@ -13,7 +13,6 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreeBrokenObjectiveDetectedRejectScenario,
         exportName: "validationTreeBrokenObjectiveDetectedRejectScenario",
-        todo: "captured state does not yet prove the validation phase turn",
     },
     {
         scenario: validationTreeBrokenObjectiveDetectedWaiveScenario,

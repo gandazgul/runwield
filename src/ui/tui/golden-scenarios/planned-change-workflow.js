@@ -831,7 +831,9 @@ export const plannedChangeValidationExhaustedScenario = {
                 },
             }],
         },
-        ...[1, 2, 3].flatMap((attempt) => [
+        // The first pair is the implementation Engineer. The next three pairs
+        // are the three focused CI repair cycles.
+        ...[1, 2, 3, 4].flatMap((attempt) => [
             {
                 id: `engineer-validation-exhausted-attempt-${attempt}`,
                 agent: "engineer",
@@ -867,7 +869,8 @@ export const plannedChangeValidationExhaustedScenario = {
         { type: "type", text: "submit validation exhausted plan for review" },
         { type: "enter" },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
-        { type: "waitForEventCount", event: "runtime:tool:start:task_completed", count: 3, timeoutMs: 150000 },
+        { type: "waitForEventCount", event: "runtime:tool:start:task_completed", count: 4, timeoutMs: 150000 },
+        { type: "waitForEventCount", event: "runtime:interaction_resolved", count: 2, timeoutMs: 150000 },
         { type: "waitForPlanStatus", planName: "validation-exhausted", statuses: ["implemented"], timeoutMs: 90000 },
         { type: "sleep", ms: 1000 },
         { type: "captureProjectState", planNames: ["validation-exhausted"] },
@@ -884,7 +887,7 @@ export const plannedChangeValidationExhaustedScenario = {
                 event === "runtime:tool:start:task_completed"
             ).length;
             assert(
-                completedTurns >= 3,
+                completedTurns >= 4,
                 `Expected all exhausted implementation attempts before recoverability capture; saw ${completedTurns}.`,
             );
             assert(

@@ -50,6 +50,8 @@ export type ValidationMessageRequest =
     | { kind: "semantic_diff_missing"; planOnly: boolean }
     | { kind: "semantic_approved"; round: number }
     | { kind: "review_repair"; repairKind: "semantic" | "human_feedback" }
+    | { kind: "repair_feedback_prompt" }
+    | { kind: "repair_feedback_default" }
     | { kind: "reviewer_nudge"; round: number; attempt: number }
     | { kind: "semantic_limit"; planName: string; rounds: number; openCount: number; testsPass: boolean }
     | { kind: "human_review_offer" }
@@ -177,6 +179,10 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             return request.repairKind === "human_feedback"
                 ? "Your code review found issues. A repair will start now."
                 : "The code review found issues. A repair will start now.";
+        case "repair_feedback_prompt":
+            return "Tell the Validation Repair Engineer what to try next.";
+        case "repair_feedback_default":
+            return "Revisit the remaining findings using my guidance, verify the repair, and report again.";
         case "reviewer_nudge":
             return `The reviewer needs more time for round ${request.round}. Try ${request.attempt} of 3.`;
         case "semantic_limit":

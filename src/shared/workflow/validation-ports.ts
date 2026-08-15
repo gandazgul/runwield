@@ -292,6 +292,8 @@ export type ValidationSessionPort = {
     unregisterActiveInteraction(id: string): void;
     /** Completion-gated validation repair in a fresh Agent session. */
     runIndependentRepairTurn(request: IndependentRepairTurnRequest): Promise<AgentTurnOutcome>;
+    /** Continue the most recent focused repair session with its existing context. */
+    continueLastRepairTurn(userRequest: string): Promise<AgentTurnOutcome | null>;
     /** Isolated Agent sessions: Semantic Reviewer and Reviewer-Feedback Engineer. */
     createInMemorySessionManager(cwd: string): SessionManagerHandle;
     runIsolatedAgentSession<K extends IsolatedAgentSessionRequest["kind"]>(

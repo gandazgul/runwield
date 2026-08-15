@@ -393,7 +393,7 @@ Deno.test("PLANNED_CHANGE objective repair parks when Engineer does not call tas
     assertEquals(run.result.kind, "paused");
     assertStringIncludes(run.result.reason || "", "without task_completed during Objective-Failing Check repair");
     assertEquals(run.plan?.attrs.status, "implemented");
-    assertEquals(run.plan?.attrs.validationCiAttempts, 1);
+    assertEquals(run.plan?.attrs.validationObjectiveCheckAttempts, 1);
 });
 
 Deno.test("PLANNED_CHANGE objective repair continues after Engineer calls task_completed", async () => {
@@ -488,5 +488,41 @@ Deno.test("failed validation repair keeps its private manager for backend contin
     assertStrictEquals(managers[0], managers[1]);
     assertEquals(outcome.completed, false);
     assertEquals(hostedSession.getRootAgentSession(), null);
+    hostedSession.dispose();
+});
+
+Deno.test("completed validation repair can be reopened with the exact same session", async () => {
+    const projectRoot = await makeValidationProjectRoot("p", {
+        classification: "PLANNED_CHANGE",
+        status: "implemented",
+    });
+    const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot });
+    const managers: object[] = [];
+    const requests: string[] = [];
+    const port = createValidationSessionPort(hostedSession, {
+        semanticReviewPort: {
+            runIsolatedAgentSession: (options) => {
+                managers.push(options.sessionManager || {});
+                requests.push(options.userRequest);
+                return Promise.resolve([{
+                    role: "toolResult",
+                    toolName: "task_completed",
+                    details: { outcome: "task_completed", message: `Repair ${requests.length} complete.` },
+                }] as never);
+            },
+        },
+    });
+
+    const first = await port.runIndependentRepairTurn({
+        agentName: "reviewer-feedback-engineer",
+        userRequest: "Initial repair evidence.",
+        cwd: projectRoot,
+    });
+    const followUp = await port.continueLastRepairTurn("User guidance for the same repair.");
+
+    assertEquals(first.completed, true);
+    assertEquals(followUp?.completed, true);
+    assertStrictEquals(managers[0], managers[1]);
+    assertEquals(requests, ["Initial repair evidence.", "User guidance for the same repair."]);
     hostedSession.dispose();
 });

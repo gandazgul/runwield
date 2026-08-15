@@ -51,11 +51,16 @@ function isExecutionAgent(agentName: string): boolean {
     return normalized === "engineer" || normalized === "frontend-engineer";
 }
 
+function isValidationRepairAgent(agentName: string): boolean {
+    const normalized = normalizeAgentName(agentName);
+    return normalized === AGENTS.REVIEWER_FEEDBACK_ENGINEER || normalized === "validation-repair-engineer";
+}
+
 function buildToolParams(agentName: string) {
     const normalized = normalizeAgentName(agentName);
     const messageDescription = normalized === "frontend-engineer"
         ? FRONTEND_ENGINEER_MESSAGE_DESCRIPTION
-        : isExecutionAgent(agentName)
+        : isExecutionAgent(agentName) || isValidationRepairAgent(agentName)
         ? ENGINEER_MESSAGE_DESCRIPTION
         : DEFAULT_MESSAGE_DESCRIPTION;
     const brokenObjectiveChecks = Type.Array(
@@ -74,7 +79,9 @@ function buildToolParams(agentName: string) {
             description: messageDescription,
             minLength: 1,
         }),
-        ...(isExecutionAgent(agentName) ? { brokenObjectiveChecks: Type.Optional(brokenObjectiveChecks) } : {}),
+        ...(isExecutionAgent(agentName) || isValidationRepairAgent(agentName)
+            ? { brokenObjectiveChecks: Type.Optional(brokenObjectiveChecks) }
+            : {}),
         ...(normalized === "frontend-engineer"
             ? {
                 browserPreflightOutcome: Type.Union([
@@ -161,7 +168,7 @@ export function createTaskCompletedTool(
                     terminate: false,
                 };
             }
-            const completingOnBehalfOfOwner = normalizedAgentName === AGENTS.REVIEWER_FEEDBACK_ENGINEER;
+            const completingOnBehalfOfOwner = isValidationRepairAgent(agentName);
             if (
                 activeWorkflow?.executionAgent && activeWorkflow.executionAgent !== normalizedAgentName &&
                 !completingOnBehalfOfOwner
@@ -177,7 +184,7 @@ export function createTaskCompletedTool(
                 };
             }
             const report = typeof params.message === "string" ? params.message : "";
-            const brokenObjectiveChecks = isExecutionAgent(agentName)
+            const brokenObjectiveChecks = isExecutionAgent(agentName) || isValidationRepairAgent(agentName)
                 ? normalizeBrokenObjectiveChecks(params.brokenObjectiveChecks)
                 : undefined;
             const timestampMs = now();

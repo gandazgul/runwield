@@ -96,6 +96,7 @@ function executionMetadataOverrides(canonicalAttrs, executionAttrs) {
         "validationMergeRepairWorktree",
         "validationCheckpoint",
         "validationCiAttempts",
+        "validationObjectiveCheckAttempts",
         "validationSemanticRounds",
         "epicCompletionMode",
         "epicDoneEnoughAt",

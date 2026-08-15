@@ -1,9 +1,17 @@
+import { assert } from "@std/assert";
 import {
     plannedChangeCiRepairReentryScenario,
     plannedChangeValidationExhaustedScenario,
     plannedChangeValidationFailureRetryScenario,
 } from "./planned-change-workflow.js";
 import { withValidationBranches } from "./validation-workflow-tree-shared.ts";
+import type { ValidationWorkflowResultLike } from "../testing/validation-workflow-coverage.ts";
+
+function assertBrokenObjectiveReportIsNotPlanAmendment(result: ValidationWorkflowResultLike): void {
+    const transcript = `${result.screenText || ""}\n${result.scrollbackText || ""}`;
+    assert(!transcript.includes("Plan Amendment"), "A broken-check report must not be shown as a Plan Amendment.");
+    assert(!transcript.includes("<removed>"), "A broken-check report must not show Objective Checks as removed.");
+}
 
 export const validationTreeCiLoopScenario = withValidationBranches(
     plannedChangeCiRepairReentryScenario,
@@ -325,7 +333,31 @@ export const validationTreeValidationExhaustedRetryScenario = withValidationBran
 export const validationTreeValidationExhaustedFollowUpScenario = withValidationBranches(
     {
         ...plannedChangeValidationExhaustedScenario,
-        scriptedInteractions: [{ type: "select", promptIncludes: "tests for", value: "engineer_follow_up" }],
+        scriptedInteractions: [
+            { type: "select", promptIncludes: "tests for", value: "engineer_follow_up" },
+            {
+                type: "text",
+                promptIncludes: "Validation Repair Engineer",
+                value: "Inspect why the verification command still fails, then try the smallest safe repair.",
+            },
+        ],
+        script: [
+            ...(plannedChangeValidationExhaustedScenario.script ?? []),
+            {
+                id: "validation-exhausted-follow-up-pauses",
+                agent: "engineer",
+                phase: "engineer",
+                planName: "validation-exhausted",
+                ordinal: 9,
+                text: "I need more user guidance before changing the verification setup.",
+            },
+        ],
+        actions: (plannedChangeValidationExhaustedScenario.actions ?? []).map((
+            action: { type?: string; event?: string },
+        ) => action.type === "waitForEventCount" && action.event === "runtime:interaction_resolved"
+            ? { ...action, count: 3 }
+            : action
+        ),
     },
     "validation-tree-validation-exhausted-follow-up",
     ["validation-exhausted"],
@@ -810,7 +842,7 @@ function engineerReportedBrokenObjectiveScenario(choice: "waive" | "reject") {
                 ? { type: "waitForPlanStatus", planName, statuses: ["verified"], timeoutMs: 90000 }
                 : { type: "waitForEvent", event: "runtime:agent:engineer", timeoutMs: 90000 },
         ],
-        assertions: [],
+        assertions: [assertBrokenObjectiveReportIsNotPlanAmendment],
     };
 }
 

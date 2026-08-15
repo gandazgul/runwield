@@ -289,7 +289,11 @@ function turnRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id.includes("follow-up") || id.includes("repair") || id.includes("feedback")) return ["engineer"];
     if (id.startsWith("semantic:")) return ["reviewer"];
     if (id.startsWith("publication:")) return ["publication"];
-    return ["validation"];
+    // Mechanical Validation is orchestrated from the implementation Engineer's
+    // task_completed turn. There is no "validation" Agent or Golden phase, so
+    // requiring one makes valid mechanical evidence impossible to satisfy.
+    if (id.startsWith("mechanical:")) return ["engineer"];
+    return [];
 }
 
 function statePathsFor(id: ValidationWorkflowBranchId): string[] {

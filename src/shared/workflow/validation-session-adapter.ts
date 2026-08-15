@@ -19,6 +19,7 @@ import { SessionManager, type ToolDefinition } from "@earendil-works/pi-coding-a
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { HostedSession } from "../session/hosted-session.js";
 import { runIsolatedAgentSession } from "../session/session.js";
+import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { requestHostedSessionInteraction } from "../session/session-runtime-interactions.js";
 import { getAgentDisplayName as getSessionAgentDisplayName } from "../session/agents.js";
 import { REVIEWER_SUBAGENT_TOOLS } from "../session/subagent-definitions.ts";
@@ -76,6 +77,7 @@ export const SYSTEM_SEMANTIC_REVIEW_PORT: SemanticReviewPort = Object.freeze({
 });
 
 const pendingRepairManagers = new WeakMap<HostedSession, Map<string, SessionManager>>();
+const lastRepairSessions = new WeakMap<HostedSession, { manager: SessionManager; cwd: string; agentName: string }>();
 
 function getPendingRepairManager(hostedSession: HostedSession, cwd: string, userRequest: string): SessionManager {
     let managers = pendingRepairManagers.get(hostedSession);
@@ -195,8 +197,15 @@ async function runIsolatedRequest(
         customTools: request.customTools as unknown as ToolDefinition[],
         sessionManager: repairManager,
     });
-    if (!request.sessionManager) clearPendingRepairManager(hostedSession, request.cwd, request.userRequest);
     const report = readLatestTaskCompletedReport(messages);
+    lastRepairSessions.set(hostedSession, {
+        manager: repairManager,
+        cwd: request.cwd,
+        agentName: request.agentName,
+    });
+    if (!request.sessionManager && report.completed) {
+        clearPendingRepairManager(hostedSession, request.cwd, request.userRequest);
+    }
     return {
         kind: "feedback_engineer",
         taskReport: {
@@ -241,7 +250,8 @@ export function createValidationSessionPort(
             ),
         registerActiveInteraction: (id, abortController) => hostedSession.addActiveInteraction(id, { abortController }),
         unregisterActiveInteraction: (id) => hostedSession.removeActiveInteraction(id),
-        runIndependentRepairTurn: async ({ agentName, userRequest, cwd }) => {
+        runIndependentRepairTurn: async ({ userRequest, cwd }) => {
+            const agentName = SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER;
             const repairManager = getPendingRepairManager(hostedSession, cwd, userRequest);
             const messages = await isolatedSessions.runIsolatedAgentSession({
                 hostedSession,
@@ -249,9 +259,41 @@ export function createValidationSessionPort(
                 userRequest,
                 cwd,
                 dispatchKind: "validation_repair",
+                subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
                 sessionManager: repairManager,
             });
-            clearPendingRepairManager(hostedSession, cwd, userRequest);
+            const completion = readLatestTaskCompletedReport(messages);
+            lastRepairSessions.set(hostedSession, { manager: repairManager, cwd, agentName });
+            if (completion.completed) clearPendingRepairManager(hostedSession, cwd, userRequest);
+            return {
+                completed: completion.completed,
+                report: completion.message,
+                brokenObjectiveChecks: completion.brokenObjectiveChecks || [],
+            };
+        },
+        continueLastRepairTurn: async (userRequest) => {
+            const repair = lastRepairSessions.get(hostedSession);
+            const rootIsRepairSession = hostedSession.getRootAgentName?.() === SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER;
+            if (!repair && !rootIsRepairSession) return null;
+            const messages = rootIsRepairSession
+                ? await runActiveAgentTurn({
+                    hostedSession,
+                    agentName: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER,
+                    userRequest,
+                    cwd: hostedSession.getActiveExecutionWorkflow?.()?.executionCwd || hostedSession.cwd,
+                    dispatchKind: "validation_repair",
+                    subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
+                    allowReturnToRouter: false,
+                })
+                : await isolatedSessions.runIsolatedAgentSession({
+                    hostedSession,
+                    agentName: repair!.agentName,
+                    userRequest,
+                    cwd: repair!.cwd,
+                    dispatchKind: "validation_repair",
+                    subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
+                    sessionManager: repair!.manager,
+                });
             const completion = readLatestTaskCompletedReport(messages);
             return {
                 completed: completion.completed,

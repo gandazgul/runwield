@@ -185,7 +185,7 @@ export function getAgentDisplayName(internalName, projectRoot) {
     // stay out of `/agent` listings. Their display names are pinned here instead.
     const workflowOnlyDisplayName = {
         [AGENTS.SLICER]: "Slicer",
-        [AGENTS.REVIEWER_FEEDBACK_ENGINEER]: "Reviewer-Feedback Engineer",
+        [AGENTS.REVIEWER_FEEDBACK_ENGINEER]: "Validation Repair Engineer",
     }[canonicalName];
     if (workflowOnlyDisplayName) {
         displayNameCache.set(cacheKey, workflowOnlyDisplayName);

@@ -5,6 +5,7 @@
  */
 
 import { runPlanFrontMatterTransition } from "./state-transition.ts";
+import { AGENTS } from "../../constants.js";
 import type { PhaseContext, PublicationOutcome, UserActionPause, ValidationLoopArgs } from "./validation-types.ts";
 import { emitStatus } from "./validation-emit.ts";
 import { buildValidationUserMessage, validationMergeRepairMessage } from "./validation-user-messages.ts";
@@ -180,13 +181,10 @@ export async function dispatchMergeRepair(
     );
     args.session.setActiveWorkflow({ ...context.workflowBase });
     const outcome = await args.session.runIndependentRepairTurn({
-        agentName: context.executionAgent,
+        agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
         userRequest: buildValidationRepairPrompt({
-            planName: args.planName,
-            projectRoot: context.projectRoot,
             executionCwd: context.executionCwd,
             repairCwd,
-            planContent: args.planContent,
             worktreeId: context.worktreeId,
             worktreeBranch: context.worktreeBranch,
             worktreeBaseBranch: context.worktreeBaseBranch,

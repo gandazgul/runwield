@@ -13,15 +13,10 @@ import {
 import { registerValidationWorkflowTests } from "./validation-workflow-test-runner.ts";
 
 registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow-tree-mechanical.ts", [
-    {
-        scenario: validationTreeObjectiveNoneScenario,
-        exportName: "validationTreeObjectiveNoneScenario",
-        todo: "captured state does not yet prove the validation phase turn",
-    },
+    { scenario: validationTreeObjectiveNoneScenario, exportName: "validationTreeObjectiveNoneScenario" },
     {
         scenario: validationTreeObjectiveMixedWaivedScenario,
         exportName: "validationTreeObjectiveMixedWaivedScenario",
-        todo: "captured state does not yet prove the validation phase turn",
     },
     {
         scenario: validationTreeObjectiveRepairCompletedScenario,

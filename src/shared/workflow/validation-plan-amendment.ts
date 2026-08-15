@@ -90,13 +90,74 @@ async function loadPlanForAmendment(cwd: string, planName: string, label: string
     throw new Error(`${label} Plan could not be loaded.`);
 }
 
-function summarizeDiffs(diffs: PlanAmendmentDiff[]): string {
-    return diffs.map((diff) => {
-        if (diff.field.startsWith("objectiveChecks.")) {
-            return `- ${diff.field}:\n  before: ${diff.before}\n  after: ${diff.after}`;
+type ObjectiveCheckFeedback = {
+    id: string;
+    added?: boolean;
+    deleted?: boolean;
+    commandBefore?: string;
+    commandAfter?: string;
+    rationaleBefore?: string;
+    rationaleAfter?: string;
+};
+
+function summarizeObjectiveCheckFeedback(diffs: PlanAmendmentDiff[]): string[] {
+    const feedback = new Map<string, ObjectiveCheckFeedback>();
+    for (const diff of diffs) {
+        const match = /^objectiveChecks\.([^.]+)(?:\.(id|command|rationale))?$/.exec(diff.field);
+        if (!match) continue;
+        const [, id, field] = match;
+        const item = feedback.get(id) || { id };
+        if (!field && diff.after === "<removed>") {
+            item.deleted = true;
+            item.commandBefore = diff.before;
+        } else if (field === "id" && diff.before === "<absent>") {
+            item.added = true;
+        } else if (field === "command") {
+            item.commandBefore = diff.before;
+            item.commandAfter = diff.after;
+        } else if (field === "rationale") {
+            item.rationaleBefore = diff.before;
+            item.rationaleAfter = diff.after;
         }
-        return `- ${diff.field}: changed`;
-    }).join("\n");
+        feedback.set(id, item);
+    }
+    return [...feedback.values()].flatMap((item) => {
+        if (item.deleted) {
+            return [`- Delete ${item.id}\n  current command: ${item.commandBefore || "<unknown>"}`];
+        }
+        if (item.added) {
+            return [`- Add ${item.id}\n  proposed command: ${item.commandAfter || "<unknown>"}`];
+        }
+        const lines = [`- Change ${item.id}`];
+        if (item.commandBefore !== undefined || item.commandAfter !== undefined) {
+            lines.push(`  before command: ${item.commandBefore || "<unknown>"}`);
+            lines.push(`  after command: ${item.commandAfter || "<unknown>"}`);
+        }
+        if (item.rationaleBefore !== undefined || item.rationaleAfter !== undefined) {
+            lines.push(`  before rationale: ${item.rationaleBefore || "<absent>"}`);
+            lines.push(`  after rationale: ${item.rationaleAfter || "<absent>"}`);
+        }
+        return [lines.join("\n")];
+    });
+}
+
+function summarizeProposal(planName: string, diffs: PlanAmendmentDiff[]): string {
+    const objectiveFeedback = summarizeObjectiveCheckFeedback(diffs);
+    const otherFields = diffs.filter((diff) => !diff.field.startsWith("objectiveChecks."));
+    const sections: string[] = [];
+    if (objectiveFeedback.length) {
+        sections.push(
+            `The Engineer gave feedback about the Objective-Failing Checks for ${planName}:`,
+            objectiveFeedback.join("\n"),
+        );
+    }
+    if (otherFields.length) {
+        sections.push(
+            `The Engineer also offered a Plan amendment for ${planName}:`,
+            otherFields.map((diff) => `- ${diff.field}: changed`).join("\n"),
+        );
+    }
+    return sections.join("\n\n");
 }
 
 async function assertPlanFileSafe(plan: LoadedPlan, label: string): Promise<void> {
@@ -213,7 +274,7 @@ export async function detectValidationPlanAmendment(
         objectiveChecksChanged: diffs.some((diff) => diff.field.startsWith("objectiveChecks.")),
         changedObjectiveChecks: objectiveChanges,
         diffs,
-        summary: `Execution-worktree Plan amendment proposed for ${planName}:\n${summarizeDiffs(diffs)}`,
+        summary: summarizeProposal(planName, diffs),
     };
 }
 

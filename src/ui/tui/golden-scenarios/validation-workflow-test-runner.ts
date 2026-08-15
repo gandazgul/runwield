@@ -18,11 +18,12 @@ export function registerValidationWorkflowTests(
     scenarioModule: string,
     testCases: ValidationWorkflowTestCase[],
 ): void {
+    const runTodoGoldens = Deno.env.get("RUNWIELD_RUN_TODO_GOLDENS") === "1";
     for (const testCase of testCases) {
         const prefix = testCase.todo ? `TODO: ${testCase.todo} — ` : "";
         Deno.test({
             name: `${prefix}golden validation workflow: ${testCase.scenario.name}`,
-            ignore: Boolean(testCase.todo),
+            ignore: Boolean(testCase.todo) && !runTodoGoldens,
             fn: async () => {
                 const { runGoldenScenarioChildProcess } = await import("../testing/child-protocol.js");
                 const result = await runGoldenScenarioChildProcess({

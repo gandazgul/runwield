@@ -34,7 +34,7 @@ import {
     recordMetric,
     resolvePhaseContext,
 } from "./validation-context.ts";
-import { AUTOMATIC_ROUNDS, DISCOVERY_ROUNDS } from "./validation-types.ts";
+import { SEMANTIC_REVIEW_CYCLES } from "./validation-types.ts";
 import { clampCycle, emitProgress, emitStatus } from "./validation-emit.ts";
 import { pauseForUserAction, requestInteraction } from "./validation-interactions.ts";
 import { ValidationInteractionTypes } from "./validation-ports.ts";
@@ -95,14 +95,75 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
         };
     }
 
-    // Rounds one and two sweep the whole Plan; from three on the reviewer only
-    // verifies what is still open. Each round below the limit ends by handing the
+    if (round >= SEMANTIC_REVIEW_CYCLES && state.lastRepairReport) {
+        const action = await promptForSemanticRoundLimit(
+            args,
+            round,
+            openItems(ledger).length,
+            true,
+        );
+        if (action === "code_review") {
+            await persistHumanReviewMetadata(args, context.projectRoot, {
+                humanReviewMode: "always",
+                humanReviewDecision: null,
+                humanReviewedAt: null,
+            });
+            await recordLifecycleEvent(
+                args,
+                context.projectRoot,
+                "semantic_review_passed",
+                "validated_ci",
+                undefined,
+                { humanReviewMode: "always", humanReviewDecision: null, humanReviewedAt: null },
+            );
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                reason: "Semantic Code Review round limit reached; Local Human Code Review requested.",
+            };
+        }
+        if (action === "engineer_follow_up") {
+            const response = await requestInteraction(args, {
+                type: ValidationInteractionTypes.TEXT,
+                prompt: buildValidationUserMessage({ kind: "repair_feedback_prompt" }),
+                defaultValue: buildValidationUserMessage({ kind: "repair_feedback_default" }),
+            });
+            const feedback = typeof response.value === "string" ? response.value.trim() : "";
+            const repair = await args.session.continueLastRepairTurn(feedback);
+            if (!repair?.completed) {
+                return {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: context.projectRoot,
+                    reason: "The Validation Repair Engineer follow-up paused before task_completed.",
+                };
+            }
+            state.lastRepairReport = repair.report;
+            diffText = await getDiffText(context.baselineTree, context.executionCwd);
+        } else if (action === "stop") {
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                reason: `The reviewer still has ${
+                    openItems(ledger).length
+                } open point(s) on "${args.planName}". The findings and last repair session are saved.`,
+            };
+        }
+    }
+
+    // The first review sweeps the whole implementation. Once findings exist, every
+    // later review focuses on those findings and the repair delta. A resumed Plan
+    // whose older findings were not persisted gets one broad recovery review,
+    // regardless of its numeric round, then returns to focused verification.
+    // Each round below the limit ends by handing the
     // Plan back to `implemented`, so the tests run over the repair before the next
     // review. At the limit the user takes the wheel, and their "look again" re-enters
     // right here — another focused round on the repaired diff, no detour.
     for (;;) {
         const nextRound = round + 1;
-        const reviewMode = nextRound <= DISCOVERY_ROUNDS ? "discovery" : "verify";
+        const reviewMode = hasOpenItems(ledger) ? "verify" : "discovery";
         // The reviewer runs in its own session, so without this the whole round is
         // silent: the user sees the Engineer finish, then nothing, and the verdict
         // lands only in the Plan's failure reason. Say a round is starting, and say
@@ -112,15 +173,15 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             buildValidationUserMessage({
                 kind: "semantic_round",
                 round: nextRound,
-                maxRounds: AUTOMATIC_ROUNDS,
+                maxRounds: SEMANTIC_REVIEW_CYCLES,
                 mode: reviewMode,
             }),
             "info",
             {
                 outcome: "running",
                 stage: "semantic_review",
-                cycle: clampCycle(nextRound),
-                maxCycles: AUTOMATIC_ROUNDS,
+                cycle: clampCycle(nextRound, SEMANTIC_REVIEW_CYCLES),
+                maxCycles: SEMANTIC_REVIEW_CYCLES,
                 checks: { semanticReview: "running" },
             },
         );
@@ -159,8 +220,8 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             });
             emitProgress(args, buildValidationUserMessage({ kind: "semantic_approved", round: nextRound }), "success", {
                 stage: "semantic_review",
-                cycle: clampCycle(nextRound),
-                maxCycles: AUTOMATIC_ROUNDS,
+                cycle: clampCycle(nextRound, SEMANTIC_REVIEW_CYCLES),
+                maxCycles: SEMANTIC_REVIEW_CYCLES,
                 checks: { semanticReview: "passed" },
             });
             await recordLifecycleEvent(args, context.projectRoot, "semantic_review_passed", "validated_ci");
@@ -241,7 +302,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                     "Reviewer-Feedback Engineer stopped without task_completed during semantic repair.";
                 return { kind: "paused", planName: args.planName, projectRoot: context.projectRoot, reason };
             }
-            if (nextRound >= AUTOMATIC_ROUNDS) {
+            if (nextRound >= SEMANTIC_REVIEW_CYCLES) {
                 emitStatus(args, buildValidationUserMessage({ kind: "ci_running", cwd: context.executionCwd }));
                 const ciResult = await args.localCI.run({ cwd: context.executionCwd });
                 const testsPass = ciResult.exitCode === 0 && ciResult.canceled !== true;
@@ -285,6 +346,24 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                                 : "The tests are failing too."
                         } Run this Plan again when you want to pick it back up.`,
                     };
+                }
+                if (action === "engineer_follow_up") {
+                    const response = await requestInteraction(args, {
+                        type: ValidationInteractionTypes.TEXT,
+                        prompt: buildValidationUserMessage({ kind: "repair_feedback_prompt" }),
+                        defaultValue: buildValidationUserMessage({ kind: "repair_feedback_default" }),
+                    });
+                    const feedback = typeof response.value === "string" ? response.value.trim() : "";
+                    const followUp = await args.session.continueLastRepairTurn(feedback);
+                    if (!followUp?.completed) {
+                        return {
+                            kind: "paused",
+                            planName: args.planName,
+                            projectRoot: context.projectRoot,
+                            reason: "The Validation Repair Engineer follow-up paused before task_completed.",
+                        };
+                    }
+                    state.lastRepairReport = followUp.report;
                 }
                 state.repairBaselineTree = repairBaselineTree;
                 state.lastRepairReport = repair.report;
@@ -489,7 +568,7 @@ export function buildSemanticReviewAttempt(
         );
     } else if (reviewMode === "verify") {
         sections.push(
-            `Rounds 1-${DISCOVERY_ROUNDS} already reviewed this implementation against the whole Plan. Verify the open findings below and check the repair for regressions. Do not sweep the Plan again.`,
+            "An earlier broad review already checked this implementation against the whole Plan. Verify the open findings below and check the repair for regressions. Do not sweep the Plan again.",
             "",
             "### Open Findings",
             "",
@@ -537,11 +616,8 @@ export async function dispatchReviewFeedbackRepair(
             kind: "feedback_engineer",
             agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
             userRequest: buildValidationRepairPrompt({
-                planName: args.planName,
-                projectRoot: context.projectRoot,
                 executionCwd: context.executionCwd,
                 repairCwd: context.executionCwd,
-                planContent: args.planContent,
                 worktreeId: context.worktreeId,
                 worktreeBranch: context.worktreeBranch,
                 worktreeBaseBranch: context.worktreeBaseBranch,
@@ -587,7 +663,7 @@ export async function promptForSemanticRoundLimit(
     semanticRound: number,
     openFindingCount: number,
     testsPass: boolean,
-): Promise<"continue" | "code_review" | "stop"> {
+): Promise<"continue" | "engineer_follow_up" | "code_review" | "stop"> {
     const response = await requestInteraction(args, {
         type: ValidationInteractionTypes.SELECT,
         prompt: buildValidationUserMessage({
@@ -599,11 +675,13 @@ export async function promptForSemanticRoundLimit(
         }),
         options: [
             { value: "continue", label: "Have the reviewer look again" },
+            { value: "engineer_follow_up", label: "Talk to the repair engineer" },
             { value: "code_review", label: "Let me read the changes" },
             { value: "stop", label: "Stop" },
         ],
     });
     if (response.outcome !== "selected") return "stop";
     if (response.value === "code_review") return "code_review";
+    if (response.value === "engineer_follow_up") return "engineer_follow_up";
     return response.value === "continue" ? "continue" : "stop";
 }

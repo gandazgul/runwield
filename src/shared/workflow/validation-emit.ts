@@ -11,7 +11,7 @@
 
 import type { ValidationCheckResult, ValidationCheckResults, ValidationProgressRecord } from "./validation-ports.ts";
 import type { ValidationLoopArgs } from "./validation-types.ts";
-import { AUTOMATIC_ROUNDS } from "./validation-types.ts";
+import { SEMANTIC_REVIEW_CYCLES } from "./validation-types.ts";
 import { readCiAttempts, readSemanticRound } from "./validation-context.ts";
 
 /** Fields accepted when building a progress record from scratch. */
@@ -115,8 +115,8 @@ export function completeProgressRecord(
  * the raw count legitimately passes the maximum; showing "round 4/3" would just
  * look broken. The total is what carries the real number.
  */
-export function clampCycle(cycle: number): number {
-    return Math.min(Math.max(1, cycle), AUTOMATIC_ROUNDS);
+export function clampCycle(cycle: number, maximum = SEMANTIC_REVIEW_CYCLES): number {
+    return Math.min(Math.max(1, cycle), maximum);
 }
 
 /**
@@ -140,7 +140,7 @@ export function seedProgressForStatus(args: ValidationLoopArgs): ValidationProgr
         // real emit of a phase names the stage as it begins.
         stage: "cycle",
         cycle: clampCycle(rounds + 1),
-        maxCycles: AUTOMATIC_ROUNDS,
+        maxCycles: SEMANTIC_REVIEW_CYCLES,
         // Rounds and repairs both count as passes through the loop, so a user Retry
         // that resets the round counter still reads as forward motion rather than
         // starting over at one.

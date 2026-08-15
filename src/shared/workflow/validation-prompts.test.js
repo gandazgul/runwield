@@ -136,15 +136,21 @@ Deno.test("bundled verification reviewer prompt treats repair claims as evidence
     assertStringIncludes(prompt.replace(/\s+/g, " "), "Reject; do not approve for lack of evidence");
 });
 
-Deno.test("bundled reviewer-feedback engineer prompt demands per-item dispositions", async () => {
+Deno.test("bundled validation repair engineer prompt is repair-scoped without Plan or general Engineer context", async () => {
     const prompt = await readBundledPrompt("reviewer-feedback-engineer.md");
+    const compact = prompt.replace(/\s+/g, " ");
 
-    assertStringIncludes(prompt, "fix the review findings you were given, and report what you did for each one");
-    assertStringIncludes(prompt, "You are running in fresh context");
+    assertStringIncludes(prompt, "repair the validation problem you were given and report what you did");
+    assertStringIncludes(compact, "the general Engineer prompt");
+    assertStringIncludes(prompt, "one bounded repair packet");
+    assertStringIncludes(prompt, "CI diagnostics");
+    assertStringIncludes(prompt, "Objective-Failing Check evidence");
+    assertStringIncludes(compact, "semantic review findings");
+    assertEquals(prompt.includes("Plan"), false);
     assertStringIncludes(prompt, "**Your claims are evidence, not resolution.**");
 });
 
-Deno.test("reviewer-feedback engineer composes the shared engineering practice", async () => {
+Deno.test("validation repair engineer keeps user authority, working-tree safety, and engineering practice", async () => {
     // These rules used to be copy-pasted into the prompt file and were asserted
     // there. They now arrive through `sharedPractice`, so the assertion follows
     // them to the composed prompt — this agent cannot rely on a skill being
@@ -152,6 +158,8 @@ Deno.test("reviewer-feedback engineer composes the shared engineering practice",
     // would otherwise be invisible.
     const { systemPrompt } = await loadSubAgentDefinition(SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER);
 
+    assertStringIncludes(systemPrompt, "After one concern, the discussion is complete. The user decides.");
+    assertStringIncludes(systemPrompt, "`git stash` is the last resort");
     assertStringIncludes(systemPrompt, "The Zero-Trust Implementation Protocol");
     assertStringIncludes(systemPrompt, "No Rogue Commits");
     assertStringIncludes(systemPrompt, "bundled `write-tests` skill");

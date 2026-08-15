@@ -254,6 +254,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string|null} [validationMergeRepairWorktree] - Detached merge worktree path for status-preserving Direct Delivery repair continuation.
  * @property {import('./shared/workflow/validation-checkpoint.ts').ValidationCheckpoint|null} [validationCheckpoint] - Durable validation continuation facts for the current attempt.
  * @property {number} [validationCiAttempts] - Mechanical Validation attempts spent for the current implementation.
+ * @property {number} [validationObjectiveCheckAttempts] - Objective-Failing Check repair cycles spent for the current implementation.
  * @property {number} [validationSemanticRounds] - Semantic Code Review repair rounds spent for the current implementation.
  * @property {"done_enough"|null} [epicCompletionMode] - Explicit Epic completion mode when an Epic is marked done enough for now
  * @property {string|null} [epicDoneEnoughAt] - ISO timestamp when an Epic was marked done enough for now

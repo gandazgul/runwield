@@ -12,27 +12,15 @@ import {
 import { registerValidationWorkflowTests } from "./validation-workflow-test-runner.ts";
 
 registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow-tree-mechanical.ts", [
-    {
-        scenario: validationTreeCiLoopScenario,
-        exportName: "validationTreeCiLoopScenario",
-        todo: "captured state does not yet prove the validation phase turn",
-    },
+    { scenario: validationTreeCiLoopScenario, exportName: "validationTreeCiLoopScenario" },
     {
         scenario: validationTreeCiRetrySuccessScenario,
         exportName: "validationTreeCiRetrySuccessScenario",
         todo: "captured TUI evidence does not yet show first-round semantic approval",
     },
-    {
-        scenario: validationTreeCiCancelRetryScenario,
-        exportName: "validationTreeCiCancelRetryScenario",
-        todo: "captured state does not yet prove the validation retry turn",
-    },
+    { scenario: validationTreeCiCancelRetryScenario, exportName: "validationTreeCiCancelRetryScenario" },
     { scenario: validationTreeCiCancelFollowUpScenario, exportName: "validationTreeCiCancelFollowUpScenario" },
-    {
-        scenario: validationTreeCiCancelStopScenario,
-        exportName: "validationTreeCiCancelStopScenario",
-        todo: "captured state does not yet prove the validation Stop turn",
-    },
+    { scenario: validationTreeCiCancelStopScenario, exportName: "validationTreeCiCancelStopScenario" },
     { scenario: validationTreeCiRepairIncompleteScenario, exportName: "validationTreeCiRepairIncompleteScenario" },
     {
         scenario: validationTreeValidationExhaustedRetryScenario,

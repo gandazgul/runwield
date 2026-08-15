@@ -289,9 +289,12 @@ function inferGoldenTurnIdentity(snapshotAgentName, availableTools, systemPrompt
     // signal a real model has, and it decides who to answer as, not what the
     // scenario asserts about the workflow.
     if (systemPrompt.includes("You are the Recorder")) return { agent: "recorder", phase: "work_record" };
-    // Validation repairs now run in an independent Engineer session. The composed
+    // Validation repairs run in an independent focused session. The composed
     // TUI snapshot can still name Guide (or another prior Agent), so use the
     // isolated session's system prompt to match the scripted repair turn.
+    if (systemPrompt.includes("You are the Validation Repair Engineer")) {
+        return { agent: "engineer", phase: "engineer" };
+    }
     if (systemPrompt.includes("You are the Software Engineer")) return { agent: "engineer", phase: "engineer" };
     if (availableTools.includes("slicer_finalize_decomposition")) return { agent: "slicer", phase: "slicer" };
     if (availableTools.includes("plan_written")) return { agent: "planner", phase: "plan_review" };

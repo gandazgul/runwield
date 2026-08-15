@@ -43,7 +43,11 @@ Deno.test("worktree Objective Check amendment becomes canonical only after user 
 
         const proposal = await detectValidationPlanAmendment(projectRoot, executionCwd, "feature");
         assertEquals(proposal?.objectiveChecksChanged, true);
-        assertStringIncludes(proposal?.summary || "", "objectiveChecks.OC1.command");
+        assertStringIncludes(proposal?.summary || "", "The Engineer gave feedback about the Objective-Failing Checks");
+        assertStringIncludes(proposal?.summary || "", "Change OC1");
+        assertStringIncludes(proposal?.summary || "", "before command: deno eval -A 'Deno.exit(1)'");
+        assertStringIncludes(proposal?.summary || "", "after command: deno eval 'Deno.exit(1)'");
+        assertEquals(proposal?.summary.includes("<removed>"), false);
         const before = await loadPlan(projectRoot, "feature");
         assertEquals(before?.attrs.objectiveChecks?.[0].command, "deno eval -A 'Deno.exit(1)'");
 
@@ -135,7 +139,49 @@ Deno.test("Objective Check rationale amendments are proposed", async () => {
 
         const proposal = await detectValidationPlanAmendment(projectRoot, executionCwd, "feature");
         assertEquals(proposal?.objectiveChecksChanged, true);
-        assertStringIncludes(proposal?.summary || "", "objectiveChecks.OC1.rationale");
+        assertStringIncludes(proposal?.summary || "", "Change OC1");
+        assertStringIncludes(proposal?.summary || "", "before rationale: old reason");
+        assertStringIncludes(proposal?.summary || "", "after rationale: new reason");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
+        await Deno.remove(executionCwd, { recursive: true }).catch(() => undefined);
+    }
+});
+
+Deno.test("Objective Check feedback names deletions and additions without raw diff markers", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    const executionCwd = await Deno.makeTempDir();
+    try {
+        await savePlan(projectRoot, "feature", "# Body", {
+            planId: "plan-1",
+            classification: "PLANNED_CHANGE",
+            status: "implemented",
+            objectiveChecks: [
+                { id: "OC1", command: "old-command" },
+                { id: "OC2", command: "before-command" },
+            ],
+        });
+        await savePlan(executionCwd, "feature", "# Body", {
+            planId: "plan-1",
+            classification: "PLANNED_CHANGE",
+            status: "implemented",
+            objectiveChecks: [
+                { id: "OC2", command: "after-command" },
+                { id: "OC3", command: "new-command" },
+            ],
+        });
+
+        const proposal = await detectValidationPlanAmendment(projectRoot, executionCwd, "feature");
+        const summary = proposal?.summary || "";
+        assertStringIncludes(summary, "Delete OC1");
+        assertStringIncludes(summary, "current command: old-command");
+        assertStringIncludes(summary, "Change OC2");
+        assertStringIncludes(summary, "before command: before-command");
+        assertStringIncludes(summary, "after command: after-command");
+        assertStringIncludes(summary, "Add OC3");
+        assertStringIncludes(summary, "proposed command: new-command");
+        assertEquals(summary.includes("<removed>"), false);
+        assertEquals(summary.includes("Engineer edited"), false);
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
         await Deno.remove(executionCwd, { recursive: true }).catch(() => undefined);

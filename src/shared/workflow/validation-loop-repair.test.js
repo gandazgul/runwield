@@ -17,6 +17,32 @@ import {
 import { requestObjectiveCheckWaiver, runPlanObjectiveChecks } from "./validation-mechanical.ts";
 import { createValidationSessionPort } from "./validation-session-adapter.ts";
 
+/** @returns {import("./validation-session-adapter.ts").SemanticReviewPort} */
+function repairPort(outcomes = ["completed"]) {
+    let call = 0;
+    return {
+        runIsolatedAgentSession: () => {
+            const outcome = outcomes[Math.min(call, outcomes.length - 1)];
+            call += 1;
+            return Promise.resolve(
+                /** @type {any} */ (
+                    outcome === "completed"
+                        ? [{
+                            role: "toolResult",
+                            toolName: "task_completed",
+                            toolCallId: `repair-${call}`,
+                            content: [],
+                            isError: false,
+                            timestamp: Date.now(),
+                            details: { outcome: "task_completed", message: `Repair turn ${call} completed.` },
+                        }]
+                        : []
+                ),
+            );
+        },
+    };
+}
+
 function makeValidationUi(cwd = Deno.cwd()) {
     const uiAPI = makeUi();
     return { uiAPI, hostedSession: attachRecorder(new HostedSession({ id: "validation-repair-test", cwd }), uiAPI) };
@@ -322,7 +348,7 @@ Deno.test("runValidationLoop dispatches repair when Objective-Failing Checks are
             assertStringIncludes(prompts[0], "OC1: unmet");
             assertStringIncludes(prompts[0], "test filter selects zero tests");
             assertStringIncludes(prompts[0], "brokenObjectiveChecks");
-            assertEquals(plan?.attrs.validationCiAttempts, 1);
+            assertEquals(plan?.attrs.validationObjectiveCheckAttempts, 1);
         },
     );
 });
@@ -401,7 +427,7 @@ Deno.test("runValidationLoop offers a way out when the repair rounds for CI are 
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented", validationCiAttempts: 2 },
-        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+        semanticReviewPort: repairPort(),
         localCI: {
             run: () => Promise.resolve({ exitCode: 1, output: "type error", canceled: false }),
         },
@@ -424,7 +450,7 @@ Deno.test("Objective-Failing Checks after spent rounds can return control to Eng
     const projectRoot = await makeValidationProjectRoot("p", {
         classification: "PLANNED_CHANGE",
         status: "implemented",
-        validationCiAttempts: 2,
+        validationObjectiveCheckAttempts: 2,
         objectiveChecks,
     });
     const { hostedSession, uiAPI } = makeValidationUi();
@@ -433,7 +459,7 @@ Deno.test("Objective-Failing Checks after spent rounds can return control to Eng
         triageMeta: {
             classification: "PLANNED_CHANGE",
             status: "implemented",
-            validationCiAttempts: 2,
+            validationObjectiveCheckAttempts: 2,
             objectiveChecks,
         },
         executionAgent: "engineer",
@@ -451,10 +477,10 @@ Deno.test("Objective-Failing Checks after spent rounds can return control to Eng
         triageMeta: {
             classification: "PLANNED_CHANGE",
             status: "implemented",
-            validationCiAttempts: 2,
+            validationObjectiveCheckAttempts: 2,
             objectiveChecks,
         },
-        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+        semanticReviewPort: repairPort(["completed", "incomplete"]),
         localCI: {
             run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
         },
@@ -468,11 +494,11 @@ Deno.test("Objective-Failing Checks after spent rounds can return control to Eng
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
 });
 
-Deno.test("Objective-Failing Checks follow-up pauses validation until Engineer completes", async () => {
+Deno.test("Objective-Failing Checks follow-up reopens the retained repair session", async () => {
     const objectiveChecks = [{ id: "OC1", command: "false", rationale: "must become true" }];
     await withIncompleteRepairModel(
         "validation-repair-objective-follow-up-",
-        { classification: "PLANNED_CHANGE", validationCiAttempts: 2, objectiveChecks },
+        { classification: "PLANNED_CHANGE", validationObjectiveCheckAttempts: 2, objectiveChecks },
         async ({ projectRoot, hostedSession, uiAPI, prompts }) => {
             const offeredOptions = /** @type {string[]} */ ([]);
             selectAndCaptureOptions(uiAPI, offeredOptions, "engineer_follow_up");
@@ -485,10 +511,10 @@ Deno.test("Objective-Failing Checks follow-up pauses validation until Engineer c
                 triageMeta: {
                     classification: "PLANNED_CHANGE",
                     status: "implemented",
-                    validationCiAttempts: 2,
+                    validationObjectiveCheckAttempts: 2,
                     objectiveChecks,
                 },
-                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+                semanticReviewPort: repairPort(["completed", "incomplete"]),
                 localCI: {
                     run: () => {
                         ciRuns += 1;
@@ -499,7 +525,7 @@ Deno.test("Objective-Failing Checks follow-up pauses validation until Engineer c
 
             assertEquals(result.kind, "paused");
             assertEquals(offeredOptions, ["Engineer follow-up", "Retry", "Stop"]);
-            assertEquals(ciRuns, 1);
+            assertEquals(ciRuns, 2);
             assertEquals(prompts.length, 0);
             assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "engineer");
             assertEquals(hostedSession.getActiveExecutionWorkflow()?.validationContinuation, true);
@@ -537,7 +563,7 @@ Deno.test("Retry after the CI rounds run out runs the tests again and carries on
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "implemented", validationCiAttempts: 2 },
-        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+        semanticReviewPort: repairPort(),
         localCI: {
             run: () => {
                 ciRuns += 1;

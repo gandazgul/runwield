@@ -63,11 +63,23 @@ Deno.test("validation retry counters increment and reset on implemented re-entry
     assertEquals(failedCi.status, "implemented");
     assertEquals(failedCi.validationCiAttempts, 3);
 
+    const failedObjectiveCheck = buildPlanEventUpdates("mechanical_validation_failed", "implemented", {
+        triageMeta: { validationCiAttempts: 2, validationObjectiveCheckAttempts: 2 },
+        mechanicalFailureKind: "objective_check",
+    });
+    assertEquals(failedObjectiveCheck.validationCiAttempts, 2);
+    assertEquals(failedObjectiveCheck.validationObjectiveCheckAttempts, 3);
+
     const failedValidation = buildPlanEventUpdates("validation_failed", "validated_ci", {
-        triageMeta: { validationCiAttempts: 3, validationSemanticRounds: 2 },
+        triageMeta: {
+            validationCiAttempts: 3,
+            validationObjectiveCheckAttempts: 3,
+            validationSemanticRounds: 2,
+        },
     });
     assertEquals(failedValidation.status, "implemented");
     assertEquals(failedValidation.validationCiAttempts, 0);
+    assertEquals(failedValidation.validationObjectiveCheckAttempts, 0);
     assertEquals(failedValidation.validationSemanticRounds, 0);
 
     const mergeFailed = buildPlanEventUpdates("worktree_merge_failed", "validated_reviewer", {

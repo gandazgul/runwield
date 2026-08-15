@@ -103,7 +103,9 @@ function buildStalePlanStatusMessage(planName, currentStatus, canonicalStatus) {
  * @property {import('../../plan-store.js').PlanFrontMatter['humanReviewDecision']} [humanReviewDecision]
  * @property {string|null} [humanReviewedAt]
  * @property {number} [validationCiAttempts]
+ * @property {number} [validationObjectiveCheckAttempts]
  * @property {number} [validationSemanticRounds]
+ * @property {"ci"|"objective_check"} [mechanicalFailureKind]
  * @property {import('./validation-checkpoint.ts').ValidationCheckpoint|null} [validationCheckpoint]
  * @property {string} [epicDoneEnoughSummary]
  * @property {import('../../plan-store.js').ExecutionMode} [executionMode]
@@ -477,20 +479,29 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         event !== "semantic_review_feedback"
     ) {
         updates.validationCiAttempts = 0;
+        updates.validationObjectiveCheckAttempts = 0;
         updates.validationSemanticRounds = 0;
     }
 
     if (event === "mechanical_validation_failed") {
-        const currentAttempts = typeof details.triageMeta?.validationCiAttempts === "number"
-            ? details.triageMeta.validationCiAttempts
-            : 0;
-        updates.validationCiAttempts = currentAttempts + 1;
+        if (details.mechanicalFailureKind === "objective_check") {
+            const currentAttempts = typeof details.triageMeta?.validationObjectiveCheckAttempts === "number"
+                ? details.triageMeta.validationObjectiveCheckAttempts
+                : 0;
+            updates.validationObjectiveCheckAttempts = currentAttempts + 1;
+        } else {
+            const currentAttempts = typeof details.triageMeta?.validationCiAttempts === "number"
+                ? details.triageMeta.validationCiAttempts
+                : 0;
+            updates.validationCiAttempts = currentAttempts + 1;
+        }
         updates.validationSemanticRounds = 0;
         updates.failureReason = details.failureReason || "Mechanical Validation failed.";
     }
 
     if (event === "mechanical_validation_passed") {
         updates.validationCiAttempts = 0;
+        updates.validationObjectiveCheckAttempts = 0;
         updates.failureReason = null;
         updates.failedAt = null;
     }
@@ -501,6 +512,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             : 0;
         updates.validationSemanticRounds = currentRounds + 1;
         updates.validationCiAttempts = 0;
+        updates.validationObjectiveCheckAttempts = 0;
         updates.failureReason = details.failureReason || "Semantic Code Review requested changes.";
         // The open Review Issues and repair identity must commit with the status
         // move back to implemented. A later Session projection cannot fill this

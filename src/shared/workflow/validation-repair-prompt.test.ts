@@ -1,39 +1,28 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
 
-Deno.test("independent validation repair packet links the Plan and carries worktree context", () => {
+Deno.test("focused validation repair packet carries worktree and failure context without a Plan", () => {
     const prompt = buildValidationRepairPrompt({
-        planName: "epic/child",
-        projectRoot: "/project",
         executionCwd: "/worktrees/child",
         repairCwd: "/worktrees/child",
         repairsNeeded: "CI failed with TS2741.",
-        planContent:
-            "---\nsummary: SECRET FRONT MATTER\nobjectiveChecks:\n  - id: OC1\n    command: false\n    rationale: secret\n---\n# Approved body\n\nDo the work.",
         worktreeId: "wt-123",
         worktreeBranch: "worktree/child",
         worktreeBaseBranch: "main",
     });
 
-    assertStringIncludes(prompt, "This is an independent repair session.");
-    assertStringIncludes(prompt, "[docs/plans/epic/child.md](</worktrees/child/docs/plans/epic/child.md>)");
+    assertStringIncludes(prompt, "This is a focused repair session.");
     assertStringIncludes(prompt, "Repair checkout: `/worktrees/child`");
-    assertStringIncludes(prompt, "Primary project root: `/project`");
     assertStringIncludes(prompt, "Worktree ID: `wt-123`");
     assertStringIncludes(prompt, "Worktree branch: `worktree/child`");
     assertStringIncludes(prompt, "Target branch: `main`");
     assertStringIncludes(prompt, "CI failed with TS2741.");
-    assertStringIncludes(prompt, "call task_completed again");
-    assertStringIncludes(prompt, "## Approved Plan Body");
-    assertStringIncludes(prompt, "# Approved body");
-    assertEquals(prompt.includes("SECRET FRONT MATTER"), false);
-    assertEquals(prompt.includes("objectiveChecks"), false);
+    assertStringIncludes(prompt, "call task_completed");
+    assertEquals(prompt.includes("Plan"), false);
 });
 
-Deno.test("independent validation repair packet does not inline the approved Plan", () => {
+Deno.test("focused validation repair packet preserves repair-specific authority and completion rules", () => {
     const prompt = buildValidationRepairPrompt({
-        planName: "feature",
-        projectRoot: "/project",
         executionCwd: "/execution",
         repairCwd: "/merge-repair",
         repairsNeeded: "Resolve the content conflict.",
@@ -44,19 +33,17 @@ Deno.test("independent validation repair packet does not inline the approved Pla
     assertStringIncludes(prompt, "Original execution worktree: `/execution`");
     assertStringIncludes(prompt, "Human feedback is authoritative.");
     assertStringIncludes(prompt, "Report one disposition per finding, then call task_completed.");
-    assertEquals(prompt.includes("### Approved Plan"), false);
+    assertEquals(prompt.includes("Plan"), false);
 });
 
-Deno.test("independent QUICK_FIX repair packet does not claim a Plan exists", () => {
+Deno.test("focused validation repair packet never adds general implementation ceremony", () => {
     const prompt = buildValidationRepairPrompt({
-        planName: "quick-fix",
-        projectRoot: "/project",
         executionCwd: "/project",
         repairCwd: "/project",
         repairsNeeded: "Fix the failing check.",
-        includePlanLink: false,
     });
 
-    assertEquals(prompt.includes("Approved Plan file"), false);
-    assertEquals(prompt.includes("Read the Plan file"), false);
+    assertEquals(prompt.includes("Plan"), false);
+    assertEquals(prompt.includes("original implementation conversation"), false);
+    assertEquals(prompt.includes("implement the requested change"), false);
 });

@@ -160,11 +160,10 @@ export type ObjectiveCheckPhaseOutcome =
     | { kind: "unmet"; reason: string; results: ObjectiveCheckResult[] }
     | { kind: "broken"; reason: string; results: ObjectiveCheckResult[] };
 
-/** How many automatic reviewer rounds run before the user takes the wheel. */
-export const AUTOMATIC_ROUNDS = 3;
-
-/** Rounds one and two sweep the whole Plan; from three on the reviewer only verifies. */
-export const DISCOVERY_ROUNDS = 2;
+/** Independent automatic repair budgets. Keep these separate so each can be tuned. */
+export const CI_REPAIR_CYCLES = 3;
+export const OBJECTIVE_CHECK_REPAIR_CYCLES = 3;
+export const SEMANTIC_REVIEW_CYCLES = 3;
 
 /**
  * How many phases one call may drive. Validation has three, and a repair can send

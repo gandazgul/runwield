@@ -3,7 +3,7 @@
  * Prompt loop boundary for HostedSession-based interactive turns.
  */
 
-import { AGENTS } from "../../constants.js";
+import { AGENTS, SUBAGENTS } from "../../constants.js";
 import { resolveResumeAgentName } from "./active-agent-session.js";
 import { runActiveAgentTurn, switchActiveAgent } from "./agent-switching.js";
 import {
@@ -353,6 +353,9 @@ function buildSemanticRepairCiState(options, workflow, handoff) {
     const state = {
         status: typeof triageMeta.status === "string" ? triageMeta.status : "",
         validationCiAttempts: typeof triageMeta.validationCiAttempts === "number" ? triageMeta.validationCiAttempts : 0,
+        validationObjectiveCheckAttempts: typeof triageMeta.validationObjectiveCheckAttempts === "number"
+            ? triageMeta.validationObjectiveCheckAttempts
+            : 0,
         validationSemanticRounds: typeof triageMeta.validationSemanticRounds === "number"
             ? triageMeta.validationSemanticRounds
             : handoff.semanticRound,
@@ -1444,13 +1447,10 @@ export class SessionRuntime {
             );
             const messages = await runActiveAgentTurn({
                 hostedSession: session,
-                agentName: continuation.executionOwner,
+                agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
                 userRequest: buildValidationRepairPrompt({
-                    planName: continuation.plan.planName,
-                    projectRoot,
                     executionCwd,
                     repairCwd: executionCwd,
-                    planContent: continuation.plan.markdown,
                     worktreeId: workflow.worktreeId,
                     worktreeBranch: workflow.worktreeBranch,
                     worktreeBaseBranch: workflow.worktreeBaseBranch,
@@ -1468,6 +1468,7 @@ export class SessionRuntime {
                 cwd: executionCwd,
                 allowReturnToRouter: false,
                 dispatchKind: "validation_repair",
+                subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
                 customTools: [createReviewDiffTool({ full: continuation.repair.diffText })],
             });
             const completed = readLatestTaskCompletedOutcome(messages);

@@ -4,7 +4,7 @@
  * dispatches that send the execution Agent back when either fails.
  */
 
-import { isPlannedChangeClassification } from "../../constants.js";
+import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { type ObjectiveCheckResult, runObjectiveChecks, summarizeObjectiveChecks } from "./objective-checks.ts";
 import { objectiveChecksWithoutWaivers, persistObjectiveCheckWaiver } from "./objective-check-waivers.ts";
@@ -21,12 +21,13 @@ import {
     getProjectRoot,
     preserveValidationContinuationState,
     readCiAttempts,
+    readObjectiveCheckAttempts,
     readSemanticRound,
     recordLifecycleEvent,
     recordMetric,
     resolvePhaseContext,
 } from "./validation-context.ts";
-import { AUTOMATIC_ROUNDS, type UserActionOption } from "./validation-types.ts";
+import { CI_REPAIR_CYCLES, OBJECTIVE_CHECK_REPAIR_CYCLES, type UserActionOption } from "./validation-types.ts";
 import { clampCycle, emitProgress, emitStatus } from "./validation-emit.ts";
 import { pauseForUserAction, requestInteraction } from "./validation-interactions.ts";
 import { type AgentTurnOutcome, ValidationInteractionTypes } from "./validation-ports.ts";
@@ -56,6 +57,18 @@ type ObjectiveCheckWaiverDecision =
     | { kind: "rejected"; feedback: string }
     | { kind: "engineer_follow_up"; feedback: string }
     | { kind: "stop" };
+
+function isEngineerReportProjectionDrift(
+    proposal: Awaited<ReturnType<typeof detectValidationPlanAmendment>>,
+    reports: BrokenObjectiveCheckReport[],
+): boolean {
+    if (!proposal || !reports.length) return false;
+    const reportedIds = new Set(reports.map((report) => report.id));
+    return proposal.diffs.every((diff) => {
+        const match = /^objectiveChecks\.([^.]+)$/.exec(diff.field);
+        return match !== null && diff.after === "<removed>" && reportedIds.has(match[1]);
+    });
+}
 
 function shouldRetainTaskCompletionClaim(args: ValidationLoopArgs): boolean {
     return (args.engineerReportedBrokenObjectiveChecks || []).length > 0;
@@ -88,6 +101,15 @@ async function requestEngineerFollowUpFeedback(
     return typeof feedbackResponse.value === "string" && feedbackResponse.value.trim()
         ? feedbackResponse.value.trim()
         : defaultValue;
+}
+
+async function continueLastRepairSession(
+    args: ValidationLoopArgs,
+    prompt: string,
+    defaultValue: string,
+): Promise<AgentTurnOutcome | null> {
+    const feedback = await requestEngineerFollowUpFeedback(args, prompt, defaultValue);
+    return await args.session.continueLastRepairTurn(feedback);
 }
 
 async function requestStaleEngineerReportDecision(
@@ -155,6 +177,13 @@ async function resolveValidationPlanAmendment(
 ): Promise<PlanAmendmentDecision> {
     const proposal = await detectValidationPlanAmendment(context.projectRoot, context.executionCwd, args.planName);
     if (!proposal) return { kind: "none" };
+    if (isEngineerReportProjectionDrift(proposal, args.engineerReportedBrokenObjectiveChecks || [])) {
+        // task_completed reports a judgement about canonical Objective-Failing
+        // Checks. It does not delete those checks from the Plan. Restore the
+        // stale execution projection and continue to the waiver/follow-up flow.
+        await reconcileExecutionPlanToCanonical(args, context);
+        return { kind: "none" };
+    }
     try {
         await validateAmendedObjectiveChecksAgainstBaseline(
             context.executionCwd,
@@ -291,14 +320,14 @@ function finishPlanAmendmentDecision(
 
 export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
     const localCI = args.localCI;
-    let attempts = readCiAttempts(args.triageMeta);
+    let ciAttempts = readCiAttempts(args.triageMeta);
 
     for (;;) {
         const reloadFailure = await reloadValidationPlanSnapshot(args);
         if (reloadFailure) return reloadFailure;
         const phase = await resolvePhaseContext(args);
         if (phase.kind === "blocked") return phase.result;
-        attempts = readCiAttempts(args.triageMeta);
+        ciAttempts = readCiAttempts(args.triageMeta);
         const amendmentAction = await resolveValidationPlanAmendment(args, phase.context);
         const amendmentResult = finishPlanAmendmentDecision(args, phase.context, amendmentAction);
         if (amendmentResult) return amendmentResult;
@@ -312,8 +341,8 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             {
                 outcome: "running",
                 stage: "ci",
-                repairAttempt: attempts > 0 ? clampCycle(attempts) : null,
-                maxRepairAttempts: attempts > 0 ? AUTOMATIC_ROUNDS : null,
+                repairAttempt: ciAttempts > 0 ? clampCycle(ciAttempts, CI_REPAIR_CYCLES) : null,
+                maxRepairAttempts: ciAttempts > 0 ? CI_REPAIR_CYCLES : null,
                 checks: { ci: "running" },
             },
         );
@@ -324,7 +353,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             planName: args.planName,
             details: {
                 semanticRound: readSemanticRound(args.triageMeta) + 1,
-                mechanicalAttempt: attempts + 1,
+                mechanicalAttempt: ciAttempts + 1,
                 exitCode: ciResult.exitCode,
                 passed: ciResult.exitCode === 0,
                 canceled: ciResult.canceled === true,
@@ -353,10 +382,11 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
         if (ciResult.exitCode === 0) {
             const objectiveReloadFailure = await reloadValidationPlanSnapshot(args);
             if (objectiveReloadFailure) return objectiveReloadFailure;
+            const objectiveAttempts = readObjectiveCheckAttempts(args.triageMeta);
             const objectiveCheckOutcome = await runPlanObjectiveChecks(
                 args,
                 phase.context,
-                attempts,
+                objectiveAttempts,
                 args.engineerReportedBrokenObjectiveChecks || [],
             );
             if (objectiveCheckOutcome.kind === "canceled") {
@@ -384,6 +414,18 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             if (objectiveCheckOutcome.kind === "stale_report") {
                 const staleDecision = await requestStaleEngineerReportDecision(args, objectiveCheckOutcome.reason);
                 if (staleDecision.kind === "engineer_follow_up") {
+                    const followUp = await args.session.continueLastRepairTurn(staleDecision.feedback);
+                    if (followUp) {
+                        if (followUp.brokenObjectiveChecks.length) {
+                            args.engineerReportedBrokenObjectiveChecks = followUp.brokenObjectiveChecks;
+                        }
+                        if (followUp.completed) continue;
+                        return pausedResult(
+                            args,
+                            phase.context,
+                            "The Validation Repair Engineer follow-up paused before task_completed.",
+                        );
+                    }
                     return pauseForEngineerFollowUp(
                         args,
                         phase.context,
@@ -457,6 +499,9 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 );
                 const waived = judgement.kind === "waived";
                 if (waived) {
+                    if (!phase.context.nonGitInPlace) {
+                        await reconcileExecutionPlanToCanonical(args, phase.context);
+                    }
                     await recordLifecycleEvent(
                         args,
                         phase.context.projectRoot,
@@ -481,6 +526,18 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                     };
                 }
                 if (judgement.kind === "engineer_follow_up") {
+                    const followUp = await args.session.continueLastRepairTurn(judgement.feedback);
+                    if (followUp) {
+                        if (followUp.brokenObjectiveChecks.length) {
+                            args.engineerReportedBrokenObjectiveChecks = followUp.brokenObjectiveChecks;
+                        }
+                        if (followUp.completed) continue;
+                        return pausedResult(
+                            args,
+                            phase.context,
+                            "The Validation Repair Engineer follow-up paused before task_completed.",
+                        );
+                    }
                     return pauseForEngineerFollowUp(
                         args,
                         phase.context,
@@ -494,6 +551,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                         "Workflow Validation stopped at Objective-Failing Check judgement.",
                     );
                 }
+                const nextObjectiveAttempt = objectiveAttempts + 1;
                 const repair = await dispatchObjectiveCheckRepair(
                     args,
                     phase.context,
@@ -506,10 +564,11 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                     "mechanical_validation_failed",
                     "implemented",
                     judgement.feedback || objectiveCheckOutcome.reason,
+                    { mechanicalFailureKind: "objective_check" },
                 );
                 if (!repair.completed) {
                     const reason = `${
-                        args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
+                        args.session.getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, phase.context.projectRoot)
                     } stopped without task_completed during broken Objective-Failing Check repair.`;
                     const statusMessage = `${reason} Validation will resume after task_completed.`;
                     emitStatus(args, statusMessage, "warning");
@@ -521,50 +580,52 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                         awaitingTaskCompletion: true,
                     };
                 }
-                return {
-                    kind: "paused",
-                    planName: args.planName,
-                    projectRoot: phase.context.projectRoot,
-                    reason: "Objective-Failing Check waiver was rejected; repair required.",
-                };
+                if (nextObjectiveAttempt >= OBJECTIVE_CHECK_REPAIR_CYCLES) {
+                    await recordLifecycleEvent(
+                        args,
+                        phase.context.projectRoot,
+                        "validation_failed",
+                        "implemented",
+                        objectiveCheckOutcome.reason,
+                    );
+                    const pause: UserActionPause = {
+                        whatHappened:
+                            `The Validation Repair Engineer tried ${OBJECTIVE_CHECK_REPAIR_CYCLES} Objective-Failing Check repairs for "${args.planName}" without resolving the check judgement.`,
+                        doThis:
+                            "Pick Engineer follow-up to reopen the last repair session, Retry after an external fix, or Stop to come back later.",
+                        details: [summarizeObjectiveChecks(objectiveCheckOutcome.results).compactBlock],
+                        options: ENGINEER_FOLLOW_UP_OPTIONS,
+                    };
+                    const action = await pauseForUserAction(args, pause);
+                    if (action === "retry") continue;
+                    if (action === "engineer_follow_up") {
+                        const followUp = await continueLastRepairSession(
+                            args,
+                            "Tell the Validation Repair Engineer what to try next.",
+                            judgement.feedback || objectiveCheckOutcome.reason,
+                        );
+                        if (followUp?.completed) {
+                            if (followUp.brokenObjectiveChecks.length) {
+                                args.engineerReportedBrokenObjectiveChecks = followUp.brokenObjectiveChecks;
+                            }
+                            continue;
+                        }
+                        return pausedResult(
+                            args,
+                            phase.context,
+                            "The Validation Repair Engineer follow-up paused before task_completed.",
+                        );
+                    }
+                    return pausedResult(
+                        args,
+                        phase.context,
+                        "Workflow Validation stopped after the Objective-Failing Check repair limit.",
+                    );
+                }
+                continue;
             }
 
-            attempts += 1;
-            if (attempts >= AUTOMATIC_ROUNDS) {
-                await recordLifecycleEvent(
-                    args,
-                    phase.context.projectRoot,
-                    "validation_failed",
-                    "implemented",
-                    objectiveCheckOutcome.reason,
-                );
-                const pause: UserActionPause = {
-                    whatHappened: `The Objective-Failing Checks for "${args.planName}" are still unmet. ${
-                        args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
-                    } tried ${AUTOMATIC_ROUNDS} times and could not satisfy them.`,
-                    doThis: `Pick Engineer follow-up to return to the ${
-                        args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
-                    } session, Retry only after you fixed the checks outside RunWield, or Stop to come back to this later.`,
-                    details: [summarizeObjectiveChecks(objectiveCheckOutcome.results).compactBlock],
-                    options: ENGINEER_FOLLOW_UP_OPTIONS,
-                };
-                const action = await pauseForUserAction(args, pause);
-                if (action === "retry") {
-                    attempts = 0;
-                    continue;
-                }
-                if (action === "engineer_follow_up") {
-                    return pauseForEngineerFollowUp(args, phase.context, objectiveCheckOutcome.reason);
-                }
-                return {
-                    kind: "failed",
-                    planName: args.planName,
-                    projectRoot: phase.context.projectRoot,
-                    reason: `${pause.whatHappened} ${pause.doThis}`,
-                    ...(shouldRetainTaskCompletionClaim(args) ? { retainTaskCompletionClaim: true as const } : {}),
-                };
-            }
-
+            const nextObjectiveAttempt = objectiveAttempts + 1;
             const repair = await dispatchObjectiveCheckRepair(
                 args,
                 phase.context,
@@ -576,10 +637,11 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 "mechanical_validation_failed",
                 "implemented",
                 objectiveCheckOutcome.reason,
+                { mechanicalFailureKind: "objective_check" },
             );
             if (!repair.completed) {
                 const reason = `${
-                    args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
+                    args.session.getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, phase.context.projectRoot)
                 } stopped without task_completed during Objective-Failing Check repair.`;
                 const statusMessage = `${reason} Validation will resume after task_completed.`;
                 emitStatus(args, statusMessage, "warning");
@@ -593,20 +655,23 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             }
             if (repair.brokenObjectiveChecks.length) {
                 args.engineerReportedBrokenObjectiveChecks = repair.brokenObjectiveChecks;
-                const postRepairAmendmentAction = await resolveValidationPlanAmendment(args, phase.context);
-                const postRepairAmendmentResult = finishPlanAmendmentDecision(
-                    args,
-                    phase.context,
-                    postRepairAmendmentAction,
-                );
-                if (postRepairAmendmentResult) return postRepairAmendmentResult;
+                // brokenObjectiveChecks is a judgement reported through task_completed,
+                // not a Plan edit. Evaluate it against the canonical checks before
+                // considering any execution-worktree definition difference, otherwise
+                // a stale Plan projection is misrepresented as the Engineer removing
+                // checks in a Plan Amendment.
                 const postRepairReloadFailure = await reloadValidationPlanSnapshot(args);
                 if (postRepairReloadFailure) return postRepairReloadFailure;
                 const reportedResults = resolveEngineerReportedBrokenChecks(
                     args.triageMeta.objectiveChecks || [],
                     repair.brokenObjectiveChecks,
                 );
-                const rerun = await runPlanObjectiveChecks(args, phase.context, attempts, repair.brokenObjectiveChecks);
+                const rerun = await runPlanObjectiveChecks(
+                    args,
+                    phase.context,
+                    nextObjectiveAttempt,
+                    repair.brokenObjectiveChecks,
+                );
                 if (rerun.kind === "passed" || rerun.kind === "skipped") {
                     await recordLifecycleEvent(
                         args,
@@ -625,6 +690,18 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 if (rerun.kind === "stale_report") {
                     const staleDecision = await requestStaleEngineerReportDecision(args, rerun.reason);
                     if (staleDecision.kind === "engineer_follow_up") {
+                        const followUp = await args.session.continueLastRepairTurn(staleDecision.feedback);
+                        if (followUp) {
+                            if (followUp.brokenObjectiveChecks.length) {
+                                args.engineerReportedBrokenObjectiveChecks = followUp.brokenObjectiveChecks;
+                            }
+                            if (followUp.completed) continue;
+                            return pausedResult(
+                                args,
+                                phase.context,
+                                "The Validation Repair Engineer follow-up paused before task_completed.",
+                            );
+                        }
                         return pauseForEngineerFollowUp(
                             args,
                             phase.context,
@@ -651,6 +728,9 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                             "engineer_report",
                         );
                         if (judgement.kind === "waived") {
+                            if (!phase.context.nonGitInPlace) {
+                                await reconcileExecutionPlanToCanonical(args, phase.context);
+                            }
                             const remainingUnmet = rerun.results.filter((result) =>
                                 result.status !== "met" && !reportedIds.has(result.id)
                             );
@@ -671,6 +751,18 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                                 };
                             }
                         } else if (judgement.kind === "engineer_follow_up") {
+                            const followUp = await args.session.continueLastRepairTurn(judgement.feedback);
+                            if (followUp) {
+                                if (followUp.brokenObjectiveChecks.length) {
+                                    args.engineerReportedBrokenObjectiveChecks = followUp.brokenObjectiveChecks;
+                                }
+                                if (followUp.completed) continue;
+                                return pausedResult(
+                                    args,
+                                    phase.context,
+                                    "The Validation Repair Engineer follow-up paused before task_completed.",
+                                );
+                            }
                             return pauseForEngineerFollowUp(
                                 args,
                                 phase.context,
@@ -694,51 +786,56 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                     }
                 }
             }
-            return {
-                kind: "paused",
-                planName: args.planName,
-                projectRoot: phase.context.projectRoot,
-                reason: "Mechanical Validation failed; Objective-Failing Check repair required.",
-            };
+            if (nextObjectiveAttempt >= OBJECTIVE_CHECK_REPAIR_CYCLES) {
+                await recordLifecycleEvent(
+                    args,
+                    phase.context.projectRoot,
+                    "validation_failed",
+                    "implemented",
+                    objectiveCheckOutcome.reason,
+                );
+                const pause: UserActionPause = {
+                    whatHappened: `The Objective-Failing Checks for "${args.planName}" are still unmet. ${
+                        args.session.getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, phase.context.projectRoot)
+                    } tried ${OBJECTIVE_CHECK_REPAIR_CYCLES} times and could not satisfy them.`,
+                    doThis:
+                        "Pick Engineer follow-up to reopen the last repair session, Retry only after you fixed the checks outside RunWield, or Stop to come back to this later.",
+                    details: [summarizeObjectiveChecks(objectiveCheckOutcome.results).compactBlock],
+                    options: ENGINEER_FOLLOW_UP_OPTIONS,
+                };
+                const action = await pauseForUserAction(args, pause);
+                if (action === "retry") continue;
+                if (action === "engineer_follow_up") {
+                    const followUp = await continueLastRepairSession(
+                        args,
+                        "Tell the Validation Repair Engineer what to try next.",
+                        objectiveCheckOutcome.reason,
+                    );
+                    if (followUp?.completed) {
+                        if (followUp.brokenObjectiveChecks.length) {
+                            args.engineerReportedBrokenObjectiveChecks = followUp.brokenObjectiveChecks;
+                        }
+                        continue;
+                    }
+                    return pausedResult(
+                        args,
+                        phase.context,
+                        "The Validation Repair Engineer follow-up paused before task_completed.",
+                    );
+                }
+                return {
+                    kind: "failed",
+                    planName: args.planName,
+                    projectRoot: phase.context.projectRoot,
+                    reason: `${pause.whatHappened} ${pause.doThis}`,
+                    ...(shouldRetainTaskCompletionClaim(args) ? { retainTaskCompletionClaim: true as const } : {}),
+                };
+            }
+            continue;
         }
 
         const failureReason = getCiFailureReason(ciResult);
-        attempts += 1;
-        if (attempts >= AUTOMATIC_ROUNDS) {
-            // Clears the durable attempt count, so a Retry gets a full set of rounds
-            // rather than landing straight back on this limit.
-            await recordLifecycleEvent(
-                args,
-                phase.context.projectRoot,
-                "validation_failed",
-                "implemented",
-                failureReason,
-            );
-            const pause: UserActionPause = {
-                whatHappened: `The tests for "${args.planName}" are still failing. ${
-                    args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
-                } tried ${AUTOMATIC_ROUNDS} times and could not get them passing.`,
-                doThis: `Pick Engineer follow-up to return to the ${
-                    args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
-                } session, Retry only after you fixed the tests outside RunWield, or Stop to come back to this later.`,
-                details: failureReason ? [failureReason] : undefined,
-                options: ENGINEER_FOLLOW_UP_OPTIONS,
-            };
-            const action = await pauseForUserAction(args, pause);
-            if (action === "retry") {
-                attempts = 0;
-                continue;
-            }
-            if (action === "engineer_follow_up") return pauseForEngineerFollowUp(args, phase.context, failureReason);
-            return {
-                kind: "failed",
-                planName: args.planName,
-                projectRoot: phase.context.projectRoot,
-                reason: `${pause.whatHappened} ${pause.doThis}`,
-                ...(shouldRetainTaskCompletionClaim(args) ? { retainTaskCompletionClaim: true as const } : {}),
-            };
-        }
-
+        const nextCiAttempt = ciAttempts + 1;
         const repairCompleted = await dispatchCiRepair(args, phase.context, ciResult);
         await recordLifecycleEvent(
             args,
@@ -746,10 +843,11 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             "mechanical_validation_failed",
             "implemented",
             failureReason,
+            { mechanicalFailureKind: "ci" },
         );
         if (!repairCompleted) {
             const reason = `${
-                args.session.getAgentDisplayName(phase.context.executionAgent, phase.context.projectRoot)
+                args.session.getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, phase.context.projectRoot)
             } stopped without task_completed during CI repair.`;
             const statusMessage = `${reason} Validation will resume after task_completed.`;
             emitStatus(args, statusMessage, "warning");
@@ -762,13 +860,58 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 ...(shouldRetainTaskCompletionClaim(args) ? { retainTaskCompletionClaim: true as const } : {}),
             };
         }
-        return {
-            kind: "paused",
-            planName: args.planName,
-            projectRoot: phase.context.projectRoot,
-            reason: "Mechanical Validation failed; repair required.",
-            ...(shouldRetainTaskCompletionClaim(args) ? { retainTaskCompletionClaim: true as const } : {}),
-        };
+        if (nextCiAttempt >= CI_REPAIR_CYCLES) {
+            // Clears the durable attempt count, so a Retry gets a full set of rounds
+            // rather than landing straight back on this limit.
+            await recordLifecycleEvent(
+                args,
+                phase.context.projectRoot,
+                "validation_failed",
+                "implemented",
+                failureReason,
+            );
+            const pause: UserActionPause = {
+                whatHappened: `The tests for "${args.planName}" are still failing. ${
+                    args.session.getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, phase.context.projectRoot)
+                } tried ${CI_REPAIR_CYCLES} times and could not get them passing.`,
+                doThis:
+                    "Pick Engineer follow-up to reopen the last repair session, Retry only after you fixed the tests outside RunWield, or Stop to come back to this later.",
+                details: failureReason ? [failureReason] : undefined,
+                options: ENGINEER_FOLLOW_UP_OPTIONS,
+            };
+            const action = await pauseForUserAction(args, pause);
+            if (action === "retry") {
+                ciAttempts = 0;
+                continue;
+            }
+            if (action === "engineer_follow_up") {
+                const followUp = await continueLastRepairSession(
+                    args,
+                    "Tell the Validation Repair Engineer what to try next.",
+                    failureReason,
+                );
+                if (followUp?.completed) {
+                    if (followUp.brokenObjectiveChecks.length) {
+                        args.engineerReportedBrokenObjectiveChecks = followUp.brokenObjectiveChecks;
+                    }
+                    continue;
+                }
+                return pausedResult(
+                    args,
+                    phase.context,
+                    "The Validation Repair Engineer follow-up paused before task_completed.",
+                );
+            }
+            return {
+                kind: "failed",
+                planName: args.planName,
+                projectRoot: phase.context.projectRoot,
+                reason: `${pause.whatHappened} ${pause.doThis}`,
+                ...(shouldRetainTaskCompletionClaim(args) ? { retainTaskCompletionClaim: true as const } : {}),
+            };
+        }
+
+        continue;
     }
 }
 
@@ -782,7 +925,7 @@ function pauseForEngineerFollowUp(
         args,
         buildValidationUserMessage({
             kind: "engineer_follow_up",
-            agent: args.session.getAgentDisplayName(context.executionAgent, context.projectRoot),
+            agent: args.session.getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, context.projectRoot),
         }),
         "warning",
     );
@@ -1033,19 +1176,15 @@ export async function dispatchObjectiveCheckRepair(
         "warning",
     );
     return await args.session.runIndependentRepairTurn({
-        agentName: context.executionAgent,
+        agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
         userRequest: buildValidationRepairPrompt({
-            planName: args.planName,
-            projectRoot: context.projectRoot,
             executionCwd: context.executionCwd,
             repairCwd: context.executionCwd,
-            planContent: args.planContent,
-            includePlanLink: isPlannedChangeClassification(args.triageMeta.classification),
             worktreeId: context.worktreeId,
             worktreeBranch: context.worktreeBranch,
             worktreeBaseBranch: context.worktreeBaseBranch,
             repairsNeeded: [
-                "First diagnose each failed Objective-Failing Check. Classify it as either an implementation defect or a defective check. A check is defective when its command cannot prove the objective, including when a test filter selects zero tests, a named test or file does not exist, the command is invalid, or the environment cannot run it reliably. For an implementation defect, repair the implementation and rerun the check. For a defective check, do not change unrelated implementation or repeatedly rerun it: call task_completed with a brokenObjectiveChecks entry that includes the check id, its command when known, and the concrete evidence that makes the check defective. RunWield will ask the user whether to waive it. Do not edit the approved Plan check unless the user explicitly asks for Plan review. If the repair involves tests, follow the write-tests skill for sound testing behavior.",
+                "First diagnose each failed Objective-Failing Check. Classify it as either an implementation defect or a defective check. A check is defective when its command cannot prove the objective, including when a test filter selects zero tests, a named test or file does not exist, the command is invalid, or the environment cannot run it reliably. For an implementation defect, repair the implementation and rerun the check. For a defective check, do not change unrelated implementation, edit or delete the check definition, or repeatedly rerun it: call task_completed with a brokenObjectiveChecks entry that includes the check id, its command when known, and the concrete evidence that makes the check defective. RunWield will ask the user whether to waive it. If the repair involves tests, follow the write-tests skill for sound testing behavior.",
                 ...(feedback ? [`User feedback:\n${feedback}`] : []),
                 summary.block,
             ].join("\n\n"),
@@ -1073,20 +1212,16 @@ export async function dispatchCiRepair(
         args,
         buildValidationUserMessage({
             kind: "ci_repair",
-            agent: args.session.getAgentDisplayName(context.executionAgent, context.projectRoot),
+            agent: args.session.getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, context.projectRoot),
         }),
         "warning",
         { outcome: "running", stage: "engineer_repair", checks: { ci: "failed" } },
     );
     const outcome = await args.session.runIndependentRepairTurn({
-        agentName: context.executionAgent,
+        agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
         userRequest: buildValidationRepairPrompt({
-            planName: args.planName,
-            projectRoot: context.projectRoot,
             executionCwd: context.executionCwd,
             repairCwd: context.executionCwd,
-            planContent: args.planContent,
-            includePlanLink: isPlannedChangeClassification(args.triageMeta.classification),
             worktreeId: context.worktreeId,
             worktreeBranch: context.worktreeBranch,
             worktreeBaseBranch: context.worktreeBaseBranch,
