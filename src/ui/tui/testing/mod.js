@@ -12,6 +12,13 @@ export {
     GOLDEN_TUI_REQUIRED_CAPABILITY_IDS,
 } from "./coverage-matrix.js";
 export {
+    assertValidationBranchEvidence,
+    assertValidationBranchInventory,
+    assertValidationEvidenceRejectsCounterfeits,
+    EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS,
+    VALIDATION_WORKFLOW_BRANCHES,
+} from "./validation-workflow-coverage.ts";
+export {
     assertCoverageWith,
     assertRuntimeEvent,
     assertsGoldenCoverage,

@@ -24,6 +24,7 @@ export interface ReviewDecisionBody {
     approved?: boolean;
     feedback?: string;
     annotations?: ReviewAnnotationDecision[];
+    images?: ReviewImageDecision[];
     globalAttachments?: ReviewImageDecision[];
     plan?: string;
     approvalAction?: "run" | "decompose" | "later";

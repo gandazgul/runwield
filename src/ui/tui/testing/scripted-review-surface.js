@@ -3,6 +3,8 @@
  * Protocol-checked Plan Review and Runtime interaction fixtures.
  */
 
+import { getCwd } from "../../../constants.js";
+
 /**
  * @typedef {Object} ScriptedReviewDecision
  * @property {boolean} approved
@@ -13,11 +15,19 @@
  */
 
 /**
+ * @typedef {Object} ScriptedHumanReviewDecision
+ * @property {boolean} [approved]
+ * @property {string} [feedback]
+ * @property {boolean} [canceled]
+ * @property {boolean} [exit]
+ * @property {Array<{ file?: string, path?: string, filePath?: string, line?: number, text?: string, comment?: string }>} [annotations]
+ * @property {Array<{ path: string, name: string }>} [images]
+ *
  * @typedef {Object} ScriptedRuntimeInteraction
  * @property {"select"|"text"|"approval"} type
  * @property {string} [promptIncludes]
  * @property {string|null} [value]
- * @property {{ path: string, text: string }} [userFixesFirst] what the user does in the
+ * @property {{ path: string, text: string, commands?: string[] }} [userFixesFirst] what the user does in the
  * project before answering. RunWield pauses precisely when it needs a person to change
  * something, so a scenario that cannot model the person changing it can only ever test
  * giving up — never the Retry that follows.
@@ -54,6 +64,39 @@ export class ScriptedReviewSurface {
     }
 }
 
+export class ScriptedHumanReviewSurface {
+    /** @param {ScriptedHumanReviewDecision[]} decisions */
+    constructor(decisions) {
+        /** @type {ScriptedHumanReviewDecision[]} */
+        this.decisions = decisions.map((decision) => ({ ...decision }));
+        /** @type {Array<{ request: Record<string, unknown>, decision: ScriptedHumanReviewDecision }>} */
+        this.consumed = [];
+    }
+
+    /** @param {Record<string, unknown>} request */
+    submit(request) {
+        if (!this.decisions.length) {
+            throw new Error("Unexpected Local Human Code Review interaction: no scripted decisions remain.");
+        }
+        const decision = this.decisions.shift();
+        if (!decision) throw new Error("Unexpected Local Human Code Review interaction: no scripted decisions remain.");
+        this.consumed.push({ request, decision });
+        return {
+            approved: decision.approved === true,
+            feedback: decision.feedback || "",
+            canceled: decision.canceled === true,
+            exit: decision.exit === true,
+            annotations: decision.annotations || [],
+            images: decision.images || [],
+            reviewType: "code",
+        };
+    }
+
+    assertComplete() {
+        if (this.decisions.length) throw new Error(`Unused scripted human review decisions: ${this.decisions.length}`);
+    }
+}
+
 export class ScriptedInteractionSurface {
     /** @param {ScriptedRuntimeInteraction[]} interactions */
     constructor(interactions) {
@@ -83,8 +126,20 @@ export class ScriptedInteractionSurface {
         }
         this.consumed.push({ request, interaction });
         if (interaction.userFixesFirst) {
-            const target = `${Deno.cwd()}/${interaction.userFixesFirst.path}`;
+            const cwd = getCwd();
+            const target = `${cwd}/${interaction.userFixesFirst.path}`;
             Deno.writeTextFileSync(target, interaction.userFixesFirst.text);
+            for (const command of interaction.userFixesFirst.commands || []) {
+                const output = new Deno.Command("bash", {
+                    cwd,
+                    args: ["-lc", command],
+                    stdout: "piped",
+                    stderr: "piped",
+                }).outputSync();
+                if (!output.success) {
+                    throw new Error(new TextDecoder().decode(output.stderr) || `User fix command failed: ${command}`);
+                }
+            }
         }
         return interaction.value ?? null;
     }

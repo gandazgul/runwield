@@ -3,7 +3,7 @@
  * Golden TUI scenario action runner and diagnostics helpers.
  */
 
-import { join, relative } from "@std/path";
+import { dirname, join, relative } from "@std/path";
 import { createSessionRuntime } from "../../../shared/session/session-runtime.js";
 import { openOwnerCoordinationStore } from "../../../shared/owner-coordination/index.js";
 import { assert } from "@std/assert";
@@ -20,7 +20,11 @@ import {
     GOLDEN_FAUX_PROVIDER,
     writeGoldenModelConfig,
 } from "./isolated-environment.js";
-import { ScriptedInteractionSurface, ScriptedReviewSurface } from "./scripted-review-surface.js";
+import {
+    ScriptedHumanReviewSurface,
+    ScriptedInteractionSurface,
+    ScriptedReviewSurface,
+} from "./scripted-review-surface.js";
 import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
 import { createWorkRecordMnemosyneFixture } from "../../../shared/work-records/test-fixtures/mnemosyne-port.ts";
 import { isRunWieldOwnedRuntimePath } from "../../../shared/runwield-owned-paths.ts";
@@ -37,15 +41,38 @@ const DEFAULT_WAIT_TIMEOUT_MS = 20_000;
  * Keep the browser external while driving the real review launcher, server,
  * token check, and decision transport.
  *
- * @param {ScriptedReviewSurface} reviewSurface
+ * @param {ScriptedReviewSurface | null} reviewSurface
+ * @param {ScriptedHumanReviewSurface | null} humanReviewSurface
  * @param {Record<string, unknown>} request
  * @param {unknown} reviewedPlan
  * @param {(response: ReturnType<ScriptedReviewSurface['submit']>) => void} [onDecision]
+ * @param {(response: ReturnType<ScriptedHumanReviewSurface['submit']>) => void} [onHumanReviewDecision]
  */
-function createGoldenReviewBrowser(reviewSurface, request, reviewedPlan, onDecision) {
+function createGoldenReviewBrowser(
+    reviewSurface,
+    humanReviewSurface,
+    request,
+    reviewedPlan,
+    onDecision,
+    onHumanReviewDecision,
+) {
     return {
         /** @param {string} url */
         async open(url) {
+            if (url.includes("/review/code")) {
+                if (!humanReviewSurface) throw new Error("Unexpected Local Human Code Review interaction.");
+                const response = humanReviewSurface.submit({ url });
+                const opened = await createScriptedReviewBrowser(response.approved ? "decision" : "feedback", {
+                    approved: response.approved,
+                    feedback: response.feedback,
+                    annotations: response.annotations,
+                    images: response.images,
+                    reviewType: "code",
+                }).browser.open(url);
+                onHumanReviewDecision?.(response);
+                return opened;
+            }
+            if (!reviewSurface) throw new Error("Unexpected Plan Review interaction.");
             const response = reviewSurface.submit(request);
             const editedPlan = typeof reviewedPlan === "string"
                 ? reviewedPlan
@@ -106,6 +133,7 @@ function findFixturePlanLifecycle(directory, expectedStatus) {
  * @property {Array<{ interactionType: string, decision?: string }>} [interactions]
  * @property {Array<import('./scripted-review-surface.js').ScriptedRuntimeInteraction>} [scriptedInteractions]
  * @property {Array<import('./scripted-review-surface.js').ScriptedReviewDecision>} [reviewDecisions]
+ * @property {Array<import('./scripted-review-surface.js').ScriptedHumanReviewDecision>} [humanReviewDecisions]
  * @property {"new" | "continue"} [sessionStartMode]
  * @property {string} [initialAgentName]
  * @property {unknown} [reviewedPlan]
@@ -395,6 +423,7 @@ export async function runGoldenScenario(scenario, options = {}) {
                             triageMeta,
                             browser: createGoldenReviewBrowser(
                                 reviewSurface,
+                                null,
                                 { cwd: planDir, planName: "plan", planPath, triageMeta },
                                 typed.reviewedPlan,
                             ),
@@ -621,6 +650,21 @@ async function runComposedTuiScenario(scenario, options) {
             events.push(event);
             pendingReviewLifecycleObservations.push(response);
         };
+        const humanReviewSurface = scenario.humanReviewDecisions
+            ? new ScriptedHumanReviewSurface(/** @type {any[]} */ (scenario.humanReviewDecisions))
+            : null;
+        /** @type {Array<ReturnType<ScriptedHumanReviewSurface['submit']>>} */
+        const consumedHumanReviews = [];
+        /** @param {ReturnType<ScriptedHumanReviewSurface['submit']>} response */
+        const observeHumanReviewDecision = (response) => {
+            events.push(
+                `interaction:CODE_REVIEW:${
+                    response.approved ? "approved" : response.canceled ? "canceled" : "feedback"
+                }`,
+            );
+            events.push("human-review:captured");
+            consumedHumanReviews.push(response);
+        };
         const interactionSurface = scenario.scriptedInteractions
             ? new ScriptedInteractionSurface(/** @type {any[]} */ (scenario.scriptedInteractions))
             : null;
@@ -800,8 +844,15 @@ async function runComposedTuiScenario(scenario, options) {
                 initialAgentModel: scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
                     ? undefined
                     : `${GOLDEN_FAUX_PROVIDER}/${GOLDEN_FAUX_MODEL}`,
-                browser: reviewSurface
-                    ? createGoldenReviewBrowser(reviewSurface, {}, scenario.reviewedPlan, observeReviewDecision)
+                browser: reviewSurface || humanReviewSurface
+                    ? createGoldenReviewBrowser(
+                        reviewSurface,
+                        humanReviewSurface,
+                        {},
+                        scenario.reviewedPlan,
+                        observeReviewDecision,
+                        observeHumanReviewDecision,
+                    )
                     : NO_OPEN_BROWSER_PORT,
             });
             composition = await compositionPromise;
@@ -1334,6 +1385,35 @@ async function runComposedTuiScenario(scenario, options) {
                     };
                     events.push(`project:epic:work-record:${generated.status}`);
                     await writeHeartbeat();
+                } else if (typed.type === "deletePlanWorktreeBaseBranch") {
+                    const planName = String(typed.planName || "");
+                    const loaded = await loadPlan(Deno.cwd(), planName);
+                    if (!loaded) throw new Error(`Cannot delete base branch for missing Plan ${planName}`);
+                    const baseBranch = String(loaded.attrs.worktreeBaseBranch || "");
+                    if (!baseBranch) throw new Error(`Plan ${planName} has no worktreeBaseBranch to delete`);
+                    const replacementBranch = String(typed.replacementBranch || `golden-missing-target-${planName}`);
+                    await runGoldenGit(["switch", "-c", replacementBranch], Deno.cwd());
+                    await runGoldenGit(["branch", "-D", baseBranch], Deno.cwd());
+                    events.push(`project:base-branch-deleted:${planName}:${baseBranch}`);
+                    await writeHeartbeat();
+                } else if (typed.type === "commitPlanWorktreeBaseBranchFile") {
+                    const planName = String(typed.planName || "");
+                    const path = String(typed.path || "");
+                    if (!path) throw new Error("commitPlanWorktreeBaseBranchFile needs a path");
+                    const loaded = await loadPlan(Deno.cwd(), planName);
+                    if (!loaded) throw new Error(`Cannot edit base branch for missing Plan ${planName}`);
+                    const baseBranch = String(loaded.attrs.worktreeBaseBranch || "");
+                    if (!baseBranch) throw new Error(`Plan ${planName} has no worktreeBaseBranch to edit`);
+                    await runGoldenGit(["switch", baseBranch], Deno.cwd());
+                    await Deno.mkdir(dirname(join(Deno.cwd(), path)), { recursive: true });
+                    await Deno.writeTextFile(join(Deno.cwd(), path), String(typed.text || ""));
+                    await runGoldenGit(["add", path], Deno.cwd());
+                    await runGoldenGit(
+                        ["commit", "-m", String(typed.message || `seed ${planName} base conflict`)],
+                        Deno.cwd(),
+                    );
+                    events.push(`project:base-branch-file-committed:${planName}:${baseBranch}:${path}`);
+                    await writeHeartbeat();
                 } else if (typed.type === "seedActiveWorktree") {
                     const planName = String(typed.planName || "");
                     const loaded = await loadPlan(Deno.cwd(), planName);
@@ -1346,7 +1426,15 @@ async function runComposedTuiScenario(scenario, options) {
                         planName,
                         planId: String(loaded.attrs.planId || `golden:${planName}`),
                     });
-                    const status = typed.status === "implemented" ? "implemented" : "in_progress";
+                    if (Array.isArray(typed.files)) {
+                        for (const file of typed.files) {
+                            if (!isObject(file) || typeof file.path !== "string") continue;
+                            await Deno.writeTextFile(join(entry.path, file.path), String(file.text || ""));
+                        }
+                        await runGoldenGit(["add", "."], entry.path);
+                        await runGoldenGit(["commit", "-m", `seed ${planName} worktree diff`], entry.path);
+                    }
+                    const status = typeof typed.status === "string" ? typed.status : "in_progress";
                     const registryStatus = typed.registryStatus === "validation_failed"
                         ? "validation_failed"
                         : typed.registryStatus === "completed" || status === "implemented"
@@ -1365,11 +1453,17 @@ async function runComposedTuiScenario(scenario, options) {
                             worktreeBranch: entry.branch,
                             worktreeBaseBranch: entry.baseBranch,
                             worktreeStatus: registryStatus,
+                            ...(status === "validated_ci" || status === "validated_reviewer"
+                                ? { validationSemanticRounds: 0 }
+                                : {}),
+                            ...(status === "implemented" ? { validationCiAttempts: 0 } : {}),
+                            ...(isObject(typed.attrs) ? typed.attrs : {}),
                         },
                         loaded.attrs,
                         { expectedRevision: loaded.revision },
                     );
                     events.push(`project:worktree-seeded:${planName}`);
+                    events.push(`project:worktree-seeded:${planName}:${status}`);
                     await writeHeartbeat();
                 } else if (typed.type === "captureGitState") {
                     const paths = Array.isArray(typed.paths) ? typed.paths.map(String) : [];
@@ -1604,6 +1698,13 @@ async function runComposedTuiScenario(scenario, options) {
             if (interactionSurface) {
                 interactionSurface.assertComplete();
                 state.scriptedInteractions = interactionSurface.consumed;
+            }
+            if (humanReviewSurface) {
+                humanReviewSurface.assertComplete();
+                state.humanReviews = {
+                    consumed: humanReviewSurface.consumed,
+                    decisions: consumedHumanReviews,
+                };
             }
             if (reviewSurface) {
                 assert(
