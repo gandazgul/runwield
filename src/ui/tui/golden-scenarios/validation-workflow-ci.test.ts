@@ -16,7 +16,6 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreeCiRetrySuccessScenario,
         exportName: "validationTreeCiRetrySuccessScenario",
-        todo: "captured TUI evidence does not yet show first-round semantic approval",
     },
     { scenario: validationTreeCiCancelRetryScenario, exportName: "validationTreeCiCancelRetryScenario" },
     { scenario: validationTreeCiCancelFollowUpScenario, exportName: "validationTreeCiCancelFollowUpScenario" },

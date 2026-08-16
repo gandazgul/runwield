@@ -185,7 +185,7 @@ export const validationTreeSemanticNudgeMissingReviewCompleteScenario = withVali
         initialProjectFiles: [{
             path: "docs/plans/semantic-nudge-missing-review-complete.md",
             text:
-                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic nudge missing review_complete\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-nudge-missing-review-complete-plan\nobjectiveChecks:\n  - id: OC_NUDGE_REVIEW_COMPLETE\n    command: true\n---\n# Semantic nudge missing review_complete\n\nAlready implemented content.\n",
+                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic nudge missing review_complete\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-nudge-missing-review-complete-plan\nobjectiveChecks:\n  - id: OC_NUDGE_REVIEW_COMPLETE\n    command: "true"\n---\n# Semantic nudge missing review_complete\n\nAlready implemented content.\n',
         }],
         script: [
             {
@@ -261,7 +261,7 @@ export const validationTreeSemanticNudgeMissingDiffInspectionScenario = withVali
         initialProjectFiles: [{
             path: "docs/plans/semantic-nudge-missing-diff.md",
             text:
-                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic nudge missing diff\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-nudge-missing-diff-plan\nobjectiveChecks:\n  - id: OC_NUDGE_DIFF\n    command: true\n---\n# Semantic nudge missing diff\n\nAlready implemented content.\n",
+                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic nudge missing diff\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-nudge-missing-diff-plan\nobjectiveChecks:\n  - id: OC_NUDGE_DIFF\n    command: "true"\n---\n# Semantic nudge missing diff\n\nAlready implemented content.\n',
         }],
         script: [
             {
@@ -328,10 +328,6 @@ export const validationTreeSemanticNudgeMissingDiffInspectionScenario = withVali
     ["semantic:nudge:missing-diff-inspection"],
 );
 
-// TODO: fix this. The composed seeded `/load-plan` scenario reaches the
-// first semantic repair handoff, and the Engineer calls task_completed, but
-// validation does not resume into round 2. It does not prove the round-limit
-// Stop branch yet.
 export const validationTreeSemanticRoundLimitStopScenario = withValidationBranches(
     {
         name: "validation-tree-semantic-round-limit-stop-base",
@@ -345,7 +341,7 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
         initialProjectFiles: [{
             path: "docs/plans/semantic-round-limit-stop.md",
             text:
-                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic round limit stop\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-round-limit-stop-plan\nobjectiveChecks:\n  - id: OC_SEMANTIC_ROUND_LIMIT_STOP\n    command: true\n---\n# Semantic round limit stop\n\nAlready implemented content.\n",
+                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic round limit stop\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-round-limit-stop-plan\nobjectiveChecks:\n  - id: OC_SEMANTIC_ROUND_LIMIT_STOP\n    command: "true"\n---\n# Semantic round limit stop\n\nAlready implemented content.\n',
         }],
         script: [
             {
@@ -359,7 +355,15 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                     { name: "review_diff", arguments: { command: "list" } },
                     {
                         name: "review_complete",
-                        arguments: { approved: false, feedback: "Round 1 still has open work." },
+                        arguments: {
+                            approved: false,
+                            feedback: "Round 1 still has open work.",
+                            findings: [{
+                                title: "Round-limit issue",
+                                requirement: "Semantic review",
+                                evidence: "The repair still needs verification.",
+                            }],
+                        },
                     },
                 ],
             },
@@ -385,14 +389,6 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                 toolCalls: [{ name: "task_completed", arguments: { message: "- Repaired semantic round 1." } }],
             },
             {
-                id: "engineer-idle-semantic-round-limit-stop-1",
-                agent: "engineer",
-                phase: "engineer",
-                planName: "semantic-round-limit-stop",
-                ordinal: 3,
-                text: "Semantic round 1 repair is ready for review.",
-            },
-            {
                 id: "reviewer-closes-semantic-round-limit-stop-1",
                 agent: "reviewer",
                 phase: "semantic_review",
@@ -411,7 +407,17 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                     { name: "review_diff", arguments: { command: "list" } },
                     {
                         name: "review_complete",
-                        arguments: { approved: false, feedback: "Round 2 still has open work." },
+                        arguments: {
+                            approved: false,
+                            feedback: "Round 2 still has open work.",
+                            findings: [{
+                                id: "R1-1",
+                                resolved: false,
+                                title: "Round-limit issue",
+                                requirement: "Semantic review",
+                                evidence: "The issue remains after repair round 1.",
+                            }],
+                        },
                     },
                 ],
             },
@@ -420,7 +426,7 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                 agent: "engineer",
                 phase: "engineer",
                 planName: "semantic-round-limit-stop",
-                ordinal: 4,
+                ordinal: 3,
                 requiredTools: ["write"],
                 toolCalls: [{
                     name: "write",
@@ -432,17 +438,9 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                 agent: "engineer",
                 phase: "engineer",
                 planName: "semantic-round-limit-stop",
-                ordinal: 5,
+                ordinal: 4,
                 requiredTools: ["task_completed"],
                 toolCalls: [{ name: "task_completed", arguments: { message: "- Repaired semantic round 2." } }],
-            },
-            {
-                id: "engineer-idle-semantic-round-limit-stop-2",
-                agent: "engineer",
-                phase: "engineer",
-                planName: "semantic-round-limit-stop",
-                ordinal: 6,
-                text: "Semantic round 2 repair is ready for review.",
             },
             {
                 id: "reviewer-closes-semantic-round-limit-stop-2",
@@ -463,16 +461,34 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                     { name: "review_diff", arguments: { command: "list" } },
                     {
                         name: "review_complete",
-                        arguments: { approved: false, feedback: "Round 3 still has open work." },
+                        arguments: {
+                            approved: false,
+                            feedback: "Round 3 still has open work.",
+                            findings: [{
+                                id: "R1-1",
+                                resolved: false,
+                                title: "Round-limit issue",
+                                requirement: "Semantic review",
+                                evidence: "The issue remains after repair round 2.",
+                            }],
+                        },
                     },
                 ],
+            },
+            {
+                id: "reviewer-closes-semantic-round-limit-stop-3",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "semantic-round-limit-stop",
+                ordinal: 6,
+                text: "Reported semantic round 3 findings.",
             },
             {
                 id: "engineer-repairs-semantic-round-limit-stop-3",
                 agent: "engineer",
                 phase: "engineer",
                 planName: "semantic-round-limit-stop",
-                ordinal: 7,
+                ordinal: 5,
                 requiredTools: ["write"],
                 toolCalls: [{
                     name: "write",
@@ -484,17 +500,38 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                 agent: "engineer",
                 phase: "engineer",
                 planName: "semantic-round-limit-stop",
-                ordinal: 8,
+                ordinal: 6,
                 requiredTools: ["task_completed"],
                 toolCalls: [{ name: "task_completed", arguments: { message: "- Repaired semantic round 3." } }],
             },
             {
-                id: "engineer-idle-semantic-round-limit-stop-3",
-                agent: "engineer",
-                phase: "engineer",
+                id: "reviewer-approves-semantic-round-limit-continue",
+                agent: "reviewer",
+                phase: "semantic_review",
                 planName: "semantic-round-limit-stop",
-                ordinal: 9,
-                text: "Semantic round 3 repair is ready for the round-limit decision.",
+                ordinal: 7,
+                optional: true,
+                requiredTools: ["review_diff", "review_complete"],
+                toolCalls: [
+                    { name: "review_diff", arguments: { command: "list" } },
+                    {
+                        name: "review_complete",
+                        arguments: {
+                            approved: true,
+                            feedback: "Focused round-limit recheck approved.",
+                            findings: [{ id: "R1-1", resolved: true, title: "Round-limit issue" }],
+                        },
+                    },
+                ],
+            },
+            {
+                id: "reviewer-closes-semantic-round-limit-continue",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "semantic-round-limit-stop",
+                ordinal: 8,
+                optional: true,
+                text: "Focused round-limit recheck complete.",
             },
         ],
         scriptedInteractions: [
@@ -512,20 +549,9 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
             { type: "type", text: "/load-plan semantic-round-limit-stop" },
             { type: "enter" },
             { type: "enter" },
-            { type: "waitForEventCount", event: "runtime:agent:engineer", count: 1, timeoutMs: 90000 },
-            { type: "type", text: "repair the semantic review feedback" },
-            { type: "enter" },
-            { type: "waitForEventCount", event: "runtime:tool:start:task_completed", count: 1, timeoutMs: 90000 },
-            { type: "waitForEventCount", event: "runtime:tool:start:review_complete", count: 2, timeoutMs: 90000 },
-            { type: "waitForEventCount", event: "runtime:agent:engineer", count: 2, timeoutMs: 90000 },
-            { type: "type", text: "repair the semantic review feedback" },
-            { type: "enter" },
-            { type: "waitForEventCount", event: "runtime:tool:start:task_completed", count: 2, timeoutMs: 90000 },
-            { type: "waitForEventCount", event: "runtime:tool:start:review_complete", count: 3, timeoutMs: 90000 },
-            { type: "waitForEventCount", event: "runtime:agent:engineer", count: 3, timeoutMs: 90000 },
-            { type: "type", text: "repair the semantic review feedback" },
-            { type: "enter" },
             { type: "waitForEventCount", event: "runtime:tool:start:task_completed", count: 3, timeoutMs: 90000 },
+            { type: "waitForScreen", text: "Look once more, read it, or stop.", timeoutMs: 180000 },
+            { type: "waitForEvent", event: "runtime:interaction_resolved", timeoutMs: 180000 },
             { type: "waitForIdle", timeoutMs: 180000 },
             { type: "captureProjectState", planNames: ["semantic-round-limit-stop"] },
         ],
@@ -554,7 +580,7 @@ export const validationTreeSemanticRoundLimitStopDirectScenario = withValidation
         initialProjectFiles: [{
             path: "docs/plans/semantic-round-limit-stop-direct.md",
             text:
-                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic round limit stop direct\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-round-limit-stop-direct-plan\nobjectiveChecks:\n  - id: OC_SEMANTIC_ROUND_LIMIT_STOP_DIRECT\n    command: true\n---\n# Semantic round limit stop direct\n\nDraft content.\n",
+                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic round limit stop direct\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-round-limit-stop-direct-plan\nobjectiveChecks:\n  - id: OC_SEMANTIC_ROUND_LIMIT_STOP_DIRECT\n    command: "true"\n---\n# Semantic round limit stop direct\n\nDraft content.\n',
         }],
         script: [
             {
@@ -629,10 +655,6 @@ export const validationTreeSemanticRoundLimitStopDirectScenario = withValidation
     [],
 );
 
-// TODO: fix this. The same seeded round-limit scenario currently cannot reach
-// the round-limit prompt because validation does not resume into round 2 after
-// the first Semantic Code Review repair. Keep unowned until Continue can be
-// exercised end-to-end from the visible prompt.
 export const validationTreeSemanticRoundLimitContinueScenario = {
     ...validationTreeSemanticRoundLimitStopScenario,
     name: "validation-tree-semantic-round-limit-continue",
@@ -640,14 +662,23 @@ export const validationTreeSemanticRoundLimitContinueScenario = {
         { type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" },
         { type: "select", promptIncludes: "Look once more, read it, or stop.", value: "continue" },
     ],
+    actions: validationTreeSemanticRoundLimitStopScenario.actions.flatMap((action: { type?: string }) =>
+        action.type === "captureProjectState"
+            ? [
+                {
+                    type: "waitForPlanStatus",
+                    planName: "semantic-round-limit-stop",
+                    statuses: ["verified"],
+                    timeoutMs: 180000,
+                },
+                action,
+            ]
+            : [action]
+    ),
     validationBranches: ["semantic:round-limit:continue"],
     assertions: [validationEvidenceAssertion("semantic:round-limit:continue")],
 };
 
-// TODO: fix this. The same seeded round-limit scenario currently cannot reach
-// the round-limit prompt because validation does not resume into round 2 after
-// the first Semantic Code Review repair. Keep unowned until the user-side code
-// review choice can be exercised end-to-end from the visible prompt.
 export const validationTreeSemanticRoundLimitHumanReviewScenario = {
     ...validationTreeSemanticRoundLimitStopScenario,
     name: "validation-tree-semantic-round-limit-human-review",
@@ -655,6 +686,21 @@ export const validationTreeSemanticRoundLimitHumanReviewScenario = {
         { type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" },
         { type: "select", promptIncludes: "Look once more, read it, or stop.", value: "code_review" },
     ],
+    humanReviewDecisions: [{ approved: true, feedback: "Human approved after reading the repaired changes." }],
+    actions: validationTreeSemanticRoundLimitStopScenario.actions.flatMap((action: { type?: string }) =>
+        action.type === "captureProjectState"
+            ? [
+                { type: "waitForEvent", event: "human-review:captured", timeoutMs: 30000 },
+                {
+                    type: "waitForPlanStatus",
+                    planName: "semantic-round-limit-stop",
+                    statuses: ["verified"],
+                    timeoutMs: 180000,
+                },
+                action,
+            ]
+            : [action]
+    ),
     validationBranches: ["semantic:round-limit:human-review"],
     assertions: [validationEvidenceAssertion("semantic:round-limit:human-review")],
 };
@@ -675,7 +721,7 @@ export const validationTreeEmptyDiffSkipScenario = withValidationBranches(
         initialProjectFiles: [{
             path: "docs/plans/empty-diff-skip.md",
             text:
-                "---\nclassification: OPERATION\ncomplexity: LOW\nsummary: Empty diff skip\naffectedPaths: []\nstatus: ready_for_work\nplanId: empty-diff-skip-plan\nobjectiveChecks:\n  - id: OC_EMPTY_DIFF\n    command: true\n---\n# Empty diff skip\n\nAlready complete content.\n",
+                '---\nclassification: OPERATION\ncomplexity: LOW\nsummary: Empty diff skip\naffectedPaths: []\nstatus: ready_for_work\nplanId: empty-diff-skip-plan\nobjectiveChecks:\n  - id: OC_EMPTY_DIFF\n    command: "true"\n---\n# Empty diff skip\n\nAlready complete content.\n',
         }],
         scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" }],
         actions: [
@@ -780,7 +826,7 @@ export const validationTreePlanOnlyDiffFailsScenario = withValidationBranches(
         initialProjectFiles: [{
             path: "docs/plans/plan-only-diff.md",
             text:
-                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Plan only diff\naffectedPaths: []\nstatus: ready_for_work\nplanId: plan-only-diff-plan\nobjectiveChecks:\n  - id: OC_PLAN_ONLY\n    command: true\n---\n# Plan only diff\n\nDraft content.\n",
+                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Plan only diff\naffectedPaths: []\nstatus: ready_for_work\nplanId: plan-only-diff-plan\nobjectiveChecks:\n  - id: OC_PLAN_ONLY\n    command: "true"\n---\n# Plan only diff\n\nDraft content.\n',
         }],
         scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" }],
         actions: [

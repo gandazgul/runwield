@@ -29,7 +29,6 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreeBrokenObjectiveFollowUpScenario,
         exportName: "validationTreeBrokenObjectiveFollowUpScenario",
-        todo: "broken-objective follow-up branch is unstable after the validation recovery merge",
     },
     {
         scenario: validationTreeBrokenObjectiveStopScenario,
@@ -38,6 +37,5 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreeBrokenObjectiveStaleReportScenario,
         exportName: "validationTreeBrokenObjectiveStaleReportScenario",
-        todo: "production does not surface the stale broken-Objective report decision",
     },
 ]);

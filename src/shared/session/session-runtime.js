@@ -455,6 +455,8 @@ export class SessionRuntime {
     #currentManagedOperationSettlements;
     /** @type {Map<string, { cwd: string, name?: string }>} */
     #pendingManagedCreationProjects;
+    /** @type {Map<string, { options: Record<string, unknown>, validationResult: Record<string, unknown> }>} */
+    #pendingSemanticRepairHandoffs;
     /** @type {Map<string, import('./session-runtime-events.js').SessionRuntimeEvent[]>} */
     #pendingReplayEvents;
     /** @type {Map<string, string | null>} */
@@ -478,6 +480,7 @@ export class SessionRuntime {
         this.#currentManagedOperations = new Map();
         this.#currentManagedOperationSettlements = new Map();
         this.#pendingManagedCreationProjects = new Map();
+        this.#pendingSemanticRepairHandoffs = new Map();
         this.#pendingReplayEvents = new Map();
         this.#observedAttentionEventIds = new Map();
         this.#sessionStoreOwner = new FileSessionStoreOwner(
@@ -1475,8 +1478,11 @@ export class SessionRuntime {
     async runValidation(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runValidation: session not found");
-        const pendingResult = await this.#resumePendingExecutionSegmentHandoff(session, options);
-        if (pendingResult) return pendingResult;
+        const managedValidationSession = session.getManagedMetadata?.() || null;
+        if (options.skipPendingSegmentResume !== true) {
+            const pendingResult = await this.#resumePendingExecutionSegmentHandoff(session, options);
+            if (pendingResult) return pendingResult;
+        }
         const result = await this.#runWorkflowOperation(session, "runValidation", options, async () => {
             const { SYSTEM_SEMANTIC_REVIEW_PORT } = await import("../workflow/validation.ts");
             const { continueWorkflowValidation } = await import("../workflow/validation-supervisor.ts");
@@ -1519,6 +1525,13 @@ export class SessionRuntime {
             return latestResult;
         });
         if (result?.kind === "semantic_repair_handoff") {
+            if (!managedValidationSession) {
+                this.#pendingSemanticRepairHandoffs.set(sessionId, {
+                    options,
+                    validationResult: result,
+                });
+                return result;
+            }
             return await this.#runSemanticRepairSegmentHandoff(sessionId, options, result);
         }
         await this.#continueEpicAfterValidation(session, /** @type {any} */ (result));
@@ -1575,6 +1588,21 @@ export class SessionRuntime {
             expectedGeneration: latestManaged.generation,
         });
         return await this.#runSemanticRepairContinuation(sessionId, session, options, continuation);
+    }
+
+    /** @param {string} sessionId */
+    async #resumePendingSemanticRepairHandoff(sessionId) {
+        let resumed = null;
+        for (;;) {
+            const pending = this.#pendingSemanticRepairHandoffs.get(sessionId);
+            if (!pending) return resumed;
+            this.#pendingSemanticRepairHandoffs.delete(sessionId);
+            resumed = await this.#runSemanticRepairSegmentHandoff(
+                sessionId,
+                pending.options,
+                pending.validationResult,
+            );
+        }
     }
 
     /**
@@ -1659,13 +1687,30 @@ export class SessionRuntime {
             ? await runRepair()
             : await this.#runWorkflowOperation(session, "semanticRepairSegment", options, runRepair);
         if (repairResult?.kind === "semantic_repair_completed") {
+            const { loadPlan } = await import("../../plan-store.js");
+            const completedPlan = await loadPlan(
+                projectRoot,
+                continuation.plan.planName || options.planName,
+            );
+            if (!completedPlan) throw new Error("Completed semantic repair Plan is unavailable.");
+            const refreshedWorkflow = {
+                ...(session.getActiveExecutionWorkflow?.() || continuation.activeWorkflow),
+                triageMeta: {
+                    ...(continuation.activeWorkflow?.triageMeta || options.triageMeta),
+                    ...completedPlan.attrs,
+                    revision: completedPlan.revision,
+                },
+            };
+            session.setActiveExecutionWorkflow(/** @type {any} */ (refreshedWorkflow));
             return await this.runValidation(sessionId, {
                 ...options,
                 planName: continuation.plan.planName || options.planName,
-                planContent: continuation.plan.markdown || options.planContent,
-                executionContext: session.getActiveExecutionWorkflow?.(),
+                planContent: completedPlan.markdown || options.planContent,
+                triageMeta: refreshedWorkflow.triageMeta,
+                executionContext: refreshedWorkflow,
                 trigger: "repair",
                 taskCompletionId: continuation.repair.repairGeneration,
+                skipPendingSegmentResume: true,
             });
         }
         return repairResult;
@@ -2418,6 +2463,7 @@ export class SessionRuntime {
             this.#busyOperationDepths.delete(id);
             this.#pendingManagedCreations.delete(id);
             this.#pendingManagedCreationProjects.delete(id);
+            this.#pendingSemanticRepairHandoffs.delete(id);
             this.#pendingReplayEvents.delete(id);
             this.#observedAttentionEventIds.delete(id);
         }
@@ -2721,11 +2767,12 @@ export class SessionRuntime {
         );
         hostedSession.setManagedOperationCapability(capability);
         let hydrated = false;
+        let activationResult;
         try {
             activeProof = this.#sessionStore.changeSessionActivationPhase(activeProof, "hydrated");
             capability.updateProof(activeProof);
             hydrated = true;
-            const result = await switchActiveAgent(hostedSession, {
+            activationResult = await switchActiveAgent(hostedSession, {
                 ...options,
                 managedOperationCapability: capability,
             });
@@ -2763,7 +2810,6 @@ export class SessionRuntime {
             this.#pendingManagedCreationProjects.delete(hostedSession.id);
             hostedSession.dehydrateManagedSession();
             await this.synchronizeManagedSession(hostedSession.id, { emitEvents: false, replayFromStart: true });
-            return result;
         } catch (error) {
             this.#pendingManagedCreations.delete(hostedSession.id);
             this.#pendingManagedCreationProjects.delete(hostedSession.id);
@@ -2786,6 +2832,8 @@ export class SessionRuntime {
             settleManagedCreation();
             hostedSession.setManagedOperationCapability(null);
         }
+        await this.#resumePendingSemanticRepairHandoff(hostedSession.id);
+        return activationResult;
     }
 
     /** @param {import('./hosted-session.js').HostedSession} hostedSession */
@@ -3503,6 +3551,10 @@ export class SessionRuntime {
                     signal: capability.signal,
                 }, capability),
         );
+        if (result?.ok) {
+            const resumedValidation = await this.#resumePendingSemanticRepairHandoff(sessionId);
+            if (resumedValidation) /** @type {any} */ (result)._validationResult = resumedValidation;
+        }
         if (result?.ok && /** @type {any} */ (result)._validationResult?.epicContinuation) {
             const replacement = await this.#continueEpicAfterValidation(
                 hostedSession,

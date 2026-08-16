@@ -694,6 +694,25 @@ async function runComposedTuiScenario(scenario, options) {
         if (interactionSurface) state.scriptedInteractions = interactionSurface.consumed;
         /** @type {"select"|"text"|"approval"|null} */
         let activeScriptedInteractionType = null;
+        /** @param {import('../types.js').UiAPI} uiAPI */
+        const configureScriptedUiAPI = (uiAPI) => {
+            if (!interactionSurface) return;
+            uiAPI.promptSelect = (prompt, options) => {
+                const value = interactionSurface.next(activeScriptedInteractionType || "select", {
+                    prompt,
+                    options,
+                });
+                if (value === null) return Promise.resolve(null);
+                if (!Array.isArray(options) || !options.some((option) => option.value === value)) {
+                    throw new Error(`Scripted select returned invalid option: ${value}`);
+                }
+                return Promise.resolve(value);
+            };
+            uiAPI.promptText = (prompt, options) => {
+                const value = interactionSurface.next("text", { prompt, options });
+                return Promise.resolve(value === null ? null : String(value));
+            };
+        };
         try {
             // Every scripted turn is served through the faux provider, including the
             // Slicer's. Excluding it meant the harness consumed that turn itself and
@@ -719,13 +738,17 @@ async function runComposedTuiScenario(scenario, options) {
                 // scoped this way — a Planner turn runs before its Plan exists, and
                 // the Runtime still reports whichever Plan came before.
                 const reportedPlanName = String(
-                    /** @type {{ workflowContext?: { planName?: unknown } }} */ (snapshot || {}).workflowContext
-                        ?.planName || "",
+                    /** @type {{ workflowContext?: { planName?: unknown }, activeExecutionWorkflow?: { planName?: unknown } }} */ (
+                        snapshot || {}
+                    ).workflowContext?.planName ||
+                        /** @type {{ activeExecutionWorkflow?: { planName?: unknown } }} */ (snapshot || {})
+                            .activeExecutionWorkflow?.planName ||
+                        "",
                 );
-                // The Runtime clears workflowContext between phases, and an empty
-                // reading must not open a second ordinal series for the same Plan —
-                // that is what silently shifted a scenario's later turns. Carry the
-                // last Plan the Runtime named until it names another.
+                // The Runtime clears workflowContext between phases while retaining
+                // activeExecutionWorkflow. An empty reading must not open a second
+                // ordinal series for the same Plan — that silently shifts later
+                // turns. Carry the last Plan the Runtime named until it names another.
                 if (reportedPlanName) lastWorkflowPlanName = reportedPlanName;
                 const planName = reportedPlanName || lastWorkflowPlanName;
                 const planScoped = agent === "engineer" || agent === "reviewer";
@@ -868,6 +891,7 @@ async function runComposedTuiScenario(scenario, options) {
                 initialAgentModel: scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
                     ? undefined
                     : `${GOLDEN_FAUX_PROVIDER}/${GOLDEN_FAUX_MODEL}`,
+                configureUiAPI: configureScriptedUiAPI,
                 browser: reviewSurface || humanReviewSurface
                     ? createGoldenReviewBrowser(
                         reviewSurface,
@@ -885,28 +909,6 @@ async function runComposedTuiScenario(scenario, options) {
             // Startup is done and the heartbeat carries real actor state, so the
             // parent can switch from its startup budget to the scenario budget.
             options.onReady?.();
-            if (interactionSurface) {
-                const originalPromptSelect = composition.uiAPI.promptSelect?.bind(composition.uiAPI);
-                const originalPromptText = composition.uiAPI.promptText?.bind(composition.uiAPI);
-                composition.uiAPI.promptSelect = (prompt, options) => {
-                    const value = interactionSurface.next(activeScriptedInteractionType || "select", {
-                        prompt,
-                        options,
-                    });
-                    if (value === null) return Promise.resolve(null);
-                    if (!Array.isArray(options) || !options.some((option) => option.value === value)) {
-                        throw new Error(`Scripted select returned invalid option: ${value}`);
-                    }
-                    return Promise.resolve(value);
-                };
-                composition.uiAPI.promptText = (prompt, options) => {
-                    const value = interactionSurface.next("text", { prompt, options });
-                    return Promise.resolve(value === null ? null : String(value));
-                };
-                if (!originalPromptSelect || !originalPromptText) {
-                    throw new Error("Runtime interaction scripting requires TUI prompt methods.");
-                }
-            }
             const runtime = composition.runtime;
             /** @param {import('../../../shared/session/session-runtime-events.js').SessionRuntimeEvent} event */
             const handleRuntimeEvent = (event) => {
@@ -932,7 +934,16 @@ async function runComposedTuiScenario(scenario, options) {
                 if (event.type === "assistant_thinking_delta") events.push("runtime:assistant:thinking");
                 if (event.type === "queued_message_changed") events.push("runtime:queue");
                 if (event.type === "interaction_resolved") {
-                    const interaction = /** @type {{ interactionType?: string }} */ (event);
+                    const interaction =
+                        /** @type {{ interactionType?: string, outcome?: string, message?: string }} */ (
+                            event
+                        );
+                    events.push(
+                        `runtime:interaction:${interaction.interactionType || "unknown"}:${
+                            interaction.outcome || "unknown"
+                        }`,
+                    );
+                    if (interaction.message) events.push(`runtime:interaction-message:${interaction.message}`);
                     if (interaction.interactionType === "plan_review") {
                         const response = pendingReviewLifecycleObservations.shift();
                         if (response) {
@@ -979,7 +990,10 @@ async function runComposedTuiScenario(scenario, options) {
                 if (!isObject(action)) continue;
                 const typed = /** @type {any} */ (action);
                 if (typed.type === "type") {
-                    terminal.typeText(String(typed.text || ""));
+                    const text = String(typed.text || "");
+                    terminal.typeText(text);
+                    const loadPlanMatch = text.trim().match(/^\/load-plan\s+(.+)$/);
+                    if (loadPlanMatch) lastWorkflowPlanName = loadPlanMatch[1].trim();
                     events.push(`terminal:type:${typed.text || ""}`);
                 } else if (typed.type === "clearEditor") {
                     terminal.input("\x15");
@@ -998,24 +1012,8 @@ async function runComposedTuiScenario(scenario, options) {
                             scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
                                 ? undefined
                                 : `${GOLDEN_FAUX_PROVIDER}/${GOLDEN_FAUX_MODEL}`,
+                        configureUiAPI: configureScriptedUiAPI,
                     });
-                    if (interactionSurface) {
-                        concurrentComposition.uiAPI.promptSelect = (prompt, options) => {
-                            const value = interactionSurface.next(activeScriptedInteractionType || "select", {
-                                prompt,
-                                options,
-                            });
-                            if (value === null) return Promise.resolve(null);
-                            if (!Array.isArray(options) || !options.some((option) => option.value === value)) {
-                                throw new Error(`Scripted select returned invalid option: ${value}`);
-                            }
-                            return Promise.resolve(value);
-                        };
-                        concurrentComposition.uiAPI.promptText = (prompt, options) => {
-                            const value = interactionSurface.next("text", { prompt, options });
-                            return Promise.resolve(value === null ? null : String(value));
-                        };
-                    }
                     const concurrentUnsubscribe = concurrentComposition.runtime.subscribeSessionEvents(
                         concurrentComposition.sessionId,
                         (event) => {
@@ -1077,24 +1075,8 @@ async function runComposedTuiScenario(scenario, options) {
                             scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
                                 ? undefined
                                 : `${GOLDEN_FAUX_PROVIDER}/${GOLDEN_FAUX_MODEL}`,
+                        configureUiAPI: configureScriptedUiAPI,
                     });
-                    if (interactionSurface) {
-                        composition.uiAPI.promptSelect = (prompt, options) => {
-                            const value = interactionSurface.next(activeScriptedInteractionType || "select", {
-                                prompt,
-                                options,
-                            });
-                            if (value === null) return Promise.resolve(null);
-                            if (!Array.isArray(options) || !options.some((option) => option.value === value)) {
-                                throw new Error(`Scripted select returned invalid option: ${value}`);
-                            }
-                            return Promise.resolve(value);
-                        };
-                        composition.uiAPI.promptText = (prompt, options) => {
-                            const value = interactionSurface.next("text", { prompt, options });
-                            return Promise.resolve(value === null ? null : String(value));
-                        };
-                    }
                     for (let attempt = 0; !terminal.started && attempt < 100; attempt += 1) {
                         await new Promise((resolve) => setTimeout(resolve, 20));
                     }

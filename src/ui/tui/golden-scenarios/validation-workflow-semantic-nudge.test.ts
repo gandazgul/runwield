@@ -9,12 +9,10 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreeSemanticNudgeMissingReviewCompleteScenario,
         exportName: "validationTreeSemanticNudgeMissingReviewCompleteScenario",
-        todo: "captured TUI evidence does not yet show the missing-review-complete nudge",
     },
     {
         scenario: validationTreeSemanticNudgeMissingDiffInspectionScenario,
         exportName: "validationTreeSemanticNudgeMissingDiffInspectionScenario",
-        todo: "captured TUI evidence does not yet show the missing-diff-inspection nudge",
     },
     {
         scenario: validationTreeSemanticNudgeOmittedPriorFindingScenario,

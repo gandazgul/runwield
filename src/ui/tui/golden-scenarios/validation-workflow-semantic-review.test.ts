@@ -10,21 +10,19 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreeSemanticReviewLoopScenario,
         exportName: "validationTreeSemanticReviewLoopScenario",
-        todo: "captured TUI evidence does not yet show the semantic repair loop",
     },
     {
         scenario: validationTreeSemanticRepairIncompleteScenario,
         exportName: "validationTreeSemanticRepairIncompleteScenario",
-        todo: "semantic repair does not resume to the expected incomplete-repair outcome",
+        todo: "scenario aliases the successful repair loop instead of proving an incomplete repair",
     },
     {
         scenario: validationTreeSemanticReviewerIncompletePauseScenario,
         exportName: "validationTreeSemanticReviewerIncompletePauseScenario",
-        todo: "captured TUI evidence does not yet show the incomplete-reviewer pause",
+        todo: "scenario stops the repair Engineer instead of proving an incomplete Reviewer pause",
     },
     {
         scenario: validationTreeSemanticRoundModeDiscoveryToVerifyScenario,
         exportName: "validationTreeSemanticRoundModeDiscoveryToVerifyScenario",
-        todo: "captured TUI evidence does not yet show discovery-to-verify mode progression",
     },
 ]);

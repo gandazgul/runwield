@@ -227,6 +227,11 @@ async function resolveValidationPlanAmendment(
         return { kind: "stop" };
     }
     const hasEngineerDefectiveCheckClaim = (args.engineerReportedBrokenObjectiveChecks || []).length > 0;
+    emitStatus(
+        args,
+        `Plan amendment requires your decision.\n\n${proposal.summary}`,
+        "warning",
+    );
     const decisionPrompt =
         `${proposal.summary}\n\nApprove this Plan Amendment before RunWield uses these execution-worktree changes?`;
     const response = await requestInteraction(args, {

@@ -665,15 +665,17 @@ export async function promptForSemanticRoundLimit(
     openFindingCount: number,
     testsPass: boolean,
 ): Promise<"continue" | "engineer_follow_up" | "code_review" | "stop"> {
+    const prompt = buildValidationUserMessage({
+        kind: "semantic_limit",
+        planName: args.planName,
+        rounds: semanticRound,
+        openCount: openFindingCount,
+        testsPass,
+    });
+    emitStatus(args, prompt, "warning");
     const response = await requestInteraction(args, {
         type: ValidationInteractionTypes.SELECT,
-        prompt: buildValidationUserMessage({
-            kind: "semantic_limit",
-            planName: args.planName,
-            rounds: semanticRound,
-            openCount: openFindingCount,
-            testsPass,
-        }),
+        prompt,
         options: [
             { value: "continue", label: "Have the reviewer look again" },
             { value: "engineer_follow_up", label: "Talk to the repair engineer" },

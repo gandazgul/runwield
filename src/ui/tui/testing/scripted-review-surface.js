@@ -125,7 +125,7 @@ export class ScriptedInteractionSurface {
             throw new Error(
                 `Unexpected Runtime interaction prompt for ${type}: expected ${
                     JSON.stringify(interaction.promptIncludes)
-                }`,
+                }, got ${JSON.stringify(String(request.prompt || ""))}`,
             );
         }
         /** @type {{ request: Record<string, unknown>, interaction: ScriptedRuntimeInteraction, userFixCwd?: string, userFixPath?: string }} */

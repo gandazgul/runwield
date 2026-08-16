@@ -9,12 +9,10 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreeNonGitDeliveryScenario,
         exportName: "validationTreeNonGitDeliveryScenario",
-        todo: "captured TUI evidence does not yet show the non-Git semantic skip",
     },
     {
         scenario: validationTreePlanOnlyDiffFailsScenario,
         exportName: "validationTreePlanOnlyDiffFailsScenario",
-        todo: "captured TUI evidence does not yet show the Plan-only diff failure",
     },
     {
         scenario: validationTreeEmptyDiffSkipScenario,

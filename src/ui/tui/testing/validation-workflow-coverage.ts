@@ -275,12 +275,39 @@ function ownerFor(id: ValidationWorkflowBranchId): string {
 }
 
 function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
+    if (id === "lifecycle:missing-plan-fails-closed") return ["Plan not found: missing-plan"];
+    if (id === "lifecycle:malformed-front-matter-fails-closed") return ["Plan not found: broken"];
+    if (
+        id === "lifecycle:resume-implemented" || id === "lifecycle:resume-validated-ci" ||
+        id === "lifecycle:resume-validated-reviewer"
+    ) return ["Workflow Validation verified"];
+    if (id === "lifecycle:missing-execution-context-fails-closed") {
+        return ["Validation blocked: RunWield cannot tell where"];
+    }
+    if (id === "lifecycle:mismatched-worktree-identity-fails-closed") {
+        return ["Validation blocked: RunWield has worktree metadata"];
+    }
     if (id.includes("plan-amendment")) return ["Plan amendment"];
     if (id.includes(":ci:")) return ["CI"];
     if (id.includes(":objective:")) return ["Objective"];
     if (id.includes("broken-objective")) return ["Objective-Failing Check"];
-    if (id.startsWith("semantic:")) return ["Semantic Code Review"];
-    if (id.startsWith("human-review:")) return ["Local Human Code Review"];
+    if (id.startsWith("semantic:round-limit:")) return ["Look once more, read it, or stop."];
+    if (id.startsWith("semantic:nudge:")) return ["The reviewer needs more time"];
+    if (id === "semantic:entry:non-git-skip") return ["Review skipped"];
+    if (id === "semantic:entry:plan-only-diff-fails") return ["No implementation changes detected"];
+    if (id.startsWith("semantic:")) return ["Code review"];
+    if (id === "human-review:ask-skip" || id === "human-review:none") return ["Workflow Validation verified"];
+    if (id === "human-review:no-answer-retry" || id === "human-review:no-answer-stop") {
+        return ["Pick Retry to open it again"];
+    }
+    if (id.startsWith("human-review:")) return ["Waiting for your code review"];
+    if (id === "publication:non-git-success") return ["done and on its target branch"];
+    if (id === "publication:dirty-retry" || id === "publication:dirty-stop-resume") {
+        return ["changes you have not saved to git yet"];
+    }
+    if (id === "publication:direct-success") return ["done and on its target branch"];
+    if (id === "publication:missing-target-branch") return ["fatal: ambiguous argument 'refs/heads/main'"];
+    if (id === "publication:merge-conflict-repair-completed") return ["then pick Retry"];
     if (id.startsWith("publication:")) return ["Publication"];
     return ["Plan recovery"];
 }
@@ -290,12 +317,20 @@ function turnRequirementFor(id: ValidationWorkflowBranchId): string[] {
         id === "mechanical:objective:mixed-waived";
     if (objectiveSuccess) return ["reviewer"];
     if (id.includes("follow-up") || id.includes("repair") || id.includes("feedback")) return ["engineer"];
+    if (id.startsWith("semantic:entry:")) return [];
     if (id.startsWith("semantic:")) return ["reviewer"];
-    if (id.startsWith("publication:")) return ["publication"];
+    if (id.startsWith("publication:merge-conflict-repair")) return ["engineer"];
+    if (id.startsWith("publication:")) return [];
     return [];
 }
 
 function statePathsFor(id: ValidationWorkflowBranchId): string[] {
+    if (id === "lifecycle:missing-plan-fails-closed" || id === "lifecycle:malformed-front-matter-fails-closed") {
+        return ["projectState.plans.0.name"];
+    }
+    if (id === "publication:merge-conflict-repair-completed") {
+        return ["projectState.plans.0.name", "projectState.registryEntries"];
+    }
     const paths = ["projectState.plans.0.attrs.status"];
     if (id.includes(":ci:")) paths.push("projectState.plans.0.attrs.validationCiAttempts");
     if (id.startsWith("semantic:")) paths.push("projectState.plans.0.attrs.validationSemanticRounds");

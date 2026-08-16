@@ -40,7 +40,10 @@ function planAmendmentScenario(
         committedProjectFiles: [
             { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
         ],
-        reviewedPlan: `# ${planName}\n\nGolden Plan Amendment content.\n`,
+        // Keep the Plan file that plan_written just enriched with OC_AMEND.
+        // Replacing it with a body-only review fixture would erase the baseline
+        // check before the Engineer can propose a command change.
+        reviewedPlan: undefined,
         scriptedInteractions: [{
             type: "select",
             promptIncludes: options.promptIncludes || "Approve this Plan Amendment",
@@ -926,10 +929,6 @@ export const validationTreeBrokenObjectiveEngineerReportedRejectScenario = withV
     ["mechanical:broken-objective:engineer-reported-reject"],
 );
 
-// TODO: fix this. Leaving the current check unmet after the Engineer reports an
-// obsolete check id still loops through repair attempts and ends with incomplete
-// Objective repair; it does not visibly show the stale-report prompt. Keep
-// unowned until the composed TUI proves the stale warning and user decision.
 export const validationTreeBrokenObjectiveStaleReportScenario = withValidationBranches(
     {
         name: "validation-tree-broken-objective-stale-report-base",
@@ -970,6 +969,14 @@ export const validationTreeBrokenObjectiveStaleReportScenario = withValidationBr
                         },
                     },
                 ],
+            },
+            {
+                id: "engineer-closes-stale-broken-objective-report",
+                agent: "engineer",
+                phase: "engineer",
+                planName: "broken-objective-stale-report",
+                ordinal: 2,
+                text: "The obsolete Objective Check report is ready for validation.",
             },
         ],
         actions: [

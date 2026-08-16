@@ -12,7 +12,7 @@ export const validationTreeHumanReviewAskSkipScenario = withValidationBranches(
         ],
         scriptedInteractions: [
             ...(plannedChangeReviewRepairValidationScenario.scriptedInteractions || []),
-            { type: "select", promptIncludes: "Open code review before merge-back", value: "skip" },
+            { type: "select", promptIncludes: "read the changes before the merge", value: "skip" },
         ],
         actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
             action.type !== "assertWorkflowDurability"
@@ -35,7 +35,7 @@ export const validationTreeHumanReviewAskOpenApproveScenario = withValidationBra
         ],
         scriptedInteractions: [
             ...(plannedChangeReviewRepairValidationScenario.scriptedInteractions || []),
-            { type: "select", promptIncludes: "Open code review before merge-back", value: "open" },
+            { type: "select", promptIncludes: "read the changes before the merge", value: "open" },
         ],
         humanReviewDecisions: [{ approved: true, feedback: "Human approves the Golden implementation." }],
         actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
@@ -105,6 +105,9 @@ export const validationTreeHumanReviewNoAnswerStopScenario = withValidationBranc
             },
         ],
         humanReviewDecisions: [{ canceled: true }],
+        script: plannedChangeReviewRepairValidationScenario.script.map((turn: { id?: string }) =>
+            turn.id === "engineer-post-repair-turn-before-re-review" ? { ...turn, optional: true } : turn
+        ),
         scriptedInteractions: [
             ...(plannedChangeReviewRepairValidationScenario.scriptedInteractions || []),
             { type: "select", promptIncludes: "Pick Retry to open it again", value: "stop" },

@@ -14,22 +14,18 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreePublicationDirtyCheckoutScenario,
         exportName: "validationTreePublicationDirtyCheckoutScenario",
-        todo: "captured TUI evidence does not yet show dirty-checkout publication recovery",
     },
     {
         scenario: validationTreePublicationDirtyStopResumeScenario,
         exportName: "validationTreePublicationDirtyStopResumeScenario",
-        todo: "captured TUI evidence does not yet show dirty-checkout Stop and resume",
     },
     {
         scenario: validationTreePublicationMissingTargetBranchScenario,
         exportName: "validationTreePublicationMissingTargetBranchScenario",
-        todo: "captured TUI evidence does not yet show missing-target publication failure",
     },
     {
         scenario: validationTreePublicationMergeConflictRepairCompletedScenario,
         exportName: "validationTreePublicationMergeConflictRepairCompletedScenario",
-        todo: "captured TUI evidence does not yet show completed merge-conflict repair",
     },
     {
         scenario: validationTreePublicationMergeConflictRepairIncompleteRetryScenario,

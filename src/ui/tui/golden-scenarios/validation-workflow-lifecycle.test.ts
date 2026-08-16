@@ -15,37 +15,30 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreeMissingPlanScenario,
         exportName: "validationTreeMissingPlanScenario",
-        todo: "captured TUI evidence does not yet show missing-Plan recovery",
     },
     {
         scenario: validationTreeMalformedFrontMatterScenario,
         exportName: "validationTreeMalformedFrontMatterScenario",
-        todo: "captured TUI evidence does not yet show malformed-front-matter recovery",
     },
     {
         scenario: validationTreeResumeImplementedScenario,
         exportName: "validationTreeResumeImplementedScenario",
-        todo: "captured TUI evidence does not yet show implemented-Plan recovery",
     },
     {
         scenario: validationTreeResumeValidatedCiScenario,
         exportName: "validationTreeResumeValidatedCiScenario",
-        todo: "captured TUI evidence does not yet show validated_ci recovery",
     },
     {
         scenario: validationTreeResumeValidatedReviewerScenario,
         exportName: "validationTreeResumeValidatedReviewerScenario",
-        todo: "captured TUI evidence does not yet show validated_reviewer recovery",
     },
     {
         scenario: validationTreeMissingExecutionContextScenario,
         exportName: "validationTreeMissingExecutionContextScenario",
-        todo: "captured TUI evidence does not yet show missing execution-context recovery",
     },
     {
         scenario: validationTreeMismatchedWorktreeIdentityScenario,
         exportName: "validationTreeMismatchedWorktreeIdentityScenario",
-        todo: "captured TUI evidence does not yet show worktree-identity recovery",
     },
     {
         scenario: validationTreeAheadStatusScenario,
