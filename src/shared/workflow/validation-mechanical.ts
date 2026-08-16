@@ -251,7 +251,7 @@ async function resolveValidationPlanAmendment(
         );
         args.triageMeta = canonical.attrs as ValidationLoopArgs["triageMeta"];
         args.planContent = canonical.markdown;
-        const statusMessage = "Plan Amendment approved and synchronized. Mechanical Validation will reload the Plan.";
+        const statusMessage = buildValidationUserMessage({ kind: "amendment_approved" });
         emitStatus(args, statusMessage, "success");
         return { kind: "amended" };
     }
@@ -297,23 +297,6 @@ function finishPlanAmendmentDecision(
     context: PhaseContext,
     amendmentAction: PlanAmendmentDecision,
 ): ValidationPhaseResult | null {
-    if (amendmentAction.kind === "amended") {
-        return {
-            kind: "paused",
-            planName: args.planName,
-            projectRoot: context.projectRoot,
-            reason: "Plan Amendment approved; Mechanical Validation will restart with fresh Plan state.",
-        };
-    }
-    if (amendmentAction.kind === "waived") {
-        return {
-            kind: "paused",
-            planName: args.planName,
-            projectRoot: context.projectRoot,
-            reason:
-                "Defective Objective-Failing Checks were waived; Mechanical Validation will restart with fresh Plan state.",
-        };
-    }
     if (amendmentAction.kind === "engineer_follow_up") {
         return pauseForEngineerFollowUp(
             args,
@@ -342,6 +325,12 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
         if (phase.kind === "blocked") return phase.result;
         ciAttempts = readCiAttempts(args.triageMeta);
         const amendmentAction = await resolveValidationPlanAmendment(args, phase.context);
+        if (amendmentAction.kind === "amended" || amendmentAction.kind === "waived") {
+            // Approval already synchronized the two Plan copies. Reload now while
+            // this validation claim is still active; a body-only amendment does
+            // not change the Front Matter revision used by the outer phase loop.
+            continue;
+        }
         const amendmentResult = finishPlanAmendmentDecision(args, phase.context, amendmentAction);
         if (amendmentResult) return amendmentResult;
         // A test suite can run for minutes. Saying so beforehand is the difference
