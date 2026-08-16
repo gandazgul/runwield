@@ -30,21 +30,17 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreePublicationMergeConflictRepairIncompleteRetryScenario,
         exportName: "validationTreePublicationMergeConflictRepairIncompleteRetryScenario",
-        todo: "captured TUI evidence does not yet show incomplete merge-repair retry",
     },
     {
         scenario: validationTreePublicationMergeConflictRepairIncompleteStopScenario,
         exportName: "validationTreePublicationMergeConflictRepairIncompleteStopScenario",
-        todo: "captured TUI evidence does not yet show incomplete merge-repair Stop",
     },
     {
         scenario: validationTreePublicationStaleRepairWorktreeScenario,
         exportName: "validationTreePublicationStaleRepairWorktreeScenario",
-        todo: "publication does not expose stale merge-repair worktree evidence",
     },
     {
         scenario: validationTreePublicationGenericGitFailureScenario,
         exportName: "validationTreePublicationGenericGitFailureScenario",
-        todo: "the fixture reaches branch-movement recovery instead of generic publication failure",
     },
 ]);

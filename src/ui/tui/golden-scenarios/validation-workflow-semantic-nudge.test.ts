@@ -17,6 +17,5 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreeSemanticNudgeOmittedPriorFindingScenario,
         exportName: "validationTreeSemanticNudgeOmittedPriorFindingScenario",
-        todo: "production publishes instead of nudging for an omitted prior finding",
     },
 ]);

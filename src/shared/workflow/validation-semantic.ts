@@ -49,6 +49,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
     if (phase.kind === "blocked") return phase.result;
     const context = phase.context;
     if (context.nonGitInPlace) {
+        emitStatus(args, buildValidationUserMessage({ kind: "semantic_skipped", reason: "non_git" }), "info");
         await recordLifecycleEvent(args, context.projectRoot, "semantic_review_passed", "validated_ci");
         return {
             kind: "paused",
@@ -85,7 +86,8 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
         await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", reason);
         return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
     }
-    if (!diffText.trim()) {
+    if (!hasImplementationDiff(diffText, args.planName)) {
+        emitStatus(args, buildValidationUserMessage({ kind: "semantic_skipped", reason: "empty_diff" }), "info");
         await recordLifecycleEvent(args, context.projectRoot, "semantic_review_passed", "validated_ci");
         return {
             kind: "paused",

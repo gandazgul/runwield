@@ -229,7 +229,7 @@ async function resolveValidationPlanAmendment(
     const hasEngineerDefectiveCheckClaim = (args.engineerReportedBrokenObjectiveChecks || []).length > 0;
     emitStatus(
         args,
-        `Plan amendment requires your decision.\n\n${proposal.summary}`,
+        buildValidationUserMessage({ kind: "amendment_decision", summary: proposal.summary }),
         "warning",
     );
     const decisionPrompt =

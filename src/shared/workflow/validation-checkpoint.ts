@@ -46,6 +46,28 @@ export function validationPhaseForStatus(status: string | undefined): Validation
     return null;
 }
 
+const VALIDATION_PHASE_ORDER: readonly ValidationCheckpointPhase[] = ["mechanical", "semantic", "delivery"];
+
+/**
+ * Whether a durable checkpoint can still own continuation for this attempt.
+ * An earlier checkpoint remains authoritative when the same attempt's Plan has
+ * moved ahead without that phase settling; the engine will heal the status and
+ * rerun validation from the remembered phase.
+ */
+export function validationCheckpointCanResume(
+    checkpoint: ValidationCheckpoint | undefined,
+    attemptId: string,
+    currentStatus: string,
+): checkpoint is ValidationCheckpoint {
+    if (!checkpoint || checkpoint.attemptId !== attemptId) return false;
+    const currentPhase = validationPhaseForStatus(currentStatus);
+    const expectedPhase = validationPhaseForStatus(checkpoint.expectedStatus);
+    if (!currentPhase || expectedPhase !== checkpoint.nextPhase) return false;
+    const rememberedIndex = VALIDATION_PHASE_ORDER.indexOf(checkpoint.nextPhase);
+    const currentIndex = VALIDATION_PHASE_ORDER.indexOf(currentPhase);
+    return rememberedIndex <= currentIndex;
+}
+
 export function isValidationCheckpoint(value: Partial<ValidationCheckpoint>): value is ValidationCheckpoint {
     return value.version === VALIDATION_CHECKPOINT_VERSION &&
         typeof value.attemptId === "string" && value.attemptId.length > 0 &&

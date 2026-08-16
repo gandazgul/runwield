@@ -12,6 +12,7 @@ import {
     isValidationCheckpoint,
     makeValidationCheckpoint,
     readValidationReviewState,
+    validationCheckpointCanResume,
 } from "./validation-checkpoint.ts";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { recordValidationRepairCompletion } from "./validation-supervisor.ts";
@@ -80,6 +81,30 @@ Deno.test("validation checkpoint survives a new Plan load", async () => {
     } finally {
         await Deno.remove(root, { recursive: true }).catch(() => {});
     }
+});
+
+Deno.test("an earlier validation checkpoint remains authoritative only for the same attempt", () => {
+    const checkpoint = makeValidationCheckpoint({
+        attemptId: "wt-demo",
+        generation: "generation-one",
+        status: "implemented",
+        phase: "mechanical",
+        state: "paused",
+    });
+
+    assertEquals(validationCheckpointCanResume(checkpoint, "wt-demo", "implemented"), true);
+    assertEquals(validationCheckpointCanResume(checkpoint, "wt-demo", "validated_ci"), true);
+    assertEquals(validationCheckpointCanResume(checkpoint, "wt-demo", "validated_reviewer"), true);
+    assertEquals(validationCheckpointCanResume(checkpoint, "another-attempt", "validated_ci"), false);
+
+    const futureCheckpoint = makeValidationCheckpoint({
+        attemptId: "wt-demo",
+        generation: "generation-two",
+        status: "validated_reviewer",
+        phase: "delivery",
+        state: "paused",
+    });
+    assertEquals(validationCheckpointCanResume(futureCheckpoint, "wt-demo", "validated_ci"), false);
 });
 
 Deno.test("semantic feedback commits open Review Issues with the lifecycle transition", async () => {

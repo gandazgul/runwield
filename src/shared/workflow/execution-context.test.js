@@ -62,6 +62,36 @@ Deno.test("resolveValidationExecutionContext preserves active QUICK_FIX non-Git 
     }
 });
 
+Deno.test("resolveValidationExecutionContext preserves an explicit QUICK_FIX worktree", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "p", "# Plan", { classification: "QUICK_FIX", status: "validated_ci" });
+        const result = await resolveValidationExecutionContext({
+            projectRoot: cwd,
+            planName: "p",
+            triageMeta: { classification: "QUICK_FIX" },
+            explicitContext: {
+                planName: "p",
+                executionMode: "worktree",
+                executionCwd: "/worktree-p",
+                baselineTree: "tree-p",
+                worktreeId: "wt-p",
+                worktreeBranch: "worktree/p",
+                worktreeBaseBranch: "main",
+            },
+        });
+        assertEquals(result.kind, "ok");
+        if (result.kind === "ok") assertEquals(result.context.executionMode, "worktree");
+        if (result.kind === "ok" && result.context.executionMode === "worktree") {
+            assertEquals(result.context.executionCwd, "/worktree-p");
+            assertEquals(result.context.baselineTree, "tree-p");
+            assertEquals(result.context.worktreeId, "wt-p");
+        }
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
 Deno.test("resolveValidationExecutionContext allows a legacy creation tree to differ from a retry baseline", async () => {
     const projectRoot = await baseRepo.checkout();
     const parent = await Deno.makeTempDir();

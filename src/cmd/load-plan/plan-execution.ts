@@ -306,7 +306,8 @@ export async function validateCompletedExecution(
     const resolvedContext = resolution.context;
     const workflow = buildWorkflow(resolvedContext);
     await session.setActiveExecutionWorkflow(workflow);
-    await continueWorkflowValidation({
+    let previousValidationStatus = effectiveMeta.status;
+    let validationResult = await continueWorkflowValidation({
         planName,
         planContent,
         triageMeta: effectiveMeta,
@@ -316,8 +317,10 @@ export async function validateCompletedExecution(
         const latestPlan = await loadPlan(resolvedContext.projectRoot, planName).catch(() => null);
         if (!latestPlan) break;
         const latestStatus = latestPlan.attrs?.status;
+        if (validationResult?.kind !== "paused" || latestStatus === previousValidationStatus) break;
         if (latestStatus !== "validated_ci" && latestStatus !== "validated_reviewer") break;
-        await continueWorkflowValidation({
+        previousValidationStatus = latestStatus;
+        validationResult = await continueWorkflowValidation({
             planName,
             planContent: latestPlan.markdown || latestPlan.body || planContent,
             triageMeta: { ...effectiveMeta, ...latestPlan.attrs },

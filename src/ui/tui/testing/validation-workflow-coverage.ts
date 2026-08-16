@@ -287,6 +287,10 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "lifecycle:mismatched-worktree-identity-fails-closed") {
         return ["Validation blocked: RunWield has worktree metadata"];
     }
+    if (id === "lifecycle:ahead-status-heals-to-implemented") {
+        return ["found an old check state", "will run the tests again"];
+    }
+    if (id === "lifecycle:unsupported-status-fails-closed") return ["Plan has unknown status: sideways"];
     if (id.includes("plan-amendment")) return ["Plan amendment"];
     if (id.includes(":ci:")) return ["CI"];
     if (id.includes(":objective:")) return ["Objective"];
@@ -294,6 +298,7 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id.startsWith("semantic:round-limit:")) return ["Look once more, read it, or stop."];
     if (id.startsWith("semantic:nudge:")) return ["The reviewer needs more time"];
     if (id === "semantic:entry:non-git-skip") return ["Review skipped"];
+    if (id === "semantic:entry:empty-diff-skip") return ["Review skipped"];
     if (id === "semantic:entry:plan-only-diff-fails") return ["No implementation changes detected"];
     if (id.startsWith("semantic:")) return ["Code review"];
     if (id === "human-review:ask-skip" || id === "human-review:none") return ["Workflow Validation verified"];
@@ -307,7 +312,13 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     }
     if (id === "publication:direct-success") return ["done and on its target branch"];
     if (id === "publication:missing-target-branch") return ["fatal: ambiguous argument 'refs/heads/main'"];
-    if (id === "publication:merge-conflict-repair-completed") return ["then pick Retry"];
+    if (id === "publication:merge-conflict-repair-completed") return ["The merge for", "engineer will fix the merge"];
+    if (
+        id === "publication:merge-conflict-repair-incomplete-retry" ||
+        id === "publication:merge-conflict-repair-incomplete-stop"
+    ) return ["could not combine"];
+    if (id === "publication:stale-repair-worktree") return ["checked Plan copy", "done and on its target branch"];
+    if (id === "publication:generic-git-failure") return ["could not add", "merge stopped"];
     if (id.startsWith("publication:")) return ["Publication"];
     return ["Plan recovery"];
 }
@@ -316,11 +327,11 @@ function turnRequirementFor(id: ValidationWorkflowBranchId): string[] {
     const objectiveSuccess = id === "mechanical:objective:none" || id === "mechanical:objective:all-pass" ||
         id === "mechanical:objective:mixed-waived";
     if (objectiveSuccess) return ["reviewer"];
+    if (id.startsWith("publication:merge-conflict-repair")) return ["engineer"];
+    if (id.startsWith("publication:")) return [];
     if (id.includes("follow-up") || id.includes("repair") || id.includes("feedback")) return ["engineer"];
     if (id.startsWith("semantic:entry:")) return [];
     if (id.startsWith("semantic:")) return ["reviewer"];
-    if (id.startsWith("publication:merge-conflict-repair")) return ["engineer"];
-    if (id.startsWith("publication:")) return [];
     return [];
 }
 

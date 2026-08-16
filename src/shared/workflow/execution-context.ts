@@ -212,8 +212,9 @@ export async function resolveValidationExecutionContext({
         );
     }
     if (!isPlannedChangeClassification(attrs.classification)) {
-        const executionMode = activeWorkflow?.nonGitInPlace === true ||
-                activeWorkflow?.executionMode === "non_git_in_place"
+        const directContext = explicitContext || activeWorkflow;
+        const executionMode = directContext?.nonGitInPlace === true ||
+                directContext?.executionMode === "non_git_in_place"
             ? "non_git_in_place"
             : "worktree";
         return {
@@ -224,18 +225,18 @@ export async function resolveValidationExecutionContext({
                 projectRoot,
                 executionCwd: executionMode === "non_git_in_place"
                     ? projectRoot
-                    : activeWorkflow?.executionCwd || projectRoot,
-                baselineTree: executionMode === "worktree" ? asString(activeWorkflow?.baselineTree) : undefined,
-                worktreeId: executionMode === "worktree" ? asString(activeWorkflow?.worktreeId) : undefined,
-                worktreeBranch: executionMode === "worktree" ? asString(activeWorkflow?.worktreeBranch) : undefined,
+                    : directContext?.executionCwd || projectRoot,
+                baselineTree: executionMode === "worktree" ? asString(directContext?.baselineTree) : undefined,
+                worktreeId: executionMode === "worktree" ? asString(directContext?.worktreeId) : undefined,
+                worktreeBranch: executionMode === "worktree" ? asString(directContext?.worktreeBranch) : undefined,
                 worktreeBaseBranch: executionMode === "worktree"
-                    ? asString(activeWorkflow?.worktreeBaseBranch)
+                    ? asString(directContext?.worktreeBaseBranch)
                     : undefined,
-                worktreeBaseRef: executionMode === "worktree" ? asString(activeWorkflow?.worktreeBaseRef) : undefined,
+                worktreeBaseRef: executionMode === "worktree" ? asString(directContext?.worktreeBaseRef) : undefined,
                 worktreeBaseCommit: executionMode === "worktree"
-                    ? asString(activeWorkflow?.worktreeBaseCommit)
+                    ? asString(directContext?.worktreeBaseCommit)
                     : undefined,
-                source: activeWorkflow?.planName ? "active_session" : "durable_recovery",
+                source: explicitContext ? "explicit" : activeWorkflow?.planName ? "active_session" : "durable_recovery",
             },
         };
     }

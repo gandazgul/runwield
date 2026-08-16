@@ -17,6 +17,5 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreeEmptyDiffSkipScenario,
         exportName: "validationTreeEmptyDiffSkipScenario",
-        todo: "loading the seeded operation normalizes it and misses the empty-diff skip branch",
     },
 ]);

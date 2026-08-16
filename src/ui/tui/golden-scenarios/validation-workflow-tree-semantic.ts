@@ -11,20 +11,10 @@ export const validationTreeSemanticReviewLoopScenario = withValidationBranches(
     ["plan"],
 );
 
-// TODO: fix this. The existing composed repair loop does not reach a distinct,
-// durable incomplete-repair outcome. Keep the branch as its own skipped Golden
-// test so the working review-loop branches continue to run.
-export const validationTreeSemanticRepairIncompleteScenario = {
-    ...validationTreeSemanticReviewLoopScenario,
-    name: "validation-tree-semantic-repair-incomplete",
-    validationBranches: ["semantic:repair-incomplete"],
-    assertions: [validationEvidenceAssertion("semantic:repair-incomplete")],
-};
-
-export const validationTreeSemanticReviewerIncompletePauseScenario = withValidationBranches(
+export const validationTreeSemanticRepairIncompleteScenario = withValidationBranches(
     {
         ...plannedChangeReviewRepairValidationScenario,
-        name: "validation-tree-semantic-reviewer-incomplete-pause-base",
+        name: "validation-tree-semantic-repair-incomplete-base",
         script: plannedChangeReviewRepairValidationScenario.script.slice(0, 5).concat([
             {
                 id: "engineer-semantic-repair-without-completion",
@@ -59,20 +49,63 @@ export const validationTreeSemanticReviewerIncompletePauseScenario = withValidat
             { type: "waitForEvent", event: "runtime:tool:start:review_complete", timeoutMs: 120000 },
             { type: "waitForEvent", event: "runtime:agent:engineer", timeoutMs: 120000 },
             { type: "waitForPlanStatus", planName: "plan", statuses: ["validated_ci"], timeoutMs: 90000 },
-            { type: "sleep", ms: 1000 },
-            { type: "captureProjectState", planNames: ["plan"] },
+            { type: "waitForIdle", timeoutMs: 120000 },
+        ],
+        assertions: [],
+    },
+    "validation-tree-semantic-repair-incomplete",
+    ["plan"],
+    ["semantic:repair-incomplete"],
+);
+
+export const validationTreeSemanticReviewerIncompletePauseScenario = withValidationBranches(
+    {
+        name: "validation-tree-semantic-reviewer-incomplete-pause-base",
+        composedTui: true,
+        initialAgentName: "guide",
+        terminal: { columns: 100, rows: 30 },
+        timeoutMs: 180000,
+        committedProjectFiles: [
+            { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
+        ],
+        initialProjectFiles: [{
+            path: "docs/plans/semantic-reviewer-incomplete.md",
+            text:
+                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic reviewer incomplete\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-reviewer-incomplete-plan\nobjectiveChecks:\n  - id: OC_REVIEWER_INCOMPLETE\n    command: "true"\n---\n# Semantic reviewer incomplete\n\nAlready implemented content.\n',
+        }],
+        script: [1, 2, 3].map((ordinal) => ({
+            id: `reviewer-incomplete-attempt-${ordinal}`,
+            agent: "reviewer",
+            phase: "semantic_review",
+            planName: "semantic-reviewer-incomplete",
+            ordinal,
+            text: `Reviewer attempt ${ordinal} stopped without review_complete.`,
+        })),
+        scriptedInteractions: [
+            { type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" },
+            { type: "select", promptIncludes: "could not finish looking", value: "stop" },
+        ],
+        actions: [
+            {
+                type: "seedActiveWorktree",
+                planName: "semantic-reviewer-incomplete",
+                status: "validated_ci",
+                files: [{ path: "semantic-reviewer-incomplete.txt", text: "implemented\n" }],
+                attrs: { objectiveChecks: [{ id: "OC_REVIEWER_INCOMPLETE", command: "true" }] },
+            },
+            { type: "type", text: "/load-plan semantic-reviewer-incomplete" },
+            { type: "enter" },
+            { type: "enter" },
+            { type: "waitForEvent", event: "runtime:interaction:select:selected", timeoutMs: 90000 },
+            { type: "waitForIdle", timeoutMs: 90000 },
         ],
         assertions: [],
     },
     "validation-tree-semantic-reviewer-incomplete-pause",
-    ["plan"],
+    ["semantic-reviewer-incomplete"],
     ["semantic:reviewer-incomplete-pause"],
 );
 
-// TODO: fix this. The composed scenario reaches a repaired semantic review where
-// the Reviewer approves without mentioning the prior open finding. Validation
-// currently publishes instead of visibly nudging for the omitted finding, so this
-// scenario is disabled until that behavior is repaired.
 export const validationTreeSemanticNudgeOmittedPriorFindingScenario = withValidationBranches(
     {
         ...plannedChangeReviewRepairValidationScenario,
@@ -119,10 +152,17 @@ export const validationTreeSemanticNudgeOmittedPriorFindingScenario = withValida
                 ],
             },
             {
-                id: "semantic-reviewer-accounts-for-prior-finding-after-nudge",
+                id: "semantic-reviewer-closes-omitted-prior-finding-result",
                 agent: "reviewer",
                 phase: "semantic_review",
                 ordinal: 4,
+                text: "Reported approval without accounting for the existing finding.",
+            },
+            {
+                id: "semantic-reviewer-accounts-for-prior-finding-after-nudge",
+                agent: "reviewer",
+                phase: "semantic_review",
+                ordinal: 5,
                 requiredTools: ["review_diff", "review_complete"],
                 thinking: "Answer the nudge by accounting for the existing finding identity.",
                 toolCalls: [
@@ -141,7 +181,7 @@ export const validationTreeSemanticNudgeOmittedPriorFindingScenario = withValida
                 id: "semantic-reviewer-closes-omitted-prior-finding-round",
                 agent: "reviewer",
                 phase: "semantic_review",
-                ordinal: 5,
+                ordinal: 6,
                 text: "Reported the repaired finding after the omitted-finding nudge.",
             },
             plannedChangeReviewRepairValidationScenario.script[11],
@@ -705,9 +745,8 @@ export const validationTreeSemanticRoundLimitHumanReviewScenario = {
     assertions: [validationEvidenceAssertion("semantic:round-limit:human-review")],
 };
 
-// TODO: fix this. Attempting to seed an OPERATION validated_ci Plan through
-// `/load-plan` normalizes the workflow to PLANNED_CHANGE and proves the
-// Plan-only diff failure instead of the empty-diff skip branch. Keep unowned.
+// A loaded QUICK_FIX can resume a durable semantic phase without requiring an
+// implementation diff. OPERATION is deliberately not a Plan classification.
 export const validationTreeEmptyDiffSkipScenario = withValidationBranches(
     {
         name: "validation-tree-empty-diff-skip-base",
@@ -721,7 +760,7 @@ export const validationTreeEmptyDiffSkipScenario = withValidationBranches(
         initialProjectFiles: [{
             path: "docs/plans/empty-diff-skip.md",
             text:
-                '---\nclassification: OPERATION\ncomplexity: LOW\nsummary: Empty diff skip\naffectedPaths: []\nstatus: ready_for_work\nplanId: empty-diff-skip-plan\nobjectiveChecks:\n  - id: OC_EMPTY_DIFF\n    command: "true"\n---\n# Empty diff skip\n\nAlready complete content.\n',
+                '---\nclassification: QUICK_FIX\ncomplexity: LOW\nsummary: Empty diff skip\naffectedPaths: []\nstatus: ready_for_work\nplanId: empty-diff-skip-plan\nobjectiveChecks:\n  - id: OC_EMPTY_DIFF\n    command: "true"\n---\n# Empty diff skip\n\nAlready complete content.\n',
         }],
         scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" }],
         actions: [
@@ -730,7 +769,7 @@ export const validationTreeEmptyDiffSkipScenario = withValidationBranches(
                 planName: "empty-diff-skip",
                 status: "validated_ci",
                 attrs: {
-                    classification: "OPERATION",
+                    classification: "QUICK_FIX",
                     objectiveChecks: [{ id: "OC_EMPTY_DIFF", command: "true" }],
                 },
             },
@@ -738,6 +777,7 @@ export const validationTreeEmptyDiffSkipScenario = withValidationBranches(
             { type: "enter" },
             { type: "enter" },
             { type: "waitForPlanStatus", planName: "empty-diff-skip", statuses: ["verified"], timeoutMs: 90000 },
+            { type: "waitForIdle", timeoutMs: 12000 },
         ],
         assertions: [],
     },
