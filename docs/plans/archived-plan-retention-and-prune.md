@@ -75,20 +75,32 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-15T23:56:40-04:00"
-updatedAt: "2026-08-16T04:04:30.774Z"
-status: "in_progress"
+updatedAt: "2026-08-16T04:41:02.164Z"
+status: "implemented"
 origin: "internal"
+implementedAt: "2026-08-16T04:36:48.039Z"
 userVerifiedAt: null
+executionReport: "- Implemented archived Plan retention policy: project-only `.wld/settings.json` keys `plans.archiveRetentionDays` and `plans.archiveKeepLast`, defaults 14/10, validation for non-negative integers, and settings preservation for the new `plans` key.\n- Implemented prune selection and collection: top-level archived units, Work Record `provenance.sourcePlans` coverage, `keepLast` floor that excludes ineligible units, missing/invalid `archivedAt` treated as old, and Epic children/artifacts grouped with the parent.\n- Implemented `wld plans prune`: help/routing/registry docs, group reporting, `--dry-run`, prompt confirmation, `--yes`, deletion failure reporting, skipped missing units, and real archived-unit deletion under the Plan catalog lock.\n- Added archive-time nudge after CLI single/bulk archive, TUI verified-plan archive, and Epic archive.\n- Updated docs: domain glossary entries for Archived Plan, Plan Archive Retention, and Archive Prune; settings skill docs for the two new policy keys.\n- Updated tests: added 10 tests (`plan-archive-retention`: 3, `plans prune`: 3, `plan-store`: 2, `settings`: 2); expanded 1 existing settings preservation test for `plans`; normalized 1 existing model welcome assertion for terminal line wrapping; no tests were removed.\n- Verification passed: OC1 selection eval; OC2 deletion eval; OC3 `deno run -A scripts/run-tests.js src/shared/plan-archive-retention.test.ts src/cmd/plans/prune.test.ts`; OC4 CLI help grep; targeted `deno run -A scripts/run-tests.js src/shared/plan-archive-retention.test.ts src/cmd/plans/prune.test.ts src/plan-store.test.js`; `src/ui/tui/model-welcome.test.ts` after the wrapping repair.\n- Manual safe checks passed: `plans prune --dry-run` reported 109 due units with no deletion, and prompt run with `no` canceled without deleting archived Plans. I did not run destructive `plans prune --yes` in this repository.\n- Full `deno task ci` did not pass. After repairs, remaining failures are golden TUI scenarios in `src/ui/tui/golden-scenarios/project-workflow.test.js` and `src/ui/tui/golden-scenarios/validation-workflow-broken-objective.test.ts` timing out / unused scripted interaction; these files were not part of this change."
 humanReviewMode: null
 humanReviewDecision: null
-validationCheckpoint: null
+validationCheckpoint:
+    version: 1
+    attemptId: "e1a62e37"
+    generation: "b511212c-0119-42f7-8c07-28001c4694c5"
+    expectedStatus: "implemented"
+    nextPhase: "mechanical"
+    state: "paused"
+    updatedAt: "2026-08-16T04:41:02.146Z"
 executionMode: "worktree"
 executionBaselineTree: "d6fca6d818e68d610a07d44599db27ba3740a2ea"
 worktreeId: "e1a62e37"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-archived-plan-retention-and-prune-e1a62e37"
 worktreeBranch: "worktree/archived-plan-retention-and-prune-e1a62e37"
 worktreeBaseBranch: "main"
-worktreeStatus: "active"
+worktreeStatus: "completed"
+validationCiAttempts: 0
+validationObjectiveCheckAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Archived Plan Retention and Prune
