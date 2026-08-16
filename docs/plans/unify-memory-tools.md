@@ -15,13 +15,18 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-08T01:08:52-04:00"
-updatedAt: "2026-08-16T20:09:01.070Z"
+updatedAt: "2026-08-16T20:09:22.765Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-16T19:07:03.856Z"
 verifiedAt: "2026-08-16T20:09:01.070Z"
 userVerifiedAt: null
 executionReport: "- Implemented unified memory tools: `memory_recall` now searches project and global scopes with labeled provenance, missing-binary de-duplication, empty result handling, and partial-scope failure notes; `memory_write` now handles store/delete with project default scope, global init, core tags, delete-by-id, validation errors, and preserved store call messages.\n- Updated advertised capabilities and prompts: protected/Claude capability tool lists, session prompt, agent definitions, router golden tool list, and session tool serialization now use `memory_recall`/`memory_write`; read-only agents do not list `memory_write`, and init-agent prose forbids `scope: \"global\"`.\n- Updated historical consumers: TUI/runtime titles support `memory_write` store/delete and still render retired names; metrics classify `memory_write` by action and still classify retired transcript names.\n- Updated docs: `docs/domain-language.md` now defines Memory-Recall Tool and Memory-Write Tool.\n- Tests changed: memory tool tests were rewritten instead of deleted; global search, project store, global init+store, and delete-by-id coverage now live under `memory_recall`/`memory_write`; net `Deno.test` count change is +3.\n- Verification passed: `deno run -A scripts/run-tests.js src/extensions/mnemosyne/`; `deno run -A scripts/run-tests.js src/shared/session/__tests__/session-tools-policy.test.js src/tools/__tests__/delegate-agent.test.js src/shared/workflow/metrics.test.js src/shared/session/backends/claude-cli/`; `deno task ci`.\n- Manual TUI/session checks from the plan were not run interactively; their covered behavior was verified through updated automated tests and runtime title tests."
+workRecord:
+    status: "generated"
+    recordId: "2d976ac0-ab27-40c0-8715-c3c27bbe6e62"
+    path: "docs/work-records/2026-08-16-unified-memory-tools.md"
+    lastAttemptAt: "2026-08-16T20:09:06.910Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 validationCheckpoint: null
