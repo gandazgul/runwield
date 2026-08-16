@@ -51,6 +51,7 @@ Deno.test("release workflow keeps tag publication and manual recovery channel-sa
     assertMatch(workflow, /build:[\s\S]*ref: \$\{\{ needs\.metadata\.outputs\.tag \}\}/);
     assertMatch(workflow, /release:[\s\S]*ref: \$\{\{ needs\.metadata\.outputs\.tag \}\}/);
     assertStringIncludes(workflow, "deno task release:metadata --tag");
+    assertStringIncludes(workflow, "deno task test:golden-tui:extensive");
     assertStringIncludes(workflow, "WLD_BUILD_VERSION");
     assertStringIncludes(workflow, "prerelease: ${{ needs.metadata.outputs.prerelease }}");
     assertStringIncludes(workflow, "make_latest: ${{ needs.metadata.outputs.make_latest }}");
@@ -62,6 +63,16 @@ Deno.test("release workflow keeps tag publication and manual recovery channel-sa
     const policy = await Deno.readTextFile("docs/releasing.md");
     assertStringIncludes(policy, "required-tag manual dispatch solely for recovery");
     assertMatch(policy, /Never use manual recovery to bypass a genuine failure in tagged product\s+source/);
+});
+
+Deno.test("exhaustive Golden TUI branches are reserved for release qualification", async () => {
+    const config = JSON.parse(await Deno.readTextFile("deno.json"));
+    const normalTest = String(config.tasks?.test || "");
+    const extensiveGoldenTest = String(config.tasks?.["test:golden-tui:extensive"] || "");
+
+    assertEquals(normalTest.includes("RUNWIELD_RUN_TODO_GOLDENS"), false);
+    assertStringIncludes(extensiveGoldenTest, "RUNWIELD_RUN_TODO_GOLDENS=1");
+    assertStringIncludes(extensiveGoldenTest, "src/ui/tui/golden-scenarios");
 });
 
 Deno.test("release CLI publishes tags without owning qualification or host release mutation", async () => {

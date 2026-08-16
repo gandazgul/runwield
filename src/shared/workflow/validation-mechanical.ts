@@ -74,6 +74,19 @@ function shouldRetainTaskCompletionClaim(args: ValidationLoopArgs): boolean {
     return (args.engineerReportedBrokenObjectiveChecks || []).length > 0;
 }
 
+function adoptRecordedPlanState(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    attrs: Awaited<ReturnType<typeof recordLifecycleEvent>>,
+): void {
+    args.triageMeta = attrs as ValidationLoopArgs["triageMeta"];
+    context.workflowBase.triageMeta = args.triageMeta;
+    const activeWorkflow = args.session.getActiveWorkflow();
+    if (activeWorkflow?.planName === args.planName) {
+        args.session.setActiveWorkflow({ ...activeWorkflow, triageMeta: args.triageMeta });
+    }
+}
+
 function pausedResult(
     args: ValidationLoopArgs,
     context: PhaseContext,
@@ -552,19 +565,20 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                     );
                 }
                 const nextObjectiveAttempt = objectiveAttempts + 1;
-                const repair = await dispatchObjectiveCheckRepair(
-                    args,
-                    phase.context,
-                    objectiveCheckOutcome.results,
-                    judgement.feedback,
-                );
-                await recordLifecycleEvent(
+                const recordedAttrs = await recordLifecycleEvent(
                     args,
                     phase.context.projectRoot,
                     "mechanical_validation_failed",
                     "implemented",
                     judgement.feedback || objectiveCheckOutcome.reason,
                     { mechanicalFailureKind: "objective_check" },
+                );
+                adoptRecordedPlanState(args, phase.context, recordedAttrs);
+                const repair = await dispatchObjectiveCheckRepair(
+                    args,
+                    phase.context,
+                    objectiveCheckOutcome.results,
+                    judgement.feedback,
                 );
                 if (!repair.completed) {
                     const reason = `${
@@ -626,18 +640,19 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             }
 
             const nextObjectiveAttempt = objectiveAttempts + 1;
-            const repair = await dispatchObjectiveCheckRepair(
-                args,
-                phase.context,
-                objectiveCheckOutcome.results,
-            );
-            await recordLifecycleEvent(
+            const recordedAttrs = await recordLifecycleEvent(
                 args,
                 phase.context.projectRoot,
                 "mechanical_validation_failed",
                 "implemented",
                 objectiveCheckOutcome.reason,
                 { mechanicalFailureKind: "objective_check" },
+            );
+            adoptRecordedPlanState(args, phase.context, recordedAttrs);
+            const repair = await dispatchObjectiveCheckRepair(
+                args,
+                phase.context,
+                objectiveCheckOutcome.results,
             );
             if (!repair.completed) {
                 const reason = `${
@@ -836,8 +851,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
 
         const failureReason = getCiFailureReason(ciResult);
         const nextCiAttempt = ciAttempts + 1;
-        const repairCompleted = await dispatchCiRepair(args, phase.context, ciResult);
-        await recordLifecycleEvent(
+        const recordedAttrs = await recordLifecycleEvent(
             args,
             phase.context.projectRoot,
             "mechanical_validation_failed",
@@ -845,6 +859,8 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             failureReason,
             { mechanicalFailureKind: "ci" },
         );
+        adoptRecordedPlanState(args, phase.context, recordedAttrs);
+        const repairCompleted = await dispatchCiRepair(args, phase.context, ciResult);
         if (!repairCompleted) {
             const reason = `${
                 args.session.getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, phase.context.projectRoot)

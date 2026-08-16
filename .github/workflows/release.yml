@@ -99,6 +99,9 @@ jobs:
             - name: Run source-quality gate
               run: deno task ci
 
+            - name: Run exhaustive Golden TUI release gate
+              run: deno task test:golden-tui:extensive
+
             - name: Print source-quality failure logs
               if: failure()
               run: |

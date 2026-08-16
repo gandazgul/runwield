@@ -278,7 +278,7 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id.includes("plan-amendment")) return ["Plan amendment"];
     if (id.includes(":ci:")) return ["CI"];
     if (id.includes(":objective:")) return ["Objective"];
-    if (id.includes("broken-objective")) return ["Objective Check"];
+    if (id.includes("broken-objective")) return ["Objective-Failing Check"];
     if (id.startsWith("semantic:")) return ["Semantic Code Review"];
     if (id.startsWith("human-review:")) return ["Local Human Code Review"];
     if (id.startsWith("publication:")) return ["Publication"];
@@ -292,10 +292,6 @@ function turnRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id.includes("follow-up") || id.includes("repair") || id.includes("feedback")) return ["engineer"];
     if (id.startsWith("semantic:")) return ["reviewer"];
     if (id.startsWith("publication:")) return ["publication"];
-    // Mechanical Validation is orchestrated from the implementation Engineer's
-    // task_completed turn. There is no "validation" Agent or Golden phase, so
-    // requiring one makes valid mechanical evidence impossible to satisfy.
-    if (id.startsWith("mechanical:")) return ["engineer"];
     return [];
 }
 
@@ -305,11 +301,6 @@ function statePathsFor(id: ValidationWorkflowBranchId): string[] {
     if (id.startsWith("semantic:")) paths.push("projectState.plans.0.attrs.validationSemanticRounds");
     if (id.startsWith("human-review:")) paths.push("projectState.plans.0.attrs.humanReviewDecision");
     if (id.startsWith("publication:")) paths.push("projectState.registryEntries");
-    const objectiveSuccess = id === "mechanical:objective:none" || id === "mechanical:objective:all-pass" ||
-        id === "mechanical:objective:mixed-waived";
-    if (id.includes(":objective:") && !objectiveSuccess) {
-        paths.push("projectState.plans.0.attrs.failureReason");
-    }
     return paths;
 }
 

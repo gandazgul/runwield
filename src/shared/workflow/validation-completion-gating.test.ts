@@ -344,6 +344,8 @@ Deno.test("PLANNED_CHANGE rejected broken objective check waiver dispatches repa
         "without task_completed during broken Objective-Failing Check repair",
     );
     assertEquals(run.plan?.attrs.status, "implemented");
+    assertEquals(run.plan?.attrs.validationObjectiveCheckAttempts, 1);
+    assertEquals(typeof run.plan?.attrs.failureReason, "string");
     assertEquals(run.plan?.attrs.objectiveCheckWaivers, undefined);
 });
 
@@ -374,6 +376,7 @@ Deno.test("PLANNED_CHANGE CI repair parks when Engineer does not call task_compl
     assertStringIncludes(run.result.reason || "", "without task_completed during CI repair");
     assertEquals(run.plan?.attrs.status, "implemented");
     assertEquals(run.plan?.attrs.validationCiAttempts, 1);
+    assertEquals(typeof run.plan?.attrs.failureReason, "string");
 });
 
 Deno.test("PLANNED_CHANGE CI repair continues after Engineer calls task_completed", async () => {
@@ -394,6 +397,7 @@ Deno.test("PLANNED_CHANGE objective repair parks when Engineer does not call tas
     assertStringIncludes(run.result.reason || "", "without task_completed during Objective-Failing Check repair");
     assertEquals(run.plan?.attrs.status, "implemented");
     assertEquals(run.plan?.attrs.validationObjectiveCheckAttempts, 1);
+    assertEquals(typeof run.plan?.attrs.failureReason, "string");
 });
 
 Deno.test("PLANNED_CHANGE objective repair continues after Engineer calls task_completed", async () => {

@@ -379,12 +379,19 @@ function objectiveCancellationScenario(choice: "engineer_follow_up" | "retry" | 
         committedProjectFiles: [
             { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
         ],
+        initialProjectFiles: [{
+            path: `docs/plans/${planName}.md`,
+            text:
+                `---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Objective cancel\naffectedPaths: []\nobjectiveChecks:\n  - id: OC_LONG\n    command: ${
+                    JSON.stringify(objectiveCommand)
+                }\nstatus: draft\n---\n# Objective cancel\n\nDraft content.\n`,
+        }],
         reviewDecisions: [{
             approved: true,
             feedback: "Approved for Objective Check cancellation coverage.",
             approvalAction: "run",
         }],
-        reviewedPlan: `# ${planName}\n\nGolden Objective Check cancellation content.\n`,
+        reviewedPlan: undefined,
         scriptedInteractions: [{ type: "select", promptIncludes: "Objective-Failing Checks", value: choice }],
         script: [
             {
@@ -427,7 +434,9 @@ function objectiveCancellationScenario(choice: "engineer_follow_up" | "retry" | 
                 type: "writeProjectFile",
                 path: `docs/plans/${planName}.md`,
                 text:
-                    `---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Objective cancel\naffectedPaths: []\nstatus: draft\n---\n# Objective cancel\n\nDraft content.\n`,
+                    `---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Objective cancel\naffectedPaths: []\nobjectiveChecks:\n  - id: OC_LONG\n    command: ${
+                        JSON.stringify(objectiveCommand)
+                    }\nstatus: draft\n---\n# Objective cancel\n\nDraft content.\n`,
             },
             { type: "type", text: `submit ${planName} plan for review` },
             { type: "enter" },
@@ -448,8 +457,40 @@ export const validationTreeObjectiveCancelRetryScenario = withValidationBranches
             type: "select",
             promptIncludes: "Objective-Failing Checks",
             value: "retry",
-            userFixesFirst: { path: "objective-ready", text: "ready\n" },
+            userFixesFirst: {
+                path: "objective-ready",
+                text: "ready\n",
+                target: "execution",
+                planName: "objective-cancel-retry",
+            },
         }],
+        script: [
+            ...objectiveCancellationScenario("retry").script,
+            {
+                id: "reviewer-approves-objective-cancel-retry",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "objective-cancel-retry",
+                ordinal: 1,
+                requiredTools: ["review_diff", "review_complete"],
+                toolCalls: [
+                    { name: "review_diff", arguments: { command: "list" } },
+                    {
+                        name: "review_complete",
+                        arguments: { approved: true, feedback: "Objective cancellation retry approved." },
+                    },
+                ],
+            },
+        ],
+        actions: [
+            ...objectiveCancellationScenario("retry").actions.slice(0, 6),
+            {
+                type: "waitForPlanStatus",
+                planName: "objective-cancel-retry",
+                statuses: ["verified"],
+                timeoutMs: 90000,
+            },
+        ],
     },
     "validation-tree-objective-cancel-retry",
     ["objective-cancel-retry"],
@@ -457,7 +498,13 @@ export const validationTreeObjectiveCancelRetryScenario = withValidationBranches
 );
 
 export const validationTreeObjectiveCancelFollowUpScenario = withValidationBranches(
-    objectiveCancellationScenario("engineer_follow_up"),
+    {
+        ...objectiveCancellationScenario("engineer_follow_up"),
+        actions: [
+            ...objectiveCancellationScenario("engineer_follow_up").actions.slice(0, 6),
+            { type: "waitForScreen", text: "The check is on hold.", timeoutMs: 90000 },
+        ],
+    },
     "validation-tree-objective-cancel-follow-up",
     ["objective-cancel-follow-up"],
     ["mechanical:objective:cancel-follow-up"],
@@ -713,13 +760,23 @@ function engineerReportedBrokenObjectiveScenario(choice: "waive" | "reject") {
     return {
         name: `${planName}-base`,
         composedTui: true,
-        initialAgentName: "guide",
+        initialAgentName: "planner",
         terminal: { columns: 100, rows: 30 },
         timeoutMs: 180000,
         committedProjectFiles: [
             { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
         ],
-        reviewedPlan: `# ${planName}\n\nGolden Engineer-reported broken Objective Check content.\n`,
+        initialProjectFiles: [{
+            path: `docs/plans/${planName}.md`,
+            text:
+                `---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Engineer-reported broken Objective Check\naffectedPaths: []\nobjectiveChecks:\n  - id: OC_REPORT\n    command: test -f engineer-objective-ready\nstatus: draft\n---\n# Engineer-reported broken Objective Check\n\nDraft content.\n`,
+        }],
+        reviewedPlan: undefined,
+        reviewDecisions: [{
+            approved: true,
+            feedback: "Approved for Engineer-reported Objective Check coverage.",
+            approvalAction: "run",
+        }],
         scriptedInteractions: choice === "waive"
             ? [
                 {
@@ -772,11 +829,19 @@ function engineerReportedBrokenObjectiveScenario(choice: "waive" | "reject") {
                 ],
             },
             {
-                id: `engineer-reports-broken-objective-${suffix}`,
+                id: `engineer-closes-${planName}-implementation`,
                 agent: "engineer",
                 phase: "engineer",
                 planName,
                 ordinal: 2,
+                text: "Implementation is ready for Objective Check validation.",
+            },
+            {
+                id: `engineer-reports-broken-objective-${suffix}`,
+                agent: "engineer",
+                phase: "engineer",
+                planName,
+                ordinal: 3,
                 requiredTools: ["task_completed"],
                 toolCalls: [{
                     name: "task_completed",
@@ -789,6 +854,16 @@ function engineerReportedBrokenObjectiveScenario(choice: "waive" | "reject") {
                     },
                 }],
             },
+            ...(choice === "reject"
+                ? [{
+                    id: "engineer-closes-broken-objective-report-reject",
+                    agent: "engineer",
+                    phase: "engineer",
+                    planName,
+                    ordinal: 4,
+                    text: "Broken Objective Check report is ready for the user decision.",
+                }]
+                : []),
             ...(choice === "waive"
                 ? [
                     {
@@ -806,14 +881,6 @@ function engineerReportedBrokenObjectiveScenario(choice: "waive" | "reject") {
                             },
                         ],
                     },
-                    {
-                        id: `reviewer-closes-${planName}`,
-                        agent: "reviewer",
-                        phase: "semantic_review",
-                        planName,
-                        ordinal: 2,
-                        text: "Approved Engineer-reported broken Objective Check waiver path.",
-                    },
                 ]
                 : [
                     {
@@ -821,7 +888,7 @@ function engineerReportedBrokenObjectiveScenario(choice: "waive" | "reject") {
                         agent: "engineer",
                         phase: "engineer",
                         planName,
-                        ordinal: 3,
+                        ordinal: 5,
                         text: "Received rejected Engineer-reported broken Objective Check waiver feedback.",
                     },
                 ]),
@@ -831,16 +898,15 @@ function engineerReportedBrokenObjectiveScenario(choice: "waive" | "reject") {
                 type: "writeProjectFile",
                 path: `docs/plans/${planName}.md`,
                 text:
-                    `---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Engineer-reported broken Objective Check\naffectedPaths: []\nstatus: draft\n---\n# Engineer-reported broken Objective Check\n\nDraft content.\n`,
+                    `---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Engineer-reported broken Objective Check\naffectedPaths: []\nobjectiveChecks:\n  - id: OC_REPORT\n    command: test -f engineer-objective-ready\nstatus: draft\n---\n# Engineer-reported broken Objective Check\n\nDraft content.\n`,
             },
             { type: "type", text: `submit ${planName} plan for review` },
             { type: "enter" },
             { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
-            { type: "waitForPlanStatus", planName, statuses: ["implemented"], timeoutMs: 90000 },
-            { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 90000 },
+            { type: "waitForIdle", timeoutMs: 180000 },
             choice === "waive"
                 ? { type: "waitForPlanStatus", planName, statuses: ["verified"], timeoutMs: 90000 }
-                : { type: "waitForEvent", event: "runtime:agent:engineer", timeoutMs: 90000 },
+                : { type: "waitForPlanStatus", planName, statuses: ["implemented"], timeoutMs: 90000 },
         ],
         assertions: [assertBrokenObjectiveReportIsNotPlanAmendment],
     };
@@ -1073,7 +1139,12 @@ export const validationTreeObjectiveRepairCompletedScenario = withValidationBran
         committedProjectFiles: [
             { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
         ],
-        reviewedPlan: "# Objective repair\n\nGolden Objective Check repair content.\n",
+        initialProjectFiles: [{
+            path: "docs/plans/objective-repair.md",
+            text:
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Objective repair\naffectedPaths: []\nobjectiveChecks:\n  - id: OC_REPAIR\n    command: test -f objective-ready\nstatus: draft\n---\n# Objective repair\n\nDraft content.\n",
+        }],
+        reviewedPlan: undefined,
         script: [
             {
                 id: "planner-submits-objective-repair-plan",
@@ -1102,16 +1173,32 @@ export const validationTreeObjectiveRepairCompletedScenario = withValidationBran
                 ],
             },
             {
-                id: "engineer-repairs-objective-check",
+                id: "engineer-closes-objective-implementation",
                 agent: "engineer",
                 phase: "engineer",
                 planName: "objective-repair",
                 ordinal: 2,
+                text: "Objective Check implementation is ready for validation.",
+            },
+            {
+                id: "engineer-repairs-objective-check",
+                agent: "engineer",
+                phase: "engineer",
+                planName: "objective-repair",
+                ordinal: 3,
                 requiredTools: ["bash", "task_completed"],
                 toolCalls: [
                     { name: "bash", arguments: { command: "printf ready > objective-ready" } },
                     { name: "task_completed", arguments: { message: "- Repaired unmet Objective Check." } },
                 ],
+            },
+            {
+                id: "engineer-closes-objective-repair-session",
+                agent: "engineer",
+                phase: "engineer",
+                planName: "objective-repair",
+                ordinal: 4,
+                text: "Objective Check repair is complete.",
             },
             {
                 id: "reviewer-approves-objective-repair",
@@ -1125,27 +1212,18 @@ export const validationTreeObjectiveRepairCompletedScenario = withValidationBran
                     { name: "review_complete", arguments: { approved: true, feedback: "Objective repair approved." } },
                 ],
             },
-            {
-                id: "reviewer-closes-objective-repair",
-                agent: "reviewer",
-                phase: "semantic_review",
-                planName: "objective-repair",
-                ordinal: 2,
-                text: "Approved Objective Check repair.",
-            },
         ],
         actions: [
             {
                 type: "writeProjectFile",
                 path: "docs/plans/objective-repair.md",
                 text:
-                    "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Objective repair\naffectedPaths: []\nstatus: draft\n---\n# Objective repair\n\nDraft content.\n",
+                    "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Objective repair\naffectedPaths: []\nobjectiveChecks:\n  - id: OC_REPAIR\n    command: test -f objective-ready\nstatus: draft\n---\n# Objective repair\n\nDraft content.\n",
             },
             { type: "type", text: "submit objective repair plan for review" },
             { type: "enter" },
             { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
-            { type: "waitForPlanStatus", planName: "objective-repair", statuses: ["implemented"], timeoutMs: 90000 },
-            { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 90000 },
+            { type: "waitForIdle", timeoutMs: 180000 },
             { type: "waitForPlanStatus", planName: "objective-repair", statuses: ["verified"], timeoutMs: 90000 },
         ],
         assertions: [],
@@ -1159,13 +1237,13 @@ export const validationTreeObjectiveRepairIncompleteScenario = withValidationBra
     {
         ...validationTreeObjectiveRepairCompletedScenario,
         name: "validation-tree-objective-repair-incomplete",
-        script: validationTreeObjectiveRepairCompletedScenario.script.slice(0, 2).concat([
+        script: validationTreeObjectiveRepairCompletedScenario.script.slice(0, 3).concat([
             {
                 id: "engineer-objective-repair-without-completion",
                 agent: "engineer",
                 phase: "engineer",
                 planName: "objective-repair",
-                ordinal: 2,
+                ordinal: 3,
                 requiredTools: ["bash"],
                 toolCalls: [{ name: "bash", arguments: { command: "printf ready > objective-ready" } }],
             },
@@ -1174,7 +1252,7 @@ export const validationTreeObjectiveRepairIncompleteScenario = withValidationBra
                 agent: "engineer",
                 phase: "engineer",
                 planName: "objective-repair",
-                ordinal: 3,
+                ordinal: 4,
                 text: "Objective Check repair stopped before task_completed.",
             },
         ]),
@@ -1193,7 +1271,12 @@ function objectiveExhaustedScenario(choice: "engineer_follow_up" | "retry" | "st
         committedProjectFiles: [
             { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
         ],
-        reviewedPlan: `# ${planName}\n\nGolden Objective Check exhausted content.\n`,
+        initialProjectFiles: [{
+            path: `docs/plans/${planName}.md`,
+            text:
+                `---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Objective exhausted\naffectedPaths: []\nobjectiveChecks:\n  - id: OC_EXHAUSTED\n    command: test -f objective-ready\nstatus: draft\n---\n# Objective exhausted\n\nDraft content.\n`,
+        }],
+        reviewedPlan: undefined,
         scriptedInteractions: [{ type: "select", promptIncludes: "Objective-Failing Checks", value: choice }],
         script: [
             {
@@ -1210,29 +1293,52 @@ function objectiveExhaustedScenario(choice: "engineer_follow_up" | "retry" | "st
                     },
                 }],
             },
+            {
+                id: `engineer-implements-${planName}`,
+                agent: "engineer",
+                phase: "engineer",
+                planName,
+                ordinal: 1,
+                requiredTools: ["bash", "task_completed"],
+                toolCalls: [
+                    { name: "bash", arguments: { command: "printf implemented > objective-started" } },
+                    {
+                        name: "task_completed",
+                        arguments: { message: "- Implemented Objective Check exhaustion fixture." },
+                    },
+                ],
+            },
+            {
+                id: `engineer-closes-${planName}-implementation`,
+                agent: "engineer",
+                phase: "engineer",
+                planName,
+                ordinal: 2,
+                text: "Implementation is ready for validation.",
+            },
             ...[1, 2, 3].flatMap((attempt) => [
                 {
-                    id: `engineer-${planName}-attempt-${attempt}`,
+                    id: `engineer-${planName}-repair-${attempt}`,
                     agent: "engineer",
                     phase: "engineer",
                     planName,
-                    ordinal: attempt * 2 - 1,
+                    ordinal: attempt * 2 + 1,
                     requiredTools: ["bash", "task_completed"],
                     toolCalls: [
-                        { name: "bash", arguments: { command: `printf attempt-${attempt} > objective-started` } },
+                        { name: "bash", arguments: { command: `printf repair-${attempt} > objective-started` } },
                         {
                             name: "task_completed",
-                            arguments: { message: `- Attempt ${attempt} still cannot satisfy Objective Checks.` },
+                            arguments: { message: `- Repair ${attempt} still cannot satisfy Objective Checks.` },
                         },
                     ],
                 },
                 {
-                    id: `engineer-${planName}-closes-${attempt}`,
+                    id: `engineer-closes-${planName}-repair-${attempt}`,
                     agent: "engineer",
                     phase: "engineer",
                     planName,
-                    ordinal: attempt * 2,
-                    text: `Attempt ${attempt} awaits Objective Checks.`,
+                    ordinal: attempt * 2 + 2,
+                    text: `Objective Check repair ${attempt} is complete.`,
                 },
             ]),
         ],
@@ -1241,14 +1347,12 @@ function objectiveExhaustedScenario(choice: "engineer_follow_up" | "retry" | "st
                 type: "writeProjectFile",
                 path: `docs/plans/${planName}.md`,
                 text:
-                    `---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Objective exhausted\naffectedPaths: []\nstatus: draft\n---\n# Objective exhausted\n\nDraft content.\n`,
+                    `---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Objective exhausted\naffectedPaths: []\nobjectiveChecks:\n  - id: OC_EXHAUSTED\n    command: test -f objective-ready\nstatus: draft\n---\n# Objective exhausted\n\nDraft content.\n`,
             },
             { type: "type", text: `submit ${planName} plan for review` },
             { type: "enter" },
             { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
-            { type: "waitForEventCount", event: "runtime:tool:start:task_completed", count: 3, timeoutMs: 150000 },
-            { type: "waitForPlanStatus", planName, statuses: ["implemented"], timeoutMs: 90000 },
-            { type: "sleep", ms: 1000 },
+            { type: "waitForIdle", timeoutMs: 180000 },
         ],
         assertions: [],
     };
@@ -1261,7 +1365,12 @@ export const validationTreeObjectiveExhaustedRetryScenario = withValidationBranc
             type: "select",
             promptIncludes: "Objective-Failing Checks",
             value: "retry",
-            userFixesFirst: { path: "objective-ready", text: "ready\n" },
+            userFixesFirst: {
+                path: "objective-ready",
+                text: "ready\n",
+                target: "execution",
+                planName: "objective-exhausted-retry",
+            },
         }],
         script: [
             ...objectiveExhaustedScenario("retry").script,
@@ -1280,14 +1389,6 @@ export const validationTreeObjectiveExhaustedRetryScenario = withValidationBranc
                     },
                 ],
             },
-            {
-                id: "reviewer-closes-objective-exhausted-retry",
-                agent: "reviewer",
-                phase: "semantic_review",
-                planName: "objective-exhausted-retry",
-                ordinal: 2,
-                text: "Approved Objective exhausted retry recovery.",
-            },
         ],
         actions: [
             ...objectiveExhaustedScenario("retry").actions,
@@ -1305,7 +1406,28 @@ export const validationTreeObjectiveExhaustedRetryScenario = withValidationBranc
 );
 
 export const validationTreeObjectiveExhaustedFollowUpScenario = withValidationBranches(
-    objectiveExhaustedScenario("engineer_follow_up"),
+    {
+        ...objectiveExhaustedScenario("engineer_follow_up"),
+        scriptedInteractions: [
+            { type: "select", promptIncludes: "Objective-Failing Checks", value: "engineer_follow_up" },
+            {
+                type: "text",
+                promptIncludes: "Tell the Validation Repair Engineer what to try next",
+                value: "Try the repair again with the latest user guidance.",
+            },
+        ],
+        script: [
+            ...objectiveExhaustedScenario("engineer_follow_up").script,
+            {
+                id: "engineer-objective-exhausted-follow-up",
+                agent: "engineer",
+                phase: "engineer",
+                planName: "objective-exhausted-follow-up",
+                ordinal: 9,
+                text: "I need more user guidance before changing the Objective Check setup.",
+            },
+        ],
+    },
     "validation-tree-objective-exhausted-follow-up",
     ["objective-exhausted-follow-up"],
     ["mechanical:objective:exhausted-follow-up"],
