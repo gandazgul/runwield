@@ -6,6 +6,7 @@
 import type { SelectListLayoutOptions } from "@earendil-works/pi-tui";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
+import { buildConversationRestoredMessage } from "../../shared/session/session-user-messages.ts";
 import { getMergedCustomSetting, getSettingsManager } from "../../shared/settings.js";
 import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 
@@ -210,14 +211,14 @@ export async function runResumeCommand(argv: string[], options: ResumeCommandOpt
         modelOverride,
     });
     replaceRuntimeSession(loaded.sessionId);
-    let notice = `Resumed session: ${loaded.sessionManagerId}`;
+    let notice = buildConversationRestoredMessage();
 
     if (compact) {
         uiAPI.appendSystemMessage("Compacting session before resume... (Esc to cancel)");
         try {
             const result = await sessionRuntime.compactSession(loaded.sessionId);
             notice =
-                `Compacted. Tokens before: ${result.tokensBefore.toLocaleString()}\nResumed (compacted) session: ${loaded.sessionManagerId}`;
+                `Conversation compacted and restored. Previous size: ${result.tokensBefore.toLocaleString()} tokens.`;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             const canceled = message === "Compaction cancelled" || message.includes("cancelled");
@@ -230,7 +231,10 @@ export async function runResumeCommand(argv: string[], options: ResumeCommandOpt
 
     uiAPI.clearMessages?.();
     await sessionRuntime.replaySession(loaded.sessionId);
-    uiAPI.appendSystemMessage(notice);
     const resumed = sessionRuntime.getSessionSnapshot(loaded.sessionId);
+    if (resumed?.managed?.syncState?.status === "active_elsewhere") {
+        notice = buildConversationRestoredMessage(resumed.managed.syncState.owningSurfaceKind);
+    }
+    uiAPI.appendSystemMessage(notice);
     setTerminalTitleForName(resumed?.name || loaded.sessionManagerId);
 }

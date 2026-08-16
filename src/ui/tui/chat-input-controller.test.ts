@@ -448,11 +448,14 @@ Deno.test("chat input controller preserves input while another surface is active
             await composition.runtime.synchronizeManagedSession(composition.sessionId);
             assertEquals(
                 composition.runtime.getUserTurnSubmissionBlockMessage(composition.sessionId),
-                "This Session is active in workspace. Wait for it to finish before sending from this surface.",
+                "This conversation is still running in RunWield Workspace. Continue there, or wait for its current turn to finish before sending here.",
             );
             await submitText(terminal, "keep managed draft");
             await waitFor(() => terminal.getScreenText().includes("keep managed draft"), "typed managed draft");
-            assertStringIncludes(terminal.getScreenText(), "Read-only: another surface is active");
+            assertStringIncludes(
+                terminal.getScreenText(),
+                "This conversation is running in RunWield Workspace.",
+            );
             assertStringIncludes(terminal.getScreenText(), "keep managed draft");
             assertEquals(composition.runtime.getQueuedMessages(composition.sessionId).length, 0);
         } finally {

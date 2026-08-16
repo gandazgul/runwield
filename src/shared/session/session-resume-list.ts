@@ -72,6 +72,10 @@ export async function listRecentResumableSessions(
         const timeDifference = modifiedTime(right.modified || right.headerTimestamp || undefined) -
             modifiedTime(left.modified || left.headerTimestamp || undefined);
         return timeDifference || right.sessionPath.localeCompare(left.sessionPath);
+    }).filter((locator) => {
+        const session = sessionStore.findSessionByLocator({ transcriptPath: locator.sessionPath });
+        if (!session) return true;
+        return sessionStore.inspectSessionActivation(session.runwieldSessionId).activation?.state !== "active";
     }).slice(0, RECENT_SESSION_LIMIT);
     return await mapWithConcurrency(recentLocators, RESUME_READ_CONCURRENCY, async (locator) => {
         const evidence = await captureTranscriptEvidence({

@@ -1,0 +1,25 @@
+import { assertEquals } from "@std/assert";
+import {
+    buildActiveConversationStatusMessage,
+    buildActiveConversationSubmissionMessage,
+    buildConversationRestoredMessage,
+} from "./session-user-messages.ts";
+
+Deno.test("session messages describe an active terminal without internal terms", () => {
+    assertEquals(
+        buildActiveConversationSubmissionMessage("tui"),
+        "This conversation is still running in another terminal. Continue there, or wait for its current turn to finish before sending here.",
+    );
+    assertEquals(
+        buildActiveConversationStatusMessage("tui"),
+        "This conversation is running in another terminal. This screen will become available when its current turn finishes.",
+    );
+    assertEquals(
+        buildConversationRestoredMessage("tui"),
+        "Conversation restored in read-only mode because it is still running in another terminal. Continue there, or wait for its current turn to finish; this screen will become available automatically.",
+    );
+});
+
+Deno.test("session restored message omits implementation identifiers", () => {
+    assertEquals(buildConversationRestoredMessage(), "Conversation restored.");
+});

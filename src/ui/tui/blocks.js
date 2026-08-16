@@ -11,6 +11,7 @@ import {
     visibleWidth,
 } from "@earendil-works/pi-tui";
 import { getMarkdownTheme, getSelectListTheme, theme } from "../theme/theme.js";
+import { buildActiveConversationStatusMessage } from "../../shared/session/session-user-messages.ts";
 import { MermaidMarkdown } from "./mermaid-markdown.js";
 import stripAnsi from "strip-ansi";
 
@@ -530,6 +531,14 @@ export class ManagedSyncStatusBlock {
     /** @param {number} w */
     render(w) {
         const state = this.state;
+        if (state.status === "active_elsewhere") {
+            return [
+                truncateToWidth(
+                    theme.fg("dim", buildActiveConversationStatusMessage(state.owningSurfaceKind)),
+                    w,
+                ),
+            ];
+        }
         const surface = state.owningSurfaceKind ? ` (${state.owningSurfaceKind} active)` : "";
         const generations = state.latestGeneration === null
             ? "no committed generation"
@@ -538,8 +547,6 @@ export class ManagedSyncStatusBlock {
             ? "Session current"
             : state.status === "syncing"
             ? "Syncing committed updates"
-            : state.status === "active_elsewhere"
-            ? "Read-only: another surface is active"
             : state.status === "blocked"
             ? "Managed submission blocked"
             : "Sync degraded — refresh required";

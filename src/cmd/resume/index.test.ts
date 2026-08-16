@@ -134,7 +134,73 @@ Deno.test("runResumeCommand loads, replaces, and replays a real persisted sessio
             assertEquals(runtime.getSessionSnapshot(replacementId)?.sessionManagerId, seeded.id);
             assertEquals(runtime.getSessionSnapshot(replacementId)?.activeAgent, AGENTS.ROUTER);
             assertEquals(ui.clears, 1);
-            assertEquals(ui.messages, [`Resumed session: ${seeded.id}`]);
+            assertEquals(ui.messages, ["Conversation restored."]);
+        } finally {
+            runtime.closeAllSessions();
+            store.close();
+        }
+    });
+});
+
+Deno.test("runResumeCommand falls back to read-only when another terminal claims a listed conversation", async () => {
+    await withRuntimeCommandFixture("runwield-resume-command-", async ({ homeDir, projectRoot }) => {
+        const seeded = seedPersistedSession(projectRoot);
+        const store = openOwnerCoordinationStore({ dbPath: `${homeDir}/owner.sqlite3` });
+        const runtime = createSessionRuntime({
+            sessionStore: store,
+            ownerInstanceId: "resuming-tui",
+            ownerProcessKind: "tui",
+        });
+        let replacementId = "";
+        try {
+            const cataloged = await runtime.loadSession({
+                cwd: projectRoot,
+                sessionId: seeded.id,
+                sessionPath: seeded.path,
+            });
+            const managed = runtime.getSessionSnapshot(cataloged.sessionId)?.managed;
+            if (!managed) throw new Error("Fixture Session was not cataloged");
+            await runtime.closeSession(cataloged.sessionId);
+
+            const current = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+            const ui = makeUi([seeded.path]);
+            const selectListedSession = ui.uiAPI.promptSelect;
+            let claimed = false;
+            ui.uiAPI.promptSelect = (title, options, hooks) => {
+                if (!claimed) {
+                    claimed = true;
+                    const state = store.inspectSessionActivation(managed.runwieldSessionId);
+                    store.acquireSessionActivation({
+                        runwieldSessionId: managed.runwieldSessionId,
+                        projectId: managed.projectId,
+                        ownerInstanceId: "older-tui",
+                        ownerProcessKind: "tui",
+                        expectedGeneration: state.generation?.generation ?? null,
+                        expectedCurrentSegmentId: managed.currentSegmentId,
+                        phase: "turning",
+                    });
+                }
+                return selectListedSession(title, options, hooks);
+            };
+            await runResumeCommand([], {
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+                sessionId: current.sessionId,
+                sessionRuntime: runtime,
+                replaceRuntimeSession: (sessionId) => replacementId = sessionId,
+            });
+
+            assertEquals(runtime.getSessionSnapshot(replacementId)?.managed?.syncState?.status, "active_elsewhere");
+            assertEquals(
+                ui.messages,
+                [
+                    "Conversation restored in read-only mode because it is still running in another terminal. Continue there, or wait for its current turn to finish; this screen will become available automatically.",
+                ],
+            );
+            assertEquals(
+                runtime.getUserTurnSubmissionBlockMessage(replacementId),
+                "This conversation is still running in another terminal. Continue there, or wait for its current turn to finish before sending here.",
+            );
         } finally {
             runtime.closeAllSessions();
             store.close();
@@ -303,7 +369,10 @@ Deno.test("runResumeCommand compacts a real loaded session through the faux mode
                 });
 
                 assertEquals(runtime.getSessionSnapshot(replacementId)?.sessionManagerId, seeded.id);
-                assertStringIncludes(ui.messages.at(-1) || "", `Resumed (compacted) session: ${seeded.id}`);
+                assertStringIncludes(
+                    ui.messages.at(-1) || "",
+                    "Conversation compacted and restored.",
+                );
                 assert(replayedStatuses.some((message) => message.includes("Summary of the fixture session.")));
             } finally {
                 unsubscribe();

@@ -22,6 +22,7 @@ import {
     steerAgentSessionWithTarget,
 } from "./session.js";
 import { SessionHost } from "./session-host.js";
+import { buildActiveConversationSubmissionMessage } from "./session-user-messages.ts";
 import {
     classifyRootSessionLocator,
     createRootSessionManager,
@@ -627,9 +628,7 @@ export class SessionRuntime {
         const syncState = session?.getManagedMetadata?.()?.syncState || null;
         if (!syncState) return null;
         if (syncState.status === "active_elsewhere") {
-            return `This Session is active in ${
-                syncState.owningSurfaceKind || "another surface"
-            }. Wait for it to finish before sending from this surface.`;
+            return buildActiveConversationSubmissionMessage(syncState.owningSurfaceKind);
         }
         if (syncState.status === "blocked" || syncState.status === "degraded") {
             return syncState.message || "This Session needs recovery before accepting new input.";

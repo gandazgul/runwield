@@ -62,3 +62,59 @@ Deno.test("resume listing reads only the 30 newest transcripts and returns them 
         }
     });
 });
+
+Deno.test("resume listing hides a conversation while another TUI holds its lock", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = getHomeDir();
+        const home = await Deno.makeTempDir({ prefix: "runwield-active-session-list-" });
+        Deno.env.set("HOME", home);
+        const cwd = join(home, "project");
+        await Deno.mkdir(cwd, { recursive: true });
+        const holderStore = openFileSessionStore();
+        const listingStore = openFileSessionStore();
+        try {
+            const project = holderStore.ensureRuntimeProject({ root: cwd });
+            const sessionDir = getRunWieldSessionDir(cwd);
+            await Deno.mkdir(sessionDir, { recursive: true });
+            const timestamp = "2026-01-01T00:00:00.000Z";
+            const piSessionId = "pi-active-tui";
+            const transcriptPath = join(
+                sessionDir,
+                `${timestamp.replace(/[:.]/g, "-")}_${piSessionId}.jsonl`,
+            );
+            await Deno.writeTextFile(transcriptPath, transcriptText(piSessionId, cwd, timestamp, 1));
+            const session = await holderStore.ensureSessionCatalogRecord({
+                projectId: project.projectId,
+                piSessionId,
+                transcriptPath,
+                transcriptCwd: cwd,
+                source: "created",
+            });
+            const segment = holderStore.getCurrentSessionSegment(session.runwieldSessionId);
+            if (!segment) throw new Error("Fixture Session segment is unavailable");
+            const proof = holderStore.acquireSessionActivation({
+                runwieldSessionId: session.runwieldSessionId,
+                projectId: project.projectId,
+                ownerInstanceId: "older-tui",
+                ownerProcessKind: "tui",
+                expectedGeneration: null,
+                expectedCurrentSegmentId: segment.segmentId,
+                phase: "turning",
+            });
+
+            const whileActive = await listRecentResumableSessions(cwd, listingStore);
+            if (!Array.isArray(whileActive)) throw new Error(whileActive.error);
+            assertEquals(whileActive, []);
+
+            holderStore.releaseUnchangedActivation(proof);
+            const afterRelease = await listRecentResumableSessions(cwd, listingStore);
+            if (!Array.isArray(afterRelease)) throw new Error(afterRelease.error);
+            assertEquals(afterRelease.map((entry) => entry.id), [piSessionId]);
+        } finally {
+            listingStore.close();
+            holderStore.close();
+            Deno.env.set("HOME", previousHome);
+            await Deno.remove(home, { recursive: true });
+        }
+    });
+});

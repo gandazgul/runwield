@@ -1410,7 +1410,7 @@ Deno.test("SessionRuntime owns managed submission blocking messages", () => {
 
     assertEquals(
         runtime.getUserTurnSubmissionBlockMessage(session.id),
-        "This Session is active in workspace. Wait for it to finish before sending from this surface.",
+        "This conversation is still running in RunWield Workspace. Continue there, or wait for its current turn to finish before sending here.",
     );
 
     session.setManagedMetadata({
