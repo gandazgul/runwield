@@ -63,11 +63,11 @@ function firstText(result) {
     return first.text ?? "";
 }
 
-Deno.test("mnemosyne extension registers unified memory tools", () => {
+Deno.test("mnemosyne extension registers one action-based memory tool", () => {
     const { tools } = setup(() => Promise.resolve({ code: 0, stdout: "", stderr: "" }));
 
     const names = tools.map((tool) => tool.name);
-    assertEquals(names, ["memory_recall", "memory_write"]);
+    assertEquals(names, ["memory"]);
 
     for (const tool of tools) {
         assertEquals(typeof tool.label, "string");
@@ -77,15 +77,15 @@ Deno.test("mnemosyne extension registers unified memory tools", () => {
     }
 });
 
-Deno.test("memory_recall searches both scopes and escapes quotes", async () => {
+Deno.test("memory recall searches both scopes and escapes quotes", async () => {
     const { getTool, calls } = setup((_command, args) => {
         if (args[0] === "init") return Promise.resolve({ code: 0, stdout: "", stderr: "" });
         if (args.includes("--global")) return Promise.resolve({ code: 0, stdout: "global hit", stderr: "" });
         return Promise.resolve({ code: 0, stdout: "  found memory  \n", stderr: "" });
     });
-    const tool = getTool("memory_recall");
+    const tool = getTool("memory");
 
-    const params = { query: 'he said "hello"' };
+    const params = { action: "recall", query: 'he said "hello"' };
     const result = await executeTool(tool, params);
 
     assertEquals(result.details, params);
@@ -101,20 +101,20 @@ Deno.test("memory_recall searches both scopes and escapes quotes", async () => {
     ]);
 });
 
-Deno.test("memory_recall returns one missing binary message when mnemosyne is unavailable", async () => {
+Deno.test("memory recall returns one missing binary message when mnemosyne is unavailable", async () => {
     const { getTool } = setup(() => Promise.resolve({ code: 127, stdout: "", stderr: "" }));
-    const tool = getTool("memory_recall");
+    const tool = getTool("memory");
 
-    const result = await executeTool(tool, { query: "test" });
+    const result = await executeTool(tool, { action: "recall", query: "test" });
 
     assertMatch(firstText(result), /mnemosyne binary not found/i);
     assertMatch(firstText(result), /RunWield installer/i);
     assertEquals(firstText(result).match(/mnemosyne binary not found/gi)?.length, 1);
 });
 
-Deno.test("memory_write stores project memory with optional core tag", async () => {
+Deno.test("memory stores project memory with optional core tag", async () => {
     const { getTool, calls } = setup(() => Promise.resolve({ code: 0, stdout: "stored", stderr: "" }));
-    const tool = getTool("memory_write");
+    const tool = getTool("memory");
 
     const params = { action: "store", content: "Use deno task ci", core: true };
     const result = await executeTool(tool, params);
@@ -132,9 +132,9 @@ Deno.test("memory_write stores project memory with optional core tag", async () 
     ]);
 });
 
-Deno.test("memory_write initializes global storage then adds memory", async () => {
+Deno.test("memory initializes global storage then adds memory", async () => {
     const { getTool, calls } = setup(() => Promise.resolve({ code: 0, stdout: "ok", stderr: "" }));
-    const tool = getTool("memory_write");
+    const tool = getTool("memory");
 
     const params = { action: "store", scope: "global", content: "Prefer concise commit messages", core: true };
     const result = await executeTool(tool, params);
@@ -152,11 +152,18 @@ Deno.test("memory_write initializes global storage then adds memory", async () =
     ]);
 });
 
-Deno.test("memory_write deletes by id and uses fallback message for empty output", async () => {
-    const { getTool, calls } = setup(() => Promise.resolve({ code: 0, stdout: "   ", stderr: "" }));
-    const tool = getTool("memory_write");
+Deno.test("memory delete checks the requested scope before deleting by id", async () => {
+    const { getTool, calls } = setup((_command, args) => {
+        if (args[0] === "init") return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+        if (args[0] === "list" && args.includes("--global")) {
+            return Promise.resolve({ code: 0, stdout: "42 global memory", stderr: "" });
+        }
+        if (args[0] === "list") return Promise.resolve({ code: 0, stdout: "7 project memory", stderr: "" });
+        return Promise.resolve({ code: 0, stdout: "   ", stderr: "" });
+    });
+    const tool = getTool("memory");
 
-    const params = { action: "delete", id: 42 };
+    const params = { action: "delete", id: 42, scope: "global" };
     const result = await executeTool(tool, params);
 
     assertEquals(result.details, params);

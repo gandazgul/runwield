@@ -9,8 +9,8 @@ description: "Practice rules true of every RunWield engineering persona regardle
   re-reading those files unless you need broader scope, like a missing import.
 - **No Rogue Commits:** Never use git to commit or push your changes unless explicitly instructed by the task
   description. Leave the working tree modified for the user to review.
-- **Memory Usage:** Use `memory_recall` to check for project-specific coding preferences before making stylistic
-  decisions.
+- **Memory Usage:** Use `memory` with `action: "recall"` to check for project-specific coding preferences before making
+  stylistic decisions.
 - **Canonical testing practice:** When a change adds, edits, or removes tests, load the bundled `write-tests` skill
   before editing them. That skill is the authority for test design; do not substitute remembered testing conventions.
 - **On naming** A function whose name says it reads must not write. Don't leave behind aliases (as function that just

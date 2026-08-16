@@ -42,14 +42,19 @@ Deno.test("Runtime provides one stable tool descriptor for live, replay, TUI, AC
             kind: "other",
         },
     );
-    assertEquals(describeRuntimeTool("memory_write", { action: "store", content: "Keep docs concise" }), {
-        toolName: "memory_write",
-        title: "memory_write Keep docs concise",
+    assertEquals(describeRuntimeTool("memory", { action: "recall", query: "docs style" }), {
+        toolName: "memory",
+        title: "memory docs style",
+        kind: "search",
+    });
+    assertEquals(describeRuntimeTool("memory", { action: "store", content: "Keep docs concise" }), {
+        toolName: "memory",
+        title: "memory Keep docs concise",
         kind: "edit",
     });
-    assertEquals(describeRuntimeTool("memory_write", { action: "delete", id: 42 }), {
-        toolName: "memory_write",
-        title: "memory_write id: 42",
+    assertEquals(describeRuntimeTool("memory", { action: "delete", id: 42 }), {
+        toolName: "memory",
+        title: "memory id: 42",
         kind: "delete",
     });
     assertEquals(describeRuntimeTool("memory_store", { content: "Historical transcript memory" }), {

@@ -144,8 +144,9 @@ Deno.test("classifyToolSubUsage returns coarse categories only", () => {
     assertEquals(classifyToolSubUsage("bash", { command: "deno task ci --filter secret" }), "validation_command");
     assertEquals(classifyToolSubUsage("bash", { command: "git status --short" }), "git");
     assertEquals(classifyToolSubUsage("code_search", { query: "private query" }), "search");
-    assertEquals(classifyToolSubUsage("memory_write", { action: "store", content: "private memory text" }), "write");
-    assertEquals(classifyToolSubUsage("memory_write", { action: "delete", id: 42 }), "delete");
+    assertEquals(classifyToolSubUsage("memory", { action: "recall", query: "private query" }), "read");
+    assertEquals(classifyToolSubUsage("memory", { action: "store", content: "private memory text" }), "write");
+    assertEquals(classifyToolSubUsage("memory", { action: "delete", id: 42 }), "delete");
     assertEquals(classifyToolSubUsage("memory_store", { content: "private memory text" }), "write");
     assertEquals(classifyToolSubUsage("write", { content: "file contents" }), "write");
     assertEquals(classifyToolSubUsage("write_docs", { content: "file contents" }), "write");

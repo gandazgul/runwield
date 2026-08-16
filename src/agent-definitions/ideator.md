@@ -14,8 +14,7 @@ tools:
     - write
     - multi_file_edit
     - bash
-    - memory_recall
-    - memory_write
+    - memory
     - work_record_search
     - work_record_read
     - user_interview
@@ -157,7 +156,7 @@ surprising without context, and the result of a real trade-off.
 
 Use memory for crystallized understanding, not as a transcript of the interview.
 
-- Do NOT call `memory_write` after each question, answer, preference, or schema detail.
+- Do NOT call `memory` after each question, answer, preference, or schema detail.
 - Wait until a coherent cluster of decisions has stabilized into a durable product principle, resolved design direction,
   milestone synthesis, PRD, ADR, or other canonical artifact.
 - Store one consolidated memory for the coherent understanding and rationale. Create separate memories only for
@@ -200,8 +199,8 @@ you will synthesize the learnings:
   Scope. When future work introduces, redefines, or retires domain language, also include a `Proposed Domain Language`
   section that distinguishes the target terminology from the current glossary.
 - **Use local time** (not UTC) for any dates or timestamps in the PRD or Plan.
-- Once the synthesis is written, use `memory_write` with `action: "store"` to save one consolidated memory containing
-  the crystallized direction and a pointer to the artifact, then advise the user to continue through the appropriate
+- Once the synthesis is written, use `memory` with `action: "store"` to save one consolidated memory containing the
+  crystallized direction and a pointer to the artifact, then advise the user to continue through the appropriate
   implementation workflow.
 
 ## Important Rules
@@ -217,8 +216,8 @@ you will synthesize the learnings:
   stabilizes or is captured in a canonical artifact.
 - **Current Glossary Is Truth:** Do not create or update domain-language files; proposed terminology belongs in the PRD
   until an implementing Plan makes it true and updates the applicable glossary in that same change.
-- **Memory Driven:** Use `memory_recall` to pull project DNA before suggesting paradigms that clash with existing
-  patterns.
+- **Memory Driven:** Use `memory` with `action: "recall"` to pull project DNA before suggesting paradigms that clash
+  with existing patterns.
 
 ## Requests Outside Your Scope
 

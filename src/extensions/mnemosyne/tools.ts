@@ -8,11 +8,9 @@ export interface MnemosyneToolHost {
     exec: HelperBinaryExec;
 }
 
-interface QueryParams {
-    query: string;
-}
-interface WriteParams {
-    action: "store" | "delete";
+interface MemoryParams {
+    action: "recall" | "store" | "delete";
+    query?: string;
     content?: string;
     scope?: "project" | "global";
     core?: boolean;
@@ -31,42 +29,46 @@ interface SearchFailure {
 
 type SearchResult = SearchSuccess | SearchFailure;
 
+interface ScopePresenceSuccess {
+    status: "success";
+    present: boolean;
+}
+
+interface ScopePresenceFailure {
+    status: "failure";
+    message: string;
+}
+
+type ScopePresenceResult = ScopePresenceSuccess | ScopePresenceFailure;
+
 export const MISSING_BINARY_MSG =
     "Error: mnemosyne binary not found. Rerun the RunWield installer to install required runtime helpers: curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash";
 
-export const memoryRecallToolDef = defineTool({
-    name: "memory_recall",
-    label: "Memory Recall",
+export const memoryToolDef = defineTool({
+    name: "memory",
+    label: "Memory",
     description:
-        "Search project and global memory together. Results are grouped by provenance; project memories take precedence over conflicting global memories.",
-    promptSnippet: "Search project and global memory for past context and decisions",
-    parameters: Type.Object({ query: Type.String({ description: "Semantic search query" }) }),
-    execute() {
-        throw new Error("Not implemented");
-    },
-});
-
-export const memoryWriteToolDef = defineTool({
-    name: "memory_write",
-    label: "Memory Write",
-    description: "Store a project or global memory, or delete an outdated memory by document ID.",
-    promptSnippet: "Store or delete memories; project scope is the default for store actions",
+        "Recall project and global memories, store a project or global memory, or delete a scoped memory by document ID.",
+    promptSnippet: "Recall, store, or delete memories with an explicit action",
     promptGuidelines: [
-        "Use memory_write with action=store to save important decisions, preferences, and context for future sessions.",
+        "Use action=recall to search project and global memory together. Project memories take precedence over conflicting global memories.",
+        "Use action=store to save important decisions, preferences, and context for future sessions.",
         "Store defaults to project scope. Set scope=global only for cross-project preferences and patterns.",
-        "Use memory_write with action=delete only for outdated or incorrect memories, by document ID.",
+        "Use action=delete only for outdated or incorrect memories. Include scope so the tool can refuse ambiguous IDs.",
         "Set core=true only for critical, always-relevant context. Keep core memories lean.",
     ],
     parameters: Type.Object({
         action: Type.Union([
+            Type.Literal("recall"),
             Type.Literal("store"),
             Type.Literal("delete"),
-        ], { description: "Memory write action" }),
+        ], { description: "Memory action" }),
+        query: Type.Optional(Type.String({ description: "Semantic search query; required for action=recall" })),
         content: Type.Optional(Type.String({ description: "Concise memory to store; required for action=store" })),
         scope: Type.Optional(Type.Union([
             Type.Literal("project"),
             Type.Literal("global"),
-        ], { description: "Store scope. Defaults to project. Not used for delete." })),
+        ], { description: "Memory scope. Defaults to project for store. Required for delete." })),
         core: Type.Optional(
             Type.Boolean({ description: "If true, this memory is always injected into context. Use sparingly." }),
         ),
@@ -185,66 +187,109 @@ export function createMnemosyneTools(host: MnemosyneToolHost): ToolDefinition[] 
         return sections.join("\n\n");
     }
 
-    function errorResult(message: string, details: WriteParams) {
+    function memoryIdPattern(id: number): RegExp {
+        return new RegExp(`(^|[^0-9])${id}([^0-9]|$)`);
+    }
+
+    async function scopedIdPresence(
+        scope: "project" | "global",
+        name: string,
+        id: number,
+        signal?: AbortSignal,
+    ): Promise<ScopePresenceResult> {
+        const args = scope === "global"
+            ? ["list", "--global", "--format", "plain", "--limit", "100000"]
+            : ["list", "--name", name, "--format", "plain", "--limit", "100000"];
+        try {
+            const text = await mnemosyne(args, signal);
+            if (text.trim() === MISSING_BINARY_MSG) return { status: "failure", message: MISSING_BINARY_MSG };
+            return { status: "success", present: memoryIdPattern(id).test(text) };
+        } catch (error) {
+            return { status: "failure", message: error instanceof Error ? error.message : String(error) };
+        }
+    }
+
+    function errorResult(message: string, details: MemoryParams) {
         return { content: [{ type: "text" as const, text: `Error: ${message}` }], details };
+    }
+
+    async function recall(typed: MemoryParams, signal?: AbortSignal) {
+        if (!typed.query) return errorResult("query is required for recall.", typed);
+        const name = await ensureProjectInitialized(signal);
+        const safeQuery = `"${typed.query.replaceAll('"', '""')}"`;
+        const [project, global] = await Promise.all([
+            searchProject(name, safeQuery, signal),
+            searchGlobal(safeQuery, signal),
+        ]);
+        return {
+            content: [{ type: "text" as const, text: formatMergedRecall(name, project, global) }],
+            details: typed,
+        };
+    }
+
+    async function store(typed: MemoryParams, signal?: AbortSignal) {
+        if (!typed.content) return errorResult("content is required for store.", typed);
+
+        if (typed.scope === "global") {
+            await mnemosyne(["init", "--global"], signal).catch(() => "");
+            const args = ["add", "--global"];
+            if (typed.core) args.push("--tag", "core");
+            args.push(typed.content);
+            const result = await mnemosyne(args, signal);
+            return {
+                content: [{ type: "text" as const, text: result.trim() }],
+                details: typed,
+                callMessage: `Storing global memory:\n\n${typed.content}`,
+            };
+        }
+
+        const name = await ensureProjectInitialized(signal);
+        const args = ["add", "--name", name];
+        if (typed.core) args.push("--tag", "core");
+        args.push(typed.content);
+        const result = await mnemosyne(args, signal);
+        return {
+            content: [{ type: "text" as const, text: result.trim() }],
+            details: typed,
+            callMessage: `Storing project memory:\n\n${typed.content}`,
+        };
+    }
+
+    async function deleteMemory(typed: MemoryParams, signal?: AbortSignal) {
+        if (typeof typed.id !== "number") return errorResult("id is required for delete.", typed);
+        if (typed.scope !== "project" && typed.scope !== "global") {
+            return errorResult("scope is required for delete.", typed);
+        }
+
+        const name = await ensureProjectInitialized(signal);
+        const [project, global] = await Promise.all([
+            scopedIdPresence("project", name, typed.id, signal),
+            scopedIdPresence("global", name, typed.id, signal),
+        ]);
+        if (project.status === "failure") return errorResult(`project scope check failed: ${project.message}`, typed);
+        if (global.status === "failure") return errorResult(`global scope check failed: ${global.message}`, typed);
+        if (project.present && global.present) {
+            return errorResult(`id ${typed.id} is ambiguous across project and global memory. Refusing delete.`, typed);
+        }
+        const targetPresent = typed.scope === "project" ? project.present : global.present;
+        if (!targetPresent) return errorResult(`id ${typed.id} was not found in ${typed.scope} memory.`, typed);
+
+        const result = await mnemosyne(["delete", String(typed.id)], signal);
+        return {
+            content: [{ type: "text" as const, text: result.trim() || "Memory deleted." }],
+            details: typed,
+        };
     }
 
     return [
         {
-            ...memoryRecallToolDef,
+            ...memoryToolDef,
             async execute(_id, params, signal) {
-                const typed = params as QueryParams;
-                const name = await ensureProjectInitialized(signal);
-                const safeQuery = `"${typed.query.replaceAll('"', '""')}"`;
-                const [project, global] = await Promise.all([
-                    searchProject(name, safeQuery, signal),
-                    searchGlobal(safeQuery, signal),
-                ]);
-                return {
-                    content: [{ type: "text" as const, text: formatMergedRecall(name, project, global) }],
-                    details: typed,
-                };
-            },
-        },
-        {
-            ...memoryWriteToolDef,
-            async execute(_id, params, signal) {
-                const typed = params as WriteParams;
-                if (typed.action === "delete") {
-                    if (typeof typed.id !== "number") return errorResult("id is required for delete.", typed);
-                    const result = await mnemosyne(["delete", String(typed.id)], signal);
-                    return {
-                        content: [{ type: "text" as const, text: result.trim() || "Memory deleted." }],
-                        details: typed,
-                    };
-                }
-
-                if (typed.action !== "store") return errorResult("action must be store or delete.", typed);
-                if (!typed.content) return errorResult("content is required for store.", typed);
-
-                if (typed.scope === "global") {
-                    await mnemosyne(["init", "--global"], signal).catch(() => "");
-                    const args = ["add", "--global"];
-                    if (typed.core) args.push("--tag", "core");
-                    args.push(typed.content);
-                    const result = await mnemosyne(args, signal);
-                    return {
-                        content: [{ type: "text" as const, text: result.trim() }],
-                        details: typed,
-                        callMessage: `Storing global memory:\n\n${typed.content}`,
-                    };
-                }
-
-                const name = await ensureProjectInitialized(signal);
-                const args = ["add", "--name", name];
-                if (typed.core) args.push("--tag", "core");
-                args.push(typed.content);
-                const result = await mnemosyne(args, signal);
-                return {
-                    content: [{ type: "text" as const, text: result.trim() }],
-                    details: typed,
-                    callMessage: `Storing project memory:\n\n${typed.content}`,
-                };
+                const typed = params as MemoryParams;
+                if (typed.action === "recall") return await recall(typed, signal);
+                if (typed.action === "store") return await store(typed, signal);
+                if (typed.action === "delete") return await deleteMemory(typed, signal);
+                return errorResult("action must be recall, store, or delete.", typed);
             },
         },
     ];

@@ -20,13 +20,13 @@ plan, scan the skill list and load any skill whose description matches the work.
 
 ## Memory System
 
-- Use `memory_recall` to search project and global memories together. Project memories take precedence over conflicting
-  global memories. Use this before making any decisions or taking any actions.
-- After significant decisions, use `memory_write` with `action: "store"` to save a concise fact you want to remember.
-  Store defaults to project scope; set `scope: "global"` only for cross-project defaults. Also do this if the user
-  explicitly asks you to remember something.
-- Delete contradicted memories with `memory_write` using `action: "delete"` and the document `id`, then store updated
-  ones if needed.
+- Use `memory` with `action: "recall"` to search project and global memories together. Project memories take precedence
+  over conflicting global memories. Use this before making any decisions or taking any actions.
+- After significant decisions, use `memory` with `action: "store"` to save a concise fact you want to remember. Store
+  defaults to project scope; set `scope: "global"` only for cross-project defaults. Also do this if the user explicitly
+  asks you to remember something.
+- Delete contradicted memories with `memory` using `action: "delete"`, the document `id`, and the target `scope`, then
+  store updated ones if needed.
 - Mark critical, always-relevant context as core but use sparingly.
 - Before reporting task completed, store any memories that you think are relevant to the user and the project. This will
   help you recall important information in future sessions.

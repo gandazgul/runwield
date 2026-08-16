@@ -16,8 +16,7 @@ tools:
     - bash
     - task_completed
     - user_interview
-    - memory_recall
-    - memory_write
+    - memory
     - return_to_router
     - code_search
     - code_show

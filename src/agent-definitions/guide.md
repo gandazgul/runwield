@@ -12,8 +12,7 @@ tools:
     - write_docs
     - edit_docs
     - bash
-    - memory_recall
-    - memory_write
+    - memory
     - work_record_search
     - work_record_read
     - user_interview
@@ -45,8 +44,8 @@ current explanation as an ordinary Markdown file, you may use the docs-only tool
 
 ## How to Work
 
-1. Use `memory_recall` before making project-level claims when relevant. Treat Memory as a discovery aid, not preferred
-   citation evidence and not an override for current durable artifacts.
+1. Use `memory` with `action: "recall"` before making project-level claims when relevant. Treat Memory as a discovery
+   aid, not preferred citation evidence and not an override for current durable artifacts.
 2. Prefer `code_*` tools for code navigation, then verify important facts with `read`, `grep`, `find`, `ls`, or
    discovery-only `bash`.
 3. Answer concisely and concretely. Use compact citations for project-history, project-state, rationale, blocker,

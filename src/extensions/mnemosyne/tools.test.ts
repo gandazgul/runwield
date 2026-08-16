@@ -45,13 +45,13 @@ async function executeText(
     return result.content[0]?.type === "text" ? result.content[0].text : "";
 }
 
-Deno.test("memory tools expose only unified recall and write", () => {
+Deno.test("memory tools expose one action-based memory tool", () => {
     const { tools } = setup(() => ({ code: 0, stdout: "", stderr: "" }));
 
-    assertEquals(tools.map((tool) => tool.name), ["memory_recall", "memory_write"]);
+    assertEquals(tools.map((tool) => tool.name), ["memory"]);
 });
 
-Deno.test("memory_recall searches project and global memory with labeled provenance", async () => {
+Deno.test("memory recall searches project and global memory with labeled provenance", async () => {
     const { calls, getTool } = setup((command, args) => {
         if (command === "git") return { code: 0, stdout: "/repo/runwield/.git\n", stderr: "" };
         if (args[0] === "init") return { code: 0, stdout: "", stderr: "" };
@@ -59,7 +59,7 @@ Deno.test("memory_recall searches project and global memory with labeled provena
         return { code: 0, stdout: "project hit", stderr: "" };
     });
 
-    const text = await executeText(getTool("memory_recall"), { query: 'he said "hello"' });
+    const text = await executeText(getTool("memory"), { action: "recall", query: 'he said "hello"' });
 
     assertEquals(
         text,
@@ -71,28 +71,28 @@ Deno.test("memory_recall searches project and global memory with labeled provena
     assertEquals(calls[3]?.args, ["search", "--global", "--format", "plain", '"he said ""hello"""']);
 });
 
-Deno.test("memory_recall returns one missing binary message", async () => {
+Deno.test("memory recall returns one missing binary message", async () => {
     const { getTool } = setup((command) => {
         if (command === "git") return { code: 1, stdout: "", stderr: "" };
         return { code: 127, stdout: "", stderr: "" };
     });
 
-    const text = await executeText(getTool("memory_recall"), { query: "test" });
+    const text = await executeText(getTool("memory"), { action: "recall", query: "test" });
 
     assertMatch(text, /mnemosyne binary not found/i);
     assertEquals(text.match(/mnemosyne binary not found/gi)?.length, 1);
 });
 
-Deno.test("memory_recall returns a simple empty result when both scopes are empty", async () => {
+Deno.test("memory recall returns a simple empty result when both scopes are empty", async () => {
     const { getTool } = setup((command) => {
         if (command === "git") return { code: 1, stdout: "", stderr: "" };
         return { code: 0, stdout: "", stderr: "" };
     });
 
-    assertEquals(await executeText(getTool("memory_recall"), { query: "test" }), "No memories found.");
+    assertEquals(await executeText(getTool("memory"), { action: "recall", query: "test" }), "No memories found.");
 });
 
-Deno.test("memory_recall keeps one scope when the other scope fails", async () => {
+Deno.test("memory recall keeps one scope when the other scope fails", async () => {
     const { getTool } = setup((command, args) => {
         if (command === "git") return { code: 1, stdout: "", stderr: "" };
         if (args[0] === "init") return { code: 0, stdout: "", stderr: "" };
@@ -100,7 +100,7 @@ Deno.test("memory_recall keeps one scope when the other scope fails", async () =
         return { code: 0, stdout: "project hit", stderr: "" };
     });
 
-    const text = await executeText(getTool("memory_recall"), { query: "test" });
+    const text = await executeText(getTool("memory"), { action: "recall", query: "test" });
 
     assertEquals(
         text,
@@ -108,14 +108,14 @@ Deno.test("memory_recall keeps one scope when the other scope fails", async () =
     );
 });
 
-Deno.test("memory_write stores project and global memories with scope and core tag", async () => {
+Deno.test("memory stores project and global memories with scope and core tag", async () => {
     const { calls, getTool } = setup((command, args) => {
         if (command === "git") return { code: 1, stdout: "", stderr: "" };
         return { code: 0, stdout: args[0] === "add" ? "stored" : "", stderr: "" };
     });
 
-    await executeText(getTool("memory_write"), { action: "store", content: "Use deno task ci", core: true });
-    await executeText(getTool("memory_write"), {
+    await executeText(getTool("memory"), { action: "store", content: "Use deno task ci", core: true });
+    await executeText(getTool("memory"), {
         action: "store",
         scope: "global",
         content: "Prefer STE",
@@ -127,21 +127,53 @@ Deno.test("memory_write stores project and global memories with scope and core t
     assertEquals(calls[4]?.args, ["add", "--global", "--tag", "core", "Prefer STE"]);
 });
 
-Deno.test("memory_write deletes by id without a scope flag", async () => {
-    const { calls, getTool } = setup(() => ({ code: 0, stdout: "   ", stderr: "" }));
+Deno.test("memory delete requires a scope", async () => {
+    const { calls, getTool } = setup(() => ({ code: 0, stdout: "", stderr: "" }));
 
-    const text = await executeText(getTool("memory_write"), { action: "delete", id: 42, scope: "global" });
+    const text = await executeText(getTool("memory"), { action: "delete", id: 42 });
+
+    assertEquals(text, "Error: scope is required for delete.");
+    assertEquals(calls, []);
+});
+
+Deno.test("memory delete refuses ambiguous IDs", async () => {
+    const { calls, getTool } = setup((command, args) => {
+        if (command === "git") return { code: 1, stdout: "", stderr: "" };
+        if (args[0] === "init") return { code: 0, stdout: "", stderr: "" };
+        if (args[0] === "list") return { code: 0, stdout: "42 duplicate memory", stderr: "" };
+        return { code: 0, stdout: "", stderr: "" };
+    });
+
+    const text = await executeText(getTool("memory"), { action: "delete", id: 42, scope: "global" });
+
+    assertEquals(text, "Error: id 42 is ambiguous across project and global memory. Refusing delete.");
+    assertEquals(calls.some((call) => call.args[0] === "delete"), false);
+});
+
+Deno.test("memory delete checks the target scope before deleting by id", async () => {
+    const { calls, getTool } = setup((command, args) => {
+        if (command === "git") return { code: 1, stdout: "", stderr: "" };
+        if (args[0] === "init") return { code: 0, stdout: "", stderr: "" };
+        if (args[0] === "list" && args.includes("--global")) return { code: 0, stdout: "42 global memory", stderr: "" };
+        if (args[0] === "list") return { code: 0, stdout: "7 project memory", stderr: "" };
+        return { code: 0, stdout: "   ", stderr: "" };
+    });
+
+    const text = await executeText(getTool("memory"), { action: "delete", id: 42, scope: "global" });
 
     assertEquals(text, "Memory deleted.");
+    assertEquals(calls.at(-3)?.args, ["list", "--name", "project-feature", "--format", "plain", "--limit", "100000"]);
+    assertEquals(calls.at(-2)?.args, ["list", "--global", "--format", "plain", "--limit", "100000"]);
     assertEquals(calls.at(-1)?.args, ["delete", "42"]);
 });
 
-Deno.test("memory_write returns error results for missing required fields", async () => {
+Deno.test("memory returns error results for missing required fields", async () => {
     const { getTool } = setup(() => ({ code: 0, stdout: "", stderr: "" }));
 
     assertEquals(
-        await executeText(getTool("memory_write"), { action: "store" }),
+        await executeText(getTool("memory"), { action: "store" }),
         "Error: content is required for store.",
     );
-    assertEquals(await executeText(getTool("memory_write"), { action: "delete" }), "Error: id is required for delete.");
+    assertEquals(await executeText(getTool("memory"), { action: "delete" }), "Error: id is required for delete.");
+    assertEquals(await executeText(getTool("memory"), { action: "recall" }), "Error: query is required for recall.");
 });

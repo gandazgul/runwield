@@ -345,6 +345,11 @@ export function classifyToolSubUsage(toolName, args = undefined) {
     if (toolName === "code_batch") return "read";
     if (toolName === "code_importers" || toolName === "code_structure") return "search";
     if (toolName === "memory_recall" || toolName === "memory_recall_global") return "read";
+    if (toolName === "memory") {
+        const action = isPlainObject(args) && typeof args.action === "string" ? args.action : "recall";
+        if (action === "recall") return "read";
+        return action === "delete" ? "delete" : "write";
+    }
     if (toolName === "memory_write") {
         const action = isPlainObject(args) && typeof args.action === "string" ? args.action : "store";
         return action === "delete" ? "delete" : "write";

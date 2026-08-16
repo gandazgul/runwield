@@ -10,7 +10,7 @@ tools:
     - find
     - ls
     - bash
-    - memory_recall
+    - memory
     - code_search
     - code_show
     - code_outline
@@ -79,7 +79,8 @@ explicitly disabled.
    architectural implication, and whether there are hidden dependencies.
 6. Explore the codebase with your `code_*` tools and `bash` (discovery only) to find relevant files and understand the
    current implementation. A good place to start is `code_structure`. Only read files directly relevant to routing.
-   Avoid broad surveys. You may also use memory_recall to check for relevant project and global memories.
+   Avoid broad surveys. You may also use memory with `action: "recall"` to check for relevant project and global
+   memories.
 7. Call `triage_report` with: `routingIntent`, `complexity`, `summary`, and `sessionName`. `sessionName` must be a short
    3–6 word noun phrase for the persisted Session Name and terminal tab title, such as `terminal titles`,
    `plan board UI`, or `fix model routing`.
@@ -114,7 +115,7 @@ exploration before routing to estimate blast radius:
 **Do NOT** build a reproduction loop, run instrumentation, or attempt to fix. Diagnostic Triage is read-only.
 
 1. **Gather evidence**: stack traces, error logs, recent changes, affected modules. Use `code_refs`, `code_impact`,
-   `memory_recall`, and read-only exploration tools.
+   `memory`, and read-only exploration tools.
 2. **Estimate scope**: Is the fix path obvious and bounded to 1-2 files? Route QUICK_FIX with "use diagnose" in the
    summary. Does evidence suggest multi-file or design-level changes? Route PLANNED_CHANGE or PROJECT normally.
 3. Call `triage_report` with the evidence you gathered.

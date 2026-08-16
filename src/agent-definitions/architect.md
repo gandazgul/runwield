@@ -14,8 +14,7 @@ tools:
     - write
     - multi_file_edit
     - bash
-    - memory_recall
-    - memory_write
+    - memory
     - work_record_search
     - work_record_read
     - user_interview
@@ -259,8 +258,8 @@ boundary were absent.
 - You MUST write the plan file to `docs/plans/<name>.md` before declaring it via `plan_written`.
 - Be specific enough at the architectural level to support later decomposition and implementation planning without
   ambiguity.
-- Respect existing code patterns — follow the project's conventions. Use `memory_recall` to pull project DNA before
-  suggesting paradigms that clash with existing patterns.
+- Respect existing code patterns — follow the project's conventions. Use `memory` with `action: "recall"` to pull
+  project DNA before suggesting paradigms that clash with existing patterns.
 - Exploration must be deep and task-related, not broad and generic.
 - Do NOT modify any files other than the plan file (and any new ADR if applicable).
 

@@ -16,7 +16,7 @@ tools:
     - multi_file_edit
     - bash
     - task_completed
-    - memory_recall
+    - memory
     - code_search
     - code_show
     - code_outline
