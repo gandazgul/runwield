@@ -490,6 +490,7 @@ async function loadAstroHandle() {
         : [ASTRO_SOURCE_ENTRY_PATH, ASTRO_RUNTIME_ENTRY_PATH];
     for (const entryPath of entryPaths) {
         try {
+            if (!await isAstroEntryImportable(entryPath)) continue;
             const entryUrl = toFileUrl(entryPath).href;
             const entry = await import(`${entryUrl}?mtime=${Date.now()}`);
             if (typeof entry.handle === "function") return entry.handle;
@@ -498,6 +499,15 @@ async function loadAstroHandle() {
         }
     }
     return null;
+}
+
+async function isAstroEntryImportable(entryPath) {
+    try {
+        const source = await Deno.readTextFile(entryPath);
+        return source.includes('"key":');
+    } catch {
+        return false;
+    }
 }
 
 /** @param {Request} request @param {string} cwd */

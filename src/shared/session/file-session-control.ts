@@ -287,6 +287,15 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     ) {
                         throw new Error("Initial Session recovery baseline changed; recovery is blocked");
                     }
+                } else {
+                    const committed = manifest.generation;
+                    if (!committed || bytes.byteLength < committed.byteLength) {
+                        throw new Error("Committed Session recovery baseline is unavailable");
+                    }
+                    const committedBytes = bytes.subarray(0, committed.byteLength);
+                    if (createHash("sha256").update(committedBytes).digest("hex") !== committed.digestHex) {
+                        throw new Error("Committed Session recovery baseline changed; recovery is blocked");
+                    }
                 }
                 if (
                     bytes.byteLength !== evidence.byteLength ||

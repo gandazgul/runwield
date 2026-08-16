@@ -14,6 +14,7 @@ import {
 import { runPlansDoctor } from "../plans/doctor.ts";
 import { isInValidation } from "../../shared/workflow/plan-lifecycle.js";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
+import { isUserVerifiableStatus } from "./plan-hold.ts";
 import {
     canManuallyMergeRecoveredWorktree,
     hasWorktreeContext,
@@ -219,15 +220,25 @@ async function promptRecoveryAction(
     physicallyLost: boolean,
 ): Promise<RecoveryMenuAnswer | null | undefined> {
     if (physicallyLost) {
+        const userVerifyOptions: RecoveryMenuOption[] = isUserVerifiableStatus(context.plan.attrs.status)
+            ? [{
+                value: "user_verify",
+                label: "Mark as User Verified (user attestation; no Workflow Validation claim)",
+            }]
+            : [];
         return await context.uiAPI.promptSelect(
             validationUserMessage("lost_attempt"),
             [
                 { value: "reset", label: "Try the implementation again" },
+                ...userVerifyOptions,
                 { value: "review", label: "Send the Plan back to Planner" },
                 { value: "stop_lost", label: "Stop here" },
             ],
         ) as RecoveryMenuAnswer | null;
     }
+    const userVerifyOptions: RecoveryMenuOption[] = isUserVerifiableStatus(context.plan.attrs.status)
+        ? [{ value: "user_verify", label: "Mark as User Verified (user attestation; no Workflow Validation claim)" }]
+        : [];
     const resetLabel = gitRecoveryBlocked
         ? "Clear stale Git recovery metadata"
         : hasWorktree
@@ -251,7 +262,7 @@ async function promptRecoveryAction(
         { value: "reset", label: resetLabel },
         ...(hasWorktree ? [{ value: "abandon" as const, label: "Delete/abandon worktree" }] : []),
         { value: "review", label: "Re-open for review" },
-        { value: "user_verify", label: "Mark as User Verified (user attestation; no Workflow Validation claim)" },
+        ...userVerifyOptions,
         { value: "hold", label: "Put on hold" },
         { value: "cancel", label: "Cancel" },
     ];

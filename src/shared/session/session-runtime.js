@@ -879,9 +879,6 @@ export class SessionRuntime {
     takeNextTurnMessage(sessionId) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, message: null, error: "not_found" };
-        const capability = this.#currentManagedOperations.get(sessionId) || null;
-        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "takeNextTurnMessage", capability);
-        if (managedRejection) return { ...managedRejection, message: null };
         const selected = (this.#queuedMessages.get(hostedSession.id) || [])
             .find((message) => message.delivery === "next_turn");
         if (!selected) return { ok: true, message: null };
@@ -3022,9 +3019,10 @@ export class SessionRuntime {
     }
 
     /**
-     * Publish generation zero from the complete current transcript after an
-     * initial writer exited before its first checkpoint. The file store holds
-     * the OS lock and rejects any transcript or fence change during recovery.
+     * Publish the complete current transcript after a writer stopped before
+     * its checkpoint. For an existing generation, recovery first proves that
+     * the committed prefix is unchanged. The file store holds the OS lock and
+     * rejects any transcript or fence change during recovery.
      *
      * @param {string} runwieldSessionId
      */
@@ -3033,19 +3031,20 @@ export class SessionRuntime {
         const session = this.#sessionStore.getSessionById(runwieldSessionId);
         if (!session) throw new Error("Session identity is unavailable");
         const state = this.#sessionStore.inspectSessionActivation(runwieldSessionId);
-        if (state.generation) return state;
+        const needsRecovery = ["uncertain", "reconcile_required"].includes(state.activation?.state || "");
+        if (state.generation && !needsRecovery) return state;
         const segment = this.#sessionStore.getCurrentSessionSegment(runwieldSessionId);
         if (!segment) throw new Error("The Session transcript is unavailable");
         const evidence = await captureTranscriptEvidence({
             transcriptPath: segment.transcriptPath,
             transcriptCwd: segment.transcriptCwd,
         });
-        if (["uncertain", "reconcile_required"].includes(state.activation?.state || "")) {
+        if (needsRecovery) {
             return this.#sessionStore.recoverSessionControl({
                 runwieldSessionId,
                 projectId: session.projectId,
                 expectedFence: state.activation?.fence ?? 0,
-                expectedGeneration: null,
+                expectedGeneration: state.generation?.generation ?? null,
                 expectedCurrentSegmentId: segment.segmentId,
                 ownerInstanceId: this.#ownerInstanceId,
                 ownerProcessKind: this.#ownerProcessKind,
@@ -3834,8 +3833,8 @@ export class SessionRuntime {
                     managedSession.runwieldSessionId,
                 );
                 if (
-                    !inspected.generation &&
-                    ["uninitialized", "uncertain", "reconcile_required"].includes(inspected.activation?.state || "")
+                    ["uncertain", "reconcile_required"].includes(inspected.activation?.state || "") ||
+                    (!inspected.generation && inspected.activation?.state === "uninitialized")
                 ) {
                     await this.ensureInitialSessionGeneration(managedSession.runwieldSessionId);
                     inspected = ownerCoordinationStore.inspectSessionActivation(managedSession.runwieldSessionId);

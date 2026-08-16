@@ -1996,6 +1996,21 @@ Deno.test("SessionRuntime owns steering and deferred queue transitions", async (
     assertEquals(runtime.getQueuedMessages(sessionId), []);
 });
 
+Deno.test("SessionRuntime lets dormant managed sessions consume deferred user follow-up messages", async () => {
+    const runtime = makeRuntime();
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "router" });
+    await runtime.promptUserTurn(sessionId, { initialRequest: "finish this session" });
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.managed?.dormant, true);
+
+    const queued = runtime.queueNextTurnMessage(sessionId, "follow up anyway", []);
+    const taken = runtime.takeNextTurnMessage(sessionId);
+
+    assertEquals(taken.ok, true);
+    assertEquals(taken.message?.id, queued.message?.id);
+    assertEquals(taken.message?.text, "follow up anyway");
+    assertEquals(runtime.getQueuedMessages(sessionId), []);
+});
+
 Deno.test("SessionRuntime steers active foreground sub-agent before streaming root and reconciles source queue", async () => {
     const sessionHost = new SessionHost();
     const rootSession = makeSteeringAgentSession();

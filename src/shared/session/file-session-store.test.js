@@ -551,6 +551,71 @@ Deno.test("initial recovery blocks a rewritten transcript prefix", async () => {
     }
 });
 
+Deno.test("existing-generation recovery blocks a rewritten committed prefix", async () => {
+    const fixture = await makeFixture();
+    try {
+        const transcriptPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "safe-prefix");
+        const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
+        const session = await store.ensureSessionCatalogRecord({
+            projectId: project.projectId,
+            piSessionId: "safe-prefix",
+            transcriptPath,
+            transcriptCwd: fixture.projectRoot,
+            source: "created",
+        });
+        const original = await Deno.readFile(transcriptPath);
+        let proof = store.acquireSessionActivation({
+            runwieldSessionId: session.runwieldSessionId,
+            projectId: project.projectId,
+            ownerInstanceId: "initial-writer",
+            ownerProcessKind: "test",
+            expectedGeneration: null,
+        });
+        proof = store.changeSessionActivationPhase(proof, "hydrated");
+        proof = store.changeSessionActivationPhase(proof, "checkpointing");
+        store.publishGenerationAndRelease(proof, {
+            generation: 0,
+            byteLength: original.byteLength,
+            terminalEntryId: null,
+            digestHex: createHash("sha256").update(original).digest("hex"),
+        });
+        const interrupted = store.acquireSessionActivation({
+            runwieldSessionId: session.runwieldSessionId,
+            projectId: project.projectId,
+            ownerInstanceId: "interrupted-writer",
+            ownerProcessKind: "test",
+            expectedGeneration: 0,
+        });
+        store.markSessionUncertain(interrupted, { reason: "writer stopped before checkpoint" });
+
+        const rewrittenText = (await Deno.readTextFile(transcriptPath)).replace("safe-prefix", "evil-prefix");
+        await Deno.writeTextFile(transcriptPath, rewrittenText);
+        const rewritten = await Deno.readFile(transcriptPath);
+        assertThrows(
+            () =>
+                store.recoverSessionControl({
+                    runwieldSessionId: session.runwieldSessionId,
+                    projectId: project.projectId,
+                    expectedFence: interrupted.fence,
+                    expectedGeneration: 0,
+                    ownerInstanceId: "recovery",
+                    ownerProcessKind: "test",
+                    transcriptEvidence: {
+                        byteLength: rewritten.byteLength,
+                        terminalEntryId: null,
+                        digestHex: createHash("sha256").update(rewritten).digest("hex"),
+                    },
+                }),
+            Error,
+            "baseline changed",
+        );
+        store.close();
+    } finally {
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});
+
 /** @param {string} path */
 async function exists(path) {
     try {

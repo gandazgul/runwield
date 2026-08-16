@@ -1,5 +1,5 @@
-import { assertEquals, assertInstanceOf } from "@std/assert";
-import { Container, Editor, Image, Spacer, type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
+import { assertEquals, assertInstanceOf, assertStringIncludes } from "@std/assert";
+import { Container, Editor, Image, Spacer, Text, type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
 import { RunWieldModelSelectorComponent } from "./model-selector.ts";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { getSettingsManager } from "../../shared/settings.js";
@@ -90,6 +90,39 @@ Deno.test("installUiApiOverrides blocks the editor for real prompts and restores
         harness.uiAPI.abortActivePrompt?.();
         assertEquals(await textPromise, null);
         assertEquals(harness.editor.disableSubmit, true);
+    } finally {
+        harness.tui.stop();
+    }
+});
+
+Deno.test("feedback prompt edits one row below a transcript taller than the terminal", async () => {
+    const harness = makeHarness();
+    try {
+        for (let index = 0; index < 40; index++) {
+            harness.messageList.addChild(new Text(`history row ${index}`, 0, 0));
+        }
+        harness.tui.start();
+        harness.tui.requestRender();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        await harness.terminal.flush();
+
+        harness.uiAPI.setBusy?.(true);
+        const prompt = harness.uiAPI.promptText("Tell the Validation Repair Engineer what to try next.");
+        assertEquals(harness.container.children.includes(harness.editor), false);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        await harness.terminal.flush();
+        harness.terminal.typeText("please merge main");
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        await harness.terminal.flush();
+
+        const viewport = harness.terminal.getScreenText();
+        assertStringIncludes(viewport, "please merge main");
+        assertEquals(viewport.match(/history row 39/g)?.length ?? 0, 1);
+
+        harness.uiAPI.abortActivePrompt?.();
+        assertEquals(await prompt, null);
+        assertEquals(harness.container.children.includes(harness.editor), true);
+        harness.uiAPI.setBusy?.(false);
     } finally {
         harness.tui.stop();
     }

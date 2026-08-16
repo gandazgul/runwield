@@ -40,6 +40,23 @@ export function installUiApiOverrides({
     setActiveModel,
     getActiveModelState = () => ({ model: "", provider: "" }),
 }: InstallUiApiOverridesOptions): void {
+    async function runWithInlinePrompt<Result>(openPrompt: () => Promise<Result>): Promise<Result> {
+        const wasDisabled = editor.disableSubmit === true;
+        const editorIndex = container.children.indexOf(editor);
+        editor.disableSubmit = true;
+        if (editorIndex !== -1) container.children.splice(editorIndex, 1);
+        tui.requestRender();
+        try {
+            return await openPrompt();
+        } finally {
+            editor.disableSubmit = wasDisabled;
+            if (editorIndex !== -1 && !container.children.includes(editor)) {
+                container.children.splice(Math.min(editorIndex, container.children.length), 0, editor);
+            }
+            tui.requestRender();
+        }
+    }
+
     uiAPI.disableInput = () => {
         editor.disableSubmit = true;
         tui.requestRender();
@@ -51,30 +68,10 @@ export function installUiApiOverrides({
     };
 
     const basePromptSelect = uiAPI.promptSelect.bind(uiAPI);
-    uiAPI.promptSelect = async (...args) => {
-        const wasDisabled = editor.disableSubmit === true;
-        editor.disableSubmit = true;
-        tui.requestRender();
-        try {
-            return await basePromptSelect(...args);
-        } finally {
-            editor.disableSubmit = wasDisabled;
-            tui.requestRender();
-        }
-    };
+    uiAPI.promptSelect = (...args) => runWithInlinePrompt(() => basePromptSelect(...args));
 
     const basePromptText = uiAPI.promptText.bind(uiAPI);
-    uiAPI.promptText = async (...args) => {
-        const wasDisabled = editor.disableSubmit === true;
-        editor.disableSubmit = true;
-        tui.requestRender();
-        try {
-            return await basePromptText(...args);
-        } finally {
-            editor.disableSubmit = wasDisabled;
-            tui.requestRender();
-        }
-    };
+    uiAPI.promptText = (...args) => runWithInlinePrompt(() => basePromptText(...args));
 
     uiAPI.showModelSelector = (initialSearchInput?: string) => {
         return new Promise((resolve, reject) => {
