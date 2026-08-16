@@ -155,7 +155,7 @@
         "compile:watch": "watchexec -e js,jsx,mjs,md,css,ts,tsx,json --ignore node_modules --ignore dist --ignore bin --ignore src/shared/version.js -- deno task compile",
         "prototype": "deno run -A scripts/run-prototype.js",
         "test:golden-tui": "deno run -A scripts/write-version.js && deno run -A scripts/run-tests.js --isolated src/ui/tui/testing src/ui/tui/golden-scenarios",
-        "test:golden-tui:extensive": "deno run -A scripts/write-version.js && RUNWIELD_RUN_TODO_GOLDENS=1 deno run -A scripts/run-tests.js --isolated src/ui/tui/testing src/ui/tui/golden-scenarios"
+        "test:golden-tui:extensive": "deno run -A scripts/write-version.js && deno run -A scripts/run-tests.js --isolated src/ui/tui/testing src/ui/tui/golden-scenarios"
     },
     "lint": {
         "plugins": [

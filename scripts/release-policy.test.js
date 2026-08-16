@@ -65,13 +65,13 @@ Deno.test("release workflow keeps tag publication and manual recovery channel-sa
     assertMatch(policy, /Never use manual recovery to bypass a genuine failure in tagged product\s+source/);
 });
 
-Deno.test("exhaustive Golden TUI branches are reserved for release qualification", async () => {
+Deno.test("release-tier Golden TUI alias does not run TODO goldens", async () => {
     const config = JSON.parse(await Deno.readTextFile("deno.json"));
     const normalTest = String(config.tasks?.test || "");
     const extensiveGoldenTest = String(config.tasks?.["test:golden-tui:extensive"] || "");
 
     assertEquals(normalTest.includes("RUNWIELD_RUN_TODO_GOLDENS"), false);
-    assertStringIncludes(extensiveGoldenTest, "RUNWIELD_RUN_TODO_GOLDENS=1");
+    assertEquals(extensiveGoldenTest.includes("RUNWIELD_RUN_TODO_GOLDENS"), false);
     assertStringIncludes(extensiveGoldenTest, "src/ui/tui/golden-scenarios");
 });
 
