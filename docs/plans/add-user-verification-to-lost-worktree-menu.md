@@ -27,10 +27,10 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-15T22:39:39-04:00"
-updatedAt: "2026-08-16T03:36:10.521Z"
+updatedAt: "2026-08-16T04:06:24.743Z"
 status: "implemented"
 origin: "internal"
-failureReason: "All local submodules are initialized, pinned, and clean.\nSnip verified all generic Deno filters.\n[wld] version - ok\ntype check passed\n23:24:06 [types] Generated 29ms\n23:24:06 [check] Getting diagnostics for Astro files in /Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-add-user-verification-to-lost-worktree-menu-a40ec8c2/src/ui/workspace...\nResult (113 files): \n- 0 errors\n- 0 warnings\n- 0 hints\n\nno lint errors\nLanguage policy baseline matches current production JS/JSX files.\nInjection-seam baseline holds: 0 seam(s) across 0 module(s), 0 of them machinery and 0 conditional seam(s) still to remove.\nChecked relative Markdown links in 564 tracked files.\n[wld] version - ok\nFAIL src/cmd/help/index.test.ts — failure log: /var/folders/hw/zrm0bqr90xz63nflnb2g_qqr0000gn/T/tests-failure-1121d7b1da69b864.log\nFAIL src/ui/tui/golden-scenarios/initial-scenarios.test.js — failure log: /var/folders/hw/zrm0bqr90xz63nflnb2g_qqr0000gn/T/tests-failure-7b08107a40bc1e55.log\n\nFAILED | 316 files passed | 2 failed (259.3s, 4 at a time)\n\n\u001b[0m\u001b[32mTask\u001b[0m \u001b[0m\u001b[36mci\u001b[0m deno task -q submodules:check && deno task -q snip:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q language-policy:check && deno task -q seams:check && deno task -q doc-links:check && deno task -q test\n"
+failureReason: "All local submodules are initialized, pinned, and clean.\nSnip verified all generic Deno filters.\n[wld] version - ok\ntype check passed\n23:36:13 [types] Generated 55ms\n23:36:13 [check] Getting diagnostics for Astro files in /Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-add-user-verification-to-lost-worktree-menu-a40ec8c2/src/ui/workspace...\nResult (113 files): \n- 0 errors\n- 0 warnings\n- 0 hints\n\nno lint errors\nLanguage policy baseline matches current production JS/JSX files.\nInjection-seam baseline holds: 0 seam(s) across 0 module(s), 0 of them machinery and 0 conditional seam(s) still to remove.\nChecked relative Markdown links in 564 tracked files.\n[wld] version - ok\nFAIL src/ui/tui/golden-scenarios/project-workflow.test.js — failure log: /var/folders/hw/zrm0bqr90xz63nflnb2g_qqr0000gn/T/tests-failure-bdf409857ce834e2.log\n\nFAILED | 317 files passed | 1 failed (575.9s, 4 at a time)\n\n\u001b[0m\u001b[32mTask\u001b[0m \u001b[0m\u001b[36mci\u001b[0m deno task -q submodules:check && deno task -q snip:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q language-policy:check && deno task -q seams:check && deno task -q doc-links:check && deno task -q test\n"
 implementedAt: "2026-08-16T03:06:33.700Z"
 userVerifiedAt: null
 executionReport: "- Implemented: the lost-worktree recovery menu now offers `user_verify` for eligible statuses such as `implemented`, and the normal recovery menu hides `user_verify` for ineligible statuses such as `failed`.\n- Preserved: selecting `user_verify` still uses `userVerifyRecoveryPlan()` and `markPlanUserVerified()`, with the required note and no new validation claim.\n- Tests: added 1 recovery test for implemented lost-worktree User Verification; rewrote the existing lost-worktree test to keep the failed-plan stop flow while asserting `user_verify` is omitted; no tests were deleted.\n- Verification passed: `deno run -A scripts/run-tests.js src/cmd/load-plan/plan-recovery-flow.test.ts`; objective check command; `git diff --check` for changed files.\n- Mutation checks passed: removing the lost-worktree User Verification option and forcing normal-menu User Verification for failed plans each made the recovery test file fail, then both mutations were reverted.\n- Full CI did not pass: `deno task ci` failed twice in `src/ui/tui/golden-scenarios/project-workflow.test.js` under the full suite; rerunning `deno run -A scripts/run-tests.js src/ui/tui/golden-scenarios/project-workflow.test.js` passed standalone."
@@ -43,8 +43,8 @@ worktreeId: "a40ec8c2"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-add-user-verification-to-lost-worktree-menu-a40ec8c2"
 worktreeBranch: "worktree/add-user-verification-to-lost-worktree-menu-a40ec8c2"
 worktreeBaseBranch: "main"
-worktreeStatus: "completed"
-validationCiAttempts: 2
+worktreeStatus: "validation_failed"
+validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
 validationSemanticRounds: 0
 ---

@@ -118,6 +118,8 @@ export function createUiApi(
 
     let toolsExpanded = false;
     let outputSuppressed = false;
+    let runtimeBusy = false;
+    let promptActive = false;
     /** @type {(import('@earendil-works/pi-tui').Component & import('@earendil-works/pi-tui').Focusable) | null} */
     let busyBlurredFocus = null;
     /** @type {import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress | null} */
@@ -212,6 +214,22 @@ export function createUiApi(
         if (busyFrameTimer !== null || outputSuppressed) return;
         renderBusyFrame();
         busyFrameTimer = setInterval(renderBusyFrame, 120);
+    };
+
+    const beginPromptWait = () => {
+        promptActive = true;
+        spinner.setBusy(false, spinner.tasks);
+        stopBusyFrameTimer();
+        restoreFocusedCursorAfterBusy();
+    };
+
+    const endPromptWait = () => {
+        promptActive = false;
+        spinner.setBusy(runtimeBusy, spinner.tasks);
+        if (runtimeBusy) {
+            suppressFocusedCursorForBusy();
+            startBusyFrameTimer();
+        }
     };
 
     /**
@@ -519,8 +537,10 @@ export function createUiApi(
         setBusy: (busy) => {
             if (outputSuppressed && busy) return;
 
-            spinner.setBusy(busy, spinner.tasks);
-            if (busy) {
+            runtimeBusy = busy;
+            const displayBusy = busy && !promptActive;
+            spinner.setBusy(displayBusy, spinner.tasks);
+            if (displayBusy) {
                 suppressFocusedCursorForBusy();
                 startBusyFrameTimer();
             } else {
@@ -551,6 +571,7 @@ export function createUiApi(
          */
         promptSelect: (title, options, hooks) => {
             return new Promise((resolve) => {
+                beginPromptWait();
                 const block = new PromptSelectBlock(title, options, hooks?.hint, hooks?.layout);
                 const spacer = new Spacer(1);
                 activePromptContainer.addChild(block);
@@ -571,6 +592,7 @@ export function createUiApi(
                         messageList.addChild(block);
                         messageList.addChild(spacer);
                     }
+                    endPromptWait();
                     resolve(value);
                     tui.requestRender();
                 };
@@ -597,6 +619,7 @@ export function createUiApi(
             const { defaultValue, placeholder, allowEmpty = true, persistResult = true } = opts;
 
             return new Promise((resolve) => {
+                beginPromptWait();
                 const hints = ["enter submit", "esc cancel"];
                 if (!allowEmpty) hints.unshift("non-empty required");
                 const hintText = placeholder ? `${placeholder} • ${hints.join(" • ")}` : hints.join(" • ");
@@ -623,6 +646,7 @@ export function createUiApi(
                         messageList.addChild(block);
                         messageList.addChild(spacer);
                     }
+                    endPromptWait();
                     resolve(value);
                     tui.requestRender();
                 };
@@ -644,6 +668,8 @@ export function createUiApi(
 
         suppressOutput: () => {
             outputSuppressed = true;
+            runtimeBusy = false;
+            promptActive = false;
             spinner.setBusy(false, spinner.tasks);
             stopBusyFrameTimer();
             restoreFocusedCursorAfterBusy();
@@ -692,6 +718,8 @@ export function createUiApi(
                 activePromptCancel = null;
             }
             stopBusyFrameTimer();
+            runtimeBusy = false;
+            promptActive = false;
             restoreFocusedCursorAfterBusy();
             for (const id of Array.from(toolElapsedTimers.keys())) clearToolElapsedTimer(id);
             activeToolBlocks.clear();

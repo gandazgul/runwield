@@ -174,7 +174,7 @@ Deno.test({
 });
 
 Deno.test({
-    name: "installKeybindings Ctrl+C cancels, clears input, and removes pasted previews",
+    name: "installKeybindings Ctrl+C clears input and pasted previews without cancelling runtime work",
     fn: async () => {
         const ctx = makeContext();
         ctx.pastedImages.push({ base64: "a", mimeType: "image/png" });
@@ -187,7 +187,10 @@ Deno.test({
         assertEquals(ctx.stats.text, "");
         assertEquals(ctx.pastedImages, []);
         assertEquals(ctx.previewImages.children, []);
-        assertEquals(ctx.stats.invalidations, 1);
+        assertEquals(ctx.stats.invalidations, 0);
+        assertEquals(ctx.stats.promptDismissals, 0);
+        assertEquals(ctx.stats.runtimeCancels, 0);
+        assertEquals(ctx.stats.resets, 0);
     },
 });
 

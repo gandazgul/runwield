@@ -345,6 +345,23 @@ Deno.test("createUiApi suppresses focused cursor while busy animation repaints",
     assertEquals(editor.focused, true);
 });
 
+Deno.test("createUiApi pauses the busy animation while waiting for prompt input", async () => {
+    const { tui, messageList, focus } = makeTuiHarness();
+    const spinner = new SpinnerBlock();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, spinner));
+
+    ui.setBusy(true);
+    assertEquals(spinner.isBusy, true);
+
+    const prompt = ui.promptText("What should the Engineer try next?");
+    assertEquals(spinner.isBusy, false);
+    focus().input.onSubmit("Merge main first.");
+
+    assertEquals(await prompt, "Merge main first.");
+    assertEquals(spinner.isBusy, true);
+    ui.setBusy(false);
+});
+
 Deno.test("createUiApi renders validation panel separately from active prompt placement", async () => {
     const { tui, messageList, focus } = makeTuiHarness();
     const validationPanelContainer = makeContainer();

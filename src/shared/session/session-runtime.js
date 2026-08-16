@@ -879,9 +879,6 @@ export class SessionRuntime {
     takeNextTurnMessage(sessionId) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, message: null, error: "not_found" };
-        const capability = this.#currentManagedOperations.get(sessionId) || null;
-        const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "takeNextTurnMessage", capability);
-        if (managedRejection) return { ...managedRejection, message: null };
         const selected = (this.#queuedMessages.get(hostedSession.id) || [])
             .find((message) => message.delivery === "next_turn");
         if (!selected) return { ok: true, message: null };

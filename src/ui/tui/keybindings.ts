@@ -94,7 +94,6 @@ export function installKeybindings(ctx: KeybindingsContext): (data: string) => v
                 setTimeout(() => Deno.exit(0), 100);
                 return;
             }
-            cancelEverything();
             editor.setText("");
             if (pastedImages.length > 0) {
                 pastedImages.length = 0;

@@ -264,7 +264,7 @@ navigation remain consumer-local. Core never receives key names or terminal esca
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Enter with text/images           | TUI calls `promptSession(id, options)`; Runtime publishes the user/turn/stream lifecycle                                                                                                                  |
 | Escape                           | TUI calls `cancelSession(id)`; Runtime cancels interactions, compaction, agent work, queues, and processes and publishes one `cancellation` event; the key handler does not render a cancellation message |
-| First Ctrl+C                     | Same Runtime cancellation call, then TUI clears editor/image preview state                                                                                                                                |
+| First Ctrl+C                     | TUI clears editor/image preview state and starts the pending-exit window; no Runtime cancellation call is implied                                                                                         |
 | Second Ctrl+C in the exit window | TUI-local process exit; no session command is implied                                                                                                                                                     |
 | Up Arrow in an empty editor      | TUI first calls `dequeueLastQueuedMessage(id)` because queued session input is Runtime-owned; if none exists, the editor performs local history navigation                                                |
 | Up/Down in a selector            | TUI-local selection navigation                                                                                                                                                                            |
@@ -492,8 +492,8 @@ and root-affecting configuration remain active.
 
 ### Foreground subprocess ownership
 
-`SessionRuntime.cancelSession()` is the sole cancellation authority: TUI (Escape, first Ctrl+C), ACP, and every other
-consumer call it and never hold process handles themselves. Process-tree ownership lives one layer down, in
+`SessionRuntime.cancelSession()` is the sole cancellation authority: TUI Escape, ACP, and every other consumer call it
+and never hold process handles themselves. Process-tree ownership lives one layer down, in
 `src/shared/foreground-process.ts`. Every RunWield-owned foreground shell — local `!`/`!!` commands, configured local
 CI, and Objective-Failing Checks — is spawned through that module as an independently terminable process tree (detached
 process group plus negative-pid group signal on Unix-like systems, `taskkill /F /T` on Windows), bound to a Session

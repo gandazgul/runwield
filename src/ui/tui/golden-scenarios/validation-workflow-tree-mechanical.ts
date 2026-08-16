@@ -441,7 +441,7 @@ function objectiveCancellationScenario(choice: "engineer_follow_up" | "retry" | 
             { type: "type", text: `submit ${planName} plan for review` },
             { type: "enter" },
             { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
-            { type: "sleep", ms: 1000 },
+            { type: "waitForScreen", text: `Running checks for ${planName}: OC_LONG`, timeoutMs: 90000 },
             { type: "escape" },
             { type: "waitForPlanStatus", planName, statuses: ["implemented"], timeoutMs: 90000 },
             { type: "sleep", ms: 1000 },
