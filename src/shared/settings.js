@@ -23,6 +23,7 @@ const RUNWIELD_CUSTOM_SETTING_KEYS = [
     "cleanupMergedWorktrees",
     "workflowMetrics",
     "workRecords",
+    "plans",
     "notifications",
     "nonGitExecutionConsent",
     "enableExternalSkills",
@@ -560,6 +561,40 @@ export function shouldAutoGenerateWorkRecordsOnPlanCompletion(projectRoot) {
     const workRecords = getMergedCustomSetting("workRecords", projectRoot);
     if (!workRecords || typeof workRecords !== "object" || Array.isArray(workRecords)) return true;
     return workRecords.autoGenerateOnPlanCompletion !== false;
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} key
+ * @returns {number}
+ */
+function validateNonNegativeIntegerSetting(value, key) {
+    const numberValue = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+    if (!Number.isInteger(numberValue) || /** @type {number} */ (numberValue) < 0) {
+        throw new Error(`${key} must be an integer of zero or more.`);
+    }
+    return /** @type {number} */ (numberValue);
+}
+
+/**
+ * Resolve archived Plan retention policy from project settings only.
+ *
+ * @param {string} projectRoot
+ * @returns {{ retentionDays: number, keepLast: number }}
+ */
+export function getPlanArchiveRetentionPolicy(projectRoot) {
+    if (!projectRoot) throw new Error("getPlanArchiveRetentionPolicy: projectRoot is required");
+    const plans = getCustomSetting("plans", "project", projectRoot);
+    if (!plans || typeof plans !== "object" || Array.isArray(plans)) {
+        return { retentionDays: 14, keepLast: 10 };
+    }
+    const retentionDays = Object.prototype.hasOwnProperty.call(plans, "archiveRetentionDays")
+        ? validateNonNegativeIntegerSetting(plans.archiveRetentionDays, "plans.archiveRetentionDays")
+        : 14;
+    const keepLast = Object.prototype.hasOwnProperty.call(plans, "archiveKeepLast")
+        ? validateNonNegativeIntegerSetting(plans.archiveKeepLast, "plans.archiveKeepLast")
+        : 10;
+    return { retentionDays, keepLast };
 }
 
 /**

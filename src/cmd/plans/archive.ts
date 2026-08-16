@@ -15,6 +15,7 @@ import {
     loadPlan,
     restoreArchivedPlan,
 } from "../../plan-store.js";
+import { formatArchiveRetentionNudge } from "../../shared/plan-archive-retention.ts";
 import { runArchiveTransition, type TransitionResult } from "../../shared/workflow/state-transition.ts";
 
 type PlanEntry = Awaited<ReturnType<typeof listPlans>>[number];
@@ -72,6 +73,11 @@ function printArchivedPlans(plans: Awaited<ReturnType<typeof listArchivedPlans>>
         if (plan.attrs.archiveReason) console.log(`    Reason: ${plan.attrs.archiveReason}`);
         console.log();
     }
+}
+
+async function printArchiveRetentionNudge(cwd: string): Promise<void> {
+    const nudge = await formatArchiveRetentionNudge(cwd);
+    if (nudge) console.log(`[RunWield] ${nudge}`);
 }
 
 function printBulkArchiveResult(result: BulkArchiveResult, status: string): void {
@@ -228,6 +234,7 @@ export async function runPlansArchiveCommand(argv: string[]): Promise<void> {
             { reason: parsed.reason, force: Boolean(parsed.force) },
         );
         printBulkArchiveResult(result, parsed.status);
+        if (result.archived.length > 0) await printArchiveRetentionNudge(getCwd());
         if (result.failed.length > 0) throw new Error(`Bulk archive failed for ${result.failed.length} Plan(s).`);
         return;
     }
@@ -255,4 +262,5 @@ export async function runPlansArchiveCommand(argv: string[]): Promise<void> {
         }),
     );
     console.log(`[RunWield] Archived ${positionals[0]} to ${archived.relativePath}`);
+    await printArchiveRetentionNudge(getCwd());
 }

@@ -114,5 +114,9 @@ proxies, or OpenAI-compatible servers. Explicit settings use `provider/model_id`
 - `codereview`: human code-review gate; `none`, `ask`, or `always`.
 - `cleanupMergedWorktrees`: whether verified merged worktrees are cleaned up.
 - `workRecords.autoGenerateOnPlanCompletion`: automatic Work Record creation after supported terminal outcomes.
+- `plans.archiveRetentionDays`: project-scope-only archived Plan retention delay. Default `14`. `0` makes a covered
+  archived Plan due immediately.
+- `plans.archiveKeepLast`: project-scope-only floor that spares the newest eligible archived Plans. Default `10`. `0`
+  disables the floor.
 - `workflowMetrics.enabled`: local workflow metrics recording.
 - `planServerUrl`: default Plan Server URL for collaborative Shared Spaces.

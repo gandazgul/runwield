@@ -3072,6 +3072,76 @@ export async function listArchivedPlans(cwd) {
 }
 
 /**
+ * Delete one top-level archived Plan unit. If the Plan has an archived child
+ * directory, every file in that directory must be markdown and is removed with
+ * the parent Plan.
+ *
+ * @param {string} cwd
+ * @param {string} archivedPlanName
+ * @returns {Promise<string[]>}
+ */
+export async function deleteArchivedPlanUnit(cwd, archivedPlanName) {
+    const location = getArchivedPlanLocation(cwd, archivedPlanName);
+    if (location.segments.length !== 1) {
+        throw new Error(`Archived Plan prune target must be top-level: ${archivedPlanName}`);
+    }
+    const directoryPath = join(getArchivedPlansDir(cwd), location.name);
+
+    return await withPlanCatalogLock(cwd, async () => {
+        const removedPaths = [];
+        let planStat;
+        try {
+            planStat = await Deno.stat(location.filePath);
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) {
+                throw new Error(`Archived Plan not found: ${location.name}`);
+            }
+            throw error;
+        }
+        if (!planStat.isFile) {
+            throw new Error(`Archived Plan is not a file: ${projectRelativePath(cwd, location.filePath)}`);
+        }
+
+        let directoryExists = false;
+        const directoryEntries = [];
+        try {
+            const directoryStat = await Deno.stat(directoryPath);
+            if (!directoryStat.isDirectory) {
+                throw new Error(
+                    `Refusing to prune ${location.name}: archived Plan directory path is not a directory ${
+                        projectRelativePath(cwd, directoryPath)
+                    }`,
+                );
+            }
+            directoryExists = true;
+            for await (const entry of Deno.readDir(directoryPath)) {
+                const entryPath = join(directoryPath, entry.name);
+                if (!entry.isFile || !entry.name.endsWith(".md")) {
+                    throw new Error(
+                        `Refusing to prune ${location.name}: archived Plan directory contains non-markdown entry ${
+                            projectRelativePath(cwd, entryPath)
+                        }`,
+                    );
+                }
+                directoryEntries.push(entryPath);
+            }
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        }
+
+        await Deno.remove(location.filePath);
+        removedPaths.push(projectRelativePath(cwd, location.filePath));
+        if (directoryExists) {
+            await Deno.remove(directoryPath, { recursive: true });
+            removedPaths.push(...directoryEntries.map((entryPath) => projectRelativePath(cwd, entryPath)));
+        }
+        await syncDirectory(dirname(location.filePath));
+        if (directoryExists) await syncDirectory(dirname(directoryPath));
+        return removedPaths.sort((a, b) => a.localeCompare(b));
+    });
+}
+
+/**
  * @param {string} cwd
  * @param {string} archivedPlanName
  * @returns {Promise<{ name: string, path: string, markdown: string, attrs: PlanFrontMatter, body: string } | null>}

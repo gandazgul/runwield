@@ -17,6 +17,7 @@ import {
     resolvePlanExecutionPolicy,
     resolveSiblingChildPlanDependencies,
 } from "../../plan-store.js";
+import { formatArchiveRetentionNudge } from "../../shared/plan-archive-retention.ts";
 import { decidePostExecution, decidePostPlanning } from "../../shared/workflow/decisions.js";
 import {
     buildPlannerReReviewRequest,
@@ -400,6 +401,8 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         false,
                         "RunWield",
                     );
+                    const nudge = await formatArchiveRetentionNudge(projectRoot);
+                    if (nudge) uiAPI.appendSystemMessage(nudge, false, "RunWield");
                     return;
                 }
                 await reopenPlanForReview({

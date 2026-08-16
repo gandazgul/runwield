@@ -10,6 +10,7 @@ import { printCommandHelp } from "../help/index.js";
 import { runPlansArchiveCommand } from "./archive.ts";
 import { runPlansDoctorCommand } from "./doctor.ts";
 import { runPlansPullCommand } from "./pull.ts";
+import { runPlansPruneCommand } from "./prune.ts";
 import { runPlansPushCommand } from "./push.ts";
 import { runPlansReadCommand } from "./read.ts";
 import { runPlansShareCommand } from "./share.ts";
@@ -86,6 +87,10 @@ export async function runPlansCommand(argv: string[]): Promise<void> {
     }
     if (subcommand === "pull") {
         await runPlansPullCommand(argv.slice(1));
+        return;
+    }
+    if (subcommand === "prune") {
+        await runPlansPruneCommand(argv.slice(1));
         return;
     }
     if (subcommand === "push") {
