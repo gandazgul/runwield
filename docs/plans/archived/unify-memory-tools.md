@@ -15,7 +15,6 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-08T01:08:52-04:00"
-updatedAt: "2026-08-16T20:09:22.765Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-16T19:07:03.856Z"
@@ -40,6 +39,10 @@ deliveryEvidence:
 validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
 validationSemanticRounds: 1
+updatedAt: "2026-08-16T20:28:50.178Z"
+archivedAt: "2026-08-16T20:28:50.178Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/unify-memory-tools.md"
 ---
 
 # Unify Memory Tools
