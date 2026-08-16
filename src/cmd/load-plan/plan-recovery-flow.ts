@@ -89,7 +89,7 @@ interface RecoveryMenuOption extends Record<string, string> {
     label: string;
 }
 
-export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promise<"handled" | "review"> {
+export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promise<"handled" | "review" | "settled"> {
     const { projectRoot, plan, uiAPI } = opts;
     try {
         await runPlansDoctor(projectRoot, true);
@@ -230,6 +230,7 @@ async function promptRecoveryAction(
             validationUserMessage("lost_attempt"),
             [
                 { value: "reset", label: "Try the implementation again" },
+                { value: "abandon", label: "Abandon the lost worktree" },
                 ...userVerifyOptions,
                 { value: "review", label: "Send the Plan back to Planner" },
                 { value: "stop_lost", label: "Stop here" },
@@ -333,7 +334,7 @@ async function dispatchRecoveryAction(
     }
 }
 
-function translateRecoveryOutcome(outcome: RecoveryActionOutcome): "handled" | "review" | null {
+function translateRecoveryOutcome(outcome: RecoveryActionOutcome): "handled" | "review" | "settled" | null {
     switch (outcome.kind) {
         case "menu":
             return null;
@@ -341,5 +342,7 @@ function translateRecoveryOutcome(outcome: RecoveryActionOutcome): "handled" | "
             return "handled";
         case "review":
             return "review";
+        case "settled":
+            return "settled";
     }
 }

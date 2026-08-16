@@ -10,6 +10,7 @@ import { AGENTS, CLI_BIN } from "../../constants.js";
 import {
     archivePlan,
     ensurePlanIdentity,
+    isRecoverableWorktreeStatus,
     listPlans,
     loadPlan,
     onboardExternalPlan,
@@ -349,6 +350,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
         if (
             ["in_progress", "failed"].includes(plan.attrs.status) ||
             isInValidation(plan.attrs.status) ||
+            isRecoverableWorktreeStatus(plan.attrs.worktreeStatus) ||
             unresolvedLifecycleRecords.length > 0
         ) {
             restoreAgentName = planFlowRestoreAgent;

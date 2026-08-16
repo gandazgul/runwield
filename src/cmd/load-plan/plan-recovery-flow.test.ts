@@ -22,7 +22,7 @@ interface TestUi extends UiAPI {
 }
 
 interface RunRecoveryResult {
-    result: "handled" | "review";
+    result: "handled" | "review" | "settled";
     plan: RecoveryFlowPlan;
     ui: TestUi;
 }
@@ -490,7 +490,7 @@ Deno.test("lost worktree recovery offers User Verification for implemented plans
     assertEquals(await handlePlanRecovery(options), "handled");
     assertEquals(
         ui.prompts[0],
-        "The worktree and branch are gone. The Plan says they should be here. What do you want to do?:reset,user_verify,review,stop_lost",
+        "The worktree and branch are gone. The Plan says they should be here. What do you want to do?:reset,abandon,user_verify,review,stop_lost",
     );
     assertEquals(ui.prompts[1], "Required user verification note (blank cancels)::text");
     const loadedPlan = await loadPlan(project.projectRoot, project.plan.planName);
@@ -516,7 +516,7 @@ Deno.test("lost worktree recovery omits User Verification for failed plans", asy
     assertEquals(await handlePlanRecovery(options), "handled");
     assertEquals(
         ui.prompts[0],
-        "The worktree and branch are gone. The Plan says they should be here. What do you want to do?:reset,review,stop_lost",
+        "The worktree and branch are gone. The Plan says they should be here. What do you want to do?:reset,abandon,review,stop_lost",
     );
     assertEquals((await loadPlan(project.projectRoot, project.plan.planName))?.attrs.status, "ready_for_work");
 });

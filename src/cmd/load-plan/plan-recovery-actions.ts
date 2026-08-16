@@ -32,7 +32,11 @@ import type { UiAPI } from "../../ui/tui/types.js";
 import type { PlanSessionSurface, RecoveryWorktreeContext } from "./plan-session-types.ts";
 import type { RecoveryFlowPlan, UnresolvedTransitionRecord } from "./plan-recovery-flow.ts";
 
-export type RecoveryActionOutcome = { kind: "menu" } | { kind: "handled" } | { kind: "review" };
+export type RecoveryActionOutcome =
+    | { kind: "menu" }
+    | { kind: "handled" }
+    | { kind: "review" }
+    | { kind: "settled" };
 export type RecoveryMetricDetailValue = string | number | boolean | null | undefined;
 export type RecoveryMetricDetails = Record<string, RecoveryMetricDetailValue>;
 
@@ -387,7 +391,9 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
         "RunWield",
     );
     await context.recordRecoveryResult("abandon", "abandoned");
-    return { kind: "menu" };
+    return plan.attrs.status === "verified" || plan.attrs.status === "user_verified"
+        ? { kind: "settled" }
+        : { kind: "menu" };
 }
 
 export async function reviewRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {

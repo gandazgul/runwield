@@ -199,6 +199,40 @@ Deno.test("load-plan archives a verified Plan through the real Plan store", asyn
     });
 });
 
+Deno.test("load-plan abandons a lost worktree before archiving a User Verified Plan", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        const lostPath = `${projectRoot}/lost-worktree`;
+        await writePlan(projectRoot, "finished-with-stale-worktree", {
+            status: "user_verified",
+            executionMode: "worktree",
+            worktreeStatus: "validation_failed",
+            worktreeId: "lost-worktree",
+            worktreePath: lostPath,
+            worktreeBranch: "worktree/lost-worktree",
+            worktreeBaseBranch: "main",
+        });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["abandon", "confirm", "archive"]);
+        try {
+            await runLoadPlanCommand(["finished-with-stale-worktree"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals(await loadPlan(projectRoot, "finished-with-stale-worktree"), null);
+            const archived = await loadArchivedPlan(projectRoot, "finished-with-stale-worktree");
+            assertEquals(archived?.attrs.archivedFromStatus, "user_verified");
+            assertEquals(archived?.attrs.worktreeStatus, "abandoned");
+            assertEquals(archived?.attrs.worktreeId, undefined);
+            assertStringIncludes(ui.messages.join("\n"), "Archived finished-with-stale-worktree");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
 Deno.test("load-plan archives a verified Epic with every child Plan and keeps the folder structure", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
         await writePlan(projectRoot, "epic", { classification: "PROJECT", status: "verified" });
