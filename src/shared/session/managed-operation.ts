@@ -18,7 +18,7 @@ export type ManagedOperationName =
 export type ManagedOperationDescriptor = {
     name: ManagedOperationName;
     options?: {
-        expectedGeneration?: number;
+        expectedGeneration?: number | null;
         initialRequest?: string;
         initialImages?: import("./types.js").ImageAttachment[];
         turnId?: string;

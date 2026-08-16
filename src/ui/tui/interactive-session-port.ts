@@ -7,6 +7,7 @@ import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 export interface InteractiveSessionOptions {
     initialAgentName?: string;
     sessionStartMode?: "new" | "continue";
+    resumeSessionId?: string;
 }
 
 export interface InteractiveSessionPort {

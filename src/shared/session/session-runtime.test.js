@@ -732,6 +732,55 @@ Deno.test("SessionRuntime hydrates dormant managed Sessions for direct Plan work
     );
 });
 
+Deno.test("SessionRuntime lazy materialization creates missing Project roots", async () => {
+    ensureRuntimeModelFixture();
+    const cwd = join(runtimeProjectRoot(), `lazy-missing-root-${crypto.randomUUID()}`);
+    const runtime = createSessionRuntime({ sessionStore: null, ownerProcessKind: "test" });
+    const created = await runtime.createInteractiveSession({
+        cwd,
+        mode: "new",
+        deferManagedActivationUntilAgentReady: true,
+    });
+    try {
+        runtime.markPromptReadyAgent(created.sessionId, { agentName: "router" });
+        const result = await runtime.promptUserTurn(created.sessionId, { initialRequest: "hello" });
+        assertEquals(result.ok, true);
+        assertEquals((await Deno.stat(cwd)).isDirectory, true);
+        assertEquals(typeof runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, "string");
+    } finally {
+        await runtime.closeAllSessionsWhenIdle?.();
+    }
+});
+
+Deno.test("SessionRuntime keeps first-turn materialization failures retryable", async () => {
+    ensureRuntimeModelFixture();
+    const cwd = join(runtimeProjectRoot(), `lazy-file-root-${crypto.randomUUID()}`);
+    await Deno.writeTextFile(cwd, "not a directory");
+    const runtime = createSessionRuntime({ sessionStore: null, ownerProcessKind: "test" });
+    const created = await runtime.createInteractiveSession({
+        cwd,
+        mode: "new",
+        deferManagedActivationUntilAgentReady: true,
+    });
+    try {
+        runtime.markPromptReadyAgent(created.sessionId, { agentName: "router" });
+        await assertRejects(
+            () => runtime.promptUserTurn(created.sessionId, { initialRequest: "first try" }),
+            Error,
+            "Project root must be a directory",
+        );
+        assertEquals(runtime.getSessionSnapshot(created.sessionId)?.busy, false);
+        assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed, null);
+        await Deno.remove(cwd);
+        await Deno.mkdir(cwd, { recursive: true });
+        const result = await runtime.promptUserTurn(created.sessionId, { initialRequest: "retry" });
+        assertEquals(result.ok, true);
+        assertEquals(typeof runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, "string");
+    } finally {
+        await runtime.closeAllSessionsWhenIdle?.();
+    }
+});
+
 Deno.test("SessionRuntime can defer managed creation cataloging until Agent readiness", async () => {
     const cwd = join(runtimeProjectRoot(), `deferred-${crypto.randomUUID()}`);
     await Deno.mkdir(cwd, { recursive: true });
@@ -751,7 +800,7 @@ Deno.test("SessionRuntime can defer managed creation cataloging until Agent read
             deferManagedActivationUntilAgentReady: true,
         });
         try {
-            assertEquals(typeof created.sessionManagerId, "string");
+            assertEquals(created.sessionManagerId, null);
             assertEquals(runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, null);
             assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed, null);
             assertEquals((await store.listProjectSessions(project.projectId)).sessions, []);
@@ -760,6 +809,42 @@ Deno.test("SessionRuntime can defer managed creation cataloging until Agent read
         }
     } finally {
         store.close();
+    }
+});
+
+Deno.test("SessionRuntime continue opens the explicitly requested saved Session", async () => {
+    ensureRuntimeModelFixture();
+    const cwd = join(runtimeProjectRoot(), `explicit-resume-${crypto.randomUUID()}`);
+    await Deno.mkdir(cwd, { recursive: true });
+    const runtime = createSessionRuntime({ ownerProcessKind: "test" });
+    let firstPersistedId = "";
+    let firstRunWieldId = "";
+    try {
+        const first = await runtime.createInteractiveSession({ cwd, mode: "new" });
+        const second = await runtime.createInteractiveSession({ cwd, mode: "new" });
+        firstPersistedId = runtime.getSessionSnapshot(first.sessionId)?.sessionManagerId || "";
+        firstRunWieldId = runtime.getSessionSnapshot(first.sessionId)?.managed?.runwieldSessionId || "";
+        const secondPersistedId = runtime.getSessionSnapshot(second.sessionId)?.sessionManagerId;
+        assert(firstPersistedId);
+        assert(firstRunWieldId);
+        assert(typeof secondPersistedId === "string");
+        assert(firstPersistedId !== secondPersistedId);
+    } finally {
+        await runtime.closeAllSessionsWhenIdle();
+    }
+
+    const resumedRuntime = createSessionRuntime({ ownerProcessKind: "test" });
+    try {
+        const resumed = await resumedRuntime.createInteractiveSession({
+            cwd,
+            mode: "continue",
+            resumeSessionId: firstRunWieldId,
+        });
+
+        assertEquals(resumedRuntime.getSessionSnapshot(resumed.sessionId)?.sessionManagerId, firstPersistedId);
+        assertEquals(resumedRuntime.getSessionSnapshot(resumed.sessionId)?.managed?.runwieldSessionId, firstRunWieldId);
+    } finally {
+        await resumedRuntime.closeAllSessionsWhenIdle();
     }
 });
 
@@ -951,26 +1036,44 @@ Deno.test("SessionRuntime reload preserves the canonical hidden-agent selection"
     assertEquals(session.getRootAgentName(), "slicer");
 });
 
-Deno.test("SessionRuntime emits accepted managed user message before hydration work", async () => {
-    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
-    const managedOperationIndex = source.indexOf("async #runManagedOperation(sessionId, descriptor, body)");
-    const promptManagedIndex = source.indexOf("async promptManagedSession(sessionId, options)", managedOperationIndex);
-    const pendingImageGuardIndex = source.indexOf("const hasPendingImages =", managedOperationIndex);
-    const userMessageIndex = source.indexOf("type: RuntimeEventTypes.USER_MESSAGE", managedOperationIndex);
-    const hydrationIndex = source.indexOf("await openPersistedRootSession({", managedOperationIndex);
-    const bodyIndex = source.indexOf(
-        "async () => await body({ acceptedTurnId, hasPendingImages, capability }),",
-        hydrationIndex,
-    );
-    const imageEventFallbackIndex = source.indexOf("emitInitialEvents: hasPendingImages", promptManagedIndex);
-
-    assertEquals(managedOperationIndex >= 0, true);
-    assertEquals(pendingImageGuardIndex > managedOperationIndex, true);
-    assertEquals(userMessageIndex > managedOperationIndex, true);
-    assertEquals(userMessageIndex > pendingImageGuardIndex, true);
-    assertEquals(hydrationIndex > userMessageIndex, true);
-    assertEquals(bodyIndex > hydrationIndex, true);
-    assertEquals(imageEventFallbackIndex > promptManagedIndex, true);
+Deno.test("SessionRuntime emits the first user message before busy and persistence", async () => {
+    ensureRuntimeModelFixture();
+    const cwd = join(runtimeProjectRoot(), `first-message-order-${crypto.randomUUID()}`);
+    await Deno.mkdir(cwd, { recursive: true });
+    const runtime = createSessionRuntime({ sessionStore: null, ownerProcessKind: "test" });
+    const created = await runtime.createInteractiveSession({
+        cwd,
+        mode: "new",
+        deferManagedActivationUntilAgentReady: true,
+    });
+    /** @type {string[]} */
+    const events = [];
+    let userEventCount = 0;
+    runtime.subscribeSessionEvents(created.sessionId, (event) => {
+        if (event.type === RuntimeEventTypes.USER_MESSAGE) {
+            userEventCount += 1;
+            events.push(`user:${runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId || "none"}`);
+        }
+        if (event.type === RuntimeEventTypes.BUSY_CHANGED && event.busy) {
+            events.push(`busy:${runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId || "none"}`);
+        }
+        if (event.type === RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED) {
+            events.push(`sync:${runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId || "none"}`);
+        }
+    });
+    try {
+        runtime.markPromptReadyAgent(created.sessionId, { agentName: "router" });
+        const result = await runtime.promptUserTurn(created.sessionId, {
+            initialRequest: "hello",
+            initialImages: [{ base64: btoa("img"), mimeType: "image/png" }],
+        });
+        assertEquals(result.ok, true);
+        assertEquals(userEventCount, 1);
+        assertEquals(events.slice(0, 2), ["user:none", "busy:none"]);
+        assert(events.some((event) => event.startsWith("sync:")));
+    } finally {
+        await runtime.closeAllSessionsWhenIdle?.();
+    }
 });
 
 Deno.test("SessionRuntime clean agent starts and switches resolve each agent preset model", async () => {
@@ -1071,50 +1174,29 @@ Deno.test("SessionRuntime clean agent starts and switches resolve each agent pre
     );
 });
 
-Deno.test("SessionRuntime managed hydration does not turn persisted display model into a user override", async () => {
-    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
-    const managedOperationIndex = source.indexOf("async #runManagedOperation(sessionId, descriptor, body)");
-    const openIndex = source.indexOf("await openPersistedRootSession({", managedOperationIndex);
-    const pendingIntentModelIndex = source.indexOf(
-        'hostedSession.setActiveModelState(pendingIntent.model || "", pendingIntent.provider || "", true);',
-        openIndex,
-    );
-    const managedDisplayModelOverrideIndex = source.indexOf(
-        'hostedSession.setActiveModelState(managed.model || "", managed.provider || "", true);',
-        openIndex,
-    );
-    const activateIndex = source.indexOf("await this.#activateSessionAgent(hostedSession, {", openIndex);
-
-    assertEquals(managedOperationIndex >= 0, true);
-    assertEquals(openIndex > managedOperationIndex, true);
-    assertEquals(pendingIntentModelIndex > openIndex, true);
-    assertEquals(managedDisplayModelOverrideIndex, -1);
-    assertEquals(activateIndex > pendingIntentModelIndex, true);
-});
-
-Deno.test("SessionRuntime managed prompt preserves pending local agent selection", async () => {
-    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
-    const promptManagedIndex = source.indexOf("async #runManagedOperation(sessionId, descriptor, body)");
-    const pendingIntentIndex = source.indexOf("const pendingIntent =", promptManagedIndex);
-    const openIndex = source.indexOf("await openPersistedRootSession({", promptManagedIndex);
-    const agentSelectionIndex = source.indexOf(
-        "let agentName = options.agentName || pendingIntent.agentName || null;",
-        openIndex,
-    );
-    const resumeFallbackIndex = source.indexOf(
-        "await resolveResumeAgentName(sessionManager)",
-        agentSelectionIndex,
-    );
-    const activateIndex = source.indexOf("await this.#activateSessionAgent(hostedSession, {", agentSelectionIndex);
-    const consumeIntentIndex = source.indexOf("hostedSession.consumePendingManagedTurnIntent?.();", activateIndex);
-
-    assertEquals(promptManagedIndex >= 0, true);
-    assertEquals(pendingIntentIndex > promptManagedIndex, true);
-    assertEquals(openIndex > promptManagedIndex, true);
-    assertEquals(agentSelectionIndex > openIndex, true);
-    assertEquals(resumeFallbackIndex > agentSelectionIndex, true);
-    assertEquals(activateIndex > resumeFallbackIndex, true);
-    assertEquals(consumeIntentIndex > activateIndex, true);
+Deno.test("SessionRuntime prompt-ready metadata is limited to unpersisted new-session shells", async () => {
+    ensureRuntimeModelFixture();
+    const cwd = join(runtimeProjectRoot(), `prompt-ready-shell-${crypto.randomUUID()}`);
+    await Deno.mkdir(cwd, { recursive: true });
+    const runtime = createSessionRuntime({ sessionStore: null, ownerProcessKind: "test" });
+    const created = await runtime.createInteractiveSession({
+        cwd,
+        mode: "new",
+        deferManagedActivationUntilAgentReady: true,
+    });
+    try {
+        assertEquals(runtime.markPromptReadyAgent(created.sessionId, { agentName: "router" }).ok, true);
+        assertEquals(runtime.getSessionSnapshot(created.sessionId)?.activeAgent, "router");
+        const result = await runtime.promptUserTurn(created.sessionId, { initialRequest: "hello" });
+        assertEquals(result.ok, true);
+        assertEquals(typeof runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, "string");
+        assertEquals(runtime.markPromptReadyAgent(created.sessionId, { agentName: "guide" }), {
+            ok: false,
+            error: "not_unpersisted_new_session",
+        });
+    } finally {
+        await runtime.closeAllSessionsWhenIdle?.();
+    }
 });
 
 Deno.test("SessionRuntime managed operation prefers persisted active agent over stale catalog summary", async () => {

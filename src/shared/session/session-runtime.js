@@ -4,7 +4,7 @@
  */
 
 import { AGENTS, SUBAGENTS } from "../../constants.js";
-import { resolveResumeAgentName } from "./active-agent-session.js";
+import { readPersistedModelState, resolveResumeAgentName } from "./active-agent-session.js";
 import { getAgentDisplayName } from "./agents.js";
 import { runActiveAgentTurn, switchActiveAgent } from "./agent-switching.js";
 import {
@@ -66,6 +66,7 @@ import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../models/mode
 import { parseProviderModel } from "../models/model-validation.ts";
 import { spawnForegroundShell } from "../foreground-process.ts";
 import { openFileSessionStore } from "./file-session-store.ts";
+import { FileSessionStoreOwner } from "./file-session-store-owner.ts";
 import { buildSessionContextReport } from "./session-context-report.js";
 import { getSettingsManager, setGlobalCompactionSetting } from "../settings.js";
 import { getSessionKeyboardHelp } from "./session-help.js";
@@ -95,6 +96,7 @@ const ACTIVE_MANAGED_OPERATION = new AsyncLocalStorage();
  * @typedef {Object} SessionRuntimeComposition
  * @property {SessionHost} sessionHost
  * @property {ReturnType<typeof import('./file-session-store.ts').openFileSessionStore> | null} sessionStore
+ * @property {boolean} [ownsSessionStore]
  * @property {'workspace' | 'tui' | 'acp' | 'test'} ownerProcessKind
  * @property {string} ownerInstanceId
  */
@@ -172,6 +174,10 @@ const ACTIVE_MANAGED_OPERATION = new AsyncLocalStorage();
 /**
  * @typedef {Object} DisposableSessionManager
  * @property {() => void} [dispose]
+ */
+
+/**
+ * @typedef {import('@earendil-works/pi-coding-agent').SessionManager & DisposableSessionManager} RuntimeRootSessionManager
  */
 
 /**
@@ -362,6 +368,22 @@ function normalizeManagedActiveModelState(modelState, managed) {
 }
 
 /**
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager
+ * @returns {string | undefined}
+ */
+function resolvePersistedResumeModel(sessionManager) {
+    const persisted = readPersistedModelState(sessionManager);
+    if (!persisted?.provider || !persisted.model) return undefined;
+    try {
+        const registry = getModelRegistry();
+        const model = registry.find(persisted.provider, persisted.model);
+        return model && registry.isSelectable(model) ? `${model.provider}/${model.id}` : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
  * Decide whether a projected attention record is newly observed for a session.
  *
  * The projector reports the last attention entry in the entire committed
@@ -428,12 +450,14 @@ export class SessionRuntime {
     #currentManagedOperations;
     /** @type {Map<string, Promise<unknown>>} */
     #currentManagedOperationSettlements;
-    /** @type {Map<string, { projectId: string }>} */
+    /** @type {Map<string, { cwd: string }>} */
     #pendingManagedCreationProjects;
+    /** @type {Map<string, import('./session-runtime-events.js').SessionRuntimeEvent[]>} */
+    #pendingReplayEvents;
     /** @type {Map<string, string | null>} */
     #observedAttentionEventIds;
-    /** @type {ReturnType<typeof import('./file-session-store.ts').openFileSessionStore> | null} */
-    #sessionStore;
+    /** @type {FileSessionStoreOwner} */
+    #sessionStoreOwner;
     /** @type {'workspace' | 'tui' | 'acp' | 'test'} */
     #ownerProcessKind;
     /** @type {string} */
@@ -451,10 +475,18 @@ export class SessionRuntime {
         this.#currentManagedOperations = new Map();
         this.#currentManagedOperationSettlements = new Map();
         this.#pendingManagedCreationProjects = new Map();
+        this.#pendingReplayEvents = new Map();
         this.#observedAttentionEventIds = new Map();
-        this.#sessionStore = composition.sessionStore;
+        this.#sessionStoreOwner = new FileSessionStoreOwner(
+            composition.sessionStore,
+            composition.ownsSessionStore,
+        );
         this.#ownerProcessKind = composition.ownerProcessKind;
         this.#ownerInstanceId = composition.ownerInstanceId;
+    }
+
+    get #sessionStore() {
+        return this.#sessionStoreOwner.current();
     }
 
     listSessions() {
@@ -1065,6 +1097,9 @@ export class SessionRuntime {
     markPromptReadyAgent(sessionId, options = {}) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, error: "not_found" };
+        if (!this.#pendingManagedCreationProjects.has(sessionId) || hostedSession.getManagedMetadata?.()) {
+            return { ok: false, error: "not_unpersisted_new_session" };
+        }
         const agentName = options.agentName || AGENTS.ROUTER;
         const displayName = getAgentDisplayName(agentName, hostedSession.cwd);
         const currentModel = hostedSession.getActiveModelState?.() || { model: "", provider: "" };
@@ -1690,6 +1725,12 @@ export class SessionRuntime {
     async replaySession(sessionId) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, replayed: 0, error: "not_found" };
+        const pendingEvents = this.#pendingReplayEvents.get(sessionId);
+        if (pendingEvents) {
+            this.#pendingReplayEvents.delete(sessionId);
+            for (const event of pendingEvents) this.#emitSessionEvent(sessionId, event);
+            return { ok: true, replayed: pendingEvents.length };
+        }
         const managed = session.getManagedMetadata?.() || null;
         const manager = session.getRootSessionManager();
         if (managed && !manager) {
@@ -2186,12 +2227,10 @@ export class SessionRuntime {
         if (!cwd || !isAbsolute(cwd)) {
             throw new Error("SessionRuntime.listResumableSessions requires an absolute cwd");
         }
-        if (!this.#sessionStore) {
-            return { ok: false, error: "session_store_unavailable", sessions: [] };
-        }
+        const sessionStore = this.#sessionStoreOwner.ensure();
         const classified = await classifyRootSessionLocator({
             cwd,
-            ownerCoordinationStore: this.#sessionStore,
+            ownerCoordinationStore: sessionStore,
         });
         if (classified.kind === "managed") {
             const listed = await listCatalogSafeRootSessionLocators(cwd);
@@ -2408,6 +2447,7 @@ export class SessionRuntime {
             this.#busyOperationDepths.delete(id);
             this.#pendingManagedCreations.delete(id);
             this.#pendingManagedCreationProjects.delete(id);
+            this.#pendingReplayEvents.delete(id);
             this.#observedAttentionEventIds.delete(id);
         }
         return { ok: true, closed };
@@ -2454,22 +2494,30 @@ export class SessionRuntime {
 
     async closeAllSessions() {
         const sessions = this.listSessions();
-        for (const session of sessions) {
-            try {
-                const hostedSession = this.#sessionHost.getSession(session.id);
-                if (hostedSession) this.cancelSession(hostedSession.id);
-            } catch {
-                // Shutdown cleanup is best effort.
+        try {
+            for (const session of sessions) {
+                try {
+                    const hostedSession = this.#sessionHost.getSession(session.id);
+                    if (hostedSession) this.cancelSession(hostedSession.id);
+                } catch {
+                    // Shutdown cleanup is best effort.
+                }
+                await this.closeSession(session.id);
             }
-            await this.closeSession(session.id);
+            return { ok: true, closed: sessions.length };
+        } finally {
+            this.#sessionStoreOwner.closeOwned();
         }
-        return { ok: true, closed: sessions.length };
     }
 
     async closeAllSessionsWhenIdle() {
         const sessions = this.listSessions();
-        await Promise.all(sessions.map((session) => this.closeSessionWhenIdle(session.id)));
-        return { ok: true, closed: sessions.length };
+        try {
+            await Promise.all(sessions.map((session) => this.closeSessionWhenIdle(session.id)));
+            return { ok: true, closed: sessions.length };
+        } finally {
+            this.#sessionStoreOwner.closeOwned();
+        }
     }
 
     /**
@@ -2530,6 +2578,137 @@ export class SessionRuntime {
     }
 
     /**
+     * Create and lock the durable Session state shared by deferred prompt and
+     * Agent-activation paths. The caller decides whether to retain or release
+     * the activation proof.
+     *
+     * @param {import('./hosted-session.js').HostedSession} hostedSession
+     * @returns {Promise<{
+     *   managed: import('./hosted-session.js').ManagedSessionMetadata,
+     *   proof: import('../owner-coordination/session-activations.js').ActivationProof,
+     *   createdSessionManager: boolean,
+     * } | null>}
+     */
+    async #prepareDeferredManagedCreation(hostedSession) {
+        const pendingProject = this.#pendingManagedCreationProjects.get(hostedSession.id);
+        if (!pendingProject) return null;
+        const sessionStore = this.#sessionStoreOwner.ensure();
+        const managedProject = this.#ensureSessionProjectForCwd(pendingProject.cwd);
+        if (!managedProject) throw new Error("Session Manager create is blocked: project_identity_unavailable");
+        const existingSessionManager = hostedSession.getRootSessionManager();
+        /** @type {RuntimeRootSessionManager | null} */
+        let sessionManager = existingSessionManager
+            ? /** @type {RuntimeRootSessionManager} */ (existingSessionManager)
+            : null;
+        let createdSessionManager = false;
+        let proof = null;
+        try {
+            if (!sessionManager) {
+                sessionManager = /** @type {RuntimeRootSessionManager} */ (
+                    await createRootSessionManager("new", hostedSession.cwd)
+                );
+                hostedSession.setRootSessionManager(
+                    /** @type {import('./hosted-session.js').MinimalSessionManagerLike} */ (sessionManager),
+                );
+                createdSessionManager = true;
+            }
+            if (!sessionManager) throw new Error("The Session could not be opened");
+            const piSessionId = sessionManager.getSessionId?.();
+            if (!piSessionId) throw new Error("The Session could not be persisted");
+            const transcriptPath = await this.#resolveCreatedSessionPath(hostedSession.cwd, sessionManager);
+            const acquired = await sessionStore.ensureSessionCatalogRecordAndAcquire({
+                locator: {
+                    projectId: managedProject.projectId,
+                    piSessionId,
+                    transcriptPath,
+                    transcriptCwd: hostedSession.cwd,
+                    source: "created",
+                },
+                activation: {
+                    ownerInstanceId: this.#ownerInstanceId,
+                    ownerProcessKind: this.#ownerProcessKind,
+                    phase: "preparing",
+                },
+            });
+            proof = acquired.proof;
+            const managedSession = acquired.session;
+            const managedSegment = acquired.segment;
+            recordSegmentLineageEvidence(sessionManager, {
+                segmentId: managedSegment.segmentId,
+                runwieldSessionId: managedSession.runwieldSessionId,
+                parentSegmentId: null,
+                parentPiSessionId: null,
+                lineageGroupKey: managedSegment.segmentId,
+                kind: "planning",
+            });
+            /** @type {import('./hosted-session.js').ManagedSessionMetadata} */
+            const managed = {
+                runwieldSessionId: managedSession.runwieldSessionId,
+                projectId: managedSession.projectId,
+                piSessionId: managedSession.piSessionId,
+                transcriptPath: managedSession.transcriptPath,
+                currentSegmentId: managedSegment.segmentId,
+                generation: null,
+                acknowledgedGeneration: null,
+                acknowledgedEventId: null,
+                name: managedSession.displayName,
+                activeAgent: null,
+                workflowContext: null,
+                syncState: {
+                    type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                    status: "syncing",
+                    localGeneration: null,
+                    latestGeneration: null,
+                },
+            };
+            hostedSession.setManagedMetadata(managed);
+            return { managed, proof, createdSessionManager };
+        } catch (error) {
+            if (proof) {
+                try {
+                    sessionStore.releaseUnchangedActivation(proof);
+                } catch {
+                    // Preserve the creation failure after best-effort lock release.
+                }
+            }
+            if (createdSessionManager) {
+                sessionManager?.dispose?.();
+                hostedSession.setRootSessionManager(null);
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Create the durable managed shell for the first user turn without creating
+     * a root Agent or publishing an empty generation.
+     *
+     * @param {import('./hosted-session.js').HostedSession} hostedSession
+     */
+    async #materializeDeferredManagedShell(hostedSession) {
+        const prepared = await this.#prepareDeferredManagedCreation(hostedSession);
+        if (!prepared) return hostedSession.getManagedMetadata?.() || null;
+        if (!this.#sessionStore) throw new Error("Session coordination is unavailable");
+        try {
+            this.#sessionStore.releaseUnchangedActivation(prepared.proof);
+            this.#pendingManagedCreationProjects.delete(hostedSession.id);
+            return prepared.managed;
+        } catch (error) {
+            try {
+                this.#sessionStore.releaseUnchangedActivation(prepared.proof);
+            } catch {
+                // Preserve the materialization failure after best-effort lock release.
+            }
+            hostedSession.setManagedMetadata(null);
+            if (prepared.createdSessionManager) {
+                hostedSession.getRootSessionManager()?.dispose?.();
+                hostedSession.setRootSessionManager(null);
+            }
+            throw error;
+        }
+    }
+
+    /**
      * Commit one matching root Agent Session and Agent Handler pair.
      * Initial activation, resume, user switching, and typed handoffs all use
      * this transaction instead of exposing its internal phases.
@@ -2539,85 +2718,12 @@ export class SessionRuntime {
      */
     async #activateSessionAgent(hostedSession, options) {
         let pendingCreation = this.#pendingManagedCreations.get(hostedSession.id);
-        const pendingProject = this.#pendingManagedCreationProjects.get(hostedSession.id);
-        if (!pendingCreation && pendingProject) {
-            if (!this.#sessionStore) throw new Error("Session coordination is unavailable");
-            let sessionManager = hostedSession.getRootSessionManager();
-            let createdSessionManager = false;
-            try {
-                if (!sessionManager) {
-                    sessionManager = /** @type {any} */ (
-                        await createRootSessionManager("new", hostedSession.cwd)
-                    );
-                    hostedSession.setRootSessionManager(sessionManager);
-                    createdSessionManager = true;
-                }
-                if (!sessionManager) throw new Error("The Session could not be opened");
-                const activeSessionManager = sessionManager;
-                const piSessionId = activeSessionManager.getSessionId?.();
-                if (!piSessionId) throw new Error("The Session could not be persisted");
-                const transcriptPath = await this.#resolveCreatedSessionPath(hostedSession.cwd, activeSessionManager);
-                const acquired = await this.#sessionStore.ensureSessionCatalogRecordAndAcquire({
-                    locator: {
-                        projectId: pendingProject.projectId,
-                        piSessionId,
-                        transcriptPath,
-                        transcriptCwd: hostedSession.cwd,
-                        source: "created",
-                    },
-                    activation: {
-                        ownerInstanceId: this.#ownerInstanceId,
-                        ownerProcessKind: this.#ownerProcessKind,
-                        phase: "preparing",
-                    },
-                });
-                const managedSession = acquired.session;
-                const managedSegment = acquired.segment;
-                pendingCreation = acquired.proof;
-                recordSegmentLineageEvidence(activeSessionManager, {
-                    segmentId: managedSegment.segmentId,
-                    runwieldSessionId: managedSession.runwieldSessionId,
-                    parentSegmentId: null,
-                    parentPiSessionId: null,
-                    lineageGroupKey: managedSegment.segmentId,
-                    kind: "planning",
-                });
-                hostedSession.setManagedMetadata({
-                    runwieldSessionId: managedSession.runwieldSessionId,
-                    projectId: managedSession.projectId,
-                    piSessionId: managedSession.piSessionId,
-                    transcriptPath: managedSession.transcriptPath,
-                    currentSegmentId: managedSegment.segmentId,
-                    generation: null,
-                    acknowledgedGeneration: null,
-                    acknowledgedEventId: null,
-                    name: managedSession.displayName,
-                    activeAgent: null,
-                    workflowContext: null,
-                    syncState: {
-                        type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
-                        status: "syncing",
-                        localGeneration: null,
-                        latestGeneration: null,
-                    },
-                });
-                this.#pendingManagedCreationProjects.delete(hostedSession.id);
-                this.#pendingManagedCreations.set(hostedSession.id, pendingCreation);
-            } catch (error) {
-                this.#pendingManagedCreationProjects.delete(hostedSession.id);
-                if (pendingCreation) {
-                    try {
-                        this.#sessionStore.releaseUnchangedActivation(pendingCreation);
-                    } catch {
-                        // Preserve the creation failure after best-effort lock release.
-                    }
-                }
-                if (createdSessionManager) {
-                    sessionManager?.dispose?.();
-                    hostedSession.setRootSessionManager(null);
-                }
-                throw error;
-            }
+        if (!pendingCreation && this.#pendingManagedCreationProjects.has(hostedSession.id)) {
+            const prepared = await this.#prepareDeferredManagedCreation(hostedSession);
+            if (!prepared) throw new Error("Session coordination was interrupted during creation");
+            pendingCreation = prepared.proof;
+            this.#pendingManagedCreationProjects.delete(hostedSession.id);
+            this.#pendingManagedCreations.set(hostedSession.id, pendingCreation);
         }
         if (!pendingCreation) return await switchActiveAgent(hostedSession, options);
         if (!this.#sessionStore) throw new Error("Session coordination is unavailable");
@@ -2724,6 +2830,11 @@ export class SessionRuntime {
     /** @param {string} cwd */
     #ensureSessionProjectForCwd(cwd) {
         if (!this.#sessionStore) return null;
+        try {
+            Deno.mkdirSync(cwd, { recursive: true });
+        } catch (error) {
+            if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
+        }
         return this.#sessionStore.ensureRuntimeProject({ root: cwd });
     }
 
@@ -3057,16 +3168,45 @@ export class SessionRuntime {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) throw new Error("SessionRuntime.promptUserTurn: session not found");
         let managed = hostedSession.getManagedMetadata?.() || null;
-        if (!managed && this.#pendingManagedCreationProjects.has(sessionId)) {
-            const activeAgentInfo = hostedSession.getActiveAgentInfo?.() || null;
-            await this.#activateSessionAgent(hostedSession, {
-                agentName: options.agentName || activeAgentInfo?.agentName || AGENTS.ROUTER,
+        const isDeferredFirstTurn = !managed && this.#pendingManagedCreationProjects.has(sessionId);
+        const deferredFirstTurnId = isDeferredFirstTurn ? crypto.randomUUID() : "";
+        let deferredBusyStarted = false;
+        if (isDeferredFirstTurn) {
+            this.#emitSessionEvent(hostedSession.id, {
+                type: RuntimeEventTypes.USER_MESSAGE,
+                turnId: deferredFirstTurnId,
+                text: options.initialRequest,
+                images: (options.initialImages || []).map((image) => ({ ...image })),
             });
-            managed = hostedSession.getManagedMetadata?.() || null;
+            this.#emitSessionEvent(hostedSession.id, {
+                type: RuntimeEventTypes.TURN_START,
+                turnId: deferredFirstTurnId,
+            });
+            this.#beginBusyOperation(sessionId, deferredFirstTurnId);
+            deferredBusyStarted = true;
+            const activeAgentInfo = hostedSession.getActiveAgentInfo?.() || null;
+            const agentName = options.agentName || activeAgentInfo?.agentName || AGENTS.ROUTER;
+            hostedSession.mergePendingManagedTurnIntent?.({ agentName });
+            try {
+                managed = await this.#materializeDeferredManagedShell(hostedSession);
+            } catch (error) {
+                this.#emitSessionEvent(hostedSession.id, {
+                    type: RuntimeEventTypes.TURN_END,
+                    turnId: deferredFirstTurnId,
+                    ok: false,
+                });
+                if (deferredBusyStarted) {
+                    this.#endBusyOperation(sessionId, deferredFirstTurnId);
+                    deferredBusyStarted = false;
+                }
+                throw error;
+            }
         }
         if (!managed) throw new Error("SessionRuntime.promptUserTurn: segmented Session metadata is unavailable");
         const submittedRequest = options.initialRequest;
-        const requestOptions = { ...options, initialRequest: submittedRequest };
+        const requestOptions = deferredFirstTurnId
+            ? { ...options, initialRequest: submittedRequest, turnId: deferredFirstTurnId, emitInitialEvents: false }
+            : { ...options, initialRequest: submittedRequest };
         const buildResult = (
             /** @type {{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string }} */ result,
         ) => ({
@@ -3080,13 +3220,17 @@ export class SessionRuntime {
         const expectedGenerationSource = managed.acknowledgedGeneration ?? managed.generation;
         const expectedGeneration = Number.isSafeInteger(expectedGenerationSource)
             ? /** @type {number} */ (expectedGenerationSource)
-            : 0;
-        return buildResult(
-            await this.promptManagedSession(sessionId, {
-                ...requestOptions,
-                expectedGeneration,
-            }),
-        );
+            : null;
+        try {
+            return buildResult(
+                await this.promptManagedSession(sessionId, {
+                    ...requestOptions,
+                    expectedGeneration,
+                }),
+            );
+        } finally {
+            if (deferredBusyStarted) this.#endBusyOperation(sessionId, deferredFirstTurnId);
+        }
     }
 
     /**
@@ -3098,6 +3242,7 @@ export class SessionRuntime {
     async #runManagedOperation(sessionId, descriptor, body) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) throw new Error("SessionRuntime.runManagedOperation: session not found");
+        this.#pendingReplayEvents.delete(sessionId);
         const managed = hostedSession.getManagedMetadata?.();
         if (!managed) throw new Error("SessionRuntime.runManagedOperation: Session is not managed");
         if (this.#currentManagedOperations.has(sessionId)) {
@@ -3113,8 +3258,10 @@ export class SessionRuntime {
         const state = this.#sessionStore.inspectSessionActivation(managed.runwieldSessionId);
         const latestGeneration = state.generation?.generation ?? null;
         const options = descriptor.options || {};
-        const expectedGeneration = options.expectedGeneration ?? managed.generation ?? latestGeneration ?? 0;
-        if (latestGeneration !== expectedGeneration) {
+        const expectedGeneration = options.expectedGeneration ?? managed.generation ?? latestGeneration ?? null;
+        const nextGeneration = (expectedGeneration ?? -1) + 1;
+        const isUnpublishedInitialGeneration = latestGeneration === null && expectedGeneration === 0;
+        if (latestGeneration !== expectedGeneration && !isUnpublishedInitialGeneration) {
             return { ok: false, turns: 0, handoffs: 0, handoffLimitReached: false, error: "refresh_required" };
         }
         /** @type {import('../owner-coordination/session-activations.js').ActivationProof} */
@@ -3251,6 +3398,7 @@ export class SessionRuntime {
                 ));
             }
             let agentName = options.agentName || pendingIntent.agentName || null;
+            const persistedModel = resolvePersistedResumeModel(sessionManager);
             if (descriptor.activateAgent !== false) {
                 agentName ||= await resolveResumeAgentName(sessionManager);
                 const pendingModel = pendingIntent.model || pendingIntent.provider
@@ -3260,7 +3408,7 @@ export class SessionRuntime {
                     : undefined;
                 await this.#activateSessionAgent(hostedSession, {
                     agentName,
-                    model: pendingModel,
+                    model: pendingModel || persistedModel,
                     toolNames: options.toolNames,
                     customTools: options.customTools,
                     allowReturnToRouter: options.allowReturnToRouter,
@@ -3283,8 +3431,8 @@ export class SessionRuntime {
             );
             const nextManaged = {
                 ...managed,
-                generation: expectedGeneration + 1,
-                acknowledgedGeneration: expectedGeneration + 1,
+                generation: nextGeneration,
+                acknowledgedGeneration: nextGeneration,
                 name: hostedSession.getRootSessionManager?.()?.getSessionName?.() || managed.name || null,
                 activeAgent: hostedSession.getRootAgentName?.() || null,
                 model: managedModelState.model,
@@ -3300,7 +3448,7 @@ export class SessionRuntime {
                 transcriptCwd: hostedSession.cwd,
             });
             this.#sessionStore.publishGenerationAndRelease(activeProof, {
-                generation: expectedGeneration + 1,
+                generation: nextGeneration,
                 byteLength: evidence.byteLength,
                 terminalEntryId: evidence.terminalEntryId,
                 digestHex: evidence.digestHex,
@@ -3323,8 +3471,8 @@ export class SessionRuntime {
                     );
                     const canceledManaged = {
                         ...managed,
-                        generation: expectedGeneration + 1,
-                        acknowledgedGeneration: expectedGeneration + 1,
+                        generation: nextGeneration,
+                        acknowledgedGeneration: nextGeneration,
                         name: hostedSession.getRootSessionManager?.()?.getSessionName?.() || managed.name || null,
                         activeAgent: hostedSession.getRootAgentName?.() || null,
                         model: managedModelState.model,
@@ -3340,7 +3488,7 @@ export class SessionRuntime {
                         transcriptCwd: hostedSession.cwd,
                     });
                     this.#sessionStore.publishGenerationAndRelease(activeProof, {
-                        generation: expectedGeneration + 1,
+                        generation: nextGeneration,
                         byteLength: evidence.byteLength,
                         terminalEntryId: evidence.terminalEntryId,
                         digestHex: evidence.digestHex,
@@ -3386,7 +3534,7 @@ export class SessionRuntime {
 
     /**
      * @param {string} sessionId
-     * @param {PromptSessionOptions & { expectedGeneration: number }} options
+     * @param {PromptSessionOptions & { expectedGeneration: number | null }} options
      */
     async promptManagedSession(sessionId, options) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
@@ -3395,13 +3543,13 @@ export class SessionRuntime {
         if (!managed) throw new Error("SessionRuntime.promptManagedSession: segmented Session metadata is unavailable");
         const result = await this.#runManagedOperation(
             sessionId,
-            { name: "prompt", options },
+            { name: "prompt", options, emitPromptEvents: options.emitInitialEvents === false ? false : undefined },
             async ({ acceptedTurnId, hasPendingImages, capability }) =>
                 await this.promptSession(sessionId, {
                     ...options,
                     turnId: acceptedTurnId,
                     onTurnStarted: undefined,
-                    emitInitialEvents: hasPendingImages,
+                    emitInitialEvents: options.emitInitialEvents === false ? false : hasPendingImages,
                     suppressEpicContinuation: true,
                     signal: capability.signal,
                 }, capability),
@@ -3442,18 +3590,23 @@ export class SessionRuntime {
      * consumer. Only the opaque runtime id and public metadata cross the core
      * boundary.
      *
-     * @param {{ cwd: string, mode?: "new" | "continue", deferManagedActivationUntilAgentReady?: boolean }} options
+     * @param {{ cwd: string, mode?: "new" | "continue", resumeSessionId?: string, deferManagedActivationUntilAgentReady?: boolean }} options
      */
     async createInteractiveSession(options) {
         if (!options?.cwd || !isAbsolute(options.cwd)) {
             throw new Error("SessionRuntime.createInteractiveSession requires an absolute cwd");
         }
         const ownerCoordinationStore = this.#sessionStore;
-        if (!ownerCoordinationStore) {
+        const deferManagedCreation = Boolean(
+            (options.mode || "new") === "new" && options.deferManagedActivationUntilAgentReady,
+        );
+        if (!ownerCoordinationStore && !deferManagedCreation) {
             throw new Error("Session Manager access is blocked: session_store_unavailable");
         }
-        const managedProject = this.#ensureSessionProjectForCwd(options.cwd);
-        if (!managedProject) throw new Error("Session Manager create is blocked: project_identity_unavailable");
+        const managedProject = deferManagedCreation ? null : this.#ensureSessionProjectForCwd(options.cwd);
+        if (!deferManagedCreation && !managedProject) {
+            throw new Error("Session Manager create is blocked: project_identity_unavailable");
+        }
         if ((options.mode || "new") === "continue") {
             const classified = await classifyRootSessionLocator({
                 cwd: options.cwd,
@@ -3462,20 +3615,35 @@ export class SessionRuntime {
             if (classified.kind === "blocked") {
                 throw new Error(`Session continue is blocked: ${classified.reason}`);
             }
-            const persistedSessions = classified.kind === "managed"
-                ? (await listCatalogSafeRootSessionLocators(options.cwd)).locators.map((locator) => ({
-                    id: locator.piSessionId,
-                    path: locator.sessionPath,
-                    cwd: locator.headerCwd,
-                    modified: locator.headerTimestamp || undefined,
-                }))
-                : await listPersistedRootSessions(options.cwd);
-            const latestSession = persistedSessions[0] || null;
-            if (latestSession?.id && latestSession?.path) {
+            let selectedSession = null;
+            if (options.resumeSessionId) {
+                const cataloged = ownerCoordinationStore?.getSessionById(options.resumeSessionId) || null;
+                if (cataloged && cataloged.projectId === managedProject?.projectId) {
+                    selectedSession = {
+                        id: cataloged.piSessionId,
+                        path: cataloged.transcriptPath,
+                        cwd: cataloged.transcriptCwd,
+                    };
+                }
+            } else {
+                const persistedSessions = classified.kind === "managed"
+                    ? (await listCatalogSafeRootSessionLocators(options.cwd)).locators.map((locator) => ({
+                        id: locator.piSessionId,
+                        path: locator.sessionPath,
+                        cwd: locator.headerCwd,
+                        modified: locator.headerTimestamp || undefined,
+                    }))
+                    : await listPersistedRootSessions(options.cwd);
+                selectedSession = persistedSessions[0] || null;
+            }
+            if (options.resumeSessionId && !selectedSession) {
+                throw new Error(`No saved Session was found with ID ${options.resumeSessionId}.`);
+            }
+            if (selectedSession?.id && selectedSession?.path) {
                 const loaded = await this.loadSession({
                     cwd: options.cwd,
-                    sessionId: latestSession.id,
-                    sessionPath: latestSession.path,
+                    sessionId: selectedSession.id,
+                    sessionPath: selectedSession.path,
                 });
                 return {
                     sessionId: loaded.sessionId,
@@ -3485,9 +3653,6 @@ export class SessionRuntime {
                 };
             }
         }
-        const deferManagedCreation = Boolean(
-            managedProject && ownerCoordinationStore && options.deferManagedActivationUntilAgentReady,
-        );
         const sessionManager = deferManagedCreation
             ? null
             : await createRootSessionManager(options.mode || "new", options.cwd);
@@ -3564,14 +3729,12 @@ export class SessionRuntime {
                 : null,
         });
         if (managedProof) this.#pendingManagedCreations.set(hostedSession.id, managedProof);
-        if (deferManagedCreation && managedProject) {
-            this.#pendingManagedCreationProjects.set(
-                hostedSession.id,
-                /** @type {{ projectId: string }} */ (managedProject),
-            );
+        if (deferManagedCreation) {
+            this.#pendingManagedCreationProjects.set(hostedSession.id, { cwd: options.cwd });
         }
         this.#attachRuntimeEventSink(hostedSession);
         if (managedProof && managedSession) {
+            if (!ownerCoordinationStore) throw new Error("Session coordination is unavailable");
             let activeProof = managedProof;
             try {
                 activeProof = ownerCoordinationStore.changeSessionActivationPhase(activeProof, "hydrated");
@@ -3618,7 +3781,7 @@ export class SessionRuntime {
         return {
             sessionId: hostedSession.id,
             cwd: hostedSession.cwd,
-            sessionManagerId: sessionManager?.getSessionId?.() || hostedSession.id,
+            sessionManagerId: sessionManager?.getSessionId?.() || null,
             startedAt: sessionManager?.getHeader?.()?.timestamp || new Date().toISOString(),
         };
     }
@@ -3697,14 +3860,16 @@ export class SessionRuntime {
                         generation: inspected.generation.generation,
                     });
                     const sync = await this.synchronizeManagedSession(adopted.sessionId, { emitEvents: false });
+                    const replayEvents = sync.ok
+                        ? (sync.events || []).map((event) =>
+                            createSessionRuntimeEvent(adopted.sessionId, /** @type {any} */ (event))
+                        )
+                        : [];
+                    this.#pendingReplayEvents.set(adopted.sessionId, replayEvents);
                     return {
                         sessionId: adopted.sessionId,
                         cwd: adopted.cwd,
-                        replayEvents: sync.ok
-                            ? (sync.events || []).map((event) =>
-                                createSessionRuntimeEvent(adopted.sessionId, /** @type {any} */ (event))
-                            )
-                            : [],
+                        replayEvents,
                         sessionManagerId: managedSession.piSessionId,
                         sessionPath: managedSession.transcriptPath,
                     };
@@ -3787,6 +3952,7 @@ export class SessionRuntime {
                 getRootSessionBranchEntries(sessionManager),
             )
                 .map((event) => createSessionRuntimeEvent(hostedSession.id, /** @type {any} */ (event)));
+            this.#pendingReplayEvents.set(hostedSession.id, replayEvents);
             this.#emitSessionEvent(hostedSession.id, {
                 type: RuntimeEventTypes.SESSION_LOADED,
                 cwd: hostedSession.cwd,
@@ -3826,6 +3992,9 @@ export class SessionRuntime {
         if (!session) return { outcome: "unsupported", message: "Session not found." };
         const capability = this.#currentManagedOperations.get(sessionId) || null;
         if (capability) return await requestHostedSessionInteraction(session, request, signal, capability);
+        if (this.#pendingManagedCreationProjects.has(sessionId) && !session.getManagedMetadata?.()) {
+            return await requestHostedSessionInteraction(session, request, signal, null);
+        }
         return await this.#runManagedStandaloneMutation(
             sessionId,
             "workflow_operation",
@@ -4224,14 +4393,17 @@ export class SessionRuntime {
 export function createSessionRuntime(options = {}) {
     /** @type {ReturnType<typeof openFileSessionStore> | null} */
     let sessionStore;
+    let ownsSessionStore = false;
     if (Object.hasOwn(options, "sessionStore")) {
         sessionStore = options.sessionStore ?? null;
     } else {
         sessionStore = openFileSessionStore();
+        ownsSessionStore = true;
     }
     return new SessionRuntime({
         sessionHost: new SessionHost(),
         sessionStore,
+        ownsSessionStore,
         ownerProcessKind: options.ownerProcessKind ?? "test",
         ownerInstanceId: options.ownerInstanceId ?? crypto.randomUUID(),
     });

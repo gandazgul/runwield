@@ -53,9 +53,26 @@ simultaneous writers.
 
 ### Every Session is segmented
 
-There is no managed/unmanaged or split/normal product distinction. New Sessions immediately receive a stable RunWield
-Session ID, a planning segment, and embedded RunWield lineage. Execution and semantic repair create successor Pi JSONL
-segments under the same stable Session.
+There is no managed/unmanaged or split/normal product distinction after a Session is persisted.
+
+A brand-new empty TUI start is the exception: it is only an in-memory shell until the first submitted user message. It
+uses the explicitly requested starting Agent, or Router when none was requested, and may show that Agent and its model
+in the footer. It must not create a Session bundle, catalog entry, transcript, planning segment, generation, or embedded
+lineage. If the user exits before the first message, `/resume` must not show that empty shell.
+
+The first submitted message is the persistence boundary. The UI renders that message and enters busy state before any
+durable Session work begins. RunWield then creates the stable Session ID, transcript, planning segment, and embedded
+lineage, appends the submitted message, and contacts the model. The first generation and its evidence are published when
+the turn is checkpointed. This persistence and model work happens behind the already-visible busy state and must not
+delay the user's immediate feedback. Execution and semantic repair create successor Pi JSONL segments under the same
+stable persisted Session.
+
+Resuming a persisted Session reconstructs its committed conversation, last active Agent, and last active model as
+in-memory projections. Projection must not rerun a model turn, tool call, workflow action, or other historical side
+effect. Normal resumes remain dormant and do not construct a writable root Agent Session until the user's next message.
+On that message, RunWield acquires the Session lock, hydrates the transcript, restores the last persisted Agent and
+model, and continues normally. Router and current configuration defaults are fallbacks only when the transcript does not
+contain an available choice.
 
 Opening an older single Pi transcript silently creates its bundle and planning segment. If manifests are missing,
 RunWield groups lineage-bearing transcripts by stable Session ID and orders them through parent segment and parent Pi

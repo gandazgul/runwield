@@ -252,6 +252,27 @@ Deno.test("chat input controller preflights pasted image attachments through the
     );
 });
 
+Deno.test("chat input controller shows safe text when submit fails", async () => {
+    await withRuntimeCommandFixture("chat-input-safe-submit-error-", async () => {
+        const { composition, terminal } = await startComposition();
+        try {
+            const rawMessage = "Session Manager create is blocked: project_identity_unavailable";
+            composition.runtime.promptUserTurn = () => Promise.reject(new Error(rawMessage));
+            await submitText(terminal, "keep this draft");
+            await waitFor(
+                () => terminal.getScrollbackText().includes("RunWield could not send that message"),
+                "safe submit failure message",
+            );
+            assertStringIncludes(terminal.getScrollbackText(), "RunWield could not send that message");
+            await waitFor(() => terminal.getScreenText().includes("keep this draft"), "restored failed-submit draft");
+            assertStringIncludes(terminal.getScreenText(), "keep this draft");
+            assertEquals(terminal.getScrollbackText().includes("project_identity_unavailable"), false);
+        } finally {
+            await composition.dispose();
+        }
+    });
+});
+
 Deno.test("chat input controller preserves input while model setup blocks through the composed TUI", async () => {
     await withRuntimeCommandFixture("chat-input-real-model-block-", async () => {
         const harness = createInteractiveCompositionHarness({});

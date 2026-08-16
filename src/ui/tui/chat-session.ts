@@ -55,6 +55,7 @@ export interface TerminalPairPort {
 }
 export interface StartInteractiveSessionOptions {
     sessionStartMode?: "new" | "continue";
+    resumeSessionId?: string;
     initialAgentName?: string;
     initialAgentModel?: string;
     onSessionReady?: (sessionId: string, sessionRuntime: SessionRuntime) => void;
@@ -129,7 +130,9 @@ export async function startInteractiveSession(
 ): Promise<UiAPI> {
     const chatBuiltinSlashNames = new Set<string>();
     for (const command of getSlashCommandDefinitions()) chatBuiltinSlashNames.add(command.name);
-    const sessionStore = openFileSessionStore();
+    const sessionStartMode = options.sessionStartMode || "new";
+    const shouldDeferManagedActivation = sessionStartMode === "new";
+    const sessionStore = shouldDeferManagedActivation ? null : openFileSessionStore();
     const sessionRuntime = createSessionRuntime({ sessionStore, ownerProcessKind: "tui" });
     const disposables: Array<() => void | Promise<void>> = [];
     let uiAPIForDispose: UiAPI | null = null;
@@ -155,12 +158,12 @@ export async function startInteractiveSession(
                 recordCleanupError(error instanceof Error ? error : new Error(String(error)));
             }
             try {
-                sessionRuntime.closeAllSessions?.();
+                await sessionRuntime.closeAllSessions?.();
             } catch (error) {
                 recordCleanupError(error instanceof Error ? error : new Error(String(error)));
             }
             try {
-                sessionStore.close();
+                sessionStore?.close();
             } catch (error) {
                 recordCleanupError(error instanceof Error ? error : new Error(String(error)));
             }
@@ -171,12 +174,12 @@ export async function startInteractiveSession(
     };
     options.onLifecycleReady?.(lifecycleHandle);
     try {
-        const sessionStartMode = options.sessionStartMode || "new";
         const sessionCwd = getCwd();
         const createdSession = await sessionRuntime.createInteractiveSession({
             cwd: sessionCwd,
             mode: sessionStartMode,
-            deferManagedActivationUntilAgentReady: sessionStartMode === "new",
+            resumeSessionId: options.resumeSessionId,
+            deferManagedActivationUntilAgentReady: shouldDeferManagedActivation,
         });
         let sessionId = createdSession.sessionId;
         const runtimeSnapshot = () => getRuntimeSnapshot(sessionRuntime, sessionId);
@@ -193,13 +196,7 @@ export async function startInteractiveSession(
             sessionId,
             sessionStartedEmptyProjectDirectory ? EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE : "",
         );
-        if (!options.skipModelWelcome) await listAvailableAgents(runtimeSnapshot().cwd);
         const initialAgentInternalName = options.initialAgentName || AGENTS.ROUTER;
-        if (!options.skipModelWelcome) {
-            await ensureMnemosyneBinary();
-            await ensureCymbalBinary();
-            await ensureKetchBinary();
-        }
         const tui = initTUI();
         setTerminalTitleForName(runtimeSnapshot().name || runtimeSnapshot().cwd.split("/").at(-1) || "RunWield");
         const suppressStartupHeader = options.sessionStartMode === "continue";
@@ -240,6 +237,13 @@ export async function startInteractiveSession(
         });
         disposables.push(() => managedSyncController.dispose());
         managedSyncController.start();
+        view.requestRender();
+        if (!options.skipModelWelcome) {
+            await listAvailableAgents(runtimeSnapshot().cwd);
+            await ensureMnemosyneBinary();
+            await ensureCymbalBinary();
+            await ensureKetchBinary();
+        }
         const promptTemplates = options.skipModelWelcome
             ? []
             : await sessionRuntime.listSessionPromptTemplates(sessionId);
@@ -304,8 +308,9 @@ export async function startInteractiveSession(
                 initialAgentInternalName,
                 initialAgentModel: options.initialAgentModel,
                 projectRoot: runtimeSnapshot().cwd,
+                deferRootActivation: shouldDeferManagedActivation,
             });
-        if (!modelWelcomeResult.noModel) {
+        if (!modelWelcomeResult.noModel && shouldDeferManagedActivation) {
             sessionRuntime.markPromptReadyAgent(sessionId, {
                 agentName: initialAgentInternalName,
                 model: options.initialAgentModel,
@@ -398,9 +403,7 @@ export async function startInteractiveSession(
             });
         }
         if (shouldReplaySessionHistory(options.sessionStartMode)) {
-            if (sessionRuntime.isManagedSessionDormant(sessionId)) {
-                await sessionRuntime.synchronizeManagedSession(sessionId, { replayFromStart: true });
-            } else await sessionRuntime.replaySession(sessionId);
+            await sessionRuntime.replaySession(sessionId);
         }
         if (initialUserRequest && !modelWelcomeResult.noModel) {
             view.editor.setText(initialUserRequest);

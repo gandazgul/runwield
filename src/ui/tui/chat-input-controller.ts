@@ -4,7 +4,6 @@ import { installKeybindings } from "./keybindings.ts";
 import { handleSlashCommand, isImmediateBuiltinSlashCommandWhileStreaming, type SkillMeta } from "./slash-dispatch.ts";
 import { readClipboardImage } from "./clipboard.ts";
 import { resolveTemplateModel } from "../../shared/models/model-validation.ts";
-import { SessionTurnInProgressError } from "../../shared/session/session-runtime.js";
 import { persistThinkingLevel, recordUserInputHistory, type SessionRuntime } from "./chat-session.ts";
 import { createGenerationGuard } from "./generation-guard.js";
 import { type ChatView, createPastedImagePreview } from "./chat-view.ts";
@@ -59,6 +58,14 @@ function imageWarningKey(image: ImageAttachment): string {
     return image.ref || image.path || `${image.mimeType}:${image.base64.slice(0, 24)}`;
 }
 
+function userTurnFailureMessage(error: Error | string): string {
+    console.error("[RunWield] tui_submit_failed", error);
+    if (error instanceof Error && error.message.includes("model")) {
+        return "RunWield could not send the message because model setup is not ready. Choose a model, then try again.";
+    }
+    return "RunWield could not send that message. Your draft was restored. Try again.";
+}
+
 export function createChatInputController(options: ChatInputControllerOptions): ChatInputController {
     const { view, uiAPI, runtime } = options;
     const { editor, pastedImages, previewImages } = view;
@@ -67,6 +74,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
     const warnedImageRefs = new Set<string>();
     const preflightedImageRefs = new Set<string>();
     let isProcessingSubmission = false;
+    let shouldDrainQueuedAfterProcessing = false;
     let originalHandleInput: (data: string) => void | Promise<void> = (data: string) => editor.handleInput(data);
 
     function forceResetUI(): void {
@@ -104,7 +112,8 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             );
             return;
         }
-        if (!isProcessingSubmission) void processSubmissions();
+        if (isProcessingSubmission) shouldDrainQueuedAfterProcessing = true;
+        else void processSubmissions();
         view.requestRender();
     }
     async function submitToActiveRoot(userRequest: string, savedImages: ImageAttachment[]): Promise<void> {
@@ -132,8 +141,12 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             }
         } catch (err) {
             restoreQueuedItemToEditor({ text: userRequest, images: savedImages });
-            if (generationStillCurrent(thisGen) && err instanceof SessionTurnInProgressError) {
-                uiAPI.appendSystemMessage(`Error: ${err.message}`);
+            if (generationStillCurrent(thisGen)) {
+                uiAPI.appendSystemMessage(
+                    userTurnFailureMessage(err instanceof Error ? err : String(err)),
+                    true,
+                    "RunWield",
+                );
             }
         } finally {
             options.managedSyncController.resume();
@@ -179,6 +192,10 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         } finally {
             isProcessingSubmission = false;
             forceResetUI();
+            if (shouldDrainQueuedAfterProcessing && runtime.getQueuedMessages(options.getSessionId()).length > 0) {
+                shouldDrainQueuedAfterProcessing = false;
+                void processSubmissions();
+            }
         }
     }
     async function preflightCurrentImages(images: ImageAttachment[]) {
@@ -267,7 +284,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             if (isImmediateBuiltinSlashCommandWhileStreaming(userRequest)) {
                 executeUserRequest(userRequest, images).catch((error) =>
                     uiAPI.appendSystemMessage(
-                        `Error: ${error instanceof Error ? error.message : String(error)}`,
+                        userTurnFailureMessage(error instanceof Error ? error : String(error)),
                         true,
                         "RunWield",
                     )

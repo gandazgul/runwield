@@ -3,6 +3,7 @@ import { AGENTS } from "../../constants.js";
 import {
     ACTIVE_AGENT_CUSTOM_TYPE,
     readPersistedActiveAgentName,
+    readPersistedModelState,
     recordActiveAgent,
     resolveResumeAgentName,
 } from "./active-agent-session.js";
@@ -37,6 +38,30 @@ Deno.test("recordActiveAgent skips duplicate adjacent markers", () => {
 
     assertEquals(entries.length, 1);
     assertEquals(entries[0].customType, ACTIVE_AGENT_CUSTOM_TYPE);
+});
+
+Deno.test("readPersistedModelState returns the latest persisted model", () => {
+    const sessionManager = makeSessionManager([
+        { type: "model_change", provider: "first-provider", modelId: "first-model" },
+        { type: "model_change", provider: "last-provider", modelId: "last-model" },
+    ]);
+
+    assertEquals(readPersistedModelState(sessionManager), {
+        provider: "last-provider",
+        model: "last-model",
+    });
+});
+
+Deno.test("readPersistedModelState ignores malformed model entries", () => {
+    const sessionManager = makeSessionManager([
+        { type: "model_change", provider: "valid-provider", modelId: "valid-model" },
+        { type: "model_change", provider: "broken-provider", modelId: "" },
+    ]);
+
+    assertEquals(readPersistedModelState(sessionManager), {
+        provider: "valid-provider",
+        model: "valid-model",
+    });
 });
 
 Deno.test("resolveResumeAgentName returns persisted valid agent", async () => {

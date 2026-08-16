@@ -286,12 +286,13 @@ export const commandRegistry = {
         summary: "Browse and resume a recent session.",
         usage: [
             "/resume",
+            `${bin("resume <session-id>")}`,
         ],
         notes: [
-            "Slash command only (interactive session).",
+            "Use /resume to browse saved Sessions, or pass an exact Session ID on the command line.",
         ],
         execute: runResumeCommand,
-        surfaces: ["slash"],
+        surfaces: ["cli", "slash"],
     },
     [COMMAND_NAMES.NEW]: {
         name: COMMAND_NAMES.NEW,

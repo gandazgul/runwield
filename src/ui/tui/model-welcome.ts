@@ -52,6 +52,7 @@ export interface MaybeShowModelWelcomeOptions {
     forceModelSelection?: boolean;
     /** Project root that scopes the settings manager used for defaults. */
     projectRoot: string;
+    deferRootActivation?: boolean;
 }
 
 export interface ModelWelcomeResult {
@@ -248,10 +249,13 @@ export async function maybeShowModelWelcome(options: MaybeShowModelWelcomeOption
     }
 
     try {
-        options.sessionRuntime.markPromptReadyAgent(options.sessionId, {
-            agentName: options.initialAgentInternalName,
-            model: options.initialAgentModel,
-        });
+        if (options.deferRootActivation) {
+            const result = options.sessionRuntime.markPromptReadyAgent(options.sessionId, {
+                agentName: options.initialAgentInternalName,
+                model: options.initialAgentModel,
+            });
+            if (!result.ok) throw new Error(result.error || "prompt-ready metadata failed");
+        }
         options.editor.disableSubmit = false;
         options.tui.setFocus(options.editor);
         options.tui.requestRender();

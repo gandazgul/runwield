@@ -4,6 +4,7 @@ import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { AGENTS } from "../../constants.js";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
 import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
 import { __resetSettingsForTests } from "../../shared/settings.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
@@ -217,18 +218,27 @@ Deno.test("runResumeCommand compacts a real loaded session through the faux mode
             const current = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
             const ui = makeUi([seeded.path, "compact"]);
             let replacementId = "";
+            const replayedStatuses: string[] = [];
+            let unsubscribe = () => {};
             try {
                 await runResumeCommand([], {
                     uiAPI: ui.uiAPI,
                     editor: ui.editor,
                     sessionId: current.sessionId,
                     sessionRuntime: runtime,
-                    replaceRuntimeSession: (sessionId) => replacementId = sessionId,
+                    replaceRuntimeSession: (sessionId) => {
+                        replacementId = sessionId;
+                        unsubscribe = runtime.subscribeSessionEvents(sessionId, (event) => {
+                            if (event.type === RuntimeEventTypes.SYSTEM_STATUS) replayedStatuses.push(event.message);
+                        });
+                    },
                 });
 
                 assertEquals(runtime.getSessionSnapshot(replacementId)?.sessionManagerId, seeded.id);
                 assertStringIncludes(ui.messages.at(-1) || "", `Resumed (compacted) session: ${seeded.id}`);
+                assert(replayedStatuses.some((message) => message.includes("Summary of the fixture session.")));
             } finally {
+                unsubscribe();
                 runtime.closeAllSessions();
                 store.close();
             }

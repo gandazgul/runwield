@@ -110,10 +110,19 @@ function getTerminalColumns(): number {
     return FALLBACK_TERMINAL_COLUMNS;
 }
 
-export async function runResumeCommand(_argv: string[], options: ResumeCommandOptions = {}): Promise<void> {
+export async function runResumeCommand(argv: string[], options: ResumeCommandOptions = {}): Promise<void> {
     const { uiAPI, editor, sessionRuntime, sessionId, replaceRuntimeSession } = options;
     if (!uiAPI || !editor) {
-        console.error("The /resume command is only available inside an interactive session.");
+        const requestedSessionId = argv[0]?.trim() || "";
+        if (!requestedSessionId) {
+            console.error("Usage: wld resume <session-id>");
+            return;
+        }
+        const { SYSTEM_INTERACTIVE_SESSION_PORT } = await import("../../ui/tui/interactive-session-port.ts");
+        await SYSTEM_INTERACTIVE_SESSION_PORT.startInteractiveSession(null, {
+            sessionStartMode: "continue",
+            resumeSessionId: requestedSessionId,
+        });
         return;
     }
     if (!sessionRuntime || !sessionId || !replaceRuntimeSession) {
@@ -124,8 +133,9 @@ export async function runResumeCommand(_argv: string[], options: ResumeCommandOp
     if (!current) throw new Error("The active runtime session is missing.");
     const listedSessions = await sessionRuntime.listResumableSessions(current.cwd);
     if (!Array.isArray(listedSessions)) {
+        console.error("[RunWield] resume_list_failed", listedSessions.error || "saved_sessions_unavailable");
         uiAPI.appendSystemMessage(
-            `Recent sessions are unavailable: ${listedSessions.error || "managed_read_blocked"}.`,
+            "RunWield could not load saved Sessions. Try /resume again.",
         );
         return;
     }
@@ -211,9 +221,10 @@ export async function runResumeCommand(_argv: string[], options: ResumeCommandOp
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             const canceled = message === "Compaction cancelled" || message.includes("cancelled");
+            if (!canceled) console.error("[RunWield] resume_compaction_failed", error);
             notice = canceled
                 ? `Compaction cancelled, resuming as-is...\n${notice}`
-                : `Compaction failed: ${message} — resuming as-is...\n${notice}`;
+                : `Compaction could not finish. Resuming without it.\n${notice}`;
         }
     }
 

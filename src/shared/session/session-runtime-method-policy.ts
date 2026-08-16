@@ -41,6 +41,7 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     listSessionSkills: "read_only",
     listSessions: "read_only",
     loadSession: "initializer_adopter",
+    markPromptReadyAgent: "projection_adapter_local",
     persistSessionImage: "fenced_standalone_mutation",
     preflightSessionImages: "read_only",
     promptManagedSession: "nested_only_mutation",

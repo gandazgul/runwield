@@ -1538,7 +1538,6 @@ async function runComposedTuiScenario(scenario, options) {
                     state.planFiles = planFiles;
                     events.push("project:plan-file-absent");
                 } else if (typed.type === "uiPresentationState") {
-                    const beforePresentation = terminal.getScreenText();
                     composition.uiAPI.setBusy?.(true);
                     events.push("ui:spinner:busy");
                     composition.uiAPI.setManagedSyncStatus?.({ status: "stale", owningSurfaceKind: "tui" });
@@ -1557,7 +1556,12 @@ async function runComposedTuiScenario(scenario, options) {
                     // were drawn. Wait for the screen to actually change.
                     for (let attempt = 0; attempt < 50; attempt += 1) {
                         await terminal.flush();
-                        if (terminal.getScreenText() !== beforePresentation) break;
+                        const screen = terminal.getScreenText();
+                        if (
+                            screen.includes("Thinking...") &&
+                            screen.includes("Sync degraded — refresh required") &&
+                            screen.includes("Steering: Queued steering message")
+                        ) break;
                         await new Promise((resolve) => setTimeout(resolve, 20));
                     }
                     const presentationScreen = terminal.getScreenText();

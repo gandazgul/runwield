@@ -12,6 +12,19 @@ import { loadAgentDef, normalizeAgentInternalName } from "./agents.js";
 export const ACTIVE_AGENT_CUSTOM_TYPE = "runwield.active_agent";
 
 /**
+ * @typedef {Object} PersistedModelState
+ * @property {string} provider
+ * @property {string} model
+ */
+
+/**
+ * @typedef {Object} ModelChangeEntry
+ * @property {string} [type]
+ * @property {string} [provider]
+ * @property {string} [modelId]
+ */
+
+/**
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} sessionManager
  * @param {string} agentName
  */
@@ -40,6 +53,25 @@ export function readPersistedActiveAgentName(sessionManager) {
         if (agentName) return agentName;
     }
 
+    return null;
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} sessionManager
+ * @returns {PersistedModelState | null}
+ */
+export function readPersistedModelState(sessionManager) {
+    const entries = getSessionEntries(sessionManager);
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const entry = entries[i];
+        if (!entry || typeof entry !== "object") continue;
+        const typed = /** @type {ModelChangeEntry} */ (entry);
+        if (typed.type !== "model_change" || !typed.modelId?.trim()) continue;
+        return {
+            provider: typed.provider?.trim() || "",
+            model: typed.modelId.trim(),
+        };
+    }
     return null;
 }
 

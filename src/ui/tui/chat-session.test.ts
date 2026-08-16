@@ -1,6 +1,8 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { runResumeCommand } from "../../cmd/resume/index.ts";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
+import { getRunWieldSessionsBaseDir } from "../../shared/session/root-session.js";
 import { getSettingsManager } from "../../shared/settings.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { NO_OPEN_BROWSER_PORT } from "../../shared/browser-port.ts";
@@ -149,74 +151,102 @@ Deno.test("chat session starts in a Project registered by Workspace", async () =
 
 Deno.test("chat session startup does not show busy or thinking output before a turn", async () => {
     await withRuntimeCommandFixture("chat-session-no-phantom-startup-output-", async ({ projectRoot }) => {
-        const store = openOwnerCoordinationStore();
         const terminal = new VirtualTerminal({ columns: 100, rows: 30 });
         const transientEvents: string[] = [];
         const busyStates: boolean[] = [];
         let thinkingBlocks = 0;
         let clearMessages = 0;
+        Deno.chdir(projectRoot);
+        const composition = await createInteractiveTuiComposition(null, {
+            browser: NO_OPEN_BROWSER_PORT,
+            terminal,
+            sessionStartMode: "new",
+            configureUiAPI: (uiAPI) => {
+                const originalSetBusy = uiAPI.setBusy?.bind(uiAPI);
+                uiAPI.setBusy = (busy) => {
+                    busyStates.push(busy);
+                    if (busy) transientEvents.push("busy:true");
+                    originalSetBusy?.(busy);
+                };
+                const originalAppendThinkingStart = uiAPI.appendThinkingStart?.bind(uiAPI);
+                uiAPI.appendThinkingStart = () => {
+                    thinkingBlocks += 1;
+                    transientEvents.push("thinking:start");
+                    return originalAppendThinkingStart?.() || { appendDelta: () => {}, end: () => {} };
+                };
+                const originalClearMessages = uiAPI.clearMessages?.bind(uiAPI);
+                uiAPI.clearMessages = () => {
+                    clearMessages += 1;
+                    transientEvents.push("messages:clear");
+                    originalClearMessages?.();
+                };
+                const originalSetManagedSyncStatus = uiAPI.setManagedSyncStatus?.bind(uiAPI);
+                uiAPI.setManagedSyncStatus = (status) => {
+                    originalSetManagedSyncStatus?.(status);
+                };
+                const originalSetRunningTasks = uiAPI.setRunningTasks?.bind(uiAPI);
+                uiAPI.setRunningTasks = (tasks) => {
+                    if (tasks.length > 0) transientEvents.push("tasks:set");
+                    originalSetRunningTasks?.(tasks);
+                };
+                const originalStartToolExecution = uiAPI.startToolExecution?.bind(uiAPI);
+                uiAPI.startToolExecution = (id, toolName, title) => {
+                    transientEvents.push(`tool:${toolName}`);
+                    return originalStartToolExecution?.(id, toolName, title) || {
+                        bodyText: "",
+                        startTime: Date.now(),
+                        setOutput: () => {},
+                        endExecution: () => {},
+                    };
+                };
+            },
+        });
         try {
-            store.registerProject({ root: projectRoot, now: () => "2026-01-01T00:00:01.000Z" });
-            Deno.chdir(projectRoot);
-            const composition = await createInteractiveTuiComposition(null, {
-                browser: NO_OPEN_BROWSER_PORT,
-                terminal,
-                sessionStartMode: "new",
-                configureUiAPI: (uiAPI) => {
-                    const originalSetBusy = uiAPI.setBusy?.bind(uiAPI);
-                    uiAPI.setBusy = (busy) => {
-                        busyStates.push(busy);
-                        if (busy) transientEvents.push("busy:true");
-                        originalSetBusy?.(busy);
-                    };
-                    const originalAppendThinkingStart = uiAPI.appendThinkingStart?.bind(uiAPI);
-                    uiAPI.appendThinkingStart = () => {
-                        thinkingBlocks += 1;
-                        transientEvents.push("thinking:start");
-                        return originalAppendThinkingStart?.() || { appendDelta: () => {}, end: () => {} };
-                    };
-                    const originalClearMessages = uiAPI.clearMessages?.bind(uiAPI);
-                    uiAPI.clearMessages = () => {
-                        clearMessages += 1;
-                        transientEvents.push("messages:clear");
-                        originalClearMessages?.();
-                    };
-                    const originalSetManagedSyncStatus = uiAPI.setManagedSyncStatus?.bind(uiAPI);
-                    uiAPI.setManagedSyncStatus = (status) => {
-                        originalSetManagedSyncStatus?.(status);
-                    };
-                    const originalSetRunningTasks = uiAPI.setRunningTasks?.bind(uiAPI);
-                    uiAPI.setRunningTasks = (tasks) => {
-                        if (tasks.length > 0) transientEvents.push("tasks:set");
-                        originalSetRunningTasks?.(tasks);
-                    };
-                    const originalStartToolExecution = uiAPI.startToolExecution?.bind(uiAPI);
-                    uiAPI.startToolExecution = (id, toolName, title) => {
-                        transientEvents.push(`tool:${toolName}`);
-                        return originalStartToolExecution?.(id, toolName, title) || {
-                            bodyText: "",
-                            startTime: Date.now(),
-                            setOutput: () => {},
-                            endExecution: () => {},
-                        };
-                    };
-                },
-            });
-            try {
-                await composition.waitForIdle();
-                assertEquals(transientEvents, []);
-                assertEquals(busyStates.includes(true), false);
-                assertEquals(thinkingBlocks, 0);
-                assertEquals(clearMessages, 0);
-                const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);
-                assertEquals(snapshot?.activeAgent, "router");
-                assertEquals(snapshot?.sessionManagerId, null);
-                assertEquals(snapshot?.managed, null);
-            } finally {
-                await composition.dispose();
-            }
+            await composition.waitForIdle();
+            assertEquals(transientEvents, []);
+            assertEquals(busyStates.includes(true), false);
+            assertEquals(thinkingBlocks, 0);
+            assertEquals(clearMessages, 0);
+            const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);
+            assertEquals(snapshot?.activeAgent, "router");
+            assertEquals(snapshot?.sessionManagerId, null);
+            assertEquals(snapshot?.managed, null);
+            await assertRejects(() => Deno.stat(getRunWieldSessionsBaseDir()), Deno.errors.NotFound);
         } finally {
-            store.close();
+            await composition.dispose();
+        }
+    });
+});
+
+Deno.test("slash resume can list from an unpersisted new-session shell", async () => {
+    await withRuntimeCommandFixture("chat-session-lazy-resume-", async ({ projectRoot }) => {
+        Deno.chdir(projectRoot);
+        const terminal = new VirtualTerminal({ columns: 100, rows: 30 });
+        const composition = await createInteractiveTuiComposition(null, {
+            browser: NO_OPEN_BROWSER_PORT,
+            terminal,
+            skipModelWelcome: true,
+            sessionStartMode: "new",
+        });
+        const messages: string[] = [];
+        try {
+            await runResumeCommand([], {
+                uiAPI: {
+                    appendSystemMessage: (message) => messages.push(message),
+                    promptSelect: () => Promise.resolve(null),
+                },
+                editor: { disableSubmit: false, setText: () => {} },
+                sessionRuntime: composition.runtime,
+                sessionId: composition.sessionId,
+                replaceRuntimeSession: () => {},
+            });
+
+            assertEquals(messages, ["No recent sessions found to resume."]);
+            const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);
+            assertEquals(snapshot?.sessionManagerId, null);
+            assertEquals(snapshot?.managed, null);
+        } finally {
+            await composition.dispose();
         }
     });
 });
