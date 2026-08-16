@@ -5,11 +5,7 @@ import { createKetchTools } from "../../../../extensions/ketch/tools.ts";
 import { createMnemosyneTools } from "../../../../extensions/mnemosyne/tools.ts";
 
 export const CLAUDE_CLI_CAPABILITY_TOOL_NAMES = [
-    "memory_recall",
-    "memory_recall_global",
-    "memory_store",
-    "memory_store_global",
-    "memory_delete",
+    "memory",
     "code_search",
     "code_structure",
     "code_impls",

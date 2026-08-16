@@ -42,6 +42,31 @@ Deno.test("Runtime provides one stable tool descriptor for live, replay, TUI, AC
             kind: "other",
         },
     );
+    assertEquals(describeRuntimeTool("memory", { action: "recall", query: "docs style" }), {
+        toolName: "memory",
+        title: "memory docs style",
+        kind: "search",
+    });
+    assertEquals(describeRuntimeTool("memory", { action: "store", content: "Keep docs concise" }), {
+        toolName: "memory",
+        title: "memory Keep docs concise",
+        kind: "edit",
+    });
+    assertEquals(describeRuntimeTool("memory", { action: "delete", id: 42 }), {
+        toolName: "memory",
+        title: "memory id: 42",
+        kind: "delete",
+    });
+    assertEquals(describeRuntimeTool("memory_store", { content: "Historical transcript memory" }), {
+        toolName: "memory_store",
+        title: "memory_store Historical transcript memory",
+        kind: "other",
+    });
+    assertEquals(describeRuntimeTool("memory_recall_global", { query: "Historical transcript query" }), {
+        toolName: "memory_recall_global",
+        title: "memory_recall_global Historical transcript query",
+        kind: "search",
+    });
     assertEquals(describeRuntimeTool("work_record_search", { query: "prior auth work" }), {
         toolName: "work_record_search",
         title: "work_record_search prior auth work",

@@ -14,11 +14,7 @@ tools:
     - write
     - multi_file_edit
     - bash
-    - memory_recall
-    - memory_recall_global
-    - memory_store
-    - memory_store_global
-    - memory_delete
+    - memory
     - work_record_search
     - work_record_read
     - user_interview

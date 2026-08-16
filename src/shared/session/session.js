@@ -34,13 +34,7 @@ import {
     normalizeRuntimeUsage,
     RuntimeEventTypes,
 } from "./session-runtime-events.js";
-import mnemosyneExtension, {
-    memoryDeleteToolDef,
-    memoryRecallGlobalToolDef,
-    memoryRecallToolDef,
-    memoryStoreGlobalToolDef,
-    memoryStoreToolDef,
-} from "../../extensions/mnemosyne/index.js";
+import mnemosyneExtension, { memoryToolDef } from "../../extensions/mnemosyne/index.js";
 import cymbalExtension, {
     codeBatchToolDef,
     codeImpactToolDef,
@@ -1401,11 +1395,7 @@ export async function assembleFinalSystemPromptWithContextProjection(
     ];
 
     const extensionTools = [
-        memoryRecallToolDef,
-        memoryRecallGlobalToolDef,
-        memoryStoreToolDef,
-        memoryStoreGlobalToolDef,
-        memoryDeleteToolDef,
+        memoryToolDef,
         codeSearchToolDef,
         codeShowToolDef,
         codeOutlineToolDef,

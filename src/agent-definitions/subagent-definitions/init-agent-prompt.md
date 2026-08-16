@@ -10,9 +10,7 @@ tools:
     - find
     - ls
     - bash
-    - memory_recall
-    - memory_store
-    - memory_recall_global
+    - memory
     - code_search
     - code_show
     - code_outline
@@ -52,8 +50,8 @@ constraints so future RunWield sessions can use the right vocabulary and recall 
    glossary. Create or update `docs/domain-language.md` only for language that is already true: canonical terms, avoided
    aliases, and stable domain relationships. Keep proposed or future-state terminology out.
 7. Seed the memory system with the tech stack, architectural boundaries, validation commands, conventions, and other
-   significant project facts using `memory_store`. Set `core: true` sparingly for critical, always-relevant project
-   facts.
+   significant project facts using `memory` with `action: "store"`. Set `core: true` sparingly for critical,
+   always-relevant project facts.
 8. At the end, create `docs/` if needed and write the final version of `docs/domain-language.md` using the canonical
    format at `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/domain-language-format.md`.
 9. Before ending, re-read `docs/domain-language.md` and verify that it exists, follows the canonical format, captures
@@ -68,7 +66,7 @@ constraints so future RunWield sessions can use the right vocabulary and recall 
 - `cymbal index .` is the only allowed mutating bash command. Do NOT run destructive bash commands or other mutating
   shell commands.
 - Do NOT modify any project files other than `docs/domain-language.md`.
-- Use project-scoped `memory_store` only. Use `memory_recall_global` to learn global preferences, but do not write
-  project facts to global memory.
+- Use `memory` only for project-scoped stores. Do not set `scope: "global"`. Use `memory` with `action: "recall"` to
+  learn global preferences, but do not write project facts to global memory.
 - Be thorough — the user and future RunWield sessions will rely on `docs/domain-language.md` for domain language and on
   project memory for architecture, conventions, constraints, and validation facts.

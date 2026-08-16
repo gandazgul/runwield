@@ -53,7 +53,6 @@ const BENCHMARK_ROUTER_TOOLS = [
     "find",
     "ls",
     "memory_recall",
-    "memory_recall_global",
     "code_search",
     "code_show",
     "code_outline",

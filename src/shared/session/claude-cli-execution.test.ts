@@ -300,7 +300,7 @@ Deno.test("^Claude CLI MCP lifecycle bridge black-box contract$", async () => {
         // The fake Claude listed Agent-eligible bridged tools over real MCP.
         const toolsLine = lines.find((line) => line.mcp?.tools);
         assertEquals(toolsLine.mcp.tools.includes("runwield_task_completed"), true);
-        assertEquals(toolsLine.mcp.tools.includes("memory_recall"), true);
+        assertEquals(toolsLine.mcp.tools.includes("memory"), true);
         assertEquals(toolsLine.mcp.tools.includes("delegate_agent"), false);
         const callsLine = lines.find((line) => line.mcp?.calls);
         assertEquals(callsLine.mcp.calls[0].isError, true);

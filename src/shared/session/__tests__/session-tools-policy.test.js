@@ -59,8 +59,7 @@ Deno.test("loadAgentDef preserves per-agent protected tools when override narrow
         const def = await loadAgentDef("router", projectRoot);
 
         const expectedProtected = [
-            "memory_recall",
-            "memory_recall_global",
+            "memory",
             "code_search",
             "code_show",
             "code_outline",
@@ -124,8 +123,7 @@ Deno.test("loadAgentDef loads Guide with read-only tools and return_to_router", 
     assert(def.tools.includes("find"));
     assert(def.tools.includes("ls"));
     assert(def.tools.includes("bash"));
-    assert(def.tools.includes("memory_recall"));
-    assert(def.tools.includes("memory_recall_global"));
+    assert(def.tools.includes("memory"));
     assert(def.tools.includes("code_search"));
     assert(def.tools.includes("return_to_router"));
     assert(def.tools.includes("write_docs"));
@@ -195,7 +193,7 @@ Deno.test("Router and Recorder do not expose delegate_agent by default", async (
 });
 
 Deno.test("resolveSessionToolNames blocks runtime toolNames from re-enabling removed non-protected tools", () => {
-    const agentTools = ["read", "memory_recall", "triage_report"];
+    const agentTools = ["read", "memory", "triage_report"];
     const resolved = resolveSessionToolNames(agentTools, ["read", "bash", "triage_report"], []);
 
     assertEquals(resolved, ["read", "triage_report"]);
@@ -213,19 +211,19 @@ Deno.test("resolveSessionToolNames allows workflow runtime custom tools", () => 
 });
 
 Deno.test("resolveEffectiveSessionToolNames filters return_to_router unless explicitly allowed", () => {
-    const agentTools = ["read", "return_to_router", "memory_recall"];
+    const agentTools = ["read", "return_to_router", "memory"];
 
     assertEquals(
         resolveEffectiveSessionToolNames(agentTools, undefined, []),
-        ["read", "memory_recall"],
+        ["read", "memory"],
     );
     assertEquals(
         resolveEffectiveSessionToolNames(agentTools, undefined, [], { allowReturnToRouter: false }),
-        ["read", "memory_recall"],
+        ["read", "memory"],
     );
     assertEquals(
         resolveEffectiveSessionToolNames(agentTools, undefined, [], { allowReturnToRouter: true }),
-        ["read", "return_to_router", "memory_recall"],
+        ["read", "return_to_router", "memory"],
     );
 });
 

@@ -14,11 +14,7 @@ tools:
     - multi_file_edit
     - bash
     - task_completed
-    - memory_recall
-    - memory_recall_global
-    - memory_store
-    - memory_store_global
-    - memory_delete
+    - memory
     - return_to_router
     - code_search
     - code_show
