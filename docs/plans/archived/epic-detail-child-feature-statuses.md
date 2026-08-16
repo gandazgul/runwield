@@ -7,6 +7,7 @@ affectedPaths:
     - "src/cmd/load-plan/index.js"
 createdAt: "2026-06-18T00:00:00.000Z"
 updatedAt: "2026-07-17T04:42:18.260Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-18T17:11:42.526Z"

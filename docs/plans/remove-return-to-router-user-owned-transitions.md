@@ -1,42 +1,66 @@
 ---
+planId: "60baefb7-082f-4e80-85a4-5c502c2a4a13"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
-summary: "Remove the return_to_router tool and all autonomous agent-initiated control switching; agents state limits and offer options in conversation, the user owns every transition, and an explicit /agent during active Plan execution deterministically ends the workflow's ownership of the conversation."
+summary: "Remove the return_to_router tool and all autonomous agent-initiated control switching; agents state limits and offer options in conversation, the user owns every transition, and an explicit /agent during active execution deterministically ends the workflow's ownership of the conversation."
 affectedPaths:
     - "src/tools/return-to-router.ts"
     - "src/tools/registry.js"
+    - "src/tools/delegate-agent.ts"
+    - "src/shared/types.js"
     - "src/shared/session/session.js"
     - "src/shared/session/session-runtime.js"
     - "src/shared/session/agent-handler.ts"
+    - "src/shared/session/agent-switching.js"
+    - "src/shared/session/types.js"
+    - "src/shared/session/managed-operation.ts"
     - "src/shared/session/agents.js"
+    - "src/shared/session/backends/claude-cli/mcp-bridge.ts"
     - "src/shared/workflow/workflow-results.js"
     - "src/shared/workflow/orchestrator.ts"
     - "src/shared/workflow/metrics.js"
-    - "src/shared/session/backends/claude-cli/mcp-bridge.ts"
+    - "src/shared/workflow/validation-helpers.ts"
+    - "src/shared/workflow/validation-session-adapter.ts"
+    - "src/cmd/agents/index.ts"
+    - "src/cmd/load-plan"
+    - "src/cmd/plans/pull.ts"
     - "src/ui/tui/runtime-adapter.js"
     - "src/agent-definitions"
     - "src/prompt-templates/code-optimizer.md"
+    - "scripts/run-router-golden-set.js"
     - "docs/domain-language.md"
     - "docs/sessions.md"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: "2026-08-15T13:03:40-0400"
-status: "draft"
+    - "docs/architecture.md"
 objectiveChecks:
     - id: "OC1"
-      command: "! grep -rq \"return_to_router\" src/"
-      rationale: "The tool name appears throughout src/ today (tool, registry, runtime wiring, prompts, tests). It can only disappear entirely when the tool and every consumption path and prompt reference are removed."
+      command: "! grep -rq \"return_to_router\" src/ scripts/"
+      rationale: "The tool name appears throughout production code, prompts, tests, and a golden-set runner today. It can only disappear when the tool and every live reference are removed."
     - id: "OC2"
-      command: "! grep -rqE \"ReturnToRouter|toRouterHandoff|HANDOFF_LIMIT_MESSAGE|allowReturnToRouter\" src/"
-      rationale: "Catches the runtime machinery symbols (outcome readers, orchestrator handoff, session tool gating, chained-handoff limit) that could survive a superficial tool rename while autonomous switching behavior remains."
+      command: "! grep -rqE \"ReturnToRouter|returnToRouter|toRouterHandoff|HANDOFF_LIMIT_MESSAGE|MAX_CHAINED_HANDOFFS|AgentTurnHandoffResult|handoffLimitReached|allowReturnToRouter\" src/ scripts/"
+      rationale: "Catches the typed outcome, session option, chained-turn loop, and result-contract machinery that could survive removal of only the snake-case tool name."
     - id: "OC3"
-      command: "! grep -q \"return_to_router\" docs/domain-language.md docs/sessions.md"
-      rationale: "The glossary and session docs currently document the tool; this only goes green when the domain language and activation-path docs are updated to the user-owned transition model."
+      command: "! grep -q \"return_to_router\" docs/domain-language.md docs/sessions.md docs/architecture.md"
+      rationale: "The current glossary, session guide, and architecture reference document the tool; this only goes green when current project language and runtime documentation match the user-owned transition model."
+    - id: "OC4"
+      command: "! grep -rq \"AGENTS.ROUTER\" src/tools/"
+      rationale: "The removed tool is currently the only Custom Tool that targets Router. This catches a superficial tool rename that keeps the same Agent-initiated Router transition."
+    - id: "OC5"
+      command: "deno eval 'const s=await Deno.readTextFile(\"src/shared/session/session-runtime.js\");const a=s.indexOf(\"async promptSession(\");const b=s.indexOf(\"\\n}\\n\\n/**\\n * Compose a SessionRuntime\",a);if(a<0||b<0)Deno.exit(2);const p=s.slice(a,b);if((p.match(/await handler\\(/g)||[]).length!==1||p.includes(\"#activateSessionAgent(\"))Deno.exit(1)'"
+      rationale: "The current prompt loop calls the handler and then activates another Agent from its result. This only passes when one user message invokes one handler and promptSession has no post-result Agent activation path."
+    - id: "OC6"
+      command: "grep -q 'releaseActiveWorkflow: true' src/cmd/agents/index.ts && deno run -A scripts/run-tests.js src/shared/session/session-runtime.test.js --filter 'user-authorized agent switch releases active workflows'"
+      rationale: "Requires the explicit /agent release signal and a focused Runtime test of release behavior; the source marker and test do not exist today."
+    - id: "OC7"
+      command: "grep -q 'sequential QUICK_FIX completions each run Mechanical Validation' src/shared/session/agent-handler.test.ts && deno run -A scripts/run-tests.js src/shared/session/agent-handler.test.ts --filter 'sequential QUICK_FIX completions each run Mechanical Validation'"
+      rationale: "Requires a behavioral regression test proving a second completion in one QUICK_FIX Session receives a second Mechanical Validation; that behavior and test are absent today."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-updatedAt: "2026-08-15T17:40:56.739Z"
+createdAt: "2026-08-15T13:03:40-0400"
+updatedAt: "2026-08-16T02:59:53.621Z"
+status: "ready_for_work"
+origin: "internal"
+userVerifiedAt: null
 ---
 
 # Remove return_to_router and Make Agent Transitions User-Owned
@@ -66,10 +90,12 @@ Decisions settled in the planning conversation (see project Memory 7725):
 5. **Active workflows stay strict.** A workflow-owned execution Agent does not deviate from the current workflow step on
    its own. Normal workflow progression (plan approval → execution → validation → repair) remains automatic because the
    user chose that workflow.
-6. **Explicit `/agent` during an active Plan workflow breaks the workflow.** This is a deliberate user transition — for
-   example the user realizing the Plan is wrong and returning to Planner. RunWield (not any LLM) performs the
-   deterministic bookkeeping: the active execution workflow's claim on the conversation ends, while the Plan file,
-   worktree, and registry state remain intact and recoverable through the normal `/load-plan` path.
+6. **Explicit `/agent` during any active execution workflow releases the workflow.** This is a deliberate user
+   transition — for example the user realizing a Plan is wrong and returning to Planner. RunWield (not any LLM) performs
+   the deterministic bookkeeping. For planned work, the active execution workflow's claim on the conversation ends while
+   Plan/worktree recovery evidence stays intact for `/load-plan`. For QUICK_FIX, the workflow claim ends and the current
+   working-tree changes remain, but there is no Plan to resume. The persisted `workflowContext` remains as conversation
+   and Plan context; it is a projection, not execution authority.
 
 A follow-up plan (not this one) will split the selectable Quick Fix Engineer from a workflow-only Plan Engineer and
 narrow Frontend Engineer to workflow-only planned browser-UI execution. This plan deliberately keeps the current Agent
@@ -84,28 +110,56 @@ After this change:
   reference.
 - Every user-facing Agent prompt replaces its "call return_to_router" escalation with conversational limit-stating +
   option-offering + warn-once-then-comply guidance.
-- An explicit manual agent switch (`/agent <name>` or equivalent runtime consumer request) while an active execution
-  workflow exists deterministically clears that workflow's ownership of the conversation with a user-visible notice,
-  preserving all Plan/worktree recovery state.
-- The only root-agent transition entry points are: session boot, workflow dispatch (triage outcomes, plan execution,
-  validation continuations), and user-initiated `switchAgent`. No Custom Tool result can change the root Agent.
+- An explicit manual agent switch (`/agent <name>` or an equivalent consumer call marked as user-authorized) while an
+  active execution workflow exists deterministically clears that workflow's ownership of the conversation with a
+  user-visible notice. Planned work keeps all Plan/worktree recovery evidence; QUICK_FIX keeps working-tree edits but
+  has no resumable Plan.
+- The only root-agent transition entry points are session boot, deterministic workflow progression (triage outcomes,
+  Plan execution, validation continuations), and an explicit user-authorized `switchAgent` request. No Custom Tool
+  result can change the root Agent.
+- A QUICK_FIX Engineer can complete more than one task in the same Session. Each accepted `task_completed` still runs a
+  fresh Mechanical Validation; the first completion must not silently disable validation for later work.
 
 ## Approach
 
-Work in four passes so the tree compiles at every stage:
+Work in five passes so the tree compiles at every stage:
 
 1. **Runtime removal** — delete the tool and unwire session/runtime/orchestrator/bridge consumption. The `AgentHandler`
-   handoff result kind and `SessionRuntime` handoff loop for router handoffs are removed; the chained handoff limit
-   machinery (`HANDOFF_LIMIT_MESSAGE`) goes with it.
+   handoff result kind and `SessionRuntime` chained-turn loop are removed. The obsolete result fields (`handoffs`,
+   `handoffLimitReached`), chained-handoff constants, and `allowReturnToRouter` option go with them; one submitted user
+   message now produces one root Agent turn, while deterministic workflow progression remains inside the handler.
 2. **Prompt rewrite** — remove the tool from every agent definition's `tools:` list and rewrite each "Requests Outside
    Your Scope" (and equivalent) section to the conversational contract. Rewrite the shared-practice fragments
    (`bounded-request.md` for QUICK_FIX elasticity, `plan-execution.md` for in-workflow behavior).
-3. **`/agent` breaks the workflow** — extend the existing `switchAgent` path in `SessionRuntime` so a user-initiated
-   switch while `getActiveExecutionWorkflow()` is non-null clears the active workflow as a deliberate transition
-   (permitted by the active-workflow invariant: "a deliberate fresh routing transition with an explicit new owner"),
-   emits a concise notice, and leaves Plan front matter, worktree registry, and recovery descriptors untouched.
-4. **Docs and glossary** — update `docs/domain-language.md` and `docs/sessions.md` so the glossary describes the
-   implemented truth (no Return-to-Router Tool, redefined Scope Escalation).
+3. **User-authorized `/agent` releases the workflow** — add an explicit `releaseActiveWorkflow: true` option to the
+   Runtime's `switchAgent` request and pass it only from `/agent` (or an equivalent user-owned consumer). In the same
+   managed Runtime transaction, stage and commit the requested Agent first; only after that succeeds, clear
+   `activeExecutionWorkflow`, emit the appropriate planned-work or QUICK_FIX notice, and retain `workflowContext`.
+   Internal workflow restores keep the default (`false`) and cannot release workflow ownership accidentally. A switch to
+   the already-active Agent still releases when the user explicitly requested it.
+4. **QUICK_FIX continuity** — after each no-plan Mechanical Validation, keep or re-arm the Engineer's QUICK_FIX
+   ownership so another accepted `task_completed` in the same Session runs a fresh validation. Explicit `/agent` remains
+   the deterministic way to release it.
+5. **Docs and glossary** — update `docs/domain-language.md`, `docs/sessions.md`, and `docs/architecture.md` so current
+   documentation describes the implemented truth (no Return-to-Router Tool, no chained Agent turn, redefined Scope
+   Escalation, and explicit user-owned workflow release).
+
+The switch order is deliberate:
+
+```text
+/agent planner
+  validate requested Agent
+  switchAgent(releaseActiveWorkflow: true)
+    stage and commit Planner root
+    clear activeExecutionWorkflow
+    keep workflowContext
+    emit release notice
+```
+
+A failed Agent activation stops before the clear. Internal workflow calls omit the release option.
+
+The set-aside option was to clear every workflow from every `switchAgent` call. That would make internal `/load-plan`,
+validation, auth, and prompt-template Agent restores destroy their own workflow, so the release signal must be explicit.
 
 ## Files to Modify
 
@@ -114,6 +168,9 @@ Work in four passes so the tree compiles at every stage:
 - `src/tools/return-to-router.ts` — **delete** (tool definition, `executeReturnToRouter`, metric emission).
 - `src/tools/__tests__/return-to-router.test.ts` — **delete**.
 - `src/tools/registry.js` — remove `"return_to_router"` from the tool name registry.
+- `src/tools/delegate-agent.ts`, `src/shared/session/managed-operation.ts`, and `scripts/run-router-golden-set.js` —
+  remove the obsolete `allowReturnToRouter` option from delegated, managed, and golden-runner session option shapes and
+  calls.
 - `src/tools/__tests__/delegate-agent.test.js` — remove `"return_to_router"` from the delegated-session exclusion
   expectations (the name no longer exists to exclude).
 - `src/shared/session/session.js` — remove the `allowReturnToRouter` option and its filter in
@@ -121,16 +178,25 @@ Work in four passes so the tree compiles at every stage:
   1749, 2077).
 - `src/shared/session/__tests__/session-tools-policy.test.js` — remove the filter/auto-wire tests; update the Guide
   tool-policy test to no longer expect `return_to_router`.
-- `src/shared/session/session-runtime.js` — remove `HANDOFF_LIMIT_MESSAGE`, the router-handoff consumption loop that
-  reads `return_to_router` outcomes between settled turns, and any handoff-count limiting tied to it.
+- `src/shared/session/session-runtime.js`, `src/shared/types.js`, and `src/shared/session/types.js` — remove
+  `HANDOFF_LIMIT_MESSAGE`, `MAX_CHAINED_HANDOFFS`, the router-handoff consumption loop, the `AgentTurnHandoffResult`
+  variant, and the `handoffs` / `handoffLimitReached` prompt-result fields. `promptSession` runs exactly one root Agent
+  handler for each submitted user message.
 - `src/shared/session/agent-handler.ts` — remove the interactive-path handoff producer (scanning for the outcome and
-  returning a router-handoff result kind); the typed handler result union loses that variant.
+  returning a router-handoff result kind); its typed result is completion-only. Preserve deterministic workflow
+  progression that the handler performs after `triage_report`, `plan_written`, and `task_completed`.
 - `src/shared/workflow/workflow-results.js` — remove `readLatestReturnToRouterOutcome` and `buildReturnToRouterPrompt`
   (and the `ReturnToRouterOutcome` typedef).
 - `src/shared/workflow/workflow-results.test.ts` — remove their tests.
 - `src/shared/workflow/orchestrator.ts` — remove the `toRouterHandoff` consumption in `dispatchPostTriage` paths.
 - `src/shared/workflow/orchestrator.test.ts` — remove/update the operation-handoff test (~line 230).
 - `src/shared/workflow/metrics.js` — remove the `return_to_router` tool→event mapping (~line 359).
+- `src/shared/workflow/planning-agent.ts`, `engineer-runner.ts`, `workflow-slicer.ts`, `validation-helpers.ts`,
+  `validation-session-adapter.ts`, and `validation-prompts.ts` — remove `allowReturnToRouter: false` plumbing and stale
+  comments; workflow isolation continues through existing bounded tool lists and Agent definitions, without a
+  tool-specific gate.
+- `src/cmd/load-plan/plan-session-types.ts`, `plan-session-surface.ts`, and `plan-recovery-actions.ts`, plus
+  `src/cmd/plans/pull.ts` — remove the obsolete option while preserving their internal workflow Agent restores.
 - `src/shared/session/backends/claude-cli/mcp-bridge.ts` — `isLifecycleTool` no longer special-cases `return_to_router`
   (~line 79).
 - `src/shared/session/backends/claude-cli/mcp-bridge.test.ts` — remove alias/gating tests for it.
@@ -140,21 +206,25 @@ Work in four passes so the tree compiles at every stage:
 - `src/ui/tui/runtime-adapter.js` + `runtime-adapter.test.js` — remove the fold-reason-into-tool-block presentation
   (~line 227) and its test (~line 521).
 - `src/constants.js` — update the `SUBAGENTS` doc comment that mentions "`return_to_router` targets" (~line 334).
-- `src/shared/session/session-runtime.test.js` — remove the "emits the return-to-router prompt before the handed-off
-  Router turn" test (~line 1760) and any related handoff-limit tests.
+- `src/shared/session/session-runtime.test.js` and `src/shared/session/managed-operation-boundary.test.ts` — remove the
+  router chained-turn tests and update prompt-result expectations to the one-turn, no-handoff result contract.
 
 ### Prompt rewrite
 
 - `src/agent-definitions/operator.md`, `guide.md`, `ideator.md`, `planner.md`, `architect.md`, `engineer.md`,
   `frontend-engineer.md`, `tester.md` — remove `return_to_router` from `tools:`; rewrite each scope-boundary section to
-  the conversational contract (see Implementation Steps for the required content).
+  the conversational contract. A capability limit must not become a false promise: Agents with no edit or execution
+  tools offer `/agent <name>`, an in-role alternative, or a return to the prior request. Warn-once-then-comply applies
+  when the concern is advisory and the Agent has the required capability, not when a real tool limit makes the request
+  impossible and not while an approved Plan workflow still owns the conversation.
 - `src/agent-definitions/shared-practice/bounded-request.md` — rewrite the QUICK_FIX escalation fence into the elastic
   boundary contract: warn once when the work has grown planning-sized, name the concrete consequence (no Plan, no
   Plan-based semantic review; Mechanical Validation on each `task_completed` is the only gate), then comply if the user
   continues; repeated `task_completed` calls in one session are normal and each gets fresh Mechanical Validation.
 - `src/agent-definitions/shared-practice/plan-execution.md` — replace the escalation instruction: a workflow-owned Agent
   never abandons the current workflow step; out-of-Plan requests get a conversational explanation and options
-  (finish/pause via user decision, `/agent <name>` to leave the workflow deliberately); no tool ends the turn.
+  (continue/finish the Plan, or `/agent <name>` to release it deliberately). The Agent does not perform the unrelated
+  request while the workflow remains active, ask a routing form, or end the turn through a tool.
 - `src/agent-definitions/router.md` — remove any expectation of receiving agent handoffs; Router's contract is
   new-session triage, `/agent router`, and explicit reassessment requests.
 - `src/prompt-templates/code-optimizer.md` — replace the `return_to_router` instruction with the conversational
@@ -167,13 +237,21 @@ Work in four passes so the tree compiles at every stage:
 - `src/shared/workflow/validation-prompts.test.js` — keep the invariant test but it now trivially holds; simplify its
   comment (the tool no longer exists anywhere, so isolated-session filtering rationale is gone).
 
-### /agent breaks the workflow
+### User-owned release and QUICK_FIX continuity
 
-- `src/shared/session/session-runtime.js` (`switchAgent`, ~line 3884) and `src/shared/session/agent-switching.js` —
-  user-initiated switches with an active execution workflow deterministically clear the workflow claim (see steps).
-  Note: these files were recently modified by a completed startup-session quick fix; rebase awareness only, no design
-  interaction expected.
-- `src/shared/session/agent-switching.test.js`, `src/shared/session/session-runtime.test.js` — new coverage.
+- `src/cmd/agents/index.ts` — mark the `/agent` Runtime request with `releaseActiveWorkflow: true`; automatic Agent
+  changes from auth, prompt templates, `/load-plan`, Plan pull, Sleep, Triage, execution, and validation do not set it.
+- `src/shared/session/session-runtime.js` (`switchAgent`) and `src/shared/session/agent-switching.js` — commit the Agent
+  switch before releasing workflow state, clear only `activeExecutionWorkflow` / pending completion state, retain
+  `workflowContext`, and emit a `SYSTEM_STATUS` notice. Planned notices name the Plan and `/load-plan`; QUICK_FIX
+  notices state that no Plan exists and working-tree edits remain. Failed/invalid switches preserve the old Agent and
+  workflow.
+- `src/shared/session/agent-handler.ts` — after each QUICK_FIX `task_completed`, consume that receipt once, finish its
+  Mechanical Validation, then re-arm a fresh Engineer-owned QUICK_FIX workflow from the same triage/project/cwd data
+  with a new attempt timestamp and no stale completion state. This makes the next completion independently valid;
+  explicit user-owned Agent switching is the release boundary.
+- `src/shared/session/agent-switching.test.js`, `src/shared/session/session-runtime.test.js`, and focused QUICK_FIX
+  handler tests — cover atomic release, internal-switch preservation, same-Agent release, and repeated validation.
 
 ### Docs and glossary
 
@@ -181,7 +259,11 @@ Work in four passes so the tree compiles at every stage:
   "returns work to the Router for fresh Triage") to describe the conversational contract: an Agent states a concrete
   capability or role limit and offers the user explicit options; only the user transitions control. Update the stable
   relationships list accordingly.
-- `docs/sessions.md` — remove `return_to_router` from the list of Agent-activation paths (~line 58).
+- `docs/sessions.md` — remove `return_to_router` from the Agent-activation paths and document `/agent` as the explicit
+  user-owned release from active execution.
+- `docs/architecture.md` — remove the chained-handoff loop, per-invocation tool filter, and Return-to-Router sequence
+  from the current Session Runtime description; distinguish retained `workflowContext` projection from released
+  `activeExecutionWorkflow` authority.
 
 ## Reuse Opportunities
 
@@ -196,64 +278,77 @@ Work in four passes so the tree compiles at every stage:
 
 ## Implementation Steps
 
-- [ ] `src/tools/return-to-router.ts` and `src/tools/__tests__/return-to-router.test.ts` do not exist; `src/` contains
-      no occurrence of the strings `return_to_router`, `ReturnToRouter`, `returnToRouter`, `toRouterHandoff`,
-      `allowReturnToRouter`, or `HANDOFF_LIMIT_MESSAGE`; `deno task check` (type-check) passes.
+- [ ] `src/tools/return-to-router.ts` and `src/tools/__tests__/return-to-router.test.ts` do not exist; `src/` and
+      `scripts/` contain no occurrence of `return_to_router`, `ReturnToRouter`, `returnToRouter`, `toRouterHandoff`,
+      `allowReturnToRouter`, `HANDOFF_LIMIT_MESSAGE`, `MAX_CHAINED_HANDOFFS`, `AgentTurnHandoffResult`, or
+      `handoffLimitReached`; `deno task check` passes.
 - [ ] `resolveEffectiveSessionToolNames` in `src/shared/session/session.js` has no options parameter behavior for router
       handoffs, and `buildAgentSession` wires no hosted-session-closing handoff tool; the corresponding tests in
       `session-tools-policy.test.js` assert the tool name is absent from every loaded bundled agent definition's
       effective tool list.
-- [ ] The `AgentHandler` result union in `src/shared/session/agent-handler.ts` has no router-handoff variant, and
-      `SessionRuntime` contains no code path that changes the root Agent in response to any Custom Tool result; root
-      agent transitions occur only via session boot/hydration, workflow dispatch, and `switchAgent`. A test asserts that
-      a tool-result message stream containing a synthetic agent-switch-requesting tool result produces no agent change.
-- [ ] Every bundled agent definition (`operator.md`, `guide.md`, `ideator.md`, `planner.md`, `architect.md`,
-      `engineer.md`, `frontend-engineer.md`, `tester.md`) omits `return_to_router` from `tools:` and contains a
-      scope-boundary section with all three elements: (1) name the concrete limit ("I don't have tools to edit code in
-      this mode"), (2) offer explicit options in plain conversation including `/agent <name>` and continuing the current
-      work, (3) never end the turn with a routing tool, routing question form, or `user_interview` for rerouting. Each
-      also carries the warn-once-then-comply rule: after one stated concern, a repeated user instruction is followed.
+- [ ] The `AgentHandler` result in `src/shared/session/agent-handler.ts` is completion-only, and `SessionRuntime` runs
+      one root handler per submitted user message. `SessionPromptResult` has no handoff counters. No Custom Tool result
+      can request a second root turn or change the root Agent; tests inject a synthetic switch-requesting tool-result
+      message and prove the active Agent and submitted-message count do not change. Triage, Plan approval, Task
+      Completion, and validation still advance through their existing deterministic handler calls.
+- [ ] The composed prompts for `operator`, `guide`, `ideator`, `planner`, `architect`, `engineer`, `frontend-engineer`,
+      and `tester` omit `return_to_router` and give one coherent boundary contract: state the concrete role or tool
+      limit, offer natural options (a suitable `/agent <name>`, an in-role alternative, or return to the prior request),
+      and never use a routing tool, `user_interview`, or forced yes/no form to change control. Tests distinguish
+      advisory concerns (warn once, then comply when capable) from real missing capabilities and the active-Plan
+      exception (do not promise impossible work or silently broaden an active Plan).
 - [ ] `src/agent-definitions/shared-practice/bounded-request.md` defines the elastic QUICK_FIX boundary: one concern
       when work becomes planning-sized, naming the concrete consequence (no Plan-based semantic review; Mechanical
       Validation per `task_completed` is the only gate); user continuation is honored; multiple sequential
       `task_completed` completions in one QUICK_FIX session are explicitly normal. The escalation fence instructing a
       stop-and-reroute no longer exists.
 - [ ] `src/agent-definitions/shared-practice/plan-execution.md` instructs workflow-owned execution Agents to stay on the
-      current workflow step, answer out-of-Plan requests conversationally with options, and defer any transition to an
-      explicit user action; it contains no instruction to call a routing tool or to ask the user to switch to Router on
-      the Agent's initiative.
-- [ ] A user-initiated `switchAgent` (from `/agent` or a runtime consumer request) while `getActiveExecutionWorkflow()`
-      is non-null: clears the active execution workflow and workflow context as one Runtime-owned deliberate transition,
-      emits a user-visible notice naming the Plan that was released and that `/load-plan` can resume it, and leaves Plan
-      front matter, worktree registry entries, and recovery descriptors byte-identical. Workflow-initiated transitions
-      (execution dispatch, validation continuation, semantic repair) are unaffected. Tests cover: switch-to-planner
-      during active execution clears the workflow and preserves the worktree registry entry; workflow dispatch
-      transitions do not clear it; `/load-plan` after such a switch can still resume the Plan.
-- [ ] `src/shared/session/agents.js` attention nudges and `src/shared/workflow/metrics.js`,
+      current workflow step and answer out-of-Plan requests with two user-owned options: continue/finish the Plan, or
+      explicitly leave it with `/agent <name>`. It does not perform unrelated work before release, initiate a switch,
+      ask a routing form, or end the turn through a tool.
+- [ ] `SessionRuntime.switchAgent(..., { releaseActiveWorkflow: true })` commits the requested Agent before it clears
+      `activeExecutionWorkflow`; `/agent` always sets this option, including a switch to the already-active Agent. The
+      release retains persisted `workflowContext`. For a planned workflow, the notice names the Plan and `/load-plan`,
+      and the primary Plan Front Matter plus `.wld/worktrees.json` entry remain byte-identical. For QUICK_FIX, the
+      notice says there is no resumable Plan and working-tree edits remain. If Agent activation fails, the Agent and
+      workflow both remain unchanged. Internal Agent restores omit the option and preserve the workflow. Tests cover all
+      cases, including `/load-plan` successfully resuming the released planned work.
+- [ ] After one QUICK_FIX completion and Mechanical Validation, a later Engineer task in the same Session can emit a new
+      `task_completed` and trigger a second, fresh Mechanical Validation. The completion receipts are consumed once, no
+      Plan lifecycle or semantic review starts, and explicit `/agent` release prevents later input from being forced
+      back to Engineer.
+- [ ] `src/shared/session/agents.js` attention nudges, `src/shared/workflow/metrics.js` and validation prompt comments,
       `src/shared/session/tool-event-title.js`, `src/ui/tui/runtime-adapter.js`, and the Claude CLI MCP bridge contain
       no reference to the removed tool; the bridged Claude CLI tool list no longer includes it.
 - [ ] `docs/domain-language.md` has no **Return-to-Router Tool** entry; **Scope Escalation** is redefined as the
       conversational limit-and-options contract with the user as the only transition authority; the stable relationships
-      section no longer states that Scope Escalation returns work to Router. `docs/sessions.md` no longer lists
-      `return_to_router` as an activation path.
+      section no longer states that Scope Escalation returns work to Router. `docs/sessions.md` and
+      `docs/architecture.md` contain no live `return_to_router` path and describe explicit user release, one root turn
+      per submitted message, retained workflow context, and deterministic workflow progression accurately.
 - [ ] `deno task ci` passes on the completed tree.
+
+## Approval Confirmation
+
+No Work Record supersession is proposed, so no supersession confirmation is required.
 
 ## Verification Plan
 
 - Automated: `deno task ci` (type-check, lint, language policy, seams:check, doc-links, full test suite via the
   sandboxed runner). Targeted suites during development:
-  `deno run -A scripts/run-tests.js src/shared/session/session-runtime.test.js src/shared/session/agent-switching.test.js src/shared/session/__tests__/session-tools-policy.test.js src/shared/workflow/workflow-results.test.ts src/shared/workflow/orchestrator.test.ts`.
+  `deno run -A scripts/run-tests.js src/shared/session/session-runtime.test.js src/shared/session/agent-switching.test.js src/shared/session/agent-handler.test.ts src/shared/session/task-completion-session.test.ts src/shared/session/__tests__/session-tools-policy.test.js src/shared/workflow/workflow-results.test.ts src/shared/workflow/orchestrator.test.ts`.
 - Manual: in a TUI session, (1) ask Guide for a code change — it must explain the limit and offer `/agent` options
   without switching or ending its turn via a tool; (2) run a QUICK_FIX, expand it feature-sized, observe one concern,
   say "continue", observe compliance and Mechanical Validation on `task_completed`; (3) approve and run a small Plan,
-  then `/agent planner` mid-execution — observe the workflow-released notice, then `/load-plan` and confirm the Plan and
-  worktree resume.
+  then `/agent planner` mid-execution — observe the workflow-released notice and retained Plan footer context, then
+  `/load-plan` and confirm the Plan and worktree resume; (4) complete two sequential tasks in one QUICK_FIX Engineer
+  Session and observe a separate Mechanical Validation after each `task_completed`; (5) `/agent guide` during a
+  QUICK_FIX and confirm the release notice states that no Plan exists and the next message stays with Guide.
 - Behavior that must remain protected by existing tests after this reshape: atomic `switchAgent` transitions
   (staged-handler construction, failure preserves the previous pair), workflow dispatch via `triage_report` /
   `plan_written` / `task_completed` outcomes, Keep-Engineer-active-after-interruption semantics, and QUICK_FIX
-  Mechanical Validation per `task_completed`. Behavior that is expected to stop existing (tests deleted, not rewritten):
-  router-handoff consumption, the chained-handoff limit, `buildReturnToRouterPrompt` framing, bridged `return_to_router`
-  lifecycle gating, and TUI handoff-reason folding.
+  Mechanical Validation per accepted completion. Behavior that is expected to stop existing (tests deleted, not
+  rewritten): router-handoff consumption, multi-root-turn chaining from one user message, handoff counters/limits,
+  `buildReturnToRouterPrompt` framing, bridged lifecycle gating for the removed tool, and TUI handoff-reason folding.
 - Glossary check: `docs/domain-language.md` describes only implemented behavior; the redefined Scope Escalation matches
   the shipped prompts.
 
@@ -261,17 +356,25 @@ Work in four passes so the tree compiles at every stage:
 
 - **Persisted sessions containing historical `return_to_router` tool results**: hydration must tolerate old JSONL
   transcripts with those tool results as inert history (rendered as a plain completed tool block). No migration; only
-  the live consumption paths are removed. Add/keep a hydration test with a legacy transcript if one does not exist.
-- **Custom/user-override agent definitions** in `~/.wld/agents` or `.wld/agents` may still list `return_to_router` in
-  `tools:`. Unknown tool names are already dropped from effective tool lists; verify that path degrades silently rather
-  than erroring.
+  the live consumption paths are removed. Add/keep a hydration test with a legacy transcript if one does not exist;
+  construct the historical name from parts so the live source tree does not retain the removed identifier.
+- **Current architecture docs versus historical records**: update `docs/architecture.md`, but do not rewrite accepted
+  ADRs, archived Plans, PRDs, or Work Records that truthfully describe the system at their publication time.
+- **Custom/user-override Agent Definitions** in `~/.wld/agents` or `.wld/agents` may still list `return_to_router`.
+  Treat it as any unavailable tool: session construction must omit unavailable names or report a clear configuration
+  warning without restoring an alias or switch behavior. Cover the generic unknown-tool policy with a neutral fixture
+  name so production code and live tests do not retain a compatibility reference to the removed tool.
 - **The dirty-tree quick fix** touching `agent-switching.js` / `session-runtime.js` / `runtime-adapter.js` (startup
   session work) is complete and will be committed before this plan executes; the execution worktree is created from the
   committed base, so no design interaction is expected — but the Engineer should re-read those files rather than
   trusting the line numbers in this plan.
 - **Invariant alignment**: clearing the active workflow on user `/agent` is permitted by the recorded invariant
-  ("deliberate fresh routing transition with an explicit new owner"). Do not clear on agent stops, questions, or errors
-  — only on the explicit user-initiated switch.
+  ("deliberate fresh routing transition with an explicit new owner"). Do not clear on Agent stops, questions, errors,
+  auth/model rebuilds, prompt-template activation, `/load-plan` restores, or deterministic workflow progression — only
+  on a switch request explicitly marked to release it. `workflowContext` remains because it is persisted context and a
+  useful Plan anchor, not live execution authority.
+- **QUICK_FIX release**: a user can leave an indefinitely continuing QUICK_FIX only through the explicit release path.
+  The release clears pending completion state so an old receipt cannot validate after the user has changed Agent.
 - **`validation-prompts.test.js`** currently asserts isolated-session prompts never reference the tool; after removal
   this is trivially true everywhere. Keep a single repo-wide "no references" assertion or rely on the objective check;
   do not leave a misleading comment implying the tool still exists elsewhere.

@@ -10,6 +10,7 @@ affectedPaths:
     - "src/skills/"
 createdAt: "2026-05-11T00:00:00.000Z"
 updatedAt: "2026-07-17T04:40:58.897Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 workRecord:

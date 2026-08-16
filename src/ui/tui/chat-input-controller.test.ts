@@ -153,8 +153,10 @@ Deno.test("chat input controller sends accepted editor input through the real co
 Deno.test("slash new replaces the TUI with an unpersisted shell until its first message", async () => {
     await withRuntimeCommandFixture("chat-input-slash-new-lazy-", async ({ setModelResponseFactory }) => {
         const modelRequests: string[] = [];
-        setModelResponseFactory((context) => {
+        const releaseModel = deferredSignal();
+        setModelResponseFactory(async (context) => {
             modelRequests.push(JSON.stringify(context.messages));
+            await releaseModel.promise;
             return fauxAssistantMessage(fauxText("New Session response."));
         });
         const { composition, terminal } = await startComposition();
@@ -179,6 +181,15 @@ Deno.test("slash new replaces the TUI with an unpersisted shell until its first 
                 () => modelRequests.some((request) => request.includes("persist this Session now")),
                 "new Session model request",
             );
+            await waitFor(
+                () =>
+                    terminal.getScreenText().includes("persist this Session now") &&
+                    terminal.getScreenText().includes("Thinking..."),
+                "first message and thinking frame",
+            );
+            assertStringIncludes(terminal.getScreenText(), "persist this Session now");
+            assertStringIncludes(terminal.getScreenText(), "Thinking...");
+            releaseModel.resolve();
             await composition.waitForIdle();
             assertEquals(
                 typeof composition.runtime.getSessionSnapshot(composition.sessionId)?.sessionManagerId,
@@ -186,6 +197,7 @@ Deno.test("slash new replaces the TUI with an unpersisted shell until its first 
             );
             assertEquals(await countSessionTranscripts(sessionRoot), 1);
         } finally {
+            releaseModel.resolve();
             await composition.dispose();
         }
     });

@@ -12,6 +12,7 @@ affectedPaths:
     - "src/shared/workflow/plan-lifecycle.test.js"
 createdAt: "2026-06-16T16:25:04Z"
 updatedAt: "2026-07-17T04:43:54.406Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-18T04:03:13.829Z"

@@ -12,6 +12,7 @@ affectedPaths:
 frontend: false
 createdAt: "2026-07-03T01:17:49-04:00"
 updatedAt: "2026-07-17T04:50:26.530Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 type: "epic"

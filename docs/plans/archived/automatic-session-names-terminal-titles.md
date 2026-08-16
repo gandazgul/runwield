@@ -12,6 +12,7 @@ affectedPaths:
     - "src/shared/ui/tui.js"
 createdAt: "2026-06-24T13:51:44-04:00"
 updatedAt: "2026-07-17T04:41:35.604Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-06-24T18:36:32.463Z"

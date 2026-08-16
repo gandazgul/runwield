@@ -29,6 +29,8 @@ import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
 import { createWorkRecordMnemosyneFixture } from "../../../shared/work-records/test-fixtures/mnemosyne-port.ts";
 import { isRunWieldOwnedRuntimePath } from "../../../shared/runwield-owned-paths.ts";
 import { NO_OPEN_BROWSER_PORT } from "../../../shared/browser-port.ts";
+import { getCwd } from "../../../constants.js";
+import { getWorktreeRegistryPath } from "../../../shared/worktree-registry.js";
 
 /**
  * Scenario waits poll and return the moment the condition holds, so this budget
@@ -669,8 +671,27 @@ async function runComposedTuiScenario(scenario, options) {
             consumedHumanReviews.push(response);
         };
         const interactionSurface = scenario.scriptedInteractions
-            ? new ScriptedInteractionSurface(/** @type {any[]} */ (scenario.scriptedInteractions))
+            ? new ScriptedInteractionSurface(
+                /** @type {any[]} */ (scenario.scriptedInteractions),
+                (planName) => {
+                    const activeComposition = composition;
+                    const executionCwd = activeComposition?.runtime.getSessionSnapshot(activeComposition.sessionId)
+                        ?.activeExecutionWorkflow?.executionCwd;
+                    if (typeof executionCwd === "string" && executionCwd) return executionCwd;
+                    if (planName) {
+                        const registryText = Deno.readTextFileSync(getWorktreeRegistryPath(getCwd()));
+                        const parsed = /** @type {{ entries?: Array<{ planName?: string, path?: string }> }} */ (
+                            JSON.parse(registryText)
+                        );
+                        const matches = (parsed.entries || []).filter((entry) => entry.planName === planName);
+                        const durablePath = matches.at(-1)?.path;
+                        if (durablePath) return durablePath;
+                    }
+                    return getCwd();
+                },
+            )
             : null;
+        if (interactionSurface) state.scriptedInteractions = interactionSurface.consumed;
         /** @type {"select"|"text"|"approval"|null} */
         let activeScriptedInteractionType = null;
         try {
@@ -1690,6 +1711,17 @@ async function runComposedTuiScenario(scenario, options) {
                     events.push(`project:plan-absent:${planName}`);
                 } else if (typed.type === "waitForIdle") {
                     await composition.waitForIdle(typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS);
+                } else if (typed.type === "waitForScreen") {
+                    const expected = String(typed.text || "");
+                    const timeoutMs = typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS;
+                    const startedAt = Date.now();
+                    while (!terminal.getScreenText().includes(expected)) {
+                        if (Date.now() - startedAt > timeoutMs) {
+                            throw new Error(`Timed out waiting for screen marker: ${JSON.stringify(expected)}`);
+                        }
+                        await terminal.flush();
+                        await new Promise((resolve) => setTimeout(resolve, 20));
+                    }
                 } else {
                     throw new Error(`Unknown composed scenario action: ${typed.type}`);
                 }

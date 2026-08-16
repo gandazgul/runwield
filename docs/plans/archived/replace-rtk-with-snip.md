@@ -10,6 +10,7 @@ affectedPaths:
     - ".snip.yaml"
 createdAt: "2026-06-21T23:58:59-04:00"
 updatedAt: "2026-07-17T04:50:01.896Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-06-22T04:50:46.367Z"

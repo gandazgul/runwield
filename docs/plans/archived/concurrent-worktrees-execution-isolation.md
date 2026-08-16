@@ -1,4 +1,5 @@
 ---
+planId: "29d8ff70-d038-4925-9b46-7c6237ad071b"
 classification: "PROJECT"
 complexity: "HIGH"
 summary: "Implement concurrent execution isolation using git worktrees, with explicit execution-root plumbing for agent sessions, validation, recovery, registry tracking, and merge-back."
@@ -18,6 +19,7 @@ affectedPaths:
     - "docs/adr/005-concurrent-worktree-isolation.md"
 createdAt: "2026-06-15T13:30:00.000Z"
 updatedAt: "2026-06-16T02:58:57.961Z"
+archivedAt: "2026-07-01"
 status: "implemented"
 origin: "internal"
 failureReason: "Semantic validation did not approve after 3 cycles."

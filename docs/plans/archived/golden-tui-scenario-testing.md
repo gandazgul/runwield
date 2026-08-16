@@ -21,6 +21,7 @@ affectedPaths:
     - "docs/contributing.md"
 createdAt: "2026-07-26T19:06:06-04:00"
 updatedAt: "2026-07-31T04:10:39.553Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-30T15:34:54.611Z"

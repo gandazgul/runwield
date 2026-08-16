@@ -18,6 +18,7 @@ devServerUrl: "http://localhost:5173/dev/plan-review"
 devServerHmr: true
 createdAt: "2026-07-09T17:11:07-04:00"
 updatedAt: "2026-07-17T04:40:52.144Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-10T06:26:49.981Z"

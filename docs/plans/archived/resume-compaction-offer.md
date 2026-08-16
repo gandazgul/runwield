@@ -7,6 +7,7 @@ affectedPaths:
     - "src/cmd/resume/index.js"
 createdAt: "2026-06-13T15:00:00.000Z"
 updatedAt: "2026-07-17T04:50:07.271Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 workRecord:

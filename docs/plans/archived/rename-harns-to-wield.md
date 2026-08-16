@@ -14,6 +14,7 @@ affectedPaths:
     - "install.sh"
 createdAt: "2026-06-22T22:20:48-04:00"
 updatedAt: "2026-07-17T04:49:47.122Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-23T04:55:50.556Z"

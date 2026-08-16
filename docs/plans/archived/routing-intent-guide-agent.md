@@ -16,6 +16,7 @@ affectedPaths:
     - "src/shared/session/__tests__/session-tools-policy.test.js"
 createdAt: "2026-06-18T00:00:00.000Z"
 updatedAt: "2026-07-17T04:50:20.148Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-19T14:41:31.000Z"

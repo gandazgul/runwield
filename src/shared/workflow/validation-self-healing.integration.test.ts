@@ -188,6 +188,79 @@ Deno.test("stale RunWield state self-heals and validation continues", async () =
     }
 });
 
+Deno.test("approved body-only Plan amendment reloads and starts Mechanical Validation immediately", async () => {
+    const testFixture = await makeReportedMismatchFixture();
+    try {
+        const primary = await loadPlan(testFixture.projectRoot, "demo");
+        const execution = await loadPlan(testFixture.executionCwd, "demo");
+        assertExists(primary);
+        assertExists(execution);
+        await savePlan(
+            testFixture.executionCwd,
+            "demo",
+            "# Demo\n\nEngineer clarified the implementation notes.\n",
+            primary.attrs,
+            { expectedRevision: execution.revision },
+        );
+
+        const recorder = makeUi();
+        const prompts: string[] = [];
+        recorder.promptSelect = (prompt: string) => {
+            prompts.push(prompt);
+            return Promise.resolve(prompt.includes("Approve this Plan Amendment") ? "approve_amendment" : "stop");
+        };
+        const hostedSession = attachRecorder(
+            new HostedSession({ id: "validation-body-amendment", cwd: testFixture.projectRoot }),
+            recorder,
+        );
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "demo",
+            triageMeta: primary.attrs,
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionMode: "worktree",
+            executionCwd: testFixture.executionCwd,
+            worktreeId: "wt-demo",
+            worktreeBranch: testFixture.branch,
+            worktreeBaseBranch: "main",
+            baselineTree: testFixture.baselineTree,
+        });
+        let ciRuns = 0;
+        const result = await continueWorkflowValidation({
+            trigger: "task_completion",
+            hostedSession,
+            planName: "demo",
+            planContent: primary.markdown,
+            triageMeta: primary.attrs,
+            git: createGitPort(),
+            localCI: {
+                run: () => {
+                    ciRuns += 1;
+                    return Promise.resolve({ exitCode: 0, canceled: false, output: "ok" });
+                },
+            },
+            semanticReviewPort: {
+                runIsolatedAgentSession: () => Promise.reject(new Error("stop after Mechanical Validation proof")),
+            },
+            workRecordMnemosynePort: {
+                run: () => Promise.reject(new Error("publication must not run")),
+            },
+        });
+
+        const amendmentPrompts = prompts.filter((prompt) => prompt.includes("Approve this Plan Amendment"));
+        assertEquals(amendmentPrompts.length, 1);
+        assertEquals(ciRuns, 1);
+        assertEquals(result.kind, "paused");
+        const canonical = await loadPlan(testFixture.projectRoot, "demo");
+        assertExists(canonical);
+        assertEquals(canonical.body, "# Demo\n\nEngineer clarified the implementation notes.\n");
+        assertEquals(canonical.attrs.status, "validated_ci");
+        assertStringIncludes(recorder.messages.join("\n"), "The Plan change is saved. The tests will start again.");
+    } finally {
+        await removeFixture(testFixture);
+    }
+});
+
 Deno.test("Engineer broken-check reports are not shown as Plan amendments", async () => {
     const testFixture = await makeReportedMismatchFixture();
     try {

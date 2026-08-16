@@ -3165,6 +3165,9 @@ export class SessionRuntime {
             const activeAgentInfo = hostedSession.getActiveAgentInfo?.() || null;
             const agentName = options.agentName || activeAgentInfo?.agentName || AGENTS.ROUTER;
             hostedSession.mergePendingManagedTurnIntent?.({ agentName });
+            // Give presentation adapters one event-loop turn to paint the user
+            // message and first busy frame before filesystem/session setup begins.
+            await new Promise((resolve) => setTimeout(resolve, 0));
             try {
                 managed = await this.#materializeDeferredManagedShell(hostedSession);
             } catch (error) {

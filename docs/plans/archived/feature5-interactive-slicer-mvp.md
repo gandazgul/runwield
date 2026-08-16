@@ -11,6 +11,7 @@ affectedPaths:
     - "src/shared/workflow/workflow.test.js"
 createdAt: "2026-06-16T16:25:04Z"
 updatedAt: "2026-07-17T04:43:28.930Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-17T14:11:27.819Z"

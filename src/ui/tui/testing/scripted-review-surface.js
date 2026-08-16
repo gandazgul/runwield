@@ -27,7 +27,7 @@ import { getCwd } from "../../../constants.js";
  * @property {"select"|"text"|"approval"} type
  * @property {string} [promptIncludes]
  * @property {string|null} [value]
- * @property {{ path: string, text: string, commands?: string[] }} [userFixesFirst] what the user does in the
+ * @property {{ path: string, text: string, target?: "project"|"execution", planName?: string, commands?: string[] }} [userFixesFirst] what the user does in the
  * project before answering. RunWield pauses precisely when it needs a person to change
  * something, so a scenario that cannot model the person changing it can only ever test
  * giving up — never the Retry that follows.
@@ -98,12 +98,16 @@ export class ScriptedHumanReviewSurface {
 }
 
 export class ScriptedInteractionSurface {
-    /** @param {ScriptedRuntimeInteraction[]} interactions */
-    constructor(interactions) {
+    /**
+     * @param {ScriptedRuntimeInteraction[]} interactions
+     * @param {(planName?: string) => string} [resolveExecutionCwd]
+     */
+    constructor(interactions, resolveExecutionCwd = () => getCwd()) {
         /** @type {ScriptedRuntimeInteraction[]} */
         this.interactions = interactions.map((interaction) => ({ ...interaction }));
-        /** @type {Array<{ request: Record<string, unknown>, interaction: ScriptedRuntimeInteraction }>} */
+        /** @type {Array<{ request: Record<string, unknown>, interaction: ScriptedRuntimeInteraction, userFixCwd?: string, userFixPath?: string }>} */
         this.consumed = [];
+        this.resolveExecutionCwd = resolveExecutionCwd;
     }
 
     /**
@@ -124,11 +128,17 @@ export class ScriptedInteractionSurface {
                 }`,
             );
         }
-        this.consumed.push({ request, interaction });
+        /** @type {{ request: Record<string, unknown>, interaction: ScriptedRuntimeInteraction, userFixCwd?: string, userFixPath?: string }} */
+        const consumed = { request, interaction };
+        this.consumed.push(consumed);
         if (interaction.userFixesFirst) {
-            const cwd = getCwd();
+            const cwd = interaction.userFixesFirst.target === "execution"
+                ? this.resolveExecutionCwd(interaction.userFixesFirst.planName)
+                : getCwd();
             const target = `${cwd}/${interaction.userFixesFirst.path}`;
             Deno.writeTextFileSync(target, interaction.userFixesFirst.text);
+            consumed.userFixCwd = cwd;
+            consumed.userFixPath = target;
             for (const command of interaction.userFixesFirst.commands || []) {
                 const output = new Deno.Command("bash", {
                     cwd,

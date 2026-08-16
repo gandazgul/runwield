@@ -7,6 +7,7 @@ affectedPaths:
     - "src/shared/session/session.js"
 createdAt: "2026-05-15T17:30:00.000Z"
 updatedAt: "2026-07-17T04:48:54.976Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 workRecord:

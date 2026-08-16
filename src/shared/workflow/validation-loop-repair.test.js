@@ -494,6 +494,54 @@ Deno.test("Objective-Failing Checks after spent rounds can return control to Eng
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
 });
 
+Deno.test("Objective-Failing Checks offer recovery after three completed repairs from attempt zero", async () => {
+    const objectiveChecks = [{ id: "OC1", command: "false", rationale: "must become true" }];
+    const projectRoot = await makeValidationProjectRoot("p", {
+        classification: "PLANNED_CHANGE",
+        status: "implemented",
+        objectiveChecks,
+    });
+    const { hostedSession, uiAPI } = makeValidationUi(projectRoot);
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: true,
+    });
+    const offeredOptions = /** @type {string[]} */ ([]);
+    selectAndCaptureOptions(uiAPI, offeredOptions, "stop");
+    let repairs = 0;
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
+        semanticReviewPort: {
+            runIsolatedAgentSession: () => {
+                repairs += 1;
+                return Promise.resolve([{
+                    role: "toolResult",
+                    toolName: "task_completed",
+                    toolCallId: `repair-${repairs}`,
+                    content: [],
+                    isError: false,
+                    timestamp: Date.now(),
+                    details: { outcome: "task_completed", message: `Repair ${repairs} completed.` },
+                }]);
+            },
+        },
+        localCI: { run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }) },
+    });
+
+    assertEquals(repairs, 3);
+    assertEquals(uiAPI.promptSelections.length, 1);
+    assertEquals(offeredOptions, ["Engineer follow-up", "Retry", "Stop"]);
+    assertStringIncludes(result.reason || "", "tried 3 times");
+});
+
 Deno.test("Objective-Failing Checks follow-up reopens the retained repair session", async () => {
     const objectiveChecks = [{ id: "OC1", command: "false", rationale: "must become true" }];
     await withIncompleteRepairModel(

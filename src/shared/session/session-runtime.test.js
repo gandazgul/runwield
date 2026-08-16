@@ -1049,6 +1049,11 @@ Deno.test("SessionRuntime emits the first user message before busy and persisten
     /** @type {string[]} */
     const events = [];
     let userEventCount = 0;
+    let presentationTurnRanBeforePersistence = false;
+    let resolvePresentationTurn = () => {};
+    const presentationTurn = new Promise((resolve) => {
+        resolvePresentationTurn = () => resolve(undefined);
+    });
     runtime.subscribeSessionEvents(created.sessionId, (event) => {
         if (event.type === RuntimeEventTypes.USER_MESSAGE) {
             userEventCount += 1;
@@ -1056,6 +1061,11 @@ Deno.test("SessionRuntime emits the first user message before busy and persisten
         }
         if (event.type === RuntimeEventTypes.BUSY_CHANGED && event.busy) {
             events.push(`busy:${runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId || "none"}`);
+            setTimeout(() => {
+                presentationTurnRanBeforePersistence =
+                    runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId === null;
+                resolvePresentationTurn();
+            }, 0);
         }
         if (event.type === RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED) {
             events.push(`sync:${runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId || "none"}`);
@@ -1068,8 +1078,10 @@ Deno.test("SessionRuntime emits the first user message before busy and persisten
             initialImages: [{ base64: btoa("img"), mimeType: "image/png" }],
         });
         assertEquals(result.ok, true);
+        await presentationTurn;
         assertEquals(userEventCount, 1);
         assertEquals(events.slice(0, 2), ["user:none", "busy:none"]);
+        assertEquals(presentationTurnRanBeforePersistence, true);
         assert(events.some((event) => event.startsWith("sync:")));
     } finally {
         await runtime.closeAllSessionsWhenIdle?.();

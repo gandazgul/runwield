@@ -9,6 +9,7 @@ affectedPaths:
     - "src/ui/workspace/components/EpicDetail.jsx"
 createdAt: "2026-06-30T13:04:13-04:00"
 updatedAt: "2026-07-17T04:53:08.834Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-06-30T17:43:15.946Z"

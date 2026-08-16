@@ -9,6 +9,7 @@ affectedPaths:
     - "src/shared/session/session-state.js"
 createdAt: "2026-06-15T13:30:00.000Z"
 updatedAt: "2026-07-17T04:47:20.649Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-06-15T20:49:52.804Z"

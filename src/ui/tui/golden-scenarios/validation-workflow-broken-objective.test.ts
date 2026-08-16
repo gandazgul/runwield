@@ -17,27 +17,22 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreeBrokenObjectiveDetectedWaiveScenario,
         exportName: "validationTreeBrokenObjectiveDetectedWaiveScenario",
-        todo: "captured TUI evidence does not yet show the Objective Check decision",
     },
     {
         scenario: validationTreeBrokenObjectiveEngineerReportedRejectScenario,
         exportName: "validationTreeBrokenObjectiveEngineerReportedRejectScenario",
-        todo: "workflow never reaches the Engineer broken-Objective report",
     },
     {
         scenario: validationTreeBrokenObjectiveEngineerReportedWaiveScenario,
         exportName: "validationTreeBrokenObjectiveEngineerReportedWaiveScenario",
-        todo: "workflow never reaches the Engineer broken-Objective report",
     },
     {
         scenario: validationTreeBrokenObjectiveFollowUpScenario,
         exportName: "validationTreeBrokenObjectiveFollowUpScenario",
-        todo: "captured Plan state does not yet retain the follow-up outcome",
     },
     {
         scenario: validationTreeBrokenObjectiveStopScenario,
         exportName: "validationTreeBrokenObjectiveStopScenario",
-        todo: "captured TUI evidence does not yet show the broken-Objective Stop decision",
     },
     {
         scenario: validationTreeBrokenObjectiveStaleReportScenario,

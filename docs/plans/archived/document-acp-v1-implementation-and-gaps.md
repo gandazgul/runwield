@@ -9,6 +9,7 @@ affectedPaths:
 frontend: false
 createdAt: "2026-07-19T09:26:10-04:00"
 updatedAt: "2026-07-25T22:09:24.171Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-19T13:44:38.285Z"

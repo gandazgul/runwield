@@ -12,6 +12,7 @@ devServerUrl: "http://localhost:5173"
 devServerHmr: true
 createdAt: "2026-07-01T00:02:37-04:00"
 updatedAt: "2026-07-17T04:52:29.893Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-02T16:15:10.836Z"

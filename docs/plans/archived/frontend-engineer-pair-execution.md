@@ -21,6 +21,7 @@ affectedPaths:
 frontend: false
 createdAt: "2026-07-18T10:13:58-04:00"
 updatedAt: "2026-07-24T04:05:55.225Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-24T03:58:41.290Z"
