@@ -414,6 +414,7 @@ export function getRootSessionBranchEntries(sessionManager) {
  * @property {string} headerCwd
  * @property {number | null} headerVersion
  * @property {string | null} headerTimestamp
+ * @property {Date | null} modified
  */
 
 /**
@@ -444,6 +445,7 @@ export async function readCatalogSafeRootSessionLocator(options) {
     await assertRealPathInside(sessionPath, sessionDir);
     const file = await Deno.open(sessionPath, { read: true });
     try {
+        const fileInfo = await file.stat();
         const maxHeaderBytes = Math.max(128, options.maxHeaderBytes || 65536);
         const buffer = new Uint8Array(maxHeaderBytes);
         const bytesRead = await file.read(buffer);
@@ -483,6 +485,7 @@ export async function readCatalogSafeRootSessionLocator(options) {
             headerCwd,
             headerVersion: typeof header.version === "number" ? header.version : null,
             headerTimestamp: typeof header.timestamp === "string" ? header.timestamp : null,
+            modified: fileInfo.mtime,
         };
     } finally {
         file.close();

@@ -388,6 +388,50 @@ export async function captureTranscriptEvidence(options) {
 }
 
 /**
+ * @typedef {Object} ResumableTranscriptContentBlock
+ * @property {string} [type]
+ * @property {string} [text]
+ */
+
+/**
+ * @typedef {Object} ResumableTranscriptMessage
+ * @property {string} [role]
+ * @property {string | ResumableTranscriptContentBlock[]} [content]
+ */
+
+/**
+ * @typedef {Object} ResumableTranscriptEntry
+ * @property {string} [type]
+ * @property {ResumableTranscriptMessage} [message]
+ */
+
+/**
+ * @typedef {Object} ResumableTranscriptSummary
+ * @property {number} messageCount
+ * @property {string} [firstMessage]
+ */
+
+/**
+ * Extract the small amount of conversation metadata needed by the resume
+ * picker from an already parsed transcript.
+ *
+ * @param {unknown[]} entries
+ * @returns {ResumableTranscriptSummary}
+ */
+export function summarizeResumableTranscript(entries) {
+    const typedEntries = entries.map((entry) => /** @type {ResumableTranscriptEntry} */ (entry));
+    const messages = typedEntries.filter((entry) => entry?.type === "message");
+    const firstUser = messages.find((entry) => entry.message?.role === "user");
+    const firstContent = firstUser?.message?.content;
+    const firstMessage = typeof firstContent === "string"
+        ? firstContent
+        : Array.isArray(firstContent)
+        ? firstContent.find((block) => block?.type === "text")?.text
+        : undefined;
+    return { messageCount: messages.length, firstMessage };
+}
+
+/**
  * @param {{ transcriptPath: string, transcriptCwd: string, committedGeneration: { generation: number, byteLength: number, terminalEntryId: string | null, digestHex: string } }} options
  */
 export async function validateExpiredControlTranscriptEvidence(options) {

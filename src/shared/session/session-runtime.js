@@ -67,6 +67,7 @@ import { parseProviderModel } from "../models/model-validation.ts";
 import { spawnForegroundShell } from "../foreground-process.ts";
 import { openFileSessionStore } from "./file-session-store.ts";
 import { FileSessionStoreOwner } from "./file-session-store-owner.ts";
+import { listRecentResumableSessions } from "./session-resume-list.ts";
 import { buildSessionContextReport } from "./session-context-report.js";
 import { getSettingsManager, setGlobalCompactionSetting } from "../settings.js";
 import { getSessionKeyboardHelp } from "./session-help.js";
@@ -2228,45 +2229,7 @@ export class SessionRuntime {
             throw new Error("SessionRuntime.listResumableSessions requires an absolute cwd");
         }
         const sessionStore = this.#sessionStoreOwner.ensure();
-        const classified = await classifyRootSessionLocator({
-            cwd,
-            ownerCoordinationStore: sessionStore,
-        });
-        if (classified.kind === "managed") {
-            const listed = await listCatalogSafeRootSessionLocators(cwd);
-            return await Promise.all(listed.locators.map(async (locator) => {
-                const evidence = await captureTranscriptEvidence({
-                    transcriptPath: locator.sessionPath,
-                    transcriptCwd: locator.headerCwd,
-                });
-                const info = buildProjectedSessionInfo(evidence.entries, {
-                    sessionId: locator.piSessionId,
-                    cwd: locator.headerCwd,
-                    transcriptPath: locator.sessionPath,
-                });
-                const messages = evidence.entries.filter((entry) => /** @type {any} */ (entry)?.type === "message");
-                const firstUser = messages.find((entry) => /** @type {any} */ (entry)?.message?.role === "user");
-                const firstContent = /** @type {any} */ (firstUser)?.message?.content;
-                const firstMessage = typeof firstContent === "string"
-                    ? firstContent
-                    : Array.isArray(firstContent)
-                    ? firstContent.find((block) => block?.type === "text")?.text
-                    : undefined;
-                return {
-                    id: locator.piSessionId,
-                    path: locator.sessionPath,
-                    cwd: locator.headerCwd,
-                    modified: locator.headerTimestamp || undefined,
-                    messageCount: messages.length,
-                    firstMessage,
-                    name: info.name || undefined,
-                };
-            }));
-        }
-        if (classified.kind === "blocked") {
-            return { ok: false, error: classified.reason || "managed_read_blocked", sessions: [] };
-        }
-        return await listPersistedRootSessions(cwd);
+        return await listRecentResumableSessions(cwd, sessionStore);
     }
 
     /**
