@@ -34,7 +34,10 @@ async function runHelpChild(argv: string[]): Promise<Deno.CommandOutput> {
 
 function decodeCommandStderr(output: Uint8Array): string {
     const denoLockNotice = "\u001b[0m\u001b[36mBlocking\u001b[0m waiting for file lock on node_modules directory";
-    return decoder.decode(output).split("\n").filter((line) => line !== denoLockNotice).join("\n");
+    return decoder.decode(output).split("\n").filter((line) => {
+        const plainLine = line.replaceAll("\u001b[0m", "").replaceAll("\u001b[32m", "").replaceAll("\u001b[36m", "");
+        return line !== denoLockNotice && !plainLine.startsWith("Download https://registry.npmjs.org/");
+    }).join("\n");
 }
 
 async function captureLogs(run: () => void | Promise<void>): Promise<string[]> {

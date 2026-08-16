@@ -118,7 +118,9 @@ export async function runGoldenScenarioChildProcess(request) {
     if (!request.keepArtifacts) await removeChildEnvironmentRoot(childPayload);
     const childReportedFailure = childPayload && typeof childPayload === "object" && "ok" in childPayload &&
         !/** @type {{ ok?: unknown }} */ (childPayload).ok;
-    if (childReportedFailure || !result.success) {
+    const childReportedSuccessBeforeTimeout = childPayload && typeof childPayload === "object" &&
+        /** @type {{ ok?: unknown }} */ (childPayload).ok === true && result.timedOut && !expectedCleanExit;
+    if (childReportedFailure || (!result.success && !childReportedSuccessBeforeTimeout)) {
         const artifactDir = await writeChildFailureArtifact(normalizedRequest, result, childPayload);
         const childArtifact = childPayload && typeof childPayload === "object" && "artifactDir" in childPayload
             ? `; childArtifactDir=${String(/** @type {{ artifactDir?: unknown }} */ (childPayload).artifactDir || "")}`
