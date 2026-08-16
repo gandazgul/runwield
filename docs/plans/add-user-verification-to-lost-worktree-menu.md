@@ -11,41 +11,29 @@ objectiveChecks:
     - id: "OC1"
       command: "deno eval 'const s=await Deno.readTextFile(\"src/cmd/load-plan/plan-recovery-flow.ts\"); const b=s.slice(s.indexOf(\"if (physicallyLost)\"), s.indexOf(\"const resetLabel\")); if (!(b.includes(\"isUserVerifiableStatus\") && b.includes(\"value: \\\"user_verify\\\"\") && b.includes(\"Mark as User Verified\"))) Deno.exit(1);'"
       rationale: "This fails on the current source because the physically-lost recovery branch has no eligible User Verified option; it passes only after that branch contains the established eligibility check and action."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-16T02:42:12.459Z"
-    head: "5464ee3f997f7a8152ce1ff537174db315ed01b0"
-    results:
-        - id: "OC1"
-          command: "deno eval 'const s=await Deno.readTextFile(\"src/cmd/load-plan/plan-recovery-flow.ts\"); const b=s.slice(s.indexOf(\"if (physicallyLost)\"), s.indexOf(\"const resetLabel\")); if (!(b.includes(\"isUserVerifiableStatus\") && b.includes(\"value: \\\"user_verify\\\"\") && b.includes(\"Mark as User Verified\"))) Deno.exit(1);'"
-          rationale: "This fails on the current source because the physically-lost recovery branch has no eligible User Verified option; it passes only after that branch contains the established eligibility check and action."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 40
-          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-15T22:39:39-04:00"
+updatedAt: "2026-08-16T14:10:11.294Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-08-16T03:06:33.700Z"
+verifiedAt: "2026-08-16T14:10:11.294Z"
 userVerifiedAt: null
 executionReport: "- Implemented: the lost-worktree recovery menu now offers `user_verify` for eligible statuses such as `implemented`, and the normal recovery menu hides `user_verify` for ineligible statuses such as `failed`.\n- Preserved: selecting `user_verify` still uses `userVerifyRecoveryPlan()` and `markPlanUserVerified()`, with the required note and no new validation claim.\n- Tests: added 1 recovery test for implemented lost-worktree User Verification; rewrote the existing lost-worktree test to keep the failed-plan stop flow while asserting `user_verify` is omitted; no tests were deleted.\n- Verification passed: `deno run -A scripts/run-tests.js src/cmd/load-plan/plan-recovery-flow.test.ts`; objective check command; `git diff --check` for changed files.\n- Mutation checks passed: removing the lost-worktree User Verification option and forcing normal-menu User Verification for failed plans each made the recovery test file fail, then both mutations were reverted.\n- Full CI did not pass: `deno task ci` failed twice in `src/ui/tui/golden-scenarios/project-workflow.test.js` under the full suite; rerunning `deno run -A scripts/run-tests.js src/ui/tui/golden-scenarios/project-workflow.test.js` passed standalone."
-validationCheckpoint: null
-executionMode: "worktree"
-executionBaselineTree: "a71a1df1060f4e8b93d68c4577290e9aa64baff0"
-worktreeId: "a40ec8c2"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-add-user-verification-to-lost-worktree-menu-a40ec8c2"
-worktreeBranch: "worktree/add-user-verification-to-lost-worktree-menu-a40ec8c2"
-worktreeBaseBranch: "main"
-validationObjectiveCheckAttempts: 0
-validationSemanticRounds: 0
-worktreeStatus: "validation_failed"
-validationCiAttempts: 0
-status: "validated_reviewer"
-updatedAt: "2026-08-16T14:10:10.143Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+validationCheckpoint: null
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "e192699b93e015c51b0f54ad1ba24f0ffc45e363"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "ac4173ad7ac71a89c72dd1759b2965476d3e2dab"
+validationCiAttempts: 0
+validationObjectiveCheckAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Add User Verification to the Lost-Worktree Recovery Menu
