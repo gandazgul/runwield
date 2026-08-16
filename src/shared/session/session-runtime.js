@@ -2860,8 +2860,8 @@ export class SessionRuntime {
         };
         let activationState = this.#sessionStore.inspectSessionActivation(managed.runwieldSessionId);
         if (
-            !activationState.generation &&
-            ["uninitialized", "uncertain", "reconcile_required"].includes(activationState.activation?.state || "")
+            ["uncertain", "reconcile_required"].includes(activationState.activation?.state || "") ||
+            (!activationState.generation && activationState.activation?.state === "uninitialized")
         ) {
             await this.ensureInitialSessionGeneration(managed.runwieldSessionId);
             activationState = this.#sessionStore.inspectSessionActivation(managed.runwieldSessionId);
@@ -3437,53 +3437,6 @@ export class SessionRuntime {
             await this.synchronizeManagedSession(sessionId, { emitEvents: false });
             return result;
         } catch (error) {
-            if (hydrated && capability.signal?.aborted) {
-                try {
-                    activeProof = this.#sessionStore.changeSessionActivationPhase(
-                        activeProof,
-                        "checkpointing",
-                    );
-                    capability.updateProof(activeProof);
-                    const managedModelState = normalizeManagedActiveModelState(
-                        hostedSession.getActiveModelState?.() || {},
-                        managed,
-                    );
-                    const canceledManaged = {
-                        ...managed,
-                        generation: nextGeneration,
-                        acknowledgedGeneration: nextGeneration,
-                        name: hostedSession.getRootSessionManager?.()?.getSessionName?.() || managed.name || null,
-                        activeAgent: hostedSession.getRootAgentName?.() || null,
-                        model: managedModelState.model,
-                        provider: managedModelState.provider,
-                        thinkingLevel: hostedSession.getThinkingLevel?.() || managed.thinkingLevel || "off",
-                        workflowContext: hostedSession.getWorkflowContext?.() || managed.workflowContext || null,
-                    };
-                    hostedSession.dehydrateManagedSession();
-                    this.#removeAllQueueSourceSubscriptions(sessionId);
-                    await syncTranscriptFileAndParent(managed.transcriptPath);
-                    const evidence = await captureTranscriptEvidence({
-                        transcriptPath: managed.transcriptPath,
-                        transcriptCwd: hostedSession.cwd,
-                    });
-                    this.#sessionStore.publishGenerationAndRelease(activeProof, {
-                        generation: nextGeneration,
-                        byteLength: evidence.byteLength,
-                        terminalEntryId: evidence.terminalEntryId,
-                        digestHex: evidence.digestHex,
-                        currentSegmentId: managed.currentSegmentId,
-                    });
-                    hostedSession.setManagedMetadata(canceledManaged);
-                    await this.synchronizeManagedSession(sessionId, { emitEvents: false });
-                    throw error;
-                } catch (checkpointError) {
-                    if (checkpointError === error) throw error;
-                    this.#sessionStore.markSessionUncertain(activeProof, {
-                        reason: checkpointError instanceof Error ? checkpointError.message : String(checkpointError),
-                    });
-                    throw error;
-                }
-            }
             hostedSession.dehydrateManagedSession();
             this.#removeAllQueueSourceSubscriptions(sessionId);
             if (!hydrated) {
@@ -3495,9 +3448,26 @@ export class SessionRuntime {
                     });
                 }
             } else {
-                this.#sessionStore.markSessionUncertain(activeProof, {
-                    reason: error instanceof Error ? error.message : String(error),
-                });
+                let uncertaintyRecorded = false;
+                try {
+                    await syncTranscriptFileAndParent(managed.transcriptPath);
+                    this.#sessionStore.markSessionUncertain(activeProof, {
+                        reason: error instanceof Error ? error.message : String(error),
+                    });
+                    uncertaintyRecorded = true;
+                    await this.ensureInitialSessionGeneration(managed.runwieldSessionId);
+                    await this.synchronizeManagedSession(sessionId, { emitEvents: false });
+                } catch (recoveryError) {
+                    if (!uncertaintyRecorded) {
+                        try {
+                            this.#sessionStore.markSessionUncertain(activeProof, {
+                                reason: recoveryError instanceof Error ? recoveryError.message : String(recoveryError),
+                            });
+                        } catch {
+                            // Preserve the original turn failure when recovery cannot record its own failure.
+                        }
+                    }
+                }
             }
             throw error;
         } finally {

@@ -691,6 +691,70 @@ Deno.test("SessionRuntime automatically recovers append-only output written befo
     });
 });
 
+Deno.test("SessionRuntime synchronization recovers safe append-only output after a later interrupted turn", async () => {
+    await withRuntimeCommandFixture(
+        "runtime-managed-later-recovery-",
+        async ({ homeDir: home, projectRoot: cwd }) => {
+            const store = openOwnerCoordinationStore({ dbPath: `${home}/owner.sqlite3` });
+            const runtime = createSessionRuntime({
+                sessionStore: store,
+                ownerProcessKind: "test",
+                ownerInstanceId: "runtime-recovery-owner",
+            });
+            try {
+                const sessionId = await runtime.createPromptReadySession({ cwd, agentName: "guide" });
+                const managed = runtime.getSessionSnapshot(sessionId)?.managed;
+                if (!managed) throw new Error("Fixture Session was not managed");
+                const segment = store.getCurrentSessionSegment(managed.runwieldSessionId);
+                if (!segment) throw new Error("Fixture Session segment was unavailable");
+                const state = store.inspectSessionActivation(managed.runwieldSessionId);
+                const proof = store.acquireSessionActivation({
+                    runwieldSessionId: managed.runwieldSessionId,
+                    projectId: managed.projectId,
+                    ownerInstanceId: "interrupted-claude-turn",
+                    ownerProcessKind: "test",
+                    expectedGeneration: state.generation?.generation ?? null,
+                    expectedCurrentSegmentId: managed.currentSegmentId,
+                    phase: "turning",
+                });
+                await Deno.writeTextFile(
+                    segment.transcriptPath,
+                    `${
+                        JSON.stringify({
+                            type: "custom",
+                            id: crypto.randomUUID(),
+                            customType: "runwield.backend_status",
+                            data: {
+                                version: 1,
+                                backend: "claude-cli",
+                                kind: "non_zero_exit",
+                                exitCode: 1,
+                                message: "Claude Code exited before completing the turn.",
+                            },
+                        })
+                    }\n`,
+                    { append: true },
+                );
+                store.markSessionUncertain(proof, { reason: "Claude Code exited before completing the turn." });
+
+                const synchronized = await runtime.synchronizeManagedSession(sessionId);
+
+                assertEquals(synchronized.ok, true);
+                assertEquals(
+                    store.inspectSessionActivation(managed.runwieldSessionId).generation?.generation,
+                    (state.generation?.generation ?? 0) + 1,
+                );
+                assertEquals(store.inspectSessionActivation(managed.runwieldSessionId).activation?.state, "idle");
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.managed?.syncState?.status, "current");
+                assertEquals(runtime.getUserTurnSubmissionBlockMessage(sessionId), null);
+            } finally {
+                await runtime.closeAllSessionsWhenIdle?.();
+                store.close();
+            }
+        },
+    );
+});
+
 Deno.test("SessionRuntime hydrates dormant managed Sessions for direct Plan workflow operations", async () => {
     await withRuntimeCommandFixture(
         "runtime-managed-plan-workflow-",
