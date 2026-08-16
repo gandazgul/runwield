@@ -14,6 +14,11 @@ interface DeferredSignal {
     resolve(): void;
 }
 
+interface ResumeManagedFixture {
+    runwieldSessionId: string;
+    projectId: string;
+}
+
 function deferredSignal(): DeferredSignal {
     let resolvePromise: () => void = () => {};
     const promise = new Promise<void>((resolve) => {
@@ -199,6 +204,78 @@ Deno.test("slash new replaces the TUI with an unpersisted shell until its first 
         } finally {
             releaseModel.resolve();
             await composition.dispose();
+        }
+    });
+});
+
+Deno.test("slash resume restores conversation after an interrupted checkpoint", async () => {
+    await withRuntimeCommandFixture("chat-input-slash-resume-recovery-", async ({ setModelResponse }) => {
+        setModelResponse("Persisted answer restored in the TUI.");
+        const seeded = await startComposition();
+        let managed: ResumeManagedFixture;
+        let expectedModel = "";
+        try {
+            await submitText(seeded.terminal, "restore this conversation");
+            await seeded.composition.waitForIdle();
+            const snapshot = seeded.composition.runtime.getSessionSnapshot(seeded.composition.sessionId);
+            if (!snapshot?.managed) throw new Error("Seeded Session was not persisted");
+            managed = snapshot.managed;
+            expectedModel = snapshot.activeModel.model || "";
+        } finally {
+            await seeded.composition.dispose();
+        }
+
+        const store = openOwnerCoordinationStore();
+        try {
+            const state = store.inspectSessionActivation(managed.runwieldSessionId);
+            const segment = store.getCurrentSessionSegment(managed.runwieldSessionId);
+            if (!segment) throw new Error("Seeded Session segment is unavailable");
+            const proof = store.acquireSessionActivation({
+                runwieldSessionId: managed.runwieldSessionId,
+                projectId: managed.projectId,
+                ownerInstanceId: "slash-resume-interrupted-fixture",
+                ownerProcessKind: "test",
+                expectedGeneration: state.generation?.generation ?? null,
+                expectedCurrentSegmentId: segment.segmentId,
+            });
+            await Deno.writeTextFile(
+                segment.transcriptPath,
+                `${
+                    JSON.stringify({
+                        type: "custom",
+                        id: crypto.randomUUID(),
+                        customType: "runwield.request_attempt",
+                        data: { status: "failed" },
+                    })
+                }\n`,
+                { append: true },
+            );
+            store.markSessionUncertain(proof, { reason: "interrupted after a failed request" });
+        } finally {
+            store.close();
+        }
+
+        const resumed = await startComposition();
+        try {
+            await submitText(resumed.terminal, "/resume");
+            await waitFor(
+                () => resumed.terminal.getScreenText().includes("Select a session to resume:"),
+                "resume selector",
+            );
+            resumed.terminal.pressEnter();
+            await waitFor(
+                () =>
+                    resumed.terminal.getScreenText().includes("restore this conversation") &&
+                    resumed.terminal.getScreenText().includes("Persisted answer restored in the TUI."),
+                "restored conversation",
+            );
+            assertStringIncludes(resumed.terminal.getScreenText(), "restore this conversation");
+            assertStringIncludes(resumed.terminal.getScreenText(), "Persisted answer restored in the TUI.");
+            const resumedSnapshot = resumed.composition.runtime.getSessionSnapshot(resumed.composition.sessionId);
+            assertEquals(resumedSnapshot?.activeAgent, "operator");
+            assertEquals(resumedSnapshot?.activeModel.model, expectedModel);
+        } finally {
+            await resumed.composition.dispose();
         }
     });
 });

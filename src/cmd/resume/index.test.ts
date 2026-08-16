@@ -142,6 +142,74 @@ Deno.test("runResumeCommand loads, replaces, and replays a real persisted sessio
     });
 });
 
+Deno.test("runResumeCommand recovers an interrupted checkpoint and replays the committed conversation", async () => {
+    await withRuntimeCommandFixture("runwield-resume-command-", async ({ homeDir, projectRoot }) => {
+        const seeded = seedPersistedSession(projectRoot, "conversation restored after interruption");
+        const store = openOwnerCoordinationStore({ dbPath: `${homeDir}/owner.sqlite3` });
+        const runtime = createSessionRuntime({ sessionStore: store });
+        let unsubscribe = () => {};
+        try {
+            const firstLoad = await runtime.loadSession({
+                cwd: projectRoot,
+                sessionId: seeded.id,
+                sessionPath: seeded.path,
+            });
+            const managed = runtime.getSessionSnapshot(firstLoad.sessionId)?.managed;
+            if (!managed) throw new Error("Fixture Session was not cataloged");
+            await runtime.closeSession(firstLoad.sessionId);
+
+            const state = store.inspectSessionActivation(managed.runwieldSessionId);
+            const proof = store.acquireSessionActivation({
+                runwieldSessionId: managed.runwieldSessionId,
+                projectId: managed.projectId,
+                ownerInstanceId: "interrupted-resume-fixture",
+                ownerProcessKind: "test",
+                expectedGeneration: state.generation?.generation ?? null,
+                expectedCurrentSegmentId: managed.currentSegmentId,
+            });
+            await Deno.writeTextFile(
+                seeded.path,
+                `${
+                    JSON.stringify({
+                        type: "custom",
+                        id: crypto.randomUUID(),
+                        customType: "runwield.request_attempt",
+                        data: { status: "failed" },
+                    })
+                }\n`,
+                { append: true },
+            );
+            store.markSessionUncertain(proof, { reason: "interrupted after a failed request" });
+
+            const current = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+            const ui = makeUi([seeded.path]);
+            const replayed: string[] = [];
+            await runResumeCommand([], {
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+                sessionId: current.sessionId,
+                sessionRuntime: runtime,
+                replaceRuntimeSession: (sessionId) => {
+                    unsubscribe = runtime.subscribeSessionEvents(sessionId, (event) => {
+                        if (event.type === RuntimeEventTypes.USER_MESSAGE) replayed.push(event.text);
+                        if (event.type === RuntimeEventTypes.ASSISTANT_TEXT_DELTA) replayed.push(event.delta);
+                    });
+                },
+            });
+
+            assert(replayed.some((text) => text.includes("conversation restored after interruption")));
+            assert(replayed.some((text) => text.includes("fixture response")));
+            const recovered = store.inspectSessionActivation(managed.runwieldSessionId);
+            assertEquals(recovered.activation?.state, "idle");
+            assertEquals(recovered.generation?.generation, (state.generation?.generation ?? 0) + 1);
+        } finally {
+            unsubscribe();
+            runtime.closeAllSessions();
+            store.close();
+        }
+    });
+});
+
 Deno.test("runResumeCommand offers full session names with date-only descriptions", async () => {
     await withRuntimeCommandFixture("runwield-resume-command-", async ({ homeDir, projectRoot }) => {
         const longMessage = "inspect the workspace sidebar rendering path ".repeat(4).trim();
