@@ -141,6 +141,7 @@ const ACTIVE_MANAGED_OPERATION = new AsyncLocalStorage();
  * @typedef {Object} PromptReadySessionOptions
  * @property {string} cwd
  * @property {string} [agentName]
+ * @property {boolean} [deferPersistenceUntilFirstMessage]
  */
 
 /**
@@ -451,7 +452,7 @@ export class SessionRuntime {
     #currentManagedOperations;
     /** @type {Map<string, Promise<unknown>>} */
     #currentManagedOperationSettlements;
-    /** @type {Map<string, { cwd: string }>} */
+    /** @type {Map<string, { cwd: string, name?: string }>} */
     #pendingManagedCreationProjects;
     /** @type {Map<string, import('./session-runtime-events.js').SessionRuntimeEvent[]>} */
     #pendingReplayEvents;
@@ -505,6 +506,7 @@ export class SessionRuntime {
         if (!session) return null;
         const sessionManager = session.getRootSessionManager();
         const managed = session.getManagedMetadata?.() || null;
+        const pendingCreation = this.#pendingManagedCreationProjects.get(sessionId) || null;
         const managedDormant = Boolean(managed && !sessionManager);
         const pendingManagedIntent = session.getPendingManagedTurnIntent?.() || {};
         const pendingAgentName = pendingManagedIntent.agentName || "";
@@ -527,7 +529,7 @@ export class SessionRuntime {
             id: session.id,
             cwd: session.cwd,
             sessionManagerId,
-            name: sessionManager?.getSessionName?.() || managed?.name || null,
+            name: sessionManager?.getSessionName?.() || managed?.name || pendingCreation?.name || null,
             disposed: session.disposed,
             managed: managed
                 ? {
@@ -1134,6 +1136,16 @@ export class SessionRuntime {
     async renameSession(sessionId, name) {
         const normalizedName = String(name || "").trim();
         if (!normalizedName) return { ok: false, error: "invalid_name" };
+        const pendingCreation = this.#pendingManagedCreationProjects.get(sessionId);
+        const pendingSession = this.#sessionHost.getSession(sessionId);
+        if (pendingCreation && pendingSession && !pendingSession.getManagedMetadata?.()) {
+            pendingCreation.name = normalizedName;
+            this.#emitSessionEvent(sessionId, {
+                type: RuntimeEventTypes.SESSION_RENAMED,
+                name: normalizedName,
+            });
+            return { ok: true, name: normalizedName };
+        }
         return await this.#runManagedStandaloneMutation(sessionId, "rename", (session) => {
             session.getRootSessionManager()?.appendSessionInfo?.(normalizedName);
             this.#emitSessionEvent(session.id, { type: RuntimeEventTypes.SESSION_RENAMED, name: normalizedName });
@@ -2576,6 +2588,9 @@ export class SessionRuntime {
                 createdSessionManager = true;
             }
             if (!sessionManager) throw new Error("The Session could not be opened");
+            if (pendingProject.name && sessionManager.getSessionName?.() !== pendingProject.name) {
+                sessionManager.appendSessionInfo?.(pendingProject.name);
+            }
             const piSessionId = sessionManager.getSessionId?.();
             if (!piSessionId) throw new Error("The Session could not be persisted");
             const transcriptPath = await this.#resolveCreatedSessionPath(hostedSession.cwd, sessionManager);
@@ -2614,7 +2629,7 @@ export class SessionRuntime {
                 generation: null,
                 acknowledgedGeneration: null,
                 acknowledgedEventId: null,
-                name: managedSession.displayName,
+                name: pendingProject.name || managedSession.displayName,
                 activeAgent: null,
                 workflowContext: null,
                 syncState: {
@@ -3758,14 +3773,19 @@ export class SessionRuntime {
             throw new Error("SessionRuntime.createPromptReadySession requires an absolute cwd");
         }
         const agentName = options.agentName || AGENTS.ROUTER;
-        const created = await this.createInteractiveSession({ cwd: options.cwd, mode: "new" });
+        const deferPersistence = options.deferPersistenceUntilFirstMessage === true;
+        const created = await this.createInteractiveSession({
+            cwd: options.cwd,
+            mode: "new",
+            deferManagedActivationUntilAgentReady: deferPersistence,
+        });
         const hostedSession = this.#sessionHost.getSession(created.sessionId);
         if (!hostedSession) throw new Error("SessionRuntime failed to retain the new session");
         try {
-            const switched = await this.switchAgent(hostedSession.id, {
-                agentName,
-            });
-            if (!switched.ok) throw new Error(switched.error || "The Session could not start");
+            const activated = deferPersistence
+                ? this.markPromptReadyAgent(hostedSession.id, { agentName })
+                : await this.switchAgent(hostedSession.id, { agentName });
+            if (!activated.ok) throw new Error(activated.error || "The Session could not start");
             return hostedSession.id;
         } catch (error) {
             await this.closeSession(hostedSession.id);

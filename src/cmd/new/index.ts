@@ -36,6 +36,7 @@ export async function runNewCommand(argv: string[], options: NewCommandOptions =
     const nextSessionId = await options.sessionRuntime.createPromptReadySession({
         cwd: projectRoot,
         agentName: AGENTS.ROUTER,
+        deferPersistenceUntilFirstMessage: true,
     });
     if (sessionName) await options.sessionRuntime.renameSession(nextSessionId, sessionName);
     options.replaceRuntimeSession(nextSessionId);

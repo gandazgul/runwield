@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runNewCommand } from "./index.ts";
 
@@ -15,10 +16,25 @@ async function captureErrors(run: () => Promise<void>): Promise<string[]> {
     return errors;
 }
 
-Deno.test("runNewCommand creates and names a real Router session in the active project", async () => {
-    await withRuntimeCommandFixture("runwield-new-command-", async ({ projectRoot }) => {
+async function countTranscripts(projectRoot: string): Promise<number> {
+    let count = 0;
+    try {
+        for await (const entry of Deno.readDir(getRunWieldSessionDir(projectRoot))) {
+            if (entry.isFile && entry.name.endsWith(".jsonl")) count++;
+        }
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return 0;
+        throw error;
+    }
+    return count;
+}
+
+Deno.test("runNewCommand creates and names an in-memory Router session until its first message", async () => {
+    await withRuntimeCommandFixture("runwield-new-command-", async ({ projectRoot, setModelResponse }) => {
+        setModelResponse("New Session ready.");
         const runtime = createSessionRuntime();
         const current = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+        const transcriptsBeforeNew = await countTranscripts(projectRoot);
         let replacementId = "";
         let cleared = false;
         try {
@@ -33,8 +49,17 @@ Deno.test("runNewCommand creates and names a real Router session in the active p
             assertEquals(replacement?.cwd, projectRoot);
             assertEquals(replacement?.name, "build coverage");
             assertEquals(replacement?.activeAgent, "router");
+            assertEquals(replacement?.sessionManagerId, null);
+            assertEquals(replacement?.managed, null);
             assertEquals(cleared, true);
             assertEquals(runtime.listSessions().length, 2);
+            assertEquals(await countTranscripts(projectRoot), transcriptsBeforeNew);
+
+            const firstTurn = await runtime.promptUserTurn(replacementId, { initialRequest: "Start working" });
+            assertEquals(firstTurn.ok, true);
+            assertEquals(typeof runtime.getSessionSnapshot(replacementId)?.sessionManagerId, "string");
+            assertEquals(runtime.getSessionSnapshot(replacementId)?.name, "build coverage");
+            assertEquals(await countTranscripts(projectRoot), transcriptsBeforeNew + 1);
         } finally {
             runtime.closeAllSessions();
         }
@@ -56,6 +81,9 @@ Deno.test("runNewCommand uses the fixture cwd when there is no current session",
             assertEquals(replacement?.cwd, alternateRoot);
             assertEquals(replacement?.name, null);
             assertEquals(replacement?.activeAgent, "router");
+            assertEquals(replacement?.sessionManagerId, null);
+            assertEquals(replacement?.managed, null);
+            assertEquals(await countTranscripts(alternateRoot), 0);
         } finally {
             runtime.closeAllSessions();
         }
