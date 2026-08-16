@@ -27,6 +27,7 @@ devServerUrl: null
 devServerHmr: null
 createdAt: "2026-08-15T13:12:00-0400"
 status: "draft"
+planId: "e29bc564-93dc-4440-a1b5-79fe9f3041a2"
 ---
 
 # Split the Quick Fix Engineer from a Workflow-Only Plan Engineer
