@@ -18,11 +18,16 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-14T00:11:43-04:00"
-updatedAt: "2026-08-14T04:35:21.836Z"
+updatedAt: "2026-08-16T03:51:30.222Z"
 status: "user_verified"
 origin: "internal"
 userVerifiedAt: "2026-08-14T04:35:21.836Z"
 userVerificationNote: "Implemented in the isolated worktree and marked user verified at the explicit request of the repository owner after focused validation and full CI passed."
+workRecord:
+    status: "generated"
+    recordId: "799c65d5-043c-4c73-9e25-80e1effd8c1f"
+    path: "docs/work-records/2026-08-16-validation-authority-and-recovery-model-consolidated.md"
+    lastAttemptAt: "2026-08-16T03:51:15.220Z"
 validationCheckpoint: null
 ---
 

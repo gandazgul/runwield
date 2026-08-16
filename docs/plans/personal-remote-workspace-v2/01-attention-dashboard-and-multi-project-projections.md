@@ -30,9 +30,9 @@ planId: "544343e5-ad41-4698-8183-eae0cd3983b2"
 
 ## Context
 
-Deferred from Personal Remote Workspace v1 on 2026-08-13. The v1 Epic ships the core loop (session timeline,
-Plan review, approval) with a plain project → session list as the entry point. This dashboard replaces that plain
-list when v2 starts. Requires the v1 Epic (through its hardening child) to be complete.
+Deferred from Personal Remote Workspace v1 on 2026-08-13. The v1 Epic ships the core loop (session timeline, Plan
+review, approval) with a plain project → session list as the entry point. This dashboard replaces that plain list when
+v2 starts. Requires the v1 Epic (through its hardening child) to be complete.
 
 The owner needs one remote surface for running, waiting, ready, failed, degraded, and recently completed work across
 Projects. Display state must remain a rebuildable projection rather than a workflow authority.

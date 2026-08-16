@@ -1,4 +1,5 @@
 ---
+planId: "29d8ff70-d038-4925-9b46-7c6237ad071b"
 classification: "PROJECT"
 complexity: "HIGH"
 summary: "Implement concurrent execution isolation using git worktrees, with explicit execution-root plumbing for agent sessions, validation, recovery, registry tracking, and merge-back."

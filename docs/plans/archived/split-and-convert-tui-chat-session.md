@@ -99,12 +99,18 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-06T14:59:04-04:00"
+updatedAt: "2026-08-16T03:52:17.194Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-11T17:05:17.228Z"
 verifiedAt: "2026-08-12T03:01:38.109Z"
 userVerifiedAt: null
 executionReport: "- Implemented split: removed `src/ui/tui/chat-session.js`; added bounded TypeScript owners `chat-footer.ts`, `chat-view.ts`, `chat-input-controller.ts`, `interactive-tui-composition.ts`; kept `chat-session.ts` as the startup/replacement orchestrator.\n- Updated public imports, composition fixtures, Golden scenario imports, architecture boundary check, model-selection test import, and language-policy baseline to use the new TypeScript entry points.\n- Reorganized tests: replaced the mixed JS `chat-session.test.js` source-order suite with `chat-session.test.ts`, `chat-footer.test.ts`, and `chat-input-controller.test.ts` (17 `Deno.test` cases). The removed source-order checks were rewritten or replaced by owner/API checks; behavior that only asserted private source order was deleted because that private layout no longer exists.\n- Verification passed: `deno task check`; `deno task lint`; `deno task language-policy:check`; `deno task seams:check`; focused TUI/session test command; Golden/architecture/model-selection focused command; Objective checks OC1–OC5; full `deno task ci`.\n- Mutation proof was partially performed: changing the streaming slash blocked-message rule made `chat-input-controller.test.ts` fail, then the implementation was restored and the test plus `deno task check` passed. Manual interactive `deno task cli` smoke was not run in this non-interactive execution environment."
+workRecord:
+    status: "generated"
+    recordId: "47933513-d2ba-497d-85b9-249d8c489638"
+    path: "docs/work-records/2026-08-16-split-tui-chat-session-into-typescript-owners.md"
+    lastAttemptAt: "2026-08-16T03:51:46.830Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-08-12T02:56:34.994Z"
@@ -115,14 +121,13 @@ deliveryEvidence:
     executionCommit: "4d5e594817684dec6ddb73878d5c26c4461ec9bb"
     targetBranch: "main"
     targetHeadBeforeMerge: "59ad66d1467a23bcb156f9f22cc22905ed963771"
+archivedAt: "2026-08-12T14:57:50.893Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/split-and-convert-tui-chat-session.md"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "upgrade pi and rendering"
 validationCiAttempts: 0
 validationSemanticRounds: 0
-updatedAt: "2026-08-12T14:57:50.893Z"
-archivedAt: "2026-08-12T14:57:50.893Z"
-archivedFromStatus: "verified"
-archivedFromPath: "docs/plans/split-and-convert-tui-chat-session.md"
 ---
 
 # Split and Convert the TUI Chat Session
