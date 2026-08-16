@@ -45,14 +45,12 @@ Deno.test("managed operations rely on the OS lock without a heartbeat timer", as
     assert(!source.includes("heartbeatFailureReason"));
 });
 
-Deno.test("semantic repair always rolls into a successor transcript segment", async () => {
+Deno.test("semantic repair rolls managed Sessions and continues uncataloged Sessions", async () => {
     const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
     assert(!source.includes("if (!managed) return validationResult"));
-    assertStringIncludes(source, "runwieldSessionId: managed.runwieldSessionId");
-    assertStringIncludes(
-        source,
-        'if (!managed) throw new Error("Semantic repair handoff requires a segmented Session.")',
-    );
+    assertStringIncludes(source, "runwieldSessionId: managed?.runwieldSessionId || session.id");
+    assertStringIncludes(source, "if (managed) {");
+    assert(!source.includes("Semantic repair handoff requires a segmented Session."));
     assertStringIncludes(source, 'kind: "semantic_repair"');
     assertStringIncludes(source, "return await this.#runSemanticRepairContinuation");
 });

@@ -3,7 +3,7 @@
  * Builds the bounded, newest-first list used by the interactive resume picker.
  */
 
-import { classifyRootSessionLocator, listCatalogSafeRootSessionLocators } from "./root-session.js";
+import { listCatalogSafeRootSessionLocators } from "./root-session.js";
 import {
     buildProjectedSessionInfo,
     captureTranscriptEvidence,
@@ -22,12 +22,6 @@ export interface ResumableSessionSummary {
     messageCount?: number;
     firstMessage?: string;
     name?: string;
-}
-
-export interface ResumableSessionListFailure {
-    ok: false;
-    error: string;
-    sessions: ResumableSessionSummary[];
 }
 
 function modifiedTime(value: Date | string | number | undefined): number {
@@ -59,14 +53,7 @@ async function mapWithConcurrency<Value, Result>(
 export async function listRecentResumableSessions(
     cwd: string,
     sessionStore: FileSessionStore,
-): Promise<ResumableSessionSummary[] | ResumableSessionListFailure> {
-    const classified = await classifyRootSessionLocator({
-        cwd,
-        ownerCoordinationStore: sessionStore,
-    });
-    if (classified.kind === "blocked") {
-        return { ok: false, error: classified.reason || "managed_read_blocked", sessions: [] };
-    }
+): Promise<ResumableSessionSummary[]> {
     const listed = await listCatalogSafeRootSessionLocators(cwd);
     const recentLocators = listed.locators.toSorted((left, right) => {
         const timeDifference = modifiedTime(right.modified || right.headerTimestamp || undefined) -
@@ -77,25 +64,34 @@ export async function listRecentResumableSessions(
         if (!session) return true;
         return sessionStore.inspectSessionActivation(session.runwieldSessionId).activation?.state !== "active";
     }).slice(0, RECENT_SESSION_LIMIT);
-    return await mapWithConcurrency(recentLocators, RESUME_READ_CONCURRENCY, async (locator) => {
-        const evidence = await captureTranscriptEvidence({
-            transcriptPath: locator.sessionPath,
-            transcriptCwd: locator.headerCwd,
-        });
-        const info = buildProjectedSessionInfo(evidence.entries, {
-            sessionId: locator.piSessionId,
-            cwd: locator.headerCwd,
-            transcriptPath: locator.sessionPath,
-        });
-        const summary = summarizeResumableTranscript(evidence.entries);
-        return {
-            id: locator.piSessionId,
-            path: locator.sessionPath,
-            cwd: locator.headerCwd,
-            modified: locator.modified || locator.headerTimestamp || undefined,
-            messageCount: summary.messageCount,
-            firstMessage: summary.firstMessage,
-            name: info.name || undefined,
-        };
-    });
+    const summaries = await mapWithConcurrency(
+        recentLocators,
+        RESUME_READ_CONCURRENCY,
+        async (locator): Promise<ResumableSessionSummary | null> => {
+            try {
+                const evidence = await captureTranscriptEvidence({
+                    transcriptPath: locator.sessionPath,
+                    transcriptCwd: locator.headerCwd,
+                });
+                const info = buildProjectedSessionInfo(evidence.entries, {
+                    sessionId: locator.piSessionId,
+                    cwd: locator.headerCwd,
+                    transcriptPath: locator.sessionPath,
+                });
+                const summary = summarizeResumableTranscript(evidence.entries);
+                return {
+                    id: locator.piSessionId,
+                    path: locator.sessionPath,
+                    cwd: locator.headerCwd,
+                    modified: locator.modified || locator.headerTimestamp || undefined,
+                    messageCount: summary.messageCount,
+                    firstMessage: summary.firstMessage,
+                    name: info.name || undefined,
+                };
+            } catch {
+                return null;
+            }
+        },
+    );
+    return summaries.filter((summary): summary is ResumableSessionSummary => summary !== null);
 }

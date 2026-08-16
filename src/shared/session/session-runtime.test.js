@@ -526,7 +526,6 @@ Deno.test("SessionRuntime persists a newly managed Pi transcript before catalogi
                 });
                 assertEquals(typeof created.sessionManagerId, "string");
                 const persisted = await runtime.listResumableSessions(cwd);
-                if (!Array.isArray(persisted)) throw new Error(persisted.error);
                 assertEquals(persisted.some((session) => session.id === created.sessionManagerId), true);
 
                 await runtime.switchAgent(created.sessionId, { agentName: "Ideator" });

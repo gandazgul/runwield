@@ -46,7 +46,6 @@ Deno.test("resume listing reads only the 30 newest transcripts and returns them 
             }
 
             const listed = await listRecentResumableSessions(cwd, store);
-            if (!Array.isArray(listed)) throw new Error(listed.error);
 
             assertEquals(listed.length, RECENT_SESSION_LIMIT);
             assertEquals(
@@ -103,16 +102,45 @@ Deno.test("resume listing hides a conversation while another TUI holds its lock"
             });
 
             const whileActive = await listRecentResumableSessions(cwd, listingStore);
-            if (!Array.isArray(whileActive)) throw new Error(whileActive.error);
             assertEquals(whileActive, []);
 
             holderStore.releaseUnchangedActivation(proof);
             const afterRelease = await listRecentResumableSessions(cwd, listingStore);
-            if (!Array.isArray(afterRelease)) throw new Error(afterRelease.error);
             assertEquals(afterRelease.map((entry) => entry.id), [piSessionId]);
         } finally {
             listingStore.close();
             holderStore.close();
+            Deno.env.set("HOME", previousHome);
+            await Deno.remove(home, { recursive: true });
+        }
+    });
+});
+
+Deno.test("resume listing ignores an unrelated parent Project record", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = getHomeDir();
+        const home = await Deno.makeTempDir({ prefix: "runwield-parent-project-resume-list-" });
+        Deno.env.set("HOME", home);
+        const parentRoot = join(home, "projects");
+        const cwd = join(parentRoot, "brandchef.ai");
+        await Deno.mkdir(cwd, { recursive: true });
+        const store = openFileSessionStore();
+        try {
+            store.ensureRuntimeProject({ root: parentRoot });
+            const sessionDir = getRunWieldSessionDir(cwd);
+            await Deno.mkdir(sessionDir, { recursive: true });
+            const timestamp = "2026-08-16T17:00:00.000Z";
+            const piSessionId = "brandchef-session";
+            await Deno.writeTextFile(
+                join(sessionDir, `${timestamp.replace(/[:.]/g, "-")}_${piSessionId}.jsonl`),
+                transcriptText(piSessionId, cwd, timestamp, 1),
+            );
+
+            const listed = await listRecentResumableSessions(cwd, store);
+
+            assertEquals(listed.map((session) => session.id), [piSessionId]);
+        } finally {
+            store.close();
             Deno.env.set("HOME", previousHome);
             await Deno.remove(home, { recursive: true });
         }

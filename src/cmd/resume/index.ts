@@ -132,15 +132,7 @@ export async function runResumeCommand(argv: string[], options: ResumeCommandOpt
 
     const current = sessionRuntime.getSessionSnapshot(sessionId);
     if (!current) throw new Error("The active runtime session is missing.");
-    const listedSessions = await sessionRuntime.listResumableSessions(current.cwd);
-    if (!Array.isArray(listedSessions)) {
-        console.error("[RunWield] resume_list_failed", listedSessions.error || "saved_sessions_unavailable");
-        uiAPI.appendSystemMessage(
-            "RunWield could not load saved Sessions. Try /resume again.",
-        );
-        return;
-    }
-    const sessions = listedSessions;
+    const sessions = await sessionRuntime.listResumableSessions(current.cwd);
     if (sessions.length === 0) {
         uiAPI.appendSystemMessage("No recent sessions found to resume.");
         return;
