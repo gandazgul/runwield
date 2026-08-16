@@ -14,13 +14,18 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-15T22:39:39-04:00"
-updatedAt: "2026-08-16T14:10:11.294Z"
+updatedAt: "2026-08-16T14:10:32.285Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-16T03:06:33.700Z"
 verifiedAt: "2026-08-16T14:10:11.294Z"
 userVerifiedAt: null
 executionReport: "- Implemented: the lost-worktree recovery menu now offers `user_verify` for eligible statuses such as `implemented`, and the normal recovery menu hides `user_verify` for ineligible statuses such as `failed`.\n- Preserved: selecting `user_verify` still uses `userVerifyRecoveryPlan()` and `markPlanUserVerified()`, with the required note and no new validation claim.\n- Tests: added 1 recovery test for implemented lost-worktree User Verification; rewrote the existing lost-worktree test to keep the failed-plan stop flow while asserting `user_verify` is omitted; no tests were deleted.\n- Verification passed: `deno run -A scripts/run-tests.js src/cmd/load-plan/plan-recovery-flow.test.ts`; objective check command; `git diff --check` for changed files.\n- Mutation checks passed: removing the lost-worktree User Verification option and forcing normal-menu User Verification for failed plans each made the recovery test file fail, then both mutations were reverted.\n- Full CI did not pass: `deno task ci` failed twice in `src/ui/tui/golden-scenarios/project-workflow.test.js` under the full suite; rerunning `deno run -A scripts/run-tests.js src/ui/tui/golden-scenarios/project-workflow.test.js` passed standalone."
+workRecord:
+    status: "generated"
+    recordId: "a5d17572-da87-4f62-9bcd-a6ede1ce1b7c"
+    path: "docs/work-records/2026-08-16-lost-worktree-user-verification-recovery-added.md"
+    lastAttemptAt: "2026-08-16T14:10:18.511Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 validationCheckpoint: null
