@@ -11,10 +11,7 @@
 export const PROTECTED_TOOL_NAMES = Object.freeze([
     // memory
     "memory_recall",
-    "memory_recall_global",
-    "memory_store",
-    "memory_store_global",
-    "memory_delete",
+    "memory_write",
     // codebase exploration
     "code_search",
     "code_show",

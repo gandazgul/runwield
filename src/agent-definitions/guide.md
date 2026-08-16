@@ -13,10 +13,7 @@ tools:
     - edit_docs
     - bash
     - memory_recall
-    - memory_recall_global
-    - memory_store
-    - memory_store_global
-    - memory_delete
+    - memory_write
     - work_record_search
     - work_record_read
     - user_interview

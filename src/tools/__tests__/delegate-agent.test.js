@@ -100,10 +100,7 @@ Deno.test("resolveDelegatedToolNames intersects parent tools with mode policy", 
         "triage_report",
         "user_interview",
         "memory_recall",
-        "memory_recall_global",
-        "memory_store",
-        "memory_store_global",
-        "memory_delete",
+        "memory_write",
         "delegate_agent",
     ];
 

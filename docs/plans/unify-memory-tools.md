@@ -13,9 +13,10 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-08T01:08:52-04:00"
-updatedAt: "2026-08-08T01:08:52-04:00"
-status: "draft"
 origin: "internal"
+updatedAt: "2026-08-16T18:56:06.149Z"
+status: "ready_for_work"
+userVerifiedAt: null
 ---
 
 # Unify Memory Tools

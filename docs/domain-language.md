@@ -548,6 +548,14 @@ Bridged Tools can advance workflow state and keep the legacy `runwield_` aliases
 Record, interview, edit, or caller-supplied work and use their internal names, avoiding new aliases such as
 `runwield_memory_recall` or `runwield_code_search`. _Avoid_: Claude native tool, MCP plugin
 
+**Memory-Recall Tool**: The `memory_recall` Custom Tool that searches project and global Mnemosyne memories together and
+returns labeled project and global result groups. Project memories take precedence over conflicting global memories.
+_Avoid_: Global recall tool, project-only memory search
+
+**Memory-Write Tool**: The `memory_write` Custom Tool that stores project or global Mnemosyne memories with
+`action: "store"`, or deletes a memory by document ID with `action: "delete"`. Store defaults to project scope. Delete
+uses only the ID and no scope. _Avoid_: Memory store tool, memory delete tool
+
 **Triage-Report Tool**: The `triage_report` Custom Tool that emits a Triage Report and ends the current Agent turn.
 _Avoid_: Classification tool, triage result tool
 

@@ -17,10 +17,7 @@ tools:
     - task_completed
     - user_interview
     - memory_recall
-    - memory_recall_global
-    - memory_store
-    - memory_store_global
-    - memory_delete
+    - memory_write
     - return_to_router
     - code_search
     - code_show

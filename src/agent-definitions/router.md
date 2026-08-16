@@ -11,7 +11,6 @@ tools:
     - ls
     - bash
     - memory_recall
-    - memory_recall_global
     - code_search
     - code_show
     - code_outline
@@ -80,7 +79,7 @@ explicitly disabled.
    architectural implication, and whether there are hidden dependencies.
 6. Explore the codebase with your `code_*` tools and `bash` (discovery only) to find relevant files and understand the
    current implementation. A good place to start is `code_structure`. Only read files directly relevant to routing.
-   Avoid broad surveys. You may also use memory_recall and memory_recall_global to check for relevant memories.
+   Avoid broad surveys. You may also use memory_recall to check for relevant project and global memories.
 7. Call `triage_report` with: `routingIntent`, `complexity`, `summary`, and `sessionName`. `sessionName` must be a short
    3–6 word noun phrase for the persisted Session Name and terminal tab title, such as `terminal titles`,
    `plan board UI`, or `fix model routing`.

@@ -4,13 +4,7 @@
  */
 
 import { createMnemosyneTools } from "./tools.ts";
-export {
-    memoryDeleteToolDef,
-    memoryRecallGlobalToolDef,
-    memoryRecallToolDef,
-    memoryStoreGlobalToolDef,
-    memoryStoreToolDef,
-} from "./tools.ts";
+export { memoryRecallToolDef, memoryWriteToolDef } from "./tools.ts";
 
 /**
  * Register Mnemosyne lifecycle hooks and memory tools.

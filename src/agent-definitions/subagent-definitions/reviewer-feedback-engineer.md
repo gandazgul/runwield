@@ -17,7 +17,6 @@ tools:
     - bash
     - task_completed
     - memory_recall
-    - memory_recall_global
     - code_search
     - code_show
     - code_outline

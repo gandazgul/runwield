@@ -60,7 +60,6 @@ Deno.test("loadAgentDef preserves per-agent protected tools when override narrow
 
         const expectedProtected = [
             "memory_recall",
-            "memory_recall_global",
             "code_search",
             "code_show",
             "code_outline",
@@ -125,7 +124,7 @@ Deno.test("loadAgentDef loads Guide with read-only tools and return_to_router", 
     assert(def.tools.includes("ls"));
     assert(def.tools.includes("bash"));
     assert(def.tools.includes("memory_recall"));
-    assert(def.tools.includes("memory_recall_global"));
+    assert(def.tools.includes("memory_write"));
     assert(def.tools.includes("code_search"));
     assert(def.tools.includes("return_to_router"));
     assert(def.tools.includes("write_docs"));

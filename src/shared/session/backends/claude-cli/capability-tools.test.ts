@@ -52,7 +52,10 @@ Deno.test("Claude CLI capability tools execute PATH helper binaries", () =>
             const codeText = await executeText(getTool(tools, "code_search"), { query: "Thing" });
             const webText = await executeText(getTool(tools, "web_search"), { query: "current docs" });
 
-            assertEquals(memoryText, "memory-hit");
+            assertEquals(
+                memoryText,
+                "Project memories (runwield) — these take precedence over global memories:\nmemory-hit\n\nGlobal memories (cross-project defaults):\nmemory-hit",
+            );
             assertEquals(codeText, "cymbal:--no-federate search Thing");
             assertEquals(webText, "Web - https://example.test");
         } finally {
@@ -82,7 +85,8 @@ Deno.test("Claude CLI memory capability reports missing mnemosyne binary", () =>
 
 Deno.test("Claude CLI capability list includes memory, code, and web families", () => {
     assertArrayIncludes([...CLAUDE_CLI_CAPABILITY_TOOL_NAMES], [
-        "memory_store_global",
+        "memory_recall",
+        "memory_write",
         "code_investigate",
         "web_search",
         "web_fetch",

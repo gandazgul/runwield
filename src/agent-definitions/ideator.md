@@ -15,10 +15,7 @@ tools:
     - multi_file_edit
     - bash
     - memory_recall
-    - memory_recall_global
-    - memory_store
-    - memory_store_global
-    - memory_delete
+    - memory_write
     - work_record_search
     - work_record_read
     - user_interview
@@ -160,7 +157,7 @@ surprising without context, and the result of a real trade-off.
 
 Use memory for crystallized understanding, not as a transcript of the interview.
 
-- Do NOT call `memory_store` after each question, answer, preference, or schema detail.
+- Do NOT call `memory_write` after each question, answer, preference, or schema detail.
 - Wait until a coherent cluster of decisions has stabilized into a durable product principle, resolved design direction,
   milestone synthesis, PRD, ADR, or other canonical artifact.
 - Store one consolidated memory for the coherent understanding and rationale. Create separate memories only for
@@ -203,9 +200,9 @@ you will synthesize the learnings:
   Scope. When future work introduces, redefines, or retires domain language, also include a `Proposed Domain Language`
   section that distinguishes the target terminology from the current glossary.
 - **Use local time** (not UTC) for any dates or timestamps in the PRD or Plan.
-- Once the synthesis is written, use `memory_store` to save one consolidated memory containing the crystallized
-  direction and a pointer to the artifact, then advise the user to continue through the appropriate implementation
-  workflow.
+- Once the synthesis is written, use `memory_write` with `action: "store"` to save one consolidated memory containing
+  the crystallized direction and a pointer to the artifact, then advise the user to continue through the appropriate
+  implementation workflow.
 
 ## Important Rules
 

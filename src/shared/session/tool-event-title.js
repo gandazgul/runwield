@@ -112,6 +112,13 @@ function formatToolEventTitle(toolName, args) {
         headerArgs = planName ? `docs/plans/${planName}.md` : "";
     } else if (toolName === "memory_recall" || toolName === "memory_recall_global") {
         headerArgs = args?.query || "";
+    } else if (toolName === "memory_write") {
+        if (args?.action === "delete") {
+            headerArgs = `id: ${args?.id}`;
+        } else {
+            const content = args?.content || "";
+            headerArgs = content.length > 80 ? content.slice(0, 77) + "..." : content;
+        }
     } else if (toolName === "memory_store" || toolName === "memory_store_global") {
         const content = args?.content || "";
         headerArgs = content.length > 80 ? content.slice(0, 77) + "..." : content;
@@ -160,6 +167,7 @@ export function describeRuntimeTool(toolName, args) {
         toolName === "code_importers" || toolName === "code_structure" || toolName === "code_codebase_info" ||
         toolName === "memory_recall" || toolName === "memory_recall_global" || toolName === "work_record_search"
     ) kind = "search";
+    else if (toolName === "memory_write") kind = args?.action === "delete" ? "delete" : "edit";
     else if (toolName === "work_record_read") kind = "read";
     else if (toolName === "bash") kind = "execute";
     else if (toolName === "code_investigate" || toolName === "delegate_agent") kind = "think";
