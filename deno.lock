@@ -84,7 +84,6 @@
     "npm:class-variance-authority@~0.7.1": "0.7.1",
     "npm:clsx@^2.1.1": "2.1.1",
     "npm:codemirror@^6.0.2": "6.0.2",
-    "npm:diff@8.0.4": "8.0.4",
     "npm:diff@9": "9.0.0",
     "npm:dockview-react@^7.0.2": "7.0.4_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:dompurify@*": "3.4.11",
@@ -92,7 +91,7 @@
     "npm:esbuild@~0.28.2": "0.28.2",
     "npm:fuse.js@^7.4.2": "7.4.2",
     "npm:highlight.js@^11.11.1": "11.11.1",
-    "npm:katex@~0.16.47": "0.16.47",
+    "npm:katex@~0.18.2": "0.18.4",
     "npm:lucide-react@^1.25.0": "1.26.0_react@19.2.7",
     "npm:marked@^17.0.6": "17.0.6",
     "npm:mermaid@^11.16.0": "11.16.0",
@@ -5235,6 +5234,13 @@
       ],
       "bin": true
     },
+    "katex@0.18.4": {
+      "integrity": "sha512-IMPntbRLOU+eu88XDiFKqQ8Akhr9Tv7jDMXqPhjG9SI1JMA4DIgXk4x9k4skJz2NZJXBRbC+2pYBLj9olqcZow==",
+      "dependencies": [
+        "commander@8.3.0"
+      ],
+      "bin": true
+    },
     "khroma@2.1.0": {
       "integrity": "sha512-Ls993zuzfayK269Svk9hzpeGUKob/sIgZzyHYdjQoAdQetRKpOLj+k/QQQ/6Qi0Yz65mlROrfd+Ev+1+7dz9Kw=="
     },
@@ -5497,7 +5503,7 @@
         "dayjs",
         "dompurify",
         "es-toolkit",
-        "katex",
+        "katex@0.16.47",
         "khroma",
         "marked@16.4.2",
         "roughjs",
@@ -6867,7 +6873,7 @@
       "npm:esbuild@~0.28.2",
       "npm:fuse.js@^7.4.2",
       "npm:highlight.js@^11.11.1",
-      "npm:katex@~0.16.47",
+      "npm:katex@~0.18.2",
       "npm:lucide-react@^1.25.0",
       "npm:marked@^17.0.6",
       "npm:mermaid@^11.16.0",
@@ -6884,11 +6890,6 @@
       "npm:typescript@^5.9.3",
       "npm:unique-username-generator@^1.5.1",
       "npm:vite@^8.1.5"
-    ],
-    "packageJson": {
-      "dependencies": [
-        "npm:diff@8.0.4"
-      ]
-    }
+    ]
   }
 }
