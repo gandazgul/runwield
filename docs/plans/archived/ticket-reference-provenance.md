@@ -38,6 +38,7 @@ devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-22T13:11:44-04:00"
 updatedAt: "2026-07-23T19:01:32.184Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-23T18:13:27.281Z"

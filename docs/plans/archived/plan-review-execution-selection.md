@@ -37,6 +37,7 @@ devServerUrl: "http://127.0.0.1:5173/dev/plan-review"
 devServerHmr: true
 createdAt: "2026-07-23T17:51:15-04:00"
 updatedAt: "2026-07-24T15:25:33.471Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-24T15:25:16.984Z"

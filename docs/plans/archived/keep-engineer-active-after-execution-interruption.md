@@ -8,6 +8,7 @@ affectedPaths:
     - "src/shared/workflow/orchestrator.js"
 createdAt: "2026-06-24T21:02:48-04:00"
 updatedAt: "2026-07-17T04:48:29.847Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 failureReason: "git merge --no-ff runwield/worktree/keep-engineer-active-after-execution-interruptio-0652e268 failed: error: Your local changes to the following files would be overwritten by merge: plans/keep-engineer-active-after-execution-interruption.md Please commit your changes or stash them before you merge. Aborting Merge with strategy ort failed."

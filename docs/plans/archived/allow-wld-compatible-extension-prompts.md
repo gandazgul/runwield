@@ -17,6 +17,7 @@ affectedPaths:
     - "docs/settings.md"
 createdAt: "2026-06-16T16:51:18-04:00"
 updatedAt: "2026-07-17T04:41:11.361Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 workRecord:

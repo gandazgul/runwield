@@ -18,6 +18,7 @@ affectedPaths:
     - "docs/prd/done/project-decomposition-PRD.md"
 createdAt: "2026-06-16T16:25:04Z"
 updatedAt: "2026-07-25T22:09:33.460Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 workRecord:

@@ -11,6 +11,7 @@ affectedPaths:
     - "README.md"
 createdAt: "2026-06-16T16:25:04Z"
 updatedAt: "2026-07-17T04:43:06.275Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-18T15:04:39.837Z"

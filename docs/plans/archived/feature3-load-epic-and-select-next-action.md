@@ -9,6 +9,7 @@ affectedPaths:
     - "src/plan-store.js"
 createdAt: "2026-06-16T16:25:04Z"
 updatedAt: "2026-07-17T04:43:17.648Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-06-16T20:16:51.416Z"

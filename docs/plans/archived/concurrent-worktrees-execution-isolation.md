@@ -18,6 +18,7 @@ affectedPaths:
     - "docs/adr/005-concurrent-worktree-isolation.md"
 createdAt: "2026-06-15T13:30:00.000Z"
 updatedAt: "2026-06-16T02:58:57.961Z"
+archivedAt: "2026-07-01"
 status: "implemented"
 origin: "internal"
 failureReason: "Semantic validation did not approve after 3 cycles."

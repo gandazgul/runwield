@@ -13,6 +13,7 @@ affectedPaths:
     - "src/shared/settings.js"
 createdAt: "2026-05-10T00:00:00Z"
 updatedAt: "2026-07-25T22:10:02.769Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 workRecord:

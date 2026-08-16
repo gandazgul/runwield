@@ -31,6 +31,7 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-01T01:39:35-04:00"
 updatedAt: "2026-08-02T04:20:05.716Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 dependencies:

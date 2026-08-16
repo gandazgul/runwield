@@ -13,6 +13,7 @@ affectedPaths:
     - "docs/settings.md"
 createdAt: "2026-06-21T04:27:50Z"
 updatedAt: "2026-07-17T04:41:59.980Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-06-21T04:47:50.733Z"

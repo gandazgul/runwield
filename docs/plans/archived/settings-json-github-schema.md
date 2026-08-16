@@ -8,6 +8,7 @@ affectedPaths:
     - "README.md"
 createdAt: "2026-06-23T21:07:43-04:00"
 updatedAt: "2026-07-17T04:51:20.908Z"
+archivedAt: "2026-07-01"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-24T17:35:15.322Z"
