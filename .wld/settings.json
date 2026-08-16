@@ -1,4 +1,8 @@
 {
     "verification_command": "deno run ci",
-    "guidedReview": "ask"
+    "guidedReview": "ask",
+    "plans": {
+        "archiveRetentionDays": 14,
+        "archiveKeepLast": 10
+    }
 }

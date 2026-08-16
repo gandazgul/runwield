@@ -298,8 +298,9 @@ Deno.test("failed root activation returns focus to the editor with recovery guid
             provider.setOutcome({ kind: "success" });
             await completeOnboardingWithScriptedProvider(harness);
             const screen = await harness.waitForScreen("Failed to initialize root agent after model setup");
-            assertStringIncludes(screen, "Run /model");
-            assertStringIncludes(screen, "choose another model");
+            const normalizedScreen = screen.replace(/\s+/g, " ");
+            assertStringIncludes(normalizedScreen, "Run /model");
+            assertStringIncludes(normalizedScreen, "choose another model");
             const composition = await harness.waitForComposition(30_000);
             const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);
             assert(snapshot?.activeAgent !== "router", "failed root activation must not build the root Session");

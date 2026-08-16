@@ -13,6 +13,7 @@ import {
     loadPlan,
 } from "../../plan-store.js";
 import { runArchiveTransition } from "../../shared/workflow/state-transition.ts";
+import { formatArchiveRetentionNudge } from "../../shared/plan-archive-retention.ts";
 import { formatEpicProgressSummary } from "./plan-epic-children.ts";
 import { transitionFailureError } from "./transition-failure.ts";
 import { relative } from "@std/path";
@@ -172,5 +173,7 @@ export async function archiveEpicWithChildren(
         false,
         "RunWield",
     );
+    const nudge = await formatArchiveRetentionNudge(projectRoot);
+    if (nudge) uiAPI.appendSystemMessage(nudge, false, "RunWield");
     return true;
 }

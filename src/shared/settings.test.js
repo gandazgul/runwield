@@ -10,6 +10,7 @@ import {
     getCustomSetting,
     getDefaultPlanServerUrl,
     getGuidedReviewMode,
+    getPlanArchiveRetentionPolicy,
     getResolvedVisionFallbackModelSetting,
     getSettingsManager,
     migratePiSettingsOnce,
@@ -381,14 +382,68 @@ settingsTest("migratePiSettingsOnce leaves existing RunWield settings untouched"
     }
 });
 
-settingsTest("workRecords setting is preserved across SettingsManager-shaped writes", () => {
-    const previous = JSON.stringify({ workRecords: { autoGenerateOnPlanCompletion: false } });
+settingsTest("workRecords and plans settings are preserved across SettingsManager-shaped writes", () => {
+    const previous = JSON.stringify({
+        workRecords: { autoGenerateOnPlanCompletion: false },
+        plans: { archiveRetentionDays: 14, archiveKeepLast: 10 },
+    });
     const next = JSON.stringify({ theme: "new-theme" });
 
     assertEquals(JSON.parse(preserveRunWieldCustomSettingsForWrite(previous, next)), {
         theme: "new-theme",
         workRecords: { autoGenerateOnPlanCompletion: false },
+        plans: { archiveRetentionDays: 14, archiveKeepLast: 10 },
     });
+});
+
+settingsTest("getPlanArchiveRetentionPolicy reads project settings only", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const originalCwd = Deno.cwd();
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-plan-retention-home-" });
+    const tempProject = await Deno.makeTempDir({ prefix: "runwield-plan-retention-project-" });
+    try {
+        Deno.env.set("HOME", tempHome);
+        Deno.chdir(tempProject);
+        __resetSettingsForTests();
+
+        await setCustomSetting("plans", { archiveRetentionDays: 0, archiveKeepLast: 0 }, "global", tempProject);
+        assertEquals(getPlanArchiveRetentionPolicy(tempProject), { retentionDays: 14, keepLast: 10 });
+
+        await setCustomSetting("plans", { archiveRetentionDays: 7, archiveKeepLast: 5 }, "project", tempProject);
+        assertEquals(getPlanArchiveRetentionPolicy(tempProject), { retentionDays: 7, keepLast: 5 });
+    } finally {
+        Deno.chdir(originalCwd);
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await removeTempDir(tempHome);
+        await removeTempDir(tempProject);
+    }
+});
+
+settingsTest("getPlanArchiveRetentionPolicy names invalid keys", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const originalCwd = Deno.cwd();
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-plan-retention-bad-home-" });
+    const tempProject = await Deno.makeTempDir({ prefix: "runwield-plan-retention-bad-project-" });
+    try {
+        Deno.env.set("HOME", tempHome);
+        Deno.chdir(tempProject);
+        __resetSettingsForTests();
+
+        await setCustomSetting("plans", { archiveRetentionDays: -1, archiveKeepLast: 10 }, "project", tempProject);
+        assertThrows(() => getPlanArchiveRetentionPolicy(tempProject), Error, "plans.archiveRetentionDays");
+
+        await setCustomSetting("plans", { archiveRetentionDays: 14, archiveKeepLast: "many" }, "project", tempProject);
+        assertThrows(() => getPlanArchiveRetentionPolicy(tempProject), Error, "plans.archiveKeepLast");
+    } finally {
+        Deno.chdir(originalCwd);
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await removeTempDir(tempHome);
+        await removeTempDir(tempProject);
+    }
 });
 
 settingsTest(

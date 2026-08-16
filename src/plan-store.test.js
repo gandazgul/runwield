@@ -8,6 +8,7 @@ import {
     clearPlanCollaborationMetadata,
     countChildPlanProgress,
     createPulledCollaborationPlan,
+    deleteArchivedPlanUnit,
     ensurePlanIdentity,
     ensurePlansDir,
     findPlanById,
@@ -1326,6 +1327,50 @@ testWithFs("archivePlansByStatus validates requested lifecycle status", async ()
             Error,
             "Unknown Plan status",
         );
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("deleteArchivedPlanUnit removes a top-level archived Epic unit", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic", "# Epic", { classification: "PROJECT", status: "verified" });
+        await savePlan(cwd, "epic/01-child", "# Child", {
+            classification: "FEATURE",
+            parentPlan: "epic",
+            status: "verified",
+        });
+        await savePlan(cwd, "solo", "# Solo", { status: "verified" });
+        await archivePlan(cwd, "epic/01-child", { now: "2026-08-01T00:00:00Z" });
+        await archivePlan(cwd, "epic", { now: "2026-08-01T00:00:00Z" });
+        await archivePlan(cwd, "solo", { now: "2026-08-01T00:00:00Z" });
+
+        const removed = await deleteArchivedPlanUnit(cwd, "epic");
+
+        assertEquals(removed, ["docs/plans/archived/epic.md", "docs/plans/archived/epic/01-child.md"]);
+        await assertRejects(() => Deno.stat(join(cwd, "docs", "plans", "archived", "epic.md")), Deno.errors.NotFound);
+        await assertRejects(() => Deno.stat(join(cwd, "docs", "plans", "archived", "epic")), Deno.errors.NotFound);
+        assertEquals((await loadArchivedPlan(cwd, "solo"))?.body, "# Solo");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("deleteArchivedPlanUnit refuses unsafe or partial deletions", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "o", "# O", { status: "verified" });
+        await archivePlan(cwd, "o", { now: "2026-08-01T00:00:00Z" });
+        await Deno.mkdir(join(cwd, "docs", "plans", "archived", "o"));
+        await Deno.writeTextFile(join(cwd, "docs", "plans", "archived", "o", "notes.txt"), "keep\n");
+
+        await assertRejects(() => deleteArchivedPlanUnit(cwd, "missing"), Error, "Archived Plan not found");
+        await assertRejects(() => deleteArchivedPlanUnit(cwd, "o/nested"), Error, "top-level");
+        await assertRejects(() => deleteArchivedPlanUnit(cwd, "o"), Error, "non-markdown entry");
+
+        assertEquals((await loadArchivedPlan(cwd, "o"))?.body, "# O");
+        assertEquals(await Deno.readTextFile(join(cwd, "docs", "plans", "archived", "o", "notes.txt")), "keep\n");
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
