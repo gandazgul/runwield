@@ -14,7 +14,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-15T22:39:39-04:00"
-updatedAt: "2026-08-16T14:10:32.285Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-16T03:06:33.700Z"
@@ -39,6 +38,10 @@ deliveryEvidence:
 validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-16T18:03:21.260Z"
+archivedAt: "2026-08-16T18:03:21.260Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/add-user-verification-to-lost-worktree-menu.md"
 ---
 
 # Add User Verification to the Lost-Worktree Recovery Menu

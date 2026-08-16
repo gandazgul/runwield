@@ -47,7 +47,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T16:42:13-04:00"
-updatedAt: "2026-08-13T03:41:29.878Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-13T03:02:44.655Z"
@@ -72,6 +71,10 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "durable epic manual QA artifact"
 validationCiAttempts: 0
 validationSemanticRounds: 2
+updatedAt: "2026-08-16T18:02:56.581Z"
+archivedAt: "2026-08-16T18:02:56.581Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/durable-epic-manual-qa-artifact.md"
 ---
 
 # Durable Epic Manual QA Artifact

@@ -31,7 +31,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T11:06:12-04:00"
-updatedAt: "2026-08-12T17:34:44.976Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-12T16:32:00.073Z"
@@ -54,6 +53,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "df2977ca7b476bc3a4b456cd6c4379b3b7bde6b2"
 validationCiAttempts: 0
 validationSemanticRounds: 2
+updatedAt: "2026-08-16T18:02:44.302Z"
+archivedAt: "2026-08-16T18:02:44.302Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/implement-work-record-supersession.md"
 ---
 
 # Implement Work Record Supersession

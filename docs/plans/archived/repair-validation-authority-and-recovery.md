@@ -18,7 +18,6 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-14T00:11:43-04:00"
-updatedAt: "2026-08-16T03:51:30.222Z"
 status: "user_verified"
 origin: "internal"
 userVerifiedAt: "2026-08-14T04:35:21.836Z"
@@ -29,6 +28,10 @@ workRecord:
     path: "docs/work-records/2026-08-16-validation-authority-and-recovery-model-consolidated.md"
     lastAttemptAt: "2026-08-16T03:51:15.220Z"
 validationCheckpoint: null
+updatedAt: "2026-08-16T18:01:32.486Z"
+archivedAt: "2026-08-16T18:01:32.486Z"
+archivedFromStatus: "user_verified"
+archivedFromPath: "docs/plans/repair-validation-authority-and-recovery.md"
 ---
 
 # Repair Validation Authority and Recovery

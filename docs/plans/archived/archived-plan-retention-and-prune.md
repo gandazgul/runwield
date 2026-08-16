@@ -35,7 +35,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-15T23:56:40-04:00"
-updatedAt: "2026-08-16T15:06:21.879Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-16T04:36:48.039Z"
@@ -60,6 +59,10 @@ deliveryEvidence:
 validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-16T18:03:07.118Z"
+archivedAt: "2026-08-16T18:03:07.118Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/archived-plan-retention-and-prune.md"
 ---
 
 # Archived Plan Retention and Prune

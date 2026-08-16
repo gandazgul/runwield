@@ -73,7 +73,6 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T12:23:35-04:00"
-updatedAt: "2026-08-14T18:32:29.911Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-13T03:34:02.044Z"
@@ -99,6 +98,10 @@ routingIntent: "PLANNED_CHANGE"
 sessionName: "fix objective check loop"
 validationCiAttempts: 0
 validationSemanticRounds: 2
+updatedAt: "2026-08-16T18:02:32.833Z"
+archivedAt: "2026-08-16T18:02:32.833Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/prevent-objective-check-repair-loops.md"
 ---
 
 # Prevent Objective Check Repair Loops

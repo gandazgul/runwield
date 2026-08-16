@@ -95,7 +95,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T23:45:24-04:00"
-updatedAt: "2026-08-16T03:51:15.163Z"
 status: "user_verified"
 origin: "internal"
 implementedAt: "2026-08-13T05:29:56.180Z"
@@ -120,6 +119,10 @@ worktreeBaseBranch: "main"
 worktreeStatus: "completed"
 validationCiAttempts: 0
 validationSemanticRounds: 2
+updatedAt: "2026-08-16T18:02:21.427Z"
+archivedAt: "2026-08-16T18:02:21.427Z"
+archivedFromStatus: "user_verified"
+archivedFromPath: "docs/plans/make-workflow-validation-self-healing.md"
 ---
 
 # Make Workflow Validation Self-Healing
