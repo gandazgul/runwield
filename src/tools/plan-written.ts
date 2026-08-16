@@ -141,8 +141,8 @@ const OBJECTIVE_CHECK_PARAMS = Type.Object({
     id: Type.String({ minLength: 1, maxLength: 64, description: "Stable check id, e.g. OC1." }),
     command: Type.String({
         minLength: 1,
-        maxLength: 12000,
-        description: "Literal shell command RunWield executes from the repository root; exit 0 means objective met.",
+        description:
+            "Literal shell command RunWield executes from the repository root; exit 0 means objective met. Keep it within 1000 characters; split independent assertions into separate checks.",
     }),
     rationale: Type.Optional(Type.String({
         minLength: 1,
@@ -178,7 +178,7 @@ const TOOL_PARAMS = Type.Object({
 
 const MAX_OBJECTIVE_CHECKS = 12;
 const MAX_OBJECTIVE_CHECK_ID_LENGTH = 64;
-const MAX_OBJECTIVE_CHECK_COMMAND_LENGTH = 12000;
+const MAX_OBJECTIVE_CHECK_COMMAND_LENGTH = 1000;
 const MAX_OBJECTIVE_CHECK_RATIONALE_LENGTH = 500;
 
 /**

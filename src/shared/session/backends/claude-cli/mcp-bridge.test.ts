@@ -247,9 +247,14 @@ Deno.test("workflow MCP bridge emits live Runtime tool events for delegated plan
     });
 });
 
-Deno.test("workflow MCP bridge accepts substantive Objective Check commands", async () => {
+Deno.test("workflow MCP bridge returns long Objective Check commands for actionable tool validation", async () => {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-plan-written-command-" });
     try {
+        await Deno.mkdir(`${cwd}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(
+            `${cwd}/docs/plans/long-objective-check.md`,
+            "---\nclassification: PLANNED_CHANGE\ncomplexity: MEDIUM\nstatus: draft\nexecutionAgent: engineer\n---\n# Long Objective Check\n",
+        );
         const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
         const planTool = createPlanWrittenTool({
             hostedSession,
@@ -272,7 +277,7 @@ Deno.test("workflow MCP bridge accepts substantive Objective Check commands", as
             assertEquals(result.isError, false);
             assertStringIncludes(
                 resultText(result as { content: Array<{ type: string; text?: string }> }),
-                "not found",
+                "command is too long",
             );
         });
     } finally {
