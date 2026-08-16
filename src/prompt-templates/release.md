@@ -42,15 +42,21 @@ own release policy and automation.
        what changed between RCs.
      - For Candidate promotion, remove Candidate/testing warnings and do not treat the shared Candidate source commit as
        an empty release; present the cumulative Stable notes for the promoted version.
-     - Start with **⚠️Breaking⚠️** for any breaking changes, for release candates, carry the same breaking changes
-       notice from the previous Candidate, and for Stable releases, carry the same breaking changes notice from the
-       candidate being promoted if any.
-     - Then following the breaking changes notie add **What's New** for important user-facing outcomes in plain
-       language.
-     - Then Add a concise **Detailed Changelog** grouped into **New Features**, **Bug Fixes and Improvements**, and
-       **Breaking Changes** when relevant.
-   - Omit purely internal refactors, test-only changes, dependency chores, and other details unless they affect user
-     behavior.
+     - Start with **⚠️Breaking⚠️** only when the release introduces a breaking change relative to the previous Stable.
+       For later Candidates in the same version series, carry forward only breaking changes introduced by that series.
+       Never repeat a breaking change that already shipped in the previous Stable. For Stable promotion, carry forward
+       breaking changes introduced by the promoted Candidate series.
+     - Then add **What's New**. Include only shipped user-facing capabilities and significant improvements, written in
+       terms of what a user can now do or what is meaningfully better for them.
+     - Then add a concise **Detailed Changelog** grouped into **New Features**, **Bug Fixes and Improvements**, and
+       **Breaking Changes** when relevant. Keep every entry user-facing.
+   - Verify each claimed feature by tracing the user-visible behavior to changed production code. A completed Work
+     Record can help identify the change, but is not a substitute for checking the implementation. Commit titles, Plans,
+     ADRs, PRDs, roadmaps, and other documentation can explain intent, but they are not proof that a feature shipped and
+     must never be listed as features themselves.
+   - Omit internal architecture, refactors, lifecycle or validation machinery, test-only changes, dependency chores,
+     planning work, and documentation changes unless they directly produce a user-visible capability or significant
+     improvement. Translate necessary technical detail into plain language about its user impact.
    - Keep notes in a temporary file unless repository policy explicitly requires committing them.
 
 5. Confirm before network-visible or irreversible side effects.
