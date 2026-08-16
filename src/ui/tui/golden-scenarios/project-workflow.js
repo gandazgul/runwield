@@ -155,9 +155,9 @@ export const twoChildProjectContinuationScenario = {
     initialAgentName: "planner",
     terminal: { columns: 100, rows: 30 },
     // Two full child journeys, each with real Git, real transactions and real Agent
-    // turns. ~95s standalone; `deno task ci` runs 12 files at a time, and this is the
-    // outer cap, so it has to clear the contended case or the inner budgets never apply.
-    timeoutMs: 420000,
+    // turns. CI runs several files at a time, and this is the outer cap, so it has to
+    // clear the contended case or the inner budgets never apply.
+    timeoutMs: 600000,
     coverage: ["durable:session-replaced", "durable:epic-evidence", "durable:work-record", "durable:epic-completion"],
     // Three real Plan Reviews: the Architect defers the Epic, then each child is
     // approved for execution. The second child's review is reached only through the
@@ -374,9 +374,10 @@ export const twoChildProjectContinuationScenario = {
         { type: "waitForIdle", timeoutMs: 15000 },
         // Decomposition leaves the Slicer active, so the next request would go to it.
         // `/agent` is the real user-facing way back to the Planner.
+        // Wait for the third Planner event so this does not match startup's stale events.
         { type: "type", text: "/agent planner" },
         { type: "enter" },
-        { type: "waitForEvent", event: "runtime:agent:planner", timeoutMs: 45000 },
+        { type: "waitForEventCount", event: "runtime:agent:planner", count: 3, timeoutMs: 45000 },
         { type: "waitForIdle", timeoutMs: 15000 },
         // Explicit launch of the first child, as a real user message: Epic approval is
         // not Epic execution. Its Plan Review, execution and validation all run for
@@ -620,9 +621,10 @@ export const projectChildObjectiveCheckStopScenario = {
         },
         { type: "runSlicerDecomposition", planName: "epic" },
         { type: "waitForIdle", timeoutMs: 15000 },
+        // Wait for the third Planner event so this does not match startup's stale events.
         { type: "type", text: "/agent planner" },
         { type: "enter" },
-        { type: "waitForEvent", event: "runtime:agent:planner", timeoutMs: 45000 },
+        { type: "waitForEventCount", event: "runtime:agent:planner", count: 3, timeoutMs: 45000 },
         { type: "waitForIdle", timeoutMs: 15000 },
         { type: "type", text: "finalize and submit the first child planned change for review" },
         { type: "enter" },

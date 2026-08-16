@@ -50,7 +50,7 @@ function makePlan(overrides: Partial<PlanFrontMatter> = {}): RecoveryFlowPlan {
     };
 }
 
-function makeUi(answers: (string | null)[]): TestUi {
+function makeUi(answers: (string | null)[], textAnswers: (string | null)[] = []): TestUi {
     const prompts: string[] = [];
     const messages: string[] = [];
     const ui: Partial<TestUi> = {
@@ -59,6 +59,10 @@ function makeUi(answers: (string | null)[]): TestUi {
         promptSelect: (prompt: string, options: PromptOption[]) => {
             prompts.push(`${prompt}:${options.map((option) => option.value).join(",")}`);
             return Promise.resolve(answers.shift() ?? null);
+        },
+        promptText: (prompt: string) => {
+            prompts.push(`${prompt}:text`);
+            return Promise.resolve(textAnswers.shift() ?? null);
         },
         appendSystemMessage: (message: string) => {
             messages.push(message);
@@ -319,6 +323,7 @@ Deno.test("Plan Recovery handled and review outcomes exit once", async () => {
     const cancel = await runRecovery([null]);
     assertEquals(cancel.result, "handled");
     assertEquals(cancel.ui.prompts.length, 1);
+    assertEquals(cancel.ui.prompts[0].includes("user_verify"), false);
 
     const review = await runRealRecovery(["review"]);
     assertEquals(review.result, "review");
@@ -468,7 +473,34 @@ Deno.test("Plan Recovery actions preserve live context", async () => {
     assertEquals(mergeAttemptFailure.ui.messages.length > 0, true);
 });
 
-Deno.test("lost worktree recovery offers three choices and Stop here leaves ready for work", async () => {
+Deno.test("lost worktree recovery offers User Verification for implemented plans", async () => {
+    const project = await makeRealRecoveryProject({
+        status: "implemented",
+        executionMode: "worktree",
+        worktreeId: "lost-worktree",
+        worktreePath: `${await Deno.makeTempDir()}/gone`,
+        worktreeBranch: "rw/gone",
+        worktreeBaseBranch: "main",
+    });
+    const ui = makeUi(["user_verify"], ["Accepted from staging check."]);
+    const options = makeOptions(project.plan, ui);
+    options.projectRoot = project.projectRoot;
+    options.session.cwd = project.projectRoot;
+
+    assertEquals(await handlePlanRecovery(options), "handled");
+    assertEquals(
+        ui.prompts[0],
+        "The worktree and branch are gone. The Plan says they should be here. What do you want to do?:reset,user_verify,review,stop_lost",
+    );
+    assertEquals(ui.prompts[1], "Required user verification note (blank cancels)::text");
+    const loadedPlan = await loadPlan(project.projectRoot, project.plan.planName);
+    assertEquals(loadedPlan?.attrs.status, "user_verified");
+    assertEquals(loadedPlan?.attrs.userVerificationNote, "Accepted from staging check.");
+    assertEquals(Boolean(loadedPlan?.attrs.userVerifiedAt), true);
+    assertEquals(loadedPlan?.attrs.verifiedAt, undefined);
+});
+
+Deno.test("lost worktree recovery omits User Verification for failed plans", async () => {
     const project = await makeRealRecoveryProject({
         executionMode: "worktree",
         worktreeId: "lost-worktree",

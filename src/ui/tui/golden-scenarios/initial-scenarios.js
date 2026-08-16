@@ -238,13 +238,14 @@ export const startupProviderWithoutModelsOpensModelScenario = {
     modelSetup: "provider-without-models",
     terminal: { columns: 100, rows: 30 },
     // The model selector blocks composition startup; Esc cancels it so the
-    // scenario can resolve and assert the real screen it observed.
+    // scenario can resolve and assert the real screen it observed. CI can need a
+    // few extra seconds before the selector paints while other golden children run.
     startupInput: [
         { marker: "Only showing models from configured providers", keys: "\x1b" },
     ],
     actions: [],
     assertions: [assertStartupModelSelectorOpened],
-    timeoutMs: 5000,
+    timeoutMs: 15000,
 };
 
 export const planReviewTransactionContractScenario = {

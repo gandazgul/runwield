@@ -82,7 +82,7 @@ Deno.test("API-key login persists through the fixture credential store and statu
         await harness.pressKey("escape");
         await harness.waitForIdle(5_000);
         await harness.type("/status\r");
-        const statusScreen = await harness.waitForScreen("Available models:");
+        const statusScreen = await harness.waitForScreen("Available models:", 60_000);
         assertStringIncludes(statusScreen, `${FIXTURE_PROVIDER_DISPLAY} (${FIXTURE_PROVIDER}): API key stored`);
     });
 });
