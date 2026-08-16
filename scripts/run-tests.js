@@ -45,7 +45,17 @@ import { runWithSnip, writeSnipCommandResult } from "./run-with-snip.ts";
 
 const REPO_ROOT = new URL("..", import.meta.url).pathname;
 const TEST_FILE_PATTERN = /(^|\/)(test|.+[._]test)\.(js|mjs|jsx|ts|tsx|mts)$/;
-const SKIP_DIRS = new Set(["node_modules", "third_party", "dist", "bin", "_fresh", ".git", ".astro", ".history"]);
+const SKIP_DIRS = new Set([
+    "node_modules",
+    "third_party",
+    "dist",
+    "bin",
+    "_fresh",
+    ".git",
+    ".astro",
+    ".history",
+    ".wld",
+]);
 const DENO_SNIP_FILTER_FILES = ["deno-check.yaml", "deno-fmt.yaml", "deno-lint.yaml", "deno-test.yaml"];
 
 /** @param {string} dir @returns {AsyncGenerator<string>} */
