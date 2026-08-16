@@ -1423,6 +1423,22 @@ async function runComposedTuiScenario(scenario, options) {
                     );
                     events.push(`project:base-branch-file-committed:${planName}:${baseBranch}:${path}`);
                     await writeHeartbeat();
+                } else if (typed.type === "installPlanWorktreeFailingPreCommitHook") {
+                    const planName = String(typed.planName || "");
+                    const loaded = await loadPlan(Deno.cwd(), planName);
+                    if (!loaded) throw new Error(`Cannot install hook for missing Plan ${planName}`);
+                    const worktreePath = String(loaded.attrs.worktreePath || "");
+                    if (!worktreePath) throw new Error(`Plan ${planName} has no worktreePath`);
+                    const gitHookPath = (await runGoldenGit(
+                        ["rev-parse", "--git-path", "hooks/pre-commit"],
+                        worktreePath,
+                    )).trim();
+                    const hookPath = gitHookPath.startsWith("/") ? gitHookPath : join(worktreePath, gitHookPath);
+                    await Deno.mkdir(dirname(hookPath), { recursive: true });
+                    await Deno.writeTextFile(hookPath, "#!/bin/sh\necho golden publication failure >&2\nexit 1\n");
+                    await Deno.chmod(hookPath, 0o755);
+                    events.push(`project:failing-pre-commit-hook-installed:${planName}`);
+                    await writeHeartbeat();
                 } else if (typed.type === "seedActiveWorktree") {
                     const planName = String(typed.planName || "");
                     const loaded = await loadPlan(Deno.cwd(), planName);
@@ -1444,6 +1460,16 @@ async function runComposedTuiScenario(scenario, options) {
                         await runGoldenGit(["commit", "-m", `seed ${planName} worktree diff`], entry.path);
                     }
                     const status = typeof typed.status === "string" ? typed.status : "in_progress";
+                    const rememberedValidationPhase = ["mechanical", "semantic", "delivery"].includes(
+                            typed.rememberedValidationPhase,
+                        )
+                        ? typed.rememberedValidationPhase
+                        : null;
+                    const rememberedStatus = rememberedValidationPhase === "mechanical"
+                        ? "implemented"
+                        : rememberedValidationPhase === "semantic"
+                        ? "validated_ci"
+                        : "validated_reviewer";
                     const registryStatus = typed.registryStatus === "validation_failed"
                         ? "validation_failed"
                         : typed.registryStatus === "completed" || status === "implemented"
@@ -1466,6 +1492,19 @@ async function runComposedTuiScenario(scenario, options) {
                                 ? { validationSemanticRounds: 0 }
                                 : {}),
                             ...(status === "implemented" ? { validationCiAttempts: 0 } : {}),
+                            ...(rememberedValidationPhase
+                                ? {
+                                    validationCheckpoint: {
+                                        version: 1,
+                                        attemptId: entry.id,
+                                        generation: `golden-${planName}-remembered-phase`,
+                                        expectedStatus: rememberedStatus,
+                                        nextPhase: rememberedValidationPhase,
+                                        state: "paused",
+                                        updatedAt: new Date().toISOString(),
+                                    },
+                                }
+                                : {}),
                             ...(isObject(typed.attrs) ? typed.attrs : {}),
                         },
                         loaded.attrs,

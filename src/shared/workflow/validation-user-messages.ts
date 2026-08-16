@@ -29,6 +29,7 @@ const MESSAGES: Record<ValidationUserMessageKey, string> = {
 export type ValidationMessageRequest =
     | { kind: "amendment_failed_prompt" }
     | { kind: "amendment_prompt"; summary: string }
+    | { kind: "amendment_decision"; summary: string }
     | { kind: "amendment_approved" }
     | { kind: "ci_running"; cwd: string }
     | { kind: "checks_passed"; objectiveChecks: boolean; waived?: boolean }
@@ -48,6 +49,7 @@ export type ValidationMessageRequest =
     | { kind: "ci_repair"; agent: string }
     | { kind: "semantic_round"; round: number; maxRounds: number; mode: "discovery" | "verify" }
     | { kind: "semantic_diff_missing"; planOnly: boolean }
+    | { kind: "semantic_skipped"; reason: "non_git" | "empty_diff" }
     | { kind: "semantic_approved"; round: number }
     | { kind: "review_repair"; repairKind: "semantic" | "human_feedback" }
     | { kind: "repair_feedback_prompt" }
@@ -127,6 +129,8 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             return `${MESSAGES.amendment_check_failed}\n\nWhat should RunWield do?`;
         case "amendment_prompt":
             return `${request.summary}\n\nDo you approve this Plan change?`;
+        case "amendment_decision":
+            return `Plan amendment: pick what to do.\n\n${request.summary}`;
         case "amendment_approved":
             return "The Plan change is saved. The tests will start again.";
         case "ci_running":
@@ -176,6 +180,10 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             return request.planOnly
                 ? "RunWield found Plan edits but no code. Ask the Engineer to restore the code, then try again."
                 : "RunWield found no code. Ask the Engineer to restore the code, then try again.";
+        case "semantic_skipped":
+            return request.reason === "non_git"
+                ? "Review skipped: this work is not in Git."
+                : "Review skipped: there are no code changes to read.";
         case "semantic_approved":
             return `Code review ${request.round} is done. It found no need for a fix.`;
         case "review_repair":

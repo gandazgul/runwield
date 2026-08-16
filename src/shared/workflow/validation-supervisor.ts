@@ -12,6 +12,7 @@ import {
     makeValidationCheckpoint,
     readValidationReviewState,
     type ValidationCheckpoint,
+    validationCheckpointCanResume,
     validationPhaseForStatus,
 } from "./validation-checkpoint.ts";
 import { retryValidationLater } from "./validation-recovery.ts";
@@ -59,18 +60,6 @@ async function ownerIsAlive(checkpoint: ValidationCheckpoint): Promise<boolean> 
     return await isPidAlive(checkpoint.ownerPid);
 }
 
-function checkpointAgreesWithPlan(
-    checkpoint: ValidationCheckpoint | undefined,
-    attemptId: string,
-    status: string,
-    phase: ValidationCheckpoint["nextPhase"],
-): checkpoint is ValidationCheckpoint {
-    return Boolean(
-        checkpoint && checkpoint.attemptId === attemptId && checkpoint.expectedStatus === status &&
-            checkpoint.nextPhase === phase,
-    );
-}
-
 async function claimValidation(args: ContinueWorkflowValidationArgs): Promise<ClaimResult> {
     const projectRoot = args.hostedSession.cwd;
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -82,7 +71,7 @@ async function claimValidation(args: ContinueWorkflowValidationArgs): Promise<Cl
         }
         const attemptId = plan.attrs.worktreeId || "in-place";
         const prior = checkpointRecord(plan.attrs.validationCheckpoint);
-        const compatible = checkpointAgreesWithPlan(prior, attemptId, plan.attrs.status, phase);
+        const compatible = validationCheckpointCanResume(prior, attemptId, plan.attrs.status);
         if (compatible && args.taskCompletionId && prior.lastSettledOperationId === args.taskCompletionId) {
             return { kind: "settled_completion", projectRoot };
         }

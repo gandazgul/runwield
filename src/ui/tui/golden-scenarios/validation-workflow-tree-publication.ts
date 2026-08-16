@@ -123,24 +123,26 @@ export const validationTreePublicationMergeConflictRepairCompletedScenario = wit
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Publication merge conflict repair completed\naffectedPaths: []\nstatus: ready_for_work\nplanId: publication-merge-conflict-repair-completed-plan\nobjectiveChecks:\n  - id: OC_PUBLICATION_MERGE_REPAIR\n    command: test -f publication-merge-conflict.txt\n---\n# Publication merge conflict repair completed\n\nDraft content.\n",
         }],
-        script: [{
-            id: "engineer-repairs-publication-merge-conflict",
-            agent: "engineer",
-            phase: "engineer",
-            planName: "publication-merge-conflict-repair-completed",
-            ordinal: 1,
-            requiredTools: ["bash", "task_completed"],
-            toolCalls: [
-                {
-                    name: "bash",
-                    arguments: {
-                        command:
-                            "printf 'repaired version\n' > publication-merge-conflict.txt\ngit add publication-merge-conflict.txt\ngit commit -m 'repair publication merge conflict'",
+        script: [
+            {
+                id: "engineer-repairs-publication-merge-conflict",
+                agent: "engineer",
+                phase: "engineer",
+                planName: "publication-merge-conflict-repair-completed",
+                ordinal: 1,
+                requiredTools: ["bash", "task_completed"],
+                toolCalls: [
+                    {
+                        name: "bash",
+                        arguments: {
+                            command:
+                                "printf 'repaired version\n' > publication-merge-conflict.txt\ngit add publication-merge-conflict.txt\ngit commit -m 'repair publication merge conflict'",
+                        },
                     },
-                },
-                { name: "task_completed", arguments: { message: "- Repaired publication merge conflict." } },
-            ],
-        }],
+                    { name: "task_completed", arguments: { message: "- Repaired publication merge conflict." } },
+                ],
+            },
+        ],
         scriptedInteractions: [{
             type: "select",
             promptIncludes: "Plan recovery (validated_reviewer)",
@@ -164,10 +166,12 @@ export const validationTreePublicationMergeConflictRepairCompletedScenario = wit
             { type: "enter" },
             { type: "enter" },
             {
-                type: "waitForPlanAbsent",
+                type: "waitForPlanStatus",
                 planName: "publication-merge-conflict-repair-completed",
+                statuses: ["verified"],
                 timeoutMs: 120000,
             },
+            { type: "waitForIdle", timeoutMs: 120000 },
             { type: "captureProjectState", planNames: ["publication-merge-conflict-repair-completed"] },
         ],
         assertions: [
@@ -199,14 +203,14 @@ export const validationTreePublicationMergeConflictRepairIncompleteRetryScenario
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Publication merge conflict repair incomplete retry\naffectedPaths: []\nstatus: ready_for_work\nplanId: publication-merge-conflict-repair-incomplete-retry-plan\nobjectiveChecks:\n  - id: OC_PUBLICATION_MERGE_RETRY\n    command: test -f publication-merge-conflict-retry.txt\n---\n# Publication merge conflict repair incomplete retry\n\nDraft content.\n",
         }],
-        script: [{
-            id: "engineer-leaves-publication-merge-conflict-retry-incomplete",
+        script: [1, 2, 3].map((ordinal) => ({
+            id: `engineer-leaves-publication-merge-conflict-retry-incomplete-${ordinal}`,
             agent: "engineer",
             phase: "engineer",
             planName: "publication-merge-conflict-repair-incomplete-retry",
-            ordinal: 1,
-            text: "Merge repair did not call task_completed before user retry.",
-        }],
+            ordinal,
+            text: `Merge repair attempt ${ordinal} did not call task_completed before user retry.`,
+        })),
         scriptedInteractions: [
             {
                 type: "select",
@@ -277,14 +281,14 @@ export const validationTreePublicationMergeConflictRepairIncompleteStopScenario 
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Publication merge conflict repair incomplete stop\naffectedPaths: []\nstatus: ready_for_work\nplanId: publication-merge-conflict-repair-incomplete-stop-plan\nobjectiveChecks:\n  - id: OC_PUBLICATION_MERGE_STOP\n    command: test -f publication-merge-conflict-stop.txt\n---\n# Publication merge conflict repair incomplete stop\n\nDraft content.\n",
         }],
-        script: [{
-            id: "engineer-leaves-publication-merge-conflict-incomplete",
+        script: [1, 2, 3].map((ordinal) => ({
+            id: `engineer-leaves-publication-merge-conflict-incomplete-${ordinal}`,
             agent: "engineer",
             phase: "engineer",
             planName: "publication-merge-conflict-repair-incomplete-stop",
-            ordinal: 1,
-            text: "Merge repair did not call task_completed.",
-        }],
+            ordinal,
+            text: `Merge repair attempt ${ordinal} did not call task_completed.`,
+        })),
         scriptedInteractions: [
             {
                 type: "select",
@@ -326,9 +330,8 @@ export const validationTreePublicationMergeConflictRepairIncompleteStopScenario 
     ["publication:merge-conflict-repair-incomplete-stop"],
 );
 
-// TODO: fix this. A seeded validated_reviewer Plan with a nonexistent
-// validationMergeRepairWorktree publishes successfully without visible stale
-// repair-worktree evidence, so this does not prove the stale branch.
+// A stale merge-repair path is discarded before publication. The normal merge
+// then proves the validated execution copy is still safe and publishable.
 export const validationTreePublicationStaleRepairWorktreeScenario = withValidationBranches(
     {
         name: "validation-tree-publication-stale-repair-worktree-base",
@@ -374,10 +377,6 @@ export const validationTreePublicationStaleRepairWorktreeScenario = withValidati
     ["publication:stale-repair-worktree"],
 );
 
-// TODO: fix this. Corrupting the stored execution branch reaches the
-// visible "worktree is on a new branch" recovery path and leaves an
-// unexpected select interaction; it does not show the generic publication
-// failure text.
 export const validationTreePublicationGenericGitFailureScenario = withValidationBranches(
     {
         name: "validation-tree-publication-generic-git-failure-base",
@@ -393,11 +392,22 @@ export const validationTreePublicationGenericGitFailureScenario = withValidation
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Publication generic git failure\naffectedPaths: []\nstatus: ready_for_work\nplanId: publication-generic-git-failure-plan\nobjectiveChecks:\n  - id: OC_PUBLICATION_GENERIC_FAILURE\n    command: test -f publication-generic-git-failure.txt\n---\n# Publication generic git failure\n\nDraft content.\n",
         }],
-        scriptedInteractions: [{
-            type: "select",
-            promptIncludes: "Plan recovery (validated_reviewer)",
-            value: "validate",
-        }],
+        script: [1, 2, 3].map((ordinal) => ({
+            id: `engineer-cannot-repair-generic-publication-failure-${ordinal}`,
+            agent: "engineer",
+            phase: "engineer",
+            planName: "publication-generic-git-failure",
+            ordinal,
+            text: `Publication repair attempt ${ordinal} did not call task_completed.`,
+        })),
+        scriptedInteractions: [
+            {
+                type: "select",
+                promptIncludes: "Plan recovery (validated_reviewer)",
+                value: "validate",
+            },
+            { type: "select", promptIncludes: "could not add", value: "stop" },
+        ],
         actions: [
             {
                 type: "seedActiveWorktree",
@@ -406,9 +416,12 @@ export const validationTreePublicationGenericGitFailureScenario = withValidation
                 attrs: {
                     humanReviewMode: "none",
                     humanReviewDecision: "not_required",
-                    worktreeBranch: "missing-publication-execution-branch",
                 },
                 files: [{ path: "publication-generic-git-failure.txt", text: "done\n" }],
+            },
+            {
+                type: "installPlanWorktreeFailingPreCommitHook",
+                planName: "publication-generic-git-failure",
             },
             { type: "type", text: "/load-plan publication-generic-git-failure" },
             { type: "enter" },

@@ -226,9 +226,8 @@ export const validationTreeMissingExecutionContextScenario = withValidationBranc
     ["lifecycle:missing-execution-context-fails-closed"],
 );
 
-// TODO: fix this. A seeded `ahead` Plan status is normalized to draft before
-// /load-plan can offer recovery, so the healing message is not visible. Keep
-// disabled until `ahead` lifecycle recovery can be exercised end-to-end.
+// A durable mechanical checkpoint is authoritative when the same worktree's
+// Plan status has incorrectly moved ahead to validated_ci.
 export const validationTreeAheadStatusScenario = withValidationBranches(
     {
         name: "validation-tree-ahead-status-base",
@@ -266,12 +265,13 @@ export const validationTreeAheadStatusScenario = withValidationBranches(
                 text: "Approved healed ahead status.",
             },
         ],
-        scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (ahead)", value: "validate" }],
+        scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" }],
         actions: [
             {
                 type: "seedActiveWorktree",
                 planName: "ahead-status",
-                status: "ahead",
+                status: "validated_ci",
+                rememberedValidationPhase: "mechanical",
                 files: [{ path: "ahead-status.txt", text: "done\n" }],
             },
             { type: "type", text: "/load-plan ahead-status" },
@@ -286,9 +286,8 @@ export const validationTreeAheadStatusScenario = withValidationBranches(
     ["lifecycle:ahead-status-heals-to-implemented"],
 );
 
-// TODO: fix this. A raw unsupported Plan status is normalized to draft before
-// /load-plan can fail closed, so the TUI does not show the required unsupported
-// status message. Keep disabled until unsupported lifecycle states are surfaced.
+// Raw corrupt Front Matter must fail closed before its parsed default can route
+// the Plan into a normal draft flow.
 export const validationTreeUnsupportedStatusScenario = withValidationBranches(
     {
         name: "validation-tree-unsupported-status-base",
@@ -299,10 +298,9 @@ export const validationTreeUnsupportedStatusScenario = withValidationBranches(
         initialProjectFiles: [{
             path: "docs/plans/unsupported-status.md",
             text:
-                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Unsupported status\naffectedPaths: []\nstatus: ready_for_work\nplanId: unsupported-status-plan\n---\n# Unsupported status\n\nDraft content.\n",
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Unsupported status\naffectedPaths: []\nstatus: sideways\nplanId: unsupported-status-plan\n---\n# Unsupported status\n\nDraft content.\n",
         }],
         actions: [
-            { type: "seedActiveWorktree", planName: "unsupported-status", status: "sideways" },
             { type: "type", text: "/load-plan unsupported-status" },
             { type: "enter" },
             { type: "enter" },

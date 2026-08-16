@@ -63,8 +63,10 @@ import {
     isExecutablePlanStatus,
     isInValidation,
     isPlanReviewableWithoutReopen,
+    PLAN_STATUSES,
     recordPlanEvent,
 } from "../../shared/workflow/plan-lifecycle.js";
+import { getPlanContentStatus } from "../../shared/workflow/validation-engine.ts";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../../shared/workflow/plan-approval.js";
 import { loadPlanActionEvidence } from "../../shared/workflow/plan-actions.ts";
 import {
@@ -202,6 +204,15 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
     try {
         const plan = await resolvePlan(projectRoot, planArg);
         loadedPlanName = plan.planName;
+        const rawStatus = getPlanContentStatus(plan.markdown);
+        if (rawStatus !== undefined && !PLAN_STATUSES.some((status) => status === rawStatus)) {
+            uiAPI.appendSystemMessage(
+                `Plan has unknown status: ${rawStatus}. RunWield cannot safely continue until the Plan status is corrected.`,
+                true,
+                "RunWield",
+            );
+            return;
+        }
         // Clear our own leftovers before doing anything with the Plan. An interrupted
         // lifecycle operation blocks every later one, and the record is RunWield's
         // bookkeeping, not the user's problem — so anything the repository proves is

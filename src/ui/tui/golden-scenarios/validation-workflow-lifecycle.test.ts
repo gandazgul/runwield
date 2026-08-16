@@ -43,11 +43,9 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreeAheadStatusScenario,
         exportName: "validationTreeAheadStatusScenario",
-        todo: "loading an ahead Plan normalizes it before lifecycle healing can be observed",
     },
     {
         scenario: validationTreeUnsupportedStatusScenario,
         exportName: "validationTreeUnsupportedStatusScenario",
-        todo: "loading an unsupported status normalizes it before fail-closed behavior can be observed",
     },
 ]);
