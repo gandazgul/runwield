@@ -26,47 +26,29 @@ objectiveChecks:
     - id: "OC2"
       command: "test -f src/ui/tui/golden-scenarios/validation-workflow-tree.ts && test -f src/ui/tui/golden-scenarios/validation-workflow-tree.test.ts && deno run -A scripts/run-tests.js -A --no-check src/ui/tui/golden-scenarios/validation-workflow-tree.test.ts"
       rationale: "This runs the dedicated composed-TUI suite across the real validation phases and cannot pass on the current tree because the branch-complete suite does not exist."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-13T19:55:42.937Z"
-    head: "9063575348b3c14e3a005e6bda0c761ad2cc6c98"
-    results:
-        - id: "OC1"
-          command: "test -f src/ui/tui/testing/validation-workflow-coverage.ts && test -f src/ui/tui/testing/validation-workflow-coverage.test.ts && deno run -A scripts/run-tests.js src/ui/tui/testing/validation-workflow-coverage.test.ts"
-          rationale: "The new proof suite has an independently expected validation branch set and must reject missing ownership, missing interaction choices, and branch assertions that survive removal of transcript, routing, or durable-state evidence."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 20
-          output: "\n"
-        - id: "OC2"
-          command: "test -f src/ui/tui/golden-scenarios/validation-workflow-tree.ts && test -f src/ui/tui/golden-scenarios/validation-workflow-tree.test.ts && deno run -A scripts/run-tests.js -A --no-check src/ui/tui/golden-scenarios/validation-workflow-tree.test.ts"
-          rationale: "This runs the dedicated composed-TUI suite across the real validation phases and cannot pass on the current tree because the branch-complete suite does not exist."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 19
-          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-13T15:48:47-04:00"
-updatedAt: "2026-08-14T22:24:11.923Z"
-status: "implemented"
+updatedAt: "2026-08-16T18:11:10-04:00"
+status: "user_verified"
 origin: "internal"
-failureReason: "- The Golden validation tree runs only one scenario for all branches.\n  Plan: The Plan requires a branch-complete Golden suite. Each declared validation branch must have exactly one primary Golden owner, and all validation-tree scenarios must run with no ignored cases.\n  Evidence: `src/ui/tui/golden-scenarios/validation-workflow-tree.ts` exports many phase scenarios, but the changed `validationWorkflowTreeScenarios` array contains only `validationTreeSemanticReviewLoopScenario`. `src/ui/tui/golden-scenarios/validation-workflow-tree.test.ts` and `src/ui/tui/golden-scenarios/catalog.js` iterate only that array, so the mechanical, human review, publication, and lifecycle scenarios are not in the Golden suite.\n- Branch evidence is generic and does not prove each branch contract.\n  Plan: Each scenario must prove the exact user-visible progress, failure reason, choices, next phase or Agent turn, and canonical Plan, registry, Git, waiver, review, delivery, and worktree state. Counterfeit evidence checks must reject transcript, routing, or state removal for the applicable branch.\n  Evidence: In `src/ui/tui/testing/validation-workflow-coverage.ts`, `ownerFor()` returns `validation-tree-semantic-review-loop` for every branch ID, `transcriptRequirementFor()` returns only `RunWield`, `evidenceFor()` requires only `project:state:captured`, no turn evidence, and `projectState.plans.0.attrs.status`. These checks can pass without the branch-specific message, choice, Agent turn, counter, waiver, review, delivery, or worktree field that the Plan requires.\n- The meta-test does not check validation interaction option values.\n  Plan: The branch inventory meta-test must prove every user-choice value found in the validation interaction option lists is represented in the branch inventory.\n  Evidence: `src/ui/tui/testing/validation-workflow-coverage.test.ts` imports only the validation-tree scenarios and coverage constants. It does not import or inspect the production validation interaction option lists, and it has no assertion that compares interaction values to branch IDs.\n- The coverage matrix was not replaced with branch-backed validation capabilities.\n  Plan: `src/ui/tui/testing/coverage-matrix.js` must replace broad validation claims with phase and recovery capabilities backed by the new branch inventory.\n  Evidence: `src/ui/tui/testing/coverage-matrix.js` is not changed in the workflow diff. Its current `GOLDEN_TUI_REQUIRED_CAPABILITIES` still uses broad entries such as `recovery:workflow-validation`, `recovery:validation-failure-retry`, and `recovery:validation-exhausted`, and it does not import or enforce `VALIDATION_WORKFLOW_BRANCHES`."
+failureReason: "- Branch ownership still overclaims at least one path: `validation-tree-objective-none` owns `mechanical:objective:all-pass` even though the fixture defines no Objective Checks.\n- `validation-tree-human-review-ask-skip` also owns `human-review:none`; audit whether that final state genuinely proves the distinct mode-none entry path or split it into its own scenario.\n- Some evidence requirements remain category-level. Tighten them to prove the exact interaction value, next phase or Agent turn, and branch-specific durable field before describing the inventory as independently branch-complete."
 implementedAt: "2026-08-13T20:15:29.420Z"
-userVerifiedAt: null
-executionReport: "- Partial implementation only: added the validation branch inventory, assertion tagging, evidence-removal checks, validation-tree test entrypoint, catalog registration, and separate scripted Local Human Code Review fixture support.\n- Not complete against the approved Plan: the new validation-tree scenarios are inventory/evidence meta-tests, not real composed-TUI end-to-end scenarios for every validation branch; several Implementation Steps that require real CI/Objectives/Semantic/Human/Publication workflow execution remain unsatisfied.\n- Tests added: 2 new test files (`validation-workflow-coverage.test.ts`, `validation-workflow-tree.test.ts`); no tests were removed or replaced.\n- Verification passed despite the incomplete scope: Objective Checks, validation Golden suite command after `scripts/write-version.js`, `deno task test:golden-tui`, direct validation regression command, `deno task seams:check`, and `deno task ci` (`295` files passed, `0` failed).\n- First validation-suite run failed because `src/shared/version.js` had not been generated; repaired by running `deno run -A scripts/write-version.js`, then the suite passed."
+userVerifiedAt: "2026-08-16T22:03:20.512Z"
+userVerificationNote: "finished it with codex"
+executionReport: "- Follow-on work replaced the initial inventory-focused checkpoint with 66 real composed-TUI scenarios across 11 concern test files, collectively owning 72 declared validation branch IDs.\n- Scenarios exercise `/load-plan`, Session Runtime routing, real Git worktrees, CI and Objective Check commands, repair and review Agent turns, user interactions, lifecycle persistence, recovery, and publication. Tests run four files in parallel with isolated process-global state.\n- Production defects exposed by the Goldens were repaired, including lifecycle recovery, validation checkpoints, incomplete Semantic Reviewer turns, omitted-finding nudges, durable Stop behavior, stale merge-repair worktrees, and publication repair recovery.\n- Repair commit `c15e7b0e` was merged to `main` by `7a164b9f`. All 11 validation-workflow Golden files passed with zero ignored tests (129.4s, four workers). Post-merge `deno task ci` passed 321 test files with 0 failures (276.3s, four workers), including type, Workspace, lint, language-policy, seam, documentation-link, and submodule checks.\n- The suite is no longer mainly inventory/meta-tests. A remaining proof-precision audit is recorded in `failureReason`; do not claim every branch is independently proven until those ownership and evidence gaps are resolved."
+workRecord:
+    status: "generated"
+    recordId: "8add6d2e-46f3-40de-a8d1-0408211ffc7d"
+    path: "docs/work-records/2026-08-16-partial-golden-tui-validation-coverage-deepening.md"
+    lastAttemptAt: "2026-08-16T22:03:20.570Z"
 humanReviewMode: null
 humanReviewDecision: null
+validationCheckpoint: null
 executionMode: "worktree"
 executionBaselineTree: "879e28bfbd1a748342c340ae33a159a882ecd7be"
-worktreeId: "f27cc6ab"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-deepen-golden-tui-validation-workflow-coverage-f27cc6ab"
-worktreeBranch: "worktree/deepen-golden-tui-validation-workflow-coverage-f27cc6ab"
 worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+worktreeStatus: "abandoned"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "deepen golden TUI tests"
 validationCiAttempts: 0
@@ -242,21 +224,21 @@ or a durable state that disagrees with what the user saw.
       fail the applicable evidence check while the untouched real composed-TUI result passes. A scenario with no real
       actions or only metadata assertions cannot satisfy the inventory.
 
-- [ ] The Golden harness can script Plan Review and Local Human Code Review independently. Human review fixtures support
+- [x] The Golden harness can script Plan Review and Local Human Code Review independently. Human review fixtures support
       approval; feedback with annotations/images; canceled review; and an ended review with no decision. Captured state
       records the actual request and response so assertions can prove the browser review occurred at the correct phase.
 
-- [ ] Harness extensions create failures through the environment, not through product-owned seams. A scenario can run a
+- [x] Harness extensions create failures through the environment, not through product-owned seams. A scenario can run a
       blocking real CI or Objective Check command and cancel it with Escape, modify a real worktree file before
       answering Retry, stage a real Plan amendment in the execution worktree, and capture intermediate and final
       Plan/registry/Git state. No action writes a lifecycle status or pretends a validation event occurred.
 
-- [ ] Mechanical Validation Golden scenarios prove all current Plan Amendment outcomes: a valid amendment is shown,
+- [x] Mechanical Validation Golden scenarios prove all current Plan Amendment outcomes: a valid amendment is shown,
       approved, synchronized to both Plan copies, and restarts from `implemented`; Engineer follow-up parks awaiting
       Task Completion; Stop preserves the pending decision; and a changed Objective Check that is not red at the
       recorded baseline cannot be approved and offers only follow-up or Stop.
 
-- [ ] CI Golden scenarios prove pass; failure followed by completed repair and CI re-entry; repair without
+- [x] CI Golden scenarios prove pass; failure followed by completed repair and CI re-entry; repair without
       `task_completed`; cancellation followed separately by Retry, Engineer follow-up, and Stop; and automatic-round
       exhaustion followed separately by Retry, Engineer follow-up, and Stop. Assertions count real CI attempts, prove
       Semantic Code Review cannot start before a passing attempt, and check `status`, `failureReason`,
@@ -267,19 +249,19 @@ or a durable state that disagrees with what the user saw.
       automatic rounds with Retry/follow-up/Stop. Every command runs in the real execution worktree, and successful
       delivery includes the repair that made the check green.
 
-- [ ] Broken Objective Check scenarios prove both mechanical detection and an Engineer-reported defective check. Each
+- [x] Broken Objective Check scenarios prove both mechanical detection and an Engineer-reported defective check. Each
       reaches the real user judgement and covers waiver with an optional note, rejection with feedback and repair,
       Engineer follow-up, and Stop. Assertions verify exact command-matched durable waivers, stale report rejection,
       failure reason, subsequent skipped waiver behavior, and whether validation advances to `validated_ci`.
 
-- [ ] Semantic Code Review scenarios prove first-round approval; findings followed by completed repair, CI re-entry, and
+- [x] Semantic Code Review scenarios prove first-round approval; findings followed by completed repair, CI re-entry, and
       approval; repair without Task Completion; missing `review_complete` nudges; verdict without diff inspection
       nudges; an omitted prior finding prevents approval; Reviewer execution/incompletion pauses visibly with the ledger
       retained; discovery rounds become focused verification rounds; and automatic-round exhaustion offers Continue,
       Local Human Code Review, and Stop. Continue re-enters the focused reviewer, human review advances to
       `validated_reviewer`, and Stop preserves passing tests and open findings.
 
-- [ ] Semantic entry/resume scenarios prove an already-`validated_ci` loaded Plan starts Semantic Code Review without
+- [x] Semantic entry/resume scenarios prove an already-`validated_ci` loaded Plan starts Semantic Code Review without
       rerunning CI; a non-Git execution skips semantic review as specified; an empty diff uses the applicable skip path;
       and a Planned Change with no implementation diff fails visibly. The existing all-waivers scenario proves waived
       Objective Checks still reach the semantic phase and records the exact Plan-only-diff reason instead of appearing
@@ -291,14 +273,14 @@ or a durable state that disagrees with what the user saw.
       Semantic Reviewer does not run again, annotations are not duplicated, review metadata is durable, and publication
       cannot start before a final human decision.
 
-- [ ] Publication scenarios preserve normal Direct Delivery and non-Git success, dirty primary checkout Retry, and
+- [x] Publication scenarios preserve normal Direct Delivery and non-Git success, dirty primary checkout Retry, and
       repaired merge restart. Added branches prove dirty checkout Stop and later `/load-plan` resume; merge conflict
       with completed Agent repair; merge repair without Task Completion followed by user Retry/Stop; missing target
       branch metadata; a stale stored repair-worktree path; and a representative generic Git publication failure. Paused
       publication remains `validated_reviewer`; successful retry does not rerun CI or either review and records exact
       Delivery Evidence before worktree cleanup.
 
-- [ ] Lifecycle-resume scenarios begin from each valid validation status (`implemented`, `validated_ci`, and
+- [x] Lifecycle-resume scenarios begin from each valid validation status (`implemented`, `validated_ci`, and
       `validated_reviewer`) and prove only the required remaining phases run. A remembered earlier phase with a Plan
       status that moved ahead heals to `implemented`, explains why, and reruns CI. Missing Plan, unsupported status,
       malformed Front Matter, missing execution context, and mismatched worktree/Plan identity fail closed with a
@@ -308,7 +290,7 @@ or a durable state that disagrees with what the user saw.
       and have no ignored tests. Expected pauses explicitly assert the preserved recovery entry. Expected verification
       asserts the published implementation, terminal Plan/Work Record result, Delivery Evidence, and registry cleanup.
 
-- [ ] Existing direct validation tests remain in place for detailed algorithms. Tests that overlap moved Golden
+- [x] Existing direct validation tests remain in place for detailed algorithms. Tests that overlap moved Golden
       scenarios are not deleted unless they only duplicated Golden portfolio registration. Behavior that remains
       protected includes lifecycle guards, review ledger identity, retry counters, waiver command matching, publication
       transaction proof, and repair completion gating. No current validation behavior is expected to stop existing; only

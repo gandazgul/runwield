@@ -18,24 +18,11 @@ affectedPaths:
     - "src/ui/workspace/react/"
     - "src/ui/workspace/static/workspace.css"
     - "docs/design-system.md"
-objectiveChecks:
-    - id: "OC1"
-      command: "test -f src/shared/workflow/plan-review-actions.test.ts && grep -Fq \"shared Plan review rejects stale revision status and worktree before mutation\" src/shared/workflow/plan-review-actions.test.ts && grep -Fq \"shared Plan review commits edited Feedback and approval notes with classification-correct outcomes\" src/shared/workflow/plan-review-actions.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/plan-review-actions.test.ts"
-      rationale: "The adapter-neutral review action and its focused behavioral suite do not exist. This requires canonical evidence rejection, direct Plan edits, Feedback, non-blocking approval notes, and real approval transitions."
-    - id: "OC2"
-      command: "test -f src/ui/workspace/workspace-plan-review.integration.test.ts && grep -Fq \"stable Plan page switches from live review to settled detail\" src/ui/workspace/workspace-plan-review.integration.test.ts && grep -Fq \"Workspace Plan review returns Feedback to the same live Core interaction\" src/ui/workspace/workspace-plan-review.integration.test.ts && grep -Fq \"lost review interaction prepares but does not send Agent resubmission\" src/ui/workspace/workspace-plan-review.integration.test.ts && deno run -A scripts/run-tests.js src/ui/workspace/workspace-plan-review.integration.test.ts"
-      rationale: "Workspace has no Project-scoped Plan detail route or owner review journey. This requires one stable Plan surface, live Core Feedback, and the explicit cross-surface resubmission flow."
-    - id: "OC3"
-      command: "test -f src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Phone Plan review keeps full editing annotations and actions reachable\" src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Feedback and Run return to Session while Later stays on confirmation\" src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Plan and Epic reviews expose classification-correct actions\" src/ui/workspace/workspace-plan-review-ux.test.tsx && deno run -A scripts/run-tests.js src/ui/workspace/workspace-plan-review-ux.test.tsx"
-      rationale: "The owner review UI and responsive state tests do not exist. This requires the selected full phone workflow, outcome-specific navigation, and correct Run versus Slice journeys."
-executionAgent: "frontend-engineer"
-collaborationRecommendation: "pair"
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-26T20:48:25.378Z"
-updatedAt: "2026-08-14T03:23:14.136Z"
-status: "ready_for_work"
+status: "feedback"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 16
@@ -43,6 +30,23 @@ dependencies:
     - "15-complete-workspace-session-navigation-and-timeline-ux"
     - "13-execution-segment-handoff-backend"
 userVerifiedAt: null
+humanReviewMode: null
+humanReviewDecision: null
+validationCheckpoint: null
+worktreeStatus: "abandoned"
+objectiveChecks:
+    - id: "OC1"
+      command: "test -f src/shared/workflow/plan-review-actions.ts && grep -Fq 'plan-review-actions' src/ui/review/plan-review.ts && test -f src/shared/workflow/plan-review-actions.test.ts && grep -Fq \"shared Plan review rejects stale revision status and worktree before mutation\" src/shared/workflow/plan-review-actions.test.ts && grep -Fq \"shared Plan review commits edited Feedback and approval notes with classification-correct outcomes\" src/shared/workflow/plan-review-actions.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/plan-review-actions.test.ts"
+      rationale: "The shared module must exist AND src/ui/review/plan-review.ts must import it, so a stub module beside the surviving TUI duplicate fails. Delegation is the actual objective of the extraction. Both anchors are red today: the module is absent and plan-review.ts owns the mutation logic."
+    - id: "OC2"
+      command: "test -f 'src/ui/workspace/pages/projects/[projectId]/plans/[planId].astro' && grep -Fq 'plan_review' src/ui/workspace/server/session-continuation.js && test -f src/ui/workspace/workspace-plan-review.integration.test.ts && grep -Fq \"stable Plan page switches from live review to settled detail\" src/ui/workspace/workspace-plan-review.integration.test.ts && grep -Fq \"Workspace Plan review returns Feedback to the same live Core interaction\" src/ui/workspace/workspace-plan-review.integration.test.ts && grep -Fq \"lost review interaction prepares but does not send Agent resubmission\" src/ui/workspace/workspace-plan-review.integration.test.ts && deno run -A scripts/run-tests.js src/ui/workspace/workspace-plan-review.integration.test.ts"
+      rationale: "Requires the Project-scoped Plan route to exist and session-continuation.js to recognize plan_review, so passing tests alone cannot satisfy it. Verified red: the route is absent and the string plan_review appears nowhere under src/ui/workspace/ today."
+    - id: "OC3"
+      command: "grep -Fq 'PlanReviewSurface' 'src/ui/workspace/pages/projects/[projectId]/plans/[planId].astro' && grep -Fq 'PlanDetail' 'src/ui/workspace/pages/projects/[projectId]/plans/[planId].astro' && test -f src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Phone Plan review keeps full editing annotations and actions reachable\" src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Feedback and Run return to Session while Later stays on confirmation\" src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Plan and Epic reviews expose classification-correct actions\" src/ui/workspace/workspace-plan-review-ux.test.tsx && deno run -A scripts/run-tests.js src/ui/workspace/workspace-plan-review-ux.test.tsx"
+      rationale: "Forces the one stable page to reference both surfaces, proving the live-versus-settled switch is wired rather than only described in test names. Red today because the route file does not exist."
+executionAgent: "frontend-engineer"
+collaborationRecommendation: "pair"
+updatedAt: "2026-08-16T22:11:38.539Z"
 ---
 
 # Workspace Plan Review and Approve UI
@@ -232,7 +236,11 @@ but it requires a session-independent continuation protocol and is not necessary
   Session in navigation without creating a second review URL.
 - `src/ui/workspace/react/PlanReviewSurface.tsx` and supporting Plannotator components — accept a transport-neutral
   review payload, render canonical status/evidence/acting-Session context, and submit the classification-correct actions
-  to either active adapter.
+  to either active adapter. New components here are `.tsx`; see the language-policy step below.
+- `src/ui/workspace/pages/review/plan.astro` and `src/ui/workspace/react/ReviewDevSurface.tsx` — the two existing
+  `PlanReviewSurface` callers. Both construct today's header/dev payload directly, so both must move to the
+  transport-neutral payload in the same change. `ReviewDevSurface` is the `/dev/plan-review` harness behind
+  `deno task workspace:dev:plan-review` and must keep rendering after the payload contract changes.
 - `src/ui/workspace/components/SessionTimeline.jsx` and `src/ui/workspace/islands/SessionSurface.jsx` — render live and
   committed Plan review links as Plan workflow items, poll decision settlement, replace lost review waits with the
   standard interruption line, and return from review to the same Session.
@@ -323,6 +331,12 @@ Approve for Later, Approve & Run, Plan Action Evidence Check, Session Activation
       Both layouts preserve annotations and Overall feedback across refresh/errors, use touch-sized controls, visible
       focus, non-color status text, an `aria-live` result region, long-content containment, and semantic `--rw-*` tokens
       only.
+- [ ] Every new production file under `src/` is TypeScript: `.ts` for shared/server modules, `.tsx` for React
+      components, `.astro` for pages. `scripts/language-policy-baseline.json` is a frozen allowlist of existing
+      production JavaScript, and `deno task language-policy:check` runs inside `deno task ci`, so a new `.js` or `.jsx`
+      file fails CI even next to the `.jsx` files this slice edits. Editing the already-baselined `SessionTimeline.jsx`,
+      `SessionSurface.jsx`, `session-continuation.js`, `plan-adapter.js`, `owner-api.js`, `owner-session-api.js`, and
+      `server.js` in place is allowed; do not add to the baseline.
 - [ ] Existing TUI Plan review tests continue to protect edited Plan persistence, review reopen, worktree detachment,
       images, policy selection, Feedback, cancellation, stale revision, and classification-specific approval. No
       behavior is expected to stop except the TUI-only ownership of the review component and mutation implementation.
