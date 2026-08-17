@@ -1071,6 +1071,7 @@ export class SessionRuntime {
         if (!managed) {
             return await operation(session, /** @type {any} */ (null));
         }
+        await this.#restoreDormantManagedInvariant(session);
         if (session.getRootSessionManager?.()) {
             return { ok: false, error: "managed_operation_in_progress" };
         }
@@ -1309,6 +1310,7 @@ export class SessionRuntime {
             await this.#awaitManagedOperationSettlement(session.id);
             return await this.#runWorkflowOperation(session, _operationName, options, operation);
         }
+        await this.#restoreDormantManagedInvariant(session);
         if (session.getRootSessionManager?.()) {
             throw new Error("managed_operation_in_progress");
         }
@@ -1338,6 +1340,7 @@ export class SessionRuntime {
         if (!session) throw new Error("SessionRuntime.runPlanAction: session not found");
         const managed = session.getManagedMetadata?.();
         if (!managed) return await executePlanAction(session.cwd, request);
+        await this.#restoreDormantManagedInvariant(session);
         if (session.getRootSessionManager?.()) throw new Error("managed_operation_in_progress");
         const result = await this.#runManagedOperation(
             session.id,
@@ -1371,6 +1374,33 @@ export class SessionRuntime {
         }
         if (result?.ok === false && result.error) throw new Error(result.error);
         return result;
+    }
+
+    /**
+     * A managed Session may only retain an open transcript while its managed
+     * operation owns the activation. If an earlier canceled command left the
+     * in-memory hydration behind after the activation was released, discard
+     * that stale view so the next command can reopen committed state normally.
+     *
+     * @param {import('./hosted-session.js').HostedSession} session
+     * @returns {Promise<boolean>}
+     */
+    async #restoreDormantManagedInvariant(session) {
+        const managed = session.getManagedMetadata?.();
+        if (
+            !managed ||
+            !session.getRootSessionManager?.() ||
+            this.#currentManagedOperations.has(session.id) ||
+            session.isTurnActive()
+        ) return false;
+        const activation = this.#sessionStore?.inspectSessionActivation(managed.runwieldSessionId);
+        if (activation?.activation?.state === "active") return false;
+        console.error("[RunWield] recovered_orphaned_managed_hydration");
+        session.dehydrateManagedSession();
+        this.#removeAllQueueSourceSubscriptions(session.id);
+        await this.ensureInitialSessionGeneration(managed.runwieldSessionId);
+        await this.synchronizeManagedSession(session.id, { emitEvents: false });
+        return true;
     }
 
     /** @param {string} sessionId @param {Record<string, any>} options */
@@ -2827,11 +2857,16 @@ export class SessionRuntime {
         } catch (error) {
             this.#pendingManagedCreations.delete(hostedSession.id);
             this.#pendingManagedCreationProjects.delete(hostedSession.id);
+            hostedSession.dehydrateManagedSession();
+            this.#removeAllQueueSourceSubscriptions(hostedSession.id);
             try {
                 if (hydrated) {
+                    await syncTranscriptFileAndParent(managed.transcriptPath);
                     this.#sessionStore.markSessionUncertain(activeProof, {
                         reason: error instanceof Error ? error.message : String(error),
                     });
+                    await this.ensureInitialSessionGeneration(managed.runwieldSessionId);
+                    await this.synchronizeManagedSession(hostedSession.id, { emitEvents: false });
                 } else {
                     this.#sessionStore.releaseUnchangedActivation(activeProof);
                 }

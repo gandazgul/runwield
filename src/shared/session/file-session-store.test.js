@@ -551,6 +551,56 @@ Deno.test("initial recovery blocks a rewritten transcript prefix", async () => {
     }
 });
 
+Deno.test("initial recovery retains the writer baseline after activation becomes uncertain", async () => {
+    const fixture = await makeFixture();
+    try {
+        const transcriptPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "initial-uncertain");
+        const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
+        const session = await store.ensureSessionCatalogRecord({
+            projectId: project.projectId,
+            piSessionId: "initial-uncertain",
+            transcriptPath,
+            transcriptCwd: fixture.projectRoot,
+            source: "created",
+        });
+        const proof = store.acquireSessionActivation({
+            runwieldSessionId: session.runwieldSessionId,
+            projectId: project.projectId,
+            ownerInstanceId: "initial-writer",
+            ownerProcessKind: "test",
+            expectedGeneration: null,
+        });
+        await Deno.writeTextFile(
+            transcriptPath,
+            `${await Deno.readTextFile(transcriptPath)}${
+                JSON.stringify({ type: "custom", customType: "writer-output" })
+            }\n`,
+        );
+        store.markSessionUncertain(proof, { reason: "agent activation failed" });
+
+        const bytes = await Deno.readFile(transcriptPath);
+        const recovered = store.recoverSessionControl({
+            runwieldSessionId: session.runwieldSessionId,
+            projectId: project.projectId,
+            expectedFence: proof.fence,
+            expectedGeneration: null,
+            ownerInstanceId: "recovery",
+            ownerProcessKind: "test",
+            transcriptEvidence: {
+                byteLength: bytes.byteLength,
+                terminalEntryId: null,
+                digestHex: createHash("sha256").update(bytes).digest("hex"),
+            },
+        });
+        assertEquals(recovered.activation?.state, "idle");
+        assertEquals(recovered.generation?.generation, 0);
+        store.close();
+    } finally {
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});
+
 Deno.test("existing-generation recovery blocks a rewritten committed prefix", async () => {
     const fixture = await makeFixture();
     try {

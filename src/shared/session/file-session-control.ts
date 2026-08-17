@@ -365,10 +365,14 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
             try {
                 const manifest = readJson<FileSessionManifest>(held.manifestPath);
                 assertProof(manifest, proof);
+                const baselineByteLength = manifest.activation.baselineByteLength;
+                const baselineDigestHex = manifest.activation.baselineDigestHex;
                 manifest.activation = {
                     ...idleActivation(manifest),
                     state: "uncertain",
                     blockedReason: uncertaintyOptions.reason || "writer_interrupted",
+                    baselineByteLength,
+                    baselineDigestHex,
                 };
                 writeManifest(manifest, held.manifestPath);
                 return { activation: activationView(manifest), generation: generationView(manifest) };
@@ -382,10 +386,14 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
             try {
                 const manifest = readJson<FileSessionManifest>(held.manifestPath);
                 assertProof(manifest, proof);
+                const baselineByteLength = manifest.activation.baselineByteLength;
+                const baselineDigestHex = manifest.activation.baselineDigestHex;
                 manifest.activation = {
                     ...idleActivation(manifest),
                     state: "reconcile_required",
                     blockedReason: reconciliationOptions.reason || "transcript_evidence_changed",
+                    baselineByteLength,
+                    baselineDigestHex,
                 };
                 writeManifest(manifest, held.manifestPath);
                 return { activation: activationView(manifest), generation: generationView(manifest) };

@@ -2,6 +2,7 @@ import { assertEquals } from "@std/assert";
 import {
     loadPlanAbandonProgressScenario,
     loadPlanActionsScenario,
+    loadPlanCanceledExecutionThenPlannerReviewScenario,
     loadPlanInterruptedRecoveryScenario,
     loadPlanMalformedFrontMatterScenario,
     loadPlanResetReviewArchiveScenario,
@@ -12,6 +13,7 @@ import {
 
 const scenarioExportNames = new Map<object, string>([
     [loadPlanActionsScenario, "loadPlanActionsScenario"],
+    [loadPlanCanceledExecutionThenPlannerReviewScenario, "loadPlanCanceledExecutionThenPlannerReviewScenario"],
     [loadPlanResetReviewArchiveScenario, "loadPlanResetReviewArchiveScenario"],
     [loadPlanInterruptedRecoveryScenario, "loadPlanInterruptedRecoveryScenario"],
     [loadPlanWorktreeInspectResetScenario, "loadPlanWorktreeInspectResetScenario"],

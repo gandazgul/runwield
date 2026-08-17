@@ -198,6 +198,100 @@ export const loadPlanResetReviewArchiveScenario = {
     ],
 };
 
+export const loadPlanCanceledExecutionThenPlannerReviewScenario = {
+    name: "load-plan-cancel-stale-execution-then-planner-re-review",
+    composedTui: true,
+    initialAgentName: "guide",
+    globalSettings: {
+        defaultProvider: "golden",
+        defaultModel: "faux",
+        activeModelPreset: "unavailable-planner",
+        modelPresets: {
+            "unavailable-planner": {
+                agents: { planner: { model: "missing/planner-model" } },
+            },
+            "available-planner": {
+                agents: { planner: { model: "golden/faux" } },
+            },
+        },
+    },
+    terminal: { columns: 100, rows: 30 },
+    timeoutMs: 120000,
+    coverage: ["workflow:load-plan", "durable:plan-lifecycle"],
+    reviewDecisions: [{ approved: true, feedback: "Re-review approved for later.", approvalAction: "later" }],
+    script: [
+        {
+            id: "planner-reviews-after-canceled-execution",
+            agent: "planner",
+            phase: "plan_review",
+            ordinal: 1,
+            requiredTools: ["plan_written"],
+            toolCalls: [{
+                name: "plan_written",
+                arguments: {
+                    planName: "stale-then-review",
+                    objectiveChecks: [{ id: "OC1", command: "true" }],
+                },
+            }],
+        },
+    ],
+    committedProjectFiles: [
+        { path: "app.ts", text: "export const changedAfterPlanning = true;\n" },
+        {
+            path: "docs/plans/stale-then-review.md",
+            text:
+                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Cancel stale execution then review\naffectedPaths:\n  - app.ts\nupdatedAt: "2020-01-01T00:00:00.000Z"\nstatus: ready_for_work\n---\n# Cancel stale execution then review\n',
+        },
+    ],
+    scriptedInteractions: [
+        { type: "select", promptIncludes: "What would you like to do", value: "proceed" },
+        { type: "select", promptIncludes: "Proceed with execution", value: "cancel" },
+        { type: "select", promptIncludes: "Settings", value: "model-presets" },
+        { type: "select", promptIncludes: "Model Presets", value: "preset:available-planner" },
+        { type: "select", promptIncludes: "Model Presets", value: "back" },
+        { type: "select", promptIncludes: "Settings", value: "done" },
+        { type: "select", promptIncludes: "What would you like to do", value: "planner_re_review" },
+    ],
+    actions: [
+        { type: "type", text: "/load-plan stale-then-review" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForIdle", timeoutMs: 20000 },
+        { type: "sleep", ms: 1000 },
+        { type: "type", text: "/settings" },
+        { type: "enter" },
+        { type: "waitForScreen", text: "Active model preset set to available-planner", timeoutMs: 20000 },
+        { type: "waitForIdle", timeoutMs: 20000 },
+        { type: "type", text: "/load-plan stale-then-review" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForIdle", timeoutMs: 60000 },
+        { type: "sleep", ms: 1000 },
+        { type: "captureProjectState", planNames: ["stale-then-review"] },
+    ],
+    assertions: [
+        assertsGoldenCoverage("workflow:load-plan", (result: GoldenScenarioResult) => {
+            assertScreenIncludes(result, "Execution canceled.");
+            assertScreenIncludes(result, "Active model preset set to available-planner");
+            assertEventIncludes(result, "runtime:tool:start:plan_written");
+            assertScreenIncludes(result, "Plan saved. Resume later with: wld resume stale-then-review");
+            const output = `${result.scrollbackText || ""}\n${result.screenText}`;
+            assert(
+                !output.includes("managed_operation_in_progress"),
+                "Planner re-review must start after cancellation.",
+            );
+        }),
+        assertsGoldenCoverage("durable:plan-lifecycle", (result: GoldenScenarioResult) => {
+            assert(
+                planStatus(result, "stale-then-review") === "ready_for_work",
+                `Expected the re-reviewed Plan to remain ready_for_work; got ${
+                    planStatus(result, "stale-then-review")
+                }`,
+            );
+        }),
+    ],
+};
+
 export const loadPlanInterruptedRecoveryScenario = {
     name: "load-plan-interrupted-child-recovery-options",
     composedTui: true,
@@ -534,6 +628,7 @@ export const loadPlanValidateWaivedObjectiveChecksScenario = {
 export const loadPlanWorkflowScenarios = [
     loadPlanActionsScenario,
     loadPlanResetReviewArchiveScenario,
+    loadPlanCanceledExecutionThenPlannerReviewScenario,
     loadPlanInterruptedRecoveryScenario,
     loadPlanWorktreeInspectResetScenario,
     loadPlanAbandonProgressScenario,
