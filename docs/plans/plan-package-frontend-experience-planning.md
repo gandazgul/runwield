@@ -2,7 +2,7 @@
 planId: "b4ac88bf-b0d5-42d3-b755-ab0623fd3fe1"
 classification: "PROJECT"
 complexity: "HIGH"
-summary: "Build stronger frontend planning and acceptance on Plan Packages through explicit user journeys, representative states, reviewed prototypes, and independent browser validation."
+summary: "Build stronger frontend planning and acceptance on Plan Packages through Epic-level user journeys that children reference by ID, representative states, reviewed prototypes, independent browser validation, and a ban on UI that explains its own build state."
 affectedPaths:
     - "docs/plans/"
     - "src/shared/workflow/"
@@ -41,6 +41,17 @@ Frontend planning therefore needs an explicit experience contract. Implementatio
 not enough when the missing requirement is the user's journey, the information needed at a decision point, or the
 behavior of representative populated states.
 
+A second failure comes from where that contract lives. When each slice of an Epic owns its own experience description,
+the slice boundary becomes visible to the end user. The implementation Agent reaches a capability a later slice will
+add, and ships the gap as product copy: a banner, a disabled control captioned with a reason, a tooltip naming a slice
+number. The Plans teach this. `docs/plans/personal-remote-workspace-v1/` contains sentences such as "workflow remains
+read-only until slice 16 supplies its Plan actions" and "until slice 10 adds the cross-Project Attention Dashboard".
+Each sentence is a correct scope boundary written for the implementer, and the implementer forwards it to the user
+because nothing tells it not to. No current Agent definition prohibits it.
+
+The foundation PROJECT makes the Epic the release unit, so the audience for that copy does not exist. This PROJECT puts
+the experience contract at the same level as the release and states the prohibition directly.
+
 This PROJECT must begin only after `plan-packages-and-independent-validation` lands and its package, validation,
 completion-signal, and Plan-defect authorities have been re-audited.
 
@@ -49,7 +60,10 @@ completion-signal, and Plan-defect authorities have been re-audited.
 Extend Plan Packages for material browser experiences so product intent is designed, reviewed, implemented, and
 validated independently:
 
-- a material UI package contains required `user-journeys.md` alongside `plan.md` and `validation.md`;
+- `user-journeys.md` belongs to the release unit, not to the slice: one journey document on the Epic package for Epics
+  with material UI work, or on the Plan package itself for a standalone material UI FEATURE;
+- journeys carry stable identifiers, and each child declares in its own `validation.md` which identifiers it completes
+  and which it contributes to, so a child that half-builds a journey is normal rather than a coverage gap;
 - Planner loads a UI/UX planning skill, inspects the current product, defines concrete actors/jobs, journeys,
   representative states, and information requirements, and maps those outcomes into the package validation contract;
 - Planner records whether a throwaway prototype is needed, favors one when it materially reduces experience uncertainty,
@@ -57,8 +71,13 @@ validated independently:
 - an accepted prototype is stored as a stable, revisioned behavioral and visual reference, not production code;
 - Frontend Engineer implements the approved experience and may use targeted checks while developing, but does not claim
   independent journey validation;
+- the product never explains its own build state: no slice or Plan identifiers in the interface, no "coming soon", no
+  "not yet implemented", and no control that exists only to say why it does nothing. Work that is out of scope has no
+  affordance at all. Empty states, permission messages, error states, and loading states stay, because they describe
+  product state the user caused or can act on;
 - Validator loads a user-journey validation skill, executes all automatable browser and agent-observable journeys across
-  representative states, and records evidence for every journey ID;
+  representative states, and records evidence for every journey ID; child validation covers the identifiers that child
+  declared, and the Epic's integrated validation covers every journey end to end across the assembled branch;
 - generated `manual-qa.md` contains only the remaining judgments that genuinely require the owner; and
 - validation, review, repair, Plan-defect, and publication behavior continues through the authorities established by the
   foundation PROJECT.
@@ -83,7 +102,7 @@ The target path is experience-shaped:
 
 ```text
 current-product inspection
-  -> user journeys + representative states
+  -> user journeys + representative states, on the release unit
   -> optional throwaway prototype
   -> owner review of the intended experience
   -> atomic package approval
@@ -93,13 +112,41 @@ current-product inspection
   -> genuinely human-only owner acceptance when required
 ```
 
-The Plan Package foundation supplies the atomic revision and role boundaries. This PROJECT supplies the frontend
-artifacts, planning behavior, browser evidence, and owner experience needed to use those boundaries well.
+For an Epic, the journey document sits beside the Epic's own validation contract, and children point at it:
+
+```text
+docs/plans/<epic>/user-journeys.md      J-01 … J-0n, stable identifiers
+docs/plans/<epic>/validation.md         integrated: every journey, assembled branch
+docs/plans/<epic>/<child>/validation.md completes J-02, contributes to J-04
+```
+
+Positive present tense is what removes the leak. A journey states what the user does and how success is observed, so it
+has no grammatical slot for a deferral:
+
+```text
+today, in a slice plan.md:
+  "Plan views remain read-only until slice 16 supplies actions."
+       a sentence about the product, phrased as absence — easy to forward into the UI
+
+as a journey on the Epic:
+  J-04  Owner opens a Plan and reads status, steps, and evidence.
+        Success: the owner can tell whether the Plan is ready to run.
+       nothing to forward; there is no "until" to copy
+```
+
+Deferral language does not disappear. It moves to engineer-facing sections of the child `plan.md`, where scope
+boundaries belong, and out of any text that describes the product to its user.
+
+The Plan Package foundation supplies the atomic revision, Epic branch, Epic validation, and role boundaries. This
+PROJECT supplies the frontend artifacts, planning behavior, browser evidence, and owner experience needed to use those
+boundaries well.
 
 ## Files to Modify
 
 - `src/agent-definitions/` — teach Planner and Frontend Engineer the experience-contract boundary without giving either
-  independent validation authority.
+  independent validation authority; add the build-state prohibition to `frontend-engineer.md`; and keep deferral
+  language inside engineer-facing sections of the Planner and Slicer plan formats under
+  `src/agent-definitions/document-formats/`.
 - `src/skills/` — add UI/UX planning and Validator journey-validation skills; reuse the existing prototype workflow.
 - `src/shared/workflow/` — require and project journey contracts for material UI packages, preserve prototype decisions,
   run independent journey validation, and route findings through the foundation repair and defect paths.
@@ -127,9 +174,16 @@ artifacts, planning behavior, browser evidence, and owner experience needed to u
   representative states, information requirements, a prototype decision, and owner-reviewed prototype evidence when a
   prototype was chosen.
 - Package children must prove `user-journeys.md` participates in the approved package revision while generated evidence
-  and mutable owner QA do not.
+  and mutable owner QA do not; that an Epic with material UI work owns exactly one journey document; and that a child
+  cannot become ready for work while it claims a journey identifier the Epic does not define.
 - Validator children must prove every journey ID maps to representative automated, browser, agent-executable, or
   genuinely human-only evidence and that empty-state evidence cannot satisfy a populated-state journey.
+- Journey coverage children must prove child validation covers only the identifiers that child declared, that Epic
+  integrated validation covers every defined journey, and that a journey no child claimed is reported as never built
+  rather than as a passing outcome.
+- Build-state children must prove Frontend Engineer does not add interface text or controls that describe build
+  progress, and that empty states, permission messages, error states, and loading states remain allowed. The check reads
+  rendered interface text, not source comments or Plan prose.
 - Prototype children must prove accepted references are stable and revisioned, remain separate from production code, and
   become stale when the approved experience changes.
 - Repair children must prove a journey failure returns through bounded implementation repair and then complete Validator
@@ -144,6 +198,15 @@ artifacts, planning behavior, browser evidence, and owner experience needed to u
 
 - **Material UI Plans define an experience before implementation** — every approved material UI package contains real
   actor/jobs, stable journey IDs, representative states, information requirements, and observable success outcomes.
+- **Journeys belong to the release unit** — an Epic with material UI work carries one journey document with stable
+  identifiers; children reference those identifiers and never define competing ones; a standalone material UI FEATURE
+  carries its own.
+- **Partial journeys are expected, not hidden** — a child may complete some identifiers and contribute to others, and
+  the difference between "no child claimed this" and "a child claimed this and it does not work" is visible in the
+  Epic's integrated result.
+- **The product never explains its own build state** — no shipped interface names a slice or Plan, promises a later
+  capability, or renders a control whose only purpose is to say it does nothing. Out of scope means the affordance is
+  absent. Empty, permission, error, and loading states are unaffected.
 - **Prototype decisions are explicit** — each material UI package records why a prototype is or is not needed; when one
   is chosen, package approval includes an owner-reviewed reference with stable revision evidence.
 - **Frontend implementation follows an accepted direction** — Frontend Engineer receives the approved experience
@@ -160,7 +223,8 @@ artifacts, planning behavior, browser evidence, and owner experience needed to u
   collaboration, independent validation, Semantic Review, repairs, recovery, and publication continue to work.
 - **Behavior expected to stop existing** — generic implementation prose is not accepted as a journey contract;
   self-selected screenshots do not prove representative experience outcomes; prototype code is not promoted into
-  production; generated Manual QA is not used as a substitute for independent validation.
+  production; generated Manual QA is not used as a substitute for independent validation; each slice does not carry its
+  own experience contract; and slice boundaries are not visible in the shipped interface.
 
 ## Edge Cases & Considerations
 
@@ -175,4 +239,15 @@ artifacts, planning behavior, browser evidence, and owner experience needed to u
 - Owner feedback during prototype review changes the package specification; owner acceptance after implementation judges
   only the genuinely human outcomes that Validator cannot execute.
 - Direct package edits remain supported, but changing `user-journeys.md` must invalidate approval consistently with
-  changes to `plan.md` or `validation.md`.
+  changes to `plan.md` or `validation.md`. Because the Epic journey document is shared, editing it after children are
+  approved has to invalidate the children that reference the changed identifiers, not silently move their target.
+- Journey identifiers must stay stable for the life of the Epic. Renumbering after children reference them breaks
+  claimed coverage and makes integrated results unreadable.
+- The build-state prohibition needs a check that survives paraphrase. An implementer that cannot write "slice 6" can
+  still write "available in a future update". The rule is about naming build progress at all, not about a word list, and
+  the child that implements it should say how the check draws that line.
+- A slice can leave a surface looking sparse. Under an Epic branch nobody ships that surface, so sparse is acceptable
+  and the prohibition costs nothing. If the user overrides an Epic to publish per child, the trade-off returns and the
+  answer is to redraw the boundary, not to label the gap.
+- Progress belongs in RunWield's own surfaces. The owner running the app off an Epic branch mid-flight has the Plan
+  Board, the TUI, and the Epic's records; that need must not push build-state text back into the product.

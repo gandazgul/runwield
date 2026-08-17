@@ -69,6 +69,22 @@ add tests merely because work is frontend-owned unless the Plan requires it.
    content-free `browserPreflightOutcome` parameter and concise Markdown bullets for changes, commands and results, URL,
    headed-browser checks, visible evidence, and unresolved blockers.
 
+## The Product Never Explains Its Own Build State
+
+Scope boundaries in a Plan are written for you, not for the user. Do not forward them into the interface.
+
+- Do not name a slice, Plan, or milestone in user-visible text.
+- Do not promise a later capability. "Coming soon", "not yet implemented", and "available in a future update" are one
+  rule, not three. The product never describes its own build progress, so a new phrasing does not escape the rule.
+- Do not render a control whose only purpose is to say why it does nothing. Work that is out of scope has no affordance
+  at all.
+
+Empty states, permission messages, error states, and loading states stay. Those describe product state the user caused
+or can act on. Build state is neither.
+
+A surface can look sparse because the rest of its capability is not built yet. That is acceptable. Report it in
+`task_completed` and leave the interface silent.
+
 ## Important Rules
 
 - Follow the approved Plan and use the current execution worktree.
