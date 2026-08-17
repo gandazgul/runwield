@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { __resetSettingsForTests } from "../../shared/settings.js";
@@ -46,7 +47,7 @@ async function captureConsole(run: () => void | Promise<void>): Promise<{ logs: 
 Deno.test("init exercises real project state, assets, settings, and Agent runtime in an isolated home", async (test) => {
     await withRuntimeCommandFixture(
         "init-command-",
-        async ({ alternateRoot, homeDir, projectRoot, settingsPath, setModelResponse }) => {
+        async ({ alternateRoot, homeDir, projectRoot, settingsPath, setModelMessages, setModelResponse }) => {
             const originalSettings = await Deno.readTextFile(settingsPath);
 
             await test.step("help comes from the real command registry before project inspection", async () => {
@@ -106,10 +107,37 @@ Deno.test("init exercises real project state, assets, settings, and Agent runtim
                 __resetSettingsForTests();
             });
 
-            await test.step("init runs the real isolated Agent and records completion", async () => {
+            await test.step("init refuses false success when the Agent writes no artifact", async () => {
                 Deno.chdir(projectRoot);
                 await Deno.writeTextFile(join(projectRoot, "mod.ts"), "export const fixture = true;\n");
                 setModelResponse("Initialization inspection complete.");
+                const ui = createUi();
+                const runtime = createSessionRuntime();
+                const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+                try {
+                    await runInitCommand([], {
+                        uiAPI: ui.uiAPI,
+                        sessionRuntime: runtime,
+                        sessionId: created.sessionId,
+                        sessionPort: UNEXPECTED_SESSION_PORT,
+                    });
+                    assertEquals((await getCwdInitState())?.initDone, false);
+                    assertEquals(ui.messages.length, 1);
+                    assertStringIncludes(ui.messages.at(-1)?.message || "", "Initialization was not marked complete");
+                } finally {
+                    runtime.closeSession(created.sessionId);
+                }
+            });
+
+            await test.step("init runs the real isolated Agent, verifies its artifact, and records completion", async () => {
+                Deno.chdir(projectRoot);
+                setModelMessages([
+                    fauxAssistantMessage(fauxToolCall("write", {
+                        path: "docs/domain-language.md",
+                        content: "# Domain Language\n\n## Fixture\n\nCurrent fixture terminology.\n",
+                    })),
+                    fauxAssistantMessage(fauxText("Initialization inspection complete.")),
+                ]);
                 const ui = createUi();
                 const runtime = createSessionRuntime();
                 const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
@@ -131,6 +159,10 @@ Deno.test("init exercises real project state, assets, settings, and Agent runtim
                     assertEquals(state?.initDone, true);
                     assertEquals(typeof state?.offeredAt, "string");
                     assertEquals(typeof state?.doneAt, "string");
+                    assertStringIncludes(
+                        await Deno.readTextFile(join(projectRoot, "docs", "domain-language.md")),
+                        "Current fixture terminology.",
+                    );
                     assertStringIncludes(assistantText.join(""), "Initialization inspection complete.");
                     assertEquals(ui.messages, [{
                         message: "✅ Init complete. docs/domain-language.md has been written.",

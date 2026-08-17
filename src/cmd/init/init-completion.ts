@@ -1,0 +1,28 @@
+import { join } from "@std/path";
+import { getCwd } from "../../constants.js";
+import { isInitDone } from "./init-state.ts";
+
+export const INIT_DOMAIN_LANGUAGE_PATH = "docs/domain-language.md";
+
+export async function hasProjectInitArtifact(projectRoot = getCwd()): Promise<boolean> {
+    try {
+        const path = join(projectRoot, INIT_DOMAIN_LANGUAGE_PATH);
+        const info = await Deno.stat(path);
+        if (!info.isFile) return false;
+        return (await Deno.readTextFile(path)).trim().length > 0;
+    } catch {
+        return false;
+    }
+}
+
+export async function isProjectInitComplete(): Promise<boolean> {
+    return await isInitDone() && await hasProjectInitArtifact();
+}
+
+export async function requireProjectInitArtifact(projectRoot = getCwd()): Promise<void> {
+    if (await hasProjectInitArtifact(projectRoot)) return;
+    throw new Error(
+        `Init agent finished without creating ${INIT_DOMAIN_LANGUAGE_PATH}. ` +
+            "Initialization was not marked complete; run /init to retry.",
+    );
+}

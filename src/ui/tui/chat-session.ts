@@ -32,6 +32,7 @@ import {
     isInitOffered as isInitOfferedFn,
     recordInitOffered as recordInitOfferedFn,
 } from "../../cmd/init/init-state.ts";
+import { isProjectInitComplete } from "../../cmd/init/init-completion.ts";
 import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { setActiveSessionModel } from "../../shared/session/model-selection.ts";
 import { renderBootBanner } from "./boot-banner.ts";
@@ -284,8 +285,9 @@ export async function startInteractiveSession(
             view.resetForSessionReplacement();
         };
         refreshPromptTemplateCommandGroups();
-        const initDone = options.skipModelWelcome ? true : await isInitDoneFn();
-        if (initDone) chatBuiltinSlashNames.delete("init");
+        const initStateClaimedDone = options.skipModelWelcome ? true : await isInitDoneFn();
+        const initDone = options.skipModelWelcome ? true : await isProjectInitComplete();
+        let initCommandAvailable = !initDone;
         if (!suppressStartupHeader && !sessionStartedEmptyProjectDirectory) {
             await renderBootBanner({
                 uiAPI,
@@ -335,14 +337,14 @@ export async function startInteractiveSession(
         };
         if (!sessionStartedEmptyProjectDirectory && !initDone && !modelWelcomeResult.noModel) {
             const alreadyOffered = await isInitOfferedFn();
-            if (!alreadyOffered) {
+            if (!alreadyOffered || initStateClaimedDone) {
                 const choice = await uiAPI.promptSelect("Would you like to run /init to bootstrap RunWield?", [{
                     value: "yes",
                     label: "Yes",
                 }, { value: "no", label: "No" }]);
                 if (choice === "yes") {
                     await commandRegistry[COMMAND_NAMES.INIT].execute([], { uiAPI, sessionId, sessionRuntime });
-                    chatBuiltinSlashNames.delete("init");
+                    initCommandAvailable = !(await isProjectInitComplete());
                 } else await recordInitOfferedFn();
                 view.focusEditor();
                 view.requestRender();
@@ -353,7 +355,9 @@ export async function startInteractiveSession(
             [
                 ...Array.from(chatBuiltinSlashNames).map((name) => ({
                     name,
-                    description: commandRegistry[name].description,
+                    description: name === "init" && !initCommandAvailable
+                        ? "Already initialized for this project"
+                        : commandRegistry[name].description,
                     getArgumentCompletions: commandRegistry[name].getArgumentCompletions,
                 })),
                 ...invokablePromptTemplates.map((template) => ({
@@ -378,7 +382,7 @@ export async function startInteractiveSession(
             sessionStartedAt,
             isModelSetupRecoveryCommand,
             shouldBlockForModelSetup,
-            isInitCommandAvailable: () => chatBuiltinSlashNames.has("init"),
+            isInitCommandAvailable: () => initCommandAvailable,
             getPromptTemplateByName: () => promptTemplateByName,
             getSkills: () => skills,
             chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,

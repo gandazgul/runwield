@@ -297,6 +297,9 @@ function inferGoldenTurnIdentity(snapshotAgentName, availableTools, systemPrompt
     if (systemPrompt.includes("You are the Validation Repair Engineer")) {
         return { agent: "engineer", phase: "engineer" };
     }
+    if (systemPrompt.includes("We are initializing RunWield into this project")) {
+        return { agent: "init", phase: "init" };
+    }
     if (systemPrompt.includes("You are the Software Engineer")) return { agent: "engineer", phase: "engineer" };
     if (availableTools.includes("slicer_finalize_decomposition")) return { agent: "slicer", phase: "slicer" };
     if (availableTools.includes("plan_written")) return { agent: "planner", phase: "plan_review" };

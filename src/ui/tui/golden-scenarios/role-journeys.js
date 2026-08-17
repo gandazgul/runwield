@@ -158,7 +158,7 @@ export const ideationInterviewPrdScenario = {
         exists: true,
     }, {
         type: "assertOnlyProjectChanges",
-        paths: ["docs", "docs/prd", "docs/prd/golden-ideation-prd.md"],
+        paths: ["docs/prd", "docs/prd/golden-ideation-prd.md"],
     }],
     assertions: [
         assertRuntimeEvent("role:ideator", "runtime:agent:ideator"),

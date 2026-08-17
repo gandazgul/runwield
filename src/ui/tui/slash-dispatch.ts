@@ -118,7 +118,14 @@ export async function handleSlashCommand(ctx: SlashContext): Promise<boolean> {
     const registryModule = await import("../../cmd/registry.js");
     const builtinCommand = registryModule.getSlashCommandDefinition(command);
 
-    if (builtinCommand && (builtinCommand.name !== "init" || ctx.initCommandAvailable)) {
+    if (builtinCommand?.name === "init" && !ctx.initCommandAvailable) {
+        ctx.uiAPI.appendSystemMessage(
+            "The /init command is unavailable because RunWield is already initialized for this project.",
+        );
+        return true;
+    }
+
+    if (builtinCommand) {
         const displayName = command === "agent" ? (args[0] || "") : undefined;
         maybeUpdateTitleForSlashCommand(builtinCommand.name, ctx.sessionRuntime, ctx.sessionId, displayName);
         await dispatchBuiltin(ctx, builtinCommand.name, args, registryModule.commandRegistry, thisGen);

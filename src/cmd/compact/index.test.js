@@ -91,3 +91,22 @@ Deno.test("runCompactCommand reports Runtime compaction outcomes and notifies", 
         }]);
     }
 });
+
+Deno.test("runCompactCommand treats an incomplete Runtime compaction result as empty context", async () => {
+    const { uiAPI, messages } = makeUi();
+    const { notifications, notifyRunWieldEvent } = makeNotifier();
+
+    await runCompactCommand([], {
+        uiAPI,
+        ...makeRuntimeContext({ compact: () => Promise.resolve({}) }),
+        notifyRunWieldEvent,
+    });
+
+    assertEquals(messages.length, 2);
+    assertEquals(messages[0].includes("Compacting context..."), true);
+    assertEquals(messages[1], "Nothing to compact — the session doesn't have enough messages yet.");
+    assertEquals(notifications, [{
+        eventName: "compactionFinished",
+        options: { sessionName: "Compact Session" },
+    }]);
+});

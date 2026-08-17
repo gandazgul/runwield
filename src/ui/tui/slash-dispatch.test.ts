@@ -163,13 +163,16 @@ Deno.test("handleSlashCommand executes built-in help through the real command re
     });
 });
 
-Deno.test("handleSlashCommand lets a prompt template replace the hidden init command", async () => {
-    await withSlashFixture({ initPromptTemplate: true }, async ({ context, submittedRequests }) => {
+Deno.test("handleSlashCommand keeps hidden init reserved instead of dispatching a same-named prompt template", async () => {
+    await withSlashFixture({ initPromptTemplate: true }, async ({ context, messages, submittedRequests }) => {
         const slashContext = context("/init use fixture state");
         slashContext.initCommandAvailable = false;
 
         assertEquals(await handleSlashCommand(slashContext), true);
-        assertEquals(submittedRequests, ["Initialize from the fixture.\n\nuse fixture state"]);
+        assertEquals(messages, [
+            "The /init command is unavailable because RunWield is already initialized for this project.",
+        ]);
+        assertEquals(submittedRequests, []);
     });
 });
 

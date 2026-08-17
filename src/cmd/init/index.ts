@@ -18,7 +18,8 @@ import { createSessionRuntime, SessionRuntime } from "../../shared/session/sessi
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { getSettingsManager } from "../../shared/settings.js";
 import { printCommandHelp } from "../help/index.ts";
-import { isInitDone, recordInitDone, recordInitOffered } from "./init-state.ts";
+import { recordInitDone, recordInitOffered } from "./init-state.ts";
+import { isProjectInitComplete, requireProjectInitArtifact } from "./init-completion.ts";
 import type { InteractiveSessionPort } from "../../ui/tui/interactive-session-port.ts";
 
 interface InitCommandBaseOptions {
@@ -84,7 +85,7 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
     }
 
     // ── Init-state guard ──────────────────────────────────────────
-    if (await isInitDone()) {
+    if (await isProjectInitComplete()) {
         const msg = `[RunWield] Init has already been run for this project (${getCwd()}).\n` +
             `[RunWield] To re-run, delete or edit the entry in ~/.wld/init-state.json manually.`;
         if (options.uiAPI) {
@@ -122,11 +123,15 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
 
     // Run the canonical hidden init agent, distinct from user-selectable Agents.
     try {
-        await sessionRuntime.runIsolatedAgent(createdSessionId, {
+        const result = await sessionRuntime.runIsolatedAgent(createdSessionId, {
             agentName: AGENTS.INIT,
             userRequest: "Initialize this project for RunWield. Follow the instructions in your system prompt.",
             subAgentDefinition: { id: SUBAGENTS.INIT },
         });
+        if (!Array.isArray(result) && result?.ok === false) {
+            throw new Error(`Init agent did not start: ${result.error || "Runtime refused the operation"}`);
+        }
+        await requireProjectInitArtifact();
 
         await recordInitDone();
 
@@ -142,9 +147,9 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
         const msg = `[RunWield] Init failed: ${err instanceof Error ? err.message : String(err)}`;
         if (options.uiAPI) {
             options.uiAPI.appendSystemMessage(msg, true);
-        } else {
-            console.error(msg);
+            return;
         }
+        console.error(msg);
         throw err;
     } finally {
         if (!attached) sessionRuntime.closeSession(createdSessionId);

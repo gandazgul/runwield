@@ -23,6 +23,8 @@ const REPO_ROOT = fromFileUrl(new URL("../../../..", import.meta.url));
  * @property {string} exportName
  * @property {number} [timeoutMs]
  * @property {boolean} [keepArtifacts]
+ * @property {boolean} [initDone]
+ * @property {boolean} [initArtifact]
  */
 
 /** @param {string} stdout */
@@ -168,7 +170,11 @@ export async function runGoldenScenarioChildProcess(request) {
 
 /** @param {GoldenChildScenarioRequest} request */
 async function runChild(request) {
-    const env = await createGoldenIsolatedEnvironment({ keep: request.keepArtifacts });
+    const env = await createGoldenIsolatedEnvironment({
+        keep: request.keepArtifacts,
+        initDone: request.initDone,
+        initArtifact: request.initArtifact,
+    });
     const timeoutArtifactDir = await Deno.makeTempDir({ prefix: "runwield-golden-tui-timeout-" });
     await Deno.writeTextFile(
         join(timeoutArtifactDir, "timeout-diagnostics.json"),

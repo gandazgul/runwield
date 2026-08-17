@@ -1223,10 +1223,18 @@ export class SessionRuntime {
      *   modelOverride?: string,
      *   allowReturnToRouter?: boolean,
      * }} options
+     * @returns {Promise<any>}
      */
     async runIsolatedAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runIsolatedAgent: session not found");
+        if (this.#pendingManagedCreations.has(sessionId) || this.#pendingManagedCreationProjects.has(sessionId)) {
+            const pendingAgent = session.getPendingManagedTurnIntent?.()?.agentName || session.getRootAgentName?.() ||
+                AGENTS.ROUTER;
+            const activated = await this.#activateSessionAgent(session, { agentName: pendingAgent });
+            if (!activated?.ok) return activated;
+            return await this.runIsolatedAgent(sessionId, options);
+        }
         return await this.#runManagedStandaloneMutation(
             sessionId,
             "workflow_operation",

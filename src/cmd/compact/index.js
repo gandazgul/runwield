@@ -47,6 +47,9 @@ export async function runCompactCommand(argv, options = {}) {
 
     try {
         const result = await sessionRuntime.compactSession(sessionId, customInstructions);
+        if (!result || typeof result.tokensBefore !== "number" || !Number.isFinite(result.tokensBefore)) {
+            throw new Error("Nothing to compact");
+        }
 
         // Pi-style report: print the generated summary plus the pre-compaction token count.
         const headerLines = [

@@ -32,12 +32,29 @@ async function writeGoldenMnemosyneFixture(root) {
             "  echo 'No documents'",
             'elif [ "$1" = "search" ]; then',
             "  echo '{\"results\":[]}'",
+            'elif [ "$1" = "export" ]; then',
+            "  shift",
+            '  while [ "$#" -gt 0 ]; do',
+            '    if [ "$1" = "--output" ]; then',
+            "      shift",
+            '      mkdir -p "$(dirname "$1")"',
+            '      printf \'%s\\n\' \'{"type":"mnemosyne-export"}\' > "$1"',
+            "      break",
+            "    fi",
+            "    shift",
+            "  done",
             "fi",
             "exit 0",
             "",
         ].join("\n"),
     );
     await Deno.chmod(executable, 0o755);
+    const githubExecutable = join(binDir, "gh");
+    await Deno.writeTextFile(
+        githubExecutable,
+        ["#!/bin/sh", "echo 'golden fixture: gh unavailable' >&2", "exit 1", ""].join("\n"),
+    );
+    await Deno.chmod(githubExecutable, 0o755);
     return binDir;
 }
 
@@ -116,7 +133,7 @@ async function removeTempDir(path) {
  */
 
 /**
- * @param {{ keep?: boolean }} [options]
+ * @param {{ keep?: boolean, initDone?: boolean, initArtifact?: boolean }} [options]
  * @returns {Promise<GoldenIsolatedEnvironment>}
  */
 export async function createGoldenIsolatedEnvironment(options = {}) {
@@ -131,11 +148,20 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
         join(projectRoot, "README.md"),
         "# Golden TUI Fixture\n\nRouting uses the Router to select Guide.\n",
     );
+    const initDone = options.initDone !== false;
+    const initArtifact = options.initArtifact ?? initDone;
+    if (initArtifact) {
+        await Deno.mkdir(join(projectRoot, "docs"), { recursive: true });
+        await Deno.writeTextFile(
+            join(projectRoot, "docs", "domain-language.md"),
+            "# Domain Language\n\n## Golden Fixture\n\nCurrent Golden project terminology.\n",
+        );
+    }
     await new Deno.Command("git", { args: ["init", "-b", "main"], cwd: projectRoot, stdout: "null", stderr: "null" })
         .output();
     await new Deno.Command("git", { args: ["config", "user.email", "golden@example.test"], cwd: projectRoot }).output();
     await new Deno.Command("git", { args: ["config", "user.name", "Golden TUI"], cwd: projectRoot }).output();
-    await new Deno.Command("git", { args: ["add", "README.md"], cwd: projectRoot }).output();
+    await new Deno.Command("git", { args: ["add", "-A"], cwd: projectRoot }).output();
     await new Deno.Command("git", {
         args: ["commit", "-m", "Initial fixture"],
         cwd: projectRoot,
@@ -151,10 +177,10 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
             {
                 [projectHash]: {
                     path: canonicalProjectRoot,
-                    initOffered: true,
-                    initDone: true,
-                    offeredAt: new Date(0).toISOString(),
-                    doneAt: new Date(0).toISOString(),
+                    initOffered: initDone,
+                    initDone,
+                    offeredAt: initDone ? new Date(0).toISOString() : null,
+                    doneAt: initDone ? new Date(0).toISOString() : null,
                     snipMissingWarningCount: 3,
                     snipMissingWarningLastShownAt: new Date(0).toISOString(),
                 },
