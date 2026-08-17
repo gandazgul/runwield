@@ -1,10 +1,7 @@
 # Releasing wld
 
-This document is wld's release policy. It is intentionally repository-specific: the bundled `/release` prompt must read
-this file when releasing this repository, but wld users releasing other repositories must follow their own repository's
-release policy and automation. In particular, wld's permission to release a tagged `HEAD` from a dirty working tree and
-rely on GitHub Actions for qualification is not a general RunWield default; another repository may require a clean tree,
-a protected branch, local qualification, or different release infrastructure.
+This document is wld's release policy. It does not define policy for wld users releasing other repositories; in those
+repositories, discover and follow the repository's release policy and automation first.
 
 ## Release operations
 
@@ -16,16 +13,6 @@ wld supports three release operations:
 
 The `/release` prompt asks which operation to run before inspecting this policy in detail. All release commands are
 non-interactive so the prompt can own user choices and final confirmation.
-
-## Breaking change in the current release
-
-The next release moves the canonical Plan store from `plans/` to `docs/plans/`. Release notes for the release that
-contains this change MUST include the following breaking-change copy verbatim in the **Breaking Changes** section:
-
-> RunWield now reads Plans only from `docs/plans/`. Before upgrading, move your existing `plans/` directory to
-> `docs/plans/`; the release does not migrate or read the old location.
-
-There is no migration command, fallback read, symlink support, or deprecation period for the old location.
 
 ## Tags and channels
 
@@ -43,14 +30,13 @@ There is no migration command, fallback read, symlink support, or deprecation pe
 the tag or running tag-triggered CI does not make it immutable. The tag becomes immutable only when a GitHub Release
 exists for that tag.
 
-Before a GitHub Release exists, the operator may delete the remote and local tag and recreate it at a corrected commit.
-The normal recommendation after failed CI is to move it to the immediate next commit containing the fix, but that is a
+Before a GitHub Release exists, you may delete the remote and local tag and recreate it at a corrected commit. The
+normal recommendation after failed CI is to move it to the immediate next commit containing the fix, but that is a
 recommendation, not a prerequisite or a reason to refuse. Multiple intervening commits, a changed `HEAD`, or a previous
 workflow run do not make an unreleased tag immutable.
 
-If moving the tag would include unexpected commits or depart from the normal release operation, the operator may state
-that concern once. If the user then confirms that they understand and still directs the move, the operator MUST comply.
-Do not repeat the objection, insist on a new Candidate number, or substitute the manual recovery workflow. Re-verify
+If moving the tag would include unexpected commits or depart from the normal release operation, you may state that
+concern once. If the user then confirms that they understand and still directs the move, you MUST comply. Re-verify
 immediately before deletion that no GitHub Release exists for the tag, then perform the requested move.
 
 As soon as a GitHub Release exists—even if qualification, asset upload, or the later notes edit is incomplete—the tag

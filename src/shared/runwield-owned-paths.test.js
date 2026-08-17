@@ -6,6 +6,11 @@ Deno.test("RunWield owned runtime path predicate covers only enumerated runtime 
         assertEquals(isRunWieldOwnedRuntimePath(path), true, path);
         assertEquals(isRunWieldOwnedRuntimePath(`${path}/child.json`), true, `${path}/child.json`);
     }
+    assertEquals(
+        isRunWieldOwnedRuntimePath(".wld/worktrees.json.dea8f5f0-04a1-4bb4-ab80-a22496a5a593.tmp"),
+        true,
+        "atomic worktree registry temp file",
+    );
 
     for (
         const path of [
