@@ -13,7 +13,6 @@ import {
     resolveExecutionOwner,
     runSlicerAgent,
 } from "../workflow/workflow.js";
-import { buildReturnToRouterPrompt, readLatestReturnToRouterOutcome } from "../workflow/workflow-results.js";
 import { dispatchPostTriage, readLatestTriageOutcome } from "../workflow/orchestrator.ts";
 import { systemLocalCIPort } from "../workflow/validation-local-ci.ts";
 import { createGitPort } from "../git-port.ts";
@@ -45,7 +44,6 @@ type ActiveExecutionWorkflow = import("./hosted-session.js").ActiveExecutionWork
 type HostedSession = import("./hosted-session.js").HostedSession;
 type ImageAttachment = import("./types.js").ImageAttachment;
 type SessionManager = import("@earendil-works/pi-coding-agent").SessionManager;
-type AgentTurnHandoffResult = import("./types.js").AgentTurnHandoffResult;
 type TriageMeta = import("../../tools/plan-written.ts").TriageMeta;
 type PlanExecutionResult = import("../workflow/workflow.js").PlanExecutionResult;
 type WorkflowMetric = Parameters<typeof recordWorkflowMetric>[0];
@@ -60,7 +58,7 @@ interface AgentHandlerCompleteResult {
     validationResult?: WorkflowValidationResult;
 }
 
-type AgentHandlerTurnResult = AgentHandlerCompleteResult | AgentTurnHandoffResult;
+type AgentHandlerTurnResult = AgentHandlerCompleteResult;
 
 export interface AgentHandlerOptions {
     hostedSession: HostedSession;
@@ -109,6 +107,14 @@ function isMissingPrimaryPlanError(error: Error | string, planName: string): boo
     const reason = error instanceof Error ? error.message : String(error);
     return reason === `Plan not found: ${planName}` ||
         reason === `Plan not found in primary checkout: ${planName}`;
+}
+
+function refreshedQuickFixWorkflow(workflow: ActiveExecutionWorkflow): ActiveExecutionWorkflow {
+    return {
+        ...workflow,
+        executionStarted: true,
+        executionAttemptStartedAtMs: Date.now(),
+    };
 }
 
 /**
@@ -215,15 +221,6 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
             ? []
             : await runRootTurn({ hostedSession, agentName, userRequest, images, customTools, signal });
 
-        const routerHandoff = readLatestReturnToRouterOutcome(messages, preTurnCount);
-        if (routerHandoff) {
-            return {
-                kind: "handoff",
-                agentName: routerHandoff.agentName,
-                userRequest: buildReturnToRouterPrompt(routerHandoff.reason),
-            };
-        }
-
         const triage = readLatestTriageOutcome(messages, preTurnCount);
         if (triage) {
             const validationResult = await dispatchPostTriage({
@@ -234,9 +231,6 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 sessionManager,
                 localCI: systemLocalCIPort,
             });
-            if (validationResult?.kind === "handoff") {
-                return validationResult;
-            }
             if (validationResult?.epicContinuation) {
                 return { kind: "complete", validationResult };
             }
@@ -494,6 +488,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     manualQaContext: workflow.manualQaContext,
                 }, systemLocalCIPort);
                 acknowledgeCompletion();
+                hostedSession.setActiveExecutionWorkflow(refreshedQuickFixWorkflow(workflow));
                 requestAgentStoppedAttention();
                 return { kind: "complete" };
             }

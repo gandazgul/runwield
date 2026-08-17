@@ -76,7 +76,7 @@ export function mcpAliasFor(internalName: string): string {
 }
 
 function isLifecycleTool(internalName: string): boolean {
-    return workflowMcpAliasFor(internalName) !== undefined || internalName === "return_to_router";
+    return workflowMcpAliasFor(internalName) !== undefined;
 }
 
 /** Model fields the recorded assistant toolCall message carries from the current model. */

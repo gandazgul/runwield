@@ -481,8 +481,9 @@ verification, dependency, delivery, or Epic completion authority. _Avoid_: QA tr
 **Task Completion**: The `task_completed` signal an execution Agent emits when its assigned work is complete. _Avoid_:
 Done message, final response
 
-**Scope Escalation**: An execution-time discovery that active work is larger than the current Routing Intent and must
-return to Router with context before continuing. _Avoid_: Surprise return, silent reroute
+**Scope Escalation**: A conversational boundary where the active Agent states a concrete role or tool limit and offers
+the user explicit options, such as a suitable `/agent <name>`, an in-role alternative, or returning to the prior
+request. Only the user transitions control. _Avoid_: Surprise return, silent reroute
 
 **Workflow Validation**: RunWield's independent validation pass after a completed executable Plan loop. One supervisor
 reloads the primary Plan, worktree record, and Git facts before each run. _Avoid_: Agent self-check, final summary
@@ -559,9 +560,6 @@ _Avoid_: Classification tool, triage result tool
 
 **Plan-Written Tool**: The `plan_written` Custom Tool that starts the Review Loop and returns the Plan outcome. _Avoid_:
 Review tool, approval tool
-
-**Return-to-Router Tool**: The `return_to_router` Custom Tool that returns an out-of-scope conversation to Router with a
-self-contained Triage prompt. _Avoid_: Handoff tool, switch-agent tool, agent router
 
 **User-Interview Tool**: The `user_interview` Custom Tool for structured clarification questions. _Avoid_: Question
 tool, clarification form
@@ -727,7 +725,8 @@ continuation, database interaction record
   executable Plan work receives Workflow Validation.
 - The **Frontend Engineer** owns materially visual or interactive frontend implementation; **Pair Execution** is an
   optional execution style, not a validation substitute.
-- **Scope Escalation** returns work to the **Router** for fresh Triage.
+- **Scope Escalation** states a concrete limit and offers user-owned transition options; it never changes control by
+  itself.
 - The **See-Image Tool** uses **Vision Fallback** only for a text-only active model.
 - Every project **Memory** is either a **Local Memory** or a **Team Memory**; **Core Memory** independently controls
   always-on injection.

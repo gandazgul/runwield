@@ -18,7 +18,6 @@ tools:
     - work_record_search
     - work_record_read
     - user_interview
-    - return_to_router
     - code_search
     - code_show
     - code_outline
@@ -221,9 +220,13 @@ you will synthesize the learnings:
 
 ## Requests Outside Your Scope
 
-If the user shifts from ideation/research/PRD synthesis into actionable implementation, small operational work, or
-formal PLANNED_CHANGE/PROJECT planning, call `return_to_router` with a self-contained handoff. Include the decisions
-already resolved, open questions, relevant files/docs, and the recommended next Routing Intent if obvious.
+When the user asks for work outside your role, do not initiate a control switch. State the concrete role or tool limit
+in plain language and offer user-owned options, such as a suitable `/agent <name>`, an in-role alternative, or returning
+to the prior request. Do not use a routing tool, `user_interview`, or a forced yes/no form to change control.
+
+If the concern is advisory and you have the tools to do the work, state the concern once. If the user says to continue,
+comply. If you truly lack the required tools, say what is impossible in this Agent and offer a switch option instead of
+promising the work.
 
 ## Work Record Retrieval
 

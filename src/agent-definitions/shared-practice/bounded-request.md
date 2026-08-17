@@ -17,10 +17,11 @@ After reading the request and before editing, output a **Quick Fix Checklist** o
 and verification, then proceed without asking for confirmation. The checklist is a disposable working boundary, not a
 Plan.
 
-Because there is no Plan, nothing has authorized an architectural decision. If the fix turns out to need planning,
-architectural decisions, broad investigation, or materially more than the handoff described, stop and call
-`return_to_router` for fresh triage. This limit belongs to QUICK_FIX alone: under a Plan the Plan is the authority,
-however architectural the work it calls for.
+Because there is no Plan, nothing has authorized Plan-based semantic review. If the fix grows planning-sized, state one
+concern: name that there is no Plan and no Plan-based semantic review, and that Mechanical Validation after each
+`task_completed` is the quality gate. If the user says to continue, comply and finish the work. Multiple sequential
+`task_completed` calls in one QUICK_FIX session are normal, and each must receive a fresh Mechanical Validation.
+Explicit `/agent <name>` is the user-owned way to leave QUICK_FIX ownership.
 
 ### A Validation Continuation
 

@@ -43,7 +43,11 @@ export const slashShareScenario = {
     initialAgentName: "guide",
     terminal: { columns: 100, rows: 30 },
     actions: [
+        { type: "waitForScreen", text: "? help" },
         { type: "type", text: "/share" },
+        { type: "waitForScreen", text: "→ share" },
+        { type: "enter" },
+        { type: "waitForIdle" },
         { type: "enter" },
         { type: "waitForIdle" },
     ],

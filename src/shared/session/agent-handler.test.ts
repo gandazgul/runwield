@@ -7,6 +7,7 @@ import { type AgentHandler, createAgentHandler } from "./agent-handler.ts";
 import { HostedSession } from "./hosted-session.js";
 import { ensureRootAgentSession } from "./session.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
+import { setCustomSetting } from "../settings.js";
 import { listPendingTaskCompletions } from "./task-completion-session.ts";
 
 const EXTENSION_CONTEXT = {} as ExtensionContext;
@@ -21,6 +22,7 @@ interface CapturedRuntimeEvent {
     agentName?: string;
     reason?: string;
     workflowMessage?: string;
+    toolName?: string;
 }
 
 interface ActiveHandlerFixture {
@@ -199,5 +201,58 @@ Deno.test("agent handler replays accepted task_completed after HostedSession rep
             true,
         );
         resumed.dispose();
+    });
+});
+
+Deno.test("sequential QUICK_FIX completions each run Mechanical Validation", async () => {
+    await withRuntimeCommandFixture("agent-handler-quick-fix-rearm-", async ({ projectRoot, setModelResponse }) => {
+        setModelResponse("Continuing QUICK_FIX work.");
+        await setCustomSetting("verification_command", "deno eval 'Deno.exit(0)'", "project", projectRoot);
+        const events: CapturedRuntimeEvent[] = [];
+        const fixture = await activateHandler(projectRoot, "engineer", events);
+        fixture.hostedSession.setActiveExecutionWorkflow({
+            planName: "quick-fix",
+            triageMeta: { classification: "QUICK_FIX" },
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionAttemptStartedAtMs: 1,
+            projectRoot,
+            executionCwd: projectRoot,
+            manualQaName: "sequential quick fix",
+            manualQaContext: "Two separate completions in one QUICK_FIX session.",
+        });
+        const tool = createTaskCompletedTool({
+            hostedSession: fixture.hostedSession,
+            agentName: "engineer",
+        });
+
+        await tool.execute(
+            "quick-fix-completion-1",
+            { message: "- First task done." },
+            undefined,
+            undefined,
+            EXTENSION_CONTEXT,
+        );
+        await fixture.handler("first completion", [], fixture.sessionManager);
+        const firstWorkflow = fixture.hostedSession.getActiveExecutionWorkflow();
+        assertEquals(firstWorkflow?.triageMeta?.classification, "QUICK_FIX");
+        assertEquals(listPendingTaskCompletions(fixture.hostedSession), []);
+
+        await tool.execute(
+            "quick-fix-completion-2",
+            { message: "- Second task done." },
+            undefined,
+            undefined,
+            EXTENSION_CONTEXT,
+        );
+        await fixture.handler("second completion", [], fixture.sessionManager);
+
+        const validationRuns = events.filter((event) =>
+            event.type === RuntimeEventTypes.TOOL_START && event.toolName === "bash"
+        );
+        assertEquals(validationRuns.length, 2);
+        assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.triageMeta?.classification, "QUICK_FIX");
+        assertEquals(listPendingTaskCompletions(fixture.hostedSession), []);
+        fixture.hostedSession.dispose();
     });
 });

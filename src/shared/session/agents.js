@@ -30,9 +30,9 @@ export const ATTENTION_NUDGE_TURN_INTERVAL = 6;
 
 export const _AGENT_ATTENTION_NUDGES = {
     [AGENTS.GUIDE]:
-        "You are still the Guide. Answer direct questions concisely from durable project evidence with compact citations, separate intent from verified outcomes/current behavior, use docs-only Markdown tools only after explicit preservation requests, and return to Router for code/config edits, workflow artifacts, plans, execution, or deeper ideation.",
+        "You are still the Guide. Answer direct questions concisely from durable project evidence with compact citations, separate intent from verified outcomes/current behavior, use docs-only Markdown tools only after explicit preservation requests, and state the concrete limit and offer `/agent` options for code/config edits, workflow artifacts, plans, execution, or deeper ideation.",
     [AGENTS.IDEATOR]:
-        "You are still the Ideator. Stay at problem and product altitude: investigate feasibility, surface overlooked consequences, prioritize consequential divergent decisions, infer low-risk solution details, batch minor preferences when input is truly needed, and use `return_to_router` for actionable implementation or planning requests.",
+        "You are still the Ideator. Stay at problem and product altitude: investigate feasibility, surface overlooked consequences, prioritize consequential divergent decisions, infer low-risk solution details, batch minor preferences when input is truly needed, and state the concrete limit and offer `/agent` options for actionable implementation or planning requests.",
     [AGENTS.PLANNER]:
         "You are still the Planner. Keep refining the plan file iteratively, ask only blocking questions, and call `plan_written` with the plan name without `.md` when the plan is ready.",
     [AGENTS.ARCHITECT]:

@@ -58,7 +58,6 @@ Deno.test("switchActiveAgent leaves the previous real root transaction intact wh
         const { hostedSession, sessionManager } = makeSession(projectRoot);
         await switchActiveAgent(hostedSession, {
             agentName: "guide",
-            allowReturnToRouter: true,
             sessionManager,
         });
         const previousRoot = hostedSession.getRootAgentSession();
@@ -234,7 +233,6 @@ Deno.test("switchActiveAgent reuses an unchanged real root and handler", async (
         const { hostedSession, sessionManager } = makeSession(projectRoot);
         await switchActiveAgent(hostedSession, {
             agentName: "guide",
-            allowReturnToRouter: true,
             sessionManager,
         });
         const previousRoot = hostedSession.getRootAgentSession();
@@ -242,7 +240,6 @@ Deno.test("switchActiveAgent reuses an unchanged real root and handler", async (
 
         const result = await switchActiveAgent(hostedSession, {
             agentName: "guide",
-            allowReturnToRouter: true,
         });
 
         assertEquals(result, { ok: true, agentName: "guide", changed: false, model: undefined });
@@ -269,20 +266,19 @@ Deno.test("switchActiveAgent replaces a stale handler without rebuilding the mat
     });
 });
 
-Deno.test("switchActiveAgent rebuilds a real same-Agent root when root policy changes", async () => {
+Deno.test("switchActiveAgent rebuilds a real same-Agent root when forceRebuild is set", async () => {
     await withRuntimeCommandFixture("agent-switch-policy-", async ({ projectRoot }) => {
         const { hostedSession, sessionManager } = makeSession(projectRoot);
         await switchActiveAgent(hostedSession, {
             agentName: "guide",
-            allowReturnToRouter: true,
             sessionManager,
         });
         const previousRoot = hostedSession.getRootAgentSession();
 
         const result = await switchActiveAgent(hostedSession, {
             agentName: "guide",
-            allowReturnToRouter: false,
             sessionManager,
+            forceRebuild: true,
         });
 
         assertEquals(result.changed, true);
@@ -359,4 +355,116 @@ Deno.test("provider switch continues a failed request without changing execution
             hostedSession.dispose();
         },
     );
+});
+
+Deno.test("switchActiveAgent releases planned workflow only when user authorized", async () => {
+    await withRuntimeCommandFixture("agent-switch-release-planned-", async ({ projectRoot }) => {
+        const { hostedSession, sessionManager } = makeSession(projectRoot);
+        /** @type {Array<{ type?: string, message?: string }>} */
+        const events = [];
+        hostedSession.setEventSink((/** @type {{ type?: string, message?: string }} */ event) => events.push(event));
+        await switchActiveAgent(hostedSession, { agentName: "engineer", sessionManager });
+        hostedSession.setWorkflowPlanName("planned-release");
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "planned-release",
+            triageMeta: { classification: "PLANNED_CHANGE" },
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionAttemptStartedAtMs: 1,
+        });
+
+        await switchActiveAgent(hostedSession, { agentName: "planner", sessionManager });
+        assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "planned-release");
+
+        await switchActiveAgent(hostedSession, { agentName: "planner", sessionManager, releaseActiveWorkflow: true });
+        assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
+        assertEquals(hostedSession.getWorkflowContext()?.planName, "planned-release");
+        assertEquals(
+            events.some((event) =>
+                event.type === RuntimeEventTypes.SYSTEM_STATUS && String(event.message || "").includes("/load-plan")
+            ),
+            true,
+        );
+        hostedSession.dispose();
+    });
+});
+
+Deno.test("switchActiveAgent releases QUICK_FIX workflow with no-plan notice", async () => {
+    await withRuntimeCommandFixture("agent-switch-release-quick-fix-", async ({ projectRoot }) => {
+        const { hostedSession, sessionManager } = makeSession(projectRoot);
+        /** @type {Array<{ type?: string, message?: string }>} */
+        const events = [];
+        hostedSession.setEventSink((/** @type {{ type?: string, message?: string }} */ event) => events.push(event));
+        await switchActiveAgent(hostedSession, { agentName: "engineer", sessionManager });
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "quick-fix",
+            triageMeta: { classification: "QUICK_FIX" },
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionAttemptStartedAtMs: 1,
+        });
+
+        await switchActiveAgent(hostedSession, { agentName: "guide", sessionManager, releaseActiveWorkflow: true });
+
+        assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
+        assertEquals(
+            events.some((event) =>
+                event.type === RuntimeEventTypes.SYSTEM_STATUS &&
+                String(event.message || "").includes("There is no resumable Plan")
+            ),
+            true,
+        );
+        hostedSession.dispose();
+    });
+});
+
+Deno.test("switchActiveAgent same-Agent user switch still releases workflow", async () => {
+    await withRuntimeCommandFixture("agent-switch-release-same-agent-", async ({ projectRoot }) => {
+        const { hostedSession, sessionManager } = makeSession(projectRoot);
+        await switchActiveAgent(hostedSession, { agentName: "engineer", sessionManager });
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "same-agent-plan",
+            triageMeta: { classification: "PLANNED_CHANGE" },
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionAttemptStartedAtMs: 1,
+        });
+
+        await switchActiveAgent(hostedSession, { agentName: "engineer", sessionManager, releaseActiveWorkflow: true });
+
+        assertEquals(hostedSession.getRootAgentName(), "engineer");
+        assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
+        hostedSession.dispose();
+    });
+});
+
+Deno.test("switchActiveAgent failed user-authorized switch preserves workflow", async () => {
+    await withRuntimeCommandFixture("agent-switch-release-failure-", async ({ projectRoot }) => {
+        const { hostedSession, sessionManager } = makeSession(projectRoot);
+        await switchActiveAgent(hostedSession, { agentName: "engineer", sessionManager });
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "failed-switch-plan",
+            triageMeta: { classification: "PLANNED_CHANGE" },
+            executionAgent: "engineer",
+            executionStarted: true,
+            executionAttemptStartedAtMs: 1,
+        });
+
+        await assertRejects(
+            () =>
+                switchActiveAgent(hostedSession, {
+                    agentName: "planner",
+                    model: "missing-provider/missing-model",
+                    forceRebuild: true,
+                    sessionManager,
+                    releaseActiveWorkflow: true,
+                }),
+            Error,
+            "Unknown invocation model override",
+        );
+
+        assertEquals(hostedSession.getRootAgentName(), "engineer");
+        assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "failed-switch-plan");
+        hostedSession.dispose();
+    });
 });

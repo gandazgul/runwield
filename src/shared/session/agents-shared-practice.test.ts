@@ -212,9 +212,17 @@ Deno.test("both execution personas receive the same bounded-request contract", a
     // quick fixes route to it, and neither may drift from the other meanwhile.
     for (const [agentName] of SHARED_PRACTICE_CONSUMERS) {
         const { systemPrompt } = await loadAgentDef(agentName);
+        const normalizedPrompt = systemPrompt.replaceAll(/\s+/g, " ");
         assertStringIncludes(systemPrompt, "Quick Fix Checklist");
-        // The escalation fence: a QUICK_FIX has no Plan, so nothing authorized architecture.
-        assertStringIncludes(systemPrompt, "stop and call\n`return_to_router` for fresh triage");
+        assertStringIncludes(normalizedPrompt, "no Plan and no Plan-based semantic review");
+        assertStringIncludes(
+            normalizedPrompt,
+            "Mechanical Validation after each `task_completed` is the quality gate",
+        );
+        assertStringIncludes(
+            normalizedPrompt,
+            "Multiple sequential `task_completed` calls in one QUICK_FIX session are normal",
+        );
         assertStringIncludes(systemPrompt, "A Validation Continuation");
         assertStringIncludes(systemPrompt, "one bullet per feedback item");
     }
@@ -237,8 +245,6 @@ Deno.test("the shared pair ceremony stays medium-neutral", async () => {
     // no dev server for.
     const shared = await Deno.readTextFile(join(SHARED_PRACTICE_DIR, "plan-execution.md"));
 
-    // Word-bounded: the fragment legitimately says "Router" and `return_to_router`,
-    // which are the agent and its tool, not a browser route.
     for (const browserTerm of ["headed browser", "viewport", "dev server", "route", "screenshot"]) {
         assertEquals(
             new RegExp(`\\b${browserTerm}s?\\b`, "i").test(shared),

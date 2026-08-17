@@ -268,7 +268,7 @@ sessionPromptTest("applyAttentionNudge only injects scheduled long-lived agent n
         applyAttentionNudge(AGENTS.GUIDE, "User asks", 6),
         [
             "<attention_nudge>",
-            "You are still the Guide. Answer direct questions concisely from durable project evidence with compact citations, separate intent from verified outcomes/current behavior, use docs-only Markdown tools only after explicit preservation requests, and return to Router for code/config edits, workflow artifacts, plans, execution, or deeper ideation.",
+            "You are still the Guide. Answer direct questions concisely from durable project evidence with compact citations, separate intent from verified outcomes/current behavior, use docs-only Markdown tools only after explicit preservation requests, and state the concrete limit and offer `/agent` options for code/config edits, workflow artifacts, plans, execution, or deeper ideation.",
             "</attention_nudge>",
             "",
             "User asks",
@@ -279,7 +279,7 @@ sessionPromptTest("applyAttentionNudge only injects scheduled long-lived agent n
         applyAttentionNudge(AGENTS.IDEATOR, "User asks", 6),
         [
             "<attention_nudge>",
-            "You are still the Ideator. Stay at problem and product altitude: investigate feasibility, surface overlooked consequences, prioritize consequential divergent decisions, infer low-risk solution details, batch minor preferences when input is truly needed, and use `return_to_router` for actionable implementation or planning requests.",
+            "You are still the Ideator. Stay at problem and product altitude: investigate feasibility, surface overlooked consequences, prioritize consequential divergent decisions, infer low-risk solution details, batch minor preferences when input is truly needed, and state the concrete limit and offer `/agent` options for actionable implementation or planning requests.",
             "</attention_nudge>",
             "",
             "User asks",

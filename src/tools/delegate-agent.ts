@@ -57,7 +57,6 @@ export interface DelegatedAgentSessionOptions {
     };
     toolNames: string[];
     includeEditFallback: boolean;
-    allowReturnToRouter: boolean;
     modelOverride?: string;
     thinkingLevelOverride?: ThinkingLevel;
     projectStateContext: string;
@@ -408,7 +407,6 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
                     },
                     toolNames: childTools,
                     includeEditFallback: mode === "write",
-                    allowReturnToRouter: false,
                     modelOverride,
                     thinkingLevelOverride,
                     projectStateContext: opts.hostedSession.getProjectStateContext(),

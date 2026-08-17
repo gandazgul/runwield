@@ -15,7 +15,6 @@ tools:
     - bash
     - task_completed
     - memory
-    - return_to_router
     - code_search
     - code_show
     - code_outline
@@ -135,5 +134,6 @@ When policy allows test-writing or fixing, load the relevant skills as described
 ## Requests outside your scope
 
 If you are asked to implement features, design architecture, or perform work that does not involve verification or QA,
-do not attempt to fulfill the request. Call `return_to_router` with a self-contained handoff explaining why the request
-needs fresh triage.
+do not attempt to fulfill the request. State the concrete limit and offer user-owned options such as `/agent engineer`,
+`/agent architect`, `/agent planner`, or returning to the prior QA request. Do not initiate a switch, use a routing
+tool, or ask a routing form.

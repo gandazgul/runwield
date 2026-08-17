@@ -372,7 +372,6 @@ Deno.test("workflow MCP bridge rejects an unknown tool and closes the listener d
 
 Deno.test("mcpAliasFor keeps lifecycle aliases and leaves capability names unchanged", () => {
     assertEquals(mcpAliasFor("task_completed"), "runwield_task_completed");
-    assertEquals(mcpAliasFor("return_to_router"), "return_to_router");
     assertEquals(mcpAliasFor("review_diff"), "review_diff");
 });
 
@@ -435,38 +434,6 @@ Deno.test("RunWield MCP bridge rejects duplicate aliases", async () => {
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => undefined);
     }
-});
-
-Deno.test("RunWield MCP bridge gates return_to_router as a lifecycle tool", async () => {
-    let invocations = 0;
-    const returnToRouter = defineTool({
-        name: "return_to_router",
-        label: "Return to Router",
-        description: "Hand back to Router.",
-        parameters: Type.Object({ reason: Type.String() }),
-        execute(_toolCallId, params) {
-            invocations += 1;
-            return Promise.resolve({
-                content: [{ type: "text" as const, text: `handoff ${params.reason}` }],
-                details: { reason: params.reason },
-                terminate: true,
-            });
-        },
-    });
-    await withBridge([returnToRouter], async (context) => {
-        const accepted = await context.client.callTool({
-            name: "return_to_router",
-            arguments: { reason: "need-router" },
-        });
-        const rejected = await context.client.callTool({ name: "return_to_router", arguments: { reason: "again" } });
-        assertEquals(accepted.isError, false);
-        assertEquals(rejected.isError, true);
-        assertStringIncludes(
-            resultText(rejected as { content: Array<{ type: string; text?: string }> }),
-            "runwield lifecycle call rejected",
-        );
-        assertEquals(invocations, 1);
-    });
 });
 
 Deno.test("RunWield MCP bridge lets capabilities run after a terminal lifecycle result", async () => {

@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertRejects, assertStrictEquals } from "@std/assert";
-import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { join } from "@std/path";
@@ -18,7 +18,6 @@ import { getRootSessionRebuildOptions } from "./session.js";
 import { createRootSessionManager, getRunWieldSessionDir, resolveCreatedRootSessionPath } from "./root-session.js";
 import { openFileSessionStore } from "./file-session-store.ts";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
-import { buildReturnToRouterPrompt } from "../workflow/workflow-results.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { savePlan } from "../../plan-store.js";
 import { rememberNonGitExecutionConsent } from "../git.js";
@@ -1083,7 +1082,6 @@ Deno.test("SessionRuntime reload preserves the canonical hidden-agent selection"
     };
     await switchActiveAgent(session, {
         agentName: "slicer",
-        allowReturnToRouter: false,
         subAgentDefinition: { id: SUBAGENTS.SLICER },
         customTools: [customTool],
         toolNames: ["slicer_finalize"],
@@ -1095,7 +1093,6 @@ Deno.test("SessionRuntime reload preserves the canonical hidden-agent selection"
     assertEquals(rebuilt?.subAgentDefinition, { id: SUBAGENTS.SLICER });
     assertStrictEquals(rebuilt?.customTools?.[0], customTool);
     assertEquals(rebuilt?.toolNames?.includes("slicer_finalize"), true);
-    assertEquals(rebuilt?.allowReturnToRouter, false);
     assertEquals(session.getRootAgentName(), "slicer");
 });
 
@@ -1407,8 +1404,6 @@ Deno.test("SessionRuntime uses one segmented user-turn submission path", async (
     assertEquals(result, {
         ok: true,
         turns: 1,
-        handoffs: 0,
-        handoffLimitReached: false,
         managed: true,
         submittedRequest: "  hello from editor  ",
         restoreDraft: false,
@@ -1624,7 +1619,7 @@ Deno.test("SessionRuntime emits one ordered lifecycle for one prompt", async () 
 
     const result = await runtime.promptSession(sessionId, { initialRequest: "hello", initialImages: [] });
 
-    assertEquals(result, { ok: true, turns: 1, handoffs: 0, handoffLimitReached: false });
+    assertEquals(result, { ok: true, turns: 1 });
     const eventTypes = events.map((event) => event.type);
     assertEquals(eventTypes.slice(0, 3), [
         RuntimeEventTypes.BUSY_CHANGED,
@@ -2010,31 +2005,6 @@ Deno.test("SessionRuntime allows independent session ids to run concurrently", a
     assertEquals(runtime.getSessionSnapshot(beta)?.busy, true);
     for (const release of releases) release();
     assertEquals((await Promise.all(prompts)).map((result) => result.ok), [true, true]);
-});
-
-Deno.test("SessionRuntime emits the return-to-router prompt before the handed-off Router turn", async () => {
-    setRuntimeModelMessages([
-        fauxAssistantMessage(fauxToolCall("return_to_router", {
-            reason: "The user needs fresh triage.",
-        })),
-        fauxAssistantMessage(fauxText("Fresh triage completed.")),
-    ]);
-    const runtime = makeRuntime();
-    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "engineer" });
-    /** @type {string[]} */
-    const userMessages = [];
-    /** @type {string[]} */
-    const agentChanges = [];
-    runtime.subscribeSessionEvents(sessionId, (event) => {
-        if (event.type === RuntimeEventTypes.USER_MESSAGE) userMessages.push(event.text);
-        if (event.type === RuntimeEventTypes.AGENT_CHANGED) agentChanges.push(event.agentName);
-    });
-
-    const result = await runtime.promptSession(sessionId, { initialRequest: "fix this", initialImages: [] });
-
-    assertEquals(result, { ok: true, turns: 2, handoffs: 1, handoffLimitReached: false });
-    assertEquals(userMessages, ["fix this", buildReturnToRouterPrompt("The user needs fresh triage.")]);
-    assertEquals(agentChanges, ["engineer", "router"]);
 });
 
 Deno.test("SessionRuntime owns steering and deferred queue transitions", async () => {
@@ -2632,4 +2602,35 @@ Deno.test("SessionRuntime snapshot prefers explicit workflow context over active
         complexity: "HIGH",
         planName: "explicit-plan",
     });
+});
+
+Deno.test("user-authorized agent switch releases active workflows", async () => {
+    ensureRuntimeModelFixture();
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "engineer" });
+    const hostedSession = sessionHost.requireSession(sessionId);
+    hostedSession.setWorkflowPlanName("release-plan");
+    await runtime.setActiveExecutionWorkflow(sessionId, {
+        planName: "release-plan",
+        triageMeta: { classification: "PLANNED_CHANGE" },
+        executionAgent: "engineer",
+        executionStarted: true,
+        executionAttemptStartedAtMs: 123,
+        projectRoot: runtimeProjectRoot(),
+        executionCwd: runtimeProjectRoot(),
+    });
+    /** @type {string[]} */
+    const notices = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (event.type === RuntimeEventTypes.SYSTEM_STATUS) notices.push(event.message || "");
+    });
+
+    await runtime.switchAgent(sessionId, { agentName: "planner", releaseActiveWorkflow: true });
+
+    const snapshot = runtime.getSessionSnapshot(sessionId);
+    assertEquals(snapshot?.activeAgent, "planner");
+    assertEquals(snapshot?.activeExecutionWorkflow, null);
+    assertEquals(snapshot?.workflowContext?.planName, "release-plan");
+    assertEquals(notices.some((message) => message.includes("/load-plan")), true);
 });

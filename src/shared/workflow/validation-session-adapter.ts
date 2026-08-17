@@ -283,7 +283,6 @@ export function createValidationSessionPort(
                     cwd: hostedSession.getActiveExecutionWorkflow?.()?.executionCwd || hostedSession.cwd,
                     dispatchKind: "validation_repair",
                     subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
-                    allowReturnToRouter: false,
                 })
                 : await isolatedSessions.runIsolatedAgentSession({
                     hostedSession,

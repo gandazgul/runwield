@@ -19,7 +19,6 @@ tools:
     - bash
     - task_completed
     - memory
-    - return_to_router
     - code_search
     - code_show
     - code_outline

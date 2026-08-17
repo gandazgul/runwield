@@ -49,7 +49,6 @@ import {
     runPlanningAgent,
     runSlicerAgent,
 } from "./workflow.js";
-import { buildReturnToRouterPrompt, readLatestReturnToRouterOutcome } from "./workflow-results.js";
 import { runMechanicalValidation, shouldRunWorkflowValidation, SYSTEM_SEMANTIC_REVIEW_PORT } from "./validation.ts";
 import { continueWorkflowValidation } from "./validation-supervisor.ts";
 import type { LocalCIPort } from "./validation-local-ci.ts";
@@ -100,26 +99,6 @@ export interface DispatchPostTriageArgs {
     localCI: LocalCIPort;
 }
 
-export interface RouterHandoff {
-    kind: "handoff";
-    agentName: string;
-    userRequest: string;
-}
-
-/**
- * @param {import('./workflow-results.js').ReturnToRouterOutcome | null} outcome
- * @returns {{ kind: "handoff", agentName: string, userRequest: string } | null}
- */
-function toRouterHandoff(
-    outcome: import("./workflow-results.js").ReturnToRouterOutcome,
-): RouterHandoff {
-    return {
-        kind: "handoff",
-        agentName: outcome.agentName,
-        userRequest: buildReturnToRouterPrompt(outcome.reason),
-    };
-}
-
 /**
  * @param {string} decoratedRequest
  * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} [messages]
@@ -156,6 +135,16 @@ function createQuickFixWorkflow(
         executionCwd: projectRoot,
         manualQaName,
         manualQaContext,
+    };
+}
+
+function refreshedQuickFixWorkflow(
+    workflow: import("../session/hosted-session.js").ActiveExecutionWorkflow,
+): import("../session/hosted-session.js").ActiveExecutionWorkflow {
+    return {
+        ...workflow,
+        executionStarted: true,
+        executionAttemptStartedAtMs: Date.now(),
     };
 }
 
@@ -295,9 +284,7 @@ export async function dispatchPostTriage({
     images,
     sessionManager,
     localCI,
-}: DispatchPostTriageArgs): Promise<
-    RouterHandoff | Awaited<ReturnType<typeof continueWorkflowValidation>> | undefined
-> {
+}: DispatchPostTriageArgs): Promise<Awaited<ReturnType<typeof continueWorkflowValidation>> | undefined> {
     if (!hostedSession || typeof hostedSession.getRootAgentName !== "function") {
         throw new Error("dispatchPostTriage: hostedSession is required");
     }
@@ -350,15 +337,12 @@ export async function dispatchPostTriage({
         const agentName = normalizedTriage.routingIntent === "INQUIRY" ? AGENTS.GUIDE : AGENTS.IDEATOR;
         await activateAgent(agentName);
 
-        const preTurnCount = getPreTurnMessageCount();
-        const messages = await runRootTurn({
+        await runRootTurn({
             hostedSession,
             agentName,
             userRequest: decoratedRequest,
             images,
         });
-        const routerHandoff = readLatestReturnToRouterOutcome(messages, preTurnCount);
-        if (routerHandoff) return toRouterHandoff(routerHandoff);
         return;
     }
 
@@ -373,8 +357,6 @@ export async function dispatchPostTriage({
             userRequest: decoratedRequest,
             images,
         });
-        const routerHandoff = readLatestReturnToRouterOutcome(messages, preTurnCount);
-        if (routerHandoff) return toRouterHandoff(routerHandoff);
         const completed = readLatestTaskCompletedOutcome(messages, preTurnCount);
         await recordMetric({
             category: "execution",
@@ -428,11 +410,6 @@ export async function dispatchPostTriage({
             images,
             dispatchKind: "quick_fix",
         });
-        const routerHandoff = readLatestReturnToRouterOutcome(messages, preTurnCount);
-        if (routerHandoff) {
-            hostedSession.clearActiveExecutionWorkflow();
-            return toRouterHandoff(routerHandoff);
-        }
         const completed = readLatestTaskCompletedOutcome(messages, preTurnCount);
         if (!completed) {
             await recordMetric({
@@ -454,6 +431,7 @@ export async function dispatchPostTriage({
             hostedSession,
             hostedSession.getRootAgentSession() || null,
         );
+        const quickFixWorkflow = hostedSession.getActiveExecutionWorkflow();
         hostedSession.clearActiveExecutionWorkflow();
         const mechanicalResult = await runMechanicalValidation({
             hostedSession,
@@ -463,6 +441,9 @@ export async function dispatchPostTriage({
         }, localCI);
         if (acceptedCompletion) {
             acknowledgeTaskCompletion(hostedSession, acceptedCompletion);
+        }
+        if (quickFixWorkflow) {
+            hostedSession.setActiveExecutionWorkflow(refreshedQuickFixWorkflow(quickFixWorkflow));
         }
         await recordMetric({
             category: "execution",

@@ -57,7 +57,6 @@ import ketchExtension, {
 import snipExtension from "../../extensions/snip/index.js";
 import reAnchorExtension from "../../extensions/re-anchor/index.ts";
 import { ensureCymbalBinary, ensureMnemosyneBinary, hasSnipBinary } from "../runtime-preflight.ts";
-import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to-router.ts";
 import { createUserInterviewTool } from "../../tools/user-interview.ts";
 import { createSeeImageTool } from "../../tools/see-image.ts";
 import {
@@ -188,24 +187,19 @@ function formatDebugJson(value) {
 }
 
 /**
- * Resolve the effective tool list for a session, applying runtime-only gates
- * that should not mutate the agent frontmatter source of truth.
+ * Resolve the effective tool list for a session.
  *
  * @param {string[]} agentTools
  * @param {unknown} toolNames
  * @param {string[]} customToolNames
- * @param {{ allowReturnToRouter?: boolean }} [options]
  * @returns {string[]}
  */
-export function resolveEffectiveSessionToolNames(agentTools, toolNames, customToolNames, options = {}) {
+export function resolveEffectiveSessionToolNames(agentTools, toolNames, customToolNames) {
     const resolvedTools = resolveSessionToolNames(agentTools, toolNames, customToolNames);
     const normalizedTools = resolvedTools.map((toolName) =>
         toolName === "multi_replace_file_content" ? "multi_file_edit" : toolName
     );
-    const dedupedTools = [...new Set(normalizedTools)];
-    return options.allowReturnToRouter === true
-        ? dedupedTools
-        : dedupedTools.filter((toolName) => toolName !== "return_to_router");
+    return [...new Set(normalizedTools)];
 }
 
 /** @typedef {"local" | "home" | "bundled" | "package"} PromptTemplateSource */
@@ -1657,7 +1651,6 @@ export async function assembleFinalSystemPrompt(
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('../../tools/plan-written.ts').TriageMeta} [opts.triageMeta]
  * @param {{ id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }} [opts.subAgentDefinition]
- * @param {boolean} [opts.allowReturnToRouter]
  * @param {string} [opts.cwd] - Execution cwd for file tools and agent operations. Defaults to primary project root.
  * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.
  * @param {string} [opts.projectStateContext] - Optional session-scoped project state note for the system prompt.
@@ -1687,7 +1680,6 @@ export async function buildAgentSession({
     sessionManager,
     triageMeta,
     subAgentDefinition,
-    allowReturnToRouter,
     cwd,
     debugLogPath,
     projectStateContext,
@@ -1722,10 +1714,8 @@ export async function buildAgentSession({
     const effectiveSessionManager = sessionManager || SessionManager.inMemory(sessionCwd);
 
     const customToolNames = (customTools || []).map((t) => t.name);
-    const parentDelegableTools = resolveEffectiveSessionToolNames(agentDef.tools, toolNames, [], {
-        allowReturnToRouter,
-    });
-    let tools = resolveEffectiveSessionToolNames(agentDef.tools, toolNames, customToolNames, { allowReturnToRouter });
+    const parentDelegableTools = resolveEffectiveSessionToolNames(agentDef.tools, toolNames, []);
+    let tools = resolveEffectiveSessionToolNames(agentDef.tools, toolNames, customToolNames);
 
     const finalCustomTools = [...(customTools || [])];
     if (!activeModelSupportsImages && visionFallback && !tools.includes("see_image")) {
@@ -1735,22 +1725,6 @@ export async function buildAgentSession({
     // Auto-wire internal custom tools if requested by name and not already provided.
     // This keeps agent frontmatter declarative: adding/removing tool names controls availability,
     // while RunWield runtime injects the concrete tool implementations.
-
-    if (tools.includes("return_to_router") && !finalCustomTools.find((t) => t.name === "return_to_router")) {
-        // Root sessions are hosted explicitly; close over the hosted session used to
-        // build this AgentSession instead of relying on dynamic tool context or
-        // any module-level active session state.
-        const returnToRouterHostedSession = targetHostedSession;
-        finalCustomTools.push({
-            ...returnToRouterTool,
-            execute(_toolCallId, params, _signal, _onUpdate, _context) {
-                return executeReturnToRouter(
-                    /** @type {{ reason: string }} */ (params),
-                    returnToRouterHostedSession,
-                );
-            },
-        });
-    }
 
     if (
         tools.includes("plan_written") && targetHostedSession &&
@@ -2029,7 +2003,6 @@ export async function buildAgentSession({
  *   triageMeta: import('../../tools/plan-written.ts').TriageMeta | undefined,
  *   cwd: string,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
- *   allowReturnToRouter?: boolean,
  * }} opts
  * @returns {Promise<import('@earendil-works/pi-coding-agent').ToolDefinition[]>}
  */
@@ -2040,7 +2013,6 @@ export async function composeClaudeCliBridgedTools({
     triageMeta,
     cwd,
     customTools = [],
-    allowReturnToRouter = true,
 }) {
     /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
     const finalCustomTools = [...customTools];
@@ -2048,7 +2020,6 @@ export async function composeClaudeCliBridgedTools({
         agentDef.tools,
         undefined,
         customTools.map((tool) => tool.name),
-        { allowReturnToRouter },
     );
     const declared = new Set(declaredTools);
     /** @param {string} name */
@@ -2064,18 +2035,6 @@ export async function composeClaudeCliBridgedTools({
         }
     }
 
-    if (declared.has("return_to_router") && hostedSession && !hasTool("return_to_router")) {
-        const returnToRouterHostedSession = hostedSession;
-        finalCustomTools.push({
-            ...returnToRouterTool,
-            execute(_toolCallId, params, _signal, _onUpdate, _context) {
-                return executeReturnToRouter(
-                    /** @type {{ reason: string }} */ (params),
-                    returnToRouterHostedSession,
-                );
-            },
-        });
-    }
     if (declared.has("plan_written") && hostedSession && !hasTool("plan_written")) {
         const { createPlanWrittenTool } = await import("../../tools/plan-written.ts");
         finalCustomTools.push(createPlanWrittenTool({ triageMeta, agentName, hostedSession }));
@@ -2178,13 +2137,11 @@ export async function buildExecutionSession(opts) {
         triageMeta: opts.triageMeta,
         cwd: sessionCwd,
         customTools: opts.customTools || [],
-        allowReturnToRouter: opts.allowReturnToRouter ?? true,
     });
     const rebuildToolNames = resolveEffectiveSessionToolNames(
         agentDef.tools,
         opts.toolNames,
         finalCustomTools.map((tool) => tool.name),
-        { allowReturnToRouter: opts.allowReturnToRouter ?? true },
     );
     const { prompt: finalSystemPrompt, projection: contextProjection } =
         await assembleFinalSystemPromptWithContextProjection(
@@ -3061,7 +3018,7 @@ export function applyAttentionNudge(agentName, userRequest, rootTurnCount) {
     ].join("\n");
 }
 
-/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, subAgentDefinition?: { id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, allowReturnToRouter: boolean, cwd: string, model?: string, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string, steeringTargetId?: string }>} */
+/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, subAgentDefinition?: { id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, cwd: string, model?: string, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string, steeringTargetId?: string }>} */
 const rootSessionMetadata = new WeakMap();
 
 /**
@@ -3075,7 +3032,7 @@ export function __getRootSessionMetadataForTests(session) {
 
 /**
  * @param {import('./hosted-session.js').HostedSession} hostedSession
- * @returns {{ agentName: string, model?: string, allowReturnToRouter: boolean, cwd?: string } | null}
+ * @returns {{ agentName: string, model?: string, cwd?: string } | null}
  */
 export function getRootSessionSwitchState(hostedSession) {
     const session = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
@@ -3085,7 +3042,6 @@ export function getRootSessionSwitchState(hostedSession) {
     return {
         agentName: meta.agentName,
         model: meta.model,
-        allowReturnToRouter: meta.allowReturnToRouter,
         cwd: meta.cwd,
     };
 }
@@ -3100,7 +3056,6 @@ export function getRootSessionRebuildOptions(hostedSession) {
     const meta = rootSessionMetadata.get(session);
     if (!meta) return {};
     return {
-        allowReturnToRouter: meta.allowReturnToRouter,
         cwd: meta.cwd,
         subAgentDefinition: meta.subAgentDefinition,
         customTools: meta.finalCustomTools,
@@ -3173,7 +3128,6 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
  * @param {string} [opts.modelOverride]
  * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
- * @param {boolean} [opts.allowReturnToRouter]
  * @param {{ id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }} [opts.subAgentDefinition]
  * @param {string} [opts.cwd]
  * @param {string} [opts.projectStateContext]
@@ -3195,7 +3149,6 @@ export async function ensureRootAgentSession(opts) {
         cwd: opts.cwd || hostedSession.cwd,
         sessionManager: /** @type {any} */ (opts.sessionManager || hostedSession.getRootSessionManager() || undefined),
         projectStateContext: rootProjectStateContext,
-        allowReturnToRouter: opts.allowReturnToRouter ?? true,
     });
     const {
         session,
@@ -3267,7 +3220,6 @@ export async function ensureRootAgentSession(opts) {
         finalCustomTools,
         rootTurnCount: 0,
         projectStateContext: rootProjectStateContext,
-        allowReturnToRouter: opts.allowReturnToRouter ?? true,
         cwd: opts.cwd || hostedSession.cwd,
         model: finalModelForUi,
         contextProjection,
@@ -3381,7 +3333,6 @@ export function shouldReuseExistingRootSession(opts, rootAgentName) {
         "modelOverride",
         "triageMeta",
         "subAgentDefinition",
-        "allowReturnToRouter",
         "cwd",
         "debugLogPath",
         "projectStateContext",
@@ -3449,7 +3400,6 @@ export async function runNonInteractiveAgentPrompt({
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager] - Optional manager to carry
  *   context across successive isolated invocations (e.g. nudging a Reviewer that omitted its terminal tool call).
  *   Defaults to a fresh in-memory manager, which keeps the invocation isolated from the workflow transcript.
- * @param {boolean} [opts.allowReturnToRouter]
  * @param {string} [opts.cwd] - Execution cwd for file tools and agent operations.
  * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.
  * @param {string} [opts.projectStateContext] - Optional session-scoped project state note for the system prompt.

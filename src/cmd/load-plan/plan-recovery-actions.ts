@@ -404,7 +404,7 @@ export async function reviewRecoveryPlan(context: RecoveryActionContext): Promis
         worktreeContext: context.worktreeContext,
         session: context.session,
     });
-    await context.session.switchAgent(AGENTS.PLANNER, { allowReturnToRouter: false });
+    await context.session.switchAgent(AGENTS.PLANNER, {});
     await context.recordRecoveryResult("review", "review");
     return { kind: "review" };
 }

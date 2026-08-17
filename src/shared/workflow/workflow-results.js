@@ -92,63 +92,6 @@ export function extractAssistantOutput(messages) {
 }
 
 /**
- * @typedef {Object} ReturnToRouterOutcome
- * @property {string} agentName
- * @property {string} reason
- */
-
-/**
- * Read the latest return_to_router tool result from a message stream.
- *
- * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
- * @param {number} [fromIndex]
- * @returns {ReturnToRouterOutcome | null}
- */
-export function readLatestReturnToRouterOutcome(messages, fromIndex) {
-    const start = fromIndex != null && fromIndex <= messages.length ? fromIndex : 0;
-    for (let i = messages.length - 1; i >= start; i--) {
-        const msg = messages[i];
-        if (
-            msg && "role" in msg && msg.role === "toolResult" &&
-            "toolName" in msg && msg.toolName === "return_to_router"
-        ) {
-            const details = /** @type {{ agentName?: unknown, reason?: unknown }} */ (
-                /** @type {{ details?: unknown }} */ (msg).details || {}
-            );
-            if (typeof details.reason === "string" && details.reason.trim()) {
-                return {
-                    agentName: typeof details.agentName === "string" && details.agentName
-                        ? details.agentName
-                        : "router",
-                    reason: details.reason,
-                };
-            }
-        }
-    }
-    return null;
-}
-
-/**
- * Wrap a `return_to_router` handoff reason as the Router's first user message.
- *
- * The raw `reason` is the handing-off agent's report; it does not by itself
- * tell the Router what to do with it. This framing makes the required action
- * explicit: triage the handoff from the other agent and call `triage_report`,
- * optionally following any routing recommendation the agent included.
- *
- * @param {string} reason - self-contained handoff report from the other agent
- * @returns {string} explicit triage instruction with the handoff inline
- */
-export function buildReturnToRouterPrompt(reason) {
-    return [
-        "An agent returned the conversation to you for fresh triage. Triage the report and call `triage_report`, possibly following the recommendation in the handoff. Do not attempt to fulfill the request yourself.",
-        "",
-        "<handoff from tool>",
-        reason,
-    ].join("\n");
-}
-
-/**
  * @typedef {"approved" | "feedback"} ReviewOutcome
  */
 

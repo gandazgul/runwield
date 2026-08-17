@@ -24,5 +24,5 @@ Operate on the entire codebase, start on the entry point, and walk your way thro
    - Explain _why_ a specific assumption was made (e.g., // Assuming the API returns UTC).
 5. **Maintainability:** Ensure variables are descriptively named (e.g., `user_account_balance` instead of `bal`).
 
-If a significant refactor is needed, use `return_to_router` with a self-contained handoff explaining why the request
-needs triage.
+If a significant refactor is needed, state the concrete limit and offer user-owned options, such as switching with
+`/agent planner` or continuing with a smaller optimization request.
