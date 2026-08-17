@@ -31,6 +31,12 @@ export interface RuntimeCommandFixtureOptions {
      * - "provider-no-model": configured provider + model, no selected default (model selector opens).
      */
     providerState?: RuntimeCommandFixtureProviderState;
+    additionalModels?: RuntimeCommandFixtureModel[];
+}
+
+export interface RuntimeCommandFixtureModel {
+    id: string;
+    name: string;
 }
 
 const TEST_PROVIDER = "runtime-command-fixture";
@@ -191,6 +197,10 @@ export async function withRuntimeCommandFixture<T>(
     options: RuntimeCommandFixtureOptions = {},
 ): Promise<T> {
     const providerState = options.providerState || "default";
+    const configuredModels = [
+        { id: TEST_MODEL, name: "Runtime Command Fixture Model" },
+        ...(options.additionalModels || []),
+    ];
     return await withProcessGlobalTestLock(async () => {
         await unregisterScriptedOAuthProviders();
         const previousHome = Deno.env.get("HOME");
@@ -221,14 +231,14 @@ export async function withRuntimeCommandFixture<T>(
                             baseUrl: "http://127.0.0.1:0",
                             apiKey: "fixture-key",
                             api: TEST_API,
-                            models: [{
-                                id: TEST_MODEL,
-                                name: "Runtime Command Fixture Model",
+                            models: configuredModels.map((model) => ({
+                                id: model.id,
+                                name: model.name,
                                 api: TEST_API,
                                 input: ["text", "image"],
                                 contextWindow: 128000,
                                 maxTokens: 4096,
-                            }],
+                            })),
                         },
                     },
                 }),
@@ -265,7 +275,7 @@ export async function withRuntimeCommandFixture<T>(
             api: TEST_API,
             provider: TEST_PROVIDER,
             tokensPerSecond: 1000,
-            models: [{ id: TEST_MODEL, name: "Runtime Command Fixture Model", input: ["text", "image"] }],
+            models: configuredModels.map((model) => ({ ...model, input: ["text", "image"] })),
         });
 
         try {

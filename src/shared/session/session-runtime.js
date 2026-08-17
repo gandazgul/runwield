@@ -1172,6 +1172,17 @@ export class SessionRuntime {
      * @param {string} [provider]
      */
     async reconfigureSessionModel(sessionId, model, provider = "") {
+        const promptReadySession = this.#sessionHost.getSession(sessionId);
+        if (
+            promptReadySession &&
+            this.#pendingManagedCreationProjects.has(sessionId) &&
+            !promptReadySession.getManagedMetadata?.()
+        ) {
+            promptReadySession.setActiveModelState(model, provider, true);
+            promptReadySession.mergePendingManagedTurnIntent?.({ model, provider });
+            this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.MODEL_CHANGED, model, provider });
+            return { ok: true, model, provider };
+        }
         return await this.#runManagedStandaloneMutation(sessionId, "set_model", async (session, capability) => {
             const previousUserOverride = session.isUserModelOverride?.() === true;
             const previousModelState = session.getActiveModelState();
@@ -1186,6 +1197,7 @@ export class SessionRuntime {
                         managedOperationCapability: capability,
                     });
                 }
+                session.getRootSessionManager?.()?.appendModelChange?.(provider, model);
             } catch (error) {
                 if (previousUserOverride) {
                     session.setActiveModelState(previousModelState.model, previousModelState.provider || "", true);
@@ -2129,6 +2141,26 @@ export class SessionRuntime {
 
     /** @param {string} sessionId @returns {Promise<any>} */
     async reloadSession(sessionId) {
+        const promptReadySession = this.#sessionHost.getSession(sessionId);
+        if (
+            promptReadySession &&
+            this.#pendingManagedCreationProjects.has(sessionId) &&
+            !promptReadySession.getManagedMetadata?.()
+        ) {
+            await getSettingsManager(promptReadySession.cwd).reload();
+            promptReadySession.clearUserModelOverride?.();
+            promptReadySession.mergePendingManagedTurnIntent?.({ model: "", provider: "" });
+            const activeAgentInfo = promptReadySession.getActiveAgentInfo?.() || null;
+            const agentName = activeAgentInfo?.agentName || AGENTS.ROUTER;
+            promptReadySession.resetAgentInfoStack(
+                getAgentDisplayName(agentName, promptReadySession.cwd),
+                "",
+                "",
+                agentName,
+            );
+            const refreshed = this.markPromptReadyAgent(sessionId, { agentName });
+            return refreshed.ok ? { ok: true, deferred: true } : refreshed;
+        }
         return await this.#runManagedStandaloneMutation(sessionId, "reload", async (session, capability) => {
             const agentName = session.getRootAgentName();
             if (!agentName) return { ok: false };
@@ -3423,6 +3455,12 @@ export class SessionRuntime {
                     includeEditFallback: options.includeEditFallback,
                     managedOperationCapability: capability,
                 });
+                if (pendingIntent.model || pendingIntent.provider) {
+                    hostedSession.getRootSessionManager?.()?.appendModelChange?.(
+                        pendingIntent.provider || "",
+                        pendingIntent.model || "",
+                    );
+                }
             }
             hostedSession.consumePendingManagedTurnIntent?.();
             activeProof = this.#sessionStore.changeSessionActivationPhase(activeProof, "turning");

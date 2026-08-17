@@ -51,6 +51,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {() => string | undefined} [getSessionName]
  * @property {(name: string) => void} [appendSessionInfo]
  * @property {(level: ThinkingLevel) => void} [appendThinkingLevelChange]
+ * @property {(provider: string, modelId: string) => void} [appendModelChange]
  * @property {() => unknown[]} [getBranch]
  * @property {() => unknown[]} [getEntries]
  * @property {(message: unknown) => string} [appendMessage]

@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { createSessionRuntime } from "../../shared/session/session-runtime.js";
-import { getSettingsManager } from "../../shared/settings.js";
+import { getSettingsManager, setCustomSetting } from "../../shared/settings.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runModelsCommand } from "./index.ts";
 
@@ -80,6 +80,95 @@ Deno.test("runModelsCommand switches an explicit configured model through the re
             runtime.closeAllSessions();
         }
     });
+});
+
+Deno.test("runModelsCommand switches a new in-memory Session before its first message", async () => {
+    await withRuntimeCommandFixture(
+        "runwield-model-command-",
+        async ({ projectRoot, setModelResponse }) => {
+            setModelResponse("The selected model handled the first turn.");
+            const ui = makeUi();
+            const runtime = createSessionRuntime();
+            try {
+                const sessionId = await runtime.createPromptReadySession({
+                    cwd: projectRoot,
+                    agentName: "router",
+                    deferPersistenceUntilFirstMessage: true,
+                });
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.sessionManagerId, null);
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, { model: "", provider: "" });
+
+                await runModelsCommand([FIXTURE_MODEL], {
+                    uiAPI: ui.uiAPI,
+                    sessionId,
+                    sessionRuntime: runtime,
+                });
+
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.sessionManagerId, null);
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.managed, null);
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                    model: "fixture-model",
+                    provider: "runtime-command-fixture",
+                });
+                assertEquals(ui.messages, [`Switched model to ${FIXTURE_MODEL}`]);
+
+                const firstTurn = await runtime.promptUserTurn(sessionId, { initialRequest: "Use this model" });
+                assertEquals(firstTurn.ok, true);
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                    model: "fixture-model",
+                    provider: "runtime-command-fixture",
+                });
+            } finally {
+                runtime.closeAllSessions();
+            }
+        },
+        { providerState: "provider-no-model" },
+    );
+});
+
+Deno.test("runModelsCommand keeps a manual model choice ahead of the active preset on the next turn", async () => {
+    await withRuntimeCommandFixture(
+        "runwield-model-command-",
+        async ({ projectRoot, setModelResponse }) => {
+            await setCustomSetting(
+                "modelPresets",
+                { active: { agents: { router: { model: "runtime-command-fixture/preset-model" } } } },
+                "global",
+                projectRoot,
+            );
+            await setCustomSetting("activeModelPreset", "active", "global", projectRoot);
+            setModelResponse("The manual model handled this turn.");
+            const ui = makeUi();
+            const runtime = createSessionRuntime();
+            try {
+                const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                    model: "preset-model",
+                    provider: "runtime-command-fixture",
+                });
+
+                await runModelsCommand([FIXTURE_MODEL], {
+                    uiAPI: ui.uiAPI,
+                    sessionId,
+                    sessionRuntime: runtime,
+                });
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                    model: "fixture-model",
+                    provider: "runtime-command-fixture",
+                });
+
+                const turn = await runtime.promptUserTurn(sessionId, { initialRequest: "Continue" });
+                assertEquals(turn.ok, true);
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                    model: "fixture-model",
+                    provider: "runtime-command-fixture",
+                });
+            } finally {
+                runtime.closeAllSessions();
+            }
+        },
+        { additionalModels: [{ id: "preset-model", name: "Preset Model" }] },
+    );
 });
 
 Deno.test("runModelsCommand fallback selector lists and switches real configured models", async () => {

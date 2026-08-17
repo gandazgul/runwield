@@ -32,7 +32,8 @@ export async function setActiveSessionModel(
     if (!snapshot) throw new Error("Cannot set model for a missing runtime session.");
 
     try {
-        await runtime.reconfigureSessionModel(sessionId, model, provider || "");
+        const result = await runtime.reconfigureSessionModel(sessionId, model, provider || "");
+        if (!result?.ok) throw new Error("The active Session could not switch models.");
     } catch (error) {
         if (!(error instanceof Error) || !isUnsupportedModelExecutionBackendError(error)) throw error;
         try {

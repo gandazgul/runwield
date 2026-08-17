@@ -308,6 +308,59 @@ Deno.test("runSettingsCommand applies a selected model preset to the active Sess
     });
 });
 
+Deno.test("runSettingsCommand applies a model preset to a new in-memory Session", async () => {
+    await withRuntimeCommandFixture(
+        "runwield-settings-command-",
+        async ({ projectRoot, setModelResponse }) => {
+            setModelResponse("The preset model handled the first turn.");
+            const runtime = createSessionRuntime();
+            const sessionId = await runtime.createPromptReadySession({
+                cwd: projectRoot,
+                agentName: "router",
+                deferPersistenceUntilFirstMessage: true,
+            });
+            await setCustomSetting(
+                "modelPresets",
+                { fast: { agents: { router: { model: "runtime-command-fixture/fixture-model" } } } },
+                "global",
+                projectRoot,
+            );
+            const harness = makeUiHarness(["model-presets", "preset:fast", "back", "done"]);
+            try {
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, { model: "", provider: "" });
+
+                await runSettingsCommand([], {
+                    uiAPI: harness.uiAPI,
+                    editor: harness.editor,
+                    sessionRuntime: runtime,
+                    sessionId,
+                });
+
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.sessionManagerId, null);
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.managed, null);
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                    model: "fixture-model",
+                    provider: "runtime-command-fixture",
+                });
+                assertEquals(harness.messages, [
+                    "Active model preset set to fast.",
+                    "The new model preset will be used for your first message.",
+                ]);
+
+                const firstTurn = await runtime.promptUserTurn(sessionId, { initialRequest: "Use this preset" });
+                assertEquals(firstTurn.ok, true);
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                    model: "fixture-model",
+                    provider: "runtime-command-fixture",
+                });
+            } finally {
+                runtime.closeAllSessions();
+            }
+        },
+        { providerState: "provider-no-model" },
+    );
+});
+
 Deno.test("runSettingsCommand clears activeModelPreset via None", async () => {
     await withRuntimeCommandFixture("runwield-settings-command-", async ({ projectRoot, settingsPath }) => {
         const { runtime, sessionId } = await createPromptReadyRuntime(projectRoot);

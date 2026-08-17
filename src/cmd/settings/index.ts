@@ -207,10 +207,14 @@ async function reloadActiveSessionForPresetChange(
 ): Promise<void> {
     try {
         const result = await sessionRuntime.reloadSession(sessionId);
-        if (!result.ok) return;
+        if (!result.ok) {
+            console.error(`[RunWield] preset_reload_failed ${result.error || "reload_failed"}`);
+            uiAPI.appendSystemMessage("Preset saved, but the current agent could not reload. Run /reload to retry.");
+            return;
+        }
         uiAPI.appendSystemMessage(
             result.deferred
-                ? "Agent context will rebuild on the next managed turn."
+                ? "The new model preset will be used for your first message."
                 : "Agent context reloaded with the new model preset.",
         );
     } catch (error) {
