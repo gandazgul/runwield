@@ -26,13 +26,13 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T17:01:39-04:00"
-updatedAt: "2026-08-17T12:08:00-04:00"
-status: "draft"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "validation repair resume"
 planId: "49e20ce4-692f-42fb-b5a9-ecb3766640cc"
+updatedAt: "2026-08-17T20:37:45.843Z"
+status: "ready_for_work"
 ---
 
 # Resume Validation After Repair Completion

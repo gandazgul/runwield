@@ -1,8 +1,8 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertExists, assertStringIncludes } from "@std/assert";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
-import { loadPlan } from "../../plan-store.js";
+import { loadPlan, savePlan } from "../../plan-store.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { ensureRootAgentSession } from "../session/session.js";
@@ -16,6 +16,7 @@ import {
 } from "./validation-test-helpers.js";
 import { requestObjectiveCheckWaiver, runPlanObjectiveChecks } from "./validation-mechanical.ts";
 import { createValidationSessionPort } from "./validation-session-adapter.ts";
+import { makeValidationCheckpoint } from "./validation-checkpoint.ts";
 
 /** @returns {import("./validation-session-adapter.ts").SemanticReviewPort} */
 function repairPort(outcomes = ["completed"]) {
@@ -714,9 +715,9 @@ Deno.test("runValidationPhase re-runs CI after a repair even when the Plan statu
         assertEquals(first.kind, "paused");
         assertEquals(ciExitCodes.length, 1);
 
-        // The repair Agent reports `task_completed` into the root transcript, which is
-        // also what marks a Plan implemented, so the status can arrive at the next phase
-        // already advanced past the CI that never passed. Simulate exactly that.
+        // Simulate a process boundary where status says Semantic Review is next, but
+        // the durable validation checkpoint still owns Mechanical Validation. Session
+        // memory is not used for this recovery decision.
         await recordPlanEvent({
             cwd: projectRoot,
             planName: "p",
@@ -724,15 +725,30 @@ Deno.test("runValidationPhase re-runs CI after a repair even when the Plan statu
             currentStatus: "implemented",
             details: { triageMeta: { classification: "QUICK_FIX", status: "implemented" } },
         });
-        assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
+        const advanced = await loadPlan(projectRoot, "p");
+        assertExists(advanced);
+        assertEquals(advanced.attrs.status, "validated_ci");
+        const checkpoint = makeValidationCheckpoint({
+            attemptId: "in-place",
+            generation: crypto.randomUUID(),
+            status: "implemented",
+            phase: "mechanical",
+            state: "running",
+        });
+        await savePlan(projectRoot, "p", advanced.body, {
+            ...advanced.attrs,
+            validationCheckpoint: checkpoint,
+        }, { expectedRevision: advanced.revision });
 
-        // Status now says Semantic Review is next. The loop knows better: it dispatched a
-        // CI repair and never saw CI pass, so it goes back to CI.
+        // Status now says Semantic Review is next. The durable checkpoint says the CI
+        // repair did not settle, so Mechanical Validation runs again.
         const second = await runValidationPhase({
             hostedSession,
             planName: "p",
             planContent: "# p",
-            triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+            triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationCheckpoint: checkpoint },
+            continuationPhase: checkpoint.nextPhase,
+            validationCheckpoint: checkpoint,
             localCI,
         });
 
