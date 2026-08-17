@@ -24,8 +24,10 @@ objectiveChecks:
       command: "deno run -A scripts/run-tests.js src/shared/workflow/workflow-prompts.test.js src/shared/workflow/workflow.test.js src/ui/workspace/react/plan-review-policy.test.ts"
       rationale: "Focused tests must protect the smaller execution-request contract and medium-neutral Workspace policy behavior."
 createdAt: "2026-08-05T15:03:52-04:00"
-status: "draft"
 origin: "internal"
+updatedAt: "2026-08-17T20:45:34.747Z"
+status: "ready_for_work"
+userVerifiedAt: null
 ---
 
 # Finish Agent Prompt Architecture Cleanup

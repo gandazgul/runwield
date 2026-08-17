@@ -34,7 +34,6 @@ export async function runEngineerWithPlan(
             userRequest: `${
                 buildEngineerRequest(planName, planBody, reviewFeedback, {
                     collaborationStyle,
-                    triageMeta: workflow?.triageMeta,
                     routerMessage,
                 })
             }\n\nExecution owner: ${executionAgent}.`,
@@ -110,7 +109,6 @@ export async function runEngineerWithSegmentHandoff({ continuation, sessionManag
     const userRequest = `${
         buildEngineerRequest(continuation.plan.planName, continuation.plan.markdown, continuation.approval?.feedback, {
             collaborationStyle,
-            triageMeta: workflow?.triageMeta,
         })
     }\n\nExecution owner: ${continuation.executionOwner}.`;
     let messages;

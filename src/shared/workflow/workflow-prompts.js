@@ -3,7 +3,7 @@
  * User prompts and agent request text used by workflow execution.
  */
 
-import { AGENTS, formatPlannedWorkLabel } from "../../constants.js";
+import { AGENTS } from "../../constants.js";
 import { projectEngineerPlanBody } from "./engineer-plan-projection.ts";
 
 /**
@@ -302,23 +302,13 @@ export function buildCollaborationStylePrompt(recommendation) {
  * @param {string} [reviewFeedback]
  * @param {{
  *   collaborationStyle?: "autonomous"|"pair",
- *   triageMeta?: TriageReportContext,
  *   routerMessage?: string,
  * }} [options]
  * @returns {string}
  */
 export function buildEngineerRequest(planName, planBody, reviewFeedback, options = {}) {
-    const triageMeta = options.triageMeta || {};
-    const lines = [
-        `## Approved Plan: ${planName}`,
-        "",
-        `Execute the following plan step by step. This is a ${
-            formatPlannedWorkLabel(triageMeta.workKind).toLowerCase()
-        }. Complete all Implementation Steps and the Verification Plan, then call task_completed with a concise bullet-point success or failure report.`,
-        "",
-        buildTriageReport(triageMeta, { plannedExecution: true }),
-        "",
-    ];
+    const lines = [`## Approved Plan: ${planName}`, ""];
+
     if (options.routerMessage) {
         lines.push(
             "## Router Handoff Message",
@@ -326,20 +316,23 @@ export function buildEngineerRequest(planName, planBody, reviewFeedback, options
             "",
         );
     }
+
     if (options.collaborationStyle === "pair") {
         lines.push(
             "## Runtime Collaboration Style",
-            "Pair Execution is active. Follow the Runtime Collaboration Style section of your instructions: work in coherent increments, call pair_checkpoint for user direction after each one, and do not call task_completed until the full Plan and final verification are complete.",
+            "Pair Execution is active.",
             "",
         );
     } else if (options.collaborationStyle === "autonomous") {
         lines.push(
             "## Runtime Collaboration Style",
-            "Autonomous execution is active. Do not use Pair checkpoint ceremony; complete the Plan and final verification before task_completed.",
+            "Autonomous execution is active.",
             "",
         );
     }
-    lines.push(projectEngineerPlanBody(planBody));
+
+    lines.push("## Approved Plan Body", "", projectEngineerPlanBody(planBody));
+
     if (reviewFeedback) {
         lines.push(
             "",

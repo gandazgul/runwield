@@ -12,7 +12,6 @@ import {
     runPlanningAgent,
     startActiveExecutionWorkflow,
 } from "./workflow.js";
-import { buildEngineerRequest } from "./workflow-prompts.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { loadPlan, savePlan } from "../../plan-store.js";
@@ -115,14 +114,6 @@ async function makeWorkflowProject(plans) {
     }
     return cwd;
 }
-
-Deno.test("buildEngineerRequest describes documentation Work Kind as planned documentation", () => {
-    const text = buildEngineerRequest("docs-plan", "# Docs Plan", undefined, {
-        triageMeta: { workKind: "DOCUMENTATION" },
-    });
-
-    assertStringIncludes(text, "This is a planned documentation");
-});
 
 Deno.test("HostedSession scopes active execution workflow independently", () => {
     const sessionA = new HostedSession({ id: "workflow-a", cwd: "/project-a" });
