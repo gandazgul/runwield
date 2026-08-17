@@ -68,11 +68,14 @@ async function sha256(value) {
     return Array.from(new Uint8Array(hash)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/** @typedef {{ id: string, name?: string, reasoning?: boolean }} GoldenModelDefinition */
+
 /**
  * @param {string} runwieldDir
- * @param {{ api?: string }} [options]
+ * @param {{ api?: string, models?: GoldenModelDefinition[] }} [options]
  */
 export async function writeGoldenModelConfig(runwieldDir, options = {}) {
+    const models = options.models || [{ id: GOLDEN_FAUX_MODEL, name: "Golden Faux Model" }];
     await Deno.mkdir(runwieldDir, { recursive: true });
     await Deno.writeTextFile(
         join(runwieldDir, "models.json"),
@@ -84,16 +87,15 @@ export async function writeGoldenModelConfig(runwieldDir, options = {}) {
                         baseUrl: "http://127.0.0.1:0",
                         apiKey: "golden-test-key",
                         api: options.api || GOLDEN_FAUX_API,
-                        models: [
-                            {
-                                id: GOLDEN_FAUX_MODEL,
-                                name: "Golden Faux Model",
-                                api: options.api || GOLDEN_FAUX_API,
-                                input: ["text", "image"],
-                                contextWindow: 128000,
-                                maxTokens: 4096,
-                            },
-                        ],
+                        models: models.map((model) => ({
+                            id: model.id,
+                            name: model.name || model.id,
+                            api: options.api || GOLDEN_FAUX_API,
+                            reasoning: model.reasoning || false,
+                            input: ["text", "image"],
+                            contextWindow: 128000,
+                            maxTokens: 4096,
+                        })),
                     },
                 },
             },

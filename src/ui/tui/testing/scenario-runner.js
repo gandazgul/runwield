@@ -148,6 +148,11 @@ function findFixturePlanLifecycle(directory, expectedStatus) {
  * @property {boolean} [composedTui]
  * @property {{ userText: string, agentName?: string, assistantText: string }} [priorSession]
  * @property {"default" | "none" | "provider-without-models"} [modelSetup]
+ * @property {Array<{ id: string, name?: string, reasoning?: boolean }>} [models]
+ * @property {Record<string, unknown>} [globalSettings]
+ * @property {boolean} [skipModelWelcome]
+ * @property {boolean} [captureModelTurns]
+ * @property {boolean} [captureGlobalSettings]
  * @property {Array<{ marker: string, keys?: string, text?: string }>} [startupInput]
  * @property {boolean} [expectedCleanExit]
  */
@@ -315,16 +320,21 @@ function inferGoldenTurnIdentity(snapshotAgentName, availableTools, systemPrompt
 }
 
 /**
- * @param {{ runwieldDir?: string }} options
+ * @param {{ runwieldDir?: string, models?: Array<{ id: string, name?: string, reasoning?: boolean }> }} options
  * @returns {Promise<ReturnType<typeof registerFauxProvider>>}
  */
 async function registerGoldenFauxProviderForEnvironment(options = {}) {
-    if (options.runwieldDir) await writeGoldenModelConfig(options.runwieldDir, { api: GOLDEN_FAUX_API });
+    if (options.runwieldDir) {
+        await writeGoldenModelConfig(options.runwieldDir, { api: GOLDEN_FAUX_API, models: options.models });
+    }
     return registerFauxProvider({
         api: GOLDEN_FAUX_API,
         provider: GOLDEN_FAUX_PROVIDER,
         tokensPerSecond: 80,
-        models: [{ id: GOLDEN_FAUX_MODEL, name: "Golden Faux Model", input: ["text", "image"] }],
+        models: (options.models || [{ id: GOLDEN_FAUX_MODEL, name: "Golden Faux Model" }]).map((model) => ({
+            ...model,
+            input: ["text", "image"],
+        })),
     });
 }
 
@@ -587,11 +597,23 @@ async function runComposedTuiScenario(scenario, options) {
                 join(runwieldDir, "settings.json"),
                 JSON.stringify({ theme: "default", notifications: { enabled: false } }),
             );
+        } else if (runwieldDir && scenario.globalSettings) {
+            await Deno.writeTextFile(
+                join(runwieldDir, "settings.json"),
+                JSON.stringify({
+                    theme: "default",
+                    notifications: { enabled: false },
+                    ...scenario.globalSettings,
+                }),
+            );
         }
         const projectSnapshotBefore = await snapshotProjectRoot(Deno.cwd());
         const fauxProvider = scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
             ? null
-            : await registerGoldenFauxProviderForEnvironment({ runwieldDir: runwieldDir || undefined });
+            : await registerGoldenFauxProviderForEnvironment({
+                runwieldDir: runwieldDir || undefined,
+                models: scenario.models,
+            });
         const priorSessionState = fauxProvider
             ? await seedGoldenPriorSession(scenario.priorSession, fauxProvider)
             : null;
@@ -722,7 +744,13 @@ async function runComposedTuiScenario(scenario, options) {
             // called saveChildFeaturePlans directly, so the real
             // slicer_finalize_decomposition tool and the Epic decomposition
             // transaction never ran in any Golden scenario.
-            const scriptedResponseFactories = (scenario.script || []).map(() => (/** @type {unknown} */ context) => {
+            const scriptedResponseFactories = (scenario.script || []).map(() =>
+            (
+                /** @type {unknown} */ context,
+                /** @type {unknown} */ _options,
+                /** @type {unknown} */ _providerState,
+                /** @type {{ id?: string, provider?: string }} */ model,
+            ) => {
                 const snapshot = composition?.runtime.getSessionSnapshot(composition.sessionId);
                 const availableTools = getContextToolNames(context);
                 const systemPrompt = String(
@@ -734,6 +762,17 @@ async function runComposedTuiScenario(scenario, options) {
                     availableTools,
                     systemPrompt,
                 );
+                if (scenario.captureModelTurns) {
+                    const modelTurns = Array.isArray(state.modelTurns) ? state.modelTurns : [];
+                    modelTurns.push({
+                        agent,
+                        phase,
+                        model: model?.id || "",
+                        provider: model?.provider || "",
+                        systemPrompt,
+                    });
+                    state.modelTurns = modelTurns;
+                }
                 // The Runtime's own view of which Plan is executing. An Epic drives
                 // several child Plans through the same Agent and phase, so execution
                 // and review turns count ordinals per Plan: one child's turn count
@@ -894,6 +933,7 @@ async function runComposedTuiScenario(scenario, options) {
                 initialAgentModel: scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
                     ? undefined
                     : `${GOLDEN_FAUX_PROVIDER}/${GOLDEN_FAUX_MODEL}`,
+                skipModelWelcome: scenario.skipModelWelcome === true,
                 configureUiAPI: configureScriptedUiAPI,
                 browser: reviewSurface || humanReviewSurface
                     ? createGoldenReviewBrowser(
@@ -1761,6 +1801,9 @@ async function runComposedTuiScenario(scenario, options) {
             state.snapshot = snapshot;
             state.activeAgent = snapshot?.activeAgent || state.activeAgent;
             state.editorUsable = snapshot?.busy === false;
+            if (scenario.captureGlobalSettings && runwieldDir) {
+                state.globalSettings = JSON.parse(await Deno.readTextFile(join(runwieldDir, "settings.json")));
+            }
             if (interactionSurface) {
                 interactionSurface.assertComplete();
                 state.scriptedInteractions = interactionSurface.consumed;

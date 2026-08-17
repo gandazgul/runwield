@@ -1,4 +1,5 @@
 import { assertEventIncludes, assertScreenIncludes } from "../testing/scenario-runner.js";
+import { VERSION } from "../../../shared/version.js";
 
 function typed(command: string) {
     return (result: Parameters<typeof assertEventIncludes>[0]) =>
@@ -18,7 +19,7 @@ export const slashVersionScenario = {
     ],
     assertions: [
         typed("/version"),
-        (result: Parameters<typeof assertScreenIncludes>[0]) => assertScreenIncludes(result, "runwield v0."),
+        (result: Parameters<typeof assertScreenIncludes>[0]) => assertScreenIncludes(result, `runwield ${VERSION}`),
     ],
 };
 
