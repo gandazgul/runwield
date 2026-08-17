@@ -64,15 +64,7 @@
  */
 
 /**
- * @typedef {Object} AgentTurnHandoffResult
- * @property {"handoff"} kind
- * @property {string} agentName
- * @property {string} userRequest
- * @property {string} [model]
- */
-
-/**
- * @typedef {AgentTurnCompleteResult | AgentTurnHandoffResult} AgentTurnResult
+ * @typedef {AgentTurnCompleteResult} AgentTurnResult
  */
 
 /**

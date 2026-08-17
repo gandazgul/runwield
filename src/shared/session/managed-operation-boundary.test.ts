@@ -48,9 +48,7 @@ Deno.test("managed prompt re-entry is rejected while a real operation holds the 
                     ownerInstanceId: "managed-operation-boundary-owner",
                 });
                 let firstPrompt:
-                    | Promise<
-                        { ok: boolean; turns: number; handoffs: number; handoffLimitReached: boolean; error?: string }
-                    >
+                    | Promise<{ ok: boolean; turns: number; error?: string }>
                     | null = null;
                 try {
                     const created = await runtime.createInteractiveSession({
@@ -81,8 +79,6 @@ Deno.test("managed prompt re-entry is rejected while a real operation holds the 
                     assertEquals(second, {
                         ok: false,
                         turns: 0,
-                        handoffs: 0,
-                        handoffLimitReached: false,
                         error: "managed_operation_in_progress",
                     });
                     assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, 1);

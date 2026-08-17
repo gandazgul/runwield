@@ -11,7 +11,6 @@ import { setCustomSetting } from "../settings.js";
 import type { SessionRuntimeEvent } from "../session/session-runtime-events.js";
 import type { RuntimeInteractionRequest, RuntimeInteractionResponse } from "../session/session-runtime-interactions.js";
 import { dispatchPostTriage, type DispatchPostTriageArgs, readLatestTriageOutcome } from "./orchestrator.ts";
-import { buildReturnToRouterPrompt } from "./workflow-results.js";
 import { getWorkflowMetricsFilePath } from "./metrics.js";
 import type { LocalCIPort, LocalCIResult } from "./validation-local-ci.ts";
 
@@ -226,39 +225,6 @@ Deno.test("OPERATION completion stays with Operator without validation", async (
     });
 });
 
-Deno.test("OPERATION can hand changed scope back to Router", async () => {
-    await withRuntimeCommandFixture("orchestrator-operation-handoff-", async ({ projectRoot, setModelMessages }) => {
-        setModelMessages([
-            fauxAssistantMessage(fauxToolCall("return_to_router", {
-                reason: "This operation now needs a code repair.",
-            })),
-        ]);
-        const fixture = createSessionFixture(projectRoot);
-        const ci = defineLocalCIFixture();
-
-        const result = await dispatchPostTriage({
-            hostedSession: fixture.hostedSession,
-            triage: {
-                routingIntent: "OPERATION",
-                complexity: "LOW",
-                summary: "update dependencies",
-            },
-            userRequest: "Upgrade dependencies.",
-            images: [],
-            sessionManager: fixture.sessionManager,
-            localCI: ci.port,
-        });
-
-        assertEquals(result, {
-            kind: "handoff",
-            agentName: "router",
-            userRequest: buildReturnToRouterPrompt("This operation now needs a code repair."),
-        });
-        assertEquals(ci.calls, []);
-        fixture.hostedSession.dispose();
-    });
-});
-
 Deno.test("QUICK_FIX completion runs real Mechanical Validation around the CI port", async () => {
     await withRuntimeCommandFixture("orchestrator-quick-fix-", async ({ projectRoot, setModelMessages }) => {
         await initializeGitProject(projectRoot);
@@ -284,7 +250,7 @@ Deno.test("QUICK_FIX completion runs real Mechanical Validation around the CI po
         });
 
         assertEquals(ci.calls, [projectRoot]);
-        assertEquals(fixture.hostedSession.getActiveExecutionWorkflow(), null);
+        assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.triageMeta?.classification, "QUICK_FIX");
         assertEquals(fixture.hostedSession.getRootAgentName(), "engineer");
         assertEquals(listPendingTaskCompletions(fixture.hostedSession), []);
         assertEquals(

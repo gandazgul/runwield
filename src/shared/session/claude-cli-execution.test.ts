@@ -15,7 +15,7 @@ import {
 } from "./session.js";
 import { ClaudeCliBackendError } from "./backends/claude-cli/failure.ts";
 import { CLAUDE_CLI_MCP_PROVENANCE } from "./backends/claude-cli/mcp-bridge.ts";
-import { readLatestReturnToRouterOutcome, readLatestTaskCompletedOutcome } from "../workflow/workflow-results.js";
+import { readLatestTaskCompletedOutcome } from "../workflow/workflow-results.js";
 import { readLatestTriageOutcome } from "../workflow/orchestrator.ts";
 
 interface ToolResultDetails {
@@ -190,7 +190,6 @@ Deno.test("Claude CLI root keeps agent tool names available for provider reload"
 
         assertEquals(rebuildOptions.toolNames?.includes("read"), true);
         assertEquals(rebuildOptions.toolNames?.includes("bash"), true);
-        assertEquals(rebuildOptions.toolNames?.includes("return_to_router"), true);
     });
 });
 
@@ -481,32 +480,6 @@ Deno.test("^Claude CLI post-terminal output stays display-only after accepted si
         const serialized = JSON.stringify(manager.getBranch());
         assertStringIncludes(serialized, "final text post-terminal prose");
         assertEquals(serialized.includes("terminal result did not match"), false);
-    });
-});
-
-Deno.test("Claude CLI return_to_router bridged call creates a router handoff outcome", async () => {
-    await withClaudeExecutionFixture(async (_home, cwd) => {
-        const manager = SessionManager.inMemory(cwd);
-        const hostedSession = createHostedSession(cwd, manager);
-        const callsPath = join(cwd, "mcp-calls.json");
-        await Deno.writeTextFile(
-            callsPath,
-            JSON.stringify([{ name: "return_to_router", arguments: { reason: "Need fresh triage" } }]),
-        );
-        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", callsPath);
-
-        await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE });
-        const messages = await runRootTurn({ hostedSession, agentName: AGENTS.GUIDE, userRequest: "handoff" });
-        const outcome = readLatestReturnToRouterOutcome(messages);
-
-        assertEquals(outcome?.reason, "Need fresh triage");
-        assertEquals(
-            messages.some((message) =>
-                message.role === "toolResult" && message.toolName === "return_to_router" &&
-                typeof (message as ToolResultMessage).details?.reason === "string"
-            ),
-            true,
-        );
     });
 });
 

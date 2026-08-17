@@ -13,17 +13,16 @@ import {
 } from "./session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
 
-/** @type {WeakMap<import('./hosted-session.js').HostedSession, { agentName: string, model?: string, allowReturnToRouter?: boolean, cwd?: string }>} */
+/** @type {WeakMap<import('./hosted-session.js').HostedSession, { agentName: string, model?: string, cwd?: string }>} */
 const switchMetadata = new WeakMap();
 
-/** @type {WeakMap<Function, { agentName: string, allowReturnToRouter?: boolean }>} */
+/** @type {WeakMap<Function, { agentName: string }>} */
 const handlerMetadata = new WeakMap();
 
 /**
  * @typedef {Object} AgentSwitchOptions
  * @property {string} agentName
  * @property {string} [model]
- * @property {boolean} [allowReturnToRouter]
  * @property {string} [cwd]
  * @property {boolean} [forceRebuild]
  * @property {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
@@ -34,8 +33,29 @@ const handlerMetadata = new WeakMap();
  * @property {string} [projectStateContext]
  * @property {boolean} [includeEditFallback]
  * @property {string} [debugLogPath]
+ * @property {boolean} [releaseActiveWorkflow]
  * @property {import('./managed-operation.ts').ManagedOperationCapability} [managedOperationCapability]
  */
+
+/**
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
+ * @param {string} agentName
+ */
+function releaseActiveWorkflowAfterUserSwitch(hostedSession, agentName) {
+    const workflow = hostedSession.getActiveExecutionWorkflow?.() || null;
+    if (!workflow) return;
+    const planName = typeof workflow.planName === "string" && workflow.planName ? workflow.planName : "quick-fix";
+    hostedSession.clearActiveExecutionWorkflow();
+    const target = agentName || hostedSession.getRootAgentName() || "the selected Agent";
+    const message = planName === "quick-fix"
+        ? `User switched to ${target}; QUICK_FIX workflow ownership was released. There is no resumable Plan, and working-tree edits remain in place.`
+        : `User switched to ${target}; planned workflow ownership for ${planName} was released. Plan and worktree recovery evidence remain available through /load-plan.`;
+    emitHostedSessionRuntimeEvent(hostedSession, {
+        type: RuntimeEventTypes.SYSTEM_STATUS,
+        level: "info",
+        message,
+    });
+}
 
 /**
  * Switch a HostedSession's root Agent as one completed transaction.
@@ -67,10 +87,6 @@ export async function switchActiveAgent(hostedSession, options) {
         : undefined;
     const requestedModel = modelOverride ?? configuredModel;
     const modelChanged = requestedModel !== undefined && requestedModel !== effectiveModel;
-    const allowReturnToRouterProvided = Object.hasOwn(options, "allowReturnToRouter");
-    const effectiveAllowReturnToRouter = rootSwitchState?.allowReturnToRouter ?? previousSwitch?.allowReturnToRouter;
-    const allowReturnToRouterChanged = allowReturnToRouterProvided &&
-        (effectiveAllowReturnToRouter === undefined || options.allowReturnToRouter !== effectiveAllowReturnToRouter);
     const cwdProvided = Object.hasOwn(options, "cwd") && typeof options.cwd === "string" && options.cwd.length > 0;
     const effectiveCwd = rootSwitchState?.cwd ?? previousSwitch?.cwd ?? hostedSession.cwd;
     const cwdChanged = cwdProvided && options.cwd !== effectiveCwd;
@@ -82,7 +98,6 @@ export async function switchActiveAgent(hostedSession, options) {
     const rootOptions = {
         agentName,
         modelOverride: options.model,
-        allowReturnToRouter: allowReturnToRouterProvided ? options.allowReturnToRouter : effectiveAllowReturnToRouter,
         cwd: cwdProvided ? options.cwd : effectiveCwd,
         sessionManager: options.sessionManager,
         triageMeta: options.triageMeta,
@@ -95,24 +110,23 @@ export async function switchActiveAgent(hostedSession, options) {
         managedOperationCapability,
     };
     const canReuseRoot = previousRootSession && !options.forceRebuild && !modelChanged &&
-        !allowReturnToRouterChanged && !cwdChanged && !customRootConfigurationProvided &&
+        !cwdChanged && !customRootConfigurationProvided &&
         shouldReuseExistingRootSession({ agentName }, previousAgentName);
     const shouldRebuildRoot = !canReuseRoot;
     const nextMetadata = {
         agentName,
         model: requestedModel ?? effectiveModel,
-        allowReturnToRouter: allowReturnToRouterProvided ? options.allowReturnToRouter : effectiveAllowReturnToRouter,
         cwd: cwdProvided ? options.cwd : effectiveCwd,
     };
     const previousHandlerMetadata = typeof previousHandler === "function" ? handlerMetadata.get(previousHandler) : null;
     const canReuseHandler = Boolean(
         previousHandler && previousHandlerMetadata &&
             previousHandlerMetadata.agentName === agentName &&
-            previousHandlerMetadata.allowReturnToRouter === nextMetadata.allowReturnToRouter &&
             !customRootConfigurationProvided,
     );
 
     if (!shouldRebuildRoot && canReuseHandler) {
+        if (options.releaseActiveWorkflow) releaseActiveWorkflowAfterUserSwitch(hostedSession, agentName);
         return { ok: true, agentName, model: options.model, changed: false };
     }
 
@@ -125,7 +139,6 @@ export async function switchActiveAgent(hostedSession, options) {
     });
     handlerMetadata.set(handler, {
         agentName,
-        allowReturnToRouter: nextMetadata.allowReturnToRouter,
     });
 
     if (shouldRebuildRoot) {
@@ -150,6 +163,7 @@ export async function switchActiveAgent(hostedSession, options) {
             model: options.model,
         });
     }
+    if (options.releaseActiveWorkflow) releaseActiveWorkflowAfterUserSwitch(hostedSession, agentName);
     return { ok: true, agentName, model: options.model, changed };
 }
 
@@ -162,7 +176,6 @@ export async function switchActiveAgent(hostedSession, options) {
  * @property {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  * @property {import('../../tools/plan-written.ts').TriageMeta} [triageMeta]
  * @property {string} [model]
- * @property {boolean} [allowReturnToRouter]
  * @property {string} [cwd]
  * @property {boolean} [forceRebuild]
  * @property {{ id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }} [subAgentDefinition]
@@ -190,7 +203,6 @@ export async function runActiveAgentTurn(options) {
         sessionManager,
         triageMeta,
         model,
-        allowReturnToRouter,
         cwd,
         forceRebuild,
         subAgentDefinition,
@@ -205,7 +217,6 @@ export async function runActiveAgentTurn(options) {
     const switchOptions = {
         agentName,
         ...(model !== undefined ? { model } : {}),
-        ...(allowReturnToRouter !== undefined ? { allowReturnToRouter } : {}),
         ...(cwd ? { cwd } : {}),
         ...(forceRebuild ? { forceRebuild } : {}),
         ...(sessionManager ? { sessionManager } : {}),

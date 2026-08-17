@@ -75,7 +75,6 @@ const BENCHMARK_ROUTER_TOOLS = [
  * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} customTools
  * @property {string} [modelOverride]
  * @property {string} [cwd]
- * @property {boolean} allowReturnToRouter
  */
 
 /** @typedef {(options: RouterAgentRunOptions) => Promise<any[]>} RouterAgentRunner */
@@ -249,7 +248,6 @@ export async function runRouterForGoldenRequest(requestText, options = {}) {
         images: [],
         customTools: [createBenchmarkBashNudgeTool(), ...(options.customTools || [])],
         modelOverride: options.modelOverride,
-        allowReturnToRouter: false,
     });
 
     /** @type {() => void} */

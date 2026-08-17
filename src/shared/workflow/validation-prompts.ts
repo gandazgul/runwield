@@ -38,7 +38,7 @@ export async function loadReviewerPrompt(mode: "discovery" | "verify" = "discove
  * Unlike the Reviewer, this is a real execution agent and receives the full
  * shared system prompt via the subagent definition registry. Workflow Validation
  * dispatches it — a user never selects it, so it must stay out of `/agent`
- * listings and `return_to_router` targets.
+ * listings and hidden subagent targets.
  *
  * @returns {Promise<import('../session/types.js').AgentDefinition>}
  */

@@ -463,7 +463,7 @@ async function launchPlanningAgent(pulled: PulledPlanRevision, options: RunPlans
         throw new Error("plans pull requires an interactive session runtime to launch Planner/Architect.");
     }
     if (typeof sessionRuntime.switchAgent === "function") {
-        await sessionRuntime.switchAgent(sessionId, { agentName, allowReturnToRouter: false });
+        await sessionRuntime.switchAgent(sessionId, { agentName });
     }
     return await sessionRuntime.runPlanningAgent(sessionId, {
         agentName,

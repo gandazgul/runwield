@@ -59,8 +59,6 @@
  * @typedef {Object} SessionPromptResult
  * @property {boolean} ok
  * @property {number} turns
- * @property {number} handoffs
- * @property {boolean} handoffLimitReached
  * @property {string} [error]
  */
 

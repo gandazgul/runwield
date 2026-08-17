@@ -115,7 +115,7 @@ Deno.test("loadAgentDef loads Operator with structured interview capability", as
     assert(def.systemPrompt.includes("Use `user_interview` for operational choices or confirmations"));
 });
 
-Deno.test("loadAgentDef loads Guide with read-only tools and return_to_router", async () => {
+Deno.test("loadAgentDef loads Guide with read-only tools", async () => {
     const def = await loadAgentDef("guide");
 
     assert(def.tools.includes("read"));
@@ -125,7 +125,6 @@ Deno.test("loadAgentDef loads Guide with read-only tools and return_to_router", 
     assert(def.tools.includes("bash"));
     assert(def.tools.includes("memory"));
     assert(def.tools.includes("code_search"));
-    assert(def.tools.includes("return_to_router"));
     assert(def.tools.includes("write_docs"));
     assert(def.tools.includes("edit_docs"));
     assert(def.systemPrompt.includes("explicitly asks you to preserve or update"));
@@ -192,6 +191,31 @@ Deno.test("Router and Recorder do not expose delegate_agent by default", async (
     assertEquals(recorder.tools.includes("delegate_agent"), false);
 });
 
+Deno.test("bundled Agent definitions omit the removed router handoff tool", async () => {
+    const removedToolName = ["return", "to", "router"].join("_");
+    const agentNames = [
+        AGENTS.OPERATOR,
+        AGENTS.GUIDE,
+        AGENTS.IDEATOR,
+        AGENTS.PLANNER,
+        AGENTS.ARCHITECT,
+        AGENTS.ENGINEER,
+        AGENTS.FRONTEND_ENGINEER,
+        "tester",
+        AGENTS.ROUTER,
+    ];
+
+    for (const agentName of agentNames) {
+        const def = await loadAgentDef(agentName, REPO_ROOT);
+        assertEquals(def.tools.includes(removedToolName), false, `${agentName} must not expose removed handoff tool`);
+        assertEquals(
+            resolveEffectiveSessionToolNames(def.tools, undefined, []).includes(removedToolName),
+            false,
+            `${agentName} effective tools must not expose removed handoff tool`,
+        );
+    }
+});
+
 Deno.test("resolveSessionToolNames blocks runtime toolNames from re-enabling removed non-protected tools", () => {
     const agentTools = ["read", "memory", "triage_report"];
     const resolved = resolveSessionToolNames(agentTools, ["read", "bash", "triage_report"], []);
@@ -210,20 +234,12 @@ Deno.test("resolveSessionToolNames allows workflow runtime custom tools", () => 
     assertEquals(resolved, ["read", "pair_checkpoint"]);
 });
 
-Deno.test("resolveEffectiveSessionToolNames filters return_to_router unless explicitly allowed", () => {
-    const agentTools = ["read", "return_to_router", "memory"];
+Deno.test("resolveEffectiveSessionToolNames does not special-case removed tool names", () => {
+    const agentTools = ["read", "memory"];
 
     assertEquals(
         resolveEffectiveSessionToolNames(agentTools, undefined, []),
         ["read", "memory"],
-    );
-    assertEquals(
-        resolveEffectiveSessionToolNames(agentTools, undefined, [], { allowReturnToRouter: false }),
-        ["read", "memory"],
-    );
-    assertEquals(
-        resolveEffectiveSessionToolNames(agentTools, undefined, [], { allowReturnToRouter: true }),
-        ["read", "return_to_router", "memory"],
     );
 });
 
@@ -261,56 +277,6 @@ Deno.test("buildAgentSession auto-wires Guide docs-only tools when requested", a
             assert(editDocs, "expected edit_docs to be auto-wired");
             assertEquals(typeof writeDocs.execute, "function");
             assertEquals(typeof editDocs.execute, "function");
-        } finally {
-            session?.dispose();
-            __resetSettingsForTests();
-            if (originalHome === undefined) Deno.env.delete("HOME");
-            else Deno.env.set("HOME", originalHome);
-            __resetSettingsForTests();
-            await removeTempDir(tempHome);
-        }
-    });
-});
-
-Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSession", async () => {
-    await withProcessGlobalTestLock(async () => {
-        const originalHome = Deno.env.get("HOME");
-        const tempHome = await Deno.makeTempDir({ prefix: "runwield-return-router-wiring-" });
-        /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
-        let session;
-
-        try {
-            Deno.env.set("HOME", tempHome);
-            __resetSettingsForTests();
-            await writeVisionModelConfig(tempHome);
-
-            const targetHostedSession = new HostedSession({ id: "target-session", cwd: REPO_ROOT });
-            const otherHostedSession = new HostedSession({ id: "other-session", cwd: REPO_ROOT });
-            const built = await buildAgentSession({
-                hostedSession: targetHostedSession,
-                agentName: AGENTS.GUIDE,
-                modelOverride: "test/model",
-                allowReturnToRouter: true,
-            });
-            session = built.session;
-            const tool = built.finalCustomTools.find((candidate) => candidate.name === "return_to_router");
-            assert(tool, "expected return_to_router to be auto-wired");
-            const execute =
-                /** @type {(id: string, params: { reason: string }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<unknown>} */ (tool
-                    .execute);
-
-            const result = await execute(
-                "tool-call-1",
-                { reason: "Route this from the target session." },
-                new AbortController().signal,
-                () => {},
-                { hostedSession: otherHostedSession },
-            );
-
-            assertEquals(/** @type {{ details?: unknown }} */ (result).details, {
-                agentName: AGENTS.ROUTER,
-                reason: "Route this from the target session.",
-            });
         } finally {
             session?.dispose();
             __resetSettingsForTests();

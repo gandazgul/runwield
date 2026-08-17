@@ -81,9 +81,6 @@ import { executePlanAction } from "../workflow/plan-actions.ts";
 import { dirname, isAbsolute } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
 
-export const HANDOFF_LIMIT_MESSAGE =
-    "return_to_router handoff limit reached — refusing further chained handoffs in this turn.";
-
 /**
  * @typedef {Object} ManagedOperationContext
  * @property {SessionRuntime} runtime
@@ -158,7 +155,6 @@ const ACTIVE_MANAGED_OPERATION = new AsyncLocalStorage();
  * @property {string} [agentName]
  * @property {string[]} [toolNames]
  * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [customTools]
- * @property {boolean} [allowReturnToRouter]
  * @property {boolean} [includeEditFallback]
  * @property {string} [turnId]
  * @property {boolean} [emitInitialEvents]
@@ -226,8 +222,6 @@ const ACTIVE_MANAGED_OPERATION = new AsyncLocalStorage();
  * @property {boolean} [replayFromStart]
  * @property {number} [limit]
  */
-
-const MAX_CHAINED_HANDOFFS = 4;
 
 export class SessionTurnInProgressError extends Error {
     /** @param {string} sessionId */
@@ -1234,7 +1228,6 @@ export class SessionRuntime {
      *   toolNames?: string[],
      *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
      *   modelOverride?: string,
-     *   allowReturnToRouter?: boolean,
      * }} options
      * @returns {Promise<any>}
      */
@@ -1262,7 +1255,6 @@ export class SessionRuntime {
                         toolNames: options.toolNames,
                         customTools: options.customTools,
                         modelOverride: options.modelOverride,
-                        allowReturnToRouter: options.allowReturnToRouter,
                         subAgentDefinition: options.subAgentDefinition,
                     })),
             { activateAgent: false },
@@ -1672,7 +1664,6 @@ export class SessionRuntime {
                     completionInstruction: "Report a disposition for every finding, then call task_completed.",
                 }),
                 cwd: executionCwd,
-                allowReturnToRouter: false,
                 dispatchKind: "validation_repair",
                 subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
                 customTools: [createReviewDiffTool({ full: continuation.repair.diffText })],
@@ -2892,7 +2883,6 @@ export class SessionRuntime {
         const executionCwd = typeof workflow?.executionCwd === "string" ? workflow.executionCwd : "";
         await this.#activateSessionAgent(hostedSession, {
             agentName: executionAgent,
-            allowReturnToRouter: false,
             ...(executionCwd ? { cwd: executionCwd } : {}),
         });
     }
@@ -3234,7 +3224,7 @@ export class SessionRuntime {
      *
      * @param {string} sessionId
      * @param {PromptSessionOptions} options
-     * @returns {Promise<{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string, managed: boolean, submittedRequest: string, restoreDraft: boolean, historyText?: string }>}
+     * @returns {Promise<{ ok: boolean, turns: number, error?: string, managed: boolean, submittedRequest: string, restoreDraft: boolean, historyText?: string }>}
      */
     async promptUserTurn(sessionId, options) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
@@ -3283,7 +3273,7 @@ export class SessionRuntime {
             ? { ...options, initialRequest: submittedRequest, turnId: deferredFirstTurnId, emitInitialEvents: false }
             : { ...options, initialRequest: submittedRequest };
         const buildResult = (
-            /** @type {{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string }} */ result,
+            /** @type {{ ok: boolean, turns: number, error?: string }} */ result,
         ) => ({
             ...result,
             managed: true,
@@ -3324,8 +3314,6 @@ export class SessionRuntime {
             return {
                 ok: false,
                 turns: 0,
-                handoffs: 0,
-                handoffLimitReached: false,
                 error: "managed_operation_in_progress",
             };
         }
@@ -3337,7 +3325,7 @@ export class SessionRuntime {
         const nextGeneration = (expectedGeneration ?? -1) + 1;
         const isUnpublishedInitialGeneration = latestGeneration === null && expectedGeneration === 0;
         if (latestGeneration !== expectedGeneration && !isUnpublishedInitialGeneration) {
-            return { ok: false, turns: 0, handoffs: 0, handoffLimitReached: false, error: "refresh_required" };
+            return { ok: false, turns: 0, error: "refresh_required" };
         }
         /** @type {import('../owner-coordination/session-activations.js').ActivationProof} */
         let activeProof;
@@ -3357,8 +3345,6 @@ export class SessionRuntime {
                 return {
                     ok: false,
                     turns: 0,
-                    handoffs: 0,
-                    handoffLimitReached: false,
                     error: "refresh_required",
                 };
             }
@@ -3370,8 +3356,6 @@ export class SessionRuntime {
                 return {
                     ok: false,
                     turns: 0,
-                    handoffs: 0,
-                    handoffLimitReached: false,
                     error: "managed_operation_in_progress",
                 };
             }
@@ -3423,8 +3407,6 @@ export class SessionRuntime {
                     return {
                         ok: false,
                         turns: 0,
-                        handoffs: 0,
-                        handoffLimitReached: false,
                         error: "reconcile_required",
                     };
                 }
@@ -3486,7 +3468,6 @@ export class SessionRuntime {
                     model: pendingModel || persistedModel,
                     toolNames: options.toolNames,
                     customTools: options.customTools,
-                    allowReturnToRouter: options.allowReturnToRouter,
                     includeEditFallback: options.includeEditFallback,
                     managedOperationCapability: capability,
                 });
@@ -4146,7 +4127,7 @@ export class SessionRuntime {
 
     /**
      * @param {string} sessionId
-     * @param {{ agentName: string, model?: string, allowReturnToRouter?: boolean }} options
+     * @param {{ agentName: string, model?: string, releaseActiveWorkflow?: boolean, customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], toolNames?: string[] }} options
      */
     async switchAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
@@ -4250,7 +4231,7 @@ export class SessionRuntime {
      * @param {string} sessionId
      * @param {PromptSessionOptions} options
      * @param {import('./managed-operation.ts').ManagedOperationCapability | null} [capability]
-     * @returns {Promise<{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string }>}
+     * @returns {Promise<{ ok: boolean, turns: number, error?: string }>}
      */
     async promptSession(sessionId, options, capability = null) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
@@ -4282,10 +4263,9 @@ export class SessionRuntime {
             settleTurn = () => resolve(undefined);
         });
         this.#turnSettlements.set(hostedSession.id, turnSettlement);
-        let request = options.initialRequest;
+        const request = options.initialRequest;
         let images = options.initialImages || [];
         let turns = 0;
-        let handoffs = 0;
         let ok = false;
         let busyStarted = false;
         /** @type {import('../workflow/validation.ts').WorkflowValidationResult | null} */
@@ -4294,7 +4274,7 @@ export class SessionRuntime {
             hostedSession.getManagedOperationCapability?.() || null
         );
         let result =
-            /** @type {{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string, replacementSessionId?: string } | null} */ (null);
+            /** @type {{ ok: boolean, turns: number, error?: string, replacementSessionId?: string } | null} */ (null);
 
         try {
             const cleanup = options.onTurnStarted?.({ turnId });
@@ -4329,78 +4309,38 @@ export class SessionRuntime {
                 result = {
                     ok: false,
                     turns,
-                    handoffs,
-                    handoffLimitReached: false,
                     error: "missing_active_handler_or_session_manager",
                 };
                 return result;
             }
 
-            for (let turn = 0; turn <= MAX_CHAINED_HANDOFFS; turn++) {
-                const handler = hostedSession.getActiveOnMessage();
-                if (!handler) {
-                    const message = "Error: No active agent handler or session manager.";
-                    this.#emitSessionEvent(hostedSession.id, {
-                        type: RuntimeEventTypes.SYSTEM_STATUS,
-                        turnId,
-                        level: "error",
-                        message,
-                    });
-                    result = {
-                        ok: false,
-                        turns,
-                        handoffs,
-                        handoffLimitReached: false,
-                        error: "missing_active_handler_or_session_manager",
-                    };
-                    return result;
-                }
-
-                const turnResult = await handler(
-                    request,
-                    images,
-                    hostedSession.getRootSessionManager() || undefined,
-                    options.signal || managedCapability?.signal,
-                );
-                turns++;
-
-                if (!turnResult || turnResult.kind !== "handoff") {
-                    validationResult = /** @type {any} */ (turnResult)?.validationResult || null;
-                    ok = true;
-                    result = { ok: true, turns, handoffs, handoffLimitReached: false };
-                    return result;
-                }
-
-                if (turn === MAX_CHAINED_HANDOFFS) {
-                    this.#emitSessionEvent(hostedSession.id, {
-                        type: RuntimeEventTypes.SYSTEM_STATUS,
-                        turnId,
-                        level: "warning",
-                        message: HANDOFF_LIMIT_MESSAGE,
-                    });
-                    ok = true;
-                    result = { ok: true, turns, handoffs, handoffLimitReached: true };
-                    return result;
-                }
-
-                handoffs++;
-                await this.#activateSessionAgent(hostedSession, {
-                    agentName: turnResult.agentName,
-                    model: turnResult.model,
-                    managedOperationCapability: managedCapability || undefined,
-                });
-                request = turnResult.userRequest;
-                images = [];
+            const handler = hostedSession.getActiveOnMessage();
+            if (!handler) {
+                const message = "Error: No active agent handler or session manager.";
                 this.#emitSessionEvent(hostedSession.id, {
-                    type: RuntimeEventTypes.USER_MESSAGE,
+                    type: RuntimeEventTypes.SYSTEM_STATUS,
                     turnId,
-                    text: request,
-                    images,
+                    level: "error",
+                    message,
                 });
+                result = {
+                    ok: false,
+                    turns,
+                    error: "missing_active_handler_or_session_manager",
+                };
+                return result;
             }
 
+            const turnResult = await handler(
+                request,
+                images,
+                hostedSession.getRootSessionManager() || undefined,
+                options.signal || managedCapability?.signal,
+            );
+            turns++;
+            validationResult = /** @type {any} */ (turnResult)?.validationResult || null;
             ok = true;
-            result = { ok: true, turns, handoffs, handoffLimitReached: false };
+            result = { ok: true, turns };
             return result;
         } catch (error) {
             this.#emitSessionEvent(hostedSession.id, {
@@ -4415,7 +4355,7 @@ export class SessionRuntime {
                 type: RuntimeEventTypes.TURN_END,
                 turnId,
                 ok,
-                result: result || { turns, handoffs },
+                result: result || { turns },
             });
             hostedSession.endTurn(turnId);
             if (busyStarted) this.#endBusyOperation(hostedSession.id, turnId);

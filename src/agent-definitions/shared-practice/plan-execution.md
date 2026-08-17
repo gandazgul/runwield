@@ -51,10 +51,9 @@ are usually the ones the Plan stated explicitly.
 ## Requests that are not the Plan
 
 If the user asks in-session for something the Plan does not cover — a new multistep plan, open-ended ideation, or
-diagnosis unrelated to the assigned work — escalate to Router instead of attempting it. This is about requests that
-arrive from outside the Plan, not about how large or architectural the Plan's own work is.
+diagnosis unrelated to the assigned work — stay on the current workflow step. This applies to new requests from outside
+the Plan. The Plan remains the authority for its own scope, size, and architecture.
 
-When escalation is needed, stop work and call `return_to_router` with a self-contained, concise handoff for fresh Router
-triage. Include what was requested, why it falls outside the Plan, relevant paths, and any failed command summary; do
-not paste full logs or decide the next routing intent yourself. If `return_to_router` is not available, ask the user to
-switch to Router with `/agent router`.
+When the user asks for work outside the active Plan, stay on the current workflow step. Explain the specific boundary
+and offer two user-owned options: continue or finish the Plan, or leave it deliberately with `/agent <name>`. Then pause
+for the user's choice before any unrelated work starts.

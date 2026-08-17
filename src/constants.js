@@ -331,7 +331,7 @@ export function getHomeDir() {
  * `INIT`, `SLICER`, `REVIEWER`, `REVIEWER_FEEDBACK_ENGINEER`, and `DELEGATED`
  * are workflow-dispatched runtime agent identifiers. Their definitions live in
  * the hidden `SUBAGENTS` registry, not top-level agent discovery, so they do not
- * appear in `/agent` listings or `return_to_router` targets.
+ * appear in `/agent` listings or hidden subagent targets.
  *
  * Manual QA is also dispatched through `SUBAGENTS`, but it intentionally uses
  * the normal `OPERATOR` runtime agent identifier for its isolated prompt.

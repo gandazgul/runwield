@@ -41,7 +41,6 @@ export async function runEngineerWithPlan(
             images: reviewImages,
             sessionManager,
             cwd: executionCwd,
-            allowReturnToRouter: false,
             dispatchKind: "plan_execution",
             ...(customTools ? { customTools } : {}),
         });
@@ -122,7 +121,6 @@ export async function runEngineerWithSegmentHandoff({ continuation, sessionManag
             images: continuation.approval?.images,
             sessionManager,
             cwd: workflow?.executionCwd || hostedSession.cwd,
-            allowReturnToRouter: false,
             dispatchKind: "plan_execution",
             ...(customTools ? { customTools } : {}),
         });

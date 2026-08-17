@@ -541,52 +541,6 @@ Deno.test("TUI adapter renders normalized thinking deltas and one tool start", (
     ]);
 });
 
-Deno.test("TUI adapter folds return_to_router handoff text into the tool block", () => {
-    const { runtime, sessionId } = makeRuntimeHarness("return-to-router-handoff");
-    const { transcript, uiAPI } = makeUi();
-    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
-
-    runtime.emitSessionEvent(sessionId, {
-        type: RuntimeEventTypes.TOOL_START,
-        toolCallId: "handoff-tool",
-        toolName: "return_to_router",
-        title: "return_to_router",
-        kind: "switch_mode",
-    });
-    runtime.emitSessionEvent(sessionId, {
-        type: RuntimeEventTypes.TOOL_END,
-        toolCallId: "handoff-tool",
-        toolName: "return_to_router",
-        title: "return_to_router",
-        kind: "switch_mode",
-        content: [],
-        output: "",
-        details: { agentName: "router", reason: "Triage this as QUICK_FIX." },
-        isError: false,
-        durationMs: 0,
-    });
-    runtime.emitSessionEvent(sessionId, {
-        type: RuntimeEventTypes.USER_MESSAGE,
-        text: "Triage this as QUICK_FIX.",
-        images: [],
-    });
-    runtime.emitSessionEvent(sessionId, {
-        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
-        messageId: "router-response",
-        delta: "Routing.",
-        agentName: "Router",
-        messageKind: "assistant",
-    });
-    adapter.dispose();
-
-    assertEquals(transcript, [
-        "tool:start:handoff-tool:return_to_router:return_to_router",
-        "tool:update:handoff-tool:Triage this as QUICK_FIX.",
-        "tool:end:handoff-tool:ok",
-        "assistant:Router:Routing.",
-    ]);
-});
-
 Deno.test("TUI adapter projects core queued, consumed, and dequeued message transitions", () => {
     const { runtime, sessionId } = makeRuntimeHarness("adapter-queue");
     const { transcript, uiAPI } = makeUi();

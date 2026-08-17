@@ -148,7 +148,7 @@ export async function restorePreviousAgentFlow(
     const workflow = session.getActiveExecutionWorkflow?.() || null;
     const executionAgent = typeof workflow?.executionAgent === "string" ? workflow.executionAgent.trim() : "";
     if (executionAgent) {
-        await session.switchAgent(executionAgent, { allowReturnToRouter: false });
+        await session.switchAgent(executionAgent, {});
         return;
     }
     await session.switchAgent(agentName);

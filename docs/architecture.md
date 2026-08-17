@@ -186,9 +186,11 @@ swaps preserve and re-persist an existing context when the new segment has no ma
 read-only display fallback from active execution workflow metadata only when no explicit context exists. They must not
 be collapsed into a generic `workflow` property, and footer projections never own lifecycle decisions.
 
-Agent activation also has one path. Initial boot, resume, explicit consumer switches, and typed handoffs all commit a
-matching root Agent Session and Agent Handler through the same private Runtime transaction. Consumers call
-`switchAgent()` by opaque session ID; Runtime does not expose separate handler-installation or root-readiness phases.
+Agent activation also has one path. Initial boot, resume, explicit consumer switches, and deterministic workflow
+progression all commit a matching root Agent Session and Agent Handler through the same private Runtime transaction.
+Consumers call `switchAgent()` by opaque session ID; Runtime does not expose separate handler-installation or
+root-readiness phases. A user-authorized switch can also release `activeExecutionWorkflow` after the target Agent
+commits, while retained `workflowContext` stays as display and Plan context.
 
 `SessionRuntime` keeps its host, dependency implementations, listener maps, turn settlements, and queued-message state
 in JavaScript private fields. The old object APIs (`createSession`, `adoptSession`, `getSession`), event-producer
@@ -282,7 +284,8 @@ deduplicate or replace subscribers.
 
 `HostedSession.beginTurn()` permits at most one active turn per Runtime ID. Different IDs run independently. Every
 successful, failed, or canceled prompt releases the turn in `finally`, publishes `turn_end`, and publishes
-`busy_changed(false)`. Chained `return_to_router` handoffs remain inside the same outer Runtime turn.
+`busy_changed(false)`. One submitted user message runs one root Agent handler; Custom Tool results cannot request a
+second root turn.
 
 Runtime actions that can wait on model or workflow work use the same aggregate busy lifecycle even when they are not
 entered through `promptSession()`. Busy ownership is reference-counted per Runtime session, so nested planning, Slicer,
@@ -454,12 +457,7 @@ sequenceDiagram
     Pi-->>Handler: final message stream
     Handler->>Workflow: interpret current-turn tool results
 
-    alt return_to_router handoff
-        Workflow-->>Handler: typed handoff result
-        Handler-->>Runtime: handoff(agent, request)
-        Runtime->>Hosted: transactional agent switch
-        Runtime->>Handler: continue same outer turn
-    else triage or Plan workflow
+    alt triage or Plan workflow
         Workflow->>Hosted: switch agent or record active workflow
         Workflow-->>Handler: complete
         Handler-->>Runtime: complete
@@ -472,8 +470,9 @@ sequenceDiagram
 ```
 
 `HostedSession.beginTurn()` is the concurrency gate. A second prompt for the same hosted session raises
-`SessionTurnInProgressError`; different hosted sessions can progress independently. A `return_to_router` outcome is a
-typed handoff handled inside the same outer turn, with a maximum of four chained handoffs.
+`SessionTurnInProgressError`; different hosted sessions can progress independently. A Custom Tool outcome can drive
+deterministic workflow progression through the active handler, but it cannot change the root Agent or create a chained
+root turn.
 
 Agent switching is transactional. The target root session is built before the active handler is replaced, so a build
 failure leaves the previous root/handler pair intact. Root reuse preserves conversational context while the same agent
@@ -590,10 +589,9 @@ At invocation time:
 
 1. an explicit `toolNames` list may narrow, but not widen, the agent definition's tool set;
 2. runtime custom tools are added explicitly;
-3. `return_to_router` is removed unless the invocation permits it;
-4. named RunWield tools such as `triage_report`, `plan_written`, `task_completed`, and `user_interview` are wired to
+3. named RunWield tools such as `triage_report`, `plan_written`, `task_completed`, and `user_interview` are wired to
    concrete implementations;
-5. RunWield replaces selected built-ins with guarded variants such as grep and edit fallback.
+4. RunWield replaces selected built-ins with guarded variants such as grep and edit fallback.
 
 ### Prompt and model assembly
 

@@ -58,7 +58,6 @@ export async function runPlanningAgent(
         images,
         sessionManager,
         triageMeta,
-        allowReturnToRouter: false,
     });
 
     const result = readLatestPlanOutcome(messages);

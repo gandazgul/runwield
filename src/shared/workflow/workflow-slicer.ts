@@ -542,7 +542,6 @@ export async function runSlicerAgent({
             sessionManager: slicerSessionManager,
             subAgentDefinition: { id: SUBAGENTS.SLICER },
             customTools: slicerCustomTools,
-            allowReturnToRouter: false,
         });
         return { ok: true };
     } catch (e) {

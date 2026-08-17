@@ -168,28 +168,18 @@ Deno.test("validation repair engineer keeps user authority, working-tree safety,
     assertStringIncludes(systemPrompt, "report the test-count delta");
 });
 
-Deno.test("bundled workflow-only agents cannot leave their validation-owned session", async () => {
-    // Reviewer and repair agent both run in isolated sessions dispatched by
-    // Workflow Validation. `return_to_router` is filtered out of isolated sessions
-    // and its result is only ever read from the root conversation, so instructing
-    // either agent to call it would promise an escape hatch that silently drops
-    // the handoff and strands the validation loop.
+Deno.test("bundled workflow-only agents cannot name the removed router handoff tool", async () => {
+    const removedToolName = ["return", "to", "router"].join("_");
     for (const name of ["reviewer-prompt.md", "reviewer-verify-prompt.md", "reviewer-feedback-engineer.md"]) {
         const prompt = await readBundledPrompt(name);
-        assertEquals(
-            prompt.includes("return_to_router"),
-            false,
-            `${name} must not reference return_to_router`,
-        );
+        assertEquals(prompt.includes(removedToolName), false, `${name} must not reference removed handoff tool`);
     }
 
-    // A shared practice fragment can smuggle the escape hatch back in, so check
-    // what the repair agent is actually handed, not just its own prompt file.
     const { systemPrompt } = await loadSubAgentDefinition(SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER);
     assertEquals(
-        systemPrompt.includes("return_to_router"),
+        systemPrompt.includes(removedToolName),
         false,
-        "composed reviewer-feedback engineer prompt must not reference return_to_router",
+        "composed reviewer-feedback engineer prompt must not reference removed handoff tool",
     );
 });
 

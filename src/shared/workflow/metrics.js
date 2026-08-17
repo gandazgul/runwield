@@ -365,7 +365,6 @@ export function classifyToolSubUsage(toolName, args = undefined) {
     if (toolName === "triage_report") return "triage";
     if (toolName === "plan_written") return "plan_written";
     if (toolName === "task_completed") return "task_completed";
-    if (toolName === "return_to_router") return "return_to_router";
     if (toolName === "user_interview") return "user_interview";
     if (/browser|agent-browser|screenshot|navigate|click|type/i.test(toolName)) {
         if (/screenshot/i.test(toolName)) return "screenshot";

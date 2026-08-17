@@ -54,9 +54,11 @@ specialist, that specialist remains the active root agent so follow-up messages 
 Use `/new` for a fresh routed session, or `/agent router` when you want the next message in the current session to go
 back through triage.
 
-Router is not a special session mode. It is the default Agent for fresh triage. Boot, `/agent`, workflow restores, and
-`return_to_router` all activate Agents through the same Agent Handler. Workflow progression is driven by Custom Tool
-outcomes such as `triage_report`, `plan_written`, and `task_completed`, not by special-casing a particular Agent name.
+Router is not a special session mode. It is the default Agent for fresh triage, `/agent router`, and explicit user
+requests to reassess. Boot, `/agent`, and workflow restores activate Agents through the same Agent Handler. Workflow
+progression is driven by Custom Tool outcomes such as `triage_report`, `plan_written`, and `task_completed`, not by
+special-casing a particular Agent name. During active execution, `/agent <name>` is an explicit user-owned release from
+workflow ownership; Plan and worktree recovery evidence stay available through `/load-plan`.
 
 ## Resume compaction
 

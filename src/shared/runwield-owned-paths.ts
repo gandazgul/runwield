@@ -35,9 +35,18 @@ function normalizeGitPath(path: string): string {
     return path.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/+/g, "/").replace(/\/$/, "");
 }
 
+function isWorktreeRegistryTempPath(path: string): boolean {
+    const prefix = `${underRunWield(WORKTREE_REGISTRY_FILE)}.`;
+    const suffix = ".tmp";
+    if (!path.startsWith(prefix) || !path.endsWith(suffix)) return false;
+    const token = path.slice(prefix.length, -suffix.length);
+    return token.length > 0 && !token.includes("/");
+}
+
 export function isRunWieldOwnedRuntimePath(path: string): boolean {
     const normalized = normalizeGitPath(path);
     if (!normalized || normalized === RUNWIELD_DIR_NAME) return false;
+    if (isWorktreeRegistryTempPath(normalized)) return true;
     for (const dir of OWNED_DIRECTORIES) {
         if (normalized === dir || normalized.startsWith(`${dir}/`)) return true;
     }

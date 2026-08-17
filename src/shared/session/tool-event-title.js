@@ -183,6 +183,5 @@ export function describeRuntimeTool(toolName, args) {
     else if (toolName === "work_record_read") kind = "read";
     else if (toolName === "bash") kind = "execute";
     else if (toolName === "code_investigate" || toolName === "delegate_agent") kind = "think";
-    else if (toolName === "return_to_router") kind = "switch_mode";
     return { toolName, title: formatToolEventTitle(toolName, args), kind };
 }

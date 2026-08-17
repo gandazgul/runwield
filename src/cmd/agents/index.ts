@@ -93,7 +93,7 @@ async function runAgentsCommandTUI(
     }
 
     if (sessionId && sessionRuntime) {
-        await sessionRuntime.switchAgent(sessionId, { agentName: match.name });
+        await sessionRuntime.switchAgent(sessionId, { agentName: match.name, releaseActiveWorkflow: true });
         if (!sessionRuntime.getSessionSnapshot(sessionId)?.name) {
             setTerminalTitleForName(`${basename(projectRoot || getCwd())} - ${match.name}`);
         }

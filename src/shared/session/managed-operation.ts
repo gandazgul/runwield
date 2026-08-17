@@ -25,7 +25,6 @@ export type ManagedOperationDescriptor = {
         agentName?: string;
         toolNames?: string[];
         customTools?: import("@earendil-works/pi-coding-agent").ToolDefinition[];
-        allowReturnToRouter?: boolean;
         includeEditFallback?: boolean;
         onTurnStarted?: ManagedTurnStarted;
         emitBusyEvents?: boolean;
