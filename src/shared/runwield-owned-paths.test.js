@@ -7,12 +7,18 @@ Deno.test("RunWield owned runtime path predicate covers only enumerated runtime 
         assertEquals(isRunWieldOwnedRuntimePath(`${path}/child.json`), true, `${path}/child.json`);
     }
 
+    for (const path of [".wld/worktrees.json.abc.tmp", "./.wld/worktrees.json.abc.tmp"]) {
+        assertEquals(isRunWieldOwnedRuntimePath(path), true, path);
+    }
+
     for (
         const path of [
             ".wld/settings.json",
             ".wld/agents/a.md",
             ".wld/skills/s/SKILL.md",
             ".wld/prompt-templates/a.md",
+            ".wld/worktrees.json.tmp",
+            ".wld/worktrees.json.abc.tmp/child.json",
             ".wld",
             ".wldx/plan-locks/a.lock",
             "src/main.js",

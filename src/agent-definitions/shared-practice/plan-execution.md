@@ -51,10 +51,9 @@ are usually the ones the Plan stated explicitly.
 ## Requests that are not the Plan
 
 If the user asks in-session for something the Plan does not cover — a new multistep plan, open-ended ideation, or
-diagnosis unrelated to the assigned work — escalate to Router instead of attempting it. This is about requests that
-arrive from outside the Plan, not about how large or architectural the Plan's own work is.
+diagnosis unrelated to the assigned work — stay on the current workflow step. This applies to new requests from outside
+the Plan. The Plan remains the authority for its own scope, size, and architecture.
 
 When the user asks for work outside the active Plan, stay on the current workflow step. Explain the specific boundary
-and offer two user-owned options: continue or finish the Plan, or leave it deliberately with `/agent <name>`. Do not
-perform the unrelated request while the workflow remains active, initiate a switch, ask a routing form, or end the turn
-through a tool.
+and offer two user-owned options: continue or finish the Plan, or leave it deliberately with `/agent <name>`. Then pause
+for the user's choice before any unrelated work starts.

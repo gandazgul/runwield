@@ -124,20 +124,26 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-15T13:03:40-0400"
-updatedAt: "2026-08-17T16:44:58.732Z"
-status: "in_progress"
 origin: "internal"
 userVerifiedAt: null
-humanReviewMode: null
-humanReviewDecision: null
-validationCheckpoint: null
 executionMode: "worktree"
 executionBaselineTree: "96a0c16ca15e53e7cd9689c336a467c32db3ab7b"
 worktreeId: "8b13b1a0"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-remove-return-to-router-user-owned-transitions-8b13b1a0"
 worktreeBranch: "worktree/remove-return-to-router-user-owned-transitions-8b13b1a0"
 worktreeBaseBranch: "main"
-worktreeStatus: "active"
+implementedAt: "2026-08-17T17:53:45.473Z"
+executionReport: "- Merged `main` into the execution worktree before implementation; used a temporary Plan-file stash to get past merge blocking, resolved the Plan metadata conflict by keeping the active execution metadata, then dropped the stash.\n- Removed the `return_to_router` tool, registry entry, auto-wiring, MCP lifecycle special-case, metrics mapping, TUI presentation path, workflow-result helpers, AgentHandler handoff result, SessionRuntime chained-turn loop, and handoff counters/result fields.\n- Rewrote Agent prompts, shared QUICK_FIX/Plan execution practice, attention nudges, code-optimizer prompt, and current docs so Agents state concrete limits and offer user-owned `/agent` options instead of switching control.\n- Added explicit user-owned workflow release: `/agent` passes `releaseActiveWorkflow: true`; `switchActiveAgent` releases only after successful Agent commit, keeps `workflowContext`, emits planned/QUICK_FIX notices, releases same-Agent user switches, and preserves workflow on failed activation/internal switches.\n- Implemented QUICK_FIX continuity: after each no-plan Mechanical Validation, the Engineer QUICK_FIX workflow is re-armed with a fresh attempt timestamp and no stale completion receipt, so later `task_completed` calls validate again.\n- Added/updated tests for absent bundled tool lists, one-turn prompt results, user-authorized release, failed/same-Agent/internal switch behavior, QUICK_FIX re-arm, prompt contract text, and removed-tool absence.\n- Test-count delta across changed test files: 232 → 226 (`-6`). Rewritten: Guide tool-policy test now checks read-only tools without the removed tool; effective-tool filtering test now checks no removed-tool special case; same-Agent root-policy test now checks explicit `forceRebuild`; validation prompt escape-hatch test now checks removed-tool absence by constructed name. Deleted because the behavior no longer exists: return-tool definition/execute/metric/outcome tests (5), build/read handoff helpers (2), session-runtime chained router handoff (1), OPERATION router handoff (1), Claude CLI return handoff/lifecycle gating (2), TUI handoff-reason folding (1), and tool-title switch-mode mapping (1).\n- Fixed one merged-main golden race while verifying: slash-command share now waits for the suggestion and sends the confirming Enter before asserting the GitHub CLI unavailable message.\n- Verification passed: objective greps and OC5/OC6/OC7 checks passed; targeted suite passed (`session-runtime`, `agent-switching`, `agent-handler`, `task-completion-session`, `session-tools-policy`, `workflow-results`, `orchestrator`); focused OC6/OC7 filters passed; final `deno task ci` passed (`330 files passed | 0 failed`).\n- Manual TUI checklist from the Plan was not run as a live interactive human session; equivalent TUI behavior was covered by the golden tests included in `deno task ci`."
+validationObjectiveCheckAttempts: 0
+validationCheckpoint: null
+validationSemanticRounds: 0
+humanReviewMode: "ask"
+worktreeStatus: "validation_failed"
+validationCiAttempts: 0
+status: "validated_reviewer"
+updatedAt: "2026-08-17T22:53:29.062Z"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-17T22:53:26.476Z"
 ---
 
 # Remove return_to_router and Make Agent Transitions User-Owned
