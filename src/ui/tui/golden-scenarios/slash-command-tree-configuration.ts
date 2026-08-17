@@ -34,11 +34,19 @@ type ModelTurn = {
     systemPrompt?: string;
 };
 
+type SystemMessage = {
+    text?: string;
+    isError?: boolean;
+    header?: string;
+};
+
 type ConfigurationScenarioResult = Parameters<typeof assertEventIncludes>[0] & {
     state: {
         modelTurns?: ModelTurn[];
         globalSettings?: { defaultModel?: string; defaultProvider?: string };
         scriptedInteractions?: Array<{ interaction?: { value?: string } }>;
+        systemMessages?: SystemMessage[];
+        snapshot?: { activeAgent?: string | null; activeModel?: { model?: string; provider?: string } };
     };
 };
 
@@ -116,6 +124,18 @@ function assertPlannerPrecedence(result: ConfigurationScenarioResult, model: str
     assertFooter(result, "Planner", model);
 }
 
+function assertSystemError(result: ConfigurationScenarioResult, marker: string) {
+    const message = result.state.systemMessages?.find((entry) => entry.text?.includes(marker));
+    assert(message, `Expected system message containing ${marker}`);
+    assertEquals(message.isError, true);
+}
+
+function assertPlannerEventAfterLastAgentCommand(result: ConfigurationScenarioResult) {
+    const lastAgentCommand = result.events.lastIndexOf("terminal:type:/agent planner");
+    const firstPlannerEvent = result.events.indexOf("runtime:agent:planner");
+    assert(firstPlannerEvent > lastAgentCommand, "Expected Planner activation only after the recovery /agent command");
+}
+
 export const slashAgentScenario = {
     name: "slash-command-agent-preset-model-precedence",
     slashCommands: ["agent"],
@@ -131,6 +151,73 @@ export const slashAgentScenario = {
     assertions: [
         (result: ConfigurationScenarioResult) => assertEventIncludes(result, "terminal:type:/agent planner"),
         (result: ConfigurationScenarioResult) => assertEventIncludes(result, "runtime:agent:planner"),
+        (result: ConfigurationScenarioResult) => assertPlannerPrecedence(result, PRESET_MODEL),
+    ],
+};
+
+export const slashAgentUnavailablePresetRecoveryScenario = {
+    name: "slash-command-agent-unavailable-preset-model-recovery",
+    composedTui: true,
+    initialAgentName: "guide",
+    terminal: { columns: 100, rows: 30 },
+    models: goldenModels,
+    globalSettings: {
+        ...configuredSettings(),
+        activeModelPreset: "broken-model",
+        modelPresets: {
+            "broken-model": {
+                agents: { planner: { model: `${GOLDEN_PROVIDER}/missing-preset-model` } },
+            },
+            "broken-provider": {
+                agents: { planner: { model: "missing-provider/missing-model" } },
+            },
+            "golden-preset": {
+                agents: { planner: { model: `${GOLDEN_PROVIDER}/${PRESET_MODEL}` } },
+            },
+        },
+    },
+    initialProjectFiles: plannerFixture,
+    captureModelTurns: true,
+    captureSystemMessages: true,
+    scriptedInteractions: [
+        { type: "select", promptIncludes: "Settings", value: "model-presets" },
+        { type: "select", promptIncludes: "Model Presets", value: "preset:broken-provider" },
+        { type: "select", promptIncludes: "Model Presets", value: "back" },
+        { type: "select", promptIncludes: "Settings", value: "done" },
+        { type: "select", promptIncludes: "Settings", value: "model-presets" },
+        { type: "select", promptIncludes: "Model Presets", value: "preset:golden-preset" },
+        { type: "select", promptIncludes: "Model Presets", value: "back" },
+        { type: "select", promptIncludes: "Settings", value: "done" },
+    ],
+    script: plannerScript("agent-unavailable-preset-recovery"),
+    actions: [
+        { type: "type", text: "/agent planner" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForScreen", text: 'Could not switch to Agent "planner"' },
+        { type: "waitForScreen", text: `${GOLDEN_PROVIDER}/missing-preset-model` },
+        { type: "waitForIdle" },
+        { type: "type", text: "/settings" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForScreen", text: "Active model preset set to broken-provider." },
+        { type: "waitForIdle" },
+        { type: "type", text: "/agent planner" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForScreen", text: "missing-provider/missing-model" },
+        { type: "waitForIdle" },
+        { type: "type", text: "/settings" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForScreen", text: "Active model preset set to golden-preset." },
+        { type: "waitForIdle" },
+        ...switchToPlannerAndSend("Recover with the valid preset model."),
+    ],
+    assertions: [
+        (result: ConfigurationScenarioResult) => assertSystemError(result, `${GOLDEN_PROVIDER}/missing-preset-model`),
+        (result: ConfigurationScenarioResult) => assertSystemError(result, "missing-provider/missing-model"),
+        (result: ConfigurationScenarioResult) => assertPlannerEventAfterLastAgentCommand(result),
         (result: ConfigurationScenarioResult) => assertPlannerPrecedence(result, PRESET_MODEL),
     ],
 };
@@ -238,6 +325,60 @@ export const slashModelScenario = {
     ],
 };
 
+export const slashModelUnavailableOverrideRecoveryScenario = {
+    name: "slash-command-model-unavailable-override-recovery",
+    composedTui: true,
+    initialAgentName: "guide",
+    terminal: { columns: 100, rows: 30 },
+    models: goldenModels,
+    globalSettings: configuredSettings(),
+    initialProjectFiles: plannerFixture,
+    captureModelTurns: true,
+    captureGlobalSettings: true,
+    captureSystemMessages: true,
+    script: plannerScript("manual-model-unavailable-recovery"),
+    actions: [
+        { type: "type", text: `/model ${GOLDEN_PROVIDER}/missing-manual` },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForScreen", text: `Unknown model: ${GOLDEN_PROVIDER}/missing-manual` },
+        { type: "waitForScreen", text: `${GOLDEN_PROVIDER}/faux` },
+        { type: "waitForIdle" },
+        { type: "type", text: "/model missing-provider/missing-model" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForScreen", text: "Unknown model: missing-provider/missing-model" },
+        { type: "waitForScreen", text: `${GOLDEN_PROVIDER}/faux` },
+        { type: "waitForIdle" },
+        { type: "type", text: `/model ${GOLDEN_PROVIDER}/${MANUAL_MODEL}` },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForScreen", text: `Switched model to ${GOLDEN_PROVIDER}/${MANUAL_MODEL}` },
+        { type: "waitForIdle" },
+        ...switchToPlannerAndSend("Recover with the manual model override."),
+    ],
+    assertions: [
+        (result: ConfigurationScenarioResult) => assertSystemError(result, `${GOLDEN_PROVIDER}/missing-manual`),
+        (result: ConfigurationScenarioResult) => assertSystemError(result, "missing-provider/missing-model"),
+        (result: ConfigurationScenarioResult) => assertPlannerEventAfterLastAgentCommand(result),
+        (result: ConfigurationScenarioResult) => assertEquals(result.state.modelTurns?.length, 1),
+        (result: ConfigurationScenarioResult) =>
+            assertTurn(result, 0, {
+                agent: "planner",
+                model: MANUAL_MODEL,
+                promptIncludes: [
+                    "You are the Planner — the Planned Change planning specialist in the RunWield system.",
+                    PLANNER_PROMPT_MARKER,
+                ],
+            }),
+        (result: ConfigurationScenarioResult) => assertFooter(result, "Planner", MANUAL_MODEL),
+        (result: ConfigurationScenarioResult) => {
+            assertEquals(result.state.globalSettings?.defaultProvider, GOLDEN_PROVIDER);
+            assertEquals(result.state.globalSettings?.defaultModel, MANUAL_MODEL);
+        },
+    ],
+};
+
 export const slashThemeScenario = {
     name: "slash-command-theme",
     slashCommands: ["theme"],
@@ -281,10 +422,12 @@ export const slashSettingsScenario = {
 
 export const slashCommandConfigurationScenarios = [
     slashAgentScenario,
+    slashAgentUnavailablePresetRecoveryScenario,
     slashAgentBaseSettingScenario,
     slashAgentDefaultModelScenario,
     slashAgentFrontmatterModelScenario,
     slashModelScenario,
+    slashModelUnavailableOverrideRecoveryScenario,
     slashThemeScenario,
     slashSettingsScenario,
 ];

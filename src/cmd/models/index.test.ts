@@ -11,21 +11,26 @@ interface ModelSelectItem {
     label: string;
 }
 
+interface SystemMessage {
+    text: string;
+    isError: boolean;
+}
+
 interface ModelsUiFixture {
     editor: {
         disableSubmit: boolean;
         setText(text: string): void;
     };
-    messages: string[];
+    messages: SystemMessage[];
     uiAPI: {
-        appendSystemMessage(message: string): void;
+        appendSystemMessage(message: string, isError?: boolean): void;
         promptSelect(title: string, options: ModelSelectItem[]): Promise<string | null>;
         showModelSelector?: () => Promise<void> | void;
     };
 }
 
 function makeUi(selection: string | null = null): ModelsUiFixture {
-    const messages: string[] = [];
+    const messages: SystemMessage[] = [];
     return {
         messages,
         editor: {
@@ -33,7 +38,7 @@ function makeUi(selection: string | null = null): ModelsUiFixture {
             setText: () => {},
         },
         uiAPI: {
-            appendSystemMessage: (message) => messages.push(message),
+            appendSystemMessage: (message, isError = false) => messages.push({ text: message, isError }),
             promptSelect: (_title, options) => {
                 if (selection && !options.some((option) => option.value === selection)) {
                     throw new Error(`Fixture model was not offered: ${selection}`);
@@ -75,7 +80,7 @@ Deno.test("runModelsCommand switches an explicit configured model through the re
             });
             assertEquals(getSettingsManager(projectRoot).getDefaultModel(), "fixture-model");
             assertEquals(getSettingsManager(projectRoot).getDefaultProvider(), "runtime-command-fixture");
-            assertEquals(ui.messages, [`Switched model to ${FIXTURE_MODEL}`]);
+            assertEquals(ui.messages, [{ text: `Switched model to ${FIXTURE_MODEL}`, isError: false }]);
         } finally {
             runtime.closeAllSessions();
         }
@@ -110,7 +115,7 @@ Deno.test("runModelsCommand switches a new in-memory Session before its first me
                     model: "fixture-model",
                     provider: "runtime-command-fixture",
                 });
-                assertEquals(ui.messages, [`Switched model to ${FIXTURE_MODEL}`]);
+                assertEquals(ui.messages, [{ text: `Switched model to ${FIXTURE_MODEL}`, isError: false }]);
 
                 const firstTurn = await runtime.promptUserTurn(sessionId, { initialRequest: "Use this model" });
                 assertEquals(firstTurn.ok, true);
@@ -189,7 +194,7 @@ Deno.test("runModelsCommand fallback selector lists and switches real configured
                 model: "fixture-model",
                 provider: "runtime-command-fixture",
             });
-            assertEquals(ui.messages, [`Switched model to ${FIXTURE_MODEL}`]);
+            assertEquals(ui.messages, [{ text: `Switched model to ${FIXTURE_MODEL}`, isError: false }]);
             assertEquals(ui.editor.disableSubmit, false);
         } finally {
             runtime.closeAllSessions();
@@ -220,9 +225,65 @@ Deno.test("runModelsCommand validates and resolves model references with real ma
         await runModelsCommand(["runtime-command-fixture/missing"], { uiAPI: ui.uiAPI });
 
         assertEquals(ui.messages, [
-            "Invalid model format. Use /model to switch.",
-            "Unknown model: runtime-command-fixture/missing. Use /model to switch.",
+            { text: "Invalid model format. Use /model to switch.", isError: true },
+            { text: "Unknown model: runtime-command-fixture/missing. Use /model to switch.", isError: true },
         ]);
+    });
+});
+
+Deno.test("runModelsCommand keeps the current model after unavailable selections and recovers", async () => {
+    await withRuntimeCommandFixture("runwield-model-command-", async ({ projectRoot }) => {
+        const ui = makeUi();
+        const runtime = createSessionRuntime();
+        try {
+            const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+            await runModelsCommand([FIXTURE_MODEL], {
+                uiAPI: ui.uiAPI,
+                sessionId,
+                sessionRuntime: runtime,
+            });
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                model: "fixture-model",
+                provider: "runtime-command-fixture",
+            });
+            ui.messages.length = 0;
+
+            await runModelsCommand(["runtime-command-fixture/missing"], {
+                uiAPI: ui.uiAPI,
+                sessionId,
+                sessionRuntime: runtime,
+            });
+            await runModelsCommand(["missing-provider/missing"], {
+                uiAPI: ui.uiAPI,
+                sessionId,
+                sessionRuntime: runtime,
+            });
+
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                model: "fixture-model",
+                provider: "runtime-command-fixture",
+            });
+            assertEquals(getSettingsManager(projectRoot).getDefaultModel(), "fixture-model");
+            assertEquals(getSettingsManager(projectRoot).getDefaultProvider(), "runtime-command-fixture");
+            assertEquals(ui.messages, [
+                { text: "Unknown model: runtime-command-fixture/missing. Use /model to switch.", isError: true },
+                { text: "Unknown model: missing-provider/missing. Use /model to switch.", isError: true },
+            ]);
+
+            await runModelsCommand([FIXTURE_MODEL], {
+                uiAPI: ui.uiAPI,
+                sessionId,
+                sessionRuntime: runtime,
+            });
+
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                model: "fixture-model",
+                provider: "runtime-command-fixture",
+            });
+            assertEquals(ui.messages.at(-1), { text: `Switched model to ${FIXTURE_MODEL}`, isError: false });
+        } finally {
+            runtime.closeAllSessions();
+        }
     });
 });
 

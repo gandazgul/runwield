@@ -93,9 +93,28 @@ async function runAgentsCommandTUI(
     }
 
     if (sessionId && sessionRuntime) {
-        await sessionRuntime.switchAgent(sessionId, { agentName: match.name });
-        if (!sessionRuntime.getSessionSnapshot(sessionId)?.name) {
-            setTerminalTitleForName(`${basename(projectRoot || getCwd())} - ${match.name}`);
+        try {
+            const switchResult = await sessionRuntime.switchAgent(sessionId, { agentName: match.name });
+            if (!switchResult?.ok) {
+                const detail = typeof switchResult?.error === "string" ? switchResult.error : "Agent switch failed";
+                uiAPI.appendSystemMessage(
+                    `Could not switch to Agent "${match.name}": ${detail}. The active Agent did not change. Use /model or /settings to choose an available model, then try /agent again.`,
+                    true,
+                );
+                tui.setFocus(editor as import("../../ui/tui/types.js").EditorAPI & Component);
+                return;
+            }
+            if (!sessionRuntime.getSessionSnapshot(sessionId)?.name) {
+                setTerminalTitleForName(`${basename(projectRoot || getCwd())} - ${match.name}`);
+            }
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            uiAPI.appendSystemMessage(
+                `Could not switch to Agent "${match.name}": ${detail}. The active Agent did not change. Use /model or /settings to choose an available model, then try /agent again.`,
+                true,
+            );
+            tui.setFocus(editor as import("../../ui/tui/types.js").EditorAPI & Component);
+            return;
         }
     }
 
