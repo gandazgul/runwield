@@ -5,6 +5,7 @@
 
 import { dirname, join, relative } from "@std/path";
 import { createSessionRuntime } from "../../../shared/session/session-runtime.js";
+import { RuntimeEventTypes } from "../../../shared/session/session-runtime-events.js";
 import { openFileSessionStore } from "../../../shared/session/file-session-store.ts";
 import { assert } from "@std/assert";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
@@ -146,7 +147,8 @@ function findFixturePlanLifecycle(directory, expectedStatus) {
  * @property {string[]} [coverage]
  * @property {number} [timeoutMs]
  * @property {boolean} [composedTui]
- * @property {{ userText: string, agentName?: string, assistantText: string }} [priorSession]
+ * @property {{ userText: string, agentName?: string, assistantText: string, model?: string, provider?: string, planName?: string, classification?: string, complexity?: string, interrupted?: boolean }} [priorSession]
+ * @property {boolean} [corruptSession]
  * @property {"default" | "none" | "provider-without-models"} [modelSetup]
  * @property {Array<{ id: string, name?: string, reasoning?: boolean }>} [models]
  * @property {Record<string, unknown>} [globalSettings]
@@ -307,7 +309,14 @@ function inferGoldenTurnIdentity(snapshotAgentName, availableTools, systemPrompt
     }
     if (systemPrompt.includes("You are the Software Engineer")) return { agent: "engineer", phase: "engineer" };
     if (availableTools.includes("slicer_finalize_decomposition")) return { agent: "slicer", phase: "slicer" };
-    if (availableTools.includes("plan_written")) return { agent: "planner", phase: "plan_review" };
+    if (availableTools.includes("plan_written")) {
+        // Planner and Architect deliberately share the Plan tool surface. The
+        // prompt identifies which planning Agent owns the turn; assuming every
+        // plan_written turn is Planner made PROJECT Goldens unable to prove the
+        // Router actually invoked Architect.
+        if (systemPrompt.includes("You are the Architect")) return { agent: "architect", phase: "plan_review" };
+        return { agent: "planner", phase: "plan_review" };
+    }
     // Workflow Validation runs the Semantic Reviewer in an isolated session while
     // the composed Runtime still reports Engineer as the active Agent, so only the
     // tool set tells them apart. Giving the Reviewer its own identity keeps its
@@ -515,19 +524,123 @@ async function seedGoldenPriorSession(priorSession, fauxProvider) {
     const sessionStore = openFileSessionStore();
     const runtime = createSessionRuntime({ sessionStore, ownerProcessKind: "tui" });
     try {
-        fauxProvider.setResponses([() =>
-            createFauxMessageForTurn({
-                id: "prior-session-seed",
-                agent: priorSession.agentName || "guide",
-                phase: priorSession.agentName || "guide",
-                text: priorSession.assistantText,
-            })]);
+        fauxProvider.setResponses([
+            () =>
+                createFauxMessageForTurn({
+                    id: "prior-session-seed",
+                    agent: priorSession.agentName || "guide",
+                    phase: priorSession.agentName || "guide",
+                    text: priorSession.assistantText,
+                }),
+            ...(priorSession.planName
+                ? [() =>
+                    createFauxMessageForTurn({
+                        id: "prior-session-plan-context",
+                        agent: "planner",
+                        phase: "plan_review",
+                        text: "Persisted the Plan context for a later resumed turn.",
+                    })]
+                : []),
+        ]);
         const created = await runtime.createInteractiveSession({ cwd: Deno.cwd(), mode: "new" });
         if (priorSession.agentName) await runtime.switchAgent(created.sessionId, { agentName: priorSession.agentName });
+        if (priorSession.model) {
+            await runtime.reconfigureSessionModel(
+                created.sessionId,
+                priorSession.model,
+                priorSession.provider || GOLDEN_FAUX_PROVIDER,
+            );
+        }
         await runtime.promptSession(created.sessionId, { initialRequest: priorSession.userText });
+        if (priorSession.planName) {
+            await runtime.runPlanningAgent(created.sessionId, {
+                agentName: "planner",
+                initialRequest: `Preserve Plan context for ${priorSession.planName}.`,
+                planName: priorSession.planName,
+                triageMeta: {
+                    classification: priorSession.classification || "PLANNED_CHANGE",
+                    complexity: priorSession.complexity || "MEDIUM",
+                },
+            });
+            if (priorSession.agentName) {
+                await runtime.switchAgent(created.sessionId, { agentName: priorSession.agentName });
+            }
+        }
+        let interrupted = false;
+        if (priorSession.interrupted) {
+            fauxProvider.setResponses([() =>
+                createFauxMessageForTurn({
+                    id: "prior-session-interrupted-turn",
+                    agent: priorSession.agentName || "guide",
+                    phase: priorSession.agentName || "guide",
+                    text: "This response should be interrupted before it completes. ".repeat(200),
+                })]);
+            let resolveStreaming = () => {};
+            const streaming = new Promise((resolve) => {
+                resolveStreaming = () => resolve(undefined);
+            });
+            const unsubscribe = runtime.subscribeSessionEvents(created.sessionId, (event) => {
+                if (event.type === RuntimeEventTypes.ASSISTANT_TEXT_DELTA) resolveStreaming();
+            });
+            const interruptedTurn = runtime.promptSession(created.sessionId, {
+                initialRequest: "This request is interrupted before restart.",
+            });
+            try {
+                await Promise.race([
+                    streaming,
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error("Golden interrupted turn did not start streaming.")), 3_000)
+                    ),
+                ]);
+                const cancellation = runtime.cancelSession(created.sessionId);
+                await interruptedTurn.catch(() => {});
+                interrupted = cancellation.ok === true && cancellation.aborted === true;
+            } finally {
+                unsubscribe();
+            }
+            if (!interrupted) throw new Error("Golden prior Session turn could not be interrupted.");
+        }
+
         const replay = await runtime.replaySession(created.sessionId);
-        runtime.closeAllSessions();
-        return { sessionId: created.sessionId, replayed: replay.replayed || 0 };
+        const snapshot = runtime.getSessionSnapshot(created.sessionId);
+        await runtime.closeAllSessionsWhenIdle();
+
+        return {
+            sessionId: created.sessionId,
+            replayed: replay.replayed || 0,
+            managed: snapshot?.managed || null,
+            workflowContext: snapshot?.workflowContext || null,
+            activeAgent: snapshot?.activeAgent || null,
+            activeModel: snapshot?.activeModel || null,
+            interrupted,
+        };
+    } finally {
+        sessionStore.close?.();
+    }
+}
+
+/** @param {ReturnType<typeof registerFauxProvider>} fauxProvider */
+async function seedGoldenCorruptSession(fauxProvider) {
+    const sessionStore = openFileSessionStore();
+    const runtime = createSessionRuntime({ sessionStore, ownerProcessKind: "tui" });
+    try {
+        fauxProvider.setResponses([() =>
+            createFauxMessageForTurn({
+                id: "corrupt-session-seed",
+                agent: "guide",
+                phase: "inquiry",
+                text: "This transcript will be corrupted after it is safely closed.",
+            })]);
+        const created = await runtime.createInteractiveSession({ cwd: Deno.cwd(), mode: "new" });
+        await runtime.switchAgent(created.sessionId, { agentName: "guide" });
+        await runtime.promptSession(created.sessionId, { initialRequest: "seed corrupt resume fixture" });
+        const sessionManagerId = runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId;
+        const sessions = await runtime.listResumableSessions(Deno.cwd());
+        const persisted = sessions.find((session) => session.id === sessionManagerId);
+        await runtime.closeAllSessionsWhenIdle();
+        if (!persisted) throw new Error("Golden corrupt Session fixture was not persisted.");
+        await Deno.writeTextFile(persisted.path, "{corrupt-json\n");
+        return { id: persisted.id, path: persisted.path };
     } finally {
         sessionStore.close?.();
     }
@@ -617,6 +730,9 @@ async function runComposedTuiScenario(scenario, options) {
         const priorSessionState = fauxProvider
             ? await seedGoldenPriorSession(scenario.priorSession, fauxProvider)
             : null;
+        const corruptSessionState = scenario.corruptSession && fauxProvider
+            ? await seedGoldenCorruptSession(fauxProvider)
+            : null;
         const actor = new GoldenScenarioActor(scenario.script || []);
         /** @type {Map<string, number>} */
         const turnOrdinals = new Map();
@@ -638,6 +754,7 @@ async function runComposedTuiScenario(scenario, options) {
             editorUsable: true,
             cleanupSucceeded: false,
             priorSession: priorSessionState,
+            corruptSession: corruptSessionState,
             turnSequence,
         };
         /** @type {() => void} */
@@ -728,10 +845,11 @@ async function runComposedTuiScenario(scenario, options) {
                     options,
                 });
                 if (value === null) return Promise.resolve(null);
-                if (!Array.isArray(options) || !options.some((option) => option.value === value)) {
-                    throw new Error(`Scripted select returned invalid option: ${value}`);
+                const resolvedValue = value === "__first_option__" ? options?.[0]?.value : value;
+                if (!Array.isArray(options) || !options.some((option) => option.value === resolvedValue)) {
+                    throw new Error(`Scripted select returned invalid option: ${resolvedValue}`);
                 }
-                return Promise.resolve(value);
+                return Promise.resolve(resolvedValue);
             };
             uiAPI.promptText = (prompt, options) => {
                 const value = interactionSurface.next("text", { prompt, options });
