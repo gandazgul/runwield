@@ -14,7 +14,9 @@ Suggested sequence
 I would order the overlapping group like this:
 
 1. Finish remove-return-to-router-user-owned-transitions.md It is already in_progress, and the Engineer split explicitly
-   depends on it.
+   depends on it. - done
+
+   1. finish-agent-prompt-architecture-cleanup
 
 2. resume-validation-after-repair-completion.md Small ready bug fix. Stabilizes validation repair.
 

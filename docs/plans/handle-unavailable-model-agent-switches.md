@@ -44,47 +44,26 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-17T14:16:31-04:00"
-updatedAt: "2026-08-17T20:19:43.945Z"
+updatedAt: "2026-08-17T21:46:55.833Z"
 status: "implemented"
 origin: "internal"
-failureReason: "- System message capture does not forward the style argument\n  Plan: The Golden harness must preserve normal rendering by forwarding each captured appendSystemMessage call to the real UI API.\n  Evidence: src/ui/tui/testing/scenario-runner.js hunk around configureScriptedUiAPI: the replacement appendSystemMessage is declared as (text, isError = false, header) and calls originalAppendSystemMessage(text, isError, header). It drops the fourth style parameter from the real UiAPI appendSystemMessage(text, isError, header, style), so opt-in capture can change rendered system-message styling."
+failureReason: "All local submodules are initialized, pinned, and clean.\nSnip verified all generic Deno filters.\n[wld] version - ok\ntype check passed\n17:31:24 [types] Generated 30ms\n17:31:24 [check] Getting diagnostics for Astro files in /Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-handle-unavailable-model-agent-switches-b201eb02/src/ui/workspace...\nResult (113 files): \n- 0 errors\n- 0 warnings\n- 0 hints\n\nno lint errors\nLanguage policy baseline matches current production JS/JSX files.\nInjection-seam baseline holds: 0 seam(s) across 0 module(s), 0 of them machinery and 0 conditional seam(s) still to remove.\nChecked relative Markdown links in 423 tracked files.\n[wld] version - ok\nFAIL src/ui/tui/golden-scenarios/slash-command-terminal.test.ts — failure log: /var/folders/hw/zrm0bqr90xz63nflnb2g_qqr0000gn/T/tests-failure-61ad12e0d9a2f56f.log\n\nFAILED | 330 files passed | 1 failed (387.0s, 4 at a time)\n\n\u001b[0m\u001b[32mTask\u001b[0m \u001b[0m\u001b[36mci\u001b[0m deno task -q submodules:check && deno task -q snip:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q language-policy:check && deno task -q seams:check && deno task -q doc-links:check && deno task -q test\n"
 implementedAt: "2026-08-17T18:56:16.291Z"
 userVerifiedAt: null
 executionReport: "- Implemented `/agent` failure handling: unavailable model/provider switch failures now stay on the active Agent/model and render one error-styled recovery message.\n- Implemented `/model` error severity: invalid format and unknown model/provider selections now call `appendSystemMessage(..., true)` and do not change the active/default model.\n- Added opt-in Golden TUI `captureSystemMessages` support and registered two recovery journeys for bad preset model/provider and bad `/model` model/provider.\n- Added tests: +4 total tests/scenarios; no tests removed or replaced. Coverage added for Agent switch rollback, `/model` unchanged-state recovery, `/settings` preset recovery, and manual `/model` recovery.\n- Verification passed: `deno run -A scripts/run-tests.js src/cmd/agents/index.test.ts src/cmd/models/index.test.ts src/ui/tui/golden-scenarios/slash-command-configuration.test.ts src/ui/tui/golden-scenarios/slash-command-coverage.test.ts`.\n- Verification passed: `deno task seams:check`.\n- Verification incomplete: `deno task ci` failed twice on untouched `src/ui/tui/golden-scenarios/validation-workflow-publication.test.ts` with `Unused scripted Runtime interactions: 1`; rerunning that file alone passed."
 humanReviewMode: null
 humanReviewDecision: null
-validationCheckpoint:
-    version: 1
-    attemptId: "b201eb02"
-    generation: "57a98b2b-a339-45d9-af62-b9558c398600"
-    expectedStatus: "implemented"
-    nextPhase: "mechanical"
-    state: "awaiting_repair"
-    repairKind: "semantic"
-    repairGeneration: "5c7bdd1d-ce8f-4849-be70-8fc3fd0f4a92"
-    reviewState:
-        semanticRound: 1
-        reviewLedger:
-            items:
-                - id: "R1-1"
-                  openedInRound: 1
-                  resolvedInRound: null
-                  title: "System message capture does not forward the style argument"
-                  requirement: "The Golden harness must preserve normal rendering by forwarding each captured appendSystemMessage call to the real UI API."
-                  evidence: "src/ui/tui/testing/scenario-runner.js hunk around configureScriptedUiAPI: the replacement appendSystemMessage is declared as (text, isError = false, header) and calls originalAppendSystemMessage(text, isError, header). It drops the fourth style parameter from the real UiAPI appendSystemMessage(text, isError, header, style), so opt-in capture can change rendered system-message styling."
-            sequence: 1
-        repairBaselineTree: "c0f6521dfbf51e5e1b478ea8dc82e582ead70ff2"
-    updatedAt: "2026-08-17T20:19:43.914Z"
+validationCheckpoint: null
 executionMode: "worktree"
 executionBaselineTree: "0c7aa06cc07fa1da6987c0f476ff7c9b5250aaa7"
 worktreeId: "b201eb02"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-handle-unavailable-model-agent-switches-b201eb02"
 worktreeBranch: "worktree/handle-unavailable-model-agent-switches-b201eb02"
 worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+worktreeStatus: "validation_failed"
 validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
-validationSemanticRounds: 1
+validationSemanticRounds: 0
 ---
 
 # Handle Unavailable Models During Agent Switches
