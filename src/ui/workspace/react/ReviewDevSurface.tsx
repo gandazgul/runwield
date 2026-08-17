@@ -607,6 +607,32 @@ export function ReviewDevSurface({ surface }) {
     const isPlan = surface === "plan";
     const [guideVariant, setGuideVariant] = React.useState("ready");
     const [planVariant, setPlanVariant] = React.useState("feature");
+    const planNotice = planVariant === "stale"
+        ? {
+            state: "stale",
+            title: "Refresh Plan required",
+            message: "The Plan changed while this review was open. Refresh the Plan before you submit a new decision.",
+            actionLabel: "Refresh Plan",
+            actionHref: "/dev/plan-review",
+        }
+        : planVariant === "expired"
+        ? {
+            state: "expired",
+            title: "Review no longer active",
+            message:
+                "The active process no longer owns this review. Return to the Session and ask the Agent to resubmit this Plan.",
+            actionLabel: "Return to Session",
+            actionHref: "/projects/dev/sessions/planner-fixture?prefill=Please%20resubmit%20this%20Plan%20for%20review",
+        }
+        : planVariant === "recovery"
+        ? {
+            state: "recovery",
+            title: "Recovery required",
+            message: "RunWield cannot prove the current Plan evidence. Use TUI recovery, then review the Plan again.",
+            actionLabel: "Return to Session",
+            actionHref: "/projects/dev/sessions/planner-fixture",
+        }
+        : null;
     const planPayload = planVariant === "project"
         ? {
             plan: PROJECT_PLAN_FIXTURE,
@@ -614,6 +640,7 @@ export function ReviewDevSurface({ surface }) {
             mode: "dev",
             classification: "PROJECT",
             frontmatter: { classification: "PROJECT" },
+            reviewNotice: planNotice,
         }
         : {
             plan: PLAN_FIXTURE,
@@ -630,6 +657,16 @@ export function ReviewDevSurface({ surface }) {
                 collaborationRecommendation: "autonomous",
                 source: "canonical",
             },
+            reviewContext: {
+                projectLabel: "Personal Remote Workspace",
+                sessionLabel: "Planner Session",
+                sessionHref: "/projects/dev/sessions/planner-fixture",
+                planLabel: "Fixture Test Plan",
+                actingSession: "Planner Session",
+                planStatus: "draft",
+                live: true,
+            },
+            reviewNotice: planNotice,
         };
     const readPlanPayload = {
         surface: "artifact-read",
@@ -663,6 +700,9 @@ export function ReviewDevSurface({ surface }) {
                 [
                     { id: "feature", label: "FEATURE Plan" },
                     { id: "project", label: "PROJECT Epic" },
+                    { id: "stale", label: "Stale review" },
+                    { id: "expired", label: "Expired review" },
+                    { id: "recovery", label: "Recovery required" },
                     { id: "read-plan", label: "Read-only Plan" },
                     { id: "read-work-record", label: "Read-only Work Record" },
                 ].map((variant) =>

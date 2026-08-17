@@ -1,6 +1,15 @@
 import { MarkdownView } from "./MarkdownView.jsx";
 
-const MESSAGE_TYPES = new Set(["message", "thinking", "tool", "status", "usage", "interaction", "interruption"]);
+const MESSAGE_TYPES = new Set([
+    "message",
+    "thinking",
+    "tool",
+    "status",
+    "usage",
+    "interaction",
+    "plan-review",
+    "interruption",
+]);
 
 /** @param {unknown} value */
 function asRecord(value) {
@@ -95,14 +104,29 @@ export function reduceSessionEvents(events, options = {}) {
             return;
         }
         if (type === "interaction_requested") {
+            const requestType = text(event.interactionType || "text");
+            const review = asRecord(event.review);
             ensure(`interaction:${text(event.interactionId || id)}`, {
-                kind: "interaction",
+                kind: requestType === "plan_review" ? "plan-review" : "interaction",
                 key: event.eventId || `interaction:${text(event.interactionId || id)}`,
                 interactionId: text(event.interactionId || id),
                 request: {
-                    prompt: text(event.prompt || "The agent needs input."),
-                    type: text(event.interactionType || "text"),
+                    prompt: text(
+                        event.prompt ||
+                            (requestType === "plan_review" ? "Plan ready for review." : "The agent needs input."),
+                    ),
+                    type: requestType,
+                    planReview: requestType === "plan_review"
+                        ? {
+                            planId: text(review.planId),
+                            planName: text(review.planName || "Plan"),
+                            classification: text(review.classification || "PLANNED_CHANGE"),
+                            expectedStatus: text(review.expectedStatus),
+                            expectedRevision: text(review.expectedRevision),
+                        }
+                        : null,
                 },
+                status: "live",
                 timestamp,
                 source,
             });
@@ -201,6 +225,22 @@ export function SessionTimeline({ items, events, emptyMessage = "No committed ti
                                             Answer interaction
                                         </button>
                                     )
+                                    : null}
+                            </article>
+                        )
+                        : item.kind === "plan-review"
+                        ? (
+                            <article className="session-plan-review-card" aria-label="Plan ready for review">
+                                <p className="kicker">Plan ready for review</p>
+                                <strong>{item.request?.planReview?.planName || "Plan"}</strong>
+                                <p>
+                                    {item.request?.planReview?.classification || "PLANNED_CHANGE"}
+                                    {item.request?.planReview?.expectedStatus
+                                        ? ` · ${item.request.planReview.expectedStatus}`
+                                        : ""}
+                                </p>
+                                {item.reviewUrl
+                                    ? <a className="rw-plan-review-link" href={item.reviewUrl}>Review Plan</a>
                                     : null}
                             </article>
                         )

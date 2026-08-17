@@ -71,6 +71,7 @@ export function PlanReviewSurface({ payload }) {
     const planClassification = trustedPolicy.classification;
     const showExecutionPolicyControls = trustedPolicy.canSelectExecutionPolicy;
     const primaryApprovalAction = primaryPlanApprovalActionForClassification(planClassification);
+    const outcomeCopy = reviewOutcomeCopy(submitted, planClassification, initialPayload.reviewContext?.sessionLabel);
     const [executionAgent, setExecutionAgent] = useState(trustedPolicy.executionAgent);
     const [collaborationRecommendation, setCollaborationRecommendation] = useState(
         trustedPolicy.collaborationRecommendation,
@@ -86,7 +87,9 @@ export function PlanReviewSurface({ payload }) {
                 ...buildReviewPayload(),
                 ...buildPlanSavePayload(),
             });
-            setSubmitted("approved");
+            setSubmitted(
+                approvalAction === PLAN_APPROVAL_ACTIONS.LATER ? "approved-later" : `approved-${approvalAction}`,
+            );
         } catch {
             // submit() owns the visible error state.
         } finally {
@@ -234,8 +237,8 @@ export function PlanReviewSurface({ payload }) {
                                     submitting !== null}
                                 isLoading={submitting === "feedback"}
                                 title={annotations.length === 0 && globalAttachments.length === 0
-                                    ? "Add an annotation before sending feedback"
-                                    : "Send all annotations"}
+                                    ? "Add an annotation or global comment before sending feedback"
+                                    : "Send feedback"}
                             />
                             <PlanApprovalSplitButton
                                 primaryAction={primaryApprovalAction}
@@ -245,6 +248,42 @@ export function PlanReviewSurface({ payload }) {
                             />
                         </div>
                     </header>
+                    {initialPayload.reviewContext && (
+                        <section className="rw-plan-review-context" aria-label="Plan review context">
+                            <nav aria-label="Plan location">
+                                <span>{initialPayload.reviewContext.projectLabel || "Project"}</span>
+                                <span aria-hidden="true">→</span>
+                                <a href={initialPayload.reviewContext.sessionHref || "#session"}>
+                                    {initialPayload.reviewContext.sessionLabel || "Session"}
+                                </a>
+                                <span aria-hidden="true">→</span>
+                                <span>{initialPayload.reviewContext.planLabel || "Plan"}</span>
+                            </nav>
+                            <div>
+                                <span>
+                                    {initialPayload.reviewContext.actingSession || "Acting Session not recorded"}
+                                </span>
+                                <span>{initialPayload.reviewContext.planStatus || "Status unknown"}</span>
+                                <span>{initialPayload.reviewContext.live ? "Live review" : "Settled review"}</span>
+                            </div>
+                        </section>
+                    )}
+                    {initialPayload.reviewNotice && (
+                        <section
+                            className={`rw-plan-review-notice state-${initialPayload.reviewNotice.state || "info"}`}
+                            role="status"
+                        >
+                            <strong>{initialPayload.reviewNotice.title || "Review status"}</strong>
+                            <p>{initialPayload.reviewNotice.message}</p>
+                            {initialPayload.reviewNotice.actionLabel && initialPayload.reviewNotice.actionHref
+                                ? (
+                                    <a href={initialPayload.reviewNotice.actionHref}>
+                                        {initialPayload.reviewNotice.actionLabel}
+                                    </a>
+                                )
+                                : null}
+                        </section>
+                    )}
                     {error && <p className="rw-review-error" role="alert">{error}</p>}
                     <ScrollViewportContext.Provider value={scrollViewport}>
                         <div className="rw-plannotator-plan-layout" data-sidebar-open={sidebarOpen}>
@@ -423,8 +462,8 @@ export function PlanReviewSurface({ payload }) {
                     />
                     <CompletionOverlay
                         submitted={submitted}
-                        title="Review decision sent"
-                        subtitle="You can return to RunWield."
+                        title={outcomeCopy.title}
+                        subtitle={outcomeCopy.subtitle}
                         agentLabel="RunWield"
                     />
                 </div>
@@ -438,13 +477,19 @@ export function PlanReviewSurface({ payload }) {
             console.log("Plan review dev decision", { endpoint, body });
             return;
         }
-        const response = await fetch(`/api/review/${endpoint}?token=${encodeURIComponent(initialPayload.token)}`, {
+        const targetUrl = initialPayload.submitUrl ||
+            `/api/review/${endpoint}?token=${encodeURIComponent(initialPayload.token)}`;
+        const headers = {
+            "content-type": "application/json",
+            "x-runwield-review-token": initialPayload.token,
+        };
+        if (initialPayload.csrfToken) headers["x-runwield-csrf"] = initialPayload.csrfToken;
+        const response = await fetch(targetUrl, {
             method: "POST",
-            headers: {
-                "content-type": "application/json",
-                "x-runwield-review-token": initialPayload.token,
-            },
-            body: JSON.stringify(body),
+            headers,
+            body: JSON.stringify(
+                initialPayload.submitUrl ? { requestId: crypto.randomUUID(), action: endpoint, ...body } : body,
+            ),
         });
         if (!response.ok) {
             const message = await response.text();
@@ -691,6 +736,31 @@ function SettingsIcon() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
     );
+}
+
+function reviewOutcomeCopy(submitted, classification, sessionLabel) {
+    const target = sessionLabel || "the Session";
+    if (submitted === "feedback") {
+        return {
+            title: "Feedback sent",
+            subtitle: `RunWield will return to ${target} so the Planner or Architect can revise this Plan.`,
+        };
+    }
+    if (submitted === "approved-later") {
+        return {
+            title: "Approved for later",
+            subtitle: classification === "PROJECT"
+                ? "This Epic is approved and saved for later decomposition."
+                : "This Plan is approved and saved for later execution.",
+        };
+    }
+    if (submitted === "approved-decompose") {
+        return { title: "Approved & Slice", subtitle: `RunWield will return to ${target} and start Slicer handoff.` };
+    }
+    if (submitted === "approved-run") {
+        return { title: "Approved & Run", subtitle: `RunWield will return to ${target} and start execution handoff.` };
+    }
+    return { title: "Review decision sent", subtitle: `RunWield will return to ${target}.` };
 }
 
 function toggleMarkdownCheckbox(markdown, lineNumber, checked) {

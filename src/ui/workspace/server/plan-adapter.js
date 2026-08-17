@@ -254,7 +254,7 @@ function lifecycleActionsForAttrs(attrs) {
         canResetToDraft: metadata.canResetToDraft,
         blockedReasons: metadata.blockedReasons,
         terminalMessage: CLOSED_STATUSES.includes(/** @type {any} */ (status))
-            ? "Closed Plans are terminal/read-only in this Workspace slice."
+            ? "Closed Plans are complete. Reopen or revise the Plan before making changes."
             : "",
         holdMessage: status === "on_hold" ? "On-hold Plans can be resumed or reset to draft." : "",
         dnd: {

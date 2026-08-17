@@ -24,6 +24,7 @@ import {
 } from "../plan-store.js";
 import { assertNotReservedEpicArtifactPlanName } from "../shared/epic-artifacts.ts";
 import { recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
+import { loadPlanActionEvidence } from "../shared/workflow/plan-actions.ts";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../shared/workflow/plan-approval.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 import {
@@ -529,6 +530,11 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 return recordWorkflowMetric(metric, cwd);
             }
 
+            const initialReviewEvidence = await loadPlanActionEvidence(cwd, planName);
+            const canonicalReviewEvidence = initialReviewEvidence.kind === "success"
+                ? initialReviewEvidence.evidence
+                : null;
+
             const recoverableReview = await requestRecoverablePlanReview({
                 requestReview: () =>
                     requestHostedSessionInteraction(
@@ -538,8 +544,13 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                             prompt: `Review plan "${planName}"`,
                             _meta: {
                                 cwd,
-                                planName,
+                                planId: canonicalReviewEvidence?.planId || planName,
+                                planName: canonicalReviewEvidence?.planName || planName,
                                 planPath,
+                                classification: effectiveMeta.classification,
+                                expectedRevision: canonicalReviewEvidence?.revision,
+                                expectedStatus: canonicalReviewEvidence?.status,
+                                expectedWorktree: canonicalReviewEvidence?.worktree,
                                 triageMeta: effectiveMeta,
                                 onOutput: onReviewServerOutput,
                                 onSurfaceReady: onReviewSurfaceReady,

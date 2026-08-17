@@ -212,7 +212,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             setTransientItems([]);
             if (truncated) {
                 setMessage(
-                    "Timeline budget exceeded. This Session is read-only until the complete Session UX is available.",
+                    "Timeline budget exceeded. Reload this Session to continue from the complete committed timeline.",
                 );
             }
         } catch (error) {
@@ -365,12 +365,15 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 const nextEvents = events.slice(current.observed);
                 let items = reduceOperationTransientItems(events);
                 if (payload.liveInteraction?.interactionId) {
+                    const request = payload.liveInteraction.request || {};
+                    const isPlanReview = request.type === "plan_review";
                     items = [...items, {
-                        kind: "interaction",
+                        kind: isPlanReview ? "plan-review" : "interaction",
                         key: `interaction:${payload.liveInteraction.interactionId}`,
                         interactionId: payload.liveInteraction.interactionId,
                         operationId: current.operationId,
-                        request: payload.liveInteraction.request,
+                        request,
+                        reviewUrl: request.reviewUrl,
                         source: "transient",
                     }];
                 }

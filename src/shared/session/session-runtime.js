@@ -4445,11 +4445,11 @@ export function deriveManagedSessionContinuationDecision(facts) {
         return { ok: false, code: "incomplete_projection", message: "The committed timeline is not complete." };
     }
     const snapshot = facts.projection.snapshot || {};
-    if (snapshot.workflowContext || snapshot.activeExecutionWorkflow) {
+    if (snapshot.activeExecutionWorkflow) {
         return {
             ok: false,
             code: "active_workflow_read_only",
-            message: "This workflow Session is read-only until Workspace Plan actions are available.",
+            message: "This Session is running work. It becomes available when that work finishes.",
         };
     }
     return {

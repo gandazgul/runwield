@@ -144,8 +144,8 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         const html = await page.text();
         assertStringIncludes(html, "Project Plan Board");
         assertStringIncludes(html, "Visible owner plan");
-        assertStringIncludes(html, "read-only");
-        assertStringIncludes(html, "lifecycle moves and edits are disabled");
+        assertStringIncludes(html, "current owner-safe actions");
+        assertStringIncludes(html, "Open a Plan to review its current status and available owner actions.");
         assertEquals(html.includes("Drag this Plan Card"), false);
 
         const tokenizedPage = await app(

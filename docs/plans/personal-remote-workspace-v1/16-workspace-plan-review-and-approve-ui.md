@@ -22,7 +22,6 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-26T20:48:25.378Z"
-status: "feedback"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 16
@@ -46,7 +45,8 @@ objectiveChecks:
       rationale: "Forces the one stable page to reference both surfaces, proving the live-versus-settled switch is wired rather than only described in test names. Red today because the route file does not exist."
 executionAgent: "frontend-engineer"
 collaborationRecommendation: "pair"
-updatedAt: "2026-08-16T22:11:38.539Z"
+updatedAt: "2026-08-17T16:00:37.816Z"
+status: "ready_for_work"
 ---
 
 # Workspace Plan Review and Approve UI

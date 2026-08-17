@@ -11,6 +11,22 @@ Deno.test("Session surface preserves drafts and replaces a lost live wait with o
         { type: "interaction_requested", interactionId: "wait-1", interactionType: "text", prompt: "Answer?" },
     ]);
     assertEquals(items[0]?.kind, "interaction");
+    const reviewItems = reduceSessionEvents([
+        {
+            type: "interaction_requested",
+            interactionId: "review-1",
+            interactionType: "plan_review",
+            prompt: "Review plan",
+            review: {
+                planId: "feature-a",
+                planName: "Feature A",
+                classification: "PLANNED_CHANGE",
+                expectedStatus: "draft",
+            },
+        },
+    ]);
+    assertEquals(reviewItems[0]?.kind, "plan-review");
+    assertEquals(reviewItems[0]?.request?.planReview?.planName, "Feature A");
     const interrupted = reduceSessionEvents([
         { type: "system_status", eventId: "status-1", message: "The agent was interrupted. Ask it to continue." },
     ]);
@@ -28,4 +44,23 @@ Deno.test("file-locked Sessions wait for the active surface without offering tak
         availability.explanation,
         "Another RunWield surface is using this Session. It becomes available when that surface stops.",
     );
+});
+
+Deno.test("planning workflow Sessions can continue while live execution workflows stay read-only", () => {
+    const planning = deriveSessionAvailability({
+        state: "idle",
+        generation: 4,
+        snapshot: { activeAgent: "Planner", workflowContext: { planName: "feature-a" } },
+    });
+    assertEquals(planning.key, "available");
+    assertEquals(planning.canContinue, true);
+
+    const execution = deriveSessionAvailability({
+        state: "idle",
+        generation: 4,
+        snapshot: { activeAgent: "Engineer", activeExecutionWorkflow: { planName: "feature-a" } },
+    });
+    assertEquals(execution.key, "execution-workflow");
+    assertEquals(execution.canContinue, false);
+    assertEquals(execution.explanation, "This Session is running work. It becomes available when that work finishes.");
 });

@@ -42,6 +42,36 @@ function browserTimelineProjection(projection) {
     return safeProjection;
 }
 
+/** @param {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} request */
+function safePlanReviewReference(request) {
+    const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
+    const planId = typeof meta.planId === "string" && meta.planId.trim()
+        ? meta.planId.trim()
+        : typeof meta.planName === "string" && meta.planName.trim()
+        ? meta.planName.trim()
+        : "";
+    if (!planId) return null;
+    const planName = typeof meta.planName === "string" && meta.planName.trim() ? meta.planName.trim() : planId;
+    const triageMeta = meta.triageMeta && typeof meta.triageMeta === "object"
+        ? /** @type {Record<string, unknown>} */ (meta.triageMeta)
+        : {};
+    const classification = typeof meta.classification === "string" && meta.classification.trim()
+        ? meta.classification.trim()
+        : typeof triageMeta.classification === "string"
+        ? triageMeta.classification
+        : "PLANNED_CHANGE";
+    return {
+        planId,
+        planName,
+        classification,
+        expectedRevision: typeof meta.expectedRevision === "string" ? meta.expectedRevision : null,
+        expectedStatus: typeof meta.expectedStatus === "string" ? meta.expectedStatus : null,
+        expectedWorktree: meta.expectedWorktree && typeof meta.expectedWorktree === "object"
+            ? meta.expectedWorktree
+            : null,
+    };
+}
+
 /** @param {import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore} store @param {{ transcriptCwd: string }} session @param {string} projectId */
 /**
  * @typedef {Object} WorkspaceOperationRecord
@@ -250,6 +280,14 @@ export class WorkspaceSessionContinuationService {
                         reject(new Error("Workspace operation is not running."));
                         return;
                     }
+                    const planReview = request.type === "plan_review" ? safePlanReviewReference(request) : null;
+                    const reviewUrl = planReview
+                        ? `/projects/${encodeURIComponent(current.projectId)}/plans/${
+                            encodeURIComponent(planReview.planId)
+                        }?session=${encodeURIComponent(current.runwieldSessionId || "")}&interaction=${
+                            encodeURIComponent(interactionId)
+                        }`
+                        : null;
                     this.operations.set(options.operationId, {
                         ...current,
                         liveInteraction: {
@@ -272,6 +310,7 @@ export class WorkspaceSessionContinuationService {
                                 defaultValue: request.defaultValue,
                                 placeholder: request.placeholder,
                                 allowEmpty: request.allowEmpty === true,
+                                ...(planReview && { planReview, reviewUrl }),
                             },
                         },
                         answer: { resolve, reject },
@@ -431,7 +470,12 @@ export class WorkspaceSessionContinuationService {
             return { operationId: receipt.operationId, status: receipt.status, generation: receipt.resultGeneration };
         }
         this.store.updateOperationReceipt(receipt.operationId, { status: "running" });
-        this.operations.set(receipt.operationId, { status: "running", projectId: options.projectId, events: [] });
+        this.operations.set(receipt.operationId, {
+            status: "running",
+            projectId: options.projectId,
+            events: [],
+            runwieldSessionId: options.runwieldSessionId,
+        });
         const adopted = this.runtime.adoptManagedSession({
             session,
             generation: options.expectedGeneration,
