@@ -73,8 +73,8 @@ export type ValidationMessageRequest =
     | { kind: "work_record_prompt"; recordId: string; reason: string }
     | { kind: "work_record_notice"; message: string }
     | { kind: "manual_qa_failed" }
-    | { kind: "handoff_prepare"; includeQa: boolean }
-    | { kind: "work_record_start"; planName: string }
+    | { kind: "manual_qa_start" }
+    | { kind: "work_record_start" }
     | { kind: "work_record_result"; status: "disabled" | "skipped" | "generated" | "linked" | "failed" }
     | { kind: "quick_fix_start" }
     | { kind: "quick_fix_running"; attempt: number; maxAttempts: number }
@@ -237,12 +237,10 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             return request.message;
         case "manual_qa_failed":
             return "The checks passed. RunWield could not make the test list. Try again later.";
-        case "handoff_prepare":
-            return request.includeQa
-                ? "RunWield will make the test list and Work Record now."
-                : "RunWield will make the Work Record now.";
+        case "manual_qa_start":
+            return "Generating the manual QA test list...";
         case "work_record_start":
-            return `RunWield will make a new Work Record for ${request.planName} now.`;
+            return "Generating the Work Record for the current plan...";
         case "work_record_result":
             if (request.status === "generated" || request.status === "linked") return "The Work Record is ready.";
             if (request.status === "failed") {

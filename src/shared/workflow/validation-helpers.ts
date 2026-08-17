@@ -276,10 +276,12 @@ export async function runFeaturePostVerificationHandoffs({
 }: RunFeaturePostVerificationHandoffsOptions) {
     const plan = await loadPlan(projectRoot, planName).catch(() => null);
     const isEpicChild = typeof plan?.attrs.parentPlan === "string" && plan.attrs.parentPlan.trim().length > 0;
-    emitRunWieldSystemStatus(
-        hostedSession,
-        buildValidationUserMessage({ kind: "handoff_prepare", includeQa: !isEpicChild }),
-    );
+    if (!isEpicChild) {
+        emitRunWieldSystemStatus(
+            hostedSession,
+            buildValidationUserMessage({ kind: "manual_qa_start" }),
+        );
+    }
     const manualQaPromise = isEpicChild ? Promise.resolve() : presentManualQaChecklist({
         hostedSession,
         name: planName,
@@ -289,7 +291,7 @@ export async function runFeaturePostVerificationHandoffs({
     });
     emitRunWieldSystemStatus(
         hostedSession,
-        buildValidationUserMessage({ kind: "work_record_start", planName }),
+        buildValidationUserMessage({ kind: "work_record_start" }),
         "info",
     );
     const workRecordPromise = autoGenerateWorkRecordForCompletedPlan({
@@ -305,17 +307,14 @@ export async function runFeaturePostVerificationHandoffs({
         };
     });
     const [, workRecordResult] = await Promise.all([manualQaPromise, workRecordPromise]);
-    if (workRecordResult.status === "generated" || workRecordResult.status === "linked") {
-        emitRunWieldSystemStatus(
-            hostedSession,
-            buildValidationUserMessage({ kind: "work_record_result", status: workRecordResult.status }),
-            "success",
-        );
-    }
     emitRunWieldSystemStatus(
         hostedSession,
         buildValidationUserMessage({ kind: "work_record_result", status: workRecordResult.status }),
-        workRecordResult.status === "failed" ? "warning" : "info",
+        workRecordResult.status === "failed"
+            ? "warning"
+            : workRecordResult.status === "generated" || workRecordResult.status === "linked"
+            ? "success"
+            : "info",
     );
     if (
         (workRecordResult.status === "generated" || workRecordResult.status === "linked") &&

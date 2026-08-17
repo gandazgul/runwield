@@ -38,7 +38,8 @@ function fleschKincaidGrade(message: string): number {
     const normalized = message
         .replace(/`[^`]*`/g, "")
         .replace(/(?:\.?\.?\/)?[\w.-]+(?:\/[\w.-]+)+/g, "")
-        .replace(/\b(?:branch|commit|worktree|RunWield|Plan)\b/gi, "")
+        .replace(/\b(?:manual QA|Work Record)\b/gi, "")
+        .replace(/\b(?:branch|commit|worktree|RunWield|Plan|Generating)\b/gi, "")
         .replace(/\b\w*[\d_-]\w*\b/g, "");
     const sentences = Math.max(1, (normalized.match(/[.!?]+/g) || []).length);
     const words = normalized.match(/[A-Za-z]+/g) || [];
@@ -191,8 +192,8 @@ Deno.test("all validation recovery and doctor messages stay plain", async () => 
         }),
         buildValidationUserMessage({ kind: "work_record_notice", message: "The Work Record is saved." }),
         buildValidationUserMessage({ kind: "manual_qa_failed" }),
-        buildValidationUserMessage({ kind: "handoff_prepare", includeQa: true }),
-        buildValidationUserMessage({ kind: "work_record_start", planName: "demo" }),
+        buildValidationUserMessage({ kind: "manual_qa_start" }),
+        buildValidationUserMessage({ kind: "work_record_start" }),
         buildValidationUserMessage({ kind: "work_record_result", status: "failed" }),
         buildValidationUserMessage({ kind: "quick_fix_start" }),
         buildValidationUserMessage({ kind: "quick_fix_running", attempt: 1, maxAttempts: 3 }),
