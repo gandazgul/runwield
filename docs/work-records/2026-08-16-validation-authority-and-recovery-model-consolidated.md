@@ -20,8 +20,8 @@ The user attested verification; RunWield Workflow Validation did not establish t
 authority model for Workflow Validation. The work added canonical validation authority documentation, moved Review Issue
 and semantic repair evidence into durable validation checkpoints, made repair completion consume-once and
 compare-and-set, and made interrupted semantic repair handoffs resume from checkpoint truth instead of stale Session
-state. The user established verification: "Implemented in the isolated worktree and marked user verified at the explicit
-request of the repository owner after focused validation and full CI passed."
+state. The user established verification: "Completed with Codex in an isolated worktree and marked user verified at the
+explicit request of the repository owner after focused validation and full CI passed."
 
 ## Future Planning Notes
 

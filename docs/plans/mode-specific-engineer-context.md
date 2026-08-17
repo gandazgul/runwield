@@ -17,6 +17,9 @@ status: "draft"
 origin: "internal"
 ---
 
+This plan needs to be rewritten after executing split-quick-fix-engineer-from-plan-engineer.md, do not execute this plan
+without first executing that one and then rewriting this one with any left over ideas that are still necesary.
+
 # Mode-Specific Engineer Context
 
 ## Context

@@ -2,26 +2,32 @@
 classification: "PLANNED_CHANGE"
 workKind: "BUG_FIX"
 complexity: "MEDIUM"
-summary: "Make Workflow Validation resume automatically from a CI-repair task completion without competing consumers or stale Plan lifecycle writes."
+summary: "Prove that independent validation repairs resume through the durable validation checkpoint without competing for root Task Completion events."
 affectedPaths:
-    - "src/shared/session/task-completion-session.ts"
-    - "src/shared/workflow/validation.ts"
-    - "src/shared/workflow/validation-repair-completion-ownership.test.ts"
+    - "src/shared/workflow/validation-supervisor.ts"
+    - "src/shared/workflow/validation-checkpoint.ts"
+    - "src/shared/workflow/validation-mechanical.ts"
+    - "src/shared/workflow/validation-session-adapter.ts"
+    - "src/shared/workflow/validation-position.ts"
+    - "src/shared/workflow/validation-repair-resume.integration.test.ts"
+    - "src/shared/session/task-completion-session.test.ts"
+    - "docs/validation-authority.md"
+    - "docs/workflows.md"
 objectiveChecks:
     - id: "OC1"
-      command: "grep -q 'human review CI repair task_completed resumes automatically with one completion' src/shared/workflow/validation-repair-completion-ownership.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-completion-ownership.test.ts --filter 'human review CI repair task_completed resumes automatically with one completion'"
-      rationale: "The combined human-review/CI-repair continuation regression does not exist today and must prove the exact reported workflow reaches fresh validation without a second Task Completion or stale lifecycle error."
+      command: "deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-resume.integration.test.ts --filter 'human-review CI repair completion resumes through isolated result'"
+      rationale: "The reported sequence must complete after one isolated repair Task Completion without a stale lifecycle write, a root-journal claim, or a second user prompt."
     - id: "OC2"
-      command: "grep -q 'in-flight validation repair exclusively owns its task completion claim' src/shared/workflow/validation-repair-completion-ownership.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-completion-ownership.test.ts --filter 'in-flight validation repair exclusively owns its task completion claim'"
-      rationale: "The current durable claim is non-exclusive, so this can pass only after a validation reservation prevents an ordinary competing claimant from acting on the same accepted completion."
+      command: "deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-resume.integration.test.ts --filter 'root handler cannot consume an isolated validation repair completion'"
+      rationale: "Independent repair completion belongs to the repair turn result. The root Agent Handler must never observe or acknowledge it."
     - id: "OC3"
-      command: "grep -q 'parked validation repair releases completion ownership for later handler resume' src/shared/workflow/validation-repair-completion-ownership.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-completion-ownership.test.ts --filter 'parked validation repair releases completion ownership for later handler resume'"
-      rationale: "This protects later-handler recovery while requiring the in-flight reservation to release cleanly when a repair parks without completion."
+      command: "deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-resume.integration.test.ts --filter 'interrupted mechanical repair resumes from checkpoint and reruns checks'"
+      rationale: "After process loss there is no live repair result to consume. Recovery must use the durable checkpoint and current worktree, rerun Mechanical Validation, and continue without replaying the old Agent turn."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T17:01:39-04:00"
-updatedAt: "2026-08-03T21:09:11.759Z"
-status: "ready_for_work"
+updatedAt: "2026-08-17T12:08:00-04:00"
+status: "draft"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
@@ -33,170 +39,154 @@ planId: "49e20ce4-692f-42fb-b5a9-ecb3766640cc"
 
 ## Context
 
-A real PLANNED_CHANGE run reached Local Human Code Review, received human feedback, returned to an Implemented Plan for
-fresh Mechanical Validation, failed continuous integration (CI), and dispatched the Engineer for another repair. When
-the Engineer called `task_completed`, RunWield displayed:
+The original failure happened when a CI repair ran in the root Engineer session. Both the in-flight validation loop and
+the root Agent Handler could read the same accepted `task_completed` event. One consumer acknowledged it while the other
+advanced the Plan, and the validation loop later attempted `mechanical_validation_failed` using its stale pre-repair
+status. Validation then stopped until the user asked for a second Task Completion.
 
-`Stale Plan lifecycle precondition for split-plan-recovery-flow: caller saw implemented, canonical status is validated_reviewer.`
+RunWield no longer uses that architecture. CI and Objective-Failing Check repairs now run in independent
+Reviewer-Feedback Engineer sessions. Their `task_completed` result is read directly from the isolated turn's returned
+messages. It is intentionally excluded from the root Session Task Completion journal. Mechanical Validation also records
+the failed check and adopts the resulting Plan revision before it starts the repair turn.
 
-The persisted Session Transcript establishes the critical ordering. The repair completion was accepted with a
-validation-continuation workflow snapshot whose `triageMeta.status` was `implemented`; two milliseconds later its
-durable Task Completion entry was marked consumed. The stale lifecycle error followed, and no further workflow activity
-occurred until the user asked the Engineer to call `task_completed` a second time. That second completion correctly
-reread the canonical Plan and resumed validation. The first completion was therefore not missing: it was acted on more
-than once, consumed before the failing continuation settled, and unavailable to wake a retry.
-
-The implementation exposes the race. Both the Agent Handler and the in-flight Mechanical Validation repair dispatcher
-call `claimPendingTaskCompletion`. A durable claim is currently only a read of an unconsumed accepted event; it does not
-exclude another live claimant before acknowledgment. Separately, Mechanical Validation records
-`mechanical_validation_failed` with `currentStatus: "implemented"` only after the asynchronous repair turn returns. A
-competing completion consumer can advance the Plan during that turn, leaving this post-dispatch write with exactly the
-stale precondition reported by the user.
-
-The Plan Lifecycle guard is correct and must remain strict. The fix belongs in Task Completion ownership and validation
-checkpoint ordering, not in accepting a lifecycle event against whichever status happens to exist.
+Workflow Validation now has a durable attempt-scoped `validationCheckpoint` and one supervisor. The checkpoint, Plan,
+worktree, and current Git facts—not an in-memory phase marker or an Agent completion claim—must determine recovery. The
+remaining work is to prove the reported sequence against this architecture, remove any residual reliance on the old
+root-completion race workaround, and make interruption behavior explicit.
 
 ## Objective
 
-One accepted `task_completed` from an in-flight CI or Objective-Failing Check repair automatically and exactly once
-returns Workflow Validation to Mechanical Validation. The repair dispatcher is the sole live consumer while its Agent
-turn is in flight; the Agent Handler remains the fallback consumer after a parked or restarted workflow. Mechanical
-Validation persists the failed-check checkpoint before dispatch, so no lifecycle write based on the pre-dispatch status
-runs after an arbitrarily long Agent turn.
+One `task_completed` call from an independent CI or Objective-Failing Check repair returns directly to the owning
+validation invocation and causes fresh Mechanical Validation. The root Agent Handler cannot claim or acknowledge that
+completion.
 
-The repaired workflow must rerun CI and Objective-Failing Checks as required, preserve Local Human Code Review
-ownership, and continue without a second user prompt or a stale Plan lifecycle error.
+If the process stops before, during, or immediately after the repair result returns, a later validation invocation
+claims the durable checkpoint and reruns Mechanical Validation against the preserved worktree. It does not replay the
+old Agent turn, infer success from transcript text, or require a second Task Completion. Passing checks advance the
+workflow; failing checks create a new bounded independent repair turn.
+
+Local Human Code Review ownership remains intact. A repair requested after human feedback returns to the mechanically
+required phase and then back to Local Human Code Review without a broad Semantic Code Review replacing the user's
+decision.
 
 ## Approach
 
-Add an in-process, workflow-attempt-scoped completion-consumer reservation to `task-completion-session.ts`. The
-validation dispatcher reserves ownership before starting a root Engineer repair turn, claims with that reservation after
-the turn, and releases in `finally`. An ordinary Agent Handler claim cannot take the same completion while that
-reservation is live. The reservation is deliberately ephemeral: if the process dies, the unacknowledged accepted JSONL
-entry remains recoverable by the normal Agent Handler path.
+Treat completion and recovery as two different paths:
 
-Move `mechanical_validation_failed` recording ahead of both CI-repair and Objective-Failing Check-repair dispatch. This
-records the known failed attempt and retry-safe Implemented Plan before external Agent work starts. After dispatch,
-validation only interprets whether the reserved completion arrived; it does not write another event using the old
-`implemented` snapshot. A completed repair continues the existing loop into a fresh Mechanical Validation run. A repair
-that stops without `task_completed` releases the reservation and parks, allowing a later root completion to be claimed
-by the Agent Handler and resume normally.
+```text
+Live repair
+  independent repair session returns typed task_completed result
+  -> current validation owner reruns Mechanical Validation
+  -> checkpoint settles the resulting phase
 
-Use a focused integration test at the real completion/lifecycle seam. It must combine the conditions omitted by current
-coverage: human-review feedback, Implemented re-entry, failed CI, a root Engineer repair completion, and a competing
-ordinary claim while validation owns the repair. Use a real `HostedSession`, in-memory `SessionManager`, Plan store, and
-Plan Lifecycle transitions; fake only the Agent/model and CI boundaries. Do not add a dependency bag or bypass
-RunWield-owned Plan machinery.
+Interrupted repair
+  no repair result is assumed
+  -> supervisor reclaims the durable validation checkpoint
+  -> Mechanical Validation reruns against the current worktree
+  -> checks, not Agent claims, decide what happens next
+```
+
+Keep the root Task Completion journal for root implementation/execution handoffs. Do not add an in-process reservation,
+lease, or `claimed` journal event for independent validation repairs. The isolated session boundary already gives the
+live result one consumer, while process-loss recovery is safer when it reruns deterministic checks instead of trying to
+recover an ephemeral Agent return value.
+
+Make the durable checkpoint the only continuation authority. `validation-position.ts` may remain as a disposable
+same-process projection if the UI still needs it, but it must not select the recovery phase or override the checkpoint.
+Remove it if no presentation consumer remains.
 
 ## Files to Modify
 
-- `src/shared/session/task-completion-session.ts` — add workflow-attempt-scoped live consumer reservation/claim
-  ownership while preserving durable accepted/consumed JSONL semantics, duplicate retirement, isolated-session
-  exclusion, and process-restart replay.
-- `src/shared/workflow/validation.ts` — reserve CI/objective repair completions around root Agent turns, persist failed
-  Mechanical Validation outcomes before dispatch, acknowledge only the reserved completion, and release ownership on
-  completion, no-completion, cancellation, and errors.
-- `src/shared/workflow/validation-repair-completion-ownership.test.ts` — add the minimized race regression and the full
-  human-review-feedback → CI failure → Engineer Task Completion continuation regression without touching currently dirty
-  test files from other active work.
-
-No `docs/domain-language.md` change is required: Task Completion, Implemented Plan, Mechanical Validation, Local Human
-Code Review, and Workflow Validation retain their canonical meanings.
+- `src/shared/workflow/validation-supervisor.ts` — prove that abandoned Mechanical Validation ownership is reclaimed
+  from the checkpoint and resumes at the checkpoint's phase without requiring a Task Completion ID.
+- `src/shared/workflow/validation-checkpoint.ts` — keep the attempt, generation, expected status, phase, and owner facts
+  sufficient to rerun Mechanical Validation after an interrupted independent repair.
+- `src/shared/workflow/validation-mechanical.ts` — retain failure recording before repair dispatch and ensure the live
+  isolated completion immediately loops into fresh checks without a later stale lifecycle write.
+- `src/shared/workflow/validation-session-adapter.ts` — keep independent repair completion scoped to the isolated turn
+  result and outside the root Task Completion journal.
+- `src/shared/workflow/validation-position.ts` — remove or demote the old in-memory `awaiting: "ci_repair"` state so it
+  cannot compete with the durable checkpoint.
+- `src/shared/workflow/validation-repair-resume.integration.test.ts` — cover the reported human-review/CI sequence,
+  root-journal isolation, and process-loss recovery using real Plan lifecycle and checkpoint writes.
+- `src/shared/session/task-completion-session.test.ts` — protect the root-only journal boundary without adding
+  validation-specific reservation policy.
+- `docs/validation-authority.md` and `docs/workflows.md` — document the live-result and interrupted-recovery paths.
 
 ## Reuse Opportunities
 
-- `src/shared/session/task-completion-session.ts` — reuse `workflowAttemptKey`, `matchesActiveWorkflow`, durable
-  accepted event filtering, and explicit acknowledgment instead of creating a second completion store.
-- `src/shared/workflow/validation-position.ts` — retain the existing `mechanical` / `awaiting: "ci_repair"` position as
-  validation's phase marker; completion ownership supplements it rather than becoming another phase authority.
-- `src/shared/workflow/validation-test-helpers.js` — reuse `makeValidationProjectRoot`, `HostedSession` recording, and
-  real Plan transaction fixtures.
-- `src/tools/task-completed.ts` — retain `recordAcceptedTaskCompletion` as the producer; the tool should not learn
-  validation orchestration policy.
-- `src/shared/workflow/plan-lifecycle.js` — retain `recordPlanEvent` compare-and-set behavior and legal
-  `mechanical_validation_failed` transition from `implemented` unchanged.
+- `continueWorkflowValidation` and `claimValidation` in `validation-supervisor.ts` already provide single-owner,
+  attempt-scoped checkpoint recovery.
+- `runIndependentRepairTurn` in `validation-session-adapter.ts` already returns a typed completion report from the
+  isolated Agent messages.
+- `recordLifecycleEvent` plus `adoptRecordedPlanState` in `validation-mechanical.ts` already records CI and Objective
+  Check failure before dispatch.
+- `validation-completion-gating.test.ts` already proves the basic live CI and Objective Check repair loops; reuse its
+  fixtures while adding the missing human-review and interruption composition.
+- `makeValidationProjectRoot` and the real Plan lifecycle fixtures provide the repository-owned machinery without a new
+  injection seam.
 
 ## Implementation Steps
 
-- [ ] `src/shared/workflow/validation-repair-completion-ownership.test.ts` reproduces the reported sequence with one
-      accepted repair Task Completion and fails on the baseline stale-precondition/stranded-continuation behavior.
-- [ ] `task-completion-session.ts` permits exactly one live consumer for a matching workflow attempt: a validation
-      repair reservation excludes an ordinary Agent Handler claim, the reservation owner can claim and acknowledge the
-      accepted completion, and release makes later completions claimable normally.
-- [ ] Completion reservations are in-process coordination only; process loss, HostedSession replacement, and JSONL
-      reopen leave unacknowledged accepted completions recoverable through the existing durable replay path.
-- [ ] Mechanical Validation records `mechanical_validation_failed` and its attempt/failure detail before dispatching an
-      Engineer for failed CI or unmet Objective-Failing Checks; neither path performs a lifecycle write with the old
-      `implemented` precondition after the Agent turn returns.
-- [ ] A repair that calls `task_completed` once is consumed by the in-flight validation owner, acknowledged once after
-      the failed-attempt checkpoint exists, reruns Mechanical Validation, and reaches the next valid validation phase
-      without the user asking for another completion.
-- [ ] A repair that stops without `task_completed` releases its reservation, remains an Implemented Plan with failure
-      bookkeeping recorded, and a later Agent Handler completion resumes validation automatically.
-- [ ] Duplicate completions for one workflow attempt, wrong-workflow completions, isolated Reviewer-Feedback Engineer
-      completions, initial implementation completion, QUICK_FIX completion, and Frontend Engineer validation repairs
-      keep their current ownership and consume-once behavior.
-- [ ] The strict stale-status check in `recordPlanEvent` remains unchanged; no catch-and-ignore path, status coercion,
-      or caller-metadata overwrite can satisfy the regression.
+- [ ] Add the exact reported regression: Local Human Code Review requests changes, the Plan returns to Implemented, CI
+      fails, one independent repair calls `task_completed`, CI reruns, and validation returns to Local Human Code Review
+      without a stale lifecycle error or second completion.
+- [ ] Prove that an independent repair completion is read only from the isolated turn result and does not create,
+      expose, consume, or acknowledge a root `runwield.task_completion` event.
+- [ ] Keep `mechanical_validation_failed`, its attempt counter, failure kind, and the updated Plan revision durable
+      before either CI or Objective-Failing Check repair dispatch begins.
+- [ ] Prove process loss before repair dispatch, during the repair, and after the repair modifies the worktree but
+      before its return is handled all resume by reclaiming the checkpoint and rerunning Mechanical Validation.
+- [ ] Ensure restart recovery never replays an independent Agent turn or treats an uncommitted `task_completed` report
+      as authority; current worktree contents and fresh checks decide whether another repair is needed.
+- [ ] Ensure a repair that returns normally without `task_completed` settles the checkpoint as paused. Retry starts
+      Mechanical Validation from committed state and may dispatch a new bounded repair if checks still fail.
+- [ ] Remove or demote the in-memory validation position so it cannot decide recovery, skip Mechanical Validation, or
+      move the workflow backward relative to the durable checkpoint.
+- [ ] Preserve duplicate filtering and consume-once behavior for genuine root implementation Task Completions, while
+      keeping isolated Reviewer-Feedback Engineer completions outside that journal.
+- [ ] Keep strict Plan revision and lifecycle preconditions unchanged. Do not catch stale writes, coerce status, or
+      restore caller snapshots over canonical Plan state.
+- [ ] Update validation authority and workflow documentation to distinguish live isolated completion from restart
+      recovery.
 
 ## Verification Plan
 
 - Automated:
-  - `deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-completion-ownership.test.ts`
-  - `deno run -A scripts/run-tests.js src/shared/session/task-completion-session.test.ts src/shared/session/agent-handler.test.ts src/shared/workflow/validation-completion-gating.test.ts src/shared/workflow/validation-loop-human-review.test.js src/shared/workflow/validation-loop-repair.test.js`
+  - `deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-resume.integration.test.ts`
+  - `deno run -A scripts/run-tests.js src/shared/workflow/validation-completion-gating.test.ts src/shared/workflow/validation-loop-human-review.test.js src/shared/workflow/validation-loop-repair.test.js`
+  - `deno run -A scripts/run-tests.js src/shared/session/task-completion-session.test.ts src/shared/session/agent-handler.test.ts`
   - `deno task seams:check`
   - `deno task check`
   - `deno task ci`
-- Expected regression sequence:
-  - Local Human Code Review feedback produces `humanReviewDecision: changes_requested` and returns the Plan to
-    `implemented`.
-  - CI fails and the failed-attempt lifecycle update is already durable when the Engineer prompt starts.
-  - The Engineer calls `task_completed` once; an ordinary concurrent claim cannot steal that completion from the active
-    validation dispatcher.
-  - Validation automatically reruns CI. No transcript/system event contains `Stale Plan lifecycle precondition`, and no
-    second Task Completion or user nudge is required.
-  - After CI passes, the existing human-review-owned path bypasses a broad Semantic Code Review sweep and returns the
-    repaired diff to Local Human Code Review as before.
-- Behavior protected afterwards:
-  - Root Task Completion survives process/HostedSession replacement until a safe consumer acknowledges it.
-  - Agent Handler still resumes a validation repair completed after the original dispatch parked.
-  - Isolated Agent Session completion stays outside the root JSONL outbox.
-  - CI and Objective-Failing Check failures increment/reset the existing counters exactly once per failed attempt.
-  - Validation never reaches `validated_ci`, `validated_reviewer`, or publication without fresh Mechanical Validation
-    after repair edits.
-- Behavior expected to stop existing:
-  - The Agent Handler and an in-flight validation dispatcher can no longer both act on the same accepted completion.
-  - Mechanical Validation no longer records a failure event against a status snapshot captured before an Engineer turn.
+- Mutation checks:
+  - route an independent repair completion into the root Task Completion journal and prove the isolation regression
+    fails;
+  - move `mechanical_validation_failed` after the Agent turn and prove the interruption regression fails;
+  - let the in-memory position override the checkpoint and prove the process-loss regression fails.
+- Expected result:
+  - live repair completion has one owner by construction;
+  - interrupted repair has no completion consumer and safely reruns checks;
+  - neither path requires a second user prompt or weakens Plan lifecycle compare-and-set rules.
 
 ### Objective-Failing Checks
 
-- `OC1` —
-  `grep -q 'human review CI repair task_completed resumes automatically with one completion' src/shared/workflow/validation-repair-completion-ownership.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-completion-ownership.test.ts --filter 'human review CI repair task_completed resumes automatically with one completion'`
-  — the combined human-review/CI-repair continuation regression does not exist today and must prove the exact reported
-  workflow reaches fresh validation without a second Task Completion or stale lifecycle error.
-- `OC2` —
-  `grep -q 'in-flight validation repair exclusively owns its task completion claim' src/shared/workflow/validation-repair-completion-ownership.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-completion-ownership.test.ts --filter 'in-flight validation repair exclusively owns its task completion claim'`
-  — the current durable claim is non-exclusive, so the test can pass only after a validation reservation prevents a
-  competing ordinary claimant from acting on the same accepted completion.
-- `OC3` —
-  `grep -q 'parked validation repair releases completion ownership for later handler resume' src/shared/workflow/validation-repair-completion-ownership.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-completion-ownership.test.ts --filter 'parked validation repair releases completion ownership for later handler resume'`
-  — protects the recovery behavior observed after the user's second completion while requiring it to work automatically
-  after a parked first dispatch.
+- `OC1` proves the original user-visible sequence on the independent repair architecture.
+- `OC2` proves that the obsolete competing-consumer condition cannot be recreated through the root journal.
+- `OC3` proves restart recovery from canonical checkpoint and worktree evidence instead of an Agent completion claim.
 
 ## Edge Cases & Considerations
 
-- A reservation must be scoped by the existing workflow-attempt identity, not just Plan name, so a stale repair cannot
-  block or consume a later execution attempt for the same Plan.
-- Reservation acquisition/release must be synchronous and exception-safe. Do not persist a `claimed` event: a process
-  crash must leave the durable accepted completion replayable rather than permanently leased to a dead process.
-- Recording failure before dispatch changes when the CI attempt counter becomes visible, not its meaning. Ensure one
-  failed run produces one increment even when the Engineer stops, completes, throws, or is canceled.
-- `acknowledgeTaskCompletion` currently retires duplicate accepted completions for the same workflow attempt. Preserve
-  that behavior, but only the selected live owner may invoke it for the in-flight repair.
-- Objective-Failing Check repair has the same post-dispatch stale-write shape as CI repair and must use the same
-  ownership and checkpoint-ordering helper rather than retaining a parallel race.
-- Do not weaken `recordPlanEvent` preconditions or derive lifecycle authority from `triageMeta`, validation position,
-  transcript messages, or display state. The canonical locked Plan remains the status source of truth.
-- The repository currently has unrelated dirty test files from other active work. The new regression file is intentional
-  so this implementation does not overwrite those edits; source files listed above were clean when this Plan was
-  written.
+- A repair may change files and then stop before `task_completed`. Recovery must still rerun checks; absence of the
+  Agent claim does not mean the worktree is unchanged.
+- A repair may call `task_completed` just before process loss. The returned report may be lost, but rerunning checks is
+  safe because lifecycle advancement has not been inferred from the report.
+- CI can be nondeterministic. Existing retry and user-stop behavior remains responsible for repeated operational
+  failures; this Plan does not declare a repair successful merely because an earlier run passed.
+- Objective-Failing Check reports can include a judgement that a check is defective. Only a live returned structured
+  report can open the user waiver path. After process loss, rerun the canonical check and ask again only if the defect
+  remains observable.
+- Semantic repair is different because its checkpoint owns a Review Issue ledger and consume-once repair generation.
+  Keep its durable completion receipt; do not generalize the mechanical repair recovery rule over semantic evidence.
+- The root Task Completion journal remains necessary for implementation/execution continuation across Session restart.
+  Do not remove or weaken it while removing validation-specific assumptions.
