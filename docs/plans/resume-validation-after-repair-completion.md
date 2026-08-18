@@ -29,44 +29,23 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T17:01:39-04:00"
-updatedAt: "2026-08-17T23:05:02.045Z"
-status: "implemented"
+updatedAt: "2026-08-18T00:32:49.746Z"
+status: "verified"
 origin: "internal"
-failureReason: "- Status-ahead recovery still coerces the Plan back to implemented.\n  Plan: Implementation step: Keep strict Plan revision and lifecycle preconditions unchanged. Do not catch stale writes, coerce status, or restore caller snapshots over canonical Plan state. Also remove residual reliance on the old root-completion race workaround.\n  Evidence: src/shared/workflow/validation-engine.ts:54 and 101-115 still call healStatusAheadOfPhase, which records validation_failed from validated_ci/validated_reviewer and reruns Mechanical Validation with triageMeta.status forced to implemented. The changed test src/shared/workflow/validation-loop-repair.test.js:747-751 now drives this path with continuationPhase: checkpoint.nextPhase while canonical status is validated_ci, so the implementation keeps the status-coercion workaround instead of rejecting stale writes or relying only on canonical checkpoint recovery."
 implementedAt: "2026-08-17T21:24:22.196Z"
+verifiedAt: "2026-08-18T00:32:49.746Z"
 userVerifiedAt: null
 executionReport: "- Implemented durable Mechanical Validation repair recovery: failure events now preserve the validation checkpoint before CI/Object repair dispatch, and live repair completion loops into fresh checks without root Task Completion journal ownership.\n- Removed recovery authority from in-memory validation position: `validation.ts` no longer reads it, and `validation-position.ts`/ports now mark it as presentation-only.\n- Added `validation-repair-resume.integration.test.ts` with 6 new regression tests for the human-review/CI repair sequence, root-journal isolation, process-loss before/during/after repair, and no-`task_completed` retry behavior.\n- Updated existing coverage: replaced the old in-memory position rerun test with a durable-checkpoint rerun test, strengthened isolated task completion journal assertions, and made the dirty-stop-resume golden scenario deterministic. No tests were removed.\n- Updated `docs/validation-authority.md` and `docs/workflows.md` to distinguish live isolated repair results from restart recovery.\n- Verification passed: `deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-resume.integration.test.ts`; validation completion/human-review/repair test group; task-completion/agent-handler test group; `deno task seams:check`; `deno task check`; focused golden reruns for `dirty-stop-resume` and `broken-objective-stop`.\n- Verification did not fully pass: `deno task ci` failed after 330 files passed with two golden scenario failures (`validation-workflow-broken-objective.test.ts`, `validation-workflow-publication.test.ts`), but both failed scenarios passed when rerun individually. Mutation checks were not performed as manual source mutations."
-humanReviewMode: null
-humanReviewDecision: null
-validationCheckpoint:
-    version: 1
-    attemptId: "b490cda8"
-    generation: "2cd0c62e-f13c-42b1-8aab-aa2ab4c40f0a"
-    expectedStatus: "implemented"
-    nextPhase: "mechanical"
-    state: "awaiting_repair"
-    repairKind: "semantic"
-    repairGeneration: "fc9ff898-deef-4148-80c9-44bff25acadd"
-    reviewState:
-        semanticRound: 1
-        reviewLedger:
-            items:
-                - id: "R1-1"
-                  openedInRound: 1
-                  resolvedInRound: null
-                  title: "Status-ahead recovery still coerces the Plan back to implemented."
-                  requirement: "Implementation step: Keep strict Plan revision and lifecycle preconditions unchanged. Do not catch stale writes, coerce status, or restore caller snapshots over canonical Plan state. Also remove residual reliance on the old root-completion race workaround."
-                  evidence: "src/shared/workflow/validation-engine.ts:54 and 101-115 still call healStatusAheadOfPhase, which records validation_failed from validated_ci/validated_reviewer and reruns Mechanical Validation with triageMeta.status forced to implemented. The changed test src/shared/workflow/validation-loop-repair.test.js:747-751 now drives this path with continuationPhase: checkpoint.nextPhase while canonical status is validated_ci, so the implementation keeps the status-coercion workaround instead of rejecting stale writes or relying only on canonical checkpoint recovery."
-            sequence: 1
-        repairBaselineTree: "5b19af5e8ad447da23531c1f3eb6b1e22b04d348"
-    updatedAt: "2026-08-17T23:05:02.015Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+validationCheckpoint: null
 executionMode: "worktree"
-executionBaselineTree: "4afc98ed87154b50d85669753560b76c91fc5f4b"
-worktreeId: "b490cda8"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-resume-validation-after-repair-completion-b490cda8"
-worktreeBranch: "worktree/resume-validation-after-repair-completion-b490cda8"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "9a3c97219dd92e61698eb4bf2703dddbba950987"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "601ccba85aceb31ba4332a7655a0f3c4776d5c3f"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "validation repair resume"
 validationCiAttempts: 0
