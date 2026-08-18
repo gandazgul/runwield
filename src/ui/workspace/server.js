@@ -78,7 +78,7 @@ import {
 } from "./server/owner-origin.js";
 import { listOwnerProjects, requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./server/owner-projects.js";
 import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
-import { setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
+import { setAstroOwnerWorkspaceSessionContinuation, setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
 
 const WORKSPACE_DIR = join(RUNWIELD_SOURCE_ROOT, "ui", "workspace");
 const ROOT_DIR = RUNWIELD_ROOT;
@@ -193,6 +193,7 @@ export function createOwnerWorkspaceApp(options) {
     setAstroOwnerWorkspaceStore(store);
     const connections = createOwnerConnectionRegistry();
     const sessionContinuation = createWorkspaceSessionContinuationService({ store });
+    setAstroOwnerWorkspaceSessionContinuation(sessionContinuation);
     const pairingRateLimit = createInProcessRateLimit({ limit: 4, windowMs: 60_000 });
     registerStaticRoutes(app);
     app.use(async (ctx) => {
@@ -778,13 +779,12 @@ async function renderOwnerProjectBoard(ctx, view) {
         view: componentView,
         url,
         staticRender: true,
-        staticRenderNotice:
-            "Owner Workspace Plan Boards are read-only in this slice; lifecycle moves and edits are disabled until Session Activation and canonical Plan evidence checks can authorize them safely.",
+        staticRenderNotice: "Open a Plan to review its current status and available owner actions.",
         draggableCards: false,
     });
     const boardId = `status-board-${componentView}`;
     const searchIndex = buildPlanBoardSearchIndex(board.screens[componentView]);
-    return `<section class="page-header"><a class="detail-back-link" href="/">← Projects</a><h1>Project Plan Board</h1><p>Owner Workspace shows registered Project Plans read-only until Session Activation and canonical Plan evidence checks enable remote mutations safely.</p></section>${tabs}<div class="toolbar">${toolbar}</div>${boardHtml}${
+    return `<section class="page-header"><a class="detail-back-link" href="/">← Projects</a><h1>Project Plan Board</h1><p>Owner Workspace shows registered Project Plans and their current owner-safe actions.</p></section>${tabs}<div class="toolbar">${toolbar}</div>${boardHtml}${
         ownerPlanBoardSearchScript(boardId, searchIndex)
     }`;
 }
@@ -820,7 +820,7 @@ async function renderOwnerPlanDetail(ctx) {
         editIntent: false,
         staticRender: true,
     });
-    return `${detailHtml}<aside class="owner-card owner-read-only-note"><h2>Owner safety</h2><p>Lifecycle and body editing are intentionally disabled in this slice so later Session Activation and canonical Plan evidence checks can cover consequential actions.</p></aside>`;
+    return `${detailHtml}<aside class="owner-card owner-read-only-note"><h2>Owner safety</h2><p>Some Plan changes require a live Session with matching Plan evidence before RunWield can apply them.</p></aside>`;
 }
 
 /** @param {any} ctx */

@@ -168,10 +168,15 @@ export async function ownerSessionInteractionAnswerApi(ctx) {
     try {
         const body = await readJson(ctx.req);
         requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
-        const result = ctx.state.sessionContinuation.answerInteraction({
+        const result = await ctx.state.sessionContinuation.answerInteraction({
+            deviceId: ctx.state.ownerDevice?.deviceId || null,
             projectId: ctx.params.projectId,
             operationId: ctx.params.operationId,
             interactionId: ctx.params.interactionId,
+            runwieldSessionId: typeof body.runwieldSessionId === "string"
+                ? requireBoundedString(body.runwieldSessionId, "runwieldSessionId", 200)
+                : null,
+            requestId: requireBoundedString(body.requestId, "requestId", 128),
             response: body.response,
         });
         return ownerJson(result, 202);

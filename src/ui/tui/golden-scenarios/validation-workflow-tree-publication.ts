@@ -25,16 +25,7 @@ export const validationTreePublicationDirtyStopResumeScenario = withValidationBr
         name: "validation-tree-publication-dirty-stop-resume-base",
         scriptedInteractions: [
             { type: "text", promptIncludes: "Enter the command that runs this project's tests", value: "true" },
-            {
-                type: "select",
-                promptIncludes: "have not saved to git yet",
-                userFixesFirst: {
-                    path: "golden-planned-change.txt",
-                    text: "committed baseline\n",
-                    commands: ["git checkout -- golden-planned-change.txt"],
-                },
-                value: "stop",
-            },
+            { type: "select", promptIncludes: "have not saved to git yet", value: "stop" },
             { type: "select", promptIncludes: "Plan recovery (validated_reviewer)", value: "validate" },
         ],
         actions: [
@@ -47,6 +38,8 @@ export const validationTreePublicationDirtyStopResumeScenario = withValidationBr
             { type: "writeProjectFile", path: "golden-planned-change.txt", text: "my own unsaved edit\n" },
             { type: "type", text: "submit the planned change for review" },
             { type: "enter" },
+            { type: "waitForIdle", timeoutMs: 240000 },
+            { type: "writeProjectFile", path: "golden-planned-change.txt", text: "committed baseline\n" },
             { type: "waitForPlanStatus", planName: "plan", statuses: ["validated_reviewer"], timeoutMs: 240000 },
             { type: "type", text: "/load-plan plan" },
             { type: "enter" },

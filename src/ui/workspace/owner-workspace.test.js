@@ -1,5 +1,5 @@
-import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
-import { savePlan } from "../../plan-store.js";
+import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
+import { getPlanRevisionForText, injectFrontMatter, loadPlan, savePlan } from "../../plan-store.js";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
 import { createOwnerWorkspaceApp, startWorkspaceServer } from "./server.js";
 
@@ -144,8 +144,8 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         const html = await page.text();
         assertStringIncludes(html, "Project Plan Board");
         assertStringIncludes(html, "Visible owner plan");
-        assertStringIncludes(html, "read-only");
-        assertStringIncludes(html, "lifecycle moves and edits are disabled");
+        assertStringIncludes(html, "current owner-safe actions");
+        assertStringIncludes(html, "Open a Plan to review its current status and available owner actions.");
         assertEquals(html.includes("Drag this Plan Card"), false);
 
         const tokenizedPage = await app(
@@ -301,6 +301,7 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         appObject.sessionContinuation.operations.set("operation-owned", {
             status: "running",
             projectId: project.projectId,
+            runwieldSessionId: "session-owned",
             events: [],
             liveInteraction: { interactionId: "interaction-owned", request: { prompt: "Pick" } },
             answer: { resolve: () => answered = true, reject: () => {} },
@@ -316,7 +317,7 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
                         "x-runwield-csrf": "csrf-secret",
                         "content-type": "application/json",
                     },
-                    body: JSON.stringify({ response: "yes" }),
+                    body: JSON.stringify({ requestId: "answer-wrong-project", response: "yes" }),
                 },
             ),
         );
@@ -333,7 +334,11 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
                         "x-runwield-csrf": "csrf-secret",
                         "content-type": "application/json",
                     },
-                    body: JSON.stringify({ response: "yes" }),
+                    body: JSON.stringify({
+                        requestId: "answer-owned",
+                        runwieldSessionId: "session-owned",
+                        response: "yes",
+                    }),
                 },
             ),
         );
@@ -471,6 +476,84 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         );
         assertEquals(revoked.status, 200);
         assertEquals(closedConnections, 1);
+    } finally {
+        store.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("owner Workspace rejects stale live Plan review before answering Runtime", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-owner-plan-review-stale-" });
+    const projectRoot = `${dir}/project`;
+    await Deno.mkdir(projectRoot);
+    await savePlan(projectRoot, "owner-plan", "# Owner Plan\n\nBody", {
+        planId: "owner-plan-id",
+        classification: "PLANNED_CHANGE",
+        complexity: "LOW",
+        summary: "Visible owner plan",
+        status: "draft",
+    });
+    const store = openOwnerCoordinationStore({ dbPath: `${dir}/owner.sqlite3` });
+    try {
+        const project = store.registerProject({ root: projectRoot, displayName: "Owner Project" });
+        const appObject = /** @type {any} */ (createOwnerWorkspaceApp({
+            mode: "owner",
+            publicOrigin: "http://127.0.0.1:8787",
+            store,
+        }));
+        const plan = await loadPlan(projectRoot, "owner-plan");
+        const openedRevision = await getPlanRevisionForText(plan.markdown);
+        await Deno.writeTextFile(plan.path, injectFrontMatter(plan.markdown, { status: "feedback" }));
+
+        let resolved = false;
+        let rejectedMessage = "";
+        appObject.sessionContinuation.operations.set("operation-stale", {
+            status: "running",
+            projectId: project.projectId,
+            runwieldSessionId: "session-owned",
+            events: [],
+            liveInteraction: {
+                interactionId: "interaction-stale",
+                request: {
+                    type: "plan_review",
+                    prompt: "Review Plan",
+                    planReview: {
+                        planId: "owner-plan-id",
+                        classification: "PLANNED_CHANGE",
+                        expectedRevision: openedRevision,
+                        expectedStatus: "draft",
+                        expectedWorktree: { kind: "none" },
+                    },
+                },
+            },
+            answer: {
+                resolve: () => resolved = true,
+                reject: (error) => rejectedMessage = error instanceof Error ? error.message : String(error),
+            },
+        });
+
+        await assertRejects(
+            () =>
+                appObject.sessionContinuation.answerInteraction({
+                    deviceId: "device-owned",
+                    projectId: project.projectId,
+                    operationId: "operation-stale",
+                    interactionId: "interaction-stale",
+                    runwieldSessionId: "session-owned",
+                    requestId: "answer-stale-plan-review",
+                    response: {
+                        approved: true,
+                        approvalAction: "run",
+                        executionAgent: "engineer",
+                        collaborationRecommendation: "autonomous",
+                    },
+                }),
+            Error,
+            "Plan changed after review opened",
+        );
+        assertEquals(resolved, false);
+        assertStringIncludes(rejectedMessage, "Plan changed after review opened");
+        assertEquals((await loadPlan(projectRoot, "owner-plan"))?.attrs.status, "feedback");
     } finally {
         store.close();
         await Deno.remove(dir, { recursive: true });

@@ -202,7 +202,7 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeEventBase & { type: "interaction_requested" | "interaction_resolved" | "interaction_canceled", interactionId: string, interactionType?: string, outcome?: string, message?: string }} RuntimeInteractionLifecycleEvent
+ * @typedef {RuntimeEventBase & { type: "interaction_requested" | "interaction_resolved" | "interaction_canceled", interactionId: string, interactionType?: string, prompt?: string, review?: Record<string, unknown>, outcome?: string, message?: string }} RuntimeInteractionLifecycleEvent
  */
 
 /**

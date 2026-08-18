@@ -25,3 +25,24 @@ Manual verification steps for personal-remote-workspace-v1/15-complete-workspace
       blocks recovery and shows plain recovery guidance instead of trusting malformed history.
 
 <!-- runwield:manual-qa:end child="personal-remote-workspace-v1/15-complete-workspace-session-navigation-and-timeline-ux" -->
+
+<!-- runwield:manual-qa:start child="personal-remote-workspace-v1/16-workspace-plan-review-and-approve-ui" -->
+
+## Workspace Plan Review and Approve UI
+
+Manual verification steps for personal-remote-workspace-v1/16-workspace-plan-review-and-approve-ui
+
+- [ ] On desktop, start a Workspace Planner Session, open the **Plan ready for review** card, and confirm the stable
+      Plan page shows the Project, Session, Plan, live-review state, and three-area review layout.
+- [ ] On a phone-sized viewport, review a long Plan, open the table-of-contents and annotation drawers, add an
+      annotation and Overall feedback, and confirm the sticky actions remain visible without clipped content or
+      horizontal overflow.
+- [ ] Submit Feedback, Approve for Later, and the classification-correct run or slice action; confirm Feedback and run
+      or slice return to the Session timeline, while Approve for Later shows its result and **Return to Session**
+      without starting work.
+- [ ] Change Plan or worktree state during an open review and confirm submission shows a stale or recovery message,
+      keeps unsent annotations and feedback, and requires an explicit refresh or new decision.
+- [ ] Stop the process that owns an unanswered review, resume the Session from the other surface, and confirm the old
+      review cannot be answered; send the prepared resubmission message explicitly and confirm a new review appears.
+
+<!-- runwield:manual-qa:end child="personal-remote-workspace-v1/16-workspace-plan-review-and-approve-ui" -->

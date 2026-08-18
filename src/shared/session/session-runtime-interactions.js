@@ -164,10 +164,26 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
     capability?.assertLive?.();
     const id = request.id || createInteractionId();
     const interaction = { ...request, id };
+    const reviewMeta = request.type === RuntimeInteractionTypes.PLAN_REVIEW && request._meta
+        ? {
+            planId: typeof request._meta.planId === "string" ? request._meta.planId : undefined,
+            planName: typeof request._meta.planName === "string" ? request._meta.planName : undefined,
+            classification: typeof request._meta.classification === "string" ? request._meta.classification : undefined,
+            expectedRevision: typeof request._meta.expectedRevision === "string"
+                ? request._meta.expectedRevision
+                : undefined,
+            expectedStatus: typeof request._meta.expectedStatus === "string" ? request._meta.expectedStatus : undefined,
+            expectedWorktree: request._meta.expectedWorktree && typeof request._meta.expectedWorktree === "object"
+                ? request._meta.expectedWorktree
+                : undefined,
+        }
+        : undefined;
     emitHostedSessionRuntimeEvent(hostedSession, {
         type: RuntimeEventTypes.INTERACTION_REQUESTED,
         interactionId: id,
         interactionType: request.type,
+        prompt: request.prompt,
+        ...(reviewMeta && { review: reviewMeta }),
     });
     const adapter = hostedSession.getInteractionAdapter?.();
     if (!adapter || typeof adapter.requestInteraction !== "function") {

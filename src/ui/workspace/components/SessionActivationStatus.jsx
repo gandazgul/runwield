@@ -93,13 +93,12 @@ export function deriveSessionAvailability(input) {
         };
     }
     const activeAgent = String(input.snapshot?.activeAgent || "");
-    if (input.snapshot?.workflowContext) {
+    if (input.snapshot?.activeExecutionWorkflow) {
         return {
-            key: "workflow-context",
-            label: "Workflow Session",
-            explanation:
-                "This Session has workflow context. It is read-only until Workspace Plan actions are available.",
-            intent: "info",
+            key: "execution-workflow",
+            label: "Running work",
+            explanation: "This Session is running work. It becomes available when that work finishes.",
+            intent: "warning",
             canPrepare: false,
             canContinue: false,
         };

@@ -650,8 +650,8 @@
 }
 
 /* Plannotator imported-component proof surface. These aliases let upstream
-   Tailwind-token classes resolve against RunWield's Workspace tokens while the
-   first React component-reuse slice is still embedded in the existing detail UI. */
+   Tailwind-token classes resolve against RunWield's Workspace tokens while
+   imported review components render inside Workspace detail UI. */
 .plannotator-plan-body {
     --background: var(--rw-page-bg);
     --foreground: var(--rw-text);
@@ -1457,6 +1457,7 @@
 .session-thinking,
 .session-status-row,
 .session-live-interaction,
+.session-plan-review-card,
 .session-interruption {
     border: 1px solid var(--rw-border);
     border-radius: 1rem;
@@ -1468,6 +1469,43 @@
 .session-live-interaction {
     border-color: color-mix(in srgb, var(--rw-warning) 65%, var(--rw-border));
     background: color-mix(in srgb, var(--rw-warning) 10%, var(--rw-surface-raised));
+}
+
+.session-plan-review-card {
+    display: grid;
+    gap: 0.35rem;
+    border-color: color-mix(in srgb, var(--rw-accent) 65%, var(--rw-border));
+    background: color-mix(in srgb, var(--rw-accent) 10%, var(--rw-surface-raised));
+}
+
+.session-plan-review-card .kicker {
+    margin: 0;
+    color: var(--rw-accent-text);
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.rw-plan-review-link {
+    width: fit-content;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    border: 1px solid var(--rw-accent);
+    background: var(--rw-accent);
+    color: var(--rw-page-bg);
+    padding: 0.45rem 0.85rem;
+    font-weight: 800;
+    text-decoration: none;
+}
+
+.rw-plan-review-link:focus-visible,
+.rw-plan-review-link:hover {
+    outline: 3px solid color-mix(in srgb, var(--rw-accent) 45%, transparent);
+    outline-offset: 2px;
 }
 
 .session-live-interaction button,
