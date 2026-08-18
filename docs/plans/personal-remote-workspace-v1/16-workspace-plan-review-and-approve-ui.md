@@ -36,7 +36,7 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-26T20:48:25.378Z"
-updatedAt: "2026-08-18T17:34:40.968Z"
+updatedAt: "2026-08-18T17:52:50.085Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -45,7 +45,7 @@ dependencies:
     - "15-complete-workspace-session-navigation-and-timeline-ux"
     - "13-execution-segment-handoff-backend"
 implementedAt: "2026-08-17T21:44:44.235Z"
-verifiedAt: "2026-08-18T17:34:40.968Z"
+verifiedAt: "2026-08-18T17:52:50.085Z"
 userVerifiedAt: null
 executionReport: "- Implemented partial Slice 16: planning-only workflow Sessions now continue from Workspace; live execution workflows still refuse continuation with product-state copy.\n- Implemented safe `plan_review` projection: Plan id/name/classification/revision/status/worktree evidence are carried in metadata; Workspace live operation status exposes only a bounded safe review reference and a stable Plan link.\n- Implemented visible Workspace review improvements: context header, Plan-specific Session timeline card, classification-specific Run/Slice/Later labels, stale/expired/recovery notices, and phone sticky action-bar/bottom-sheet layout.\n- Revised per pair feedback: removed the added top Overall feedback form; Plannotator Global comment remains the Plan-level feedback path and was browser-checked.\n- Updated tests for the new continuation split, Plan review timeline projection, and owner Workspace copy; no tests were deleted.\n- Verification passed: `deno task workspace:check`, `deno task workspace:test`, `deno task workspace:build`, `deno task language-policy:check`, `deno task seams:check`, and final `deno task ci` all passed.\n- Browser checked `http://127.0.0.1:5173/dev/plan-review` in headed browser at 1440×900 and 390×844; evidence: `artifacts/s16-checkpoint1-revised-desktop.png`, `artifacts/s16-checkpoint2-phone.png`, `artifacts/s16-checkpoint3-states.png`; final snapshot confirmed context header, Plan actions, Global comment, and no mobile horizontal overflow.\n- Incomplete against the full approved Plan: shared Core review-decision extraction, owner review-document/decision endpoints, live stable Project Plan page rendering `PlanReviewSurface`, exact request-id deduplication, and real paired Core cross-surface journey automation are not fully implemented in this change."
 humanReviewMode: "ask"
@@ -55,7 +55,7 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "1f7e34358f9e8f527b54791d9cc5179bda0f0c9c"
+    executionCommit: "7ff21c54f3e18d3133496f5cf15b79ba6fe3c02d"
     targetBranch: "main"
     targetHeadBeforeMerge: "78ad6b12f3f14f5a5c69cc98d05ac47edcc399af"
 validationCiAttempts: 0
