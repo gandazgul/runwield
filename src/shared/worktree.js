@@ -820,15 +820,14 @@ async function alignPlanFilesWithMergeTarget(cwd, targetRef, branch, executionWo
  * @param {string} cwd
  * @param {string} branch
  * @param {string[]} preservePlanPaths
- * @returns {Promise<boolean>}
+ * @returns {Promise<string[]>}
  */
-async function resolvePreservedPlanMergeConflicts(cwd, branch, preservePlanPaths) {
-    if (preservePlanPaths.length === 0 || !await isMergeInProgress(cwd)) return false;
+async function restorePreservedPlanConflictPaths(cwd, branch, preservePlanPaths) {
+    if (preservePlanPaths.length === 0 || !await isMergeInProgress(cwd)) return [];
     const preserved = new Set(preservePlanPaths.map((path) => path.replaceAll("\\", "/")));
     const unresolvedPaths = parseNameOnlyPaths(await runGit(cwd, ["diff", "--name-only", "--diff-filter=U"]));
-    if (unresolvedPaths.length === 0) return false;
-    const nonPreservedPaths = unresolvedPaths.filter((path) => !preserved.has(path.replaceAll("\\", "/")));
-    if (nonPreservedPaths.length > 0) return false;
+    const preservedUnresolvedPaths = unresolvedPaths.filter((path) => preserved.has(path.replaceAll("\\", "/")));
+    if (preservedUnresolvedPaths.length === 0) return [];
 
     await runGit(cwd, [
         "restore",
@@ -836,9 +835,25 @@ async function resolvePreservedPlanMergeConflicts(cwd, branch, preservePlanPaths
         "--worktree",
         `--source=${branch}`,
         "--",
-        ...unresolvedPaths,
+        ...preservedUnresolvedPaths,
     ]);
-    await runGit(cwd, ["add", "--", ...unresolvedPaths]);
+    await runGit(cwd, ["add", "--", ...preservedUnresolvedPaths]);
+    return preservedUnresolvedPaths;
+}
+
+/**
+ * @param {string} cwd
+ * @param {string} branch
+ * @param {string[]} preservePlanPaths
+ * @returns {Promise<boolean>}
+ */
+async function resolvePreservedPlanMergeConflicts(cwd, branch, preservePlanPaths) {
+    if (preservePlanPaths.length === 0 || !await isMergeInProgress(cwd)) return false;
+    const unresolvedPaths = parseNameOnlyPaths(await runGit(cwd, ["diff", "--name-only", "--diff-filter=U"]));
+    if (unresolvedPaths.length === 0) return false;
+    const restoredPaths = await restorePreservedPlanConflictPaths(cwd, branch, preservePlanPaths);
+    if (restoredPaths.length !== unresolvedPaths.length) return false;
+
     await runGit(cwd, ["-c", "core.editor=true", "merge", "--continue"]);
     return true;
 }
@@ -909,6 +924,7 @@ async function mergeExecutionWorktreeIntoCurrentCheckout(
             }
             return;
         }
+        await restorePreservedPlanConflictPaths(projectRoot, branch, preservePlanPaths);
         // Keep a kind that was already decided. `primary_checkout_dirty` is raised from
         // inside this try and is not a conflict; relabeling it here would send an Agent
         // to resolve conflict markers that do not exist.
@@ -953,6 +969,7 @@ async function publishRepairedMergeWorktree(
 
     try {
         if (await isMergeInProgress(mergeWorktreePath)) {
+            await restorePreservedPlanConflictPaths(mergeWorktreePath, branch, preservePlanPaths);
             await runGit(mergeWorktreePath, ["-c", "core.editor=true", "merge", "--continue"]);
         }
     } catch (error) {

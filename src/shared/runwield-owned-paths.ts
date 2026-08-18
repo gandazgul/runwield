@@ -41,6 +41,8 @@ export function isRunWieldOwnedRuntimePath(path: string): boolean {
     for (const dir of OWNED_DIRECTORIES) {
         if (normalized === dir || normalized.startsWith(`${dir}/`)) return true;
     }
+    const worktreeRegistryTempPrefix = underRunWield(`${WORKTREE_REGISTRY_FILE}.`);
+    if (normalized.startsWith(worktreeRegistryTempPrefix) && normalized.endsWith(".tmp")) return true;
     return OWNED_FILES.some((file) => normalized === file || normalized.startsWith(`${file}/`));
 }
 

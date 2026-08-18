@@ -39,6 +39,17 @@ import { getWorktreeRegistryPath } from "../../../shared/worktree-registry.js";
  */
 const DEFAULT_WAIT_TIMEOUT_MS = 20_000;
 
+/** @param {unknown} plan */
+function planReviewClassification(plan) {
+    if (typeof plan !== "string") return null;
+    try {
+        const classification = parsePlanFrontMatter(plan).attrs.classification;
+        return classification === "FEATURE" ? "PLANNED_CHANGE" : classification || null;
+    } catch {
+        return null;
+    }
+}
+
 /**
  * Keep the browser external while driving the real review launcher, server,
  * token check, and decision transport.
@@ -86,10 +97,18 @@ function createGoldenReviewBrowser(
                     response.approvalAction === "later"
                 ? response.approvalAction
                 : undefined;
+            const classification = planReviewClassification(editedPlan);
+            const includeExecutionPolicy = response.approved && approvalAction === "run" &&
+                classification !== "PROJECT";
+            const executionAgent = response.executionAgent || (includeExecutionPolicy ? "engineer" : undefined);
+            const collaborationRecommendation = response.collaborationRecommendation ||
+                (includeExecutionPolicy ? "autonomous" : undefined);
             const body = {
                 approved: response.approved,
                 feedback: response.feedback,
                 approvalAction,
+                ...(executionAgent ? { executionAgent } : {}),
+                ...(collaborationRecommendation ? { collaborationRecommendation } : {}),
                 ...(editedPlan ? { plan: editedPlan } : {}),
             };
             const opened = await createScriptedReviewBrowser(response.approved ? "decision" : "deny", body).browser
@@ -1138,7 +1157,10 @@ async function runComposedTuiScenario(scenario, options) {
                     });
                     events.push("tui:restarted");
                 } else if (typed.type === "enter") terminal.pressEnter();
-                else if (typed.type === "escape") terminal.pressEscape();
+                else if (typed.type === "switchAgent") {
+                    await runtime.switchAgent(composition.sessionId, { agentName: String(typed.agentName || "") });
+                    events.push(`runtime:switch-agent:${typed.agentName || ""}`);
+                } else if (typed.type === "escape") terminal.pressEscape();
                 else if (typed.type === "ctrlC") {
                     terminal.pressCtrlC();
                     events.push("terminal:ctrl-c");

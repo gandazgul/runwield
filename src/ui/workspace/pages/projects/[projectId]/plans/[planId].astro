@@ -1,0 +1,69 @@
+---
+import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import { PlanDetail } from "../../../../components/PlanDetail.jsx";
+import { PlanReviewSurface } from "../../../../react/PlanReviewSurface.tsx";
+import { serializeCanonicalPlanError } from "../../../../server/astro-canonical-data.js";
+import {
+    getAstroOwnerWorkspaceSessionContinuation,
+    loadOwnerProjectPlanDetail,
+} from "../../../../server/astro-owner-data.js";
+
+const projectId = Astro.params.projectId ?? "";
+const planId = Astro.params.planId ?? "";
+const runwieldSessionId = Astro.url.searchParams.get("session") || "";
+const operationId = Astro.url.searchParams.get("operation") || "";
+const interactionId = Astro.url.searchParams.get("interaction") || "";
+let liveReview = null;
+let plan = null;
+let error = null;
+try {
+    plan = await loadOwnerProjectPlanDetail(projectId, planId);
+    if (runwieldSessionId && operationId && interactionId) {
+        liveReview = getAstroOwnerWorkspaceSessionContinuation()?.getLivePlanReview?.({
+            projectId,
+            planId,
+            runwieldSessionId,
+            operationId,
+            interactionId,
+        }) || null;
+    }
+} catch (caught) {
+    error = await serializeCanonicalPlanError(caught);
+    Astro.response.status = error.error.includes("not found") || error.error.includes("Plan not found") ? 404 : 409;
+}
+const reviewPayload = plan && liveReview
+    ? {
+        mode: "workspace",
+        plan: plan.markdown || plan.body || "",
+        planPath: plan.path,
+        classification: liveReview.request?.planReview?.classification,
+        runwieldSessionId,
+        reviewContext: {
+            sessionLabel: runwieldSessionId,
+            planLabel: plan.title || plan.planName || planId,
+            planStatus: plan.status || plan.attrs?.status,
+            live: true,
+        },
+        interactionAnswerUrl: `/api/owner/projects/${encodeURIComponent(projectId)}/session-operations/${
+            encodeURIComponent(operationId)
+        }/interactions/${encodeURIComponent(interactionId)}/answer`,
+    }
+    : null;
+---
+<WorkspaceLayout
+    title={plan ? `${plan.planName} · RunWield Workspace` : "Project Plan · RunWield Workspace"}
+    selectedTab="projects"
+    url={Astro.url.href}
+>
+    {error ? (
+        <section class="error-panel">
+            <h2>Project Plan lookup failed</h2>
+            <p>{error.error}</p>
+            <p>{error.repair}</p>
+        </section>
+    ) : reviewPayload ? (
+        <PlanReviewSurface payload={reviewPayload} client:only="react" />
+    ) : (
+        <PlanDetail plan={plan} url={Astro.url.href} editIntent={false} client:load />
+    )}
+</WorkspaceLayout>

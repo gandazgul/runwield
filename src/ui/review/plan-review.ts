@@ -6,29 +6,12 @@
  * The browser surface is isolated here so core only requests a review.
  */
 
-import {
-    getPlanRevisionForText,
-    getStoredPlanPath,
-    injectFrontMatter,
-    loadPlan,
-    parsePlanFrontMatter,
-    StalePlanWriteError,
-    writePlanMarkdownWithRevision,
-} from "../../plan-store.js";
+import { getPlanRevisionForText, injectFrontMatter, parsePlanFrontMatter } from "../../plan-store.js";
 import { isAbsolute, resolve } from "node:path";
 import { assertSharedPlanWriteAllowed } from "../../shared/collaboration/lock.js";
 import { mimeTypeForImagePath } from "../../shared/session/image-attachments.js";
-import {
-    buildPlanEventUpdates,
-    isPlanReviewableWithoutReopen,
-    recordPlanEvent,
-} from "../../shared/workflow/plan-lifecycle.js";
-import { runPlanReviewDecisionTransition } from "../../shared/workflow/state-transition.ts";
-import {
-    findById as findWorktreeById,
-    updateEntry as updateWorktreeRegistryEntry,
-} from "../../shared/worktree-registry.js";
 import { isAnsweredPlanReview } from "../../shared/workflow/plan-review-recovery.js";
+import { applySharedPlanReviewDecision } from "../../shared/workflow/plan-review-actions.ts";
 import { startPlanReviewSurface } from "./review-launcher.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.js";
@@ -168,17 +151,6 @@ function bytesToBase64(bytes: Uint8Array): string {
     return btoa(chunks.join(""));
 }
 
-/** */
-function readApprovedExecutionPolicy(
-    decision: PlanReviewDecision,
-): { executionAgent: "engineer" | "frontend-engineer"; collaborationRecommendation: "autonomous" | "pair" } | null {
-    const executionAgent = decision?.executionAgent;
-    const collaborationRecommendation = decision?.collaborationRecommendation;
-    if (executionAgent !== "engineer" && executionAgent !== "frontend-engineer") return null;
-    if (collaborationRecommendation !== "autonomous" && collaborationRecommendation !== "pair") return null;
-    return { executionAgent, collaborationRecommendation };
-}
-
 // ─── Main Function ────────────────────────────────────────────────────
 
 /**
@@ -270,164 +242,21 @@ export async function submitPlanForReview({
             };
         }
 
-        const approved = decision.approved === true;
-        let reviewedPlan = typeof decision.plan === "string" ? decision.plan : planWithFm;
-        const approvedPolicy = readApprovedExecutionPolicy(decision);
-        const canonicalReviewOverrides = {
-            classification: trustedClassification,
-            ...(trustedWorkKind ? { workKind: trustedWorkKind } : {}),
-        };
-        if (trustedClassification === "PROJECT") {
-            Object.assign(canonicalReviewOverrides, {
-                executionAgent: null,
-                collaborationRecommendation: null,
-                frontend: null,
-            });
-        } else if (approved && approvedPolicy) {
-            Object.assign(canonicalReviewOverrides, {
-                executionAgent: approvedPolicy.executionAgent,
-                collaborationRecommendation: approvedPolicy.collaborationRecommendation,
-                frontend: null,
-            });
-        }
-        reviewedPlan = injectFrontMatter(reviewedPlan, canonicalReviewOverrides);
-        const reviewedAttrs = parsePlanFrontMatter(reviewedPlan).attrs;
-        const canonicalPlanPath = getStoredPlanPath(cwd, planName);
-        let lifecycleMeta: PlanFrontMatter = reviewedAttrs;
-        let committedRevision: string | undefined;
-        if (resolve(canonicalPlanPath) === resolve(planPath)) {
-            // Reviewing a Plan that already ran detaches it from its execution
-            // generation. That detachment is two writes — the Plan's Front Matter and
-            // the registry entry — and they belong to one transaction: an approval
-            // that landed while the entry stayed live leaves the next execution
-            // pointing at a worktree the Plan no longer owns.
-            const reopenWorktreeId = isPlanReviewableWithoutReopen(attrs.status)
-                ? undefined
-                : attrs.worktreeId ?? undefined;
-            const reviewTransition = await runPlanReviewDecisionTransition({
-                projectRoot: cwd,
-                planName,
-                approved,
-                worktreeId: reopenWorktreeId,
-                expectedRevision: planRevision,
-                decide: async ({ beforePlan, markEffect, registerRollback }) => {
-                    if (!beforePlan) throw new Error(`Plan not found: ${planName}`);
-                    if (beforePlan.revision !== planRevision) {
-                        throw new Error(
-                            "Plan changed after review opened; reload the review before applying this decision.",
-                        );
-                    }
-                    let nextMarkdown = reviewedPlan;
-                    let nextAttrs = reviewedAttrs;
-                    let status = beforePlan.attrs.status;
-                    if (!isPlanReviewableWithoutReopen(status)) {
-                        const reopenUpdates = buildPlanEventUpdates("review_reopened", status, {
-                            triageMeta: nextAttrs,
-                        });
-                        nextMarkdown = injectFrontMatter(nextMarkdown, reopenUpdates);
-                        nextAttrs = parsePlanFrontMatter(nextMarkdown).attrs;
-                        status = "feedback";
-                        if (reopenWorktreeId) {
-                            const before = await findWorktreeById(cwd, reopenWorktreeId);
-                            registerRollback(`restore worktree registry status for ${reopenWorktreeId}`, async () => {
-                                if (before?.status) {
-                                    await updateWorktreeRegistryEntry(cwd, reopenWorktreeId, {
-                                        status: before.status,
-                                    });
-                                }
-                            });
-                            await updateWorktreeRegistryEntry(cwd, reopenWorktreeId, { status: "abandoned" });
-                            await markEffect("worktree_registry_abandoned", { worktreeId: reopenWorktreeId });
-                        }
-                    }
-                    const event = approved ? "review_approved" : "review_feedback";
-                    const eventUpdates = buildPlanEventUpdates(event, status, {
-                        triageMeta: nextAttrs,
-                        failureReason: decision.feedback,
-                    });
-                    nextMarkdown = injectFrontMatter(nextMarkdown, eventUpdates);
-                    nextAttrs = parsePlanFrontMatter(nextMarkdown).attrs;
-                    const revision = await writePlanMarkdownWithRevision(
-                        beforePlan.path,
-                        nextMarkdown,
-                        beforePlan.revision,
-                    );
-                    return { attrs: nextAttrs, revision };
-                },
-            });
-            if (reviewTransition.status !== "committed") {
-                return {
-                    approved: false,
-                    feedback: reviewTransition.message ||
-                        "Plan changed while review was open. Reload the Plan and review again.",
-                    cancellationReason: "stale_plan_review",
-                };
-            }
-            const transitionValue = reviewTransition.value as
-                | { attrs?: PlanFrontMatter; revision?: string }
-                | undefined;
-            lifecycleMeta = transitionValue?.attrs || reviewedAttrs;
-            committedRevision = transitionValue?.revision;
-        } else {
-            try {
-                committedRevision = await writePlanMarkdownWithRevision(planPath, reviewedPlan, planRevision);
-            } catch (error) {
-                if (error instanceof StalePlanWriteError) {
-                    return {
-                        approved: false,
-                        feedback: "Plan changed while review was open. Reload the Plan and review again.",
-                        cancellationReason: "stale_plan_review",
-                    };
-                }
-                throw error;
-            }
-
-            // External/non-canonical review paths keep the legacy two-step behavior.
-            const STATUS_ALLOWS_REVIEW = isPlanReviewableWithoutReopen(attrs.status);
-            if (!STATUS_ALLOWS_REVIEW) {
-                const reopenedMeta = await recordPlanEvent({
-                    cwd,
-                    planName,
-                    event: "review_reopened",
-                    currentStatus: attrs.status,
-                    details: { triageMeta: lifecycleMeta },
-                    expectedRevision: committedRevision,
-                });
-                if (reopenedMeta) lifecycleMeta = { ...lifecycleMeta, ...reopenedMeta };
-            }
-            const postReopenStatus = STATUS_ALLOWS_REVIEW ? attrs.status : "feedback";
-            if (approved) {
-                const approvedMeta = await recordPlanEvent({
-                    cwd,
-                    planName,
-                    event: "review_approved",
-                    currentStatus: postReopenStatus,
-                    details: { triageMeta: lifecycleMeta },
-                    expectedRevision: committedRevision,
-                });
-                if (approvedMeta) lifecycleMeta = { ...lifecycleMeta, ...approvedMeta };
-            } else {
-                const feedbackMeta = await recordPlanEvent({
-                    cwd,
-                    planName,
-                    event: "review_feedback",
-                    currentStatus: postReopenStatus,
-                    details: { triageMeta: lifecycleMeta, failureReason: decision.feedback },
-                    expectedRevision: committedRevision,
-                });
-                if (feedbackMeta) lifecycleMeta = { ...lifecycleMeta, ...feedbackMeta };
-            }
-            const latestPlan = await loadPlan(cwd, planName).catch(() => null);
-            if (latestPlan?.revision) committedRevision = latestPlan.revision;
-        }
+        const actionResult = await applySharedPlanReviewDecision({
+            cwd,
+            planName,
+            planPath,
+            planWithFrontMatter: planWithFm,
+            planRevision,
+            originalAttrs: attrs,
+            trustedClassification,
+            trustedWorkKind,
+            decision,
+        });
 
         const images = await loadReviewFeedbackImages(decision, cwd);
         return {
-            approved,
-            feedback: decision.feedback,
-            ...(decision.approvalAction && { approvalAction: decision.approvalAction }),
-            ...(approved && { planAttrs: lifecycleMeta }),
-            ...(committedRevision && { revision: committedRevision }),
+            ...actionResult,
             ...(decision.savedPath && { savedPath: decision.savedPath }),
             ...(images.length > 0 && { images }),
         };

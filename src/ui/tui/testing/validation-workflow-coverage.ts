@@ -339,7 +339,10 @@ function statePathsFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "lifecycle:missing-plan-fails-closed" || id === "lifecycle:malformed-front-matter-fails-closed") {
         return ["projectState.plans.0.name"];
     }
-    if (id === "publication:merge-conflict-repair-completed") {
+    if (
+        id === "publication:merge-conflict-repair-completed" ||
+        id === "publication:merge-conflict-repair-incomplete-stop"
+    ) {
         return ["projectState.plans.0.name", "projectState.registryEntries"];
     }
     const paths = ["projectState.plans.0.attrs.status"];

@@ -373,11 +373,8 @@ export const twoChildProjectContinuationScenario = {
         { type: "runSlicerDecomposition", planName: "epic" },
         { type: "waitForIdle", timeoutMs: 15000 },
         // Decomposition leaves the Slicer active, so the next request would go to it.
-        // `/agent` is the real user-facing way back to the Planner.
-        // Wait for the third Planner event so this does not match startup's stale events.
-        { type: "type", text: "/agent planner" },
-        { type: "enter" },
-        { type: "waitForEventCount", event: "runtime:agent:planner", count: 3, timeoutMs: 45000 },
+        // Switch through the Runtime test API; slash-command coverage owns `/agent` input semantics.
+        { type: "switchAgent", agentName: "planner" },
         { type: "waitForIdle", timeoutMs: 15000 },
         // Explicit launch of the first child, as a real user message: Epic approval is
         // not Epic execution. Its Plan Review, execution and validation all run for
@@ -621,10 +618,8 @@ export const projectChildObjectiveCheckStopScenario = {
         },
         { type: "runSlicerDecomposition", planName: "epic" },
         { type: "waitForIdle", timeoutMs: 15000 },
-        // Wait for the third Planner event so this does not match startup's stale events.
-        { type: "type", text: "/agent planner" },
-        { type: "enter" },
-        { type: "waitForEventCount", event: "runtime:agent:planner", count: 3, timeoutMs: 45000 },
+        // Switch through the Runtime test API; slash-command coverage owns `/agent` input semantics.
+        { type: "switchAgent", agentName: "planner" },
         { type: "waitForIdle", timeoutMs: 15000 },
         { type: "type", text: "finalize and submit the first child planned change for review" },
         { type: "enter" },

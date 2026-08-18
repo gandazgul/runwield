@@ -45,7 +45,7 @@ export const slashShareScenario = {
     actions: [
         { type: "type", text: "/share" },
         { type: "enter" },
-        { type: "waitForIdle" },
+        { type: "waitForScreen", text: "GitHub CLI ('gh') is not installed" },
     ],
     assertions: [
         (result: GoldenResult) => assertEventIncludes(result, "terminal:type:/share"),

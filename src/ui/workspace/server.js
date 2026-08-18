@@ -78,7 +78,7 @@ import {
 } from "./server/owner-origin.js";
 import { listOwnerProjects, requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./server/owner-projects.js";
 import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
-import { setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
+import { setAstroOwnerWorkspaceSessionContinuation, setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
 
 const WORKSPACE_DIR = join(RUNWIELD_SOURCE_ROOT, "ui", "workspace");
 const ROOT_DIR = RUNWIELD_ROOT;
@@ -193,6 +193,7 @@ export function createOwnerWorkspaceApp(options) {
     setAstroOwnerWorkspaceStore(store);
     const connections = createOwnerConnectionRegistry();
     const sessionContinuation = createWorkspaceSessionContinuationService({ store });
+    setAstroOwnerWorkspaceSessionContinuation(sessionContinuation);
     const pairingRateLimit = createInProcessRateLimit({ limit: 4, windowMs: 60_000 });
     registerStaticRoutes(app);
     app.use(async (ctx) => {

@@ -11,6 +11,8 @@ import { getCwd } from "../../../constants.js";
  * @property {string} [feedback]
  * @property {boolean} [canceled]
  * @property {string} [approvalAction]
+ * @property {"engineer"|"frontend-engineer"} [executionAgent]
+ * @property {"autonomous"|"pair"} [collaborationRecommendation]
  * @property {unknown} [plan]
  */
 
@@ -50,11 +52,14 @@ export class ScriptedReviewSurface {
         const decision = this.decisions.shift();
         if (!decision) throw new Error("Unexpected Plan Review interaction: no scripted decisions remain.");
         this.consumed.push({ request, decision });
+        const approved = Boolean(decision.approved);
         return {
-            approved: Boolean(decision.approved),
+            approved,
             canceled: Boolean(decision.canceled),
             feedback: decision.feedback || "",
-            approvalAction: decision.approvalAction || (decision.approved ? "later" : undefined),
+            approvalAction: decision.approvalAction || (approved ? "later" : undefined),
+            executionAgent: decision.executionAgent,
+            collaborationRecommendation: decision.collaborationRecommendation,
             plan: decision.plan,
         };
     }

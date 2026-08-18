@@ -18,21 +18,6 @@ affectedPaths:
     - "src/ui/workspace/react/"
     - "src/ui/workspace/static/workspace.css"
     - "docs/design-system.md"
-devServerCommand: "deno task workspace:dev"
-devServerUrl: "http://127.0.0.1:5173"
-devServerHmr: true
-createdAt: "2026-07-26T20:48:25.378Z"
-origin: "internal"
-parentPlan: "personal-remote-workspace-v1"
-order: 16
-dependencies:
-    - "15-complete-workspace-session-navigation-and-timeline-ux"
-    - "13-execution-segment-handoff-backend"
-userVerifiedAt: null
-humanReviewMode: null
-humanReviewDecision: null
-validationCheckpoint: null
-worktreeStatus: "abandoned"
 objectiveChecks:
     - id: "OC1"
       command: "test -f src/shared/workflow/plan-review-actions.ts && grep -Fq 'plan-review-actions' src/ui/review/plan-review.ts && test -f src/shared/workflow/plan-review-actions.test.ts && grep -Fq \"shared Plan review rejects stale revision status and worktree before mutation\" src/shared/workflow/plan-review-actions.test.ts && grep -Fq \"shared Plan review commits edited Feedback and approval notes with classification-correct outcomes\" src/shared/workflow/plan-review-actions.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/plan-review-actions.test.ts"
@@ -43,10 +28,38 @@ objectiveChecks:
     - id: "OC3"
       command: "grep -Fq 'PlanReviewSurface' 'src/ui/workspace/pages/projects/[projectId]/plans/[planId].astro' && grep -Fq 'PlanDetail' 'src/ui/workspace/pages/projects/[projectId]/plans/[planId].astro' && test -f src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Phone Plan review keeps full editing annotations and actions reachable\" src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Feedback and Run return to Session while Later stays on confirmation\" src/ui/workspace/workspace-plan-review-ux.test.tsx && grep -Fq \"Plan and Epic reviews expose classification-correct actions\" src/ui/workspace/workspace-plan-review-ux.test.tsx && deno run -A scripts/run-tests.js src/ui/workspace/workspace-plan-review-ux.test.tsx"
       rationale: "Forces the one stable page to reference both surfaces, proving the live-versus-settled switch is wired rather than only described in test names. Red today because the route file does not exist."
+objectiveCheckWaivers:
+    []
 executionAgent: "frontend-engineer"
 collaborationRecommendation: "pair"
-updatedAt: "2026-08-17T16:00:37.816Z"
-status: "ready_for_work"
+devServerCommand: "deno task workspace:dev"
+devServerUrl: "http://127.0.0.1:5173"
+devServerHmr: true
+createdAt: "2026-07-26T20:48:25.378Z"
+origin: "internal"
+parentPlan: "personal-remote-workspace-v1"
+order: 16
+dependencies:
+    - "15-complete-workspace-session-navigation-and-timeline-ux"
+    - "13-execution-segment-handoff-backend"
+implementedAt: "2026-08-17T21:44:44.235Z"
+userVerifiedAt: null
+executionReport: "- Implemented partial Slice 16: planning-only workflow Sessions now continue from Workspace; live execution workflows still refuse continuation with product-state copy.\n- Implemented safe `plan_review` projection: Plan id/name/classification/revision/status/worktree evidence are carried in metadata; Workspace live operation status exposes only a bounded safe review reference and a stable Plan link.\n- Implemented visible Workspace review improvements: context header, Plan-specific Session timeline card, classification-specific Run/Slice/Later labels, stale/expired/recovery notices, and phone sticky action-bar/bottom-sheet layout.\n- Revised per pair feedback: removed the added top Overall feedback form; Plannotator Global comment remains the Plan-level feedback path and was browser-checked.\n- Updated tests for the new continuation split, Plan review timeline projection, and owner Workspace copy; no tests were deleted.\n- Verification passed: `deno task workspace:check`, `deno task workspace:test`, `deno task workspace:build`, `deno task language-policy:check`, `deno task seams:check`, and final `deno task ci` all passed.\n- Browser checked `http://127.0.0.1:5173/dev/plan-review` in headed browser at 1440×900 and 390×844; evidence: `artifacts/s16-checkpoint1-revised-desktop.png`, `artifacts/s16-checkpoint2-phone.png`, `artifacts/s16-checkpoint3-states.png`; final snapshot confirmed context header, Plan actions, Global comment, and no mobile horizontal overflow.\n- Incomplete against the full approved Plan: shared Core review-decision extraction, owner review-document/decision endpoints, live stable Project Plan page rendering `PlanReviewSurface`, exact request-id deduplication, and real paired Core cross-surface journey automation are not fully implemented in this change."
+executionMode: "worktree"
+executionBaselineTree: "a3e8dbe649bfaf2d984666cab9d1127e4c52789a"
+worktreeId: "a930eb1c"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-personal-remote-workspace-v1-16-workspace-plan-r-a930eb1c"
+worktreeBranch: "worktree/personal-remote-workspace-v1-16-workspace-plan-r-a930eb1c"
+worktreeBaseBranch: "main"
+worktreeStatus: "completed"
+validationObjectiveCheckAttempts: 0
+validationCiAttempts: 0
+validationSemanticRounds: 1
+status: "validated_reviewer"
+validationCheckpoint: null
+updatedAt: "2026-08-18T17:34:29.170Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Workspace Plan Review and Approve UI

@@ -477,18 +477,27 @@ export function PlanReviewSurface({ payload }) {
             console.log("Plan review dev decision", { endpoint, body });
             return;
         }
-        const targetUrl = initialPayload.submitUrl ||
+        const targetUrl = initialPayload.interactionAnswerUrl || initialPayload.submitUrl ||
             `/api/review/${endpoint}?token=${encodeURIComponent(initialPayload.token)}`;
         const headers = {
             "content-type": "application/json",
             "x-runwield-review-token": initialPayload.token,
         };
         if (initialPayload.csrfToken) headers["x-runwield-csrf"] = initialPayload.csrfToken;
+        const requestId = crypto.randomUUID();
         const response = await fetch(targetUrl, {
             method: "POST",
             headers,
             body: JSON.stringify(
-                initialPayload.submitUrl ? { requestId: crypto.randomUUID(), action: endpoint, ...body } : body,
+                initialPayload.interactionAnswerUrl
+                    ? {
+                        requestId,
+                        runwieldSessionId: initialPayload.runwieldSessionId,
+                        response: { outcome: "accepted", _meta: body },
+                    }
+                    : initialPayload.submitUrl
+                    ? { requestId, action: endpoint, ...body }
+                    : body,
             ),
         });
         if (!response.ok) {
