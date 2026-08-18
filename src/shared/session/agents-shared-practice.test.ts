@@ -229,10 +229,9 @@ Deno.test("quick fix Engineer receives the bounded-request contract", async () =
     const { systemPrompt } = await loadAgentDef("engineer");
     const normalizedPrompt = systemPrompt.replaceAll(/\s+/g, " ");
     assertStringIncludes(systemPrompt, "Quick Fix Checklist");
-    assertStringIncludes(normalizedPrompt, "no Plan and no Plan-based semantic review");
     assertStringIncludes(
         normalizedPrompt,
-        "Mechanical Validation after each `task_completed` is the only quality gate",
+        "this direct request has Mechanical Validation after each `task_completed`, but no semantic review gate",
     );
     assertStringIncludes(
         normalizedPrompt,

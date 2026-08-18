@@ -786,7 +786,10 @@ export async function executePreparedPlanSegmentHandoff({
     hostedSession.setActiveExecutionWorkflow(workflow);
     emitLaunchingExecutionAgent(
         hostedSession,
-        getAgentDisplayName(continuation.executionOwner, workflow.projectRoot || hostedSession.cwd),
+        getAgentDisplayName(
+            resolvePlanExecutionRuntimeAgent(continuation.executionOwner),
+            workflow.projectRoot || hostedSession.cwd,
+        ),
     );
     const engineerResult = await runEngineerWithSegmentHandoff({
         continuation,

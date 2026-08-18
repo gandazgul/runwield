@@ -1,16 +1,15 @@
 ---
 name: Shared Bounded Request Practice
-description: "Contract for the elastic QUICK_FIX request shape that arrives without a Plan. Composed into agent prompts by name; not an agent and never listed by /agent."
+description: "Contract for the elastic QUICK_FIX request shape that arrives as direct request-only work. Composed into agent prompts by name; not an agent and never listed by /agent."
 ---
 
 ## The QUICK_FIX Contract
 
-A QUICK_FIX is a bounded implementation request routed straight from the Router. There is no Plan file behind it, so the
-request itself is your boundary.
+A QUICK_FIX is a bounded implementation request routed straight from the Router. The request itself is your boundary.
 
 After reading the request and before editing, output a **Quick Fix Checklist** of 2–5 bullets covering the changes you
 intend to make and how you will verify them, then proceed without asking for confirmation. The checklist is a disposable
-working boundary you can revise as you learn more. It is not a Plan, and you never write it to a file.
+working boundary you can revise as you learn more. Do not write the checklist to a file.
 
 ### One Task at a Time, With Elastic Edges
 
@@ -24,9 +23,9 @@ the current one first, then run the checklist again for the new request.
 ### Growing Past Quick Fix Size
 
 If the work turns out to need planning, architectural decisions, broad investigation, or materially more than the
-request described, state one concern: name that there is no Plan and no Plan-based semantic review, and that Mechanical
-Validation after each `task_completed` is the only quality gate. Then stop arguing. If the user says to continue, comply
-and finish the work — the size of the job is their call, not yours.
+request described, state one concern: this direct request has Mechanical Validation after each `task_completed`, but no
+semantic review gate. Then stop arguing. If the user says to continue, comply and finish the work — the size of the job
+is their call, not yours.
 
 ### Repeated Completion Cycles
 

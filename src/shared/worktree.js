@@ -827,8 +827,8 @@ async function resolvePreservedPlanMergeConflicts(cwd, branch, preservePlanPaths
     const preserved = new Set(preservePlanPaths.map((path) => path.replaceAll("\\", "/")));
     const unresolvedPaths = parseNameOnlyPaths(await runGit(cwd, ["diff", "--name-only", "--diff-filter=U"]));
     if (unresolvedPaths.length === 0) return false;
-    const nonPreservedPaths = unresolvedPaths.filter((path) => !preserved.has(path.replaceAll("\\", "/")));
-    if (nonPreservedPaths.length > 0) return false;
+    const preservedUnresolvedPaths = unresolvedPaths.filter((path) => preserved.has(path.replaceAll("\\", "/")));
+    if (preservedUnresolvedPaths.length === 0) return false;
 
     await runGit(cwd, [
         "restore",
@@ -836,9 +836,13 @@ async function resolvePreservedPlanMergeConflicts(cwd, branch, preservePlanPaths
         "--worktree",
         `--source=${branch}`,
         "--",
-        ...unresolvedPaths,
+        ...preservedUnresolvedPaths,
     ]);
-    await runGit(cwd, ["add", "--", ...unresolvedPaths]);
+    await runGit(cwd, ["add", "--", ...preservedUnresolvedPaths]);
+
+    const remainingUnresolvedPaths = parseNameOnlyPaths(await runGit(cwd, ["diff", "--name-only", "--diff-filter=U"]));
+    if (remainingUnresolvedPaths.length > 0) return false;
+
     await runGit(cwd, ["-c", "core.editor=true", "merge", "--continue"]);
     return true;
 }

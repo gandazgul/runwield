@@ -21,7 +21,8 @@ import { SessionRuntime } from "../session/session-runtime.js";
 import { RuntimeEventTypes } from "../session/session-runtime-events.js";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import type { RuntimeInteractionRequest, RuntimeInteractionResponse } from "../session/session-runtime-interactions.js";
-import { executePlan } from "./plan-executor.ts";
+import { executePlan, executePreparedPlanSegmentHandoff } from "./plan-executor.ts";
+import { buildExecutionSegmentContinuation } from "./execution-segment-handoff.ts";
 
 type InteractionHandler = (request: RuntimeInteractionRequest) => RuntimeInteractionResponse;
 
@@ -36,6 +37,7 @@ interface ExecutionFixture {
     hostedSession: HostedSession;
     sessionManager: SessionManager;
     agentChanges: string[];
+    statusMessages: string[];
     turns: CapturedTurn[];
 }
 
@@ -54,10 +56,12 @@ function createExecutionFixture(projectRoot: string, interaction?: InteractionHa
     // @ts-expect-error The legacy HostedSession JSDoc describes a wider manager.
     hostedSession.setRootSessionManager(sessionManager);
     const agentChanges: string[] = [];
-    hostedSession.setEventSink((event: { type?: string; agentName?: string }) => {
+    const statusMessages: string[] = [];
+    hostedSession.setEventSink((event: { type?: string; agentName?: string; message?: string }) => {
         if (event.type === RuntimeEventTypes.AGENT_CHANGED && event.agentName) agentChanges.push(event.agentName);
+        if (event.type === RuntimeEventTypes.SYSTEM_STATUS && event.message) statusMessages.push(event.message);
     });
-    return { hostedSession, sessionManager, agentChanges, turns: [] };
+    return { hostedSession, sessionManager, agentChanges, statusMessages, turns: [] };
 }
 
 /** Record the identity behind each model call so a label-only change cannot pass. */
@@ -142,6 +146,72 @@ Deno.test("an engineer-owned Plan runs under Plan Engineer while the Plan keeps 
             fixture.hostedSession.dispose();
         }
     });
+});
+
+Deno.test("a legacy segment handoff announces Plan Engineer before resuming", async () => {
+    await withRuntimeCommandFixture(
+        "plan-boundaries-legacy-handoff-",
+        async ({ projectRoot, setModelResponseFactories }) => {
+            await initializeGitProject(projectRoot);
+            await saveExecutablePlan(projectRoot, "legacy-handoff");
+            const savedPlan = await loadPlan(projectRoot, "legacy-handoff");
+            const planId = savedPlan?.attrs.planId || "plan-legacy-handoff";
+            const fixture = createExecutionFixture(projectRoot);
+            setModelResponseFactories(
+                IMPLEMENT_AND_COMPLETE.map((message) => (context: Context) => {
+                    captureTurn(fixture, context);
+                    return message;
+                }),
+            );
+            const continuation = {
+                ...buildExecutionSegmentContinuation({
+                    runwieldSessionId: fixture.hostedSession.id,
+                    planId,
+                    planName: "legacy-handoff",
+                    approvedRevision: "legacy-revision",
+                    approvedStatus: "ready_for_work",
+                    approvedMarkdown: "# legacy-handoff",
+                    preparedEvidence: {
+                        planId,
+                        planName: "legacy-handoff",
+                        revision: "legacy-revision",
+                        status: "ready_for_work",
+                        worktree: { kind: "none" },
+                    },
+                    activeWorkflow: {
+                        planName: "legacy-handoff",
+                        triageMeta: { classification: "PLANNED_CHANGE" },
+                        executionAgent: "engineer",
+                        collaborationRecommendation: "autonomous",
+                        collaborationStyle: "autonomous",
+                        executionCwd: projectRoot,
+                        executionMode: "non_git_in_place",
+                        nonGitInPlace: true,
+                        projectRoot,
+                    },
+                    executionOwner: "plan-engineer",
+                    collaborationStyle: "autonomous",
+                    collaborationRecommendation: "autonomous",
+                }),
+                executionOwner: "engineer" as const,
+            };
+
+            try {
+                const result = await executePreparedPlanSegmentHandoff({
+                    continuation,
+                    sessionManager: fixture.sessionManager,
+                    hostedSession: fixture.hostedSession,
+                });
+
+                assertEquals(fixture.statusMessages.includes("launching Plan Engineer to execute..."), true);
+                assertEquals(fixture.statusMessages.includes("launching Engineer to execute..."), false);
+                assertEquals(fixture.turns[0]?.agentName, "plan-engineer");
+                assertEquals(result.executionComplete, true);
+            } finally {
+                fixture.hostedSession.dispose();
+            }
+        },
+    );
 });
 
 Deno.test("a frontend-owned Plan runs under Frontend Engineer", async () => {
