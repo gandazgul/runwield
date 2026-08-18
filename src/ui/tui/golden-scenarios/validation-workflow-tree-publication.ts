@@ -28,7 +28,11 @@ export const validationTreePublicationDirtyStopResumeScenario = withValidationBr
             {
                 type: "select",
                 promptIncludes: "have not saved to git yet",
-                userFixesFirst: { path: "golden-planned-change.txt", text: "committed baseline\n" },
+                userFixesFirst: {
+                    path: "golden-planned-change.txt",
+                    text: "committed baseline\n",
+                    commands: ["git checkout -- golden-planned-change.txt"],
+                },
                 value: "stop",
             },
             { type: "select", promptIncludes: "Plan recovery (validated_reviewer)", value: "validate" },

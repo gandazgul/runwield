@@ -497,6 +497,9 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         }
         updates.validationSemanticRounds = 0;
         updates.failureReason = details.failureReason || "Mechanical Validation failed.";
+        if (details.validationCheckpoint !== undefined) {
+            updates.validationCheckpoint = details.validationCheckpoint;
+        }
     }
 
     if (event === "mechanical_validation_passed") {

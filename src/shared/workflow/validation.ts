@@ -20,7 +20,6 @@ import type { ValidationPhaseResult, WorkflowValidationResult } from "./validati
 import type { ValidationLoopArgs as EngineValidationLoopArgs } from "./validation-types.ts";
 import type { LocalCIPort } from "./validation-local-ci.ts";
 import type { ValidationCheckpoint, ValidationCheckpointPhase } from "./validation-checkpoint.ts";
-import { getValidationPosition } from "./validation-position.ts";
 
 export {
     hasTrustedClaudeMcpReview,
@@ -117,7 +116,6 @@ export function createEngineValidationArgs(args: ValidationLoopArgs): EngineVali
     const session: ValidationSessionPort = createValidationSessionPort(args.hostedSession, {
         semanticReviewPort: args.semanticReviewPort,
     });
-    const rememberedPosition = getValidationPosition(args.hostedSession, args.planName);
     return {
         planName: args.planName,
         planContent: args.planContent,
@@ -134,7 +132,7 @@ export function createEngineValidationArgs(args: ValidationLoopArgs): EngineVali
             ? { engineerReportedBrokenObjectiveChecks: args.engineerReportedBrokenObjectiveChecks }
             : {}),
         supportsSemanticRepairHandoff: args.supportsSemanticRepairHandoff,
-        continuationPhase: args.continuationPhase || rememberedPosition?.phase,
+        continuationPhase: args.continuationPhase,
         validationCheckpoint: args.validationCheckpoint,
     };
 }

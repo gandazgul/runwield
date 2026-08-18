@@ -67,7 +67,7 @@ export type ValidationWorkflowBranchId =
     | "lifecycle:resume-implemented"
     | "lifecycle:resume-validated-ci"
     | "lifecycle:resume-validated-reviewer"
-    | "lifecycle:ahead-status-heals-to-implemented"
+    | "lifecycle:ahead-status-keeps-canonical-progress"
     | "lifecycle:missing-plan-fails-closed"
     | "lifecycle:unsupported-status-fails-closed"
     | "lifecycle:malformed-front-matter-fails-closed"
@@ -177,7 +177,7 @@ export const EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS: readonly ValidationWorkflo
     "lifecycle:resume-implemented",
     "lifecycle:resume-validated-ci",
     "lifecycle:resume-validated-reviewer",
-    "lifecycle:ahead-status-heals-to-implemented",
+    "lifecycle:ahead-status-keeps-canonical-progress",
     "lifecycle:missing-plan-fails-closed",
     "lifecycle:unsupported-status-fails-closed",
     "lifecycle:malformed-front-matter-fails-closed",
@@ -262,7 +262,7 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "lifecycle:resume-implemented": "validation-tree-resume-implemented",
     "lifecycle:resume-validated-ci": "validation-tree-resume-validated-ci",
     "lifecycle:resume-validated-reviewer": "validation-tree-resume-validated-reviewer",
-    "lifecycle:ahead-status-heals-to-implemented": "validation-tree-ahead-status",
+    "lifecycle:ahead-status-keeps-canonical-progress": "validation-tree-ahead-status",
     "lifecycle:missing-plan-fails-closed": "validation-tree-missing-plan",
     "lifecycle:unsupported-status-fails-closed": "validation-tree-unsupported-status",
     "lifecycle:malformed-front-matter-fails-closed": "validation-tree-malformed-front-matter",
@@ -279,16 +279,13 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "lifecycle:malformed-front-matter-fails-closed") return ["Plan not found: broken"];
     if (
         id === "lifecycle:resume-implemented" || id === "lifecycle:resume-validated-ci" ||
-        id === "lifecycle:resume-validated-reviewer"
+        id === "lifecycle:resume-validated-reviewer" || id === "lifecycle:ahead-status-keeps-canonical-progress"
     ) return ["Workflow Validation verified"];
     if (id === "lifecycle:missing-execution-context-fails-closed") {
         return ["Validation blocked: RunWield cannot tell where"];
     }
     if (id === "lifecycle:mismatched-worktree-identity-fails-closed") {
         return ["Validation blocked: RunWield has worktree metadata"];
-    }
-    if (id === "lifecycle:ahead-status-heals-to-implemented") {
-        return ["found an old check state", "will run the tests again"];
     }
     if (id === "lifecycle:unsupported-status-fails-closed") return ["Plan has unknown status: sideways"];
     if (id.includes("plan-amendment")) return ["Plan amendment"];

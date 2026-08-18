@@ -25,8 +25,8 @@ export type ValidationPhaseName = "mechanical" | "semantic" | "delivery";
 /** Where a validation run is, while it is running (engine-owned mirror of validation-position.ts). */
 export type ValidationPosition = {
     phase: ValidationPhaseName;
-    /** What the loop handed out and is waiting to come back, when status cannot say it. */
-    awaiting?: "ci_repair" | "semantic_repair" | null;
+    /** Presentation-only note for UI code that wants to show a semantic repair wait. */
+    awaiting?: "semantic_repair" | null;
 };
 
 /** One check's verdict in the progress panel. */

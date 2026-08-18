@@ -1,8 +1,8 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertExists, assertStringIncludes } from "@std/assert";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
-import { loadPlan } from "../../plan-store.js";
+import { loadPlan, savePlan } from "../../plan-store.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { ensureRootAgentSession } from "../session/session.js";
@@ -16,6 +16,7 @@ import {
 } from "./validation-test-helpers.js";
 import { requestObjectiveCheckWaiver, runPlanObjectiveChecks } from "./validation-mechanical.ts";
 import { createValidationSessionPort } from "./validation-session-adapter.ts";
+import { makeValidationCheckpoint } from "./validation-checkpoint.ts";
 
 /** @returns {import("./validation-session-adapter.ts").SemanticReviewPort} */
 function repairPort(outcomes = ["completed"]) {
@@ -693,7 +694,7 @@ Deno.test("stopped validation can return control to the Engineer session", async
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
 });
 
-Deno.test("runValidationPhase re-runs CI after a repair even when the Plan status jumped ahead", async () => {
+Deno.test("runValidationPhase keeps canonical progress when a stale checkpoint still names Mechanical Validation", async () => {
     await withIncompleteRepairModel("validation-repair-rerun-", {}, async ({ projectRoot, hostedSession }) => {
         /** @type {number[]} */
         const ciExitCodes = [];
@@ -714,9 +715,9 @@ Deno.test("runValidationPhase re-runs CI after a repair even when the Plan statu
         assertEquals(first.kind, "paused");
         assertEquals(ciExitCodes.length, 1);
 
-        // The repair Agent reports `task_completed` into the root transcript, which is
-        // also what marks a Plan implemented, so the status can arrive at the next phase
-        // already advanced past the CI that never passed. Simulate exactly that.
+        // Simulate a process boundary where Mechanical Validation passed and recorded
+        // its status, but the durable checkpoint stopped before it could settle and
+        // still names the mechanical phase.
         await recordPlanEvent({
             cwd: projectRoot,
             planName: "p",
@@ -724,23 +725,39 @@ Deno.test("runValidationPhase re-runs CI after a repair even when the Plan statu
             currentStatus: "implemented",
             details: { triageMeta: { classification: "QUICK_FIX", status: "implemented" } },
         });
-        assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
+        const advanced = await loadPlan(projectRoot, "p");
+        assertExists(advanced);
+        assertEquals(advanced.attrs.status, "validated_ci");
+        const checkpoint = makeValidationCheckpoint({
+            attemptId: "in-place",
+            generation: crypto.randomUUID(),
+            status: "implemented",
+            phase: "mechanical",
+            state: "running",
+        });
+        await savePlan(projectRoot, "p", advanced.body, {
+            ...advanced.attrs,
+            validationCheckpoint: checkpoint,
+        }, { expectedRevision: advanced.revision });
 
-        // Status now says Semantic Review is next. The loop knows better: it dispatched a
-        // CI repair and never saw CI pass, so it goes back to CI.
+        // The lifecycle event is the durable proof that CI passed, so the lagging
+        // checkpoint cannot send the Plan back to the build. Validation carries on at
+        // the phase the canonical status asks for.
         const second = await runValidationPhase({
             hostedSession,
             planName: "p",
             planContent: "# p",
-            triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+            triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationCheckpoint: checkpoint },
+            continuationPhase: checkpoint.nextPhase,
+            validationCheckpoint: checkpoint,
+            semanticReviewPort: NO_ISOLATED_AGENT_PORT,
             localCI,
         });
 
         assertEquals(second.kind, "paused");
-        assertEquals(
-            ciExitCodes.length,
-            2,
-            "Expected CI to run again rather than being skipped by the advanced status.",
-        );
+        assertEquals(ciExitCodes.length, 1, "Expected CI not to run again for checks the Plan already records.");
+        const settled = await loadPlan(projectRoot, "p");
+        assertExists(settled);
+        assertEquals(settled.attrs.status, "validated_reviewer");
     });
 });

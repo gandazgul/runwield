@@ -565,7 +565,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                     "mechanical_validation_failed",
                     "implemented",
                     judgement.feedback || objectiveCheckOutcome.reason,
-                    { mechanicalFailureKind: "objective_check" },
+                    { mechanicalFailureKind: "objective_check", validationCheckpoint: args.validationCheckpoint },
                 );
                 adoptRecordedPlanState(args, phase.context, recordedAttrs);
                 const repair = await dispatchObjectiveCheckRepair(
@@ -640,7 +640,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 "mechanical_validation_failed",
                 "implemented",
                 objectiveCheckOutcome.reason,
-                { mechanicalFailureKind: "objective_check" },
+                { mechanicalFailureKind: "objective_check", validationCheckpoint: args.validationCheckpoint },
             );
             adoptRecordedPlanState(args, phase.context, recordedAttrs);
             const repair = await dispatchObjectiveCheckRepair(
@@ -851,7 +851,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             "mechanical_validation_failed",
             "implemented",
             failureReason,
-            { mechanicalFailureKind: "ci" },
+            { mechanicalFailureKind: "ci", validationCheckpoint: args.validationCheckpoint },
         );
         adoptRecordedPlanState(args, phase.context, recordedAttrs);
         const repairCompleted = await dispatchCiRepair(args, phase.context, ciResult);
@@ -1209,15 +1209,6 @@ export async function dispatchCiRepair(
     ciResult: ValidationLocalCIResult,
 ): Promise<boolean> {
     args.session.setActiveWorkflow({ ...context.workflowBase });
-    // Pin the loop before the independent repair runs. Plan state can advance while
-    // the repair is active, but this CI attempt has not passed. The remembered phase
-    // prevents a later dispatch from trusting that newer status and skipping CI.
-    if (typeof args.session.rememberPosition === "function") {
-        args.session.rememberPosition(args.planName, {
-            phase: "mechanical",
-            awaiting: "ci_repair",
-        });
-    }
     emitProgress(
         args,
         buildValidationUserMessage({

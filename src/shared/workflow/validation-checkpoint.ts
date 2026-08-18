@@ -50,9 +50,11 @@ const VALIDATION_PHASE_ORDER: readonly ValidationCheckpointPhase[] = ["mechanica
 
 /**
  * Whether a durable checkpoint can still own continuation for this attempt.
- * An earlier checkpoint remains authoritative when the same attempt's Plan has
- * moved ahead without that phase settling; the engine will heal the status and
- * rerun validation from the remembered phase.
+ * An earlier checkpoint keeps the attempt's identity — its generation, repair
+ * receipt, and Review Issues — when the same attempt's Plan has moved ahead without
+ * that phase settling. It does not move the Plan back: the engine runs the phase the
+ * canonical status asks for, because that status is the durable proof that the
+ * earlier phase's checks passed.
  */
 export function validationCheckpointCanResume(
     checkpoint: ValidationCheckpoint | undefined,

@@ -179,6 +179,12 @@ Deno.test("isolated task completion remains outside the root JSONL outbox", asyn
     assertEquals(listPendingTaskCompletions(hostedSession), []);
     assertEquals(claimPendingTaskCompletion(hostedSession, root), null);
     assertEquals(claimPendingTaskCompletion(hostedSession, isolated)?.report, "- Isolated work completed.");
+    assertEquals(
+        sessionManager.getBranch().some((entry) =>
+            entry.type === "custom" && entry.customType === TASK_COMPLETION_CUSTOM_TYPE
+        ),
+        false,
+    );
 });
 
 Deno.test("durable completion does not cross into a different active workflow", async () => {
