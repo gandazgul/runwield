@@ -1411,7 +1411,7 @@ Deno.test("SessionRuntime uses one segmented user-turn submission path", async (
     });
 });
 
-Deno.test("SessionRuntime routes execution continuation input to the workflow owner", async () => {
+Deno.test("SessionRuntime routes execution continuation input to the resolved Plan owner", async () => {
     setRuntimeModelMessages([fauxAssistantMessage(fauxText("Engineer continuation received."))]);
     const runtime = makeRuntime();
     const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "router" });
@@ -1435,8 +1435,9 @@ Deno.test("SessionRuntime routes execution continuation input to the workflow ow
     });
 
     assertEquals(result.ok, true);
-    assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "engineer");
-    assertEquals(changedAgents, ["planner", "engineer"]);
+    // The workflow still records `engineer`; the user talks to Plan Engineer.
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "plan-engineer");
+    assertEquals(changedAgents, ["planner", "plan-engineer"]);
 });
 
 Deno.test("SessionRuntime owns managed submission blocking messages", () => {
@@ -1717,14 +1718,14 @@ Deno.test("SessionRuntime keeps executePlan workflow operations busy while prepa
                         event.message.includes("preparing in-place execution") ||
                         event.message.includes("running Plan Objective-Failing Check baseline") ||
                         event.message.includes("updating Plan status to in_progress") ||
-                        event.message.includes("launching Engineer to execute")
+                        event.message.includes("launching Plan Engineer to execute")
                     ) {
                         preparationMessages.push({
                             message: event.message,
                             busy: runtime.getSessionSnapshot(sessionId)?.busy,
                         });
                     }
-                    if (event.message.includes("launching Engineer to execute")) resolveLaunchSeen();
+                    if (event.message.includes("launching Plan Engineer to execute")) resolveLaunchSeen();
                 }
             });
 
@@ -1756,7 +1757,7 @@ Deno.test("SessionRuntime keeps executePlan workflow operations busy while prepa
                 "preparing in-place execution because Git is unavailable...",
                 "running Plan Objective-Failing Check baseline...",
                 "updating Plan status to in_progress...",
-                "launching Engineer to execute...",
+                "launching Plan Engineer to execute...",
             ]);
             assertEquals(preparationMessages.map((entry) => entry.busy), [true, true, true, true, true]);
             assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, false);

@@ -5,6 +5,7 @@
 
 import { AGENTS, SUBAGENTS } from "../../constants.js";
 import { readPersistedModelState, resolveResumeAgentName } from "./active-agent-session.js";
+import { resolveActiveWorkflowRuntimeAgent, resolvePlanExecutionRuntimeAgent } from "../workflow/execution-agent.ts";
 import { getAgentDisplayName } from "./agents.js";
 import { runActiveAgentTurn, switchActiveAgent } from "./agent-switching.js";
 import {
@@ -1599,7 +1600,9 @@ export class SessionRuntime {
             approvedMarkdown: options.planContent || "",
             preparedEvidence: evidence.evidence,
             activeWorkflow: { ...workflow, ...handoff.activeWorkflow },
-            executionOwner: workflow.executionAgent || AGENTS.ENGINEER,
+            // The handoff names the Agent that resumes the repair; `activeWorkflow`
+            // above still carries the canonical `engineer` owner.
+            executionOwner: resolvePlanExecutionRuntimeAgent(workflow.executionAgent),
             semanticRound: handoff.semanticRound,
             repairGeneration: handoff.repairGeneration,
             reviewLedger: handoff.reviewLedger,
@@ -2878,7 +2881,7 @@ export class SessionRuntime {
     /** @param {import('./hosted-session.js').HostedSession} hostedSession */
     async #alignActiveExecutionWorkflowOwner(hostedSession) {
         const workflow = hostedSession.getActiveExecutionWorkflow?.() || null;
-        const executionAgent = typeof workflow?.executionAgent === "string" ? workflow.executionAgent.trim() : "";
+        const executionAgent = resolveActiveWorkflowRuntimeAgent(workflow) || "";
         if (!executionAgent) return;
         const executionCwd = typeof workflow?.executionCwd === "string" ? workflow.executionCwd : "";
         await this.#activateSessionAgent(hostedSession, {

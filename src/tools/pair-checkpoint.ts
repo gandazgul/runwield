@@ -1,6 +1,6 @@
 /**
  * @module pair-checkpoint
- * Non-terminal visual checkpoint tool for Frontend Engineer Pair Execution.
+ * Non-terminal checkpoint tool for Plan Pair Execution.
  */
 
 import { type Static, Type } from "@earendil-works/pi-ai";
@@ -27,7 +27,7 @@ const CHECKPOINT_DECISIONS = {
 const PARAMETERS = Type.Object({
     summary: Type.String({
         minLength: 1,
-        description: "Concise description of the visible increment now available for review.",
+        description: "Concise description of the observable increment now available for review.",
     }),
     route: Type.Optional(Type.String({ minLength: 1, description: "Route or URL currently shown." })),
     state: Type.Optional(
@@ -123,13 +123,13 @@ export function createPairCheckpointTool(
         name: "pair_checkpoint",
         label: "Pair Checkpoint",
         description:
-            "Pause active Pair Execution after a coherent visible increment has been inspected in the headed browser. Returns the user's direction without completing the task or starting validation.",
+            "Pause active Pair Execution after a coherent observable increment is ready for user judgment. Returns the user's direction without completing the task or starting validation.",
         parameters: PARAMETERS,
         async execute(toolCallId, params, signal): Promise<PairCheckpointResult> {
             const workflow = hostedSession.getActiveExecutionWorkflow?.();
             if (
-                workflow?.executionAgent !== "frontend-engineer" || workflow.executionStarted === false ||
-                workflow.collaborationStyle !== "pair"
+                (workflow?.executionAgent !== "engineer" && workflow?.executionAgent !== "frontend-engineer") ||
+                workflow.executionStarted === false || workflow.collaborationStyle !== "pair"
             ) {
                 return checkpointResult(
                     "Pair checkpoint is inactive; continue autonomously.",

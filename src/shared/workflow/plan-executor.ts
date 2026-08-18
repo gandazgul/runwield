@@ -25,6 +25,7 @@ import { runPlanningAgent } from "./planning-agent.ts";
 import { buildExecutionSegmentContinuation } from "./execution-segment-handoff.ts";
 import { loadPlanActionEvidence, type PlanActionEvidence, type PlanWorktreeExpectation } from "./plan-actions.ts";
 import { runEngineerWithPlan, runEngineerWithSegmentHandoff } from "./engineer-runner.ts";
+import { resolvePlanExecutionRuntimeAgent } from "./execution-agent.ts";
 import { createExecutionStartPorts, startActiveExecutionWorkflow } from "./execution-start.ts";
 import { emitLaunchingExecutionAgent } from "./execution-preparation-progress.ts";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -657,15 +658,16 @@ export async function executeSingleEngineerPlan(
                 approvalImages: reviewImages,
                 preparedEvidence: preparedEvidence.evidence,
                 activeWorkflow: executionContext,
-                executionOwner: executionContext.executionAgent,
+                executionOwner: resolvePlanExecutionRuntimeAgent(executionContext.executionAgent),
                 collaborationStyle,
                 collaborationRecommendation,
             }),
         };
     }
+    const runtimeExecutionAgent = resolvePlanExecutionRuntimeAgent(executionContext.executionAgent);
     emitLaunchingExecutionAgent(
         hostedSession,
-        getAgentDisplayName(executionContext.executionAgent, executionContext.projectRoot || hostedSession?.cwd),
+        getAgentDisplayName(runtimeExecutionAgent, executionContext.projectRoot || hostedSession?.cwd),
     );
     const engineerResult = await runEngineerWithPlan(
         planName,
@@ -677,7 +679,7 @@ export async function executeSingleEngineerPlan(
         routerMessage,
         reviewFeedback,
         reviewImages,
-        executionContext.executionAgent,
+        runtimeExecutionAgent,
     );
     if (!engineerResult.completed) {
         return {
@@ -784,7 +786,10 @@ export async function executePreparedPlanSegmentHandoff({
     hostedSession.setActiveExecutionWorkflow(workflow);
     emitLaunchingExecutionAgent(
         hostedSession,
-        getAgentDisplayName(continuation.executionOwner, workflow.projectRoot || hostedSession.cwd),
+        getAgentDisplayName(
+            resolvePlanExecutionRuntimeAgent(continuation.executionOwner),
+            workflow.projectRoot || hostedSession.cwd,
+        ),
     );
     const engineerResult = await runEngineerWithSegmentHandoff({
         continuation,

@@ -333,10 +333,16 @@ export function getHomeDir() {
  * the hidden `SUBAGENTS` registry, not top-level agent discovery, so they do not
  * appear in `/agent` listings or hidden subagent targets.
  *
+ * `PLAN_ENGINEER` and `FRONTEND_ENGINEER` are a third kind: workflow-only *root*
+ * agents. Their definitions are ordinary top-level, project/home-overridable
+ * files, and they become the visible conversational agent while an approved Plan
+ * executes — but their `workflowOnly: true` front matter keeps them out of
+ * `/agent` listings and manual selection. They are not isolated subagents.
+ *
  * Manual QA is also dispatched through `SUBAGENTS`, but it intentionally uses
  * the normal `OPERATOR` runtime agent identifier for its isolated prompt.
  */
-/** @type {Readonly<{ROUTER: string, GUIDE: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, FRONTEND_ENGINEER: string, RECORDER: string, REVIEWER: string, REVIEWER_FEEDBACK_ENGINEER: string, SLICER: string, IDEATOR: string, INIT: string, DELEGATED: string}>} */
+/** @type {Readonly<{ROUTER: string, GUIDE: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, PLAN_ENGINEER: string, FRONTEND_ENGINEER: string, RECORDER: string, REVIEWER: string, REVIEWER_FEEDBACK_ENGINEER: string, SLICER: string, IDEATOR: string, INIT: string, DELEGATED: string}>} */
 export const AGENTS = Object.freeze({
     ROUTER: "router",
     GUIDE: "guide",
@@ -344,6 +350,7 @@ export const AGENTS = Object.freeze({
     PLANNER: "planner",
     ARCHITECT: "architect",
     ENGINEER: "engineer",
+    PLAN_ENGINEER: "plan-engineer",
     FRONTEND_ENGINEER: "frontend-engineer",
     RECORDER: "recorder",
     REVIEWER: "reviewer",

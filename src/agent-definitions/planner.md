@@ -104,6 +104,23 @@ when each round advances the design.
   when the user asks for changes. Never claim the Plan was re-submitted unless the `plan_written` call actually
   succeeded.
 
+## Choosing the Execution Owner and Style
+
+Two `plan_written` fields decide how the approved Plan runs. Both are your call, and both are separate questions.
+
+`executionAgent` names the owner. Use `frontend-engineer` when the Plan's primary outcome is materially visual or
+interactive browser UI — what the user sees and clicks is the point of the change. Use `engineer` for everything else,
+including TUI work, services, data, and vertical changes with incidental UI, such as a checkbox wired to a new endpoint.
+Omit it to default to `engineer`. Approved Plans execute through Plan Engineer or Frontend Engineer; the field keeps its
+`engineer` value either way.
+
+`collaborationRecommendation` names the style, and `pair` is valid with either owner. Recommend `pair` when live user
+judgment between increments is worth the interruptions: a visual result to look at, a design trade-off the user should
+weigh, or behavior worth exercising before the next step builds on it. Recommend `autonomous` — or omit the field — when
+the Plan is specified well enough to run start to finish and the user would rather review the finished work. A Pair
+recommendation is a suggestion, not a promise: a host that cannot run checkpoints falls back to autonomous without
+rewriting the Plan.
+
 ## Revising an Existing Plan
 
 RunWield may hand you a Plan that already exists — resumed from a previous Session, re-opened after review feedback, or

@@ -13,6 +13,18 @@ export type HandoffImage = { base64: string; mimeType: string };
 type JsonScalar = string | number | boolean | null;
 type JsonValue = JsonScalar | JsonValue[] | { [key: string]: JsonValue };
 
+/**
+ * Who resumes a handed-off segment. New markers name a runtime Plan executor;
+ * `engineer` is accepted so a marker written before the split still resumes.
+ */
+export type HandoffExecutionOwner = "engineer" | "plan-engineer" | "frontend-engineer";
+
+const HANDOFF_EXECUTION_OWNERS: ReadonlySet<string> = new Set<HandoffExecutionOwner>([
+    "engineer",
+    "plan-engineer",
+    "frontend-engineer",
+]);
+
 export type ExecutionSegmentContinuation = {
     version: 1;
     kind: "execution";
@@ -21,7 +33,8 @@ export type ExecutionSegmentContinuation = {
     approval: { feedback?: string; images: HandoffImage[] };
     preparedEvidence: PlanActionEvidence;
     activeWorkflow: Record<string, JsonValue>;
-    executionOwner: "engineer" | "frontend-engineer";
+    /** Runtime Agent that resumes the segment. `engineer` only appears in markers written before the Plan Engineer split. */
+    executionOwner: HandoffExecutionOwner;
     collaboration: { style: "autonomous" | "pair"; recommendation: "autonomous" | "pair" };
 };
 
@@ -32,7 +45,8 @@ export type SemanticRepairSegmentContinuation = {
     plan: { planId: string; planName: string; approvedRevision: string; approvedStatus: string; markdown: string };
     preparedEvidence: PlanActionEvidence;
     activeWorkflow: Record<string, JsonValue>;
-    executionOwner: "engineer" | "frontend-engineer";
+    /** Runtime Agent that resumes the segment. `engineer` only appears in markers written before the Plan Engineer split. */
+    executionOwner: HandoffExecutionOwner;
     repair: {
         semanticRound: number;
         repairGeneration: string;
@@ -74,7 +88,7 @@ export type BuildExecutionContinuationArgs = {
     approvalImages?: HandoffImage[];
     preparedEvidence: PlanActionEvidence;
     activeWorkflow: Record<string, JsonValue>;
-    executionOwner: "engineer" | "frontend-engineer";
+    executionOwner: "plan-engineer" | "frontend-engineer";
     collaborationStyle: "autonomous" | "pair";
     collaborationRecommendation: "autonomous" | "pair";
 };
@@ -89,7 +103,7 @@ export type BuildSemanticRepairContinuationArgs = {
     approvedMarkdown: string;
     preparedEvidence: PlanActionEvidence;
     activeWorkflow: Record<string, JsonValue>;
-    executionOwner: "engineer" | "frontend-engineer";
+    executionOwner: "plan-engineer" | "frontend-engineer";
     semanticRound: number;
     repairGeneration: string;
     reviewLedger: JsonValue;
@@ -246,7 +260,10 @@ function parseContinuation(payload: JsonValue):
             result: { kind: "recovery_required", message: "Segment handoff marker is missing identity or evidence." },
         };
     }
-    if (candidate.executionOwner !== "engineer" && candidate.executionOwner !== "frontend-engineer") {
+    // A marker carries the runtime Agent that will resume the segment. `engineer`
+    // stays valid because a marker written before the Plan Engineer split says
+    // that; the resumer resolves it to Plan Engineer.
+    if (!HANDOFF_EXECUTION_OWNERS.has(candidate.executionOwner ?? "")) {
         return {
             kind: "recovery_required",
             result: { kind: "recovery_required", message: "Segment handoff marker has an invalid execution owner." },

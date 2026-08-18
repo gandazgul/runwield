@@ -14,6 +14,7 @@ import type { BrokenObjectiveCheckReport } from "../shared/workflow/objective-ch
 import { recordAcceptedTaskCompletion } from "../shared/session/task-completion-session.ts";
 import { emitTaskCompletedMessage } from "../shared/session/workflow-messages.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
+import { resolveActiveWorkflowRuntimeAgent } from "../shared/workflow/execution-agent.ts";
 
 const DEFAULT_MESSAGE_DESCRIPTION = "Concise success, failure, or blocked summary for the completed task.";
 const ENGINEER_MESSAGE_DESCRIPTION =
@@ -48,7 +49,7 @@ function normalizeAgentName(agentName: string): string {
 
 function isExecutionAgent(agentName: string): boolean {
     const normalized = normalizeAgentName(agentName);
-    return normalized === "engineer" || normalized === "frontend-engineer";
+    return normalized === "engineer" || normalized === "plan-engineer" || normalized === "frontend-engineer";
 }
 
 function isValidationRepairAgent(agentName: string): boolean {
@@ -169,15 +170,16 @@ export function createTaskCompletedTool(
                 };
             }
             const completingOnBehalfOfOwner = isValidationRepairAgent(agentName);
+            const runtimeOwner = resolveActiveWorkflowRuntimeAgent(activeWorkflow);
             if (
-                activeWorkflow?.executionAgent && activeWorkflow.executionAgent !== normalizedAgentName &&
+                runtimeOwner && runtimeOwner !== normalizedAgentName &&
                 !completingOnBehalfOfOwner
             ) {
                 return {
                     content: [{
                         type: "text",
                         text:
-                            `task_completed rejected: active workflow owner is ${activeWorkflow.executionAgent}, not ${normalizedAgentName}.`,
+                            `task_completed rejected: active workflow owner is ${runtimeOwner}, not ${normalizedAgentName}.`,
                     }],
                     details: { outcome: "rejected", reason: "wrong_execution_owner" },
                     terminate: false,

@@ -163,9 +163,11 @@ Deno.test("agent handler replays accepted task_completed after HostedSession rep
             executionStarted: true,
             executionAttemptStartedAtMs: 1234,
         });
+        // A Plan workflow, so the Agent that can complete it is the resolved
+        // runtime owner rather than the `engineer` the workflow records.
         const tool = createTaskCompletedTool({
             hostedSession: original,
-            agentName: "engineer",
+            agentName: "plan-engineer",
         });
         await tool.execute(
             "durable-handler-call",
@@ -183,10 +185,10 @@ Deno.test("agent handler replays accepted task_completed after HostedSession rep
             sessionManager: hostedSessionManager(sessionManager),
             eventSink: { emit: (event: CapturedRuntimeEvent) => events.push(event) },
         });
-        const handler = createAgentHandler("engineer", { hostedSession: resumed });
+        const handler = createAgentHandler("plan-engineer", { hostedSession: resumed });
         await ensureRootAgentSession({
             hostedSession: resumed,
-            agentName: "engineer",
+            agentName: "plan-engineer",
             activeHandler: handler,
             sessionManager,
         });

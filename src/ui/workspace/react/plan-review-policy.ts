@@ -30,6 +30,10 @@ export type PlanReviewExecutionPolicy = {
     collaborationRecommendation: PlanCollaborationRecommendation;
 };
 
+export type PlanReviewExecutionPolicyChange =
+    | { field: "executionAgent"; value: string }
+    | { field: "collaborationRecommendation"; value: string };
+
 /**
  * Resolve the execution policy the review surface starts from.
  *
@@ -59,11 +63,47 @@ export function readPlanReviewExecutionPolicy(
         readCollaborationRecommendation(payload?.collaborationRecommendation) ||
         readCollaborationRecommendation(frontmatter.collaborationRecommendation) ||
         "autonomous";
-    return {
+    return normalizePlanReviewExecutionPolicy({
         classification,
         canSelectExecutionPolicy: classification === "PLANNED_CHANGE",
         executionAgent,
         collaborationRecommendation,
+    });
+}
+
+export function updatePlanReviewExecutionPolicy(
+    current: PlanReviewExecutionPolicy,
+    change: PlanReviewExecutionPolicyChange,
+): PlanReviewExecutionPolicy {
+    const next = { ...current };
+    if (change.field === "executionAgent") {
+        next.executionAgent = readExecutionAgent(change.value) || current.executionAgent;
+    } else {
+        next.collaborationRecommendation = readCollaborationRecommendation(change.value) ||
+            current.collaborationRecommendation;
+    }
+    return normalizePlanReviewExecutionPolicy(next);
+}
+
+export function buildPlanReviewExecutionPolicyPayload(policy: PlanReviewExecutionPolicy): PlanReviewPolicyFields {
+    const normalized = normalizePlanReviewExecutionPolicy(policy);
+    if (!normalized.canSelectExecutionPolicy) return {};
+    return {
+        executionAgent: normalized.executionAgent,
+        collaborationRecommendation: normalized.collaborationRecommendation,
+    };
+}
+
+function normalizePlanReviewExecutionPolicy(policy: PlanReviewExecutionPolicy): PlanReviewExecutionPolicy {
+    // Decide selectability from the normalized classification, so a legacy
+    // `FEATURE` Plan is not silently denied its execution policy controls.
+    const classification = normalizePlanReviewClassification(policy.classification);
+    return {
+        classification,
+        canSelectExecutionPolicy: classification === "PLANNED_CHANGE",
+        executionAgent: readExecutionAgent(policy.executionAgent) || "engineer",
+        collaborationRecommendation: readCollaborationRecommendation(policy.collaborationRecommendation) ||
+            "autonomous",
     };
 }
 

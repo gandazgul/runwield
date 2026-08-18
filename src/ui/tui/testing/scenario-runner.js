@@ -308,6 +308,11 @@ function inferGoldenTurnIdentity(snapshotAgentName, availableTools, systemPrompt
         return { agent: "init", phase: "init" };
     }
     if (systemPrompt.includes("You are the Software Engineer")) return { agent: "engineer", phase: "engineer" };
+    // Approved Plans execute under the workflow-only Plan Engineer, whose runtime
+    // name is `plan-engineer`. Scenarios script the execution phase as `engineer`
+    // regardless of which Agent RunWield activates for it, the same way the
+    // Validation Repair Engineer is matched above.
+    if (systemPrompt.includes("You are the Plan Engineer")) return { agent: "engineer", phase: "engineer" };
     if (availableTools.includes("slicer_finalize_decomposition")) return { agent: "slicer", phase: "slicer" };
     if (availableTools.includes("plan_written")) {
         // Planner and Architect deliberately share the Plan tool surface. The
@@ -324,7 +329,12 @@ function inferGoldenTurnIdentity(snapshotAgentName, availableTools, systemPrompt
     // and an Engineer repair turn compete for the same ordinal, and the matcher
     // resolved that collision by tool set only after ordinal had already decided.
     if (availableTools.includes("review_complete")) return { agent: "reviewer", phase: "semantic_review" };
-    const agent = snapshotAgentName || "unknown";
+    // An approved Plan runs under the workflow-only Plan Engineer, so the Runtime
+    // snapshot names `plan-engineer`. Scenarios script the Plan execution phase as
+    // `engineer` whichever Agent RunWield activates for it, so fold the runtime
+    // identity back before it opens a second ordinal series and strands the
+    // scripted follow-up turn.
+    const agent = snapshotAgentName === "plan-engineer" ? "engineer" : snapshotAgentName || "unknown";
     return { agent, phase: inferGoldenPhase(agent) };
 }
 

@@ -7,6 +7,7 @@ import { createPairCheckpointTool } from "../../tools/pair-checkpoint.ts";
 import { buildEngineerRequest } from "./workflow-prompts.js";
 import { readLatestTaskCompletedMessage, readLatestTaskCompletedOutcome } from "./workflow-results.js";
 import { CollaborationStyles, PairPauseReasons } from "./execution-collaboration.ts";
+import { resolvePlanExecutionRuntimeAgent } from "./execution-agent.ts";
 
 export async function runEngineerWithPlan(
     planName,
@@ -22,6 +23,7 @@ export async function runEngineerWithPlan(
 ) {
     if (!hostedSession) throw new Error("runEngineerWithPlan: hostedSession is required");
     const workflow = hostedSession.getActiveExecutionWorkflow?.();
+    const runtimeAgent = resolvePlanExecutionRuntimeAgent(executionAgent);
     const collaborationStyle = workflow?.collaborationStyle || CollaborationStyles.AUTONOMOUS;
     const customTools = collaborationStyle === CollaborationStyles.PAIR
         ? [createPairCheckpointTool({ hostedSession })]
@@ -30,13 +32,13 @@ export async function runEngineerWithPlan(
     try {
         messages = await runActiveAgentTurn({
             hostedSession,
-            agentName: executionAgent,
+            agentName: runtimeAgent,
             userRequest: `${
                 buildEngineerRequest(planName, planBody, reviewFeedback, {
                     collaborationStyle,
                     routerMessage,
                 })
-            }\n\nExecution owner: ${executionAgent}.`,
+            }\n\nExecution owner: ${runtimeAgent}.`,
             images: reviewImages,
             sessionManager,
             cwd: executionCwd,
@@ -49,7 +51,7 @@ export async function runEngineerWithPlan(
         const rootMessages = hostedRootSession?.agent?.state?.messages || [];
         emitSystemStatus(
             hostedSession,
-            buildEngineerPausedMessage(errorMessage, projectRoot || hostedSession?.cwd, executionAgent),
+            buildEngineerPausedMessage(errorMessage, projectRoot || hostedSession?.cwd, runtimeAgent),
             { level: "error", header: "RunWield" },
         );
         return { completed: false, messages: rootMessages, error: errorMessage };
@@ -62,8 +64,8 @@ export async function runEngineerWithPlan(
         emitSystemStatus(
             hostedSession,
             pauseReason
-                ? buildPairPausedMessage(pauseReason, projectRoot || hostedSession?.cwd)
-                : buildEngineerPausedMessage(undefined, projectRoot || hostedSession?.cwd, executionAgent),
+                ? buildPairPausedMessage(pauseReason, projectRoot || hostedSession?.cwd, runtimeAgent)
+                : buildEngineerPausedMessage(undefined, projectRoot || hostedSession?.cwd, runtimeAgent),
             { header: "RunWield" },
         );
     }
@@ -91,8 +93,8 @@ export function buildEngineerPausedMessage(reason, projectRoot, executionAgent =
  * @param {"stop"|"canceled"} pauseReason
  * @param {string} [projectRoot]
  */
-export function buildPairPausedMessage(pauseReason, projectRoot) {
-    const owner = getAgentDisplayName(AGENTS.FRONTEND_ENGINEER, projectRoot);
+export function buildPairPausedMessage(pauseReason, projectRoot, executionAgent = AGENTS.ENGINEER) {
+    const owner = getAgentDisplayName(resolvePlanExecutionRuntimeAgent(executionAgent), projectRoot);
     return pauseReason === PairPauseReasons.STOP
         ? `${owner} stopped Pair Execution at your checkpoint direction. The Plan remains In Progress; say "continue" to resume Pair Execution.`
         : `${owner} paused because the Pair checkpoint interaction was canceled. No approval or Task Completion was recorded; say "continue" to resume.`;
@@ -100,6 +102,10 @@ export function buildPairPausedMessage(pauseReason, projectRoot) {
 
 export async function runEngineerWithSegmentHandoff({ continuation, sessionManager, hostedSession }) {
     const workflow = hostedSession.getActiveExecutionWorkflow?.();
+    // Continuations written by this version already carry a runtime identity, but
+    // one persisted before the split says `engineer`. Resolving is idempotent and
+    // keeps a resumed pre-split segment under Plan Engineer.
+    const runtimeAgent = resolvePlanExecutionRuntimeAgent(continuation.executionOwner);
     const collaborationStyle = continuation.collaboration?.style || workflow?.collaborationStyle ||
         CollaborationStyles.AUTONOMOUS;
     const customTools = collaborationStyle === CollaborationStyles.PAIR
@@ -109,12 +115,12 @@ export async function runEngineerWithSegmentHandoff({ continuation, sessionManag
         buildEngineerRequest(continuation.plan.planName, continuation.plan.markdown, continuation.approval?.feedback, {
             collaborationStyle,
         })
-    }\n\nExecution owner: ${continuation.executionOwner}.`;
+    }\n\nExecution owner: ${runtimeAgent}.`;
     let messages;
     try {
         messages = await runActiveAgentTurn({
             hostedSession,
-            agentName: continuation.executionOwner,
+            agentName: runtimeAgent,
             userRequest,
             images: continuation.approval?.images,
             sessionManager,
@@ -131,7 +137,7 @@ export async function runEngineerWithSegmentHandoff({ continuation, sessionManag
             buildEngineerPausedMessage(
                 errorMessage,
                 workflow?.projectRoot || hostedSession?.cwd,
-                continuation.executionOwner,
+                runtimeAgent,
             ),
             { level: "error", header: "RunWield" },
         );
@@ -144,11 +150,11 @@ export async function runEngineerWithSegmentHandoff({ continuation, sessionManag
         emitSystemStatus(
             hostedSession,
             pauseReason
-                ? buildPairPausedMessage(pauseReason, workflow?.projectRoot || hostedSession?.cwd)
+                ? buildPairPausedMessage(pauseReason, workflow?.projectRoot || hostedSession?.cwd, runtimeAgent)
                 : buildEngineerPausedMessage(
                     undefined,
                     workflow?.projectRoot || hostedSession?.cwd,
-                    continuation.executionOwner,
+                    runtimeAgent,
                 ),
             { header: "RunWield" },
         );

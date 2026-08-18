@@ -125,8 +125,9 @@ Each child descriptor must include:
   Never copy all Epic Ticket References into every child.
 - `executionAgent` — `frontend-engineer` only when the child planned change's primary outcome is materially visual or
   interactive browser UI; otherwise `engineer`, including TUI work and incidental frontend-file edits.
-- `collaborationRecommendation` — for Frontend Engineer children, use `pair` when live visual judgment is valuable and
-  `autonomous` otherwise; for Engineer children, omit or use `autonomous`.
+- `collaborationRecommendation` — valid for either owner. Use `pair` when the child's work needs live user judgment
+  between increments: a visual result to look at, a trade-off the user should weigh, or a behavior worth exercising
+  before the next step. Use `autonomous` when the child is well specified enough to run start to finish.
 - `devServerCommand` — the project dev or preview command if discoverable from config/docs; omit when unknown.
 - `devServerUrl` — the local URL to open if discoverable; omit when unknown.
 - `devServerHmr` — `true` when the dev server is expected to support hot module reload, `false` only when you know it

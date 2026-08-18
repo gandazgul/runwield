@@ -5,23 +5,32 @@ import { listAgentDefNames, loadAgentDef } from "./agents.js";
 const BUNDLED_AGENT_DEFS = join("src", "agent-definitions");
 const SHARED_PRACTICE_DIR = join(BUNDLED_AGENT_DEFS, "shared-practice");
 
-/** The execution personas claim identical practice; naming it once is what keeps them identical. */
-const EXECUTION_FRAGMENTS = [
+const QUICK_FIX_FRAGMENTS = [
+    "user-authority",
+    "working-tree-safety",
+    "engineering-practice",
+    "bounded-request",
+] as const;
+
+const PLAN_EXECUTION_FRAGMENTS = [
     "user-authority",
     "working-tree-safety",
     "engineering-practice",
     "plan-execution",
-    "bounded-request",
 ] as const;
+
+/** The two personas an approved Plan can activate. */
+const PLAN_EXECUTION_PERSONAS: readonly string[] = ["plan-engineer", "frontend-engineer"];
 
 /** Personas that compose shared practice, and the fragments each one claims. */
 const SHARED_PRACTICE_CONSUMERS: ReadonlyArray<[string, readonly string[]]> = [
-    ["engineer", EXECUTION_FRAGMENTS],
-    ["frontend-engineer", EXECUTION_FRAGMENTS],
+    ["engineer", QUICK_FIX_FRAGMENTS],
+    ["plan-engineer", PLAN_EXECUTION_FRAGMENTS],
+    ["frontend-engineer", PLAN_EXECUTION_FRAGMENTS],
 ];
 
 /** Every persona that can run git or delete files, including the non-engineering one. */
-const WORKING_TREE_CONSUMERS: readonly string[] = ["engineer", "frontend-engineer", "operator"];
+const WORKING_TREE_CONSUMERS: readonly string[] = ["engineer", "plan-engineer", "frontend-engineer", "operator"];
 
 /** Planning personas that compose the explanation practice on top of user authority. */
 const PLANNING_PRACTICE_CONSUMERS: ReadonlyArray<[string, readonly string[]]> = [
@@ -164,13 +173,23 @@ Deno.test("every bundled fragment is claimed by at least one agent", async () =>
     }
 });
 
-Deno.test("bundled personas compose their declared shared practice", async () => {
+Deno.test("every coding persona composes the engineering practice it declares", async () => {
     for (const [agentName] of SHARED_PRACTICE_CONSUMERS) {
         const def = await loadAgentDef(agentName);
         assertStringIncludes(def.systemPrompt, "The Zero-Trust Implementation Protocol");
         assertStringIncludes(def.systemPrompt, "When Verification Fails, Act");
+    }
+});
+
+Deno.test("only the Plan executors are told what to do with requests outside the Plan", async () => {
+    // Engineer has no Plan to be outside of, so the boundary rule would be a
+    // contradiction in its prompt rather than a missing rule.
+    for (const agentName of PLAN_EXECUTION_PERSONAS) {
+        const def = await loadAgentDef(agentName);
         assertStringIncludes(def.systemPrompt, "Requests that are not the Plan");
     }
+    const engineer = await loadAgentDef("engineer");
+    assertEquals(engineer.systemPrompt.includes("Requests that are not the Plan"), false);
 });
 
 Deno.test("every bundled top-level agent receives the user-authority policy", async () => {
@@ -206,30 +225,30 @@ Deno.test("the Slicer receives the show-the-work practice through the subagent r
     assertStringIncludes(slicer.systemPrompt, SHOW_THE_WORK_MARKER);
 });
 
-Deno.test("both execution personas receive the same bounded-request contract", async () => {
-    // QUICK_FIX currently routes only to Engineer, but the contract is not a
-    // browser property — Frontend Engineer must already hold it for the day UI
-    // quick fixes route to it, and neither may drift from the other meanwhile.
-    for (const [agentName] of SHARED_PRACTICE_CONSUMERS) {
+Deno.test("quick fix Engineer receives the bounded-request contract", async () => {
+    const { systemPrompt } = await loadAgentDef("engineer");
+    const normalizedPrompt = systemPrompt.replaceAll(/\s+/g, " ");
+    assertStringIncludes(systemPrompt, "Quick Fix Checklist");
+    assertStringIncludes(
+        normalizedPrompt,
+        "this direct request has Mechanical Validation after each `task_completed`, but no semantic review gate",
+    );
+    assertStringIncludes(
+        normalizedPrompt,
+        "Multiple sequential `task_completed` calls in one QUICK_FIX session are normal",
+    );
+});
+
+Deno.test("plan execution personas receive validation continuation and pair ceremony", async () => {
+    for (const agentName of PLAN_EXECUTION_PERSONAS) {
         const { systemPrompt } = await loadAgentDef(agentName);
-        const normalizedPrompt = systemPrompt.replaceAll(/\s+/g, " ");
-        assertStringIncludes(systemPrompt, "Quick Fix Checklist");
-        assertStringIncludes(normalizedPrompt, "no Plan and no Plan-based semantic review");
-        assertStringIncludes(
-            normalizedPrompt,
-            "Mechanical Validation after each `task_completed` is the quality gate",
-        );
-        assertStringIncludes(
-            normalizedPrompt,
-            "Multiple sequential `task_completed` calls in one QUICK_FIX session are normal",
-        );
         assertStringIncludes(systemPrompt, "A Validation Continuation");
         assertStringIncludes(systemPrompt, "one bullet per feedback item");
     }
 });
 
-Deno.test("both execution personas can run a Pair checkpoint", async () => {
-    for (const [agentName] of SHARED_PRACTICE_CONSUMERS) {
+Deno.test("plan execution personas can run a Pair checkpoint", async () => {
+    for (const agentName of PLAN_EXECUTION_PERSONAS) {
         const { systemPrompt } = await loadAgentDef(agentName);
         assertStringIncludes(systemPrompt, "Runtime Collaboration Style");
         assertStringIncludes(systemPrompt, "`pair_checkpoint` is supplied");

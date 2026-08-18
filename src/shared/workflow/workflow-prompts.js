@@ -207,7 +207,7 @@ const RE_ANCHOR_ARTIFACTS = Object.freeze({
         label: "Epic",
         sections: "Objective, Vertical Slice Findings, Files to Modify, and Verification Plan",
     },
-    [AGENTS.ENGINEER]: {
+    [AGENTS.PLAN_ENGINEER]: {
         label: "Plan",
         sections: "Implementation Steps, Verification Plan, and Edge Cases & Considerations",
     },
@@ -249,7 +249,7 @@ export function buildReAnchorMessage(context = {}) {
     const planName = typeof context.planName === "string" ? context.planName.trim() : "";
     if (!planName) return null;
 
-    const executionAgent = agentName === AGENTS.ENGINEER ||
+    const executionAgent = agentName === AGENTS.PLAN_ENGINEER ||
         agentName === AGENTS.FRONTEND_ENGINEER ||
         agentName === AGENTS.REVIEWER_FEEDBACK_ENGINEER;
     const planBody = typeof context.planBody === "string" ? projectEngineerPlanBody(context.planBody) : "";

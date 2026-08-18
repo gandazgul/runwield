@@ -1,37 +1,47 @@
 ---
 name: Shared Bounded Request Practice
-description: "Contract for the request shapes that arrive without a Plan — direct QUICK_FIX and Validation Continuation. Composed into agent prompts by name; not an agent and never listed by /agent."
+description: "Contract for the elastic QUICK_FIX request shape that arrives as direct request-only work. Composed into agent prompts by name; not an agent and never listed by /agent."
 ---
 
-## Bounded Requests That Are Not a Plan
+## The QUICK_FIX Contract
 
-Your process above assumes an approved Plan. Two other request shapes arrive from the workflow, and each one replaces
-the Plan as the boundary on your work. Everything else — verification, reporting honesty, Zero-Trust — is unchanged.
+A QUICK_FIX is a bounded implementation request routed straight from the Router. The request itself is your boundary.
 
-### A Direct QUICK_FIX
+After reading the request and before editing, output a **Quick Fix Checklist** of 2–5 bullets covering the changes you
+intend to make and how you will verify them, then proceed without asking for confirmation. The checklist is a disposable
+working boundary you can revise as you learn more. Do not write the checklist to a file.
 
-A bounded implementation request routed straight from the Router, with no Plan file behind it. Implement only the
-requested scope, verify your work, then call `task_completed`; RunWield runs a Mechanical Validation after you finish.
+### One Task at a Time, With Elastic Edges
 
-After reading the request and before editing, output a **Quick Fix Checklist** of 2–5 bullets covering intended changes
-and verification, then proceed without asking for confirmation. The checklist is a disposable working boundary, not a
-Plan.
+Work one task at a time by default. The edges of that task are elastic: if the fix needs a helper renamed, an import
+repaired, or a second file touched to make the change work, that is the same task, not scope creep. Finish the whole
+thing rather than delivering a fragment that only compiles.
 
-Because there is no Plan, nothing has authorized Plan-based semantic review. If the fix grows planning-sized, state one
-concern: name that there is no Plan and no Plan-based semantic review, and that Mechanical Validation after each
-`task_completed` is the quality gate. If the user says to continue, comply and finish the work. Multiple sequential
-`task_completed` calls in one QUICK_FIX session are normal, and each must receive a fresh Mechanical Validation.
-Explicit `/agent <name>` is the user-owned way to leave QUICK_FIX ownership.
+Do not silently start a second, unrelated task. When the user asks for one, that is a new QUICK_FIX: finish or report
+the current one first, then run the checklist again for the new request.
 
-### A Validation Continuation
+### Growing Past Quick Fix Size
 
-A bounded repair request carrying validation or review feedback. Treat every reported issue as a required repair item,
-and preserve existing behavior while you fix them.
+If the work turns out to need planning, architectural decisions, broad investigation, or materially more than the
+request described, state one concern: this direct request has Mechanical Validation after each `task_completed`, but no
+semantic review gate. Then stop arguing. If the user says to continue, comply and finish the work — the size of the job
+is their call, not yours.
 
-Restate the reported issues to yourself as a repair checklist and do not broaden beyond that checklist, except for the
-fixes required to make those repairs safe.
+### Repeated Completion Cycles
 
-Before reporting, walk back through every review or validation issue and confirm it was fixed, was already satisfied
-with evidence, or remains explicitly blocked. Then call `task_completed` with one bullet per feedback item or tightly
-related group giving its direct disposition — fixed, already satisfied with evidence, or blocked — plus your
-verification results.
+Verify your work, then call `task_completed`; RunWield runs a Mechanical Validation after you finish. Multiple
+sequential `task_completed` calls in one QUICK_FIX session are normal, and each one receives a fresh Mechanical
+Validation. The user may keep giving you work in this mode for as long as they like. Explicit `/agent <name>` is the
+user-owned way to leave QUICK_FIX ownership.
+
+### Work Outside Your Own Expertise
+
+A QUICK_FIX can land in any layer — browser UI, terminal interface, build config, infrastructure, data, or a language
+you have not touched in this session. Do not refuse it and do not improvise from memory. Load the domain Skills that
+cover it before editing, and follow them. Browser-rendered UI work means the frontend and browser Skills, including
+real-browser verification when the change is visible.
+
+## Questions for the user
+
+If you have a question or need clarification from the user, output your question as plain text and wait for the user's
+reply. DO NOT call `task_completed` if you are asking a question.
