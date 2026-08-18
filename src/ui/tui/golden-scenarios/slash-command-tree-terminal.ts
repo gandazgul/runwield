@@ -45,6 +45,7 @@ export const slashShareScenario = {
     actions: [
         { type: "type", text: "/share" },
         { type: "enter" },
+        { type: "enter" },
         { type: "waitForIdle" },
     ],
     assertions: [

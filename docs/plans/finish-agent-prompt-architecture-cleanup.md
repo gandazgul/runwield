@@ -11,8 +11,6 @@ affectedPaths:
     - "src/ui/workspace/react/PlanReviewSurface.tsx"
     - "src/ui/workspace/react/plan-review-policy.ts"
     - "src/ui/workspace/react/plan-review-policy.test.ts"
-executionAgent: "engineer"
-collaborationRecommendation: "autonomous"
 objectiveChecks:
     - id: "OC1"
       command: "! grep -q 'Execute the following plan step by step' src/shared/workflow/workflow-prompts.js && ! grep -q 'buildTriageReport(triageMeta, { plannedExecution: true })' src/shared/workflow/workflow-prompts.js"
@@ -23,11 +21,31 @@ objectiveChecks:
     - id: "OC3"
       command: "deno run -A scripts/run-tests.js src/shared/workflow/workflow-prompts.test.js src/shared/workflow/workflow.test.js src/ui/workspace/react/plan-review-policy.test.ts"
       rationale: "Focused tests must protect the smaller execution-request contract and medium-neutral Workspace policy behavior."
+objectiveCheckWaivers:
+    []
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
 createdAt: "2026-08-05T15:03:52-04:00"
 origin: "internal"
-updatedAt: "2026-08-17T20:45:34.747Z"
-status: "ready_for_work"
+implementedAt: "2026-08-17T21:11:18.678Z"
 userVerifiedAt: null
+executionReport: "- Implemented `buildEngineerRequest` as a dynamic context envelope: approved Plan name, optional Router handoff, resolved runtime-style sentence, projected Plan body, and optional approval annotations.\n- Removed `triageMeta` from Engineer request options and from both `engineer-runner.ts` execution handoff paths; execution owner, images, and Pair tool selection remain unchanged.\n- Kept `buildTriageReport` unchanged for non-execution callers.\n- Updated prompt tests for pair/autonomous runtime values, optional section ordering, Front Matter removal, exact projected body preservation, Router handoff, approval annotations, and absence of removed duplicate prose.\n- Test accounting: net Deno.test delta is -1 across touched files. The removed `workflow.test.js` planned documentation Work Kind request test was deleted because that request behavior no longer exists; the old completion/Triage prompt tests were rewritten against the new envelope and absence guarantees.\n- Verification passed: `deno run -A scripts/run-tests.js src/shared/workflow/workflow-prompts.test.js src/shared/workflow/workflow.test.js`; `deno task check`; OC1 grep check.\n- Verification failed: `deno task ci` failed in TUI golden validation/publication scenarios after 328 files passed; logs show unused scripted Runtime interaction and missing visible transcript text in golden publication tests.\n- Objective check issue: saved Plan OC2/OC3 still refer to deferred Workspace Pair policy scope and a missing `src/ui/workspace/react/plan-review-policy.test.ts` file, so those checks are not valid for this approved cleanup scope."
+executionMode: "worktree"
+executionBaselineTree: "099f6e583b526011fea4e16871cb884c6506e3f0"
+worktreeId: "3d686a23"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-finish-agent-prompt-architecture-cleanup-3d686a23"
+worktreeBranch: "worktree/finish-agent-prompt-architecture-cleanup-3d686a23"
+worktreeBaseBranch: "main"
+worktreeStatus: "completed"
+validationSemanticRounds: 0
+validationCheckpoint: null
+validationCiAttempts: 0
+validationObjectiveCheckAttempts: 0
+status: "validated_reviewer"
+updatedAt: "2026-08-18T00:25:19.875Z"
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-18T00:25:19.849Z"
 ---
 
 # Finish Agent Prompt Architecture Cleanup

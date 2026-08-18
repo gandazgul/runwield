@@ -265,6 +265,11 @@ export const loadPlanCanceledExecutionThenPlannerReviewScenario = {
         { type: "type", text: "/load-plan stale-then-review" },
         { type: "enter" },
         { type: "enter" },
+        {
+            type: "waitForScreen",
+            text: "Plan saved. Resume later with: wld resume stale-then-review",
+            timeoutMs: 60000,
+        },
         { type: "waitForIdle", timeoutMs: 60000 },
         { type: "sleep", ms: 1000 },
         { type: "captureProjectState", planNames: ["stale-then-review"] },
