@@ -49,6 +49,7 @@ export const slashShareScenario = {
         { type: "enter" },
         { type: "waitForIdle" },
         { type: "enter" },
+        { type: "enter" },
         { type: "waitForIdle" },
     ],
     assertions: [

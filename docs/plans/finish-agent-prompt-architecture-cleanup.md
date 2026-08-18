@@ -26,24 +26,25 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-05T15:03:52-04:00"
-updatedAt: "2026-08-17T23:01:40.734Z"
-status: "implemented"
+updatedAt: "2026-08-18T00:25:20.693Z"
+status: "verified"
 origin: "internal"
-failureReason: "All local submodules are initialized, pinned, and clean.\nSnip verified all generic Deno filters.\n[wld] version - updated src/shared/version.js to version d8758e4b\ntype check passed\n18:54:49 [types] Generated 31ms\n18:54:49 [check] Getting diagnostics for Astro files in /Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-finish-agent-prompt-architecture-cleanup-3d686a23/src/ui/workspace...\nResult (113 files): \n- 0 errors\n- 0 warnings\n- 0 hints\n\nno lint errors\nLanguage policy baseline matches current production JS/JSX files.\nInjection-seam baseline holds: 0 seam(s) across 0 module(s), 0 of them machinery and 0 conditional seam(s) still to remove.\nChecked relative Markdown links in 422 tracked files.\n[wld] version - ok\nFAIL src/ui/tui/golden-scenarios/load-plan-workflow.test.ts — failure log: /var/folders/hw/zrm0bqr90xz63nflnb2g_qqr0000gn/T/tests-failure-fd0d31e577074705.log\nFAIL src/ui/tui/golden-scenarios/slash-command-terminal.test.ts — failure log: /var/folders/hw/zrm0bqr90xz63nflnb2g_qqr0000gn/T/tests-failure-46f544821b66a3b2.log\n\nFAILED | 329 files passed | 2 failed (402.1s, 4 at a time)\n\n\u001b[0m\u001b[32mTask\u001b[0m \u001b[0m\u001b[36mci\u001b[0m deno task -q submodules:check && deno task -q snip:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q language-policy:check && deno task -q seams:check && deno task -q doc-links:check && deno task -q test\n"
 implementedAt: "2026-08-17T21:11:18.678Z"
+verifiedAt: "2026-08-18T00:25:20.693Z"
 userVerifiedAt: null
 executionReport: "- Implemented `buildEngineerRequest` as a dynamic context envelope: approved Plan name, optional Router handoff, resolved runtime-style sentence, projected Plan body, and optional approval annotations.\n- Removed `triageMeta` from Engineer request options and from both `engineer-runner.ts` execution handoff paths; execution owner, images, and Pair tool selection remain unchanged.\n- Kept `buildTriageReport` unchanged for non-execution callers.\n- Updated prompt tests for pair/autonomous runtime values, optional section ordering, Front Matter removal, exact projected body preservation, Router handoff, approval annotations, and absence of removed duplicate prose.\n- Test accounting: net Deno.test delta is -1 across touched files. The removed `workflow.test.js` planned documentation Work Kind request test was deleted because that request behavior no longer exists; the old completion/Triage prompt tests were rewritten against the new envelope and absence guarantees.\n- Verification passed: `deno run -A scripts/run-tests.js src/shared/workflow/workflow-prompts.test.js src/shared/workflow/workflow.test.js`; `deno task check`; OC1 grep check.\n- Verification failed: `deno task ci` failed in TUI golden validation/publication scenarios after 328 files passed; logs show unused scripted Runtime interaction and missing visible transcript text in golden publication tests.\n- Objective check issue: saved Plan OC2/OC3 still refer to deferred Workspace Pair policy scope and a missing `src/ui/workspace/react/plan-review-policy.test.ts` file, so those checks are not valid for this approved cleanup scope."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-18T00:25:19.849Z"
 validationCheckpoint: null
 executionMode: "worktree"
-executionBaselineTree: "099f6e583b526011fea4e16871cb884c6506e3f0"
-worktreeId: "3d686a23"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-finish-agent-prompt-architecture-cleanup-3d686a23"
-worktreeBranch: "worktree/finish-agent-prompt-architecture-cleanup-3d686a23"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
-validationCiAttempts: 1
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "de29b2bd126fb6307ffeda6d71ba93c0a4f6cf27"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "a4ea40ead0a2651a48b3d05848f80027da2ca8b3"
+validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
 validationSemanticRounds: 0
 ---

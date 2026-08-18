@@ -22,6 +22,7 @@ import { getPlanSaveSettings } from "@plannotator/ui/utils/planSave.ts";
 import { exportAnnotations, extractFrontmatter, parseMarkdownToBlocks } from "@plannotator/ui/utils/parser.ts";
 import { getUIPreferences, PLAN_WIDTH_OPTIONS } from "@plannotator/ui/utils/uiPreferences.ts";
 import { PlanReviewSettings } from "./PlanReviewSettings.tsx";
+import { readPlanReviewExecutionPolicy } from "./plan-review-policy.ts";
 import {
     PLAN_APPROVAL_ACTIONS,
     primaryPlanApprovalActionForClassification,
@@ -67,7 +68,7 @@ export function PlanReviewSurface({ payload }) {
             frontmatter: frontmatterResult.frontmatter,
         };
     }, [plan]);
-    const trustedPolicy = readInitialExecutionPolicy(initialPayload, parsed.frontmatter);
+    const trustedPolicy = readPlanReviewExecutionPolicy(initialPayload, parsed.frontmatter);
     const planClassification = trustedPolicy.classification;
     const showExecutionPolicyControls = trustedPolicy.canSelectExecutionPolicy;
     const primaryApprovalAction = primaryPlanApprovalActionForClassification(planClassification);
@@ -107,16 +108,6 @@ export function PlanReviewSurface({ payload }) {
         } finally {
             setSubmitting(null);
         }
-    }
-
-    function selectExecutionAgent(nextAgent) {
-        setExecutionAgent(nextAgent);
-        if (nextAgent === "engineer") setCollaborationRecommendation("autonomous");
-    }
-
-    function selectCollaborationRecommendation(nextRecommendation) {
-        if (nextRecommendation === "pair" && executionAgent !== "frontend-engineer") return;
-        setCollaborationRecommendation(nextRecommendation);
     }
 
     function addAnnotation(annotation) {
@@ -223,8 +214,8 @@ export function PlanReviewSurface({ payload }) {
                                 <ExecutionPolicyControls
                                     executionAgent={executionAgent}
                                     collaborationRecommendation={collaborationRecommendation}
-                                    onAgentChange={selectExecutionAgent}
-                                    onRecommendationChange={selectCollaborationRecommendation}
+                                    onAgentChange={setExecutionAgent}
+                                    onRecommendationChange={setCollaborationRecommendation}
                                     disabled={submitting !== null}
                                 />
                             )}
@@ -528,7 +519,7 @@ function ExecutionPolicyControls({
         <section className="rw-plan-review-execution-policy" aria-label="Execution configuration">
             <SegmentedPolicyControl
                 label="Execution Agent"
-                tooltip="Frontend Engineer owns materially visual/browser UI work. Engineer owns general implementation and always runs autonomously."
+                tooltip="Frontend Engineer owns materially visual/browser UI work. Engineer owns general implementation."
                 value={executionAgent}
                 onChange={onAgentChange}
                 disabled={disabled}
@@ -544,12 +535,7 @@ function ExecutionPolicyControls({
                 onChange={onRecommendationChange}
                 disabled={disabled}
                 options={[
-                    {
-                        value: "pair",
-                        label: "Pair Execution",
-                        disabled: executionAgent === "engineer",
-                        disabledReason: "Pair Execution is available only with Frontend Engineer.",
-                    },
+                    { value: "pair", label: "Pair Execution" },
                     { value: "autonomous", label: "Autonomous" },
                 ]}
             />
@@ -569,9 +555,9 @@ function SegmentedPolicyControl({ label, tooltip, value, onChange, disabled, opt
                             type="button"
                             className={value === option.value ? "active" : ""}
                             aria-pressed={value === option.value}
-                            disabled={disabled || option.disabled}
+                            disabled={disabled}
                             onClick={() => onChange(option.value)}
-                            title={option.disabled ? option.disabledReason : tooltip}
+                            title={tooltip}
                         >
                             {option.label}
                         </button>
@@ -703,58 +689,6 @@ function toggleMarkdownCheckbox(markdown, lineNumber, checked) {
     const next = [...lines];
     next[index] = nextLine;
     return next.join("\n");
-}
-
-function readInitialExecutionPolicy(payload, parsedFrontmatter) {
-    const frontmatter = payload?.frontmatter && typeof payload.frontmatter === "object"
-        ? payload.frontmatter
-        : parsedFrontmatter || {};
-    const classification = normalizePlanReviewClassification(
-        readScalar(payload?.classification) || readScalar(frontmatter.classification) || "PLANNED_CHANGE",
-    );
-    const executionPolicy = payload?.executionPolicy && typeof payload.executionPolicy === "object"
-        ? payload.executionPolicy
-        : {};
-    const executionAgent = readExecutionAgent(executionPolicy.executionAgent) ||
-        readExecutionAgent(payload?.executionAgent) ||
-        readExecutionAgent(frontmatter.executionAgent) ||
-        (frontmatter.frontend === true ? "frontend-engineer" : "engineer");
-    const collaborationRecommendation = readCollaborationRecommendation(executionPolicy.collaborationRecommendation) ||
-        readCollaborationRecommendation(payload?.collaborationRecommendation) ||
-        readCollaborationRecommendation(frontmatter.collaborationRecommendation) || "autonomous";
-    return {
-        classification,
-        canSelectExecutionPolicy: classification === "PLANNED_CHANGE",
-        executionAgent,
-        collaborationRecommendation: executionAgent === "engineer" ? "autonomous" : collaborationRecommendation,
-    };
-}
-
-function normalizePlanReviewClassification(value) {
-    const scalar = readScalar(value);
-    return scalar === "FEATURE" ? "PLANNED_CHANGE" : scalar;
-}
-
-function readScalar(value) {
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    if (
-        trimmed.length >= 2 && ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-            (trimmed.startsWith("'") && trimmed.endsWith("'")))
-    ) {
-        return trimmed.slice(1, -1);
-    }
-    return trimmed;
-}
-
-function readExecutionAgent(value) {
-    const scalar = readScalar(value);
-    return scalar === "engineer" || scalar === "frontend-engineer" ? scalar : undefined;
-}
-
-function readCollaborationRecommendation(value) {
-    const scalar = readScalar(value);
-    return scalar === "autonomous" || scalar === "pair" ? scalar : undefined;
 }
 
 function readEmbeddedPayload(name) {

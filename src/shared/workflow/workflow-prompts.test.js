@@ -67,20 +67,24 @@ Deno.test("approval annotations are included in Engineer and Slicer handoffs", (
     assertStringIncludes(slicerRequest, feedback);
 });
 
-Deno.test("buildEngineerRequest preserves workflow completion contract", () => {
+Deno.test("buildEngineerRequest emits only the approved Plan envelope when optional context is missing", () => {
     const request = buildEngineerRequest("feature-plan", "Plan body");
-    assertStringIncludes(request, "Approved Plan: feature-plan");
-    assertStringIncludes(request, "call task_completed with a concise bullet-point success or failure report");
-    assertStringIncludes(request, "Plan body");
+
+    assertEquals(request, "## Approved Plan: feature-plan\n\n## Approved Plan Body\n\nPlan body");
+    assertEquals(request.includes("Router Handoff Message"), false);
+    assertEquals(request.includes("Runtime Collaboration Style"), false);
+    assertEquals(request.includes("Annotations Submitted With Approval"), false);
 });
 
-Deno.test("buildEngineerRequest parses away Plan Front Matter", () => {
+Deno.test("buildEngineerRequest removes protected Plan Front Matter and preserves the projected body exactly", () => {
+    const projectedBody =
+        "# Approved body\n\nUNIQUE BODY SENTINEL\n\n## Router Handoff Message\nThis is ordinary Plan Markdown.";
     const request = buildEngineerRequest(
         "feature-plan",
-        "---\nsummary: SECRET FRONT MATTER\nobjectiveChecks:\n  - id: OC1\n    command: false\n    rationale: secret\n---\n# Approved body",
+        `---\nsummary: SECRET FRONT MATTER\nobjectiveChecks:\n  - id: OC1\n    command: false\n    rationale: secret\n---\n${projectedBody}\n`,
     );
 
-    assertStringIncludes(request, "# Approved body");
+    assertEquals(request, `## Approved Plan: feature-plan\n\n## Approved Plan Body\n\n${projectedBody}`);
     assertEquals(request.includes("SECRET FRONT MATTER"), false);
     assertEquals(request.includes("objectiveChecks"), false);
 });
@@ -105,51 +109,49 @@ Deno.test("buildTriageReport preserves the Router's structured context", () => {
     assertStringIncludes(report, "- Affected paths: src/constants.js, docs/product-rules.md");
 });
 
-Deno.test("buildEngineerRequest includes planned triage and the Router handoff before the Plan", () => {
+Deno.test("buildEngineerRequest orders Router handoff, pair runtime value, projected Plan, and annotations", () => {
+    const feedback = "Approval note: keep the highlighted boundary.";
     const request = buildEngineerRequest(
         "documentation-work-kind",
-        "## Implementation Steps\n\n1. Update the taxonomy.",
-        undefined,
+        "## Implementation Steps\n\nUNIQUE PAIR BODY SENTINEL\n\n1. Update the taxonomy.",
+        feedback,
         {
-            triageMeta: {
-                routingIntent: "PLANNED_CHANGE",
-                classification: "PLANNED_CHANGE",
-                workKind: "DOCUMENTATION",
-                complexity: "MEDIUM",
-                summary: "Add a documentation Work Kind.",
-                affectedPaths: ["src/constants.js"],
-            },
+            collaborationStyle: "pair",
             routerMessage: "Add documentation as a first-class Work Kind.",
         },
     );
 
-    assertStringIncludes(request, "This is a planned documentation.");
-    assertStringIncludes(request, "## Triage Report");
-    assertStringIncludes(request, "- Routing Intent: PLANNED_CHANGE");
-    assertStringIncludes(request, "- Plan Classification: PLANNED_CHANGE");
-    assertStringIncludes(request, "## Router Handoff Message");
-    assertStringIncludes(request, "Add documentation as a first-class Work Kind.");
-    const triageIndex = request.indexOf("## Triage Report");
-    const routerIndex = request.indexOf("## Router Handoff Message");
-    const planIndex = request.indexOf("## Implementation Steps");
-    if (!(triageIndex < routerIndex && routerIndex < planIndex)) {
-        throw new Error("Engineer handoff context must precede the approved Plan body");
-    }
+    assertEquals(
+        request,
+        "## Approved Plan: documentation-work-kind\n\n" +
+            "## Router Handoff Message\n" +
+            "Add documentation as a first-class Work Kind.\n\n" +
+            "## Runtime Collaboration Style\n" +
+            "Pair Execution is active.\n\n" +
+            "## Approved Plan Body\n\n" +
+            "## Implementation Steps\n\n" +
+            "UNIQUE PAIR BODY SENTINEL\n\n" +
+            "1. Update the taxonomy.\n\n" +
+            "## Annotations Submitted With Approval\n" +
+            "These notes are implementation context carried forward from Plan Review; the Plan remains approved.\n\n" +
+            feedback,
+    );
 });
 
-Deno.test("buildEngineerRequest reconstructs planned classification for loaded legacy Plans", () => {
-    const request = buildEngineerRequest("loaded-plan", "Plan body", undefined, {
-        triageMeta: {
-            workKind: "FEATURE",
-            complexity: "LOW",
-            summary: "Loaded from disk.",
-            affectedPaths: [],
-        },
+Deno.test("buildEngineerRequest names autonomous runtime value without duplicated execution rules", () => {
+    const request = buildEngineerRequest("autonomous-plan", "Plan body", undefined, {
+        collaborationStyle: "autonomous",
     });
 
-    assertStringIncludes(request, "- Routing Intent: PLANNED_CHANGE");
-    assertStringIncludes(request, "- Plan Classification: PLANNED_CHANGE");
-    assertStringIncludes(request, "- Summary: Loaded from disk.");
+    assertStringIncludes(request, "## Runtime Collaboration Style\nAutonomous execution is active.");
+    assertEquals(request.includes("Execute the following plan step by step"), false);
+    assertEquals(request.includes("call task_completed"), false);
+    assertEquals(request.includes("Complete all Implementation Steps"), false);
+    assertEquals(request.includes("Do not use Pair checkpoint ceremony"), false);
+    assertEquals(request.includes("Follow the Runtime Collaboration Style section"), false);
+    assertEquals(request.includes("## Triage Report"), false);
+    assertEquals(request.includes("Routing Intent"), false);
+    assertEquals(request.includes("Plan Classification"), false);
 });
 
 Deno.test("buildReAnchorMessage names the draft Plan and its sections for Planner", () => {
