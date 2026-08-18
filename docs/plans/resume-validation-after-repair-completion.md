@@ -29,11 +29,11 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T17:01:39-04:00"
-updatedAt: "2026-08-18T00:26:49.310Z"
+updatedAt: "2026-08-18T00:32:49.746Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-17T21:24:22.196Z"
-verifiedAt: "2026-08-18T00:26:49.310Z"
+verifiedAt: "2026-08-18T00:32:49.746Z"
 userVerifiedAt: null
 executionReport: "- Implemented durable Mechanical Validation repair recovery: failure events now preserve the validation checkpoint before CI/Object repair dispatch, and live repair completion loops into fresh checks without root Task Completion journal ownership.\n- Removed recovery authority from in-memory validation position: `validation.ts` no longer reads it, and `validation-position.ts`/ports now mark it as presentation-only.\n- Added `validation-repair-resume.integration.test.ts` with 6 new regression tests for the human-review/CI repair sequence, root-journal isolation, process-loss before/during/after repair, and no-`task_completed` retry behavior.\n- Updated existing coverage: replaced the old in-memory position rerun test with a durable-checkpoint rerun test, strengthened isolated task completion journal assertions, and made the dirty-stop-resume golden scenario deterministic. No tests were removed.\n- Updated `docs/validation-authority.md` and `docs/workflows.md` to distinguish live isolated repair results from restart recovery.\n- Verification passed: `deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-resume.integration.test.ts`; validation completion/human-review/repair test group; task-completion/agent-handler test group; `deno task seams:check`; `deno task check`; focused golden reruns for `dirty-stop-resume` and `broken-objective-stop`.\n- Verification did not fully pass: `deno task ci` failed after 330 files passed with two golden scenario failures (`validation-workflow-broken-objective.test.ts`, `validation-workflow-publication.test.ts`), but both failed scenarios passed when rerun individually. Mutation checks were not performed as manual source mutations."
 humanReviewMode: "ask"
@@ -43,9 +43,9 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "eb3a9ee7e1c70d0b7c45f3c49283b76e7163a8eb"
+    executionCommit: "9a3c97219dd92e61698eb4bf2703dddbba950987"
     targetBranch: "main"
-    targetHeadBeforeMerge: "1a7b6d1603e3284bee1adb56ac264d6d7da13285"
+    targetHeadBeforeMerge: "601ccba85aceb31ba4332a7655a0f3c4776d5c3f"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "validation repair resume"
 validationCiAttempts: 0
