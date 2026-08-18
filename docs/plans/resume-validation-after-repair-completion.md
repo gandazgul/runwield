@@ -1,4 +1,5 @@
 ---
+planId: "49e20ce4-692f-42fb-b5a9-ecb3766640cc"
 classification: "PLANNED_CHANGE"
 workKind: "BUG_FIX"
 complexity: "MEDIUM"
@@ -23,16 +24,32 @@ objectiveChecks:
     - id: "OC3"
       command: "deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-resume.integration.test.ts --filter 'interrupted mechanical repair resumes from checkpoint and reruns checks'"
       rationale: "After process loss there is no live repair result to consume. Recovery must use the durable checkpoint and current worktree, rerun Mechanical Validation, and continue without replaying the old Agent turn."
+objectiveCheckWaivers:
+    []
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T17:01:39-04:00"
 origin: "internal"
+implementedAt: "2026-08-17T21:24:22.196Z"
 userVerifiedAt: null
+executionReport: "- Implemented durable Mechanical Validation repair recovery: failure events now preserve the validation checkpoint before CI/Object repair dispatch, and live repair completion loops into fresh checks without root Task Completion journal ownership.\n- Removed recovery authority from in-memory validation position: `validation.ts` no longer reads it, and `validation-position.ts`/ports now mark it as presentation-only.\n- Added `validation-repair-resume.integration.test.ts` with 6 new regression tests for the human-review/CI repair sequence, root-journal isolation, process-loss before/during/after repair, and no-`task_completed` retry behavior.\n- Updated existing coverage: replaced the old in-memory position rerun test with a durable-checkpoint rerun test, strengthened isolated task completion journal assertions, and made the dirty-stop-resume golden scenario deterministic. No tests were removed.\n- Updated `docs/validation-authority.md` and `docs/workflows.md` to distinguish live isolated repair results from restart recovery.\n- Verification passed: `deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-resume.integration.test.ts`; validation completion/human-review/repair test group; task-completion/agent-handler test group; `deno task seams:check`; `deno task check`; focused golden reruns for `dirty-stop-resume` and `broken-objective-stop`.\n- Verification did not fully pass: `deno task ci` failed after 330 files passed with two golden scenario failures (`validation-workflow-broken-objective.test.ts`, `validation-workflow-publication.test.ts`), but both failed scenarios passed when rerun individually. Mutation checks were not performed as manual source mutations."
+executionMode: "worktree"
+executionBaselineTree: "4afc98ed87154b50d85669753560b76c91fc5f4b"
+worktreeId: "b490cda8"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-resume-validation-after-repair-completion-b490cda8"
+worktreeBranch: "worktree/resume-validation-after-repair-completion-b490cda8"
+worktreeBaseBranch: "main"
+worktreeStatus: "completed"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "validation repair resume"
-planId: "49e20ce4-692f-42fb-b5a9-ecb3766640cc"
-updatedAt: "2026-08-17T20:37:45.843Z"
-status: "ready_for_work"
+validationCiAttempts: 0
+validationObjectiveCheckAttempts: 0
+validationSemanticRounds: 1
+status: "validated_reviewer"
+validationCheckpoint: null
+updatedAt: "2026-08-18T00:26:48.247Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Resume Validation After Repair Completion

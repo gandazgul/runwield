@@ -14,23 +14,14 @@
 import { extractYaml } from "@std/front-matter";
 import { loadPlan } from "../../plan-store.js";
 import { PLAN_STATUSES, VALIDATION_PLAN_STATUSES } from "./plan-lifecycle.js";
-import { getProjectRoot, recordLifecycleEvent } from "./validation-context.ts";
+import { getProjectRoot } from "./validation-context.ts";
 import { emitStatus } from "./validation-emit.ts";
 import { validationPhaseForStatus } from "./validation-checkpoint.ts";
-import {
-    buildValidationUserMessage,
-    validationPhasePauseMessage,
-    validationUserMessage,
-} from "./validation-user-messages.ts";
+import { validationPhasePauseMessage, validationUserMessage } from "./validation-user-messages.ts";
 import { runMechanicalValidationPhase } from "./validation-mechanical.ts";
 import { runSemanticReviewPhase, runValidatedReviewerPhase } from "./validation-semantic.ts";
 import type { ValidationPhaseName } from "./validation-ports.ts";
-import type {
-    PlanEventStatus,
-    ValidationLoopArgs,
-    ValidationPhaseResult,
-    WorkflowValidationResult,
-} from "./validation-types.ts";
+import type { ValidationLoopArgs, ValidationPhaseResult, WorkflowValidationResult } from "./validation-types.ts";
 import { MAX_PHASES_PER_CALL, PHASE_STATUS, VALIDATION_STATUS_ORDER } from "./validation-types.ts";
 
 type PlanStatus = "implemented" | "validated_ci" | "validated_reviewer";
@@ -51,12 +42,6 @@ export async function runValidationPhase(args: ValidationLoopArgs): Promise<Vali
         planContent: canonicalPlan.markdown,
     };
     const nextPhase = resolveNextPhase(args, canonicalPlan.status);
-    if (await healStatusAheadOfPhase(canonicalArgs, nextPhase, canonicalPlan.status)) {
-        return await runMechanicalValidationPhase({
-            ...canonicalArgs,
-            triageMeta: { ...canonicalArgs.triageMeta, status: "implemented" },
-        });
-    }
     switch (nextPhase) {
         case "mechanical":
             return await runMechanicalValidationPhase(canonicalArgs);
@@ -72,6 +57,12 @@ export async function runValidationPhase(args: ValidationLoopArgs): Promise<Vali
  *
  * Session memory is not an authority. A new process or Session receives the same
  * phase from the Plan's validation checkpoint.
+ *
+ * The claim can only carry validation forward. A checkpoint that never settled still
+ * names the phase it was running, while the Plan already records that the phase's
+ * checks passed — the lifecycle event is the durable proof of that, and honouring the
+ * older claim would mean undoing a status the Plan legitimately holds. Canonical
+ * status wins there.
  */
 function resolveNextPhase(
     args: ValidationLoopArgs,
@@ -82,37 +73,10 @@ function resolveNextPhase(
         : status === "validated_ci"
         ? "semantic"
         : "mechanical";
-    return args.continuationPhase || fromStatus;
-}
-
-/**
- * Pull a Plan back when its status has run ahead of where the loop actually is.
- *
- * The loop remembers dispatching a CI repair and never seeing CI pass; if the Plan
- * meanwhile reads `validated_ci`, something else moved it — a repair Agent's
- * `task_completed` is the one that happens — and the checks it claims to have
- * passed never ran. Recording the phase's own outcome against that status is
- * refused by the lifecycle guard, correctly, so the drift has to be undone rather
- * than worked around: `validation_failed` is legal from every validation status and
- * lands on `implemented`, which re-runs the checks from the start.
- *
- * Returns whether a heal happened, in which case the mechanical phase runs.
- */
-async function healStatusAheadOfPhase(
-    args: ValidationLoopArgs,
-    phase: ValidationPhaseName,
-    status: string,
-): Promise<boolean> {
-    const expected = VALIDATION_STATUS_ORDER.indexOf(PHASE_STATUS[phase]);
-    const actual = VALIDATION_STATUS_ORDER.indexOf(status);
-    if (expected < 0 || actual < 0 || actual <= expected) return false;
-    const reason = `The Plan was marked ${status} while Workflow Validation was still at ${
-        PHASE_STATUS[phase]
-    }. Those checks did not run, so validation is starting again from the build.`;
-    const projectRoot = getProjectRoot(args);
-    emitStatus(args, buildValidationUserMessage({ kind: "status_repaired" }), "warning");
-    await recordLifecycleEvent(args, projectRoot, "validation_failed", status as PlanEventStatus, reason);
-    return true;
+    const claimed = args.continuationPhase;
+    if (!claimed) return fromStatus;
+    const claimedIndex = VALIDATION_STATUS_ORDER.indexOf(PHASE_STATUS[claimed]);
+    return claimedIndex < VALIDATION_STATUS_ORDER.indexOf(status) ? fromStatus : claimed;
 }
 
 /**

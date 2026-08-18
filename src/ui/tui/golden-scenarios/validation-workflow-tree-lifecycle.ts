@@ -226,8 +226,8 @@ export const validationTreeMissingExecutionContextScenario = withValidationBranc
     ["lifecycle:missing-execution-context-fails-closed"],
 );
 
-// A durable mechanical checkpoint is authoritative when the same worktree's
-// Plan status has incorrectly moved ahead to validated_ci.
+// A stale mechanical checkpoint must not pull a Plan back. The worktree's Plan
+// already records validated_ci, so validation continues from Semantic Review.
 export const validationTreeAheadStatusScenario = withValidationBranches(
     {
         name: "validation-tree-ahead-status-base",
@@ -253,7 +253,10 @@ export const validationTreeAheadStatusScenario = withValidationBranches(
                 requiredTools: ["review_diff", "review_complete"],
                 toolCalls: [
                     { name: "review_diff", arguments: { command: "list" } },
-                    { name: "review_complete", arguments: { approved: true, feedback: "Ahead status healed." } },
+                    {
+                        name: "review_complete",
+                        arguments: { approved: true, feedback: "Ahead status kept its canonical progress." },
+                    },
                 ],
             },
             {
@@ -262,7 +265,7 @@ export const validationTreeAheadStatusScenario = withValidationBranches(
                 phase: "semantic_review",
                 planName: "ahead-status",
                 ordinal: 2,
-                text: "Approved healed ahead status.",
+                text: "Approved ahead status.",
             },
         ],
         scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" }],
@@ -283,7 +286,7 @@ export const validationTreeAheadStatusScenario = withValidationBranches(
     },
     "validation-tree-ahead-status",
     ["ahead-status"],
-    ["lifecycle:ahead-status-heals-to-implemented"],
+    ["lifecycle:ahead-status-keeps-canonical-progress"],
 );
 
 // Raw corrupt Front Matter must fail closed before its parsed default can route

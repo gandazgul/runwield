@@ -179,7 +179,6 @@ Deno.test("all validation recovery and doctor messages stay plain", async () => 
         buildValidationUserMessage({ kind: "merge_progress", sourceBranch: "work", targetBranch: "main" }),
         buildValidationUserMessage({ kind: "merge_dispatch", agent: "Engineer", cwd: "/tmp/demo" }),
         buildValidationUserMessage({ kind: "verified", planName: "demo" }),
-        buildValidationUserMessage({ kind: "status_repaired" }),
         buildValidationUserMessage({ kind: "context_blocked", planName: "demo" }),
         buildValidationUserMessage({ kind: "validation_command_missing" }),
         buildValidationUserMessage({ kind: "validation_command_prompt" }),

@@ -65,7 +65,6 @@ export type ValidationMessageRequest =
     | { kind: "merge_progress"; sourceBranch: string; targetBranch: string }
     | { kind: "merge_dispatch"; agent: string; cwd: string }
     | { kind: "verified"; planName: string }
-    | { kind: "status_repaired" }
     | { kind: "context_blocked"; planName: string }
     | { kind: "validation_command_missing" }
     | { kind: "validation_command_prompt" }
@@ -221,8 +220,6 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             return `${request.agent} will fix the merge in ${request.cwd}.`;
         case "verified":
             return `${request.planName} is done and on its target branch.`;
-        case "status_repaired":
-            return "RunWield found an old check state. It fixed it and will run the tests again.";
         case "context_blocked":
             return `RunWield cannot check ${request.planName} now. Your work is safe. Try again.`;
         case "validation_command_missing":

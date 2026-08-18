@@ -49,6 +49,10 @@ checks decide whether the workflow advances or a new bounded repair turn is need
 A repair turn that returns without `task_completed` leaves the checkpoint paused at Mechanical Validation. A retry
 starts from the saved Plan state and reruns checks; it does not wait for a root completion event.
 
+A checkpoint can only carry validation forward. When the Plan status already records that a phase passed, the phase that
+the status names runs next, even if a checkpoint that never settled still points at an earlier phase. RunWield does not
+undo the recorded status to run those checks again.
+
 ## Recovery invariant
 
 After process loss, RunWield reads the primary Plan, validation checkpoint, worktree registry, Git facts, Review Issue
