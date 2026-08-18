@@ -311,6 +311,10 @@ Deno.test("plans doctor command --check reports without changing files", async (
 
         assertEquals(await Deno.readTextFile(registryPath), before);
         assertEquals((await findById(projectRoot, "wt-command-check"))?.status, "merged");
+        assertEquals(output.includes("Plans doctor diagnosis: 1 issue found"), true);
+        assertEquals(output.includes("Worktree registry"), true);
+        assertEquals(output.includes("wt-command-check"), true);
+        assertEquals(output.includes("Next steps:"), true);
         assertEquals(output.includes("No files changed"), true);
     });
 });
@@ -342,8 +346,8 @@ Deno.test("plans doctor command --repair summarizes remaining problems without r
         });
 
         assertEquals(output.includes("Fixed 1 safe problem"), true);
-        assertEquals(output.includes("1 problem needs your choice"), true);
-        assertEquals(output.includes("Your work is safe"), true);
+        assertEquals(output.includes("1 problem needs your attention"), true);
+        assertEquals(output.includes("run wld plans doctor --check to see them"), true);
         assertEquals(output.includes("broken"), false);
         assertEquals(output.includes("Plan files"), false);
         assertEquals(output.includes("Diagnosis:"), false);

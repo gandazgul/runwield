@@ -100,7 +100,6 @@ origin: "internal"
 implementedAt: "2026-08-13T05:29:56.180Z"
 userVerifiedAt: "2026-08-14T04:41:33.866Z"
 userVerificationNote: "Marked user verified at the explicit request of the repository owner after the validated implementation was merged into main."
-executionReport: "- Added one validation supervisor with durable checkpoints and generation ownership. All production validation paths now use it.\n- Made stale Plan, Session, worktree, and Git records repair from authoritative facts. Added safe worktree and lost-attempt recovery.\n- Made Plans Doctor repair safe issues by default, added read-only `--check`, and protected user work.\n- Added plain validation and Doctor messages plus publication recovery from exact Git proof.\n- Added and updated tests. No tests were removed; changed tests were rewritten for the new messages and behavior. New tests cover stale-state healing, restart ownership, worktree recovery, lost attempts, Doctor repair, message quality, and publication proof.\n- Verification passed: all Objective Checks and `deno task ci` (`298` test files, `0` failed)."
 workRecord:
     status: "generated"
     recordId: "b4a008aa-4a33-4452-97ce-1420a507c061"
@@ -111,14 +110,6 @@ humanReviewDecision: "approved"
 humanReviewedAt: "2026-08-13T18:47:46.301Z"
 validationCheckpoint: null
 executionMode: "worktree"
-executionBaselineTree: "b448a9eb3713c259610d76e51c52003657f7c53a"
-worktreeId: "986d23ac"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-make-workflow-validation-self-healing-986d23ac"
-worktreeBranch: "worktree/make-workflow-validation-self-healing-986d23ac"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
-validationCiAttempts: 0
-validationSemanticRounds: 2
 updatedAt: "2026-08-16T18:02:21.427Z"
 archivedAt: "2026-08-16T18:02:21.427Z"
 archivedFromStatus: "user_verified"

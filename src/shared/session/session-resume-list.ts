@@ -62,6 +62,10 @@ export async function listRecentResumableSessions(
     }).filter((locator) => {
         const session = sessionStore.findSessionByLocator({ transcriptPath: locator.sessionPath });
         if (!session) return true;
+        const isRepairSegment = sessionStore.listSessionTranscriptSegments(session.runwieldSessionId).some(
+            (segment) => segment.transcriptPath === locator.sessionPath && segment.kind === "semantic_repair",
+        );
+        if (isRepairSegment) return false;
         return sessionStore.inspectSessionActivation(session.runwieldSessionId).activation?.state !== "active";
     }).slice(0, RECENT_SESSION_LIMIT);
     const summaries = await mapWithConcurrency(

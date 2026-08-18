@@ -26,13 +26,17 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-05T15:03:52-04:00"
-updatedAt: "2026-08-18T00:25:20.693Z"
+updatedAt: "2026-08-18T00:25:26.594Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-17T21:11:18.678Z"
 verifiedAt: "2026-08-18T00:25:20.693Z"
 userVerifiedAt: null
 executionReport: "- Implemented `buildEngineerRequest` as a dynamic context envelope: approved Plan name, optional Router handoff, resolved runtime-style sentence, projected Plan body, and optional approval annotations.\n- Removed `triageMeta` from Engineer request options and from both `engineer-runner.ts` execution handoff paths; execution owner, images, and Pair tool selection remain unchanged.\n- Kept `buildTriageReport` unchanged for non-execution callers.\n- Updated prompt tests for pair/autonomous runtime values, optional section ordering, Front Matter removal, exact projected body preservation, Router handoff, approval annotations, and absence of removed duplicate prose.\n- Test accounting: net Deno.test delta is -1 across touched files. The removed `workflow.test.js` planned documentation Work Kind request test was deleted because that request behavior no longer exists; the old completion/Triage prompt tests were rewritten against the new envelope and absence guarantees.\n- Verification passed: `deno run -A scripts/run-tests.js src/shared/workflow/workflow-prompts.test.js src/shared/workflow/workflow.test.js`; `deno task check`; OC1 grep check.\n- Verification failed: `deno task ci` failed in TUI golden validation/publication scenarios after 328 files passed; logs show unused scripted Runtime interaction and missing visible transcript text in golden publication tests.\n- Objective check issue: saved Plan OC2/OC3 still refer to deferred Workspace Pair policy scope and a missing `src/ui/workspace/react/plan-review-policy.test.ts` file, so those checks are not valid for this approved cleanup scope."
+workRecord:
+    status: "failed"
+    lastAttemptAt: "2026-08-18T00:25:26.490Z"
+    error: "No API key found for claude-cli. Use /login to log into a provider via OAuth or API key. See: /var/folders/hw/zrm0bqr90xz63nflnb2g_qqr0000gn/T/deno-compile-wld/docs/providers.md /var/folders/hw/zrm0bqr90xz63nflnb2g_qqr0000gn/T/deno-compile-"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-08-18T00:25:19.849Z"

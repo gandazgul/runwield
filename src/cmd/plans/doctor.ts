@@ -956,7 +956,11 @@ export async function runPlansDoctorCommand(
     const projectRoot = getCwd();
     const result = await runPlansDoctor(projectRoot, !checkOnly);
     if (checkOnly) {
-        console.log(doctorCheckMessage(result.issues.length));
+        console.log(
+            result.issues.length === 0
+                ? doctorCheckMessage(result.issues.length)
+                : `${_formatDoctorReport(result.issues)}\n[RunWield] No files changed.`,
+        );
         return;
     }
     console.log(

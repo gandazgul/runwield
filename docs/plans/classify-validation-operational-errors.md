@@ -3,7 +3,7 @@ planId: "482d1525-3be2-417e-bd9c-9b59bda1d71b"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
-summary: "Classify Workflow Validation operational errors and apply retry, Agent correction, replanning, or immediate halt without treating infrastructure failures as implementation failures."
+summary: "Classify Workflow Validation operational errors and apply retry, Agent correction, deterministic recovery, user action, or immediate halt without treating infrastructure failures as implementation failures."
 affectedPaths:
     - "src/shared/workflow/validation-operational-errors.ts"
     - "src/shared/workflow/validation-recovery.ts"
@@ -14,35 +14,38 @@ affectedPaths:
     - "src/shared/workflow/validation-mechanical.ts"
     - "src/shared/workflow/validation-semantic.ts"
     - "src/shared/workflow/validation-engine.ts"
+    - "src/shared/workflow/validation-supervisor.ts"
     - "src/shared/workflow/validation-publication.ts"
     - "src/shared/workflow/validation-merge-repair.ts"
     - "src/shared/workflow/validation-emit.ts"
+    - "src/shared/workflow/validation-user-messages.ts"
     - "src/shared/workflow/validation-operational-errors.test.ts"
     - "src/shared/workflow/validation-operational-recovery.test.ts"
     - "src/shared/workflow/validation-local-ci.test.ts"
     - "src/shared/workflow/validation-publication.test.ts"
+    - "src/shared/workflow/validation-self-healing.integration.test.ts"
     - "docs/settings.md"
     - "docs/plan-lifecycle.md"
 objectiveChecks:
     - id: "OC1"
-      command: "grep -q 'validation error classifier maps typed failures to the four recovery classes' src/shared/workflow/validation-operational-errors.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-operational-errors.test.ts --filter 'validation error classifier maps typed failures to the four recovery classes'"
-      rationale: "This proves that transient, correctable, missing-information, and fatal errors have one stable typed classification before any phase chooses a response."
+      command: "deno eval 'import { classifyValidationOperationalError as c } from \"./src/shared/workflow/validation-operational-errors.ts\"; const xs=[[{source:\"provider\",kind:\"rate_limited\",message:\"x\"},\"transient\"],[{source:\"reviewer_protocol\",kind:\"missing_review_complete\",message:\"x\"},\"correctable\"],[{source:\"validation_state\",kind:\"plan_missing\",message:\"x\"},\"missing_information\"],[{source:\"policy\",kind:\"prohibited\",message:\"x\"},\"fatal\"]]; for(const [x,w] of xs) if(c(x).recoveryClass!==w) Deno.exit(1);'"
+      rationale: "This calls the production classifier directly and proves that one representative typed failure maps to each recovery class."
     - id: "OC2"
       command: "grep -q 'transient Reviewer failures use jittered backoff without consuming semantic rounds' src/shared/workflow/validation-operational-recovery.test.ts && grep -q 'correctable Reviewer failures stay in the same session with structured feedback' src/shared/workflow/validation-operational-recovery.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-operational-recovery.test.ts --filter 'Reviewer failures'"
       rationale: "This proves that retry and Agent correction are different actions, and that neither action spends an implementation-repair round."
     - id: "OC3"
-      command: "grep -q 'CI process start failure does not dispatch implementation repair' src/shared/workflow/validation-local-ci.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-local-ci.test.ts --filter 'CI process start failure does not dispatch implementation repair'"
-      rationale: "The current CI boundary converts process-start errors into exit code 1. This check proves that an operational failure can no longer become a false test failure."
+      command: "! grep -q 'exitCode: canceled ? 130 : 1' src/shared/workflow/validation-local-ci.ts && grep -q 'CI process start failure does not dispatch implementation repair' src/shared/workflow/validation-local-ci.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-local-ci.test.ts --filter 'CI process start failure does not dispatch implementation repair'"
+      rationale: "This removes the current synthetic CI verdict and proves through the real boundary that a process-start failure cannot dispatch source repair."
     - id: "OC4"
-      command: "grep -q 'publication dispatches merge repair only for a content conflict' src/shared/workflow/validation-publication.test.ts && grep -q 'fatal publication error halts without retry or repair' src/shared/workflow/validation-publication.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-publication.test.ts --filter 'publication'"
-      rationale: "This proves that publication races, missing state, user-owned dirt, content conflicts, and fatal access or policy failures no longer share one blind repair path."
+      command: "! grep -q 'failureKind !== \"primary_checkout_dirty\"' src/shared/workflow/validation-publication.ts && grep -q 'publication dispatches merge repair only for a content conflict' src/shared/workflow/validation-publication.test.ts && grep -q 'fatal publication error halts without retry or repair' src/shared/workflow/validation-publication.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-publication.test.ts --filter 'publication'"
+      rationale: "This removes the current broad repair condition and proves that publication races, missing state, dirt, conflicts, and fatal failures take distinct paths."
     - id: "OC5"
       command: "deno task seams:check && deno task check && deno task ci"
       rationale: "This protects the zero-seam baseline, TypeScript rules, Plan Lifecycle invariants, validation behavior, and the full repository."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T00:47:42-04:00"
-updatedAt: "2026-08-12T00:47:42-04:00"
+updatedAt: "2026-08-17T22:39:26-04:00"
 status: "draft"
 origin: "internal"
 userVerifiedAt: null
@@ -70,9 +73,12 @@ The current loop does not keep these questions separate in all phases.
   missing worktree, permission error, and content conflict do not require the same response.
 - Plan and worktree precondition failures return plain reason strings. Callers cannot tell whether RunWield should
   retry, ask an Agent to correct its request, choose a path that does not need missing information, or halt.
+- The validation supervisor now repairs provable RunWield-owned state before it claims a durable Validation Checkpoint,
+  but its outer catch still turns every remaining exception into the same `validation_operation_failed` retry-later
+  result. The operational policy must run inside that authority model, not replace it.
 
-`AUTOMATIC_ROUNDS` is an implementation-repair limit. It must count failed CI or review repair cycles. It must not count
-network retries, provider rate limits, invalid Agent tool arguments, or missing resources.
+`CI_REPAIR_CYCLES`, `OBJECTIVE_CHECK_REPAIR_CYCLES`, and `SEMANTIC_REVIEW_CYCLES` limit implementation repair. They must
+not count network retries, provider rate limits, invalid Agent tool arguments, or missing resources.
 
 ## Objective
 
@@ -86,9 +92,10 @@ Add one typed operational-error model to Workflow Validation. Each operational f
 
 The recovery class selects the response. It does not change the meaning of CI failure, Objective-Failing Check failure,
 Semantic Code Review feedback, or merge conflict. RunWield records a validation-failure lifecycle event only when it has
-evidence that the implementation failed.
+evidence that the implementation failed. The existing `ValidationRecoveryResult` remains the public result contract; the
+new classifier and recovery runner supply its stable code, action, and next phase.
 
-## Product Behavior
+## Approach
 
 ### Transient
 
@@ -102,13 +109,14 @@ The delay uses bounded exponential backoff with full jitter:
 RunWield uses a valid provider `Retry-After` value when one is present and within the configured maximum. The existing
 `retry.enabled`, `retry.maxRetries`, `retry.baseDelayMs`, and `retry.provider.maxRetryDelayMs` settings define the
 validation-level budget. Provider SDK retries remain provider-level behavior. Neither provider retries nor validation
-operational retries change `validationCiAttempts`, `validationSemanticRounds`, or `AUTOMATIC_ROUNDS`.
+operational retries change `validationCiAttempts`, `validationObjectiveCheckAttempts`, `validationSemanticRounds`, or
+any implementation-repair budget.
 
 The status surface shows the operation, retry number, maximum retries, and next delay. Escape or Session cancellation
 stops the wait and returns the existing safe paused result.
 
-When the transient retry budget is spent, RunWield pauses at the same validation phase. It preserves the Plan status,
-review ledger, worktree record, publication journal, and active workflow. It does not record a validation failure.
+When the transient retry budget is spent, RunWield pauses at the same validation phase. It preserves the Plan Status,
+Review Issue Ledger, worktree record, publication journal, and active workflow. It does not record a validation failure.
 
 ### Correctable
 
@@ -158,9 +166,11 @@ inline types. The central contract includes:
 - `ValidationOperation`;
 - `ValidationOperationalFailure` with `code`, `message`, `operation`, `recoveryClass`, and optional bounded retry or
   correction metadata;
-- named source types for provider, local-process, Plan-state, worktree, Git-publication, and Reviewer-protocol errors;
-  and
-- `classifyValidationOperationalError`, which accepts the named source union and returns a classified failure.
+- named source types discriminated by `source` and `kind` for provider, local-process, validation-state, worktree,
+  Git-publication, Reviewer-protocol, and policy errors; the stable baseline pairs include `provider/rate_limited`,
+  `reviewer_protocol/missing_review_complete`, `validation_state/plan_missing`, and `policy/prohibited`;
+- `classifyValidationOperationalError`, which accepts the named source union and returns a classified failure; and
+- an exhaustive `never` check so a newly added typed source kind cannot silently inherit a default retry policy.
 
 Prefer stable error codes and typed error classes from the source boundary. Use normalized string matching only in an
 adapter for a legacy provider that supplies no typed status. The classifier must not inspect arbitrary thrown values
@@ -173,7 +183,8 @@ before the recovery policy runs.
 
 ### Recovery decision
 
-Add `validation-recovery.ts` as the only owner of the class-to-action mapping. It owns:
+Extend the existing `validation-recovery.ts` module as the only owner of the class-to-action mapping. Preserve its
+`ValidationRecoveryResult` contract for supervisor and runtime callers. It owns:
 
 - retry eligibility and the total operation-attempt budget;
 - pure backoff and full-jitter calculation;
@@ -238,22 +249,24 @@ candidate or clear recovery metadata.
 
 ### Lifecycle and resume behavior
 
-Do not add a new Plan status. The last committed status remains the restart checkpoint:
+Do not add a new Plan status. The validation supervisor keeps ownership through its durable Validation Checkpoint, and
+the last committed Plan Status remains the phase authority:
 
 - `implemented` resumes Mechanical Validation;
 - `validated_ci` resumes Semantic Code Review; and
 - `validated_reviewer` resumes human review or publication as required.
 
-An operational pause preserves active workflow and phase position. A fatal halt records a bounded runtime/metric event,
-but it does not write a false validation-failure lifecycle event. On a later explicit user action, validation rereads
-the canonical Plan and execution context before it continues.
+An operational pause preserves active workflow and the durable Validation Checkpoint phase. A fatal halt records a
+bounded runtime/metric event, but it does not write a false validation-failure lifecycle event. On a later explicit user
+action, validation rereads the canonical Plan and execution context before it continues.
 
 ## Files to Modify
 
 - `src/shared/workflow/validation-operational-errors.ts` — define the four classes, named source types, stable codes,
   sanitization limits, and the pure central classifier.
-- `src/shared/workflow/validation-recovery.ts` — own class-to-action decisions, retry budgets, jitter calculation,
-  `Retry-After` bounds, cancellation-aware delay, correction limits, status output, and operational metrics.
+- `src/shared/workflow/validation-recovery.ts` — extend the current public recovery result with class-to-action
+  decisions, retry budgets, jitter calculation, `Retry-After` bounds, cancellation-aware delay, correction limits, and
+  operational metrics.
 - `src/shared/workflow/validation-ports.ts` and `validation-types.ts` — replace optional error strings and ambiguous CI
   results with discriminated typed outcomes; keep operational attempt counts separate from repair rounds.
 - `src/shared/workflow/validation-session-adapter.ts` — normalize Pi and Claude execution failures at the session
@@ -266,13 +279,15 @@ the canonical Plan and execution context before it continues.
   same-session corrections. Keep one semantic round for one completed verdict.
 - `src/shared/workflow/validation-engine.ts` — classify invalid or missing canonical validation state and return a
   phase-preserving pause or fatal halt without retry loops.
+- `src/shared/workflow/validation-supervisor.ts` — preserve self-healing and durable Validation Checkpoint ownership,
+  settle classified pauses and halts, and keep its outer catch as a fail-closed fallback rather than the main policy.
 - `src/shared/workflow/validation-publication.ts` and `validation-merge-repair.ts` — normalize publication failures and
   limit Agent repair to proven content conflicts. Replace touched loose error parameters and property casts with named
   typed publication errors.
-- `src/shared/workflow/validation-emit.ts` — display bounded operational retry, pause, and halt information without
-  presenting an operational failure as a failed validation check.
-- Focused tests — prove every recovery class, counter separation, cancellation, retry exhaustion, same-session
-  correction, missing-state behavior, lifecycle preservation, and publication routing.
+- `src/shared/workflow/validation-emit.ts` and `validation-user-messages.ts` — display bounded operational retry, pause,
+  and halt information without presenting an operational failure as a failed validation check.
+- Focused and self-healing integration tests — prove every recovery class, counter separation, cancellation, retry
+  exhaustion, same-session correction, missing-state behavior, lifecycle preservation, and publication routing.
 - `docs/settings.md` — clarify that the existing retry settings also bound validation operational retries and do not
   count as implementation repair rounds.
 - `docs/plan-lifecycle.md` — document that operational recovery does not advance or reset Plan Lifecycle status.
@@ -285,33 +300,51 @@ the canonical Plan and execution context before it continues.
 - `ValidationSessionPort.emitStatus`, progress records, and validation metrics — report retries and terminal actions
   without importing Session internals into the validation engine.
 - The current same-session Reviewer manager — use it for correctable protocol feedback.
-- Existing Plan/worktree recovery and publication proof — restore RunWield-owned state mechanically and detect a
-  publication that completed before bookkeeping failed.
-- Existing cancellation controllers — cancel waits and active operations through the same Session cancellation path.
+- Existing Plan/worktree recovery, `continueWorkflowValidation`, Validation Checkpoints, and publication proof — repair
+  provable RunWield-owned state before classification, preserve one validation owner, and detect publication that
+  completed before bookkeeping failed.
+- Existing `ValidationRecoveryResult`, `retryValidationLater`, plain validation message builders, and cancellation
+  controllers — preserve caller compatibility and stop waits and active operations through the same Session cancellation
+  path.
 
 ## Implementation Steps
 
-- [ ] Add failing table tests for all four error classes. Cover typed provider codes, HTTP status, bounded
-      `Retry-After`, Reviewer protocol errors, missing Plan/worktree state, Git conflict/race/dirt, authentication,
-      permission, policy, and unknown legacy text. Unknown untyped errors must fail closed without automatic retry.
-- [ ] Add the named operational-error types and classifier. Keep string normalization at legacy adapters and keep
-      persisted/displayed messages bounded and free of credentials.
-- [ ] Change Local CI and isolated Agent port contracts to discriminated outcomes. Update all production composition and
-      fixtures without an optional compatibility path.
-- [ ] Add the recovery decision module. Prove exponential growth, full-jitter bounds, delay cap, valid `Retry-After`
-      precedence, cancellation, maximum attempts, and no use of repair counters.
-- [ ] Route Semantic Reviewer execution through the policy. Convert no `review_complete`, unread diff, and unaccounted
-      findings into structured correctable results that remain in the same Reviewer session.
-- [ ] Route Local CI operational failures through the policy before `getCiFailureReason`, attempt increments, Plan
-      lifecycle events, or Engineer dispatch.
-- [ ] Type publication failures and route compare-and-swap races, content conflicts, dirty checkout, missing recovery
-      state, access failures, and post-publication bookkeeping failures to their distinct actions.
-- [ ] Classify canonical Plan and execution-context failures. Use deterministic RunWield recovery where proof exists;
-      otherwise pause or halt once with a concrete action.
-- [ ] Emit separate operational retry and recovery metrics. Confirm that progress UI does not mark CI, semantic review,
-      human review, or merge as failed before a real verdict exists.
-- [ ] Update settings and lifecycle documentation with the new meanings and counter separation.
-- [ ] Run focused tests, `deno task seams:check`, `deno task check`, and `deno task ci`.
+- [ ] `validation-operational-errors.ts` exports named source failures, stable codes, the four recovery classes, and one
+      exhaustive classifier. Its table tests cover typed provider status, bounded `Retry-After`, Reviewer protocol
+      errors, missing Plan/worktree state, Git conflict/race/dirt, authentication, permission, policy, and unknown
+      legacy text; unknown untyped failures do not retry automatically.
+- [ ] Local CI and isolated Agent ports return discriminated completed, canceled, and operational-failure outcomes. All
+      production composition and fixtures use the new contract, with no optional compatibility path and no flattened
+      `executionError` or synthetic exit-code fallback.
+- [ ] The existing `validation-recovery.ts` maps each class to one typed `ValidationRecoveryResult`, calculates capped
+      exponential full jitter, honors only valid bounded `Retry-After`, stops waits on cancellation, enforces separate
+      retry and protocol-correction budgets, and never reads or changes implementation-repair counters.
+- [ ] Semantic Reviewer provider failures use transient recovery, while missing `review_complete`, unread diffs, and
+      unaccounted findings produce structured same-session corrections. Only one completed verdict consumes one semantic
+      round, and existing Review Issue Ledger coverage remains.
+- [ ] A Local CI command that runs and exits nonzero remains a mechanical verdict. Missing commands, process-start or
+      supervision failures, and cancellation enter operational recovery before failure reasons, repair counters, Plan
+      Events, or Engineer dispatch; a started command timeout remains a mechanical verdict.
+- [ ] Publication distinguishes target-reference races, proven content conflicts, primary-checkout dirt, missing
+      recovery state, access or policy failures, and post-publication bookkeeping failures. Only a proven content
+      conflict reaches `dispatchMergeRepair`, and prior-success proof prevents a duplicate target-ref update.
+- [ ] The validation engine and supervisor classify canonical Plan and execution-context failures after deterministic
+      self-healing runs. They settle phase-preserving pauses or fatal halts through the current Validation Checkpoint
+      and preserve the outer catch only as a bounded fail-closed fallback.
+- [ ] Validation status output and metrics name the operation, bounded code, recovery class, attempt, action, and delay
+      without secrets or raw provider bodies. Operational stops do not mark CI, Semantic Code Review, Local Human Code
+      Review, or publication as an implementation failure.
+- [ ] `docs/settings.md` states that existing retry settings bound Workflow Validation operational retries, and
+      `docs/plan-lifecycle.md` states that these retries, pauses, and halts do not advance or reset Plan Status or spend
+      implementation-repair counters.
+- [ ] Focused tests, the self-healing integration suite, zero-seam check, type check, and full CI all pass while
+      preserving existing CI repair, Objective-Failing Check repair, semantic convergence, durable checkpoint resume,
+      human review, and publication recovery behavior.
+
+## Approval Confirmation
+
+This Plan does not supersede a prior Work Record. The completed validation-engine, authority, and self-healing records
+remain valid foundations that this change extends.
 
 ## Verification Plan
 
@@ -326,6 +359,8 @@ the canonical Plan and execution context before it continues.
   - `deno task seams:check`
   - `deno task check`
   - `deno task ci`
+- Manual: not required; the focused tests exercise the composed supervisor, real Plan and Git fixtures, and typed
+  external boundaries.
 - Required behavior:
   - A transient Reviewer timeout retries with a bounded jittered delay and does not increment the semantic round.
   - Invalid Reviewer output receives structured feedback in the same session and does not sleep.

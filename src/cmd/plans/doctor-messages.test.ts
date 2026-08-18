@@ -6,6 +6,7 @@ Deno.test("doctor messages stay plain", () => {
         doctorCleanMessage(0),
         doctorCleanMessage(3),
         doctorNeedsHelpMessage(2, 1),
+        doctorNeedsHelpMessage(0, 13),
         doctorCheckMessage(0),
         doctorCheckMessage(4),
     ];

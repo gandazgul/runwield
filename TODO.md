@@ -18,7 +18,7 @@ I would order the overlapping group like this:
 
    1. finish-agent-prompt-architecture-cleanup
 
-2. resume-validation-after-repair-completion.md Small ready bug fix. Stabilizes validation repair.
+2. resume-validation-after-repair-completion.md Small ready bug fix. Stabilizes validation repair. - done
 
 3. split-quick-fix-engineer-from-plan-engineer.md This should absorb/supersede generalize-pair-execution-to-engineer.md.
 

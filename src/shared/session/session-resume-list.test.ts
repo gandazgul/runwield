@@ -4,6 +4,7 @@ import { getHomeDir } from "../../constants.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { openFileSessionStore } from "./file-session-store.ts";
 import { getRunWieldSessionDir } from "./root-session.js";
+import { captureTranscriptEvidence } from "./session-transcript-projection.js";
 import { listRecentResumableSessions, RECENT_SESSION_LIMIT } from "./session-resume-list.ts";
 
 function transcriptText(id: string, cwd: string, timestamp: string, index: number): string {
@@ -110,6 +111,73 @@ Deno.test("resume listing hides a conversation while another TUI holds its lock"
         } finally {
             listingStore.close();
             holderStore.close();
+            Deno.env.set("HOME", previousHome);
+            await Deno.remove(home, { recursive: true });
+        }
+    });
+});
+
+Deno.test("resume listing shows the top-level session but not semantic repair segments", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = getHomeDir();
+        const home = await Deno.makeTempDir({ prefix: "runwield-repair-session-list-" });
+        Deno.env.set("HOME", home);
+        const cwd = join(home, "project");
+        await Deno.mkdir(cwd, { recursive: true });
+        const store = openFileSessionStore();
+        try {
+            const project = store.ensureRuntimeProject({ root: cwd });
+            const sessionDir = getRunWieldSessionDir(cwd);
+            await Deno.mkdir(sessionDir, { recursive: true });
+            const parentTimestamp = "2026-08-16T17:00:00.000Z";
+            const parentId = "pi-top-level";
+            const parentPath = join(
+                sessionDir,
+                `${parentTimestamp.replace(/[:.]/g, "-")}_${parentId}.jsonl`,
+            );
+            await Deno.writeTextFile(parentPath, transcriptText(parentId, cwd, parentTimestamp, 1));
+            const session = await store.ensureSessionCatalogRecord({
+                projectId: project.projectId,
+                piSessionId: parentId,
+                transcriptPath: parentPath,
+                transcriptCwd: cwd,
+                source: "created",
+            });
+            const parentSegment = store.getCurrentSessionSegment(session.runwieldSessionId);
+            if (!parentSegment) throw new Error("Top-level Session segment is unavailable");
+            const parentEvidence = await captureTranscriptEvidence({
+                transcriptPath: parentPath,
+                transcriptCwd: cwd,
+            });
+            store.sealSessionTranscriptSegment({
+                runwieldSessionId: session.runwieldSessionId,
+                segmentId: parentSegment.segmentId,
+                evidence: parentEvidence,
+            });
+
+            const repairTimestamp = "2026-08-16T18:00:00.000Z";
+            const repairId = "pi-semantic-repair";
+            const repairPath = join(
+                sessionDir,
+                `${repairTimestamp.replace(/[:.]/g, "-")}_${repairId}.jsonl`,
+            );
+            await Deno.writeTextFile(repairPath, transcriptText(repairId, cwd, repairTimestamp, 2));
+            await store.appendSessionTranscriptSegment({
+                runwieldSessionId: session.runwieldSessionId,
+                projectId: project.projectId,
+                piSessionId: repairId,
+                transcriptPath: repairPath,
+                transcriptCwd: cwd,
+                kind: "semantic_repair",
+                lineageParentSegmentId: parentSegment.segmentId,
+                lineageParentPiSessionId: parentId,
+            });
+
+            const listed = await listRecentResumableSessions(cwd, store);
+
+            assertEquals(listed.map((entry) => entry.id), [parentId]);
+        } finally {
+            store.close();
             Deno.env.set("HOME", previousHome);
             await Deno.remove(home, { recursive: true });
         }
