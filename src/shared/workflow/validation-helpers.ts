@@ -418,7 +418,7 @@ async function runCompletionGatedRepair({
     const previousRootMessages = getRootMessages(hostedSession, agentName).slice();
     const fromIndex = previousRootMessages.length;
     const workflow = hostedSession.getActiveExecutionWorkflow?.();
-    const customTools = workflow?.executionAgent === AGENTS.FRONTEND_ENGINEER && workflow.collaborationStyle === "pair"
+    const customTools = workflow?.collaborationStyle === "pair"
         ? [createPairCheckpointTool({ hostedSession })]
         : undefined;
     const messages = await runActiveAgentTurn({

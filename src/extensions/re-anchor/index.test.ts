@@ -117,13 +117,13 @@ function hostedSession(
 }
 
 Deno.test("no compaction means no injection", () => {
-    const harness = setup({ agentName: "engineer", hostedSession: hostedSession({ planName: "some-plan" }) });
+    const harness = setup({ agentName: "plan-engineer", hostedSession: hostedSession({ planName: "some-plan" }) });
 
     assertEquals(harness.injected(), "");
 });
 
 Deno.test("a settled compaction injects the Plan body without Front Matter", () => {
-    const harness = setup({ agentName: "engineer", hostedSession: hostedSession({ planName: "some-plan" }) });
+    const harness = setup({ agentName: "plan-engineer", hostedSession: hostedSession({ planName: "some-plan" }) });
     harness.compact({ reason: "threshold" });
 
     const text = harness.injected();
@@ -135,7 +135,7 @@ Deno.test("a settled compaction injects the Plan body without Front Matter", () 
 });
 
 Deno.test("the injected message is appended without disturbing existing history", () => {
-    const harness = setup({ agentName: "engineer", hostedSession: hostedSession({ planName: "some-plan" }) });
+    const harness = setup({ agentName: "plan-engineer", hostedSession: hostedSession({ planName: "some-plan" }) });
     const messages = [baseMessage(), { role: "assistant", content: "working", timestamp: 2 }];
     harness.compact();
 
@@ -146,7 +146,7 @@ Deno.test("the injected message is appended without disturbing existing history"
 });
 
 Deno.test("one compaction boundary re-anchors exactly once", () => {
-    const harness = setup({ agentName: "engineer", hostedSession: hostedSession({ planName: "some-plan" }) });
+    const harness = setup({ agentName: "plan-engineer", hostedSession: hostedSession({ planName: "some-plan" }) });
     harness.compact();
 
     assert(harness.injected() !== "", "the first request after compaction must carry the re-anchor");
@@ -154,7 +154,7 @@ Deno.test("one compaction boundary re-anchors exactly once", () => {
 });
 
 Deno.test("an overflow-retried compaction does not arm the re-anchor", () => {
-    const harness = setup({ agentName: "engineer", hostedSession: hostedSession({ planName: "some-plan" }) });
+    const harness = setup({ agentName: "plan-engineer", hostedSession: hostedSession({ planName: "some-plan" }) });
 
     // Overflow recovery compacts, then retries the aborted turn. Only the
     // settled boundary should produce a re-anchor, or one overflow injects twice.
@@ -167,7 +167,7 @@ Deno.test("an overflow-retried compaction does not arm the re-anchor", () => {
 
 Deno.test("the active execution Plan wins over the planning workflow context", () => {
     const harness = setup({
-        agentName: "engineer",
+        agentName: "plan-engineer",
         hostedSession: hostedSession({ planName: "executing-plan" }, "stale-planning-plan"),
     });
     harness.compact();
@@ -254,14 +254,14 @@ Deno.test("agents without a durable Plan artifact are not re-anchored", () => {
 });
 
 Deno.test("no resolvable Plan name means no injection", () => {
-    const harness = setup({ agentName: "engineer", hostedSession: hostedSession(null, null) });
+    const harness = setup({ agentName: "plan-engineer", hostedSession: hostedSession(null, null) });
     harness.compact();
 
     assertEquals(harness.injected(), "");
 });
 
 Deno.test("a missing hostedSession leaves the request untouched", () => {
-    const harness = setup({ agentName: "engineer", hostedSession: null });
+    const harness = setup({ agentName: "plan-engineer", hostedSession: null });
     harness.compact();
 
     assertEquals(harness.injected(), "");
@@ -275,7 +275,7 @@ Deno.test("a throwing workflow lookup leaves the turn unmodified", () => {
     throwingSession.getActiveExecutionWorkflow = () => {
         throw new Error("session disposed mid-turn");
     };
-    const harness = setup({ agentName: "engineer", hostedSession: throwingSession });
+    const harness = setup({ agentName: "plan-engineer", hostedSession: throwingSession });
     harness.compact();
 
     const messages = [baseMessage()];

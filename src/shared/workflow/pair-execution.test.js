@@ -1,8 +1,10 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import { parsePlanFrontMatter, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { decidePostExecution } from "./decisions.js";
 import { resolveExecutionOwner, supportsPairExecution } from "./workflow.js";
+import { selectRuntimeCollaborationStyle } from "./execution-collaboration.ts";
+import { buildPairPausedMessage } from "./engineer-runner.ts";
 
 Deno.test("Plan metadata normalizes explicit pair execution ownership", () => {
     const parsed = parsePlanFrontMatter(`---
@@ -145,4 +147,54 @@ Deno.test("deliberate Pair resume preserves execution attempt timestamp", () => 
     assertEquals(session.getActiveExecutionWorkflow()?.executionAttemptStartedAtMs, 12345);
     assertEquals(session.getActiveExecutionWorkflow()?.pairPauseReason, undefined);
     assertEquals(session.getActiveExecutionWorkflow()?.pairCheckpointCount, 1);
+});
+
+Deno.test("an engineer-owned Plan can select Pair, and an incapable host falls back without owner-specific copy", () => {
+    /** @type {string[]} */
+    const statusMessages = [];
+    const capable = new HostedSession({
+        id: "pair-engineer-capable",
+        cwd: Deno.cwd(),
+        interactionAdapter: {
+            supportsInteraction: (/** @type {string} */ type) => type === "pair_checkpoint",
+            requestInteraction: () => ({ outcome: "selected", value: "continue" }),
+        },
+    });
+    const incapable = new HostedSession({ id: "pair-engineer-incapable", cwd: Deno.cwd() });
+    incapable.setEventSink({
+        emit: (/** @type {{ text?: string, message?: string }} */ event) =>
+            statusMessages.push(event.text || event.message || ""),
+    });
+    const policy = /** @type {const} */ ({
+        executionAgent: "engineer",
+        collaborationRecommendation: "pair",
+        source: "canonical",
+    });
+
+    const selected = selectRuntimeCollaborationStyle(capable, policy);
+    const fellBack = selectRuntimeCollaborationStyle(incapable, policy);
+
+    assertEquals(selected.style, "pair");
+    assertEquals(fellBack.style, "autonomous");
+    // The stored recommendation survives the fallback; only this run is autonomous.
+    assertEquals(fellBack.recommendation, "pair");
+    assertEquals(fellBack.resolutionReason, "canonical_pair_unavailable");
+    assertEquals(statusMessages.join("\n").includes("Frontend Engineer"), false);
+    assertStringIncludes(statusMessages.join("\n"), "continuing with autonomous Plan execution");
+});
+
+Deno.test("Pair pause copy names the runtime Agent behind each Plan owner", () => {
+    assertStringIncludes(
+        buildPairPausedMessage("stop", Deno.cwd(), "engineer"),
+        "Plan Engineer stopped Pair Execution",
+    );
+    assertStringIncludes(
+        buildPairPausedMessage("stop", Deno.cwd(), "frontend-engineer"),
+        "Frontend Engineer stopped Pair Execution",
+    );
+    // A pre-split caller can still pass the runtime name straight through.
+    assertStringIncludes(
+        buildPairPausedMessage("canceled", Deno.cwd(), "plan-engineer"),
+        "Plan Engineer paused because the Pair checkpoint interaction was canceled",
+    );
 });

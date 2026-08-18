@@ -73,7 +73,7 @@ export function selectRuntimeCollaborationStyle(hostedSession, policy) {
     if (!pairCapable) {
         emitSystemStatus(
             hostedSession,
-            "Pair Execution is recommended by the Plan but unavailable in this host; continuing with autonomous Frontend Engineer execution.",
+            "Pair Execution is recommended by the Plan but unavailable in this host; continuing with autonomous Plan execution.",
             { header: "RunWield" },
         );
         return {

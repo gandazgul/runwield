@@ -129,7 +129,8 @@ Deno.test("Engineer completion is derived from the real task_completed tool resu
             assertEquals(result.completed, true);
             assert("completionReport" in result);
             assertEquals(result.completionReport, "- Implemented.\n- Verified.");
-            assertEquals(fixture.hostedSession.getRootAgentName(), "engineer");
+            // The Plan says `engineer`; the Agent that ran it is Plan Engineer.
+            assertEquals(fixture.hostedSession.getRootAgentName(), "plan-engineer");
         } finally {
             fixture.hostedSession.dispose();
         }

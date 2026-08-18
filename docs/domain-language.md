@@ -407,11 +407,17 @@ recall, plan search, Engineer context tool
 **Project Knowledge Search**: Deliberate Agent retrieval over durable artifacts within the active Project. _Avoid_:
 Session Transcript search, automatic context injection, code search
 
-**Engineer**: The execution Agent that implements approved executable Plans and bounded no-plan QUICK_FIX code changes.
-_Avoid_: Coder, implementer, developer
+**Engineer**: The selectable full-stack Agent for bounded no-plan QUICK_FIX code changes. Engineer can work in any layer
+by loading the relevant Skills, including browser UI Skills, but does not execute approved Plans. _Avoid_: Plan
+Engineer, Coder, implementer, developer
 
-**Frontend Engineer**: The execution Agent for materially visual or interactive frontend implementation, with its own
-browser-first and design-system-aware work policy. _Avoid_: Frontend mode, UI Engineer, Engineer with frontend Skill
+**Plan Engineer**: The workflow-only execution Agent for approved PLANNED_CHANGE Plans whose dominant concern is not
+browser-rendered UI. Plan Engineer is activated by Plan execution and stays through implementation, validation repairs,
+and recovery. _Avoid_: Engineer, hidden subagent, Quick Fix Engineer
+
+**Frontend Engineer**: The workflow-only execution Agent for approved Plans whose dominant concern is browser-rendered
+UI and client-side behavior, with browser-first and design-system-aware work policy. It is not a QUICK_FIX Agent.
+_Avoid_: Frontend mode, UI Engineer, Engineer with frontend Skill
 
 **Tester**: The fresh-context verification Agent for behavioral QA, UI QA, PRD conformance testing, and adversarial
 bug-finding. _Avoid_: Unit test writer, test framework specialist
@@ -517,8 +523,9 @@ Matter as `objectiveChecks`, mechanically verifies the red state before executio
 Validation's Mechanical Validation phase to verify the green state. _Avoid_: Manual check, verification note,
 lint/type-check only
 
-**Pair Execution**: A user-steered frontend execution style where the Frontend Engineer delivers coherent visible
-increments and blocks at intentional feedback checkpoints. _Avoid_: Live pair-design, frontend mode, Manual QA
+**Pair Execution**: A user-steered Plan execution style where Plan Engineer or Frontend Engineer delivers coherent
+observable increments and blocks at intentional feedback checkpoints. It is a collaboration style, not validation
+evidence. _Avoid_: Live pair-design, frontend mode, Manual QA
 
 **Toolset**: A named bundle of tool names granted to an Agent Session. _Avoid_: Tool list, capabilities
 
@@ -656,8 +663,8 @@ continuation, database interaction record
   produces none.
 - **Diagnostic Triage** remains read-only and produces a normal **Routing Intent**.
 - An **OPERATION** belongs to the **Operator** and creates no **Plan**.
-- A **PLANNED_CHANGE** is planned by the **Planner**, reviewed through a **Review Loop**, and executed by the
-  **Engineer** after approval.
+- A **PLANNED_CHANGE** is planned by the **Planner**, reviewed through a **Review Loop**, and executed after approval by
+  **Plan Engineer** or **Frontend Engineer**.
 - A **PROJECT** produces one **Epic**, which the **Slicer** decomposes into zero or more **Child PLANNED_CHANGE Plans**.
 - **Work Kind** describes the nature of planned work independently from **Routing Intent** and **Plan Classification**.
 - A **Plan** has exactly one **Plan Status**, one **Origin**, and one **Front Matter** block.
@@ -712,7 +719,8 @@ continuation, database interaction record
   execution Session Transcript Segment; **Approve for Later** creates no execution segment.
 - The execution segment receives the approved Plan, approval annotations, and execution state without inheriting
   planning messages.
-- The Engineer remains the execution owner through Workflow Validation, repairs, recovery, and successful validation.
+- The Plan execution Agent remains the runtime owner through Workflow Validation, repairs, recovery, and successful
+  validation. The durable Plan owner remains `engineer` or `frontend-engineer`.
 - **Project Knowledge Search** retrieves durable artifacts within one Project.
 - The **RunWield Design System** governs **Workspace**, **Plan Board**, and **Plannotator** browser surfaces.
 - Every **Agent Session** loads exactly one merged **Agent Definition**.
@@ -723,8 +731,8 @@ continuation, database interaction record
 - An execution Agent Session emits **Task Completion** before validation can begin.
 - **OPERATION** work ends after Operator self-verification; **QUICK_FIX** work receives **Mechanical Validation**;
   executable Plan work receives Workflow Validation.
-- The **Frontend Engineer** owns materially visual or interactive frontend implementation; **Pair Execution** is an
-  optional execution style, not a validation substitute.
+- **Engineer** owns QUICK_FIX work. **Plan Engineer** and **Frontend Engineer** own approved Plan execution. **Pair
+  Execution** is an optional Plan execution style, not a validation substitute.
 - **Scope Escalation** states a concrete limit and offers user-owned transition options; it never changes control by
   itself.
 - The **See-Image Tool** uses **Vision Fallback** only for a text-only active model.

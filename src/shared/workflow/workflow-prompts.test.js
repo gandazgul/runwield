@@ -169,8 +169,8 @@ Deno.test("buildReAnchorMessage names the Epic for Architect", () => {
     assertStringIncludes(String(message), "Vertical Slice Findings");
 });
 
-Deno.test("buildReAnchorMessage gives both execution agents only the parsed Plan body", () => {
-    for (const agentName of ["engineer", "frontend-engineer"]) {
+Deno.test("buildReAnchorMessage gives both Plan executors only the parsed Plan body", () => {
+    for (const agentName of ["plan-engineer", "frontend-engineer"]) {
         const message = String(buildReAnchorMessage({
             agentName,
             planName: "some-plan",
@@ -183,6 +183,19 @@ Deno.test("buildReAnchorMessage gives both execution agents only the parsed Plan
         assertEquals(message.includes("SECRET"), false);
         assertEquals(message.includes("docs/plans/some-plan.md"), false);
     }
+});
+
+Deno.test("buildReAnchorMessage re-anchors no Plan for the Quick Fix Engineer", () => {
+    // Engineer executes no Plan, so a Plan body is not the artifact its
+    // discarded context was about.
+    assertEquals(
+        buildReAnchorMessage({
+            agentName: "engineer",
+            planName: "some-plan",
+            planBody: "---\nsummary: SECRET\n---\n# Body\n\nVerification Plan",
+        }),
+        null,
+    );
 });
 
 Deno.test("buildReAnchorMessage carries open review issues for a repair turn", () => {

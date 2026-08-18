@@ -48,7 +48,7 @@ Deno.test("task_completed records accepted completion on hosted session only aft
     });
     const tool = createTaskCompletedTool({
         hostedSession,
-        agentName: "Engineer",
+        agentName: "Plan Engineer",
         now: () => 1234,
     });
 
@@ -57,7 +57,7 @@ Deno.test("task_completed records accepted completion on hosted session only aft
 
     assertEquals(result.details, { outcome: "task_completed", message: "- Done." });
     assertEquals(completion, {
-        agentName: "engineer",
+        agentName: "plan-engineer",
         report: "- Done.",
         timestampMs: 1234,
         owningSession: null,
@@ -144,7 +144,7 @@ Deno.test("task_completed accepts execution-agent broken Objective Check reports
         triageMeta: { classification: "PLANNED_CHANGE" },
         executionAgent: "engineer",
     });
-    const tool = createTaskCompletedTool({ hostedSession, agentName: "Engineer" });
+    const tool = createTaskCompletedTool({ hostedSession, agentName: "Plan Engineer" });
 
     const result = await /** @type {any} */ (tool.execute)("call", {
         message: "- Done, but one check is broken.",
@@ -321,4 +321,49 @@ Deno.test("task_completed accepts the Reviewer-Feedback Engineer completing on t
         "engineer",
         "the execution owner is unchanged by a repair completion",
     );
+});
+
+Deno.test("an engineer-owned Plan is completed by Plan Engineer, not by the Quick Fix Engineer", async () => {
+    // The workflow records `engineer` for both a Plan and a QUICK_FIX, so the
+    // owner check has to resolve the runtime Agent rather than compare strings.
+    const hostedSession = new HostedSession({ id: "task-completed-plan-owner", cwd: TASK_PROJECT_ROOT });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "backend-plan",
+        triageMeta: { classification: "PLANNED_CHANGE" },
+        executionAgent: "engineer",
+    });
+
+    const quickFixEngineer = createTaskCompletedTool({ hostedSession, agentName: "engineer" });
+    const rejected = await /** @type {any} */ (quickFixEngineer.execute)("call", { message: "- Done." });
+
+    assertEquals(rejected.details, { outcome: "rejected", reason: "wrong_execution_owner" });
+    assertStringIncludes(rejected.content[0].text, "active workflow owner is plan-engineer");
+    assertEquals(hostedSession.consumePendingTaskCompletion(null), null);
+
+    const planEngineer = createTaskCompletedTool({ hostedSession, agentName: "plan-engineer" });
+    const accepted = await /** @type {any} */ (planEngineer.execute)("call", { message: "- Done." });
+
+    assertEquals(accepted.details, { outcome: "task_completed", message: "- Done." });
+    assertEquals(hostedSession.consumePendingTaskCompletion(null)?.agentName, "plan-engineer");
+});
+
+Deno.test("a QUICK_FIX is completed by the Quick Fix Engineer, not by Plan Engineer", async () => {
+    const hostedSession = new HostedSession({ id: "task-completed-quick-fix-owner", cwd: TASK_PROJECT_ROOT });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "quick-fix",
+        triageMeta: { classification: "QUICK_FIX" },
+        executionAgent: "engineer",
+    });
+
+    const planEngineer = createTaskCompletedTool({ hostedSession, agentName: "plan-engineer" });
+    const rejected = await /** @type {any} */ (planEngineer.execute)("call", { message: "- Done." });
+
+    assertEquals(rejected.details, { outcome: "rejected", reason: "wrong_execution_owner" });
+    assertEquals(hostedSession.consumePendingTaskCompletion(null), null);
+
+    const engineer = createTaskCompletedTool({ hostedSession, agentName: "engineer" });
+    const accepted = await /** @type {any} */ (engineer.execute)("call", { message: "- Done." });
+
+    assertEquals(accepted.details, { outcome: "task_completed", message: "- Done." });
+    assertEquals(hostedSession.consumePendingTaskCompletion(null)?.agentName, "engineer");
 });

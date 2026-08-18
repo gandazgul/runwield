@@ -37,6 +37,7 @@ import {
 } from "./task-completion-session.ts";
 import { getStoredPlanPath } from "../../plan-store.js";
 import { AGENTS } from "../../constants.js";
+import { resolvePlanExecutionRuntimeAgent } from "../workflow/execution-agent.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
@@ -78,7 +79,8 @@ export type AgentHandler = (
  * @returns {boolean}
  */
 function canCompleteActiveExecutionWorkflow(agentName: string, workflow: ActiveExecutionWorkflow): boolean {
-    return agentName === workflow.executionAgent;
+    if (workflow.triageMeta?.classification === "QUICK_FIX") return agentName === AGENTS.ENGINEER;
+    return agentName === resolvePlanExecutionRuntimeAgent(workflow.executionAgent);
 }
 
 /**
@@ -321,8 +323,9 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 });
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);
-                const executionOwner = hostedSession.getActiveExecutionWorkflow()?.executionAgent ||
-                    resolveExecutionOwner(triageMeta);
+                const executionOwner = resolvePlanExecutionRuntimeAgent(
+                    hostedSession.getActiveExecutionWorkflow()?.executionAgent || resolveExecutionOwner(triageMeta),
+                );
                 emitSystemStatus(
                     hostedSession,
                     `Plan execution failed: ${reason}. ${
@@ -344,10 +347,9 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
 
             const activeWorkflowAfterExecution = hostedSession.getActiveExecutionWorkflow();
             const executionCanceledBeforeStart = executionResult?.canceled && !activeWorkflowAfterExecution;
-            const executionOwner = executionCanceledBeforeStart
-                ? agentName
-                : activeWorkflowAfterExecution?.executionAgent ||
-                    resolveExecutionOwner(triageMeta);
+            const executionOwner = executionCanceledBeforeStart ? agentName : resolvePlanExecutionRuntimeAgent(
+                activeWorkflowAfterExecution?.executionAgent || resolveExecutionOwner(triageMeta),
+            );
             const executionDecision = decidePostExecution(executionResult, {
                 planName,
                 triageMeta,

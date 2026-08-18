@@ -22,7 +22,11 @@ import { getPlanSaveSettings } from "@plannotator/ui/utils/planSave.ts";
 import { exportAnnotations, extractFrontmatter, parseMarkdownToBlocks } from "@plannotator/ui/utils/parser.ts";
 import { getUIPreferences, PLAN_WIDTH_OPTIONS } from "@plannotator/ui/utils/uiPreferences.ts";
 import { PlanReviewSettings } from "./PlanReviewSettings.tsx";
-import { readPlanReviewExecutionPolicy } from "./plan-review-policy.ts";
+import {
+    buildPlanReviewExecutionPolicyPayload,
+    readPlanReviewExecutionPolicy,
+    updatePlanReviewExecutionPolicy,
+} from "./plan-review-policy.ts";
 import {
     PLAN_APPROVAL_ACTIONS,
     primaryPlanApprovalActionForClassification,
@@ -72,10 +76,9 @@ export function PlanReviewSurface({ payload }) {
     const planClassification = trustedPolicy.classification;
     const showExecutionPolicyControls = trustedPolicy.canSelectExecutionPolicy;
     const primaryApprovalAction = primaryPlanApprovalActionForClassification(planClassification);
-    const [executionAgent, setExecutionAgent] = useState(trustedPolicy.executionAgent);
-    const [collaborationRecommendation, setCollaborationRecommendation] = useState(
-        trustedPolicy.collaborationRecommendation,
-    );
+    const [executionPolicy, setExecutionPolicy] = useState(trustedPolicy);
+    const executionAgent = executionPolicy.executionAgent;
+    const collaborationRecommendation = executionPolicy.collaborationRecommendation;
 
     async function submitApprove(approvalAction) {
         setSubmitting("approve");
@@ -166,10 +169,7 @@ export function PlanReviewSurface({ payload }) {
 
     function buildApprovalPolicyPayload() {
         if (!showExecutionPolicyControls) return {};
-        return {
-            executionAgent,
-            collaborationRecommendation,
-        };
+        return buildPlanReviewExecutionPolicyPayload(executionPolicy);
     }
 
     function buildPlanSavePayload() {
@@ -214,8 +214,20 @@ export function PlanReviewSurface({ payload }) {
                                 <ExecutionPolicyControls
                                     executionAgent={executionAgent}
                                     collaborationRecommendation={collaborationRecommendation}
-                                    onAgentChange={setExecutionAgent}
-                                    onRecommendationChange={setCollaborationRecommendation}
+                                    onAgentChange={(value) =>
+                                        setExecutionPolicy((current) =>
+                                            updatePlanReviewExecutionPolicy(current, {
+                                                field: "executionAgent",
+                                                value,
+                                            })
+                                        )}
+                                    onRecommendationChange={(value) =>
+                                        setExecutionPolicy((current) =>
+                                            updatePlanReviewExecutionPolicy(current, {
+                                                field: "collaborationRecommendation",
+                                                value,
+                                            })
+                                        )}
                                     disabled={submitting !== null}
                                 />
                             )}

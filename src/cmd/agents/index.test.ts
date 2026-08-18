@@ -12,6 +12,8 @@ import type { InteractiveSessionPort } from "../../ui/tui/interactive-session-po
 
 const decoder = new TextDecoder();
 const FIXTURE_AGENT = "fixture-agent";
+/** A real selectable Agent, used to close a chooser that must not list the hidden ones. */
+const FIXTURE_AGENT_FALLBACK = "guide";
 const UNEXPECTED_SESSION_PORT: InteractiveSessionPort = {
     startInteractiveSession: () => Promise.reject(new Error("Unexpected interactive session in agent command test")),
 };
@@ -190,6 +192,101 @@ Deno.test("agent chooser switches the real Runtime session to a fixture definiti
 
             assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, FIXTURE_AGENT);
             assertEquals(harness.editor.focused, true);
+        } finally {
+            harness.tui.stop();
+            runtime.closeSession(sessionId);
+        }
+    });
+});
+
+Deno.test("the agent CLI listing hides workflow-only Plan executors", async () => {
+    await withRuntimeCommandFixture("agent-list-workflow-only-", async ({ projectRoot }) => {
+        Deno.chdir(projectRoot);
+        const listing = (await captureLogs(() => runAgentsCommand([], { sessionPort: UNEXPECTED_SESSION_PORT })))
+            .join("\n");
+
+        assertStringIncludes(listing, "engineer");
+        assertEquals(listing.includes("plan-engineer"), false);
+        assertEquals(listing.includes("frontend-engineer"), false);
+    });
+});
+
+Deno.test("naming a workflow-only Agent explains what activates it instead of switching", async () => {
+    await withRuntimeCommandFixture("agent-workflow-only-cli-", async ({ projectRoot }) => {
+        Deno.chdir(projectRoot);
+        for (const agentName of ["plan-engineer", "frontend-engineer"]) {
+            const logs = (await captureLogs(() =>
+                runAgentsCommand([agentName, "do", "the", "work"], { sessionPort: UNEXPECTED_SESSION_PORT })
+            )).join("\n");
+
+            // An unexpected session port would have thrown, so no switch happened.
+            assertStringIncludes(logs, "activated by RunWield when an approved Plan executes");
+            assertEquals(logs.includes("Unknown agent"), false);
+        }
+    });
+});
+
+Deno.test("naming a workflow-only Agent in the TUI leaves the active Agent unchanged", async () => {
+    await withRuntimeCommandFixture("agent-workflow-only-tui-", async ({ projectRoot }) => {
+        Deno.chdir(projectRoot);
+        const runtime = createSessionRuntime();
+        const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
+        const harness = makeTuiHarness();
+        try {
+            const systemMessages: string[] = [];
+            const uiAPI = {
+                ...harness.uiAPI,
+                appendSystemMessage: (message: string) => systemMessages.push(message),
+            };
+
+            await runAgentsCommand(["plan-engineer"], {
+                uiAPI,
+                editor: harness.editor,
+                tui: harness.tui,
+                sessionId,
+                sessionRuntime: runtime,
+                sessionPort: UNEXPECTED_SESSION_PORT,
+            });
+
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "router");
+            assertStringIncludes(systemMessages.join("\n"), "activated by RunWield when an approved Plan executes");
+            assertEquals(systemMessages.join("\n").includes("not found"), false);
+        } finally {
+            harness.tui.stop();
+            runtime.closeSession(sessionId);
+        }
+    });
+});
+
+Deno.test("the agent chooser never offers a workflow-only Agent to pick", async () => {
+    await withRuntimeCommandFixture("agent-chooser-hides-", async ({ projectRoot }) => {
+        Deno.chdir(projectRoot);
+        const runtime = createSessionRuntime();
+        const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
+        const harness = makeTuiHarness();
+        try {
+            const command = runAgentsCommand([], {
+                uiAPI: harness.uiAPI,
+                editor: harness.editor,
+                tui: harness.tui,
+                sessionId,
+                sessionRuntime: runtime,
+                sessionPort: UNEXPECTED_SESSION_PORT,
+            });
+
+            for (let attempt = 0; attempt < 100; attempt++) {
+                await harness.terminal.flush();
+                if (harness.terminal.getScreenText().includes("Switch agent:")) break;
+                await new Promise((resolve) => setTimeout(resolve, 1));
+            }
+            const chooserText = harness.terminal.getScreenText();
+            harness.terminal.typeText(FIXTURE_AGENT_FALLBACK);
+            harness.terminal.pressEnter();
+            await command;
+
+            assertEquals(chooserText.includes("plan-engineer"), false);
+            assertEquals(chooserText.includes("frontend-engineer"), false);
+            assertStringIncludes(chooserText, "engineer");
         } finally {
             harness.tui.stop();
             runtime.closeSession(sessionId);

@@ -8,6 +8,7 @@
  */
 
 import { AGENTS, CLI_BIN } from "../../constants.js";
+import { resolveActiveWorkflowRuntimeAgent } from "../../shared/workflow/execution-agent.ts";
 import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
 import {
     RuntimeInteractionOutcomes,
@@ -146,7 +147,9 @@ export async function restorePreviousAgentFlow(
 ): Promise<void> {
     resetTuiStateFn(undefined, uiAPI, undefined);
     const workflow = session.getActiveExecutionWorkflow?.() || null;
-    const executionAgent = typeof workflow?.executionAgent === "string" ? workflow.executionAgent.trim() : "";
+    // The workflow records the canonical Plan owner; the user talks to the
+    // resolved runtime Agent, so restore that one.
+    const executionAgent = resolveActiveWorkflowRuntimeAgent(workflow);
     if (executionAgent) {
         await session.switchAgent(executionAgent, {});
         return;

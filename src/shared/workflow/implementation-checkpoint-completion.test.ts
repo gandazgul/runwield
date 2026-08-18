@@ -39,7 +39,7 @@ Deno.test("implementation checkpoint acknowledges its accepted task_completed JS
     const steeringTargetId = hostedSession.pushSteeringTargetSession(root);
     const tool = createTaskCompletedTool({
         hostedSession,
-        agentName: "engineer",
+        agentName: "plan-engineer",
     });
     try {
         await tool.execute(

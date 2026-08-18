@@ -43,7 +43,7 @@ Deno.test("defective-check claim survives process resume until validation handle
     original.setActiveExecutionWorkflow(executionWorkflow("durable-plan"));
     const tool = createTaskCompletedTool({
         hostedSession: original,
-        agentName: "engineer",
+        agentName: "plan-engineer",
         now: () => 1234,
     });
 
@@ -107,7 +107,7 @@ Deno.test("accepted task completion is recovered from a reopened session JSONL",
         original.setActiveExecutionWorkflow(executionWorkflow("jsonl-plan"));
         const tool = createTaskCompletedTool({
             hostedSession: original,
-            agentName: "engineer",
+            agentName: "plan-engineer",
         });
         await tool.execute(
             "jsonl-completion",
@@ -162,7 +162,7 @@ Deno.test("isolated task completion remains outside the root JSONL outbox", asyn
     const steeringTargetId = hostedSession.pushSteeringTargetSession(isolated);
     const tool = createTaskCompletedTool({
         hostedSession,
-        agentName: "engineer",
+        agentName: "plan-engineer",
     });
     try {
         await tool.execute(
@@ -197,7 +197,7 @@ Deno.test("durable completion does not cross into a different active workflow", 
     original.setActiveExecutionWorkflow(executionWorkflow("first-plan"));
     const tool = createTaskCompletedTool({
         hostedSession: original,
-        agentName: "engineer",
+        agentName: "plan-engineer",
     });
     await tool.execute(
         "first-plan-completion",
@@ -230,7 +230,7 @@ Deno.test("acknowledging one completion consumes only that completion", async ()
     original.setActiveExecutionWorkflow(executionWorkflow("duplicate-plan"));
     const tool = createTaskCompletedTool({
         hostedSession: original,
-        agentName: "engineer",
+        agentName: "plan-engineer",
     });
     await tool.execute(
         "duplicate-first",

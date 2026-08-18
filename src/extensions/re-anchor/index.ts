@@ -33,7 +33,9 @@ interface ReAnchorResolution {
     planBody: string;
 }
 
-const EXECUTION_AGENTS = new Set(["engineer", "frontend-engineer", "reviewer-feedback-engineer"]);
+// The Agents that execute or repair against an approved Plan. The selectable
+// Engineer is absent on purpose: a QUICK_FIX has no Plan to re-anchor to.
+const EXECUTION_AGENTS = new Set(["plan-engineer", "frontend-engineer", "reviewer-feedback-engineer"]);
 
 /**
  * Resolve the artifact pointer from live session state.

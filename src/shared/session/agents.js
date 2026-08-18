@@ -39,6 +39,10 @@ export const _AGENT_ATTENTION_NUDGES = {
         "You are still the Architect. Stress-test assumptions, resolve architectural decisions, write ADRs only when justified, and leave task slicing to the Slicer.",
     [AGENTS.SLICER]:
         "You are still the Slicer. Keep the conversation scoped to this Epic decomposition: propose child Planned Change boundaries, use Slicer workflow tools only when explicitly asked, and finalize only after explicit user confirmation.",
+    [AGENTS.ENGINEER]:
+        "You are still the Engineer working a bounded QUICK_FIX. There is no Plan: keep to the current task's elastic edges, load the domain Skills the work needs instead of improvising, verify with the project's own command, and call `task_completed` so Mechanical Validation can run.",
+    [AGENTS.PLAN_ENGINEER]:
+        "You are still the Plan Engineer executing the approved Plan. Work its Implementation Steps in order, run the Verification Plan before you report, never edit the Plan to match what you built, and name the step and the contradicting fact if something blocks you.",
 };
 
 /**
@@ -289,12 +293,13 @@ export function resolveSessionToolNames(agentTools, toolNames, customToolNames) 
 }
 
 /**
- * List all available merged agent definitions.
+ * List every merged agent definition, including the workflow-only ones. Callers
+ * that offer the user a choice want `listAvailableAgents` instead.
  *
  * @param {string} [projectRoot]
  * @returns {Promise<import('./types.js').AgentDefinition[]>}
  */
-export async function listAvailableAgents(projectRoot) {
+export async function listAllAgentDefinitions(projectRoot) {
     const names = await listAgentDefNames(projectRoot);
     /** @type {import('./types.js').AgentDefinition[]} */
     const agents = [];
@@ -314,6 +319,55 @@ export async function listAvailableAgents(projectRoot) {
     agents.sort((agentA, agentB) => agentA.name.localeCompare(agentB.name));
 
     return agents;
+}
+
+/**
+ * List the agent definitions a user may select. Workflow-only Agents are
+ * omitted: an approved Plan activates them, so offering them as a manual choice
+ * would promise an identity the user cannot actually take on.
+ *
+ * @param {string} [projectRoot]
+ * @returns {Promise<import('./types.js').AgentDefinition[]>}
+ */
+export async function listAvailableAgents(projectRoot) {
+    const agents = await listAllAgentDefinitions(projectRoot);
+    return agents.filter((agent) => !agent.workflowOnly);
+}
+
+/**
+ * Whether a named Agent exists but is workflow-only, so an explicit `/agent`
+ * request for it should be explained rather than treated as an unknown name.
+ *
+ * @param {string} agentName
+ * @param {string} [projectRoot]
+ * @returns {Promise<boolean>}
+ */
+export async function isWorkflowOnlyAgent(agentName, projectRoot) {
+    let canonicalName;
+    try {
+        canonicalName = normalizeAgentInternalName(agentName);
+    } catch {
+        return false;
+    }
+    try {
+        const def = await loadAgentDef(canonicalName, projectRoot);
+        return def.workflowOnly === true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Explain why an existing Agent cannot be entered by hand.
+ *
+ * @param {string} agentName
+ * @param {string} [projectRoot]
+ * @returns {string}
+ */
+export function buildWorkflowOnlyAgentMessage(agentName, projectRoot) {
+    const displayName = getAgentDisplayName(agentName, projectRoot);
+    return `${displayName} is activated by RunWield when an approved Plan executes, not by hand. ` +
+        `Staying with the current agent.`;
 }
 
 /**
@@ -463,6 +517,10 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
         ? mergedAttrs.thinkingLevel
         : undefined;
     const temperature = normalizeTemperature(mergedAttrs.temperature);
+    // Merged, so a project or home layer can mark its own Agent workflow-only —
+    // or unhide a bundled one. The flag controls discoverability only; workflow
+    // dispatch loads and activates the exact Agent identity either way.
+    const workflowOnly = mergedAttrs.workflowOnly === true;
 
     const sharedPracticePrompt = await composeSharedPracticePrompt(mergedAttrs.sharedPractice, agentName, projectRoot);
     if (sharedPracticePrompt) promptSegments.push(sharedPracticePrompt);
@@ -487,6 +545,7 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
         thinkingLevel,
         temperature,
         tools,
+        workflowOnly,
         systemPrompt,
     };
 }

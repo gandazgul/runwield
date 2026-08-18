@@ -102,9 +102,10 @@ Deno.test("execution preparation progress reports fresh worktree setup before la
                 "running Plan Objective-Failing Check baseline...",
                 "materializing Plan in execution worktree...",
                 "updating Plan status to in_progress...",
-                "launching Engineer to execute...",
+                "launching Plan Engineer to execute...",
             ]);
-            assertEquals(hostedSession.getRootAgentName(), "engineer");
+            // An `engineer`-owned Plan runs under the workflow-only Plan Engineer.
+            assertEquals(hostedSession.getRootAgentName(), "plan-engineer");
             const canonicalPlan = await loadPlan(projectRoot, "fresh-progress");
             assertEquals(canonicalPlan?.attrs.status, "in_progress");
         } finally {
@@ -230,7 +231,7 @@ Deno.test("execution preparation progress preserves Objective-Failing Check base
             const messages = messagesFrom(events).join("\n");
             assertStringIncludes(messages, "running Plan Objective-Failing Check baseline...");
             assertStringIncludes(messages, "Execution did not start:");
-            assertEquals(messages.includes("launching Engineer to execute..."), false);
+            assertEquals(messages.includes("launching Plan Engineer to execute..."), false);
             assertEquals(result.executionComplete, false);
             assertEquals(hostedSession.getRootAgentName(), "planner");
             const plan = await loadPlan(projectRoot, "already-met-progress");

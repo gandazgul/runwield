@@ -3,7 +3,11 @@
 import { basename } from "@std/path";
 import type { Component } from "@earendil-works/pi-tui";
 import { printCommandHelp } from "../help/index.ts";
-import { listAvailableAgents } from "../../shared/session/agents.js";
+import {
+    buildWorkflowOnlyAgentMessage,
+    isWorkflowOnlyAgent,
+    listAvailableAgents,
+} from "../../shared/session/agents.js";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { AGENTS, getCwd } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
@@ -47,6 +51,10 @@ async function runAgentsCommandCli(
 
     const match = agents.find((agent) => agent.name === agentName);
     if (!match) {
+        if (await isWorkflowOnlyAgent(agentName, getCwd())) {
+            console.log(`\n${buildWorkflowOnlyAgentMessage(agentName, getCwd())}\n`);
+            return;
+        }
         console.error(`\nUnknown agent: "${agentName}"\n`);
         console.log("Available agents:");
         for (const agent of agents) {
@@ -88,7 +96,13 @@ async function runAgentsCommandTUI(
 
     const match = agents.find((agent) => agent.name === chosenAgent);
     if (!match) {
-        uiAPI.appendSystemMessage(`Agent "${chosenAgent}" not found`);
+        // An explicitly named workflow-only Agent is not a typo; say what activates
+        // it and leave the active Agent alone.
+        uiAPI.appendSystemMessage(
+            await isWorkflowOnlyAgent(chosenAgent, projectRoot)
+                ? buildWorkflowOnlyAgentMessage(chosenAgent, projectRoot)
+                : `Agent "${chosenAgent}" not found`,
+        );
         return;
     }
 
