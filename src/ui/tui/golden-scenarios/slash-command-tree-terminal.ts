@@ -45,6 +45,10 @@ export const slashShareScenario = {
     actions: [
         { type: "type", text: "/share" },
         { type: "enter" },
+        // `/share` spawns the fixture `gh` binary, and nothing marks the session
+        // busy while that subprocess runs. `waitForIdle` alone can call the run
+        // finished during that gap, so wait for the rendered failure first.
+        { type: "waitForScreen", text: "GitHub CLI ('gh') is not installed", timeoutMs: 30000 },
         { type: "waitForIdle" },
     ],
     assertions: [

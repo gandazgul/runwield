@@ -267,6 +267,7 @@ export const loadPlanCanceledExecutionThenPlannerReviewScenario = {
         { type: "enter" },
         { type: "waitForIdle", timeoutMs: 60000 },
         { type: "sleep", ms: 1000 },
+        { type: "waitForPlanStatus", planName: "stale-then-review", statuses: ["ready_for_work"], timeoutMs: 12000 },
         { type: "captureProjectState", planNames: ["stale-then-review"] },
     ],
     assertions: [

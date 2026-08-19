@@ -38,8 +38,8 @@ export const validationTreePublicationDirtyStopResumeScenario = withValidationBr
             { type: "writeProjectFile", path: "golden-planned-change.txt", text: "my own unsaved edit\n" },
             { type: "type", text: "submit the planned change for review" },
             { type: "enter" },
+            { type: "waitForScreen", text: "have not saved to git yet", timeoutMs: 240000 },
             { type: "waitForPlanStatus", planName: "plan", statuses: ["validated_reviewer"], timeoutMs: 240000 },
-            { type: "sleep", ms: 1000 },
             { type: "writeProjectFile", path: "golden-planned-change.txt", text: "committed baseline\n" },
             { type: "type", text: "/load-plan plan" },
             { type: "enter" },
@@ -136,7 +136,7 @@ export const validationTreePublicationMergeConflictRepairCompletedScenario = wit
                         name: "bash",
                         arguments: {
                             command:
-                                "printf 'repaired version\n' > publication-merge-conflict.txt\ngit add publication-merge-conflict.txt\ngit commit -m 'repair publication merge conflict'",
+                                'plan=\'docs/plans/publication-merge-conflict-repair-completed.md\'\nif git ls-files -u -- "$plan" | grep -q .; then\n  git show ":3:$plan" > "$plan"\n  git add "$plan"\nfi\nprintf \'repaired version\n\' > publication-merge-conflict.txt\ngit add publication-merge-conflict.txt\ngit commit -m \'repair publication merge conflict\'',
                         },
                     },
                     { name: "task_completed", arguments: { message: "- Repaired publication merge conflict." } },

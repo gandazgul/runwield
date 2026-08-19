@@ -842,7 +842,7 @@ async function runComposedTuiScenario(scenario, options) {
         const configureScriptedUiAPI = (uiAPI) => {
             if (scenario.captureSystemMessages) {
                 const originalAppendSystemMessage = uiAPI.appendSystemMessage.bind(uiAPI);
-                uiAPI.appendSystemMessage = (text, isError = false, header) => {
+                uiAPI.appendSystemMessage = (text, isError = false, header, style) => {
                     const systemMessages = Array.isArray(state.systemMessages) ? state.systemMessages : [];
                     const entry = {
                         text: String(text),
@@ -851,7 +851,7 @@ async function runComposedTuiScenario(scenario, options) {
                     };
                     systemMessages.push(entry);
                     state.systemMessages = systemMessages;
-                    return originalAppendSystemMessage(text, isError, header);
+                    return originalAppendSystemMessage(text, isError, header, style);
                 };
             }
             if (!interactionSurface) return;
