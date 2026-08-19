@@ -22,11 +22,11 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-17T14:16:31-04:00"
-updatedAt: "2026-08-19T16:32:10.315Z"
+updatedAt: "2026-08-19T16:33:09.670Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-17T18:56:16.291Z"
-verifiedAt: "2026-08-19T16:32:10.315Z"
+verifiedAt: "2026-08-19T16:33:09.670Z"
 userVerifiedAt: null
 executionReport: "- Implemented `/agent` failure handling: unavailable model/provider switch failures now stay on the active Agent/model and render one error-styled recovery message.\n- Implemented `/model` error severity: invalid format and unknown model/provider selections now call `appendSystemMessage(..., true)` and do not change the active/default model.\n- Added opt-in Golden TUI `captureSystemMessages` support and registered two recovery journeys for bad preset model/provider and bad `/model` model/provider.\n- Added tests: +4 total tests/scenarios; no tests removed or replaced. Coverage added for Agent switch rollback, `/model` unchanged-state recovery, `/settings` preset recovery, and manual `/model` recovery.\n- Verification passed: `deno run -A scripts/run-tests.js src/cmd/agents/index.test.ts src/cmd/models/index.test.ts src/ui/tui/golden-scenarios/slash-command-configuration.test.ts src/ui/tui/golden-scenarios/slash-command-coverage.test.ts`.\n- Verification passed: `deno task seams:check`.\n- Verification incomplete: `deno task ci` failed twice on untouched `src/ui/tui/golden-scenarios/validation-workflow-publication.test.ts` with `Unused scripted Runtime interactions: 1`; rerunning that file alone passed."
 humanReviewMode: "ask"
@@ -36,7 +36,7 @@ executionMode: "worktree"
 deliveryEvidence:
     version: 1
     mode: "worktree_merge"
-    executionCommit: "1addb2cf2948d11ad7f4d400fd228ac5e7c005e7"
+    executionCommit: "0be03197bdc396123bbb6ab6c4fc4128f4bc07bd"
     targetBranch: "main"
     targetHeadBeforeMerge: "b4c55669596affb341db4441dcdb5cd08303d08b"
 validationCiAttempts: 0
