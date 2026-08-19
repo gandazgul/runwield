@@ -636,12 +636,23 @@ export async function runMechanicalValidation({
             planName: "quick-fix",
             details: {
                 attempt: repairAttempts + 1,
-                exitCode: ciResult.exitCode,
-                passed: ciResult.exitCode === 0,
-                canceled: ciResult.canceled === true,
+                exitCode: ciResult.kind === "completed" ? ciResult.exitCode : 130,
+                passed: ciResult.kind === "completed" && ciResult.exitCode === 0,
+                canceled: ciResult.kind === "canceled",
             },
         });
-        if (ciResult.canceled) {
+        if (ciResult.kind === "operational_failure") {
+            progress = updateValidationProgress(progress, {
+                outcome: "paused",
+                stage: "terminal",
+                message: ciResult.failure.message,
+                checks: { ci: "canceled" },
+            });
+            emitRunWieldSystemStatus(hostedSession, ciResult.failure.message, "warning", progress);
+            await activateAgent(AGENTS.ENGINEER);
+            return { passed: false, attempts: repairAttempts, reason: ciResult.failure.message };
+        }
+        if (ciResult.kind === "canceled") {
             progress = updateValidationProgress(progress, {
                 outcome: "paused",
                 stage: "terminal",

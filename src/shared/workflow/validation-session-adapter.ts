@@ -162,6 +162,7 @@ async function runIsolatedRequest(
         });
         return {
             kind: "reviewer",
+            outcome: "completed",
             reviewOutcome: readLatestReviewOutcome(messages),
             usedDiffTool: usedReviewDiffTool(messages),
             trustedClaudeMcpReview: hasTrustedClaudeMcpReview(messages),
@@ -208,6 +209,7 @@ async function runIsolatedRequest(
     }
     return {
         kind: "feedback_engineer",
+        outcome: "completed",
         taskReport: {
             completed: report.completed,
             report: report.message,

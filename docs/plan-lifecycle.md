@@ -238,10 +238,12 @@ block with an exact path and reason so the user can inspect or recover the workt
 
 Workflow Validation applies only to executable Plan work. It advances through durable Plan Statuses one phase per call:
 `implemented` runs Mechanical Validation, `validated_ci` runs Semantic Code Review, and `validated_reviewer` handles
-Local Human Code Review plus publication. It promotes to `verified` only after local validation, semantic review, any
-configured human code review gate, and delivery evidence all succeed. Worktree-backed FEATURE Plans fail closed when the
-execution mode or worktree publication context is unknown; missing volatile Session state is not treated as proof that
-validation should run in the primary checkout.
+Local Human Code Review plus publication. Operational retries, operational pauses, and fatal operational halts do not
+advance or reset Plan Status. They preserve the last valid status so a later run resumes from the same phase. Workflow
+Validation promotes to `verified` only after local validation, semantic review, any configured human code review gate,
+and delivery evidence all succeed. Worktree-backed FEATURE Plans fail closed when the execution mode or worktree
+publication context is unknown; missing volatile Session state is not treated as proof that validation should run in the
+primary checkout.
 
 For worktree-backed plans:
 

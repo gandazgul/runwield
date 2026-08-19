@@ -182,11 +182,17 @@ export async function runPublicationPhase(
         }
         const failureKind = getMergeFailureKind(error);
 
-        // A merge conflict is normal and fixable, so try the Agent first and retry
-        // publication in the same call — the user should not be asked about something
-        // RunWield can resolve. Uncommitted work in the project folder is the
-        // exception: only the user can decide what happens to it.
-        if (failureKind !== "primary_checkout_dirty" && agentRepairs < MAX_AGENT_MERGE_REPAIRS) {
+        if (failureKind === "target_reference_race") {
+            emitStatus(args, validationUserMessage("retry_pause"), "warning");
+            continue;
+        }
+
+        // Only a proven content conflict can go to merge repair. Other publication
+        // errors need retry, deterministic recovery, or a user action.
+        if (
+            (failureKind === "detached_merge_conflict" || failureKind === "current_checkout_merge_conflict" ||
+                failureKind === "content_conflict") && agentRepairs < MAX_AGENT_MERGE_REPAIRS
+        ) {
             agentRepairs += 1;
             if (await dispatchMergeRepair(args, context, reason, error)) continue;
         }

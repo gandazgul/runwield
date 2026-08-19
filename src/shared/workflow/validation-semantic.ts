@@ -43,6 +43,13 @@ import { runPublicationPhase } from "./validation-publication.ts";
 import { UserActionPause } from "./validation-types.ts";
 import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
 import { makeValidationCheckpoint, type ValidationReviewState } from "./validation-checkpoint.ts";
+import { classifyValidationOperationalError } from "./validation-operational-errors.ts";
+import {
+    decideValidationRecovery,
+    readValidationRetryPolicy,
+    recordOperationalRecoveryMetric,
+    waitForValidationRetry,
+} from "./validation-recovery.ts";
 
 export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
     const phase = await resolvePhaseContext(args);
@@ -307,7 +314,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             if (nextRound >= SEMANTIC_REVIEW_CYCLES) {
                 emitStatus(args, buildValidationUserMessage({ kind: "ci_running", cwd: context.executionCwd }));
                 const ciResult = await args.localCI.run({ cwd: context.executionCwd });
-                const testsPass = ciResult.exitCode === 0 && ciResult.canceled !== true;
+                const testsPass = ciResult.kind === "completed" && ciResult.exitCode === 0;
                 emitStatus(
                     args,
                     testsPass
@@ -480,25 +487,104 @@ export async function runReviewerRound(
                 customTools: config.customTools,
                 sessionManager: reviewerSessionManager,
             });
+            if (sessionOutcome.outcome === "operational_failure") {
+                const decision = decideValidationRecovery({
+                    failure: sessionOutcome.failure,
+                    attempt,
+                    correctionAttempt: attempt,
+                    policy: readValidationRetryPolicy(context.projectRoot),
+                    nextPhase: "semantic",
+                });
+                await recordOperationalRecoveryMetric(args, context.projectRoot, decision.result);
+                emitStatus(args, decision.result.message, decision.action === "halt" ? "error" : "warning");
+                if (decision.action === "retry") {
+                    const wait = await waitForValidationRetry(decision.delayMs);
+                    if (wait === "completed") {
+                        attempt -= 1;
+                        continue;
+                    }
+                }
+                if (decision.action === "correct") {
+                    nudgeReason = decision.result.message;
+                    continue;
+                }
+                return {
+                    kind: "paused",
+                    result: {
+                        kind: decision.action === "halt" ? "failed" : "paused",
+                        planName: args.planName,
+                        projectRoot: context.projectRoot,
+                        reason: decision.result.message,
+                        recovery: decision.result,
+                    },
+                };
+            }
             if (sessionOutcome.usedDiffTool) inspectedDiff = true;
             const trustedClaudeMcpReview = sessionOutcome.trustedClaudeMcpReview;
             const outcome = sessionOutcome.reviewOutcome;
             const unaccounted = unaccountedOpenItems(state.reviewLedger, outcome?.findings);
             if (!outcome) {
-                lastReviewerFailure = "Semantic Reviewer finished without calling review_complete.";
+                const failure = classifyValidationOperationalError({
+                    source: "reviewer_protocol",
+                    kind: "missing_review_complete",
+                    operation: "semantic_review",
+                    message: "Semantic Reviewer finished without calling review_complete.",
+                    required:
+                        "You have not called review_complete yet. Finish this review now by calling review_complete with your decision.",
+                });
+                const decision = decideValidationRecovery({
+                    failure,
+                    attempt,
+                    correctionAttempt: attempt,
+                    policy: readValidationRetryPolicy(context.projectRoot),
+                    nextPhase: "semantic",
+                });
+                await recordOperationalRecoveryMetric(args, context.projectRoot, decision.result);
+                lastReviewerFailure = failure.message;
+                nudgeReason = decision.result.message;
             } else if (!inspectedDiff && !trustedClaudeMcpReview) {
-                lastReviewerFailure = "Semantic Reviewer decided without inspecting the diff.";
-                nudgeReason =
-                    'You called review_complete without inspecting the diff. Read the changes with review_diff(command: "list") and then review_diff(command: "show", ...) before deciding, then call review_complete again with your decision.';
+                const failure = classifyValidationOperationalError({
+                    source: "reviewer_protocol",
+                    kind: "diff_not_read",
+                    operation: "semantic_review",
+                    message: "Semantic Reviewer decided without inspecting the diff.",
+                    required:
+                        'You called review_complete without inspecting the diff. Read the changes with review_diff(command: "list") and then review_diff(command: "show", ...) before deciding, then call review_complete again.',
+                });
+                const decision = decideValidationRecovery({
+                    failure,
+                    attempt,
+                    correctionAttempt: attempt,
+                    policy: readValidationRetryPolicy(context.projectRoot),
+                    nextPhase: "semantic",
+                });
+                await recordOperationalRecoveryMetric(args, context.projectRoot, decision.result);
+                lastReviewerFailure = failure.message;
+                nudgeReason = decision.result.message;
             } else if (unaccounted.length > 0) {
-                lastReviewerFailure = `Semantic Reviewer did not account for open finding(s): ${
-                    unaccounted.join(", ")
-                }.`;
-                nudgeReason = `Your result does not mention ${
+                const required = `Your result does not mention ${
                     unaccounted.length === 1 ? "this open finding" : "these open findings"
                 }: ${
                     unaccounted.join(", ")
                 }. Every open finding must appear in your \`findings\` array — with \`resolved: true\` if you have verified the fix in the code, or with \`resolved: false\` and what is still missing. Reuse the existing identities exactly; do not renumber them or report the same issue as a new finding. Call review_complete again with the complete set.`;
+                const failure = classifyValidationOperationalError({
+                    source: "reviewer_protocol",
+                    kind: "unaccounted_findings",
+                    operation: "semantic_review",
+                    message: `Semantic Reviewer did not account for open finding(s): ${unaccounted.join(", ")}.`,
+                    field: "findings",
+                    required,
+                });
+                const decision = decideValidationRecovery({
+                    failure,
+                    attempt,
+                    correctionAttempt: attempt,
+                    policy: readValidationRetryPolicy(context.projectRoot),
+                    nextPhase: "semantic",
+                });
+                await recordOperationalRecoveryMetric(args, context.projectRoot, decision.result);
+                lastReviewerFailure = failure.message;
+                nudgeReason = decision.result.message;
             } else {
                 latestOutcome = outcome;
             }
@@ -640,6 +726,9 @@ export async function dispatchReviewFeedbackRepair(
             cwd: context.executionCwd,
             customTools: [createReviewDiffTool({ full: packet.diffText }) as unknown as OpaqueToolDefinition],
         });
+        if (sessionOutcome.outcome === "operational_failure") {
+            return { completed: false, report: "", reason: sessionOutcome.failure.message };
+        }
         const taskReport = sessionOutcome.taskReport;
         args.session.setActiveWorkflow({
             ...workflowState,

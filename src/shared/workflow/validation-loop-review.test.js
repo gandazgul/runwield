@@ -153,7 +153,7 @@ Deno.test("runValidationPhase resumes at validated_ci and skips CI before record
         localCI: {
             run: () => {
                 ciCalls += 1;
-                return Promise.resolve({ exitCode: 1, output: "should not run", canceled: false });
+                return Promise.resolve({ kind: "completed", exitCode: 1, output: "should not run" });
             },
         },
     });
@@ -685,7 +685,7 @@ Deno.test("runValidationPhase offers Local Human Code Review after automatic sem
         supportsSemanticRepairHandoff: true,
         semanticReviewPort: roundLimitPort(),
         localCI: {
-            run: () => Promise.resolve({ exitCode: 0, output: "", canceled: false }),
+            run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "" }),
         },
     });
 
@@ -716,7 +716,7 @@ Deno.test("Stop at the review round limit keeps the passing tests and the open f
         supportsSemanticRepairHandoff: true,
         semanticReviewPort: roundLimitPort(),
         localCI: {
-            run: () => Promise.resolve({ exitCode: 0, output: "", canceled: false }),
+            run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "" }),
         },
     });
 
@@ -761,7 +761,7 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
         localCI: {
             run: () => {
                 ciRuns += 1;
-                return Promise.resolve({ exitCode: 0, output: "", canceled: false });
+                return Promise.resolve({ kind: "completed", exitCode: 0, output: "" });
             },
         },
     });

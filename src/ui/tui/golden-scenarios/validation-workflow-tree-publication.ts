@@ -210,7 +210,7 @@ export const validationTreePublicationMergeConflictRepairIncompleteRetryScenario
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Publication merge conflict repair incomplete retry\naffectedPaths: []\nstatus: ready_for_work\nplanId: publication-merge-conflict-repair-incomplete-retry-plan\nobjectiveChecks:\n  - id: OC_PUBLICATION_MERGE_RETRY\n    command: test -f publication-merge-conflict-retry.txt\n---\n# Publication merge conflict repair incomplete retry\n\nDraft content.\n",
         }],
-        script: [1, 2, 3].map((ordinal) => ({
+        script: [1].map((ordinal) => ({
             id: `engineer-leaves-publication-merge-conflict-retry-incomplete-${ordinal}`,
             agent: "engineer",
             phase: "engineer",
@@ -399,14 +399,7 @@ export const validationTreePublicationGenericGitFailureScenario = withValidation
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Publication generic git failure\naffectedPaths: []\nstatus: ready_for_work\nplanId: publication-generic-git-failure-plan\nobjectiveChecks:\n  - id: OC_PUBLICATION_GENERIC_FAILURE\n    command: test -f publication-generic-git-failure.txt\n---\n# Publication generic git failure\n\nDraft content.\n",
         }],
-        script: [1, 2, 3].map((ordinal) => ({
-            id: `engineer-cannot-repair-generic-publication-failure-${ordinal}`,
-            agent: "engineer",
-            phase: "engineer",
-            planName: "publication-generic-git-failure",
-            ordinal,
-            text: `Publication repair attempt ${ordinal} did not call task_completed.`,
-        })),
+        script: [],
         scriptedInteractions: [
             {
                 type: "select",

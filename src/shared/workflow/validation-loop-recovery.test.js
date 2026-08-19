@@ -38,7 +38,7 @@ Deno.test("runValidationLoop fails closed when worktree validation context is mi
         triageMeta: { classification: "FEATURE", status: "implemented" },
         semanticReviewPort: NO_ISOLATED_AGENT_PORT,
         localCI: {
-            run: () => Promise.resolve({ exitCode: 0, output: "should not run", canceled: false }),
+            run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "should not run" }),
         },
     });
 

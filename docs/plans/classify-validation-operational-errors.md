@@ -45,12 +45,12 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T00:47:42-04:00"
-updatedAt: "2026-08-17T22:39:26-04:00"
-status: "draft"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "validation error recovery"
+updatedAt: "2026-08-18T17:45:51.265Z"
+status: "ready_for_work"
 ---
 
 # Classify Workflow Validation Operational Errors

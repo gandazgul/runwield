@@ -265,7 +265,7 @@ Deno.test("runValidationLoop runs Objective-Failing Checks after CI before mecha
         localCI: {
             run: () => {
                 ciCalls += 1;
-                return Promise.resolve({ exitCode: 0, output: "ok", canceled: false });
+                return Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" });
             },
         },
     });
@@ -380,7 +380,7 @@ Deno.test("runValidationLoop advances from waived Objective-Failing Checks into 
             },
         },
         localCI: {
-            run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+            run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }),
         },
     });
 
@@ -438,7 +438,7 @@ Deno.test("runValidationLoop advances from met Objective-Failing Checks into sem
                 ),
         },
         localCI: {
-            run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+            run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }),
         },
     });
 
@@ -467,7 +467,7 @@ Deno.test("runValidationLoop skips Objective-Failing Checks for non-Planned-Chan
             localCI: {
                 run: () => {
                     ciCalls += 1;
-                    return Promise.resolve({ exitCode: 0, output: "ok", canceled: false });
+                    return Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" });
                 },
             },
         });
@@ -504,7 +504,7 @@ Deno.test({
             triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
             semanticReviewPort: NO_ISOLATED_AGENT_PORT,
             localCI: {
-                run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+                run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }),
             },
         });
         // Wait until the Objective-Failing Check phase owns an active interaction,
@@ -547,7 +547,7 @@ Deno.test("runValidationLoop starts at implemented and records only the mechanic
         localCI: {
             run: () => {
                 ciCalls += 1;
-                return Promise.resolve({ exitCode: 0, output: "ok", canceled: false });
+                return Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" });
             },
         },
     });
