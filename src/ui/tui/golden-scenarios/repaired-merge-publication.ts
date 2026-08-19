@@ -98,7 +98,7 @@ export const repairedMergePublicationScenario = {
             const resumedTranscript = `${result.scrollbackText || ""}\n${result.screenText}`;
             assert(!resumedTranscript.includes("Running the tests in"));
             assert(!resumedTranscript.includes("Code review"));
-            assertStringIncludes(resumedTranscript, "Merging branch");
+            assertStringIncludes(resumedTranscript, "adding the finished work");
 
             const interactions = result.state.scriptedInteractions as CapturedInteraction[];
             assertEquals(interactions.map((entry) => entry.interaction?.value), ["validate"]);

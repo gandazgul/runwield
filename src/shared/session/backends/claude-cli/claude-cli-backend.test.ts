@@ -190,6 +190,16 @@ Deno.test("Claude CLI parser emits assistant text and ignores internal events", 
     assertEquals(result.metadata.usage.inputTokens, 3);
 });
 
+Deno.test("Claude CLI parser preserves a structured error result", async () => {
+    const message = "You've hit your monthly spend limit · raise it in Claude settings";
+    const result = await parseClaudeCliStream(
+        streamFromText(`${JSON.stringify({ type: "result", is_error: true, result: message })}\n`),
+        { onDelta: () => undefined },
+    );
+    assertEquals(result.text, message);
+    assertEquals(result.metadata.isError, true);
+});
+
 Deno.test("Claude CLI parser preserves plain stdout diagnostics as assistant text", async () => {
     const deltas: string[] = [];
     const result = await parseClaudeCliStream(
@@ -575,6 +585,48 @@ Deno.test("^Claude CLI auth failure is a sanitized visible non-zero exit$", asyn
         assertEquals(serialized.includes("secret-token"), false);
         assertEquals(serialized.includes("Authorization"), false);
         assertEquals(events.some((event) => event.type === "system_status" && event.level === "error"), true);
+    });
+});
+
+Deno.test("^Claude CLI structured limit failure shows Claude's message$", async () => {
+    await withClaudeFixture(async (root) => {
+        const limitMessage = "You've hit your monthly spend limit · raise it at claude.ai/settings/usage";
+        Deno.env.set(
+            "RUNWIELD_CLAUDE_FIXTURE_OUTPUT",
+            JSON.stringify({ result: limitMessage, isError: true }),
+        );
+        const model = getModelRegistry().find("claude-cli", "sonnet");
+        if (!model) throw new Error("missing claude model");
+        const manager = SessionManager.inMemory(root);
+        const hostedSession = new HostedSession({
+            id: `hosted-${crypto.randomUUID()}`,
+            cwd: root,
+            sessionManager: manager as never,
+        });
+        const events: Array<{ type?: string; message?: string }> = [];
+        hostedSession.setEventSink((event: { type?: string; message?: string }) => events.push(event));
+        const session = new ClaudeCliExecutionSession({
+            cwd: root,
+            agentName: "Engineer",
+            finalSystemPrompt: "system",
+            model,
+            sessionManager: manager,
+            hostedSession,
+        });
+
+        const error = await assertRejects(() => session.runTurn({ userRequest: "continue" }), ClaudeCliBackendError);
+
+        assertEquals(error.kind, "non_zero_exit");
+        assertEquals(error.message, limitMessage);
+        const statusEntries = manager.getBranch().filter((entry) =>
+            entry.type === "custom" && entry.customType === "runwield.backend_status"
+        ) as Array<{ data?: { message?: string } }>;
+        assertEquals(statusEntries.length, 1);
+        assertEquals(statusEntries[0].data?.message, limitMessage);
+        assertEquals(
+            events.some((event) => event.type === "system_status" && event.message === limitMessage),
+            true,
+        );
     });
 });
 

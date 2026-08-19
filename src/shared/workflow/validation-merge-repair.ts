@@ -178,14 +178,11 @@ export async function dispatchMergeRepair(
     // calls about merge conflicts they were never told about, in a directory they did
     // not choose.
     console.error("[RunWield] merge_repair_started", { planName: args.planName });
-    emitStatus(args, validationMergeRepairMessage(args.planName), "warning");
+    const problem = getMergeFailureKind(error) === "target_sync_conflict" ? "target_update" : "work_combination";
+    emitStatus(args, validationMergeRepairMessage(args.planName, problem), "warning");
     emitStatus(
         args,
-        buildValidationUserMessage({
-            kind: "merge_dispatch",
-            agent: context.executionAgent,
-            cwd: repairCwd,
-        }),
+        buildValidationUserMessage({ kind: "merge_dispatch" }),
     );
     args.session.setActiveWorkflow({ ...context.workflowBase });
     const outcome = await args.session.runIndependentRepairTurn({

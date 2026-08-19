@@ -17,6 +17,7 @@ type PublicationState = {
             primaryFiles?: Record<string, string | null>;
             remoteHead?: string;
             remotePlanStatus?: string;
+            remotePlanAttrs?: { worktreeId?: string };
             remoteTree?: string;
             deliveredText?: string;
             registryEntries?: Array<{ status?: string }>;
@@ -62,6 +63,7 @@ function assertPublishedWithoutPrimaryMutation(result: PublicationState, deliver
     assertEquals(published.primaryStatus, baseline.status);
     assertEquals(published.primaryFiles, baseline.files);
     assertEquals(published.remotePlanStatus, "validated");
+    assertEquals(published.remotePlanAttrs?.worktreeId, undefined);
     assertEquals(published.deliveredText, deliveredText);
     assert(String(published.remoteTree || "").includes("docs/work-records/"), "Expected a published Work Record.");
     assertEquals(published.registryEntries, []);
@@ -242,8 +244,73 @@ export const validationTreePublicationPushFailureRetryScenario = {
     coverage: ["recovery:user-pause"],
 };
 
+const legacyRetryPlanName = "validation-tree-publication-legacy-partial-retry";
+
+export const validationTreePublicationLegacyPartialRetryScenario = withValidationBranches(
+    {
+        name: `${legacyRetryPlanName}-base`,
+        composedTui: true,
+        initialAgentName: "guide",
+        terminal: { columns: 100, rows: 30 },
+        timeoutMs: 150000,
+        committedProjectFiles: [
+            { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
+            { path: "user-work.txt", text: "committed user work\n" },
+            {
+                path: `docs/plans/${legacyRetryPlanName}.md`,
+                text: publicationPlan(legacyRetryPlanName, "legacy-publication-retry.txt"),
+            },
+        ],
+        scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery", value: "merge" }],
+        actions: [
+            {
+                type: "seedActiveWorktree",
+                planName: legacyRetryPlanName,
+                legacyStrandedPublication: true,
+                files: [{ path: "legacy-publication-retry.txt", text: "preserved legacy implementation\n" }],
+            },
+            { type: "writeProjectFile", path: "user-work.txt", text: "unsaved user work\n" },
+            { type: "writeProjectFile", path: "untracked-user-note.txt", text: "leave me alone\n" },
+            {
+                type: "capturePublicationBaseline",
+                paths: ["user-work.txt", "untracked-user-note.txt", `docs/plans/${legacyRetryPlanName}.md`],
+            },
+            { type: "type", text: `/load-plan ${legacyRetryPlanName}` },
+            { type: "enter" },
+            { type: "enter" },
+            {
+                type: "waitForRemotePlanStatus",
+                planName: legacyRetryPlanName,
+                statuses: ["validated"],
+                timeoutMs: 90000,
+            },
+            {
+                type: "waitForWorktreeRegistryStatus",
+                planName: legacyRetryPlanName,
+                statuses: ["absent"],
+                timeoutMs: 90000,
+            },
+            { type: "waitForIdle", timeoutMs: 90000 },
+            {
+                type: "capturePublicationState",
+                planName: legacyRetryPlanName,
+                deliveredPath: "legacy-publication-retry.txt",
+            },
+        ],
+        assertions: [
+            (result: PublicationState) => {
+                assertPublishedWithoutPrimaryMutation(result, "preserved legacy implementation");
+            },
+        ],
+    },
+    legacyRetryPlanName,
+    [legacyRetryPlanName],
+    ["publication:legacy-partial-retry"],
+);
+
 export const validationWorkflowPublicationScenarios = [
     validationTreePublicationIsolatedDirtyPrimaryScenario,
     validationTreePublicationRemoteTargetAdvanceScenario,
     validationTreePublicationPushFailureRetryScenario,
+    validationTreePublicationLegacyPartialRetryScenario,
 ];

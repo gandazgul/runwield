@@ -134,7 +134,7 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
         Type.Literal("autonomous"),
     ], {
         description:
-            "Suggested execution style, valid for either owner. Use pair when live user judgment between increments is worth the interruptions; otherwise autonomous.",
+            "Suggested execution style. Use pair when live user judgment between increments is worth the interruptions; otherwise autonomous.",
     }),
     devServerCommand: Type.Optional(Type.String({
         description: "Dev or preview command to run for browser verification, if known.",

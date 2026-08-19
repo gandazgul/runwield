@@ -55,6 +55,7 @@ interface ToolResultContentBlock {
 }
 
 interface FixtureOutput {
+    isError?: boolean;
     result?: string;
 }
 
@@ -198,8 +199,9 @@ async function main(): Promise<void> {
     }
 
     const output = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_OUTPUT") || "";
-    const text = output
-        ? (JSON.parse(output) as FixtureOutput).result || "fixture"
+    const parsedOutput = output ? JSON.parse(output) as FixtureOutput : null;
+    const text = parsedOutput
+        ? parsedOutput.result || "fixture"
         : Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_TEXT") || "fixture reply";
     if (Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_PARTIAL_STREAM")) {
         const half = Math.max(1, Math.ceil(text.length / 2));
@@ -235,6 +237,7 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({
         type: "result",
         result: text,
+        ...(parsedOutput?.isError ? { is_error: true } : {}),
         session_id: "external-1",
         usage: { input_tokens: 1, output_tokens: 2 },
     }));

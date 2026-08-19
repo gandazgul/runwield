@@ -7,7 +7,7 @@
  * missing field would make a destructive action unsafe.
  */
 
-import { resolvePlanExecutionPolicy } from "../../plan-store.js";
+import { loadPlan, resolvePlanExecutionPolicy, updatePlanFrontMatter } from "../../plan-store.js";
 import { buildPlanEventUpdates } from "../../shared/workflow/plan-lifecycle.js";
 import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.ts";
 import {
@@ -23,7 +23,6 @@ import {
     findById as findWorktreeById,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../../shared/worktree-registry.js";
-import { updatePlanFrontMatter } from "../../plan-store.js";
 import { buildPlanSummary } from "./plan-presentation.ts";
 import { transitionFailureError } from "./transition-failure.ts";
 
@@ -65,6 +64,73 @@ export interface RecoveryExecutionContext {
     worktreeBaseBranch?: string | null;
 }
 
+interface AttachedWorktreeRecord {
+    path: string;
+    branch: string;
+}
+
+async function canonicalPath(path: string): Promise<string | null> {
+    try {
+        return await Deno.realPath(path);
+    } catch {
+        return null;
+    }
+}
+
+async function listAttachedWorktrees(projectRoot: string): Promise<AttachedWorktreeRecord[]> {
+    const command = new Deno.Command("git", {
+        args: ["worktree", "list", "--porcelain"],
+        cwd: projectRoot,
+        stdout: "piped",
+        stderr: "null",
+    });
+    const output = await command.output();
+    if (output.code !== 0) return [];
+    return new TextDecoder().decode(output.stdout).trim().split("\n\n").filter(Boolean).map((block) => {
+        const lines = block.split("\n");
+        return {
+            path: lines.find((line) => line.startsWith("worktree "))?.slice("worktree ".length).trim() || "",
+            branch: lines.find((line) => line.startsWith("branch "))?.slice("branch ".length).trim() || "",
+        };
+    }).filter((record) => Boolean(record.path && record.branch));
+}
+
+async function discoverAttachedPlanWorktree(
+    projectRoot: string,
+    plan: RecoveryPlanRef,
+): Promise<RecoveryWorktreeContext | null> {
+    const projectPath = await canonicalPath(projectRoot);
+    const matches: RecoveryWorktreeContext[] = [];
+    for (const record of await listAttachedWorktrees(projectRoot)) {
+        const recordPath = await canonicalPath(record.path);
+        if (!recordPath || recordPath === projectPath) continue;
+        const executionPlan = await loadPlan(record.path, plan.planName).catch(() => null);
+        if (!executionPlan || executionPlan.attrs.executionMode !== "worktree") continue;
+        const attrs = executionPlan.attrs;
+        if (
+            !attrs.planId || !attrs.worktreeId || !attrs.worktreePath || !attrs.worktreeBranch ||
+            !attrs.worktreeBaseBranch
+        ) continue;
+        if (plan.attrs.planId && plan.attrs.planId !== attrs.planId) continue;
+        if (await canonicalPath(attrs.worktreePath) !== recordPath) continue;
+        if (record.branch !== `refs/heads/${attrs.worktreeBranch}`) continue;
+        if (
+            !["in_progress", "failed", "implemented", "validated_ci", "validated_reviewer", "validated"].includes(
+                attrs.status,
+            )
+        ) continue;
+        matches.push({
+            id: attrs.worktreeId,
+            path: record.path,
+            branch: attrs.worktreeBranch,
+            baseBranch: attrs.worktreeBaseBranch,
+            executionBaselineTree: attrs.executionBaselineTree || undefined,
+            status: attrs.worktreeStatus || undefined,
+        });
+    }
+    return matches.length === 1 ? matches[0] : null;
+}
+
 /** The execution workflow recovery re-attaches to the session. */
 export interface RecoveryWorkflowState {
     planName: string;
@@ -101,6 +167,12 @@ export async function resolveRecoveryWorktree(
     let entry = null;
     if (plan.attrs.worktreeId) entry = await findWorktreeById(projectRoot, plan.attrs.worktreeId);
     if (!entry) entry = await findWorktreeByPlanName(projectRoot, plan.planName);
+    if (
+        !entry && !plan.attrs.worktreePath && !plan.attrs.worktreeBranch && !plan.attrs.worktreeId
+    ) {
+        const discovered = await discoverAttachedPlanWorktree(projectRoot, plan);
+        if (discovered) return discovered;
+    }
     const path = plan.attrs.worktreePath || entry?.path;
     const branch = plan.attrs.worktreeBranch || entry?.branch;
     const id = plan.attrs.worktreeId || entry?.id;
@@ -135,6 +207,9 @@ export async function persistRecoveredWorktreeMetadata(
     context: RecoveryWorktreeContext | null,
 ): Promise<PlanFrontMatter> {
     if (!context) return plan.attrs;
+    // A validated Plan deliberately drops attempt pointers. The registry remains
+    // publication authority until upstream verification and cleanup complete.
+    if (plan.attrs.status === "validated") return plan.attrs;
     const updates: Partial<PlanFrontMatter> = {};
     if (context.id && !plan.attrs.worktreeId) updates.worktreeId = context.id;
     if (!Object.keys(updates).length) return plan.attrs;

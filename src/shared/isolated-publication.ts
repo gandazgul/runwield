@@ -22,7 +22,16 @@ export interface IsolatedPublicationArgs {
     sealedExecutionCommit: string;
     allowedPlanPaths: string[];
     repairedPublicationRoot?: string;
+    onProgress?: (progress: IsolatedPublicationProgress) => void;
 }
+
+export type IsolatedPublicationProgress =
+    | "preparing"
+    | "reading_target"
+    | "updating_target"
+    | "combining_work"
+    | "publishing"
+    | "verifying";
 
 export interface IsolatedPublicationResult {
     updatedPrimaryCheckout: false;
@@ -38,6 +47,13 @@ interface UpstreamTarget {
     remote: string;
     branch: string;
     url: string;
+}
+
+export interface UpstreamPublicationInspectionArgs {
+    projectRoot: string;
+    executionBranch: string;
+    targetBranch: string;
+    executionCommit: string;
 }
 
 export class IsolatedPublicationError extends Error {
@@ -113,12 +129,50 @@ async function commitPublicationMetadata(publicationRoot: string, planName: stri
 }
 
 /**
+ * Check upstream reachability without fetching into or moving refs in the user's
+ * primary checkout.
+ */
+export async function isExecutionCommitPublishedUpstream(
+    args: UpstreamPublicationInspectionArgs,
+): Promise<boolean> {
+    const upstream = await resolveUpstream(args.projectRoot, args.targetBranch);
+    const inspectionRoot = await Deno.makeTempDir({ prefix: `runwield-inspect-${basename(args.projectRoot)}-` });
+    try {
+        await runGit(args.projectRoot, ["clone", "--no-hardlinks", args.projectRoot, inspectionRoot]);
+        await runGit(inspectionRoot, ["remote", "rename", "origin", "runwield-source"]);
+        await runGit(inspectionRoot, ["remote", "add", "publication", upstream.url]);
+        const targetHead = await remoteHead(inspectionRoot, "publication", upstream.branch);
+        if (!targetHead) return false;
+        await runGit(inspectionRoot, [
+            "fetch",
+            "publication",
+            `+refs/heads/${upstream.branch}:refs/remotes/publication/${upstream.branch}`,
+        ]);
+        await runGit(inspectionRoot, [
+            "fetch",
+            "runwield-source",
+            `+refs/heads/${args.executionBranch}:refs/remotes/runwield-source/${args.executionBranch}`,
+        ]);
+        const result = await runGitResult(inspectionRoot, [
+            "merge-base",
+            "--is-ancestor",
+            args.executionCommit,
+            `refs/remotes/publication/${upstream.branch}`,
+        ]);
+        return result.code === 0;
+    } finally {
+        await Deno.remove(inspectionRoot, { recursive: true }).catch(() => {});
+    }
+}
+
+/**
  * Publish without checking out, resetting, staging, or updating a ref in the
  * user's primary project directory.
  */
 export async function publishExecutionWorktreeIsolated(
     args: IsolatedPublicationArgs,
 ): Promise<IsolatedPublicationResult> {
+    args.onProgress?.("preparing");
     await assertPreMergeCandidateUnchanged({
         worktreePath: args.executionCwd,
         sealedExecutionCommit: args.sealedExecutionCommit,
@@ -130,6 +184,7 @@ export async function publishExecutionWorktreeIsolated(
         planName: args.planName,
         planDescription: args.planDescription,
     });
+    args.onProgress?.("reading_target");
     const upstream = await resolveUpstream(args.projectRoot, args.targetBranch);
     const publicationRoot = args.repairedPublicationRoot ||
         await Deno.makeTempDir({ prefix: `runwield-publish-${basename(args.projectRoot)}-` });
@@ -138,6 +193,7 @@ export async function publishExecutionWorktreeIsolated(
         if (args.repairedPublicationRoot) {
             const expectedRemoteHead = await remoteHead(publicationRoot, upstream.url, upstream.branch);
             const targetHeadBeforeMerge = await runGit(publicationRoot, ["rev-parse", "HEAD^1"]);
+            args.onProgress?.("combining_work");
             const containsExecutionHead = await runGitResult(publicationRoot, [
                 "merge-base",
                 "--is-ancestor",
@@ -156,6 +212,7 @@ export async function publishExecutionWorktreeIsolated(
             const deliveryCommit = await runGit(publicationRoot, ["rev-parse", "HEAD"]);
             const publicationCommit = await commitPublicationMetadata(publicationRoot, args.planName);
             const lease = expectedRemoteHead || "";
+            args.onProgress?.("publishing");
             await runGit(publicationRoot, [
                 "push",
                 `--force-with-lease=refs/heads/${upstream.branch}:${lease}`,
@@ -167,6 +224,7 @@ export async function publishExecutionWorktreeIsolated(
                     { mergeFailureKind: "publication_push_failed", repairCwd: publicationRoot },
                 );
             });
+            args.onProgress?.("verifying");
             const confirmedRemoteHead = await remoteHead(publicationRoot, upstream.url, upstream.branch);
             if (confirmedRemoteHead !== publicationCommit) {
                 throw new IsolatedPublicationError(
@@ -221,6 +279,7 @@ export async function publishExecutionWorktreeIsolated(
                 "HEAD",
             ]);
             if (containsRemote.code !== 0) {
+                args.onProgress?.("updating_target");
                 try {
                     await runGit(publicationRoot, [
                         "merge",
@@ -249,6 +308,7 @@ export async function publishExecutionWorktreeIsolated(
             args.executionBranch,
             `refs/remotes/runwield-source/${args.executionBranch}`,
         ]);
+        args.onProgress?.("combining_work");
         try {
             await mergeExecutionWorktree({
                 projectRoot: publicationRoot,
@@ -268,6 +328,7 @@ export async function publishExecutionWorktreeIsolated(
         const deliveryCommit = await runGit(publicationRoot, ["rev-parse", "HEAD"]);
         const publicationCommit = await commitPublicationMetadata(publicationRoot, args.planName);
         const lease = expectedRemoteHead || "";
+        args.onProgress?.("publishing");
         try {
             await runGit(publicationRoot, [
                 "push",
@@ -281,6 +342,7 @@ export async function publishExecutionWorktreeIsolated(
                 { mergeFailureKind: "publication_push_failed" },
             );
         }
+        args.onProgress?.("verifying");
         const confirmedRemoteHead = await remoteHead(publicationRoot, "publication", upstream.branch);
         if (confirmedRemoteHead !== publicationCommit) {
             throw new IsolatedPublicationError(

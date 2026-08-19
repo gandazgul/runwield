@@ -59,6 +59,7 @@ export type ValidationWorkflowBranchId =
     | "publication:remote-target-advance"
     | "publication:push-failure-preserves"
     | "publication:push-retry"
+    | "publication:legacy-partial-retry"
     | "lifecycle:resume-implemented"
     | "lifecycle:resume-validated-ci"
     | "lifecycle:resume-validated-reviewer"
@@ -164,6 +165,7 @@ export const EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS: readonly ValidationWorkflo
     "publication:remote-target-advance",
     "publication:push-failure-preserves",
     "publication:push-retry",
+    "publication:legacy-partial-retry",
     "lifecycle:resume-implemented",
     "lifecycle:resume-validated-ci",
     "lifecycle:resume-validated-reviewer",
@@ -242,6 +244,7 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "publication:remote-target-advance": "validation-tree-publication-remote-target-advance",
     "publication:push-failure-preserves": "validation-tree-publication-push-failure-retry",
     "publication:push-retry": "validation-tree-publication-push-failure-retry",
+    "publication:legacy-partial-retry": "validation-tree-publication-legacy-partial-retry",
     "lifecycle:resume-implemented": "validation-tree-resume-implemented",
     "lifecycle:resume-validated-ci": "validation-tree-resume-validated-ci",
     "lifecycle:resume-validated-reviewer": "validation-tree-resume-validated-reviewer",
@@ -287,10 +290,36 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     }
     if (id.startsWith("human-review:")) return ["Waiting for your code review"];
     if (id === "publication:non-git-success") return ["done and on its target branch"];
-    if (id === "publication:push-failure-preserves") return ["could not be updated upstream"];
-    if (id === "publication:push-retry") return ["done and on its target branch"];
-    if (id === "publication:isolated-dirty-primary" || id === "publication:remote-target-advance") {
-        return ["done and on its target branch"];
+    if (id === "publication:push-failure-preserves") {
+        return ["getting the work ready", "sending the new work", "could not be updated upstream"];
+    }
+    const successfulPublicationProgress = [
+        "getting the work ready",
+        "Reading the latest",
+        "adding the finished work",
+        "sending the new work",
+        "checking that main has the new work",
+        "cleaning up the worktree",
+    ];
+    if (id === "publication:push-retry") {
+        return [...successfulPublicationProgress, "done and on its target branch"];
+    }
+    if (id === "publication:legacy-partial-retry") {
+        return [
+            "validated work from an older publication attempt",
+            ...successfulPublicationProgress,
+            "worktree changes are merged",
+        ];
+    }
+    if (id === "publication:isolated-dirty-primary") {
+        return [...successfulPublicationProgress, "done and on its target branch"];
+    }
+    if (id === "publication:remote-target-advance") {
+        return [
+            ...successfulPublicationProgress,
+            "bringing the safe copy up to date",
+            "done and on its target branch",
+        ];
     }
     if (id.startsWith("publication:")) return ["Publication"];
     return ["Plan recovery"];
@@ -316,7 +345,7 @@ function statePathsFor(id: ValidationWorkflowBranchId): string[] {
     }
     if (
         id === "publication:isolated-dirty-primary" || id === "publication:remote-target-advance" ||
-        id === "publication:push-retry"
+        id === "publication:push-retry" || id === "publication:legacy-partial-retry"
     ) {
         return ["publication.remotePlanStatus", "publication.registryEntries"];
     }

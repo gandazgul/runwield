@@ -3,7 +3,10 @@ import { handlePlanRecovery } from "./plan-recovery-flow.ts";
 import { inspectRecoveryPlan, settleRecoveryRecords } from "./plan-recovery-actions.ts";
 import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { getTransitionJournalDir } from "../../shared/workflow/state-transition.ts";
-import { addEntry as addWorktreeRegistryEntry } from "../../shared/worktree-registry.js";
+import {
+    addEntry as addWorktreeRegistryEntry,
+    findById as findWorktreeRegistryEntryById,
+} from "../../shared/worktree-registry.js";
 
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { UiAPI } from "../../ui/tui/types.js";
@@ -348,6 +351,64 @@ Deno.test("Plan Recovery handled and review outcomes exit once", async () => {
         },
     );
     assertEquals(resetSuccess.result, "handled");
+});
+
+Deno.test("continuing an in-progress worktree keeps its Plan authoritative and rebuilds missing attempt data", async () => {
+    const project = await makeRealRecoveryProject({ status: "ready_for_work", executionMode: "worktree" });
+    const worktreePath = await Deno.makeTempDir({ prefix: "runwield-recovery-authority-worktree-" });
+    await Deno.remove(worktreePath);
+    try {
+        await runGit(project.projectRoot, ["worktree", "add", "-b", "rw/authority", worktreePath, "HEAD"]);
+        const primaryPlan = await loadPlan(project.projectRoot, project.plan.planName);
+        const executionPlan = await loadPlan(worktreePath, project.plan.planName);
+        if (!primaryPlan || !executionPlan) throw new Error("authority fixture Plan disappeared");
+        const attempt = {
+            executionMode: "worktree" as const,
+            executionBaselineTree: project.baselineTree,
+            worktreeId: "authority-worktree-1",
+            worktreePath,
+            worktreeBranch: "rw/authority",
+            worktreeBaseBranch: "main",
+            worktreeStatus: "active" as const,
+        };
+        const primaryAttrs = await updatePlanFrontMatter(
+            project.projectRoot,
+            project.plan.planName,
+            { status: "ready_for_work" },
+            primaryPlan.attrs,
+            { expectedRevision: primaryPlan.revision },
+        );
+        const executionAttrs = await updatePlanFrontMatter(
+            worktreePath,
+            project.plan.planName,
+            { ...attempt, status: "in_progress" },
+            executionPlan.attrs,
+            { expectedRevision: executionPlan.revision },
+        );
+        project.plan.attrs = primaryAttrs;
+        let executeCalls = 0;
+        const ui = makeUi(["continue"]);
+        const options = makeOptions(project.plan, ui, project.projectRoot);
+        options.session.executePlan = () => {
+            executeCalls += 1;
+            return Promise.resolve({ result: "complete" });
+        };
+
+        assertEquals(await handlePlanRecovery(options), "handled");
+        assertEquals(executeCalls, 1);
+        assertEquals((await loadPlan(project.projectRoot, project.plan.planName))?.attrs.status, "ready_for_work");
+        assertEquals((await loadPlan(worktreePath, project.plan.planName))?.attrs.status, "ready_for_work");
+        assertEquals((await findWorktreeRegistryEntryById(project.projectRoot, attempt.worktreeId))?.status, "active");
+        assertEquals(
+            ui.messages.some((message) => message.includes("old status data")),
+            false,
+        );
+        assertEquals(executionAttrs.status, "in_progress");
+    } finally {
+        await runGit(project.projectRoot, ["worktree", "remove", "--force", worktreePath]).catch(() => "");
+        await Deno.remove(project.projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreePath, { recursive: true }).catch(() => {});
+    }
 });
 
 Deno.test("Plan Recovery actions preserve live context", async () => {

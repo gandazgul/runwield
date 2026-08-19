@@ -275,6 +275,47 @@ export async function continueRecoveryPlan(context: RecoveryActionContext): Prom
     ) {
         return { kind: "menu" };
     }
+    if (context.plan.attrs.executionMode === "worktree") {
+        const worktree = context.worktreeContext;
+        if (!worktree?.id || !worktree.path || !worktree.branch || !worktree.baseBranch) {
+            context.uiAPI.appendSystemMessage(
+                buildPlanRecoveryUserMessage({ kind: "record_incomplete" }),
+                true,
+                "RunWield",
+            );
+            return { kind: "menu" };
+        }
+        const restored = await restoreEntryFromPlanEvidence(context.projectRoot, {
+            id: worktree.id,
+            planName: context.plan.planName,
+            planId: String(context.plan.attrs.planId || ""),
+            baseBranch: worktree.baseBranch,
+            baseRef: worktree.baseRef,
+            baseCommit: worktree.baseCommit,
+            baseTree: worktree.baseTree,
+            executionBaselineTree: context.plan.attrs.executionBaselineTree || worktree.executionBaselineTree,
+            branch: worktree.branch,
+            path: worktree.path,
+            status: context.plan.attrs.status === "failed" ? "execution_failed" : "active",
+        });
+        if (!restored.entry) {
+            console.error("[RunWield] recovery_worktree_record_restore_failed", restored.reason);
+            context.uiAPI.appendSystemMessage(
+                buildPlanRecoveryUserMessage({ kind: "record_restore_failed" }),
+                true,
+                "RunWield",
+            );
+            return { kind: "menu" };
+        }
+        if (restored.restored) {
+            context.uiAPI.appendSystemMessage(
+                buildPlanRecoveryUserMessage({ kind: "record_restored", planName: context.plan.planName }),
+                false,
+                "RunWield",
+            );
+            context.worktreeContext = await context.refreshRecoveryWorktree();
+        }
+    }
     if (
         !(await rehydrateActiveRecoveryWorkflow(
             context.projectRoot,
@@ -288,14 +329,18 @@ export async function continueRecoveryPlan(context: RecoveryActionContext): Prom
         await context.recordRecoveryResult("continue", "blocked", { reason: "invalid_execution_policy" });
         return { kind: "menu" };
     }
-    await recordPlanEvent({
-        cwd: context.projectRoot,
-        planName: context.plan.planName,
-        event: "recovery_continue",
-        currentStatus: context.plan.attrs.status,
-        details: { triageMeta: context.plan.attrs },
-    });
-    context.plan.attrs.status = "ready_for_work";
+    if (context.plan.attrs.status === "in_progress" || context.plan.attrs.status === "failed") {
+        const authorityRoot = context.plan.attrs.executionMode === "worktree" && context.worktreeContext?.path
+            ? context.worktreeContext.path
+            : context.projectRoot;
+        context.plan.attrs = await recordPlanEvent({
+            cwd: authorityRoot,
+            planName: context.plan.planName,
+            event: "recovery_continue",
+            currentStatus: context.plan.attrs.status,
+            details: { triageMeta: context.plan.attrs },
+        });
+    }
     await executeReadyPlanWithRepair({
         projectRoot: context.projectRoot,
         plan: context.plan,

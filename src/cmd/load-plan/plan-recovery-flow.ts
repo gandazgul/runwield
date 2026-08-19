@@ -252,7 +252,8 @@ async function promptRecoveryAction(
         : hasWorktree
         ? "Delete/recreate worktree and start over"
         : "Reset tree and start over";
-    const restoreRecordOptions: RecoveryMenuOption[] = context.worktreeContext?.id && !context.loadedWorktreeId
+    const restoreRecordOptions: RecoveryMenuOption[] = context.plan.attrs.status !== "validated" &&
+            context.worktreeContext?.id && !context.loadedWorktreeId
         ? [{ value: "restore_record", label: "Restore worktree record and continue" }]
         : [];
     const recordOptions: RecoveryMenuOption[] = context.unresolvedRecords.length > 0

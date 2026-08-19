@@ -595,7 +595,9 @@ export async function resolveValidationExecutionContext({
             ownedRepairs.planId = registryEntry.planId;
             selfHealNotices.push({ kind: "execution_plan_fixed", planName });
         }
-        if (!currentExecutionPlan.attrs.worktreeId) ownedRepairs.worktreeId = worktreeId;
+        if (currentExecutionPlan.attrs.status !== "validated" && !currentExecutionPlan.attrs.worktreeId) {
+            ownedRepairs.worktreeId = worktreeId;
+        }
         if (Object.keys(ownedRepairs).length > 0) {
             await updatePlanFrontMatter(canonicalWorktreePath, planName, ownedRepairs, currentExecutionPlan.attrs, {
                 expectedRevision: currentExecutionPlan.revision,

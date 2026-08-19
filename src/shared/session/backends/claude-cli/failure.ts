@@ -41,8 +41,11 @@ const DEFAULT_MESSAGES: Record<ClaudeCliBackendErrorKind, string> = {
 };
 
 const SECRET_LINE =
-    /(api[_-]?key|token|authorization|bearer|oauth|secret|password|credential|settings|env|environment|home=|path=)/i;
+    /(api[_-]?key|token|authorization|bearer|oauth|secret|password|credential|env|environment|home=|path=)/i;
+const SETTINGS_LINE = /settings/i;
+const CLAUDE_USAGE_REFERENCE = /(?:https:\/\/)?claude\.ai\/settings\/usage(?:\?from=cc_cli_limit_message)?/i;
 const URL = /https?:\/\/\S+/gi;
+const CLAUDE_USAGE_URL = /^https:\/\/claude\.ai\/settings\/usage(?:\?from=cc_cli_limit_message)?$/i;
 const MAX_MESSAGE_LENGTH = 1024;
 
 export class ClaudeCliBackendError extends Error {
@@ -77,8 +80,10 @@ export function sanitizeStderrForDisplay(stderr: string): string {
     const lines = stderr
         .split(/\r?\n/)
         .map((line) => line.trim())
-        .filter((line) => line && !SECRET_LINE.test(line))
-        .map((line) => line.replace(URL, "[redacted-url]"));
+        .filter((line) =>
+            line && !SECRET_LINE.test(line) && (!SETTINGS_LINE.test(line) || CLAUDE_USAGE_REFERENCE.test(line))
+        )
+        .map((line) => line.replace(URL, (url) => CLAUDE_USAGE_URL.test(url) ? url : "[redacted-url]"));
     const joined = lines.join("\n");
     return joined.length > MAX_MESSAGE_LENGTH ? `${joined.slice(0, MAX_MESSAGE_LENGTH)}…` : joined;
 }

@@ -284,19 +284,6 @@ export function buildReAnchorMessage(context = {}) {
 }
 
 /**
- * @param {"autonomous"|"pair"} recommendation
- * @returns {string}
- */
-export function buildCollaborationStylePrompt(recommendation) {
-    const recommended = recommendation === "pair" ? "Pair Execution" : "Autonomous execution";
-    return [
-        "Choose the Frontend Engineer execution style for this approved Plan.",
-        `Planner recommendation: ${recommended}.`,
-        "Pair Execution pauses after coherent visible increments for your direction; autonomous execution runs AFK and verifies at the end.",
-    ].join("\n");
-}
-
-/**
  * @param {string} planName
  * @param {string} planBody
  * @param {string} [reviewFeedback]

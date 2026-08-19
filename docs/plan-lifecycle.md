@@ -3,11 +3,12 @@
 Plan status is the durable state machine for saved Plans. Workflow code records facts as Plan Events, and the Plan
 Lifecycle decides the next status and front matter updates.
 
-Plan lifecycle metadata is canonical in the primary project checkout even when implementation runs in a linked execution
-worktree. During Workflow Validation, the execution worktree Plan can propose a Plan Amendment for reviewable definition
-fields. RunWield uses it only after explicit user approval, then synchronizes the primary and execution Plan copies.
-Worktree paths, branches, registry records, Plan Status, Delivery Evidence, validation counters, and waiver records
-remain RunWield-owned lifecycle state.
+Before execution starts, Plan lifecycle metadata is canonical in the target project's Plan file. Once RunWield activates
+an execution worktree, that worktree's Plan file is authoritative for the attempt through execution, recovery,
+validation, and publication. The corresponding file in the user's checkout may remain behind and must never be used to
+move the active attempt backward. The worktree registry locates the attempt; it is not a second authority for Plan
+Status or Plan definition. Worktree paths, branches, registry records, Plan Status, Delivery Evidence, validation
+counters, and waiver records remain RunWield-owned lifecycle state.
 
 Every PROJECT Plan is an Epic container. PROJECT Plans are decomposed interactively by the Slicer into child FEATURE
 Plans under `docs/plans/<epic-name>/` and are not executed as implementation work themselves. Child FEATURE Plans point
@@ -105,7 +106,7 @@ changing the Plan state machine.
 | `validation_failed`                  | `implemented`, `validated_ci`, `validated_reviewer`                                             | `implemented`                 | Records terminal failed validation-attempt metadata, sets `worktreeStatus: "validation_failed"` where applicable, and resets phase counters on implemented re-entry.                                                           |
 | `worktree_merge_failed`              | `validated_reviewer`                                                                            | `implemented`                 | Publication/merge-back failed/refused after reviewer approval; sets `worktreeStatus: "merge_conflict"` and returns to CI because integration may need repair.                                                                  |
 | `validation_passed`                  | `validated_reviewer`                                                                            | `verified`                    | Recorded only after semantic approval, human-review policy, publication proof, and delivery evidence succeed; clears worktree metadata when cleanup is enabled.                                                                |
-| `recovery_continue`                  | `in_progress`, `failed`                                                                         | `ready_for_work`              | Records that recovery will continue from the current worktree.                                                                                                                                                                 |
+| `recovery_continue`                  | `in_progress`, `failed`                                                                         | `ready_for_work`              | Records the retry in the authoritative execution Plan before the normal execution-start transition returns it to `in_progress`; the primary-checkout copy is not read or rewritten.                                            |
 | `recovery_reset`                     | `in_progress`, `failed`, `implemented`                                                          | `ready_for_work`              | Records that recovery abandoned the current attempt before retrying.                                                                                                                                                           |
 | `review_reopened`                    | `ready_for_decomposition`, `ready_for_work`, `in_progress`, `failed`, `implemented`, `verified` | `feedback`                    | The user chose to revise the Plan instead of continuing execution.                                                                                                                                                             |
 | `epic_done_enough`                   | `ready_for_work`, `verified`                                                                    | `verified`                    | The user marked an Epic complete enough for now; child FEATURE Plans remain visible and loadable.                                                                                                                              |
@@ -209,17 +210,16 @@ Plans still go through Planner/Plannotator review before execution.
 
 ## Execution Worktrees
 
-Before executable implementation starts, RunWield creates or reuses a git worktree for the plan and records its metadata
-in the primary plan file and `.wld/worktrees.json`. Agent sessions, built-in file tools, custom edit tools, local CI,
-workflow diffs, reviewer sessions, and repair sessions receive the execution worktree as their cwd. RunWield does not
-use `Deno.chdir()` for this because workflow operations should stay scoped to their execution context.
+Before executable implementation starts, RunWield creates or reuses a git worktree for the Plan and records its attempt
+metadata in that worktree's Plan file and `.wld/worktrees.json`. From that point forward, Agent sessions, built-in file
+tools, custom edit tools, lifecycle transitions, local CI, workflow diffs, reviewer sessions, and repair sessions all
+use the execution worktree. RunWield does not use `Deno.chdir()` for this because workflow operations stay scoped to
+their explicit execution context.
 
-The primary checkout remains the metadata root for saved plans, settings, `.wld/worktrees.json`, and
-`.wld/worktrees.lock`. This means `wld plans` and `wld load-plan` can see current lifecycle state while implementation
-files are isolated in a linked worktree. At successful merge-back, RunWield hands the final Plan file to the execution
-branch so the target receives verified Front Matter through Git rather than a post-merge working-file edit. The worktree
-registry and lock files remain local runtime state and are ignored by Git, so execution branches cannot merge stale
-registry snapshots back into the primary checkout.
+The user's primary checkout remains the discovery root for settings and local runtime files, but its copy of an active
+Plan is only a possibly stale checkout. `wld load-plan` resolves a live attempt through its recorded worktree evidence
+and reads lifecycle truth there. It must not compare the execution status with the primary copy, synchronize the active
+Plan backward, or dirty the user's checkout. Registry and lock files remain ignored local runtime state.
 
 Each worktree-backed execution must also contain the canonical Plan Markdown at `docs/plans/<plan-name>.md` before the
 execution baseline is captured. If the execution worktree was created from a commit that did not yet contain that Plan
@@ -304,6 +304,13 @@ For worktree-backed plans:
     entry. Operationally, a validated attempt is published when the remote contains its commit and no pending worktree
     entry remains. The Plan itself stays `validated`; it is not dirtied by a second `published` transition. RunWield
     tells the user to update any local checkout that still points at an older target commit.
+
+RunWield also recognizes the single partial state produced by the retired primary-checkout publication flow: the target
+contains the old validation-metadata commit, while the recorded implementation commit remains only on a retained
+execution branch. When the registry, Delivery Evidence, branch ancestry, and upstream target all prove that exact state,
+loading the Plan converts the execution-worktree Plan from legacy `verified` to `validated` and marks the attempt ready
+for publication retry. This recovery never edits the user's primary checkout. It then uses the same temporary-clone
+publication path described above.
 
 Human code review does not add a new primary Plan Status. While human review is pending, returning feedback, or
 canceled, the Plan remains `implemented`. Final `validation_passed` metadata records whether human review was not
@@ -390,8 +397,9 @@ baseline.
 
 Recovery actions are deliberately scoped to the execution worktree:
 
-- **Continue execution from current worktree**: Rehydrates active execution state with the primary project root,
-  execution cwd, worktree id/branch, and baseline tree before rerunning execution.
+- **Continue execution from current worktree**: Rebuilds a missing registry entry when the Plan and Git attachment prove
+  the same attempt, records the retry against the execution-worktree Plan, rehydrates active execution state, and
+  resumes there. A stale primary-checkout Plan status is ignored.
 - **Retry Workflow Validation**: For `implemented` plans, reruns validation in the recorded execution worktree and only
   merges after validation passes.
 - **Merge worktree changes**: For worktree-backed `implemented` plans, attempts to merge the recorded worktree branch

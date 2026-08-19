@@ -57,7 +57,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-15T13:03:40-0400"
-updatedAt: "2026-08-17T22:57:04.833Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-17T17:53:45.473Z"
@@ -83,6 +82,10 @@ deliveryEvidence:
 validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-19T19:36:04.786Z"
+archivedAt: "2026-08-19T19:36:04.786Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/remove-return-to-router-user-owned-transitions.md"
 ---
 
 # Remove return_to_router and Make Agent Transitions User-Owned

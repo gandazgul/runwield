@@ -8,6 +8,7 @@ import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
 import { createInteractiveTuiComposition, type InteractiveTuiComposition } from "./interactive-tui-composition.ts";
 import { createInteractiveCompositionHarness } from "./testing/interactive-composition-fixture.ts";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
+import { ClaudeCliBackendError } from "../../shared/session/backends/claude-cli/failure.ts";
 
 interface DeferredSignal {
     promise: Promise<void>;
@@ -411,6 +412,25 @@ Deno.test("chat input controller shows safe text when submit fails", async () =>
             await waitFor(() => terminal.getScreenText().includes("keep this draft"), "restored failed-submit draft");
             assertStringIncludes(terminal.getScreenText(), "keep this draft");
             assertEquals(terminal.getScrollbackText().includes("project_identity_unavailable"), false);
+        } finally {
+            await composition.dispose();
+        }
+    });
+});
+
+Deno.test("chat input controller does not replace a reported Claude failure", async () => {
+    await withRuntimeCommandFixture("chat-input-claude-submit-error-", async () => {
+        const { composition, terminal } = await startComposition();
+        try {
+            composition.runtime.promptUserTurn = () =>
+                Promise.reject(
+                    new ClaudeCliBackendError("non_zero_exit", {
+                        message: "You've hit your monthly spend limit",
+                    }),
+                );
+            await submitText(terminal, "keep this draft");
+            await waitFor(() => terminal.getScreenText().includes("keep this draft"), "restored Claude-failure draft");
+            assertEquals(terminal.getScrollbackText().includes("RunWield could not send that message"), false);
         } finally {
             await composition.dispose();
         }

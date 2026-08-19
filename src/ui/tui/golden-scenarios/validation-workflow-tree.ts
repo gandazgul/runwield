@@ -58,6 +58,7 @@ export {
 } from "./validation-workflow-tree-human-review.ts";
 export {
     validationTreePublicationIsolatedDirtyPrimaryScenario,
+    validationTreePublicationLegacyPartialRetryScenario,
     validationTreePublicationPushFailureRetryScenario,
     validationTreePublicationRemoteTargetAdvanceScenario,
     validationWorkflowPublicationScenarios,

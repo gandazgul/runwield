@@ -1,5 +1,6 @@
 import {
     validationTreePublicationIsolatedDirtyPrimaryScenario,
+    validationTreePublicationLegacyPartialRetryScenario,
     validationTreePublicationPushFailureRetryScenario,
     validationTreePublicationRemoteTargetAdvanceScenario,
 } from "./validation-workflow-tree-publication.ts";
@@ -17,5 +18,9 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreePublicationPushFailureRetryScenario,
         exportName: "validationTreePublicationPushFailureRetryScenario",
+    },
+    {
+        scenario: validationTreePublicationLegacyPartialRetryScenario,
+        exportName: "validationTreePublicationLegacyPartialRetryScenario",
     },
 ]);

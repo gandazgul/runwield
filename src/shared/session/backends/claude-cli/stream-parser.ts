@@ -8,6 +8,7 @@ export interface ClaudeCliUsage {
 
 export interface ClaudeCliFinalMetadata {
     externalSessionId?: string;
+    isError: boolean;
     usage: ClaudeCliUsage;
 }
 
@@ -28,7 +29,7 @@ export type ClaudeCliStreamEvent =
     | { kind: "assistant_delta"; text: string }
     | { kind: "text_partial"; text: string }
     | { kind: "thinking_partial"; text: string }
-    | { kind: "result"; text: string; externalSessionId?: string; usage: ClaudeCliUsage };
+    | { kind: "result"; text: string; externalSessionId?: string; isError: boolean; usage: ClaudeCliUsage };
 
 export interface ClaudeCliStreamCallbacks {
     onDelta: (delta: ClaudeCliAssistantDelta) => void;
@@ -132,7 +133,13 @@ export function parseClaudeCliJsonLine(line: string): ClaudeCliStreamEvent | nul
         const text = asString(parsed.result) || asString(parsed.text);
         const usage = readUsage(parsed.usage);
         const externalSessionId = asString(parsed.session_id) || asString(parsed.sessionId) || undefined;
-        return { kind: "result", text, usage, ...(externalSessionId ? { externalSessionId } : {}) };
+        return {
+            kind: "result",
+            text,
+            isError: parsed.is_error === true,
+            usage,
+            ...(externalSessionId ? { externalSessionId } : {}),
+        };
     }
     return null;
 }
@@ -146,7 +153,7 @@ export async function parseClaudeCliStream(
     let buffered = "";
     let visibleText = "";
     let resultText = "";
-    let metadata: ClaudeCliFinalMetadata = { usage: emptyUsage };
+    let metadata: ClaudeCliFinalMetadata = { isError: false, usage: emptyUsage };
     let sawResult = false;
     // Text already forwarded live through `text_partial` `stream_event`s for the block currently
     // in progress; used to avoid re-emitting it when the matching complete `assistant` message arrives.
@@ -189,6 +196,7 @@ export async function parseClaudeCliStream(
         sawResult = true;
         resultText = event.text;
         metadata = {
+            isError: event.isError,
             usage: event.usage,
             ...(event.externalSessionId ? { externalSessionId: event.externalSessionId } : {}),
         };
@@ -212,11 +220,11 @@ export async function parseClaudeCliStream(
     endThinking();
     if (!sawResult) {
         if (visibleText || callbacks.isTerminalAccepted?.() === true) {
-            return { text: visibleText, metadata: { usage: emptyUsage } };
+            return { text: visibleText, metadata: { isError: false, usage: emptyUsage } };
         }
         throw new Error("Claude CLI stream ended without a terminal result");
     }
-    if (resultText !== visibleText && callbacks.isTerminalAccepted?.() !== true) {
+    if (!metadata.isError && resultText !== visibleText && callbacks.isTerminalAccepted?.() !== true) {
         if (!resultText || !visibleText.includes(resultText)) {
             throw new Error("Claude CLI terminal result did not match visible assistant stream");
         }

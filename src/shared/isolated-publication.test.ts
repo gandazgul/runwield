@@ -1,5 +1,9 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
-import { publishExecutionWorktreeIsolated } from "./isolated-publication.ts";
+import {
+    isExecutionCommitPublishedUpstream,
+    type IsolatedPublicationProgress,
+    publishExecutionWorktreeIsolated,
+} from "./isolated-publication.ts";
 import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.js";
 import { removeWorktreeGitArtifacts } from "./worktree.js";
 
@@ -24,7 +28,17 @@ Deno.test("isolated publication pushes the target upstream without touching the 
         await Deno.writeTextFile(`${projectRoot}/untracked.txt`, "leave me alone\n");
         const primaryHead = await git(projectRoot, ["rev-parse", "main"]);
         const primaryStatus = await git(projectRoot, ["status", "--porcelain", "--untracked-files=all"]);
+        assertEquals(
+            await isExecutionCommitPublishedUpstream({
+                projectRoot,
+                executionBranch: worktree.branch,
+                targetBranch: "main",
+                executionCommit: sealedCommit,
+            }),
+            false,
+        );
 
+        const progress: IsolatedPublicationProgress[] = [];
         const published = await publishExecutionWorktreeIsolated({
             projectRoot,
             executionCwd: worktree.path,
@@ -33,7 +47,10 @@ Deno.test("isolated publication pushes the target upstream without touching the 
             planName: "isolated-delivery",
             sealedExecutionCommit: sealedCommit,
             allowedPlanPaths: [],
+            onProgress: (step) => progress.push(step),
         });
+
+        assertEquals(progress, ["preparing", "reading_target", "combining_work", "publishing", "verifying"]);
 
         assertEquals(await git(projectRoot, ["rev-parse", "main"]), primaryHead);
         assertEquals(await git(projectRoot, ["status", "--porcelain", "--untracked-files=all"]), primaryStatus);
@@ -45,6 +62,15 @@ Deno.test("isolated publication pushes the target upstream without touching the 
         await git(projectRoot, ["merge-base", "--is-ancestor", sealedCommit, "origin/main"]);
         assertEquals(await git(projectRoot, ["show", "origin/main:implementation.txt"]), "validated implementation");
         assertEquals(await git(projectRoot, ["show", "origin/main:docs/work-records/isolated.md"]), "work record");
+        assertEquals(
+            await isExecutionCommitPublishedUpstream({
+                projectRoot,
+                executionBranch: worktree.branch,
+                targetBranch: "main",
+                executionCommit: sealedCommit,
+            }),
+            true,
+        );
     } finally {
         if (worktree) {
             await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});

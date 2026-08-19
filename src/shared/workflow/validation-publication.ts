@@ -302,19 +302,6 @@ export async function runPublicationPhase(
                     sealedExecutionCommit: validatedCandidate.executionCommit,
                     preservedPlanPaths: staging.planPaths,
                 });
-                // Say what is about to happen to the user's branch. The merge is the
-                // one irreversible act in the system, and publication had gone silent
-                // about it: the branch moved with nothing in the transcript saying so.
-                emitProgress(
-                    args,
-                    buildValidationUserMessage({
-                        kind: "merge_progress",
-                        sourceBranch: executionBranch,
-                        targetBranch,
-                    }),
-                    "info",
-                    { outcome: "running", stage: "merge", checks: { merge: "running" } },
-                );
                 const mergeResult = await publishExecutionWorktreeIsolated({
                     projectRoot: context.projectRoot,
                     executionCwd: context.executionCwd,
@@ -325,6 +312,23 @@ export async function runPublicationPhase(
                     sealedExecutionCommit: validatedCandidate.executionCommit,
                     allowedPlanPaths: staging.planPaths.length > 0 ? staging.planPaths : [planPath],
                     repairedPublicationRoot: repairMergeWorktreePath || undefined,
+                    onProgress: (phase) => {
+                        const message = buildValidationUserMessage({
+                            kind: "publication_progress",
+                            phase,
+                            targetBranch,
+                        });
+                        if (phase === "preparing") {
+                            emitProgress(
+                                args,
+                                message,
+                                "info",
+                                { outcome: "running", stage: "merge", checks: { merge: "running" } },
+                            );
+                            return;
+                        }
+                        emitStatus(args, message);
+                    },
                 });
                 await markEffect("direct_delivery_target_ref_moved", {
                     planName: args.planName,
@@ -339,6 +343,10 @@ export async function runPublicationPhase(
                     upstreamRemote: mergeResult.upstreamRemote,
                     upstreamBranch: mergeResult.upstreamBranch,
                 });
+                emitStatus(
+                    args,
+                    buildValidationUserMessage({ kind: "publication_progress", phase: "cleanup", targetBranch }),
+                );
                 await settlePublishedWorktree(args, context, cleanupMergedWorktrees, mergeResult);
                 if (context.worktreeId) {
                     await markEffect("worktree_registry_updated", { worktreeId: context.worktreeId, status: "merged" });
