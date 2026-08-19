@@ -19,50 +19,29 @@ objectiveChecks:
     - id: "OC2"
       command: "grep -q 'keeps the active Agent when its configured model is unavailable' src/cmd/agents/index.test.ts && deno run -A scripts/run-tests.js src/cmd/agents/index.test.ts src/cmd/models/index.test.ts"
       rationale: "The unavailable-model command regression test is absent today; after implementation it must pass with the command tests that assert unchanged Agent/model state and error-styled recovery behavior."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-17T18:31:01.021Z"
-    head: "a9d26bbe600ace63628e1033f0739676491d4f78"
-    results:
-        - id: "OC1"
-          command: "grep -q 'export const slashAgentUnavailablePresetRecoveryScenario' src/ui/tui/golden-scenarios/slash-command-tree-configuration.ts && grep -q 'export const slashModelUnavailableOverrideRecoveryScenario' src/ui/tui/golden-scenarios/slash-command-tree-configuration.ts && deno run -A scripts/run-tests.js src/ui/tui/golden-scenarios/slash-command-configuration.test.ts"
-          rationale: "Both new registered Golden journeys are absent today; after implementation this check runs their composed TUI assertions for blocked switches, error severity, recovery, and post-recovery model turns."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 27
-          output: "\n"
-        - id: "OC2"
-          command: "grep -q 'keeps the active Agent when its configured model is unavailable' src/cmd/agents/index.test.ts && deno run -A scripts/run-tests.js src/cmd/agents/index.test.ts src/cmd/models/index.test.ts"
-          rationale: "The unavailable-model command regression test is absent today; after implementation it must pass with the command tests that assert unchanged Agent/model state and error-styled recovery behavior."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 20
-          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-17T14:16:31-04:00"
+updatedAt: "2026-08-19T16:29:59.151Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-08-17T18:56:16.291Z"
+verifiedAt: "2026-08-19T16:29:59.151Z"
 userVerifiedAt: null
 executionReport: "- Implemented `/agent` failure handling: unavailable model/provider switch failures now stay on the active Agent/model and render one error-styled recovery message.\n- Implemented `/model` error severity: invalid format and unknown model/provider selections now call `appendSystemMessage(..., true)` and do not change the active/default model.\n- Added opt-in Golden TUI `captureSystemMessages` support and registered two recovery journeys for bad preset model/provider and bad `/model` model/provider.\n- Added tests: +4 total tests/scenarios; no tests removed or replaced. Coverage added for Agent switch rollback, `/model` unchanged-state recovery, `/settings` preset recovery, and manual `/model` recovery.\n- Verification passed: `deno run -A scripts/run-tests.js src/cmd/agents/index.test.ts src/cmd/models/index.test.ts src/ui/tui/golden-scenarios/slash-command-configuration.test.ts src/ui/tui/golden-scenarios/slash-command-coverage.test.ts`.\n- Verification passed: `deno task seams:check`.\n- Verification incomplete: `deno task ci` failed twice on untouched `src/ui/tui/golden-scenarios/validation-workflow-publication.test.ts` with `Unused scripted Runtime interactions: 1`; rerunning that file alone passed."
-executionMode: "worktree"
-executionBaselineTree: "0c7aa06cc07fa1da6987c0f476ff7c9b5250aaa7"
-worktreeId: "b201eb02"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-handle-unavailable-model-agent-switches-b201eb02"
-worktreeBranch: "worktree/handle-unavailable-model-agent-switches-b201eb02"
-worktreeBaseBranch: "main"
-validationObjectiveCheckAttempts: 0
-validationCheckpoint: null
-validationSemanticRounds: 0
-worktreeStatus: "validation_failed"
-validationCiAttempts: 0
-status: "validated_reviewer"
-updatedAt: "2026-08-19T16:29:57.852Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+validationCheckpoint: null
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "d9218fa910a2f3e366ccdbfbcfc13210e8b1fb5a"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "f5f44a9fe417189d0dc589aae52cf3f112326caa"
+validationCiAttempts: 0
+validationObjectiveCheckAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Handle Unavailable Models During Agent Switches
