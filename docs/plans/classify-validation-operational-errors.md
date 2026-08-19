@@ -52,24 +52,16 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T00:47:42-04:00"
-updatedAt: "2026-08-19T13:37:45.716Z"
-status: "validated_ci"
+updatedAt: "2026-08-19T14:52:22.852Z"
+status: "implemented"
 origin: "internal"
+failureReason: "Objective-Failing Checks unmet.\n\nObjective-Failing Checks: 1 met, 3 unmet, 0 broken (4 total).\n\n- OC1: met\n  command: deno eval 'import { classifyValidationOperationalError as c } from \"./src/shared/workflow/validation-operational-errors.ts\"; const xs=[[{source:\"provider\",kind:\"rate_limited\",message:\"x\"},\"transient\"],[{source:\"reviewer_protocol\",kind:\"missing_review_complete\",message:\"x\"},\"correctable\"],[{source:\"validation_state\",kind:\"plan_missing\",message:\"x\"},\"missing_information\"],[{source:\"policy\",kind:\"prohibited\",message:\"x\"},\"fatal\"]]; for(const [x,w] of xs) if(c(x).recoveryClass!==w) Deno.exit(1);'\n  rationale: This calls the production classifier directly and proves that one representative typed failure maps to each recovery class.\n  exitCode: 0\n\n- OC2: unmet\n  command: grep -q 'transient Reviewer failures use jittered backoff without consuming semantic rounds' src/shared/workflow/validation-operational-recovery.test.ts && grep -q 'correctable Reviewer failures stay in the same session with structured feedback' src/shared/workflow/validation-operational-recovery.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-operational-recovery.test.ts --filter 'Reviewer failures'\n  rationale: This proves that retry and Agent correction are different actions, and that neither action spends an implementation-repair round.\n  exitCode: 1\n\n- OC3: unmet\n  command: ! grep -q 'exitCode: canceled ? 130 : 1' src/shared/workflow/validation-local-ci.ts && grep -q 'CI process start failure does not dispatch implementation repair' src/shared/workflow/validation-local-ci.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-local-ci.test.ts --filter 'CI process start failure does not dispatch implementation repair'\n  rationale: This removes the current synthetic CI verdict and proves through the real boundary that a process-start failure cannot dispatch source repair.\n  exitCode: 1\n\n- OC4: unmet\n  command: ! grep -q 'failureKind !== \"primary_checkout_dirty\"' src/shared/workflow/validation-publication.ts && grep -q 'publication dispatches merge repair only for a content conflict' src/shared/workflow/validation-publication.test.ts && grep -q 'fatal publication error halts without retry or repair' src/shared/workflow/validation-publication.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-publication.test.ts --filter 'publication'\n  rationale: This removes the current broad repair condition and proves that publication races, missing state, dirt, conflicts, and fatal failures take distinct paths.\n  exitCode: 2\n  output:\n    grep: src/shared/workflow/validation-publication.test.ts: No such file or directory"
 implementedAt: "2026-08-19T01:26:34.635Z"
 userVerifiedAt: null
 executionReport: "- Added typed Workflow Validation operational errors and recovery decisions, including recovery classes, stable codes, bounded Retry-After parsing, capped full-jitter retry delay calculation, correction limits, and operational metrics.\n- Updated Local CI and isolated Agent outcome types to discriminated results; Local CI process-start and missing-command failures now use operational recovery before repair counters or lifecycle failure events.\n- Integrated semantic reviewer protocol corrections, transient operational handling, and publication routing so only proven merge conflicts dispatch merge repair and target-reference races retry.\n- Added `retry.validation.maxDelayMs` schema/docs and Plan Lifecycle docs that operational retries/pauses/halts do not advance or reset Plan Status.\n- Updated tests and fixtures for the new CI result contract; test delta: +9 automated tests, 0 tests removed. Golden publication scripts were reduced only where Agent repair is no longer expected for non-conflict operational failures.\n- Verification passed: focused operational/local-CI/review/repair/publication/resume tests, `deno task seams:check`, `deno task check`, and full `deno task ci` (336 files passed, 0 failed).\n- Note: the Plan listed `src/shared/workflow/validation-publication.test.ts`, but this checkout has `validation-publication-pause.test.js`; I ran the existing publication test file instead."
 humanReviewMode: null
 humanReviewDecision: null
-validationCheckpoint:
-    version: 1
-    attemptId: "4cf31cf5"
-    generation: "1057c05e-62c6-44f8-954f-206b7a1e0c40"
-    expectedStatus: "implemented"
-    nextPhase: "mechanical"
-    state: "running"
-    ownerPid: 64167
-    ownerHostname: "gandazgul-mbp"
-    updatedAt: "2026-08-19T01:26:37.126Z"
+validationCheckpoint: null
 executionMode: "worktree"
 executionBaselineTree: "28d3f5f24f9863475ee7dd66c4225b9a519c1ca8"
 worktreeId: "4cf31cf5"
@@ -79,8 +71,8 @@ worktreeBaseBranch: "main"
 worktreeStatus: "completed"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "validation error recovery"
-validationCiAttempts: 0
-validationObjectiveCheckAttempts: 0
+validationCiAttempts: 2
+validationObjectiveCheckAttempts: 1
 validationSemanticRounds: 0
 ---
 

@@ -16,15 +16,16 @@ I would order the overlapping group like this:
 1. Finish remove-return-to-router-user-owned-transitions.md It is already in_progress, and the Engineer split explicitly
    depends on it. - done
 
-   1. finish-agent-prompt-architecture-cleanup
+   1. finish-agent-prompt-architecture-cleanup - done
 
 2. resume-validation-after-repair-completion.md Small ready bug fix. Stabilizes validation repair. - done
 
-3. split-quick-fix-engineer-from-plan-engineer.md This should absorb/supersede generalize-pair-execution-to-engineer.md.
+3. split-quick-fix-engineer-from-plan-engineer.md This should absorb/supersede
+   generalize-pair-execution-to-engineer.md. - done
 
 4. Reassess/archive mode-specific-engineer-context.md and generalize-pair-execution-to-engineer.md.
 
-5. classify-validation-operational-errors.md
+5. classify-validation-operational-errors.md - in progress
 
 6. Optional before foundation: guided-validation-repair.md
 
