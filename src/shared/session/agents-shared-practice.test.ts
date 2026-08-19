@@ -32,11 +32,16 @@ const SHARED_PRACTICE_CONSUMERS: ReadonlyArray<[string, readonly string[]]> = [
 /** Every persona that can run git or delete files, including the non-engineering one. */
 const WORKING_TREE_CONSUMERS: readonly string[] = ["engineer", "plan-engineer", "frontend-engineer", "operator"];
 
+const PLANNING_DOC_FRAGMENTS = ["user-authority", "show-the-work", "work-record-retrieval"] as const;
+
+/** The two personas that write planning documents and share their structural vocabulary. */
+const PLANNING_DOC_AUTHORS: readonly string[] = ["planner", "architect"];
+
 /** Planning personas that compose the explanation practice on top of user authority. */
 const PLANNING_PRACTICE_CONSUMERS: ReadonlyArray<[string, readonly string[]]> = [
-    ["planner", ["user-authority", "show-the-work", "work-record-retrieval"]],
-    ["architect", ["user-authority", "show-the-work", "work-record-retrieval"]],
-    ["ideator", ["user-authority", "show-the-work", "work-record-retrieval"]],
+    ["planner", [...PLANNING_DOC_FRAGMENTS, "plain-language-dialogue", "architecture-vocabulary"]],
+    ["architect", [...PLANNING_DOC_FRAGMENTS, "plain-language-dialogue", "architecture-vocabulary"]],
+    ["ideator", [...PLANNING_DOC_FRAGMENTS]],
 ];
 
 /** Every persona that reads project history. Recorder writes the records and keeps its own broader rules. */
@@ -232,6 +237,30 @@ Deno.test("history-reading personas share one Work Record retrieval practice", a
     const recorder = await loadAgentDef("recorder");
     assertEquals(recorder.systemPrompt.replaceAll(/\s+/g, " ").includes(WORK_RECORD_MARKER), false);
     assertStringIncludes(recorder.systemPrompt, "broad access for generation/maintenance context");
+});
+
+Deno.test("Plan and Epic authors share one architecture vocabulary", async () => {
+    // Planner and Architect defined these terms separately until `Port` drifted
+    // apart; one fragment is what keeps the two documents speaking the same language.
+    for (const agentName of PLANNING_DOC_AUTHORS) {
+        const { systemPrompt } = await loadAgentDef(agentName);
+        const normalized = systemPrompt.replaceAll(/\s+/g, " ");
+        for (
+            const term of ["Module", "Interface", "Seam", "Port", "Owner / source of truth", "Invariant", "Projection"]
+        ) {
+            assertStringIncludes(normalized, `**${term}**`, `${agentName} is missing the ${term} definition`);
+        }
+        assertStringIncludes(
+            normalized,
+            "dependency injection is not a reason to substitute an owned invariant",
+            `${agentName} lost the stronger Port wording`,
+        );
+        assertStringIncludes(
+            normalized,
+            "Expand acronyms on first use",
+            `${agentName} is missing plain-language-dialogue`,
+        );
+    }
 });
 
 Deno.test("the Slicer receives the show-the-work practice through the subagent registry", async () => {

@@ -54,7 +54,12 @@ current explanation as an ordinary Markdown file, you may use the docs-only tool
    implementation unless they ask.
 5. If the user asks what command to run, explain or recommend it; only run safe discovery commands when running them
    directly improves the answer.
-6. Reach for the web tools when the answer lives outside this repository — how a library behaves, what an upstream error
+6. Delegate deep exploration. When answering would mean reading a lot of code to extract a small conclusion, send
+   `delegate_agent` with `mode: "read"` and a specific question. The delegate spends its own context on the search and
+   returns the finding, leaving yours for the conversation. Give it a goal, not a directory — "which module owns retry
+   policy, and what happens on a second failure" rather than "look at the session code". Confirm anything you will cite
+   against the source yourself.
+7. Reach for the web tools when the answer lives outside this repository — how a library behaves, what an upstream error
    means, what a spec actually says. Project claims still come from project artifacts; web research never substitutes
    for local evidence or for a citation.
 

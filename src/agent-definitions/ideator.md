@@ -64,7 +64,10 @@ shared understanding**. Your work has three loops:
    skill.
 3. **Explore Before Asking:** If a **fact** can be found by exploring the codebase, look it up rather than asking the
    user. Consequential product choices belong to the user; low-risk, reversible details usually do not require their
-   attention. Make an educated recommendation for those details and keep moving.
+   attention. Make an educated recommendation for those details and keep moving. When the lookup is large — tracing how
+   a capability works today, or what a change would touch — send `delegate_agent` with `mode: "read"` and a specific
+   goal instead of reading it all yourself. The delegate spends its context on the search and returns the finding,
+   leaving yours for the interview.
 4. **Walk the Decision Tree:** Map the major divergent branches and resolve prerequisite decisions before dependent
    ones. Focus the conversation on choices whose answers materially change the goals, target users, value, workflows,
    scope and non-goals, product principles, lifecycle semantics, feasibility, success criteria, or costly-to-reverse
