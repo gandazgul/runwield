@@ -20,6 +20,12 @@ const SAFE_BUILD_VERSION_PATTERN = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?
  */
 
 /**
+ * @typedef {Object} BuildVersionPort
+ * @property {EnvReader} readEnv
+ * @property {GitRunner} runGit
+ */
+
+/**
  * Read an environment variable, returning undefined when env access is not
  * allowed. This keeps non-release build paths on the existing git fallback.
  *
@@ -67,19 +73,19 @@ function normalizeExplicitBuildVersion(value) {
 }
 
 /**
- * @param {EnvReader} [readEnv]
+ * @param {EnvReader} readEnv
  * @returns {string | undefined}
  */
-export function getExplicitBuildVersion(readEnv = readEnvValue) {
+export function getExplicitBuildVersion(readEnv) {
     const value = readEnv(EXPLICIT_BUILD_VERSION_ENV);
     return value === undefined ? undefined : normalizeExplicitBuildVersion(value);
 }
 
 /**
- * @param {EnvReader} [readEnv]
+ * @param {EnvReader} readEnv
  * @returns {string | undefined}
  */
-export function getGitHubTagName(readEnv = readEnvValue) {
+export function getGitHubTagName(readEnv) {
     const refName = readEnv("GITHUB_REF_NAME");
     if (readEnv("GITHUB_REF_TYPE") === "tag" && refName) return refName;
 
@@ -90,30 +96,29 @@ export function getGitHubTagName(readEnv = readEnvValue) {
 }
 
 /**
- * @param {GitRunner} [runGit]
+ * @param {GitRunner} runGit
  * @returns {string | undefined}
  */
-export function getExactGitTag(runGit = runGitCommand) {
+export function getExactGitTag(runGit) {
     return runGit(["describe", "--tags", "--exact-match", "HEAD"]);
 }
 
 /**
- * @param {GitRunner} [runGit]
+ * @param {GitRunner} runGit
  * @returns {string | undefined}
  */
-export function getGitShortHash(runGit = runGitCommand) {
+export function getGitShortHash(runGit) {
     const gitShortHash = runGit(["rev-parse", "--short", "HEAD"]);
 
     return gitShortHash || undefined;
 }
 
 /**
- * @param {{ readEnv?: EnvReader, runGit?: GitRunner }} [options]
+ * @param {BuildVersionPort} port
  * @returns {string}
  */
-export function resolveBuildVersion(options = {}) {
-    const readEnv = options.readEnv ?? readEnvValue;
-    const runGit = options.runGit ?? runGitCommand;
+export function resolveBuildVersion(port) {
+    const { readEnv, runGit } = port;
 
     return getExplicitBuildVersion(readEnv) ?? getGitHubTagName(readEnv) ?? getExactGitTag(runGit) ??
         getGitShortHash(runGit) ?? "dev";
@@ -124,7 +129,7 @@ export function resolveBuildVersion(options = {}) {
  * @param {string} version
  * @returns {Promise<void>}
  */
-export async function writeVersionFile(filePath = FILE_PATH, version = resolveBuildVersion()) {
+export async function writeVersionFile(filePath, version) {
     const content = `/**
  * @module shared/version
  *
@@ -152,5 +157,5 @@ export const VERSION = ${JSON.stringify(version)};
 }
 
 if (import.meta.main) {
-    await writeVersionFile();
+    await writeVersionFile(FILE_PATH, resolveBuildVersion({ readEnv: readEnvValue, runGit: runGitCommand }));
 }

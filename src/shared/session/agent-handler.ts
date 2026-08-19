@@ -25,7 +25,7 @@ import {
     SYSTEM_SEMANTIC_REVIEW_PORT,
     type WorkflowValidationResult,
 } from "../workflow/validation.ts";
-import { continueWorkflowValidation } from "../workflow/validation-supervisor.ts";
+import { runWorkflowValidationToStableBoundary } from "../workflow/validation-supervisor.ts";
 import { switchActiveAgent } from "./agent-switching.js";
 import { getAgentDisplayName } from "./agents.js";
 import { emitHostedSessionRuntimeEvent, emitSystemStatus, RuntimeEventTypes } from "./session-runtime-events.js";
@@ -35,7 +35,7 @@ import {
     claimPendingTaskCompletion,
     type PendingTaskCompletionClaim,
 } from "./task-completion-session.ts";
-import { getStoredPlanPath } from "../../plan-store.js";
+import { getStoredPlanPath, loadPlan } from "../../plan-store.js";
 import { AGENTS } from "../../constants.js";
 import { resolvePlanExecutionRuntimeAgent } from "../workflow/execution-agent.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -339,10 +339,20 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
             }
 
             let planContent = "";
+            let validationTriageMeta = triageMeta;
             try {
-                planContent = await Deno.readTextFile(getStoredPlanPath(projectRoot, planName));
+                const validationRoot = executionResult.executionContext?.executionCwd || projectRoot;
+                const executionPlan = await loadPlan(validationRoot, planName);
+                planContent = executionPlan?.markdown || executionPlan?.body || "";
+                if (executionPlan?.attrs) {
+                    validationTriageMeta = { ...triageMeta, ...executionPlan.attrs };
+                }
             } catch {
-                // Ignore in tests or if the file doesn't exist
+                try {
+                    planContent = await Deno.readTextFile(getStoredPlanPath(projectRoot, planName));
+                } catch {
+                    // Ignore in tests or if neither authoritative nor fallback Plan exists.
+                }
             }
 
             const activeWorkflowAfterExecution = hostedSession.getActiveExecutionWorkflow();
@@ -376,11 +386,11 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     planName,
                     details: { transition: "run_validation", decisionKind: executionDecision.kind },
                 });
-                const validationResult = await continueWorkflowValidation({
+                const validationResult = await runWorkflowValidationToStableBoundary({
                     hostedSession,
                     planName,
                     planContent,
-                    triageMeta,
+                    triageMeta: validationTriageMeta,
                     sessionManager,
                     executionContext: executionResult.executionContext,
                     finalAgentName: agentName,
@@ -540,19 +550,25 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 }
 
                 let planContent = "";
+                let validationTriageMeta = workflow.triageMeta;
                 if (workflow.planName && workflow.planName !== "quick-fix") {
                     try {
-                        planContent = await Deno.readTextFile(getStoredPlanPath(projectRoot, workflow.planName));
+                        const validationRoot = workflow.executionCwd || projectRoot;
+                        const executionPlan = await loadPlan(validationRoot, workflow.planName);
+                        planContent = executionPlan?.markdown || executionPlan?.body || "";
+                        if (executionPlan?.attrs) {
+                            validationTriageMeta = { ...workflow.triageMeta, ...executionPlan.attrs };
+                        }
                     } catch {
                         // Ignore
                     }
                 }
 
-                const validationResult = await continueWorkflowValidation({
+                const validationResult = await runWorkflowValidationToStableBoundary({
                     hostedSession,
                     planName: workflow.planName,
                     planContent,
-                    triageMeta: workflow.triageMeta,
+                    triageMeta: validationTriageMeta,
                     ...(acceptedCompletion.brokenObjectiveChecks?.length
                         ? { engineerReportedBrokenObjectiveChecks: acceptedCompletion.brokenObjectiveChecks }
                         : {}),

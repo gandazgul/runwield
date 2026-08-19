@@ -1,4 +1,5 @@
 import { loadPlan, updatePlanFrontMatter } from "../../plan-store.js";
+import { dirname, join } from "@std/path";
 import { buildPlanEventUpdates, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { runRecoveryTransition } from "../../shared/workflow/state-transition.ts";
 import { buildPlanRecoveryUserMessage, planRecoveryMessage } from "../../shared/workflow/validation-user-messages.ts";
@@ -107,12 +108,15 @@ export async function resetRecoveryPlan(
         await context.recordRecoveryResult("reset", "metadata_only", { gitState: gitState });
         return { kind: "handled" };
     }
+    let recreatedWorktree = false;
     if (hasWorktree) {
         const recreated = await recreateRecoveryWorktree(context);
         if (!recreated) {
             return { kind: "menu" };
         }
         context.worktreeContext = recreated;
+        plan.attrs = { ...plan.attrs, status: "ready_for_work" };
+        recreatedWorktree = true;
     } else {
         if (!(await confirmBaselineReset(plan.planName, uiAPI))) {
             return { kind: "menu" };
@@ -130,27 +134,29 @@ export async function resetRecoveryPlan(
             return { kind: "menu" };
         }
     }
-    const resetTransition = await runRecoveryTransition({
-        projectRoot,
-        planName: plan.planName,
-        planId: plan.attrs.planId,
-        worktreeId: context.worktreeContext?.id,
-        expectedRevision: plan.revision,
-        action: "reset",
-        recover: async () =>
-            await recordPlanEvent({
-                cwd: projectRoot,
-                planName: plan.planName,
-                event: "recovery_reset",
-                currentStatus: plan.attrs.status,
-                details: { triageMeta: plan.attrs },
-            }),
-    });
-    if (resetTransition.status !== "committed") {
-        throw transitionFailureError(resetTransition, `Recovery reset transaction failed for ${plan.planName}.`);
+    if (!recreatedWorktree) {
+        const resetTransition = await runRecoveryTransition({
+            projectRoot,
+            planName: plan.planName,
+            planId: plan.attrs.planId,
+            worktreeId: context.worktreeContext?.id,
+            expectedRevision: plan.revision,
+            action: "reset",
+            recover: async () =>
+                await recordPlanEvent({
+                    cwd: projectRoot,
+                    planName: plan.planName,
+                    event: "recovery_reset",
+                    currentStatus: plan.attrs.status,
+                    details: { triageMeta: plan.attrs },
+                }),
+        });
+        if (resetTransition.status !== "committed") {
+            throw transitionFailureError(resetTransition, `Recovery reset transaction failed for ${plan.planName}.`);
+        }
+        const resetTransitionValue = (resetTransition.value || {}) as RecoveryPlanTransitionValue;
+        plan.attrs = { ...plan.attrs, ...resetTransitionValue.value, status: "ready_for_work" };
     }
-    const resetTransitionValue = (resetTransition.value || {}) as RecoveryPlanTransitionValue;
-    plan.attrs = { ...plan.attrs, ...resetTransitionValue.value, status: "ready_for_work" };
     await executeReadyPlanWithRepair({
         projectRoot,
         plan,
@@ -190,9 +196,8 @@ async function recreateRecoveryWorktree(context: RecoveryActionContext): Promise
             planName: plan.planName,
             planId: plan.attrs.planId,
             worktreeId: worktreeContext?.id,
-            expectedRevision: plan.revision,
             action: "recreate",
-            recover: async ({ beforePlan, markEffect, registerRollback }) => {
+            recover: async ({ markEffect, registerRollback }) => {
                 if (worktreeContext?.path) {
                     await removeWorktreeGitArtifacts({
                         projectRoot,
@@ -242,10 +247,20 @@ async function recreateRecoveryWorktree(context: RecoveryActionContext): Promise
                     path: nextWorktree.path,
                     branch: nextWorktree.branch,
                 });
+                const nextPlanPath = join(nextWorktree.path, "docs", "plans", `${plan.planName}.md`);
+                await Deno.mkdir(dirname(nextPlanPath), { recursive: true });
+                await Deno.writeTextFile(nextPlanPath, plan.markdown);
+                const nextPlan = await loadPlan(nextWorktree.path, plan.planName);
+                if (!nextPlan) throw new Error(`Recreated execution Plan is missing: ${plan.planName}`);
+                const resetUpdates = buildPlanEventUpdates("recovery_reset", plan.attrs.status, {
+                    triageMeta: plan.attrs,
+                });
                 const attrs = await updatePlanFrontMatter(
-                    projectRoot,
+                    nextWorktree.path,
                     plan.planName,
                     {
+                        ...resetUpdates,
+                        status: "ready_for_work",
                         worktreeId: nextWorktree.id,
                         worktreePath: nextWorktree.path,
                         worktreeBranch: nextWorktree.branch,
@@ -253,8 +268,8 @@ async function recreateRecoveryWorktree(context: RecoveryActionContext): Promise
                         worktreeStatus: "active",
                         executionBaselineTree: nextWorktree.baseTree,
                     },
-                    plan.attrs,
-                    { expectedRevision: beforePlan?.revision },
+                    nextPlan.attrs,
+                    { expectedRevision: nextPlan.revision },
                 );
                 return { attrs, worktree: nextWorktree };
             },
@@ -268,7 +283,8 @@ async function recreateRecoveryWorktree(context: RecoveryActionContext): Promise
         if (!recreated) {
             throw new Error(`Recovery recreate transaction returned no worktree for ${plan.planName}.`);
         }
-        const refreshedPlan = await loadPlan(projectRoot, plan.planName);
+        if (!recreated.path) throw new Error(`Recreated worktree has no path for ${plan.planName}.`);
+        const refreshedPlan = await loadPlan(recreated.path, plan.planName);
         if (refreshedPlan?.revision) {
             plan.attrs = refreshedPlan.attrs;
             plan.revision = refreshedPlan.revision;

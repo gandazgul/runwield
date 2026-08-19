@@ -1,4 +1,4 @@
 {
-    "comment": "Injection-seam ratchet. Seam, machinery, and conditional lists may only shrink. See docs/plans/replace-deps-bag-with-capability-ports.md.",
+    "comment": "Injection-seam ratchet. Seam, machinery, and conditional lists may only shrink. See docs/plans/finish-injection-seam-ownership-enforcement.md.",
     "files": {}
 }

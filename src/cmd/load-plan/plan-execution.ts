@@ -247,7 +247,7 @@ export async function validateCompletedExecution(
     const initialWorkflow = buildWorkflow(explicitContext);
     const needsImplementationCheckpoint = isPlannedChangeClassification(effectiveMeta.classification) &&
         effectiveMeta.status !== "implemented" &&
-        effectiveMeta.status !== "verified" &&
+        effectiveMeta.status !== "validated" && effectiveMeta.status !== "verified" &&
         effectiveMeta.status !== "user_verified";
     if (needsImplementationCheckpoint) {
         const completionReport = (executionResult as { completionReport?: unknown }).completionReport;
@@ -306,27 +306,12 @@ export async function validateCompletedExecution(
     const resolvedContext = resolution.context;
     const workflow = buildWorkflow(resolvedContext);
     await session.setActiveExecutionWorkflow(workflow);
-    let previousValidationStatus = effectiveMeta.status;
-    let validationResult = await continueWorkflowValidation({
+    await continueWorkflowValidation({
         planName,
         planContent,
         triageMeta: effectiveMeta,
         executionContext: workflow,
     });
-    for (let phase = 0; phase < 2; phase += 1) {
-        const latestPlan = await loadPlan(resolvedContext.projectRoot, planName).catch(() => null);
-        if (!latestPlan) break;
-        const latestStatus = latestPlan.attrs?.status;
-        if (validationResult?.kind !== "paused" || latestStatus === previousValidationStatus) break;
-        if (latestStatus !== "validated_ci" && latestStatus !== "validated_reviewer") break;
-        previousValidationStatus = latestStatus;
-        validationResult = await continueWorkflowValidation({
-            planName,
-            planContent: latestPlan.markdown || latestPlan.body || planContent,
-            triageMeta: { ...effectiveMeta, ...latestPlan.attrs },
-            executionContext: workflow,
-        });
-    }
     return true;
 }
 

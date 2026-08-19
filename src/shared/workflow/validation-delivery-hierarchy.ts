@@ -29,7 +29,7 @@ export interface DirectDeliveryHierarchySnapshot {
  * the dangerous case — it reads as shipped while its work may still be unmerged.
  */
 export function hasDirectDeliveryEvidence(attrs: PlanFrontMatter): boolean {
-    if (attrs.status !== "verified") return true;
+    if (attrs.status !== "validated" && attrs.status !== "verified") return true;
     const evidence = attrs.deliveryEvidence;
     return Boolean(
         evidence && typeof evidence === "object" &&

@@ -54,16 +54,11 @@ export type ValidationWorkflowBranchId =
     | "human-review:no-answer-retry"
     | "human-review:no-answer-stop"
     | "human-review:feedback-repair-approve"
-    | "publication:direct-success"
     | "publication:non-git-success"
-    | "publication:dirty-retry"
-    | "publication:dirty-stop-resume"
-    | "publication:merge-conflict-repair-completed"
-    | "publication:merge-conflict-repair-incomplete-retry"
-    | "publication:merge-conflict-repair-incomplete-stop"
-    | "publication:missing-target-branch"
-    | "publication:stale-repair-worktree"
-    | "publication:generic-git-failure"
+    | "publication:isolated-dirty-primary"
+    | "publication:remote-target-advance"
+    | "publication:push-failure-preserves"
+    | "publication:push-retry"
     | "lifecycle:resume-implemented"
     | "lifecycle:resume-validated-ci"
     | "lifecycle:resume-validated-reviewer"
@@ -72,7 +67,7 @@ export type ValidationWorkflowBranchId =
     | "lifecycle:unsupported-status-fails-closed"
     | "lifecycle:malformed-front-matter-fails-closed"
     | "lifecycle:missing-execution-context-fails-closed"
-    | "lifecycle:mismatched-worktree-identity-fails-closed";
+    | "lifecycle:registry-authority-ignores-stale-worktree-metadata";
 
 export interface ValidationEvidenceRequirement {
     transcriptIncludes: string[];
@@ -164,16 +159,11 @@ export const EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS: readonly ValidationWorkflo
     "human-review:no-answer-retry",
     "human-review:no-answer-stop",
     "human-review:feedback-repair-approve",
-    "publication:direct-success",
     "publication:non-git-success",
-    "publication:dirty-retry",
-    "publication:dirty-stop-resume",
-    "publication:merge-conflict-repair-completed",
-    "publication:merge-conflict-repair-incomplete-retry",
-    "publication:merge-conflict-repair-incomplete-stop",
-    "publication:missing-target-branch",
-    "publication:stale-repair-worktree",
-    "publication:generic-git-failure",
+    "publication:isolated-dirty-primary",
+    "publication:remote-target-advance",
+    "publication:push-failure-preserves",
+    "publication:push-retry",
     "lifecycle:resume-implemented",
     "lifecycle:resume-validated-ci",
     "lifecycle:resume-validated-reviewer",
@@ -182,7 +172,7 @@ export const EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS: readonly ValidationWorkflo
     "lifecycle:unsupported-status-fails-closed",
     "lifecycle:malformed-front-matter-fails-closed",
     "lifecycle:missing-execution-context-fails-closed",
-    "lifecycle:mismatched-worktree-identity-fails-closed",
+    "lifecycle:registry-authority-ignores-stale-worktree-metadata",
 ]);
 
 function phaseFor(id: ValidationWorkflowBranchId): ValidationWorkflowBranch["phase"] {
@@ -247,18 +237,11 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "human-review:no-answer-retry": "validation-tree-human-review-no-answer-retry",
     "human-review:no-answer-stop": "validation-tree-human-review-no-answer-stop",
     "human-review:feedback-repair-approve": "validation-tree-human-review-feedback-repair-approve",
-    "publication:direct-success": "validation-tree-publication-dirty-checkout",
     "publication:non-git-success": "validation-tree-non-git-delivery",
-    "publication:dirty-retry": "validation-tree-publication-dirty-checkout",
-    "publication:dirty-stop-resume": "validation-tree-publication-dirty-stop-resume",
-    "publication:merge-conflict-repair-completed": "validation-tree-publication-merge-conflict-repair-completed",
-    "publication:merge-conflict-repair-incomplete-retry":
-        "validation-tree-publication-merge-conflict-repair-incomplete-retry",
-    "publication:merge-conflict-repair-incomplete-stop":
-        "validation-tree-publication-merge-conflict-repair-incomplete-stop",
-    "publication:missing-target-branch": "validation-tree-publication-missing-target-branch",
-    "publication:stale-repair-worktree": "validation-tree-publication-stale-repair-worktree",
-    "publication:generic-git-failure": "validation-tree-publication-generic-git-failure",
+    "publication:isolated-dirty-primary": "validation-tree-publication-isolated-dirty-primary",
+    "publication:remote-target-advance": "validation-tree-publication-remote-target-advance",
+    "publication:push-failure-preserves": "validation-tree-publication-push-failure-retry",
+    "publication:push-retry": "validation-tree-publication-push-failure-retry",
     "lifecycle:resume-implemented": "validation-tree-resume-implemented",
     "lifecycle:resume-validated-ci": "validation-tree-resume-validated-ci",
     "lifecycle:resume-validated-reviewer": "validation-tree-resume-validated-reviewer",
@@ -267,7 +250,7 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "lifecycle:unsupported-status-fails-closed": "validation-tree-unsupported-status",
     "lifecycle:malformed-front-matter-fails-closed": "validation-tree-malformed-front-matter",
     "lifecycle:missing-execution-context-fails-closed": "validation-tree-missing-execution-context",
-    "lifecycle:mismatched-worktree-identity-fails-closed": "validation-tree-mismatched-worktree-identity",
+    "lifecycle:registry-authority-ignores-stale-worktree-metadata": "validation-tree-mismatched-worktree-identity",
 };
 
 function ownerFor(id: ValidationWorkflowBranchId): string {
@@ -284,8 +267,8 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "lifecycle:missing-execution-context-fails-closed") {
         return ["Validation blocked: RunWield cannot tell where"];
     }
-    if (id === "lifecycle:mismatched-worktree-identity-fails-closed") {
-        return ["Validation blocked: RunWield has worktree metadata"];
+    if (id === "lifecycle:registry-authority-ignores-stale-worktree-metadata") {
+        return ["Workflow Validation verified"];
     }
     if (id === "lifecycle:unsupported-status-fails-closed") return ["Plan has unknown status: sideways"];
     if (id.includes("plan-amendment")) return ["Plan amendment"];
@@ -304,18 +287,11 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     }
     if (id.startsWith("human-review:")) return ["Waiting for your code review"];
     if (id === "publication:non-git-success") return ["done and on its target branch"];
-    if (id === "publication:dirty-retry" || id === "publication:dirty-stop-resume") {
-        return ["changes you have not saved to git yet"];
+    if (id === "publication:push-failure-preserves") return ["could not be updated upstream"];
+    if (id === "publication:push-retry") return ["done and on its target branch"];
+    if (id === "publication:isolated-dirty-primary" || id === "publication:remote-target-advance") {
+        return ["done and on its target branch"];
     }
-    if (id === "publication:direct-success") return ["done and on its target branch"];
-    if (id === "publication:missing-target-branch") return ["fatal: ambiguous argument 'refs/heads/main'"];
-    if (id === "publication:merge-conflict-repair-completed") return ["The merge for", "engineer will fix the merge"];
-    if (
-        id === "publication:merge-conflict-repair-incomplete-retry" ||
-        id === "publication:merge-conflict-repair-incomplete-stop"
-    ) return ["could not combine"];
-    if (id === "publication:stale-repair-worktree") return ["checked Plan copy", "done and on its target branch"];
-    if (id === "publication:generic-git-failure") return ["could not add", "merge stopped"];
     if (id.startsWith("publication:")) return ["Publication"];
     return ["Plan recovery"];
 }
@@ -324,7 +300,6 @@ function turnRequirementFor(id: ValidationWorkflowBranchId): string[] {
     const objectiveSuccess = id === "mechanical:objective:none" || id === "mechanical:objective:all-pass" ||
         id === "mechanical:objective:mixed-waived";
     if (objectiveSuccess) return ["reviewer"];
-    if (id.startsWith("publication:merge-conflict-repair")) return ["engineer"];
     if (id.startsWith("publication:")) return [];
     if (id.includes("follow-up") || id.includes("repair") || id.includes("feedback")) return ["engineer"];
     if (id.startsWith("semantic:entry:")) return [];
@@ -336,17 +311,19 @@ function statePathsFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "lifecycle:missing-plan-fails-closed" || id === "lifecycle:malformed-front-matter-fails-closed") {
         return ["projectState.plans.0.name"];
     }
+    if (id === "publication:push-failure-preserves") {
+        return ["pendingPublication.registryStatus", "pendingPublication.executionPlanStatus"];
+    }
     if (
-        id === "publication:merge-conflict-repair-completed" ||
-        id === "publication:merge-conflict-repair-incomplete-stop"
+        id === "publication:isolated-dirty-primary" || id === "publication:remote-target-advance" ||
+        id === "publication:push-retry"
     ) {
-        return ["projectState.plans.0.name", "projectState.registryEntries"];
+        return ["publication.remotePlanStatus", "publication.registryEntries"];
     }
     const paths = ["projectState.plans.0.attrs.status"];
     if (id.includes(":ci:")) paths.push("projectState.plans.0.attrs.validationCiAttempts");
     if (id.startsWith("semantic:")) paths.push("projectState.plans.0.attrs.validationSemanticRounds");
     if (id.startsWith("human-review:")) paths.push("projectState.plans.0.attrs.humanReviewDecision");
-    if (id.startsWith("publication:")) paths.push("projectState.registryEntries");
     return paths;
 }
 
@@ -365,14 +342,12 @@ export const VALIDATION_INTERACTION_OPTION_BRANCHES: Readonly<Record<string, rea
             "mechanical:ci:cancel-retry",
             "mechanical:objective:cancel-retry",
             "human-review:no-answer-retry",
-            "publication:dirty-retry",
         ],
         stop: [
             "mechanical:ci:cancel-stop",
             "mechanical:objective:cancel-stop",
             "semantic:round-limit:stop",
             "human-review:no-answer-stop",
-            "publication:dirty-stop-resume",
         ],
         engineer_follow_up: [
             "mechanical:ci:cancel-follow-up",

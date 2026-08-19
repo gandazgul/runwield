@@ -210,7 +210,7 @@ Deno.test("re-baselines Objective-Failing Checks when head or command set change
         ports: createExecutionStartPorts(),
     });
 
-    const plan = await loadPlan(projectRoot, "stale-baseline-plan");
+    const plan = await loadPlan(/** @type {string} */ (workflow.executionCwd), "stale-baseline-plan");
     assertEquals(plan?.attrs.objectiveChecksBaseline?.head, workflow.worktreeBaseCommit);
     assertEquals(
         plan?.attrs.objectiveChecksBaseline?.results.map((result) => [result.id, result.command, result.status]),
@@ -234,6 +234,10 @@ Deno.test("startActiveExecutionWorkflow trusts existing Objective-Failing Checks
         projectRoot,
         await createWorktreeGitArtifacts({ projectRoot, planName: "continued-plan", planId: PLAN_UNDER_TEST }),
     );
+    await savePlan(recorded.path, "continued-plan", "# continued-plan", {
+        status: "in_progress",
+        objectiveChecks: [{ id: "OC_ALREADY_GREEN", command: "true" }],
+    });
     await Deno.writeTextFile(`${recorded.path}/continued-implementation.ts`, "export const continued = true;\n");
     await git(recorded.path, ["add", "continued-implementation.ts"]);
     await git(recorded.path, ["commit", "-m", "complete continued implementation"]);
@@ -249,7 +253,7 @@ Deno.test("startActiveExecutionWorkflow trusts existing Objective-Failing Checks
     assertEquals(workflow.worktreeId, recorded.id);
     assertEquals(workflow.executionCwd, recorded.path);
     assertEquals(workflow.baselineTree, recorded.baseTree);
-    const plan = await loadPlan(projectRoot, "continued-plan");
+    const plan = await loadPlan(recorded.path, "continued-plan");
     assertEquals(plan?.attrs.status, "in_progress");
     assertEquals(plan?.attrs.objectiveChecksBaseline, undefined);
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "continued-plan");
@@ -332,7 +336,7 @@ Deno.test("startActiveExecutionWorkflow bases the execution worktree on the requ
         targetCommit,
         await git(projectRoot, ["rev-parse", `${result.worktreeBranch}^{commit}`]),
     );
-    const plan = await loadPlan(projectRoot, "targeted-plan");
+    const plan = await loadPlan(/** @type {string} */ (result.executionCwd), "targeted-plan");
     assertEquals(plan?.attrs.objectiveChecksBaseline?.head, targetCommit);
     assertEquals(
         plan?.attrs.objectiveChecksBaseline?.results.map((result) => [result.id, result.command, result.status]),
@@ -388,7 +392,7 @@ Deno.test("startActiveExecutionWorkflow captures baseline after restored Plan pr
         },
     });
 
-    assertEquals(order, ["load-source", "load-source"]);
+    assertEquals(order, ["load-source", "load-source", "load-source"]);
     assertEquals(metrics.at(-1)?.details.planFileMaterialized, true);
     // The ordering used to be asserted by spying on the Plan restore and the baseline
     // capture. It did not need to be: a baseline that contains the restored Plan can
@@ -441,7 +445,7 @@ Deno.test("startActiveExecutionWorkflow rejects an unsafe canonical source befor
         "docs/plans/p.md",
     );
 
-    assertEquals(reuseLookups, 0);
+    assertEquals(reuseLookups, 1);
     assertEquals(ensureCalls, 0);
     // "Before creation" is a claim about the repository and the registry, so ask them
     // rather than a fake that was told to refuse.
@@ -479,7 +483,7 @@ Deno.test("startActiveExecutionWorkflow preserves a malformed derived Plan and b
                     },
                 }),
             Error,
-            "is malformed",
+            "malformed",
         );
 
         assertEquals((await Deno.stat(reused.path)).isDirectory, true);
@@ -491,7 +495,7 @@ Deno.test("startActiveExecutionWorkflow preserves a malformed derived Plan and b
     }
 });
 
-Deno.test("startActiveExecutionWorkflow preserves failed preparation evidence in the registry and on disk", async () => {
+Deno.test("startActiveExecutionWorkflow rolls back a worktree that fails before execution begins", async () => {
     const projectRoot = await makeWorkflowProject([{ name: "p", status: "ready_for_work" }]);
     const hostedSession = makeHostedSession("fresh-cleanup-failure", projectRoot);
     // A branch whose tree has `docs` as a *file*, built with plumbing so the working
@@ -529,30 +533,17 @@ Deno.test("startActiveExecutionWorkflow preserves failed preparation evidence in
                     },
                 }),
             Error,
-            "execution worktree evidence was preserved",
+            "no Agent work began",
         );
 
-        // What actually survives a failed preparation, asserted as it behaves rather than
-        // as the error message reads. Two gaps between the two are recorded here on
-        // purpose, so a change to either shows up as a failing test:
-        //
-        //  - The status is "abandoned", not the "execution_failed" the failure path
-        //    writes just before throwing. Rolling back the created entry runs
-        //    removeEntry(), which downgrades any non-terminal status, so the diagnostic
-        //    never survives the rollback that follows it.
-        //  - The message says evidence "was preserved at <path>", but the rollback also
-        //    removes the worktree when it is clean — and a worktree whose Plan file never
-        //    materialized always is. The history entry survives; the directory does not.
         const entries = await listWorktreeRegistryEntries(projectRoot);
-        assertEquals(entries.length, 1);
-        assertEquals(entries[0].status, "abandoned");
-        assertEquals(await Deno.stat(entries[0].path).catch(() => null), null);
+        assertEquals(entries.length, 0);
     } finally {
         await Deno.remove(getTransitionJournalDir(hostedSession.cwd), { recursive: true }).catch(() => {});
     }
 });
 
-Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans", async () => {
+Deno.test("startActiveExecutionWorkflow bases untargeted plans on the current target branch", async () => {
     const projectRoot = await makeWorkflowProject([{ name: "untargeted-plan", status: "ready_for_work" }]);
     const hostedSession = makeHostedSession("untargeted-workflow", projectRoot);
     let prepareCalls = 0;
@@ -579,9 +570,10 @@ Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans
     assertEquals(prepareCalls, 0);
     assertEquals(reuseLookups, 0);
     const entry = await findWorktreeRegistryEntryById(projectRoot, /** @type {string} */ (result.worktreeId));
-    // No declared target, so the worktree starts from wherever the checkout is now: the
-    // base *ref* stays HEAD, and the base *branch* is resolved to whatever HEAD was on.
-    assertEquals(entry?.baseRef, "HEAD");
+    // No declared target means the current branch is the target. Naming its ref
+    // explicitly lets repositories with an upstream prefer the fetched remote ref
+    // without ever moving the user's checkout.
+    assertEquals(entry?.baseRef, "refs/heads/main");
     assertEquals(result.worktreeBaseBranch, "main");
     assertEquals(
         await git(projectRoot, ["rev-parse", "HEAD"]),
@@ -596,6 +588,7 @@ Deno.test("startActiveExecutionWorkflow resolves implicit current branch before 
         projectRoot,
         await createWorktreeGitArtifacts({ projectRoot, planName: "untargeted-plan", planId: PLAN_UNDER_TEST }),
     );
+    await savePlan(recorded.path, "untargeted-plan", "# untargeted-plan", { status: "ready_for_work" });
     /** @type {unknown[]} */
     const reuseCalls = [];
     const result = await startActiveExecutionWorkflow({
@@ -679,6 +672,10 @@ Deno.test("startActiveExecutionWorkflow matches explicit remote target to record
             baseBranch: "feature-base",
         }),
     );
+    await savePlan(recorded.path, "targeted-plan", "# targeted-plan", {
+        status: "ready_for_work",
+        worktreeBaseBranch: "origin/feature-base",
+    });
     let prepareCalls = 0;
     const result = await startActiveExecutionWorkflow({
         planName: "targeted-plan",
@@ -916,6 +913,7 @@ Deno.test("finalizePlanImplementation checkpoints worktree changes before lifecy
         projectRoot,
         await createWorktreeGitArtifacts({ projectRoot, planName: "feature-plan", planId: PLAN_UNDER_TEST }),
     );
+    await savePlan(worktree.path, "feature-plan", "# feature-plan", { status: "in_progress" });
     const branchHeadBefore = await git(projectRoot, ["rev-parse", `${worktree.branch}^{commit}`]);
     await Deno.writeTextFile(`${worktree.path}/implemented.txt`, "the Agent's work\n");
 
@@ -944,7 +942,7 @@ Deno.test("finalizePlanImplementation checkpoints worktree changes before lifecy
     assertEquals(branchHeadAfter === branchHeadBefore, false, "the Agent's work must be committed to the branch");
     // The checkpoint's own contract: nothing left behind in the worktree.
     assertEquals(await git(worktree.path, ["status", "--porcelain"]), "");
-    const finalized = await loadPlan(projectRoot, "feature-plan");
+    const finalized = await loadPlan(worktree.path, "feature-plan");
     assertEquals(finalized?.attrs.status, "implemented");
     assertEquals(finalized?.attrs.executionReport, "- Implemented.");
     assertEquals(finalized?.attrs.worktreeId, worktree.id);
@@ -958,6 +956,7 @@ Deno.test("finalizePlanImplementation restores missing execution_started before 
         projectRoot,
         await createWorktreeGitArtifacts({ projectRoot, planName: "feature-plan", planId: PLAN_UNDER_TEST }),
     );
+    await savePlan(worktree.path, "feature-plan", "# feature-plan", { status: "ready_for_work" });
     await Deno.writeTextFile(`${worktree.path}/recovered.txt`, "work done before the marker was lost\n");
 
     const executionContext = /** @type {const} */ ({
@@ -981,7 +980,7 @@ Deno.test("finalizePlanImplementation restores missing execution_started before 
     });
 
     assertEquals(await git(worktree.path, ["status", "--porcelain"]), "");
-    const finalized = await loadPlan(projectRoot, "feature-plan");
+    const finalized = await loadPlan(worktree.path, "feature-plan");
     assertEquals(
         finalized?.attrs.status,
         "implemented",

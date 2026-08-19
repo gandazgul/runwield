@@ -1524,17 +1524,18 @@ export class SessionRuntime {
         }
         const result = await this.#runWorkflowOperation(session, "runValidation", options, async () => {
             const { SYSTEM_SEMANTIC_REVIEW_PORT } = await import("../workflow/validation.ts");
-            const { continueWorkflowValidation } = await import("../workflow/validation-supervisor.ts");
+            const { runWorkflowValidationToStableBoundary } = await import(
+                "../workflow/validation-supervisor.ts"
+            );
             const { createGitPort } = await import("../git-port.ts");
             const { systemLocalCIPort } = await import("../workflow/validation-local-ci.ts");
             const { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } = await import("../work-records/mnemosyne-port.ts");
-            const { loadPlan } = await import("../../plan-store.js");
             const validationPorts = {
                 git: createGitPort(),
                 localCI: systemLocalCIPort,
                 workRecordMnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
             };
-            let latestResult = await continueWorkflowValidation(
+            const latestResult = await runWorkflowValidationToStableBoundary(
                 /** @type {any} */ ({
                     ...options,
                     hostedSession: session,
@@ -1543,24 +1544,6 @@ export class SessionRuntime {
                     supportsSemanticRepairHandoff: true,
                 }),
             );
-            for (let phase = 0; phase < 2; phase += 1) {
-                if (latestResult?.kind !== "paused") break;
-                const plan = await loadPlan(session.cwd, options.planName).catch(() => null);
-                if (!plan) break;
-                const status = plan.attrs?.status;
-                if (status !== "validated_ci" && status !== "validated_reviewer") break;
-                latestResult = await continueWorkflowValidation(
-                    /** @type {any} */ ({
-                        ...options,
-                        hostedSession: session,
-                        planContent: plan.markdown || plan.body || options.planContent,
-                        triageMeta: { ...options.triageMeta, ...plan.attrs },
-                        ...validationPorts,
-                        semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
-                        supportsSemanticRepairHandoff: true,
-                    }),
-                );
-            }
             return latestResult;
         });
         if (result?.kind === "semantic_repair_handoff") {
@@ -1691,7 +1674,7 @@ export class SessionRuntime {
                 "../workflow/validation-supervisor.ts"
             );
             await recordValidationRepairCompletion({
-                projectRoot,
+                projectRoot: executionCwd,
                 planName: continuation.plan.planName,
                 repairGeneration: continuation.repair.repairGeneration,
                 report,
@@ -1708,7 +1691,7 @@ export class SessionRuntime {
         if (repairResult?.kind === "semantic_repair_completed") {
             const { loadPlan } = await import("../../plan-store.js");
             const completedPlan = await loadPlan(
-                projectRoot,
+                executionCwd,
                 continuation.plan.planName || options.planName,
             );
             if (!completedPlan) throw new Error("Completed semantic repair Plan is unavailable.");
@@ -4059,7 +4042,7 @@ export class SessionRuntime {
             const { resolveEpicContinuation, runEpicChildContinuation } = await import(
                 "../workflow/epic-continuation.ts"
             );
-            const resolution = await resolveEpicContinuation({
+            const resolution = currentContinuation.resolution || await resolveEpicContinuation({
                 cwd: currentContinuation.projectRoot,
                 completedPlanName: currentContinuation.completedPlanName,
             });

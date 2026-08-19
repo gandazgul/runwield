@@ -154,7 +154,7 @@ Deno.test("executePlan runs preparation, Engineer, checkpoint, lifecycle, and re
                 "implemented in execution worktree\n",
             );
             assertEquals(await Deno.stat(`${projectRoot}/implemented.txt`).then(() => true).catch(() => false), false);
-            const persisted = await loadPlan(projectRoot, "feature");
+            const persisted = await loadPlan(result.executionContext.executionCwd, "feature");
             assertEquals(persisted?.attrs.status, "implemented");
             assertEquals(persisted?.attrs.executionReport, "- Implemented the fixture.\n- Verified the fixture.");
             const registryEntries = await listWorktreeRegistryEntries(projectRoot);
@@ -184,7 +184,11 @@ Deno.test("executePlan leaves real execution state resumable when Engineer omits
             assertEquals(result.executionComplete, false);
             assertEquals(result.repairRequired, false);
             assertEquals(result.executionContext?.executionMode, "worktree");
-            assertEquals((await loadPlan(projectRoot, "paused-feature"))?.attrs.status, "in_progress");
+            assert(result.executionContext?.executionCwd);
+            assertEquals(
+                (await loadPlan(result.executionContext.executionCwd, "paused-feature"))?.attrs.status,
+                "in_progress",
+            );
             assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.planName, "paused-feature");
             assertEquals((await listWorktreeRegistryEntries(projectRoot))[0]?.status, "active");
         } finally {

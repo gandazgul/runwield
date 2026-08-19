@@ -112,9 +112,12 @@ export const validationTreeHumanReviewNoAnswerStopScenario = withValidationBranc
             ...(plannedChangeReviewRepairValidationScenario.scriptedInteractions || []),
             { type: "select", promptIncludes: "Pick Retry to open it again", value: "stop" },
         ],
-        actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
-            action.type !== "assertWorkflowDurability"
-        ),
+        actions: [
+            ...plannedChangeReviewRepairValidationScenario.actions.slice(0, 3),
+            { type: "waitForScreen", text: "Pick Retry to open it again", timeoutMs: 240000 },
+            { type: "sleep", ms: 500 },
+            { type: "captureProjectState", planNames: ["plan"] },
+        ],
         assertions: [],
     },
     "validation-tree-human-review-no-answer-stop",

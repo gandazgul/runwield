@@ -129,6 +129,7 @@ async function removeTempDir(path) {
  * @property {string} root
  * @property {string} home
  * @property {string} projectRoot
+ * @property {string} remoteRoot
  * @property {string} runwieldDir
  * @property {Record<string, string>} env
  * @property {() => Promise<void>} cleanup
@@ -142,6 +143,7 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
     const root = await Deno.makeTempDir({ prefix: "runwield-golden-tui-" });
     const home = join(root, "home");
     const projectRoot = join(root, "project");
+    const remoteRoot = join(root, "remote.git");
     const runwieldDir = join(home, ".wld");
     const fixtureBinDir = await writeGoldenMnemosyneFixture(root);
     await Deno.mkdir(projectRoot, { recursive: true });
@@ -166,6 +168,18 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
     await new Deno.Command("git", { args: ["add", "-A"], cwd: projectRoot }).output();
     await new Deno.Command("git", {
         args: ["commit", "-m", "Initial fixture"],
+        cwd: projectRoot,
+        stdout: "null",
+        stderr: "null",
+    }).output();
+    await new Deno.Command("git", {
+        args: ["init", "--bare", remoteRoot],
+        stdout: "null",
+        stderr: "null",
+    }).output();
+    await new Deno.Command("git", { args: ["remote", "add", "origin", remoteRoot], cwd: projectRoot }).output();
+    await new Deno.Command("git", {
+        args: ["push", "-u", "origin", "main"],
         cwd: projectRoot,
         stdout: "null",
         stderr: "null",
@@ -217,6 +231,7 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
         root,
         home,
         projectRoot,
+        remoteRoot,
         runwieldDir,
         env,
         async cleanup() {

@@ -199,8 +199,14 @@ export async function recordLifecycleEvent(
     failureReason?: string,
     extraDetails: Partial<RecordPlanEventArgs["details"]> = {},
 ): Promise<RecordPlanEventResult> {
+    const activeWorkflow = args.session.getActiveWorkflow();
+    const lifecycleCwd = activeWorkflow?.executionMode === "worktree" && activeWorkflow.executionCwd
+        ? activeWorkflow.executionCwd
+        : args.executionContext?.executionMode === "worktree" && args.executionContext.executionCwd
+        ? args.executionContext.executionCwd
+        : projectRoot;
     const result = await recordPlanEvent({
-        cwd: projectRoot,
+        cwd: lifecycleCwd,
         planName: args.planName,
         event,
         currentStatus,

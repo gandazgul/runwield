@@ -558,7 +558,7 @@ Deno.test("completed planned work runs the real validation lifecycle around exte
             });
 
             assertEquals(result?.kind, "verified");
-            assertEquals((await loadPlan(projectRoot, "feature-validated"))?.attrs.status, "verified");
+            assertEquals((await loadPlan(projectRoot, "feature-validated"))?.attrs.status, "validated");
             assertEquals(await Deno.readTextFile(`${projectRoot}/implemented.txt`), "implemented\n");
             assertEquals(ci.calls, [projectRoot]);
             assertEquals(

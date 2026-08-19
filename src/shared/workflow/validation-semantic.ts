@@ -105,7 +105,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             true,
         );
         if (action === "code_review") {
-            await persistHumanReviewMetadata(args, context.projectRoot, {
+            await persistHumanReviewMetadata(args, context.executionCwd, {
                 humanReviewMode: "always",
                 humanReviewDecision: null,
                 humanReviewedAt: null,
@@ -317,7 +317,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 );
                 const action = await promptForSemanticRoundLimit(args, nextRound, openCount, testsPass);
                 if (action === "code_review") {
-                    await persistHumanReviewMetadata(args, context.projectRoot, {
+                    await persistHumanReviewMetadata(args, context.executionCwd, {
                         humanReviewMode: "always",
                         humanReviewDecision: null,
                         humanReviewedAt: null,

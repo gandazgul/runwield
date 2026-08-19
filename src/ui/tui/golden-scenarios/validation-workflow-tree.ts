@@ -57,14 +57,9 @@ export {
     validationWorkflowHumanReviewScenarios,
 } from "./validation-workflow-tree-human-review.ts";
 export {
-    validationTreePublicationDirtyCheckoutScenario,
-    validationTreePublicationDirtyStopResumeScenario,
-    validationTreePublicationGenericGitFailureScenario,
-    validationTreePublicationMergeConflictRepairCompletedScenario,
-    validationTreePublicationMergeConflictRepairIncompleteRetryScenario,
-    validationTreePublicationMergeConflictRepairIncompleteStopScenario,
-    validationTreePublicationMissingTargetBranchScenario,
-    validationTreePublicationStaleRepairWorktreeScenario,
+    validationTreePublicationIsolatedDirtyPrimaryScenario,
+    validationTreePublicationPushFailureRetryScenario,
+    validationTreePublicationRemoteTargetAdvanceScenario,
     validationWorkflowPublicationScenarios,
 } from "./validation-workflow-tree-publication.ts";
 export {

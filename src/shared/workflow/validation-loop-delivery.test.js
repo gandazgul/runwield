@@ -68,7 +68,7 @@ Deno.test("runValidationLoop clears validationMergeRepairWorktree for non-Git pu
 
     const plan = await loadPlan(projectRoot, "p");
     assertEquals(result.kind, "verified");
-    assertEquals(plan?.attrs.status, "verified");
+    assertEquals(plan?.attrs.status, "validated");
     assertEquals(plan?.attrs.validationMergeRepairWorktree ?? null, null);
 });
 
@@ -109,7 +109,7 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
 
     const plan = await loadPlan(projectRoot, "p");
     assertEquals(result.kind, "verified");
-    assertEquals(plan?.attrs.status, "verified");
+    assertEquals(plan?.attrs.status, "validated");
     assertEquals(plan?.attrs.deliveryEvidence, { version: 1, mode: "non_git_in_place" });
 });
 
@@ -150,7 +150,7 @@ Deno.test("runValidationLoop publishes only from validated_reviewer after human 
 
     const plan = await loadPlan(projectRoot, "p");
     assertEquals(result.kind, "verified");
-    assertEquals(plan?.attrs.status, "verified");
+    assertEquals(plan?.attrs.status, "validated");
     assertEquals(plan?.attrs.deliveryEvidence?.mode, "non_git_in_place");
     assertEquals(plan?.attrs.humanReviewDecision, "not_required");
 });
@@ -220,7 +220,7 @@ Deno.test("Epic child delivery commits its Manual QA artifact with verified meta
     });
 
     assertEquals(result.kind, "verified");
-    assertEquals((await loadPlan(projectRoot, "epic/01-one"))?.attrs.status, "verified");
+    assertEquals((await loadPlan(projectRoot, "epic/01-one"))?.attrs.status, "validated");
     const artifact = await Deno.readTextFile(`${projectRoot}/docs/plans/epic/manual-qa.md`);
     assertStringIncludes(artifact, "# Manual QA for epic");
     assertStringIncludes(artifact, "This checklist is advisory. It does not change RunWield verification status.");

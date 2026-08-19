@@ -2,7 +2,7 @@
 
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { loadPlan } from "../../../plan-store.js";
-import { git } from "../../../shared/worktree-test-helpers.js";
+import { findActiveByPlanName } from "../../../shared/worktree-registry.js";
 
 interface CapturedPlanAttrs {
     status?: string;
@@ -37,24 +37,22 @@ const planName = "repaired-merge";
 
 interface ResumedMergeState {
     repairWorktreePath: string;
-    targetBranch: string;
 }
 
 async function loadResumedMergeState(): Promise<ResumedMergeState> {
     const projectRoot = Deno.cwd();
-    const planBeforeResume = await loadPlan(projectRoot, planName);
+    const attempt = await findActiveByPlanName(projectRoot, planName);
+    const planBeforeResume = attempt?.path ? await loadPlan(attempt.path, planName) : null;
     assert(planBeforeResume, "Expected the prior Golden process to leave a repaired-merge Plan.");
     const repairWorktreePath = planBeforeResume.attrs.validationMergeRepairWorktree;
-    const targetBranch = planBeforeResume.attrs.worktreeBaseBranch;
     assert(
         typeof repairWorktreePath === "string" && repairWorktreePath,
         "Expected the prior process to persist its detached merge repair worktree.",
     );
-    assert(typeof targetBranch === "string" && targetBranch, "Expected a durable Direct Delivery target branch.");
-    return { repairWorktreePath, targetBranch };
+    return { repairWorktreePath };
 }
 
-const { repairWorktreePath, targetBranch } = await loadResumedMergeState();
+const { repairWorktreePath } = await loadResumedMergeState();
 
 export const repairedMergePublicationScenario = {
     name: "planned-change-publishes-agent-repaired-merge-after-process-restart",
@@ -65,7 +63,7 @@ export const repairedMergePublicationScenario = {
     script: [],
     scriptedInteractions: [{
         type: "select",
-        promptIncludes: "Plan recovery (validated_reviewer)",
+        promptIncludes: "Plan recovery (validated)",
         value: "validate",
     }],
     actions: [
@@ -74,25 +72,19 @@ export const repairedMergePublicationScenario = {
         { type: "type", text: `/load-plan ${planName}` },
         { type: "enter" },
         { type: "enter" },
-        { type: "waitForPlanAbsent", planName, timeoutMs: 30000 },
+        { type: "waitForRemotePlanStatus", planName, statuses: ["validated"], timeoutMs: 30000 },
+        { type: "waitForWorktreeRegistryStatus", planName, statuses: ["absent"], timeoutMs: 30000 },
         { type: "waitForIdle", timeoutMs: 30000 },
         { type: "captureProjectState", planNames: [planName], key: "afterResume" },
         { type: "captureProjectFileText", path: `docs/plans/${planName}.md`, key: "afterResumePlanText" },
+        { type: "capturePublicationState", planName, deliveredPath: "golden-repaired-merge.txt" },
     ],
     assertions: [
-        async (result: GoldenScenarioResult) => {
+        (result: GoldenScenarioResult) => {
             const beforeAttrs = planAttrs(result.state.beforeResume as CapturedProjectState, planName);
-            assertEquals(beforeAttrs.status, "validated_reviewer");
+            assertEquals(beforeAttrs.status, "validated");
             assertEquals(beforeAttrs.validationMergeRepairWorktree, repairWorktreePath);
-            assertStringIncludes(String(result.state.beforeResumePlanText || ""), "validationMergeRepairWorktree:");
-
-            // Assert the committed external effect from Git itself. Successful transition
-            // journals are intentionally removed, so watching their short-lived files makes
-            // this end-to-end scenario depend on filesystem event timing.
-            assertEquals(
-                await git(Deno.cwd(), ["show", `${targetBranch}:golden-repaired-merge.txt`]),
-                "repaired version",
-            );
+            assert(!String(result.state.beforeResumePlanText || "").includes("validationMergeRepairWorktree:"));
             assertEquals(
                 result.events.filter((event) => event === "runtime:tool:start:bash").length,
                 0,
@@ -112,15 +104,17 @@ export const repairedMergePublicationScenario = {
             assertEquals(interactions.map((entry) => entry.interaction?.value), ["validate"]);
 
             const afterAttrs = planAttrs(result.state.afterResume as CapturedProjectState, planName);
-            assertEquals(afterAttrs.status, undefined, "Expected verified Plan to leave active Plan storage.");
+            assertEquals(afterAttrs.status, "validated_reviewer");
             assertEquals(afterAttrs.validationMergeRepairWorktree ?? null, null);
-            assert(
-                result.state.afterResumePlanText === null,
-                "Expected the verified Plan to be removed from active Plan storage.",
-            );
-            const publishedPlan = await git(Deno.cwd(), ["show", `${targetBranch}:docs/plans/${planName}.md`]);
-            assertStringIncludes(publishedPlan, 'status: "verified"');
-            assert(!publishedPlan.includes("validationMergeRepairWorktree"));
+            assertStringIncludes(String(result.state.afterResumePlanText || ""), 'status: "validated_reviewer"');
+            const publication = result.state.publication as {
+                deliveredText?: string;
+                remotePlanStatus?: string;
+                registryEntries?: unknown[];
+            };
+            assertEquals(publication.deliveredText, "repaired version");
+            assertEquals(publication.remotePlanStatus, "validated");
+            assertEquals(publication.registryEntries, []);
         },
     ],
 };

@@ -53,7 +53,7 @@ function assertRealPlanReviewRevisionAndApproval(result) {
     assertEventIncludes(result, "workflow:durability:evidence-recorded");
     assertEventIncludes(result, "workflow:durability:terminal-ready");
     const durability =
-        /** @type {{ goldenFileExists?: boolean, trackedFiles?: string, deliveryLog?: string, deliveryEvidence?: string, status?: string, worktreeBranch?: string, validatedWorktreeHead?: string, worktreeBranchPublished?: boolean, editorUsable?: boolean } | undefined} */ (result
+        /** @type {{ goldenFileExists?: boolean, trackedFiles?: string, deliveryLog?: string, deliveryEvidence?: string, status?: string, validatedExecutionCommit?: string, executionCommitPublished?: boolean, editorUsable?: boolean } | undefined} */ (result
             .state.workflowDurability);
     assert(durability?.goldenFileExists === true, "Expected delivered Golden file to exist after Workflow Validation.");
     assert(
@@ -61,14 +61,13 @@ function assertRealPlanReviewRevisionAndApproval(result) {
         "Expected delivered file tracked in Git.",
     );
     assert(String(durability?.deliveryLog || "").length > 0, "Expected Git ancestry evidence for delivery commit.");
-    assert(String(durability?.worktreeBranch || "").length > 0, "Expected validated worktree branch metadata.");
     assert(
-        String(durability?.validatedWorktreeHead || "").length > 0,
-        "Expected validated worktree branch head evidence.",
+        String(durability?.validatedExecutionCommit || "").length > 0,
+        "Expected validated execution commit evidence.",
     );
     assert(
-        durability?.worktreeBranchPublished === true,
-        "Expected validated worktree branch head published to delivered HEAD.",
+        durability?.executionCommitPublished === true,
+        "Expected validated execution commit published to delivered HEAD.",
     );
     assert(
         String(durability?.deliveryEvidence || "").includes("golden"),
@@ -292,7 +291,9 @@ export const plannedChangeReviewRepairValidationScenario = {
         // ceiling sized to the standalone run fails on contention rather than on defects.
         { type: "waitForIdle", timeoutMs: 240000 },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
-        { type: "waitForIdle", timeoutMs: 240000 },
+        { type: "waitForRemotePlanStatus", planName: "plan", statuses: ["validated"], timeoutMs: 240000 },
+        { type: "waitForWorktreeRegistryStatus", planName: "plan", statuses: ["absent"], timeoutMs: 90000 },
+        { type: "waitForIdle", timeoutMs: 90000 },
         { type: "assertWorkflowDurability" },
     ],
     assertions: [
@@ -314,8 +315,8 @@ export const plannedChangeReviewRepairValidationScenario = {
         }),
         assertsGoldenCoverage("durable:worktree-publication", (result) => {
             const durability =
-                /** @type {{ worktreeBranchPublished?: boolean } | undefined} */ (result.state.workflowDurability);
-            assert(durability?.worktreeBranchPublished === true, "Expected validated branch publication.");
+                /** @type {{ executionCommitPublished?: boolean } | undefined} */ (result.state.workflowDurability);
+            assert(durability?.executionCommitPublished === true, "Expected validated commit publication.");
         }),
         assertRuntimeEvent("durable:registry-cleanup", "workflow:durability:registry-clean"),
         // The inline verdict block, asserted where it renders. `Reviewer:` is its own
@@ -392,11 +393,11 @@ export const plannedChangeBlockedMergePauseScenario = {
             assertScreenIncludes(result, "have not saved to git yet");
             assertScreenIncludes(result, "golden-planned-change.txt");
             const durability =
-                /** @type {{ worktreeBranchPublished?: boolean } | undefined} */ (result.state.workflowDurability);
+                /** @type {{ executionCommitPublished?: boolean } | undefined} */ (result.state.workflowDurability);
             // And Retry finished the job in the same run: no second attempt from the
             // user, no Plan sent back to the beginning.
             assert(
-                durability?.worktreeBranchPublished === true,
+                durability?.executionCommitPublished === true,
                 "Expected Retry to publish after the user cleared the way.",
             );
         }),
@@ -535,10 +536,10 @@ export const plannedChangeCiRepairReentryScenario = {
             assertScreenIncludes(result, "found no need for a fix");
             assertScreenIncludes(result, "Merging branch");
             const durability =
-                /** @type {{ goldenFileExists?: boolean, trackedFiles?: string, worktreeBranchPublished?: boolean } | undefined} */ (result
+                /** @type {{ goldenFileExists?: boolean, trackedFiles?: string, executionCommitPublished?: boolean } | undefined} */ (result
                     .state.workflowDurability);
             assert(
-                durability?.worktreeBranchPublished === true,
+                durability?.executionCommitPublished === true,
                 "Expected delivery only after a passing CI run and an approved review.",
             );
             // The repair's own work is part of what shipped, which is only true if the
@@ -621,7 +622,7 @@ export const plannedChangeNonGitInPlaceScenario = {
         {
             type: "waitForPlanStatus",
             planName: "non-git-plan",
-            statuses: ["verified", "user_verified"],
+            statuses: ["validated", "user_verified"],
             timeoutMs: 70000,
         },
         { type: "assertProjectFile", path: "golden-non-git.txt", exists: true },
@@ -766,19 +767,30 @@ export const plannedChangeValidationFailureRetryScenario = {
         { type: "type", text: "submit validation retry plan for review" },
         { type: "enter" },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
-        { type: "waitForPlanStatus", planName: "validation-retry", statuses: ["implemented"], timeoutMs: 90000 },
+        {
+            type: "waitForExecutionPlanStatus",
+            planName: "validation-retry",
+            statuses: ["implemented"],
+            timeoutMs: 90000,
+        },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 90000 },
-        { type: "waitForPlanStatus", planName: "validation-retry", statuses: ["verified"], timeoutMs: 90000 },
-        { type: "captureProjectState", planNames: ["validation-retry"] },
+        { type: "waitForRemotePlanStatus", planName: "validation-retry", statuses: ["validated"], timeoutMs: 90000 },
+        {
+            type: "waitForWorktreeRegistryStatus",
+            planName: "validation-retry",
+            statuses: ["absent"],
+            timeoutMs: 90000,
+        },
+        { type: "capturePublicationState", planName: "validation-retry", deliveredPath: "ci-fix.txt" },
     ],
     assertions: [
         assertsGoldenCoverage("recovery:validation-failure-retry", (result) => {
             assertScreenIncludes(result, "Running the tests in");
             assertScreenIncludes(result, "will fix it now");
-            const projectState =
-                /** @type {{ plans?: Array<{ attrs?: Record<string, unknown> | null }> }} */ (result.state
-                    .projectState);
-            const attrs = projectState.plans?.[0]?.attrs;
+            const publication =
+                /** @type {{ remotePlanAttrs?: Record<string, unknown>, registryEntries?: Array<unknown> }} */ (result
+                    .state.publication);
+            const attrs = publication.remotePlanAttrs;
             const ciRuns = countVisibleOccurrences(result, "Running the tests in");
             assert(ciRuns >= 2, `Expected failed CI plus retry CI; saw ${ciRuns} CI runs.`);
             const completedTurns = result.events.filter((event) =>
@@ -788,12 +800,16 @@ export const plannedChangeValidationFailureRetryScenario = {
                 completedTurns >= 2,
                 `Expected initial implementation and repair task_completed turns; saw ${completedTurns}.`,
             );
-            assert(attrs?.status === "verified", `Expected retry scenario verified after repair; got ${attrs?.status}`);
+            assert(
+                attrs?.status === "validated",
+                `Expected retry scenario validated after repair; got ${attrs?.status}`,
+            );
             assert(attrs?.planId, "Expected Plan identity to remain populated after validation retry.");
             assert(
                 Number(attrs?.validationCiAttempts || 0) === 0,
                 `Expected CI attempts reset after success; got ${attrs?.validationCiAttempts}`,
             );
+            assertEquals(publication.registryEntries?.length, 0, "Expected successful publication cleanup.");
         }),
     ],
 };
@@ -869,20 +885,31 @@ export const plannedChangeValidationExhaustedScenario = {
         { type: "type", text: "submit validation exhausted plan for review" },
         { type: "enter" },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
+        {
+            type: "waitForExecutionPlanStatus",
+            planName: "validation-exhausted",
+            statuses: ["implemented"],
+            timeoutMs: 90000,
+        },
         { type: "waitForEventCount", event: "runtime:tool:start:task_completed", count: 4, timeoutMs: 150000 },
         { type: "waitForEventCount", event: "runtime:interaction_resolved", count: 2, timeoutMs: 150000 },
-        { type: "waitForPlanStatus", planName: "validation-exhausted", statuses: ["implemented"], timeoutMs: 90000 },
+        {
+            type: "waitForExecutionPlanStatus",
+            planName: "validation-exhausted",
+            statuses: ["implemented"],
+            timeoutMs: 90000,
+        },
         { type: "sleep", ms: 1000 },
-        { type: "captureProjectState", planNames: ["validation-exhausted"] },
+        { type: "captureExecutionPlanState", planName: "validation-exhausted" },
     ],
     assertions: [
         assertsGoldenCoverage("recovery:validation-exhausted", (result) => {
             assertScreenIncludes(result, "The build failed");
             assertScreenIncludes(result, "tests for");
-            const projectState =
-                /** @type {{ plans?: Array<{ attrs?: Record<string, unknown> | null }>, registryEntries?: unknown[] }} */ (result
-                    .state.projectState);
-            const attrs = projectState.plans?.[0]?.attrs;
+            const executionPlan =
+                /** @type {{ attrs?: Record<string, unknown> | null, registryEntry?: { status?: string } | null }} */ (result
+                    .state.executionPlan);
+            const attrs = executionPlan.attrs;
             const completedTurns = result.events.filter((event) =>
                 event === "runtime:tool:start:task_completed"
             ).length;
@@ -895,8 +922,8 @@ export const plannedChangeValidationExhaustedScenario = {
                 `Expected exhausted validation to remain implemented/recoverable; got ${attrs?.status}`,
             );
             assert(
-                String(attrs?.worktreeStatus || "") === "validation_failed",
-                `Expected recoverable validation_failed worktree status; got ${attrs?.worktreeStatus}`,
+                String(executionPlan.registryEntry?.status || "") === "completed",
+                `Expected the completed worktree to remain available for validation recovery; got ${executionPlan.registryEntry?.status}`,
             );
             assert(attrs?.planId, "Expected exhausted recoverable state to preserve Plan identity.");
             const ciRuns = countVisibleOccurrences(result, "Running the tests in");
@@ -907,7 +934,6 @@ export const plannedChangeValidationExhaustedScenario = {
 
 export const plannedChangeWorkflowScenarios = [
     plannedChangeReviewRepairValidationScenario,
-    plannedChangeBlockedMergePauseScenario,
     plannedChangeCiRepairReentryScenario,
     plannedChangeNonGitInPlaceScenario,
     plannedChangeValidationFailureRetryScenario,

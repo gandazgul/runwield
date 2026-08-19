@@ -41,23 +41,24 @@ async function makeReportedMismatchFixture() {
     await git(projectRoot, ["worktree", "add", "-b", branch, executionCwd, "HEAD"]);
     await Deno.writeTextFile(join(executionCwd, "README.md"), "# Validation fixture\n\nImplemented change.\n");
 
-    // Reproduce the reported stale derived copy. The body remains valid user data.
+    // Reproduce stale RunWield-owned identity while keeping the execution Plan's
+    // user-owned definition and lifecycle authoritative.
     const executionPath = join(executionCwd, "docs", "plans", "demo.md");
     const staleExecution = injectFrontMatter("# Demo\n\nKeep the approved body.\n", {
         planId: "plan-stale-copy",
         classification: "PLANNED_CHANGE",
         workKind: "REFACTOR",
-        status: "ready_for_work",
+        status: "implemented",
         summary: "Check stale Plan data",
         affectedPaths: ["README.md"],
         executionAgent: "engineer",
-        collaborationRecommendation: "pair",
+        collaborationRecommendation: "autonomous",
         executionMode: "worktree",
     });
     await Deno.writeTextFile(executionPath, staleExecution);
     const staleAttrs = parsePlanFrontMatter(await Deno.readTextFile(executionPath)).attrs;
     assertEquals(staleAttrs.planId, "plan-stale-copy");
-    assertEquals(staleAttrs.collaborationRecommendation, "pair");
+    assertEquals(staleAttrs.collaborationRecommendation, "autonomous");
 
     const primary = await loadPlan(projectRoot, "demo");
     assertExists(primary);
@@ -164,15 +165,16 @@ Deno.test("stale RunWield state self-heals and validation continues", async () =
             },
         });
 
-        assertEquals(ciRuns, 1, "fresh Mechanical Validation must run once");
         assertEquals(result.kind, "paused", result.reason || "the test stops only at the fake semantic boundary");
+        assertEquals(ciRuns, 1, `fresh Mechanical Validation must run once: ${JSON.stringify(result)}`);
         const executionAfter = parsePlanFrontMatter(await Deno.readTextFile(testFixture.executionPath));
         assertEquals(executionAfter.attrs.planId, "plan-demo");
         assertEquals(executionAfter.attrs.collaborationRecommendation, "autonomous");
+        assertEquals(executionAfter.attrs.status, "validated_ci");
         assertEquals(executionAfter.body, "# Demo\n\nKeep the approved body.\n");
         const primaryAfter = await loadPlan(testFixture.projectRoot, "demo");
         assertExists(primaryAfter);
-        assertEquals(primaryAfter.attrs.status, "validated_ci");
+        assertEquals(primaryAfter.attrs.status, "implemented");
         const savedWorktree = await findById(testFixture.projectRoot, "wt-demo");
         assertExists(savedWorktree);
         assertEquals(await Deno.realPath(savedWorktree.path), await Deno.realPath(testFixture.executionCwd));
@@ -251,26 +253,25 @@ Deno.test("approved body-only Plan amendment reloads and starts Mechanical Valid
         assertEquals(amendmentPrompts.length, 1);
         assertEquals(ciRuns, 1);
         assertEquals(result.kind, "paused");
-        const canonical = await loadPlan(testFixture.projectRoot, "demo");
-        assertExists(canonical);
-        assertEquals(canonical.body, "# Demo\n\nEngineer clarified the implementation notes.\n");
-        assertEquals(canonical.attrs.status, "validated_ci");
+        const executionAfter = await loadPlan(testFixture.executionCwd, "demo");
+        assertExists(executionAfter);
+        assertEquals(executionAfter.body, "# Demo\n\nEngineer clarified the implementation notes.\n");
+        assertEquals(executionAfter.attrs.status, "validated_ci");
+        const primaryAfter = await loadPlan(testFixture.projectRoot, "demo");
+        assertExists(primaryAfter);
+        assertEquals(primaryAfter.body, "# Demo\n\nKeep the approved body.\n");
+        assertEquals(primaryAfter.attrs.status, "implemented");
         assertStringIncludes(recorder.messages.join("\n"), "The Plan change is saved. The tests will start again.");
     } finally {
         await removeFixture(testFixture);
     }
 });
 
-Deno.test("Engineer broken-check reports are not shown as Plan amendments", async () => {
+Deno.test("stale Engineer broken-check reports do not amend the execution Plan", async () => {
     const testFixture = await makeReportedMismatchFixture();
     try {
         const primary = await loadPlan(testFixture.projectRoot, "demo");
         assertExists(primary);
-        const objectiveChecks = [{ id: "OC_REPORT", command: "not-a-real-runwield-command" }];
-        await savePlan(testFixture.projectRoot, "demo", primary.body, {
-            ...primary.attrs,
-            objectiveChecks,
-        }, { expectedRevision: primary.revision });
 
         const recorder = makeUi();
         const prompts: string[] = [];
@@ -284,7 +285,7 @@ Deno.test("Engineer broken-check reports are not shown as Plan amendments", asyn
         );
         hostedSession.setActiveExecutionWorkflow({
             planName: "demo",
-            triageMeta: { ...primary.attrs, objectiveChecks },
+            triageMeta: primary.attrs,
             executionAgent: "engineer",
             executionStarted: true,
             executionMode: "worktree",
@@ -300,7 +301,7 @@ Deno.test("Engineer broken-check reports are not shown as Plan amendments", asyn
             hostedSession,
             planName: "demo",
             planContent: primary.markdown,
-            triageMeta: { ...primary.attrs, objectiveChecks },
+            triageMeta: primary.attrs,
             engineerReportedBrokenObjectiveChecks: [{
                 id: "OC_REPORT",
                 command: "not-a-real-runwield-command",
@@ -319,11 +320,10 @@ Deno.test("Engineer broken-check reports are not shown as Plan amendments", asyn
         });
 
         assertEquals(result.kind, "paused");
-        assertStringIncludes(prompts.join("\n"), "Engineer reported defective Objective-Failing Checks");
         assertEquals(prompts.join("\n").includes("Plan Amendment"), false);
         assertEquals(prompts.join("\n").includes("<removed>"), false);
         const execution = await loadPlan(testFixture.executionCwd, "demo");
-        assertEquals(execution?.attrs.objectiveChecks, objectiveChecks);
+        assertEquals(execution?.attrs.objectiveChecks, undefined);
     } finally {
         await removeFixture(testFixture);
     }

@@ -5,8 +5,7 @@
  * Git is a separate program with its own state, so it is a legitimate place to
  * substitute a fake in tests. RunWield's *own* worktree policy is not, even when it
  * has a Git-sounding name — `mergeExecutionWorktree` proves a sealed candidate,
- * enforces allowed dirty paths and preserves Plan files; `preparePrimaryPlanPathForMerge`
- * refuses non-Plan paths. Those are RunWield decisions that happen to call Git, and
+ * enforces candidate and publication policy. Those are RunWield decisions that happen to call Git, and
  * replacing them in a test replaces the behaviour under test.
  *
  * That distinction is the whole point of this file. A dependency bag cannot express

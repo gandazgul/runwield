@@ -571,29 +571,40 @@ async function restoreFile(path, snapshot) {
  * @typedef {Object} ReleaseCheckOptions
  * @property {string} [buildVersion]
  * @property {string} [rootDir]
- * @property {typeof run} [run]
- * @property {(options?: { prefix?: string }) => Promise<string>} [makeTempDir]
- * @property {(path: string, options?: { recursive?: boolean }) => Promise<void>} [remove]
- * @property {(binaryPath: string, root: string) => Promise<void>} [smokeTestBundledAgentReferenceExtraction]
- * @property {(binaryPath: string, root: string) => Promise<void>} [smokeTestBinaryPlansUiSurface]
- * @property {(binaryPath: string, root: string) => Promise<void>} [smokeTestBinaryReviewSurface]
  */
 
 /**
- * @param {ReleaseCheckOptions} [options]
+ * @typedef {Object} ReleaseCheckExecutionPort
+ * @property {typeof run} run
+ * @property {(options?: { prefix?: string }) => Promise<string>} makeTempDir
+ * @property {(path: string, options?: { recursive?: boolean }) => Promise<void>} remove
+ * @property {(binaryPath: string, root: string) => Promise<void>} smokeTestBundledAgentReferenceExtraction
+ * @property {(binaryPath: string, root: string) => Promise<void>} smokeTestBinaryPlansUiSurface
+ * @property {(binaryPath: string, root: string) => Promise<void>} smokeTestBinaryReviewSurface
  */
-export async function runReleaseCheck(options = {}) {
-    const tempDir = await (options.makeTempDir || Deno.makeTempDir)({ prefix: "wld-release-check-" });
+
+/** @type {ReleaseCheckExecutionPort} */
+const SYSTEM_RELEASE_CHECK_EXECUTION_PORT = Object.freeze({
+    run,
+    makeTempDir: Deno.makeTempDir,
+    remove: Deno.remove,
+    smokeTestBundledAgentReferenceExtraction,
+    smokeTestBinaryPlansUiSurface,
+    smokeTestBinaryReviewSurface,
+});
+
+/**
+ * @param {ReleaseCheckOptions} options
+ * @param {ReleaseCheckExecutionPort} port
+ */
+export async function runReleaseCheck(options, port) {
+    const tempDir = await port.makeTempDir({ prefix: "wld-release-check-" });
     const rootDir = options.rootDir || ".";
     const versionPath = join(rootDir, "src", "shared", "version.js");
     const versionSnapshot = await snapshotFile(versionPath);
     const binaryName = Deno.build.os === "windows" ? "wld.exe" : "wld";
     const output = join(tempDir, binaryName);
-    const runner = options.run || run;
-    const bundledReferenceSmoke = options.smokeTestBundledAgentReferenceExtraction ||
-        smokeTestBundledAgentReferenceExtraction;
-    const plansUiSmoke = options.smokeTestBinaryPlansUiSurface || smokeTestBinaryPlansUiSurface;
-    const reviewSmoke = options.smokeTestBinaryReviewSurface || smokeTestBinaryReviewSurface;
+    const runner = port.run;
 
     try {
         assertRequiredBundledAssetsConfigured();
@@ -618,19 +629,19 @@ export async function runReleaseCheck(options = {}) {
             stderr: "piped",
         }, runner);
         if (options.buildVersion) assertBinaryVersionOutput(`${smoke.stdout}${smoke.stderr}`, options.buildVersion);
-        await bundledReferenceSmoke(output, tempDir);
-        await plansUiSmoke(output, tempDir);
-        await reviewSmoke(output, tempDir);
+        await port.smokeTestBundledAgentReferenceExtraction(output, tempDir);
+        await port.smokeTestBinaryPlansUiSurface(output, tempDir);
+        await port.smokeTestBinaryReviewSurface(output, tempDir);
     } finally {
         await restoreFile(versionPath, versionSnapshot);
-        await (options.remove || Deno.remove)(tempDir, { recursive: true }).catch((error) => {
+        await port.remove(tempDir, { recursive: true }).catch((error) => {
             if (!(error instanceof Deno.errors.NotFound)) throw error;
         });
     }
 }
 
 export async function main(args = Deno.args) {
-    await runReleaseCheck(parseReleaseCheckOptions(args));
+    await runReleaseCheck(parseReleaseCheckOptions(args), SYSTEM_RELEASE_CHECK_EXECUTION_PORT);
 }
 
 if (import.meta.main) await main();

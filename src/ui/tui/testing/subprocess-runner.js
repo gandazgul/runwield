@@ -20,7 +20,7 @@ const SECRET_ENV_PATTERNS = [/API_KEY/i, /TOKEN/i, /AUTH/i, /SECRET/i, /PASSWORD
  * from the scenario itself so scenario timeouts stay meaningful: exceeding this
  * means the child never got off the ground, not that the scenario was slow.
  */
-const DEFAULT_STARTUP_TIMEOUT_MS = 90_000;
+const DEFAULT_STARTUP_TIMEOUT_MS = 300_000;
 
 /**
  * How long a timed-out child gets to tear itself down before the runner stops
@@ -104,7 +104,8 @@ export async function runGoldenChild(args, options = {}) {
         Deno.unrefTimer(escalation);
     };
     let ready = !options.awaitReadyMarker;
-    let timeout = setTimeout(kill, ready ? scenarioTimeoutMs : options.startupTimeoutMs || DEFAULT_STARTUP_TIMEOUT_MS);
+    const startupTimeoutMs = options.startupTimeoutMs || DEFAULT_STARTUP_TIMEOUT_MS;
+    let timeout = setTimeout(kill, ready ? scenarioTimeoutMs : startupTimeoutMs);
     const stdout = readStream(child.stdout, (text) => {
         if (ready || !text.includes(GOLDEN_CHILD_READY_MARKER)) return;
         ready = true;

@@ -1,6 +1,11 @@
 // @ts-nocheck: extracted from checked JSDoc workflow.js; tightening types is out of scope for this structural split.
 import { CLI_BIN } from "../../constants.js";
-import { ensurePlanIdentity, getPlanFrontMatterRevisionForText, loadPlan } from "../../plan-store.js";
+import {
+    ensurePlanIdentity,
+    findPlansByParent,
+    getPlanFrontMatterRevisionForText,
+    loadPlan,
+} from "../../plan-store.js";
 import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import {
@@ -15,7 +20,7 @@ import {
 } from "../worktree.js";
 import {
     findById as findWorktreeRegistryEntryById,
-    removeEntry as removeWorktreeRegistryEntry,
+    pruneEntry as pruneWorktreeRegistryEntry,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
@@ -173,6 +178,40 @@ export function createExecutionStartPorts(): ExecutionStartPorts {
     };
 }
 
+async function materializeEpicPlanFamily(projectRoot, executionCwd, planName, planAttrs) {
+    const parentPlan = typeof planAttrs.parentPlan === "string" ? planAttrs.parentPlan.trim() : "";
+    if (!parentPlan) return;
+    const relatedPlanNames = [
+        parentPlan,
+        ...(await findPlansByParent(projectRoot, parentPlan)).map((plan) => plan.name),
+    ];
+    for (const relatedPlanName of new Set(relatedPlanNames)) {
+        if (relatedPlanName === planName) continue;
+        const source = await loadCanonicalExecutionPlanSource(projectRoot, relatedPlanName);
+        if (source.kind !== "loaded") {
+            throw new Error(
+                `Cannot prepare related Plan ${source.relativePath}: ${source.reason || source.kind}`,
+            );
+        }
+        const result = await ensureExecutionPlanFile({
+            executionCwd,
+            planName: relatedPlanName,
+            canonicalSource: source,
+            // The fetched target is authoritative for already-published relatives.
+            // Primary-checkout copies can be stale because publication deliberately
+            // never moves or rewrites that checkout. Only restore family Plans that
+            // are absent from the target; never reconcile an existing parent or
+            // sibling backwards from the primary checkout.
+            reconcileFromCanonical: false,
+        });
+        if (result.kind !== "present" && result.kind !== "restored" && result.kind !== "reconciled") {
+            throw new Error(
+                `Cannot prepare related Plan ${result.relativePath}: ${result.reason || result.kind}`,
+            );
+        }
+    }
+}
+
 /**
  * @param {{
  *   planName: string,
@@ -227,7 +266,7 @@ export async function startActiveExecutionWorkflow(
     const stablePlanId = "planId" in planIdentity ? planIdentity.planId : planIdentity.id;
     const effectiveTriageMeta = { ...triageMeta, planId: stablePlanId };
     hostedSession.setWorkflowExecutionContext?.({ planName, triageMeta: effectiveTriageMeta });
-    const executionAgent = resolveExecutionOwner(effectiveTriageMeta);
+    let executionAgent = resolveExecutionOwner(effectiveTriageMeta);
     const collaborationState = {
         collaborationStyle,
         collaborationRecommendation,
@@ -323,15 +362,6 @@ export async function startActiveExecutionWorkflow(
         hostedSession.setActiveExecutionWorkflow(activeWorkflow);
         return activeWorkflow;
     }
-    const preflightCanonicalPlanSource = await loadCanonicalPlanSource(projectRoot, planName);
-    const canonicalPlanForRevision = await loadPlan(projectRoot, planName).catch(() => null);
-    if (preflightCanonicalPlanSource.kind !== "loaded") {
-        throw new Error(
-            `Cannot load canonical Project Plan ${preflightCanonicalPlanSource.relativePath}: ${
-                preflightCanonicalPlanSource.reason || preflightCanonicalPlanSource.kind
-            }`,
-        );
-    }
     const targetBranch = normalizeExecutionTargetBranch(triageMeta.worktreeBaseBranch);
     const hasRecordedWorktree = Boolean(
         triageMeta.worktreeId || triageMeta.worktreePath || triageMeta.worktreeBranch ||
@@ -348,7 +378,7 @@ export async function startActiveExecutionWorkflow(
                 baseBranch: existing.worktreeBaseBranch,
                 baseCommit: existing.worktreeBaseCommit,
             }
-            : hasRecordedWorktree
+            : !startsFresh && (currentStatus === "in_progress" || hasRecordedWorktree)
             ? await findReusable({
                 projectRoot,
                 planName,
@@ -356,16 +386,44 @@ export async function startActiveExecutionWorkflow(
                 worktreeId: triageMeta.worktreeId || undefined,
             })
             : null;
+    if (reusable) {
+        const requestedTarget = targetBranch
+            ? await resolveTarget(projectRoot, targetBranch)
+            : await resolveCurrentBranch(projectRoot);
+        assertReusableWorktreeTargetMatches(reusable.baseBranch, requestedTarget);
+    }
+    const reusablePlanSource = reusable ? await loadCanonicalPlanSource(reusable.path, planName) : null;
+    const planAuthorityRoot = reusable && reusablePlanSource?.kind === "loaded" ? reusable.path : projectRoot;
+    const preflightCanonicalPlanSource = planAuthorityRoot === reusable?.path
+        ? reusablePlanSource
+        : await loadCanonicalPlanSource(projectRoot, planName);
+    const canonicalPlanForRevision = await loadPlan(planAuthorityRoot, planName).catch(() => null);
+    if (preflightCanonicalPlanSource.kind !== "loaded") {
+        throw new Error(
+            `Cannot load execution Plan ${preflightCanonicalPlanSource.relativePath}: ${
+                preflightCanonicalPlanSource.reason || preflightCanonicalPlanSource.kind
+            }`,
+        );
+    }
+    if (reusable) {
+        Object.assign(effectiveTriageMeta, preflightCanonicalPlanSource.attrs, { planId: stablePlanId });
+        executionAgent = resolveExecutionOwner(effectiveTriageMeta);
+        hostedSession.setWorkflowExecutionContext?.({ planName, triageMeta: effectiveTriageMeta });
+    }
     const resolvedTargetBranch = reusable
-        ? targetBranch ? await resolveTarget(projectRoot, targetBranch) : await resolveCurrentBranch(projectRoot)
+        ? normalizeExecutionTargetBranch(reusable.baseBranch) || await resolveCurrentBranch(projectRoot)
         : targetBranch;
-    if (reusable) assertReusableWorktreeTargetMatches(reusable.baseBranch, resolvedTargetBranch);
     const attemptId = reusable?.id || triageMeta.worktreeId || crypto.randomUUID().slice(0, 8);
-    const continuingReusableWorktree = Boolean(reusable) && currentStatus === "in_progress";
+    const authorityStatus = canonicalPlanForRevision?.attrs.status || currentStatus;
+    const continuingReusableWorktree = Boolean(reusable) && authorityStatus === "in_progress";
     /** @type {Extract<Awaited<ReturnType<typeof loadCanonicalExecutionPlanSource>>, {kind:"loaded"}> | undefined} */
     let lockedCanonicalPlanSource;
     const transition = await runExecutionPreparationTransition({
-        projectRoot,
+        // A new worktree does not exist when this transaction begins. Keep its
+        // recovery journal in the project runtime area; all tracked Plan writes
+        // below still go only to the execution worktree. Reused worktrees can
+        // lock and journal against their already-materialized Plan directly.
+        projectRoot: reusable ? planAuthorityRoot : projectRoot,
         planName,
         planId: stablePlanId,
         worktreeId: attemptId,
@@ -373,7 +431,7 @@ export async function startActiveExecutionWorkflow(
         expectedRevision: canonicalPlanForRevision?.revision,
         expectedPlanEvent: !continuingReusableWorktree,
         prepare: async ({ beforePlan, markEffect, registerRollback }) => {
-            const canonicalPlanSource = await loadCanonicalPlanSource(projectRoot, planName);
+            const canonicalPlanSource = await loadCanonicalPlanSource(planAuthorityRoot, planName);
             if (canonicalPlanSource.kind !== "loaded") {
                 throw new Error(
                     `Cannot load canonical Project Plan ${canonicalPlanSource.relativePath}: ${
@@ -407,7 +465,6 @@ export async function startActiveExecutionWorkflow(
             const reusedWorktree = Boolean(reusable);
             /** @type {any} */
             let worktree;
-            let objectiveChecksBaselined = continuingReusableWorktree;
             if (reusable) {
                 worktree = reusable;
                 emitReusingExecutionWorktree(hostedSession, {
@@ -420,9 +477,10 @@ export async function startActiveExecutionWorkflow(
                     branch: worktree.branch,
                 });
             } else {
-                const targetPreparation = targetBranch
-                    ? await prepareTarget(projectRoot, targetBranch)
-                    : { baseRef: "HEAD", baseBranch: await resolveCurrentBranch(projectRoot) || "HEAD" };
+                const implicitTargetBranch = targetBranch || await resolveCurrentBranch(projectRoot);
+                const targetPreparation = implicitTargetBranch
+                    ? await prepareTarget(projectRoot, implicitTargetBranch)
+                    : { baseRef: "HEAD", baseBranch: "HEAD" };
                 emitCreatingExecutionWorktree(
                     hostedSession,
                     targetPreparation.baseBranch || targetPreparation.baseRef,
@@ -441,10 +499,6 @@ export async function startActiveExecutionWorkflow(
                     baseBranch: worktreeArtifacts.baseBranch || worktreeArtifacts.baseRef,
                 });
                 await runCymbalIndexForExecutionWorktree(hostedSession, worktreeArtifacts.path);
-                await markEffect("cymbal_index_ran", {
-                    worktreeId: worktreeArtifacts.id,
-                    path: worktreeArtifacts.path,
-                });
                 await markEffect("git_worktree_created", {
                     worktreeId: worktreeArtifacts.id,
                     path: worktreeArtifacts.path,
@@ -456,7 +510,10 @@ export async function startActiveExecutionWorkflow(
                     await removeWorktreeGitArtifacts({
                         projectRoot,
                         path: worktreeArtifacts.path,
-                        force: false,
+                        // No Agent turn has started yet. If preparation fails, this
+                        // checkout contains only RunWield's own materialized Plan
+                        // and baseline evidence, so it is safe to remove as a unit.
+                        force: true,
                     });
                     // Deleting the branch is irreversible, so it is its own proven step.
                     if (worktreeArtifacts.branch) {
@@ -467,19 +524,6 @@ export async function startActiveExecutionWorkflow(
                         });
                     }
                 });
-                const objectiveChecks = beforePlan?.attrs.objectiveChecks ||
-                    canonicalPlanSource.attrs.objectiveChecks || [];
-                if (objectiveChecks.length > 0) emitRunningObjectiveChecksBaseline(hostedSession);
-                await ensureObjectiveChecksBaseline({
-                    projectRoot,
-                    planName,
-                    attrs: beforePlan?.attrs || canonicalPlanSource.attrs,
-                    revision: beforePlan?.revision,
-                    checks: objectiveChecks,
-                    cwd: worktreeArtifacts.path,
-                    head: worktreeArtifacts.baseCommit,
-                });
-                objectiveChecksBaselined = true;
                 worktree = await settleWorktreeAttempt(projectRoot, {
                     ...worktreeArtifacts,
                     planName: worktreeArtifacts.planName || planName,
@@ -492,32 +536,16 @@ export async function startActiveExecutionWorkflow(
                     status: worktree.status,
                 });
                 registerRollback("remove_created_registry_entry", async () => {
-                    await removeWorktreeRegistryEntry(projectRoot, worktree.id);
+                    await pruneWorktreeRegistryEntry(projectRoot, worktree.id);
                 });
             }
             const worktreeBaseBranch = worktree.baseBranch === "HEAD" ? undefined : worktree.baseBranch;
-            if (!objectiveChecksBaselined) {
-                const objectiveChecksHead = "baseCommit" in worktree && typeof worktree.baseCommit === "string"
-                    ? worktree.baseCommit
-                    : undefined;
-                const objectiveChecks = beforePlan?.attrs.objectiveChecks ||
-                    canonicalPlanSource.attrs.objectiveChecks || [];
-                if (objectiveChecks.length > 0) emitRunningObjectiveChecksBaseline(hostedSession);
-                await ensureObjectiveChecksBaseline({
-                    projectRoot,
-                    planName,
-                    attrs: beforePlan?.attrs || canonicalPlanSource.attrs,
-                    revision: beforePlan?.revision,
-                    checks: objectiveChecks,
-                    cwd: worktree.path,
-                    head: objectiveChecksHead,
-                });
-            }
             emitMaterializingPlanInExecutionWorktree(hostedSession);
             const planFile = await ensurePlanFile({
                 executionCwd: worktree.path,
                 planName,
                 canonicalSource: canonicalPlanSource,
+                reconcileFromCanonical: !continuingReusableWorktree,
             });
             if (planFile.kind === "restored") emitRestoredPlanInExecutionWorktree(hostedSession);
             if (planFile.kind === "reconciled") emitReconciledPlanInExecutionWorktree(hostedSession);
@@ -533,8 +561,36 @@ export async function startActiveExecutionWorkflow(
                     }).catch(() => null);
                 }
                 throw new Error(
-                    `${preparationError.message}; execution worktree evidence was preserved at ${worktree.path} on branch ${worktree.branch}.`,
+                    reusedWorktree
+                        ? `${preparationError.message}; the existing execution worktree was left at ${worktree.path}.`
+                        : `${preparationError.message}; no Agent work began.`,
                 );
+            }
+            if (!reusedWorktree) {
+                await materializeEpicPlanFamily(
+                    projectRoot,
+                    worktree.path,
+                    planName,
+                    canonicalPlanSource.attrs,
+                );
+            }
+            const executionPlan = await loadPlan(worktree.path, planName);
+            if (!executionPlan) throw new Error(`Plan not found in its execution worktree: ${planName}`);
+            if (!continuingReusableWorktree) {
+                const objectiveChecksHead = "baseCommit" in worktree && typeof worktree.baseCommit === "string"
+                    ? worktree.baseCommit
+                    : undefined;
+                const objectiveChecks = executionPlan.attrs.objectiveChecks || [];
+                if (objectiveChecks.length > 0) emitRunningObjectiveChecksBaseline(hostedSession);
+                await ensureObjectiveChecksBaseline({
+                    projectRoot: worktree.path,
+                    planName,
+                    attrs: executionPlan.attrs,
+                    revision: executionPlan.revision,
+                    checks: objectiveChecks,
+                    cwd: worktree.path,
+                    head: objectiveChecksHead,
+                });
             }
             // Re-entering an in-progress attempt must keep the tree from before the
             // implementation began. Capturing the current tree here makes completed
@@ -585,10 +641,10 @@ export async function startActiveExecutionWorkflow(
             if (!continuingReusableWorktree) {
                 emitUpdatingPlanStatusToInProgress(hostedSession);
                 await recordPlanEvent({
-                    cwd: projectRoot,
+                    cwd: worktree.path,
                     planName,
                     event: "execution_started",
-                    currentStatus,
+                    currentStatus: authorityStatus,
                     details: {
                         triageMeta: effectiveTriageMeta,
                         executionBaselineTree: baselineTree,
@@ -677,9 +733,12 @@ export async function startActiveExecutionWorkflow(
                         `Execution preparation did not retain locked canonical Plan evidence for ${planName}.`,
                     );
                 }
+                const expectedWorktreeStatus = continuingReusableWorktree
+                    ? lockedCanonicalPlanSource.attrs.status
+                    : "in_progress";
                 if (
                     worktreePlan.attrs.classification !== lockedCanonicalPlanSource.attrs.classification ||
-                    worktreePlan.attrs.status !== lockedCanonicalPlanSource.attrs.status
+                    worktreePlan.attrs.status !== expectedWorktreeStatus
                 ) {
                     throw new Error(
                         `RunWield could not synchronize the execution copy of Plan "${planName}". ` +

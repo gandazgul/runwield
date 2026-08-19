@@ -19,6 +19,7 @@ import { runPlanFrontMatterTransition, runReviewReopenTransition } from "../../s
 import { getWorkflowDiff } from "../../shared/workflow/git-snapshot.js";
 import { getWorktreeStatus } from "../../shared/worktree.js";
 import {
+    findActiveByPlanName as findWorktreeByPlanName,
     findById as findWorktreeById,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../../shared/worktree-registry.js";
@@ -99,6 +100,7 @@ export async function resolveRecoveryWorktree(
 ): Promise<RecoveryWorktreeContext | null> {
     let entry = null;
     if (plan.attrs.worktreeId) entry = await findWorktreeById(projectRoot, plan.attrs.worktreeId);
+    if (!entry) entry = await findWorktreeByPlanName(projectRoot, plan.planName);
     const path = plan.attrs.worktreePath || entry?.path;
     const branch = plan.attrs.worktreeBranch || entry?.branch;
     const id = plan.attrs.worktreeId || entry?.id;
@@ -110,7 +112,10 @@ export async function resolveRecoveryWorktree(
         path,
         branch,
         baseBranch,
-        status: plan.attrs.worktreeStatus || entry?.status,
+        // Once execution starts, the registry records operational attempt state.
+        // The primary-checkout Plan is intentionally immutable during publication,
+        // so its older worktreeStatus must not hide a failed push or conflict.
+        status: entry?.status || plan.attrs.worktreeStatus || undefined,
         baseRef: entry?.baseRef,
         baseCommit: entry?.baseCommit,
         baseTree: entry?.baseTree,
@@ -239,14 +244,16 @@ export function hasWorktreeContext(context: RecoveryWorktreeContext | null | und
 }
 
 /**
- * Manual merge recovery is only safe after Workflow Validation has already
- * passed and the automatic merge-back failed.
+ * Publication recovery is only safe after Workflow Validation has already
+ * passed and publication either conflicted or could not update the upstream
+ * branch.
  *
  * @param {RecoveryWorktreeContext | null} context
  * @returns {boolean}
  */
 export function canManuallyMergeRecoveredWorktree(context: RecoveryWorktreeContext | null | undefined): boolean {
-    return context?.status === "merge_conflict" && Boolean(context.baseBranch);
+    return (context?.status === "merge_conflict" || context?.status === "publication_failed") &&
+        Boolean(context.baseBranch);
 }
 
 /**

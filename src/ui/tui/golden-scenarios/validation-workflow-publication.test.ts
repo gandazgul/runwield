@@ -1,46 +1,21 @@
 import {
-    validationTreePublicationDirtyCheckoutScenario,
-    validationTreePublicationDirtyStopResumeScenario,
-    validationTreePublicationGenericGitFailureScenario,
-    validationTreePublicationMergeConflictRepairCompletedScenario,
-    validationTreePublicationMergeConflictRepairIncompleteRetryScenario,
-    validationTreePublicationMergeConflictRepairIncompleteStopScenario,
-    validationTreePublicationMissingTargetBranchScenario,
-    validationTreePublicationStaleRepairWorktreeScenario,
+    validationTreePublicationIsolatedDirtyPrimaryScenario,
+    validationTreePublicationPushFailureRetryScenario,
+    validationTreePublicationRemoteTargetAdvanceScenario,
 } from "./validation-workflow-tree-publication.ts";
 import { registerValidationWorkflowTests } from "./validation-workflow-test-runner.ts";
 
 registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow-tree-publication.ts", [
     {
-        scenario: validationTreePublicationDirtyCheckoutScenario,
-        exportName: "validationTreePublicationDirtyCheckoutScenario",
+        scenario: validationTreePublicationIsolatedDirtyPrimaryScenario,
+        exportName: "validationTreePublicationIsolatedDirtyPrimaryScenario",
     },
     {
-        scenario: validationTreePublicationDirtyStopResumeScenario,
-        exportName: "validationTreePublicationDirtyStopResumeScenario",
+        scenario: validationTreePublicationRemoteTargetAdvanceScenario,
+        exportName: "validationTreePublicationRemoteTargetAdvanceScenario",
     },
     {
-        scenario: validationTreePublicationMissingTargetBranchScenario,
-        exportName: "validationTreePublicationMissingTargetBranchScenario",
-    },
-    {
-        scenario: validationTreePublicationMergeConflictRepairCompletedScenario,
-        exportName: "validationTreePublicationMergeConflictRepairCompletedScenario",
-    },
-    {
-        scenario: validationTreePublicationMergeConflictRepairIncompleteRetryScenario,
-        exportName: "validationTreePublicationMergeConflictRepairIncompleteRetryScenario",
-    },
-    {
-        scenario: validationTreePublicationMergeConflictRepairIncompleteStopScenario,
-        exportName: "validationTreePublicationMergeConflictRepairIncompleteStopScenario",
-    },
-    {
-        scenario: validationTreePublicationStaleRepairWorktreeScenario,
-        exportName: "validationTreePublicationStaleRepairWorktreeScenario",
-    },
-    {
-        scenario: validationTreePublicationGenericGitFailureScenario,
-        exportName: "validationTreePublicationGenericGitFailureScenario",
+        scenario: validationTreePublicationPushFailureRetryScenario,
+        exportName: "validationTreePublicationPushFailureRetryScenario",
     },
 ]);

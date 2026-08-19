@@ -1,9 +1,44 @@
 import { assertEquals, assertMatch, assertRejects, assertStringIncludes } from "@std/assert";
 import { dirname } from "@std/path";
 
-import { checkpointExecutionWorktree, mergeExecutionWorktree, removeWorktreeGitArtifacts } from "./worktree.js";
+import {
+    assertPublicationCandidateContainsTarget,
+    checkpointExecutionWorktree,
+    mergeExecutionWorktree,
+    removeWorktreeGitArtifacts,
+} from "./worktree.js";
 
 import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.js";
+
+/** @typedef {Error & { mergeFailureKind?: string }} TestMergeRepairError */
+
+Deno.test("publication candidate must contain the current target commit", async () => {
+    const projectRoot = await makeRepo();
+    try {
+        const targetCommit = await git(projectRoot, ["rev-parse", "main"]);
+        await git(projectRoot, ["checkout", "--orphan", "unrelated-publication"]);
+        await Deno.writeTextFile(`${projectRoot}/unrelated.txt`, "unrelated\n");
+        await git(projectRoot, ["add", "unrelated.txt"]);
+        await git(projectRoot, ["commit", "-m", "unrelated candidate"]);
+        const unrelatedCandidate = await git(projectRoot, ["rev-parse", "HEAD"]);
+
+        const error = await assertRejects(
+            () =>
+                assertPublicationCandidateContainsTarget(
+                    projectRoot,
+                    targetCommit,
+                    unrelatedCandidate,
+                    "main",
+                ),
+            Error,
+            "Publication candidate would discard commits already on main",
+        );
+        assertEquals(/** @type {TestMergeRepairError} */ (error).mergeFailureKind, "target_history_rewrite");
+        assertEquals(await git(projectRoot, ["rev-parse", "main"]), targetCommit);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
 
 Deno.test("mergeExecutionWorktree targets recorded branch without changing primary checkout", async () => {
     const projectRoot = await makeRepo();
@@ -146,7 +181,7 @@ Deno.test("mergeExecutionWorktree refuses checked-out target before mutating exe
     }
 });
 
-Deno.test("mergeExecutionWorktree skips target-deleted Plan paths during metadata alignment", async () => {
+Deno.test("mergeExecutionWorktree keeps a Plan deleted on both sides", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
     /** @type {Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined} */
@@ -191,6 +226,58 @@ Deno.test("mergeExecutionWorktree skips target-deleted Plan paths during metadat
             });
         }
         await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("publication resolves unrelated Plan drift without rewriting the execution worktree", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
+    /** @type {Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined} */
+    let worktree;
+    try {
+        await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(`${projectRoot}/docs/plans/unrelated.md`, 'status: "draft"\n');
+        await git(projectRoot, ["add", "docs/plans/unrelated.md"]);
+        await git(projectRoot, ["commit", "-m", "base unrelated plan"]);
+        await git(projectRoot, ["checkout", "-b", "feature-base"]);
+        worktree = await createTestWorktreeAttempt({
+            projectRoot,
+            planName: "Do Not Rewrite Other Plans",
+            worktreeRoot,
+        });
+
+        await Deno.writeTextFile(`${projectRoot}/docs/plans/unrelated.md`, 'status: "draft"\nupdated: target\n');
+        await git(projectRoot, ["add", "docs/plans/unrelated.md"]);
+        await git(projectRoot, ["commit", "-m", "target updates unrelated plan"]);
+        await git(projectRoot, ["checkout", "main"]);
+
+        const executionPlanText = 'status: "in_progress"\nupdated: execution\n';
+        await Deno.writeTextFile(`${worktree.path}/docs/plans/unrelated.md`, executionPlanText);
+        await Deno.writeTextFile(`${worktree.path}/feature.txt`, "validated work\n");
+        await git(worktree.path, ["add", "docs/plans/unrelated.md", "feature.txt"]);
+        await git(worktree.path, ["commit", "-m", "execution branch state"]);
+        const executionHead = await git(worktree.path, ["rev-parse", "HEAD"]);
+
+        await mergeExecutionWorktree({
+            projectRoot,
+            branch: worktree.branch,
+            targetBranch: "feature-base",
+            worktreePath: worktree.path,
+        });
+
+        assertEquals(await Deno.readTextFile(`${worktree.path}/docs/plans/unrelated.md`), executionPlanText);
+        assertEquals(await git(worktree.path, ["rev-parse", "HEAD"]), executionHead);
+        assertEquals(
+            await git(projectRoot, ["show", "feature-base:docs/plans/unrelated.md"]),
+            'status: "draft"\nupdated: target',
+        );
+        assertEquals(await git(projectRoot, ["show", "feature-base:feature.txt"]), "validated work");
+    } finally {
+        if (worktree) {
+            await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
 });

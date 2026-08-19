@@ -7,10 +7,8 @@
  * See docs/plan-lifecycle.md for the human-readable workflow.
  */
 
-import { dirname, join } from "@std/path";
 import { isPlannedChangeClassification } from "../../constants.js";
 import {
-    atomicWriteTextFile,
     findPlansByParent,
     isPlanDependencySatisfiedStatus,
     loadPlan,
@@ -36,7 +34,7 @@ export class PlanLifecycleTransitionError extends Error {
 }
 
 /**
- * @typedef {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"validated_ci"|"validated_reviewer"|"verified"|"user_verified"|"closed_without_verification"|"on_hold"} PlanStatus
+ * @typedef {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"validated_ci"|"validated_reviewer"|"validated"|"verified"|"user_verified"|"closed_without_verification"|"on_hold"} PlanStatus
  */
 
 /** @type {Record<PlanStatus, string>} */
@@ -51,7 +49,8 @@ const PLAN_STATUS_HELP_TEXT = {
     implemented: "the work is done",
     validated_ci: "the checks passed",
     validated_reviewer: "code review passed",
-    verified: "validation is done",
+    validated: "all validation passed and publication is pending",
+    verified: "it was delivered under the legacy lifecycle",
     user_verified: "you approved it",
     closed_without_verification: "it was closed without validation",
     on_hold: "it is on hold",
@@ -146,6 +145,7 @@ export const PLAN_STATUSES = [
     "implemented",
     "validated_ci",
     "validated_reviewer",
+    "validated",
     "verified",
     "user_verified",
     "closed_without_verification",
@@ -167,7 +167,7 @@ export const ACTIVE_PLAN_STATUSES = [
 ];
 
 /** @type {PlanStatus[]} */
-export const VALIDATION_PLAN_STATUSES = ["implemented", "validated_ci", "validated_reviewer"];
+export const VALIDATION_PLAN_STATUSES = ["implemented", "validated_ci", "validated_reviewer", "validated"];
 
 /** @param {string | undefined | null} status */
 export function isInValidation(status) {
@@ -175,14 +175,14 @@ export function isInValidation(status) {
 }
 
 /** @type {PlanStatus[]} */
-export const CLOSED_PLAN_STATUSES = ["verified", "user_verified", "closed_without_verification"];
+export const CLOSED_PLAN_STATUSES = ["validated", "verified", "user_verified", "closed_without_verification"];
 
 /** @type {PlanStatus[]} */
 export const ON_HOLD_PLAN_STATUSES = ["on_hold"];
 
 /** @param {string | undefined | null} status */
 export function isRunWieldVerifiedPlanStatus(status) {
-    return status === "verified";
+    return status === "validated" || status === "verified";
 }
 
 /** @param {string | undefined | null} status */
@@ -202,7 +202,7 @@ export function isArchiveEligiblePlanStatus(status) {
 
 /** @param {string | undefined | null} status */
 export function isDependencySatisfiedPlanStatus(status) {
-    return status === "verified" || status === "user_verified";
+    return status === "validated" || status === "verified" || status === "user_verified";
 }
 
 const ALL_KNOWN_STATUSES = PLAN_STATUSES;
@@ -232,10 +232,11 @@ const ALLOWED_FROM = {
         "in_progress",
         "failed",
         "implemented",
+        "validated",
         "verified",
         "user_verified",
     ],
-    epic_done_enough: ["ready_for_work", "verified"],
+    epic_done_enough: ["ready_for_work", "validated", "verified"],
     manual_status_change: ALL_KNOWN_STATUSES,
     manual_closed_without_verification: ALL_KNOWN_STATUSES,
     manual_user_verified: ALL_KNOWN_STATUSES,
@@ -259,12 +260,12 @@ const EVENT_STATUS = {
     semantic_review_feedback: "implemented",
     semantic_review_passed: "validated_reviewer",
     validation_failed: "implemented",
-    validation_passed: "verified",
+    validation_passed: "validated",
     worktree_merge_failed: "implemented",
     recovery_continue: "ready_for_work",
     recovery_reset: "ready_for_work",
     review_reopened: "feedback",
-    epic_done_enough: "verified",
+    epic_done_enough: "validated",
     manual_status_change: "draft",
     manual_closed_without_verification: "closed_without_verification",
     manual_user_verified: "user_verified",
@@ -567,7 +568,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
 
     if (event === "plan_held") {
         if (
-            currentStatus === "verified" || currentStatus === "user_verified" ||
+            currentStatus === "validated" || currentStatus === "verified" || currentStatus === "user_verified" ||
             currentStatus === "closed_without_verification" ||
             currentStatus === "on_hold"
         ) {
@@ -611,6 +612,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failureReason = null;
         updates.failedAt = null;
         updates.implementedAt = null;
+        updates.validatedAt = null;
         updates.verifiedAt = null;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
@@ -622,6 +624,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     if (event === "manual_status_change") {
         if (targetStatus !== "implemented") {
             updates.implementedAt = null;
+            updates.validatedAt = null;
             updates.verifiedAt = null;
             updates.userVerifiedAt = null;
             updates.userVerificationNote = null;
@@ -678,6 +681,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failureReason = null;
         updates.failedAt = null;
         updates.implementedAt = null;
+        updates.validatedAt = null;
         updates.verifiedAt = null;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
@@ -726,7 +730,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "epic_done_enough") {
-        updates.verifiedAt = now;
+        updates.validatedAt = now;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
         updates.objectiveChecksBaseline = undefined;
@@ -764,16 +768,16 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         }
         updates.executionMode = executionMode;
         updates.deliveryEvidence = deliveryEvidence;
-        updates.worktreeStatus = details.worktreeStatus || "merged";
-        if (details.cleanupMergedWorktrees !== false) {
-            updates.executionBaselineTree = null;
-            updates.worktreeId = null;
-            updates.worktreePath = null;
-            updates.worktreeBranch = null;
-            updates.worktreeBaseBranch = null;
-            updates.worktreeStatus = null;
-        }
-        updates.verifiedAt = now;
+        // The registry remains the publication/recovery authority until the push is
+        // confirmed. The validated Plan is immutable and must not retain a pointer
+        // that would require another front-matter rewrite after publication.
+        updates.executionBaselineTree = null;
+        updates.worktreeId = null;
+        updates.worktreePath = null;
+        updates.worktreeBranch = null;
+        updates.worktreeBaseBranch = null;
+        updates.worktreeStatus = null;
+        updates.validatedAt = now;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
         updates.objectiveChecksBaseline = undefined;
@@ -796,6 +800,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failureReason = null;
         updates.failedAt = null;
         updates.implementedAt = null;
+        updates.validatedAt = null;
         updates.verifiedAt = null;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
@@ -1111,9 +1116,9 @@ export async function recordPlanEvent({ cwd, planName, event, currentStatus, det
  */
 
 /**
- * Copy the canonical implemented Plan into its execution worktree and stage the
- * validation_passed event there. A previously staged verified copy is returned
- * unchanged so merge retries preserve its original verification evidence.
+ * Record validation_passed in the authoritative execution-worktree Plan. A
+ * previously validated copy is returned unchanged so publication retries keep
+ * its original evidence and never dirty the Plan again.
  *
  * @param {Object} opts
  * @param {string} opts.projectRoot
@@ -1123,206 +1128,31 @@ export async function recordPlanEvent({ cwd, planName, event, currentStatus, det
  * @returns {Promise<ValidationPassedStagingResult>}
  */
 export async function stageValidationPassedInExecutionWorktree({
-    projectRoot,
+    projectRoot: _projectRoot,
     executionCwd,
     planName,
     details = {},
 }) {
-    const canonicalPlan = await loadPlan(projectRoot, planName);
-    if (!canonicalPlan) throw new Error(`Plan not found in primary checkout: ${planName}`);
-    // Any status Workflow Validation legitimately runs from is publishable. This used
-    // to demand `implemented`, which was correct when validation occupied a single
-    // status; once validation gained `validated_ci` and `validated_reviewer`, the Plan
-    // always sits at `validated_reviewer` by the time publication stages
-    // `validation_passed`, so the check rejected every worktree publication. Keep it a
-    // guard against publishing from outside validation entirely — draft, verified, or
-    // abandoned Plans must still be refused — rather than a check for one exact status.
-    if (!isInValidation(canonicalPlan.attrs.status)) {
-        throw new Error(
-            `Cannot stage validation_passed for ${planName}: primary Plan status is ` +
-                `"${canonicalPlan.attrs.status}", expected one of ${VALIDATION_PLAN_STATUSES.join(", ")}.`,
-        );
-    }
-
     const planPath = `docs/plans/${planName}.md`;
-    let executionPlan = await loadPlan(executionCwd, planName);
-    let reuseVerified = executionPlan?.attrs.status === "verified";
-    if (reuseVerified && executionPlan) {
-        /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
-        const missingHumanReviewEvidence = {};
-        if (executionPlan.attrs.humanReviewMode == null && canonicalPlan.attrs.humanReviewMode != null) {
-            missingHumanReviewEvidence.humanReviewMode = canonicalPlan.attrs.humanReviewMode;
-        }
-        if (executionPlan.attrs.humanReviewDecision == null && canonicalPlan.attrs.humanReviewDecision != null) {
-            missingHumanReviewEvidence.humanReviewDecision = canonicalPlan.attrs.humanReviewDecision;
-        }
-        if (executionPlan.attrs.humanReviewedAt == null && canonicalPlan.attrs.humanReviewedAt != null) {
-            missingHumanReviewEvidence.humanReviewedAt = canonicalPlan.attrs.humanReviewedAt;
-        }
-        const executionMode = normalizeExecutionMode(details.executionMode ?? executionPlan.attrs.executionMode);
-        const deliveryEvidence = normalizeDeliveryEvidence(
-            details.deliveryEvidence ?? executionPlan.attrs.deliveryEvidence,
+    const executionPlan = await loadPlan(executionCwd, planName);
+    if (!executionPlan) throw new Error(`Plan not found in its execution worktree: ${planName}`);
+    if (executionPlan.attrs.status === "validated") {
+        return { attrs: executionPlan.attrs, planPaths: [planPath] };
+    }
+    if (executionPlan.attrs.status !== "validated_reviewer") {
+        throw new Error(
+            `Cannot record completed validation for ${planName}: the execution Plan is at ` +
+                `"${executionPlan.attrs.status}" instead of "validated_reviewer".`,
         );
-        if (isPlannedChangeClassification(executionPlan.attrs.classification)) {
-            if (!executionMode || !deliveryEvidence) {
-                throw new Error(
-                    `Cannot reuse verified Plan ${planName} from execution worktree: Delivery Evidence is missing.`,
-                );
-            }
-            const suppliedExecutionMode = Object.hasOwn(details, "executionMode")
-                ? normalizeExecutionMode(details.executionMode)
-                : undefined;
-            const suppliedDeliveryEvidence = Object.hasOwn(details, "deliveryEvidence")
-                ? normalizeDeliveryEvidence(details.deliveryEvidence)
-                : undefined;
-            const existingExecutionMode = normalizeExecutionMode(executionPlan.attrs.executionMode);
-            const existingDeliveryEvidence = normalizeDeliveryEvidence(executionPlan.attrs.deliveryEvidence);
-            const executionModeChanged = Boolean(
-                suppliedExecutionMode && existingExecutionMode && suppliedExecutionMode !== existingExecutionMode,
-            );
-            const deliveryEvidenceChanged = Boolean(
-                suppliedDeliveryEvidence && existingDeliveryEvidence &&
-                    JSON.stringify(suppliedDeliveryEvidence) !== JSON.stringify(existingDeliveryEvidence),
-            );
-            if (executionModeChanged || deliveryEvidenceChanged) {
-                // A completed validation retry owns the supplied evidence. The
-                // execution worktree may still contain verified metadata from
-                // an older publication attempt, so restage it mechanically
-                // from the canonical implemented Plan below instead of asking
-                // an Engineer to edit lifecycle-owned front matter.
-                reuseVerified = false;
-            } else if (executionMode === "worktree" && deliveryEvidence.mode !== "worktree_merge") {
-                throw new Error(
-                    `Cannot reuse verified Plan ${planName} from execution worktree: worktree Delivery Evidence is missing.`,
-                );
-            } else if (executionMode === "non_git_in_place" && deliveryEvidence.mode !== "non_git_in_place") {
-                throw new Error(
-                    `Cannot reuse verified Plan ${planName} from execution worktree: non-Git Delivery Evidence is missing.`,
-                );
-            }
-        }
-        if (reuseVerified) {
-            if (executionPlan.attrs.executionMode == null && executionMode) {
-                missingHumanReviewEvidence.executionMode = executionMode;
-            }
-            if (executionPlan.attrs.deliveryEvidence == null && deliveryEvidence) {
-                missingHumanReviewEvidence.deliveryEvidence = deliveryEvidence;
-            }
-            if (Object.keys(missingHumanReviewEvidence).length > 0) {
-                const attrs = await updatePlanFrontMatter(
-                    executionCwd,
-                    planName,
-                    missingHumanReviewEvidence,
-                    executionPlan.attrs,
-                    { expectedRevision: executionPlan.revision },
-                );
-                executionPlan = { ...executionPlan, attrs };
-            }
-        }
     }
-    const parentPlanName = typeof canonicalPlan.attrs.parentPlan === "string" ? canonicalPlan.attrs.parentPlan : "";
-    let parentWasAlreadyStaged = false;
-    let stagedParentVerifiedAt;
-    if (reuseVerified && executionPlan) {
-        const executionParent = parentPlanName ? await loadPlan(executionCwd, parentPlanName) : null;
-        const canonicalParent = parentPlanName ? await loadPlan(projectRoot, parentPlanName) : null;
-        const parentCanAdvance = canonicalParent?.attrs.status === "ready_for_work";
-        if (!parentCanAdvance) {
-            return {
-                attrs: executionPlan.attrs,
-                planPaths: [planPath],
-            };
-        }
-        parentWasAlreadyStaged = executionParent?.attrs.status === "verified";
-        const parentVerifiedAt = executionParent?.attrs.verifiedAt;
-        if (parentWasAlreadyStaged && typeof parentVerifiedAt === "string") {
-            stagedParentVerifiedAt = parentVerifiedAt;
-        }
-    }
-    let canonicalParentStatus;
-    /** @type {Array<{ name: string, path: string, existed: boolean, content: string|null }>} */
-    const temporaryHierarchyFiles = [];
-    let parentAdvanced = false;
-    let staleStagedParentReconciled = false;
-    try {
-        if (parentPlanName) {
-            const canonicalParent = await loadPlan(projectRoot, parentPlanName);
-            if (canonicalParent) {
-                canonicalParentStatus = canonicalParent.attrs.status;
-                const hierarchyPlanNames = [
-                    parentPlanName,
-                    ...(await findPlansByParent(projectRoot, parentPlanName)).map((child) => child.name),
-                ].filter((name) => name !== planName);
-                for (const hierarchyPlanName of hierarchyPlanNames) {
-                    const hierarchyPlan = await loadPlan(projectRoot, hierarchyPlanName);
-                    if (!hierarchyPlan) continue;
-                    const hierarchyPath = join(executionCwd, "docs", "plans", `${hierarchyPlanName}.md`);
-                    let originalContent = null;
-                    let existed = true;
-                    try {
-                        originalContent = await Deno.readTextFile(hierarchyPath);
-                    } catch (error) {
-                        if (!(error instanceof Deno.errors.NotFound)) throw error;
-                        existed = false;
-                    }
-                    temporaryHierarchyFiles.push({
-                        name: hierarchyPlanName,
-                        path: hierarchyPath,
-                        existed,
-                        content: originalContent,
-                    });
-                    await Deno.mkdir(dirname(hierarchyPath), { recursive: true });
-                    await atomicWriteTextFile(hierarchyPath, hierarchyPlan.markdown);
-                }
-            }
-        }
-
-        let attrs;
-        if (reuseVerified && executionPlan) {
-            attrs = executionPlan.attrs;
-            await advanceParentEpicWhenAllChildrenVerified({
-                cwd: executionCwd,
-                planName,
-                event: "validation_passed",
-                updatedAttrs: attrs,
-                details: stagedParentVerifiedAt ? { ...details, now: () => new Date(stagedParentVerifiedAt) } : details,
-            });
-        } else {
-            const executionPlanPath = join(executionCwd, planPath);
-            await Deno.mkdir(dirname(executionPlanPath), { recursive: true });
-            await atomicWriteTextFile(executionPlanPath, canonicalPlan.markdown);
-            const stagedPlan = await loadPlan(executionCwd, planName);
-            await updatePlanFrontMatter(executionCwd, planName, { status: "validated_reviewer" }, canonicalPlan.attrs, {
-                expectedRevision: stagedPlan?.revision,
-            });
-
-            attrs = await recordPlanEvent({
-                cwd: executionCwd,
-                planName,
-                event: "validation_passed",
-                currentStatus: "validated_reviewer",
-                details: { ...details, triageMeta: { ...canonicalPlan.attrs, status: "validated_reviewer" } },
-            });
-        }
-        const executionParent = parentPlanName ? await loadPlan(executionCwd, parentPlanName) : null;
-        parentAdvanced = canonicalParentStatus === "ready_for_work" && executionParent?.attrs.status === "verified";
-        staleStagedParentReconciled = parentWasAlreadyStaged && !parentAdvanced;
-        return {
-            attrs,
-            planPaths: [planPath, ...(parentAdvanced ? [`docs/plans/${parentPlanName}.md`] : [])],
-        };
-    } finally {
-        for (const temporaryFile of temporaryHierarchyFiles) {
-            if (temporaryFile.name === parentPlanName && (parentAdvanced || staleStagedParentReconciled)) continue;
-            if (temporaryFile.existed) {
-                await atomicWriteTextFile(temporaryFile.path, temporaryFile.content || "");
-            } else {
-                await Deno.remove(temporaryFile.path).catch((error) => {
-                    if (!(error instanceof Deno.errors.NotFound)) throw error;
-                });
-            }
-        }
-    }
+    const attrs = await recordPlanEvent({
+        cwd: executionCwd,
+        planName,
+        event: "validation_passed",
+        currentStatus: "validated_reviewer",
+        details: { ...details, triageMeta: executionPlan.attrs, cleanupMergedWorktrees: false },
+    });
+    return { attrs, planPaths: [planPath] };
 }
 
 /**

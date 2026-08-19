@@ -54,6 +54,14 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
                     { approved: true },
                 ],
             },
+            publication: {
+                remotePlanStatus: "validated",
+                registryEntries: [],
+            },
+            pendingPublication: {
+                registryStatus: "publication_failed",
+                executionPlanStatus: "validated",
+            },
         },
         actor: { consumed: ["engineer:engineer", "reviewer:semantic_review"], remaining: [] },
     };

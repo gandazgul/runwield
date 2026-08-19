@@ -50,7 +50,7 @@ import {
     runSlicerAgent,
 } from "./workflow.js";
 import { runMechanicalValidation, shouldRunWorkflowValidation, SYSTEM_SEMANTIC_REVIEW_PORT } from "./validation.ts";
-import { continueWorkflowValidation } from "./validation-supervisor.ts";
+import { runWorkflowValidationToStableBoundary } from "./validation-supervisor.ts";
 import type { LocalCIPort } from "./validation-local-ci.ts";
 import { createGitPort } from "../git-port.ts";
 import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../work-records/mnemosyne-port.ts";
@@ -284,7 +284,7 @@ export async function dispatchPostTriage({
     images,
     sessionManager,
     localCI,
-}: DispatchPostTriageArgs): Promise<Awaited<ReturnType<typeof continueWorkflowValidation>> | undefined> {
+}: DispatchPostTriageArgs): Promise<Awaited<ReturnType<typeof runWorkflowValidationToStableBoundary>> | undefined> {
     if (!hostedSession || typeof hostedSession.getRootAgentName !== "function") {
         throw new Error("dispatchPostTriage: hostedSession is required");
     }
@@ -613,13 +613,15 @@ export async function dispatchPostTriage({
             return;
         }
         if (executionDecision.kind === "run_validation") {
-            const plan = await loadPlan(projectRoot, planName);
+            const validationRoot = executionResult.executionContext?.executionCwd || projectRoot;
+            const plan = await loadPlan(validationRoot, planName);
+            const validationTriageMeta = plan?.attrs ? { ...decisionTriageMeta, ...plan.attrs } : decisionTriageMeta;
             if (shouldRunWorkflowValidation(decisionTriageMeta)) {
-                const validationResult = await continueWorkflowValidation({
+                const validationResult = await runWorkflowValidationToStableBoundary({
                     hostedSession,
                     planName,
                     planContent: plan?.markdown || "",
-                    triageMeta: decisionTriageMeta,
+                    triageMeta: validationTriageMeta,
                     sessionManager,
                     finalAgentName: agentName,
                     executionContext: executionResult.executionContext,

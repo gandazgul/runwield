@@ -133,7 +133,7 @@ Deno.test("resolveValidationExecutionContext allows a legacy creation tree to di
         assertEquals(result.kind, "ok");
         if (result.kind === "ok") {
             assertEquals(result.context.executionMode, "worktree");
-            assertEquals(result.persistedLegacyExecutionMode, false);
+            assertEquals(result.persistedLegacyExecutionMode, true);
         }
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
@@ -233,7 +233,7 @@ Deno.test("resolveValidationExecutionContext recovers missing worktree metadata 
             assertEquals(result.persistedLegacyExecutionMode, true);
         }
         const persistedPlan = await loadPlan(projectRoot, "p");
-        assertEquals(persistedPlan?.attrs.worktreeId, "wt-1");
+        assertEquals(persistedPlan?.attrs.worktreeId, undefined);
         assertEquals(persistedPlan?.attrs.executionMode, undefined);
         assertEquals(persistedPlan?.attrs.executionBaselineTree, undefined);
         assertEquals(persistedPlan?.attrs.worktreePath, undefined);
@@ -287,7 +287,10 @@ Deno.test("resolveValidationExecutionContext repairs a saved baseline that hides
         assertEquals(result.kind, "ok");
         if (result.kind === "ok" && result.context.executionMode === "worktree") {
             assertEquals(result.context.baselineTree, creationTree);
-            assertEquals(result.selfHealNotices, [{ kind: "review_range_fixed", planName: "p" }]);
+            assertEquals(result.selfHealNotices, [
+                { kind: "review_range_fixed", planName: "p" },
+                { kind: "execution_plan_fixed", planName: "p" },
+            ]);
         }
         assertEquals((await findById(projectRoot, "wt-1"))?.executionBaselineTree, creationTree);
     } finally {
@@ -388,7 +391,7 @@ Deno.test("resolveValidationExecutionContext recovers committed worktree baselin
                 assertEquals(result.context.executionCwd, await Deno.realPath(worktreePath));
                 assertEquals(result.context.baselineTree, baselineTree);
             }
-            assertEquals(result.persistedLegacyExecutionMode, false);
+            assertEquals(result.persistedLegacyExecutionMode, true);
             assertEquals(result.restoredPlanFile, { relativePath: "docs/plans/p.md" });
         }
         assertEquals(await Deno.readTextFile(`${worktreePath}/docs/plans/p.md`), canonicalMarkdownBeforeResolution);
@@ -401,7 +404,7 @@ Deno.test("resolveValidationExecutionContext recovers committed worktree baselin
     }
 });
 
-Deno.test("resolveValidationExecutionContext heals a diverged worktree Plan ID instead of stranding the Plan", async () => {
+Deno.test("resolveValidationExecutionContext makes registry identity authoritative over stale Plan copies", async () => {
     const projectRoot = await baseRepo.checkout();
     const parent = await Deno.makeTempDir();
     try {
@@ -440,22 +443,22 @@ Deno.test("resolveValidationExecutionContext heals a diverged worktree Plan ID i
             updatedAt: "2026-01-01T00:00:00.000Z",
         });
 
-        // Three ids for one Plan: the canonical file, the worktree copy, and the
-        // registry entry. Only the canonical one is authoritative, and none of the
-        // divergence is the user's doing, so validation heals and proceeds.
+        // Three ids for one Plan: the primary-checkout file, the execution Plan,
+        // and the registry entry. Once execution starts, the registry identifies
+        // the attempt and the execution Plan is its authoritative Plan file. The
+        // unrelated primary checkout is never rewritten.
         const result = await resolveValidationExecutionContext({ projectRoot, planName: "p", triageMeta: {} });
         assertEquals(result.kind, "ok");
         if (result.kind !== "ok") return;
         const notices = result.selfHealNotices || [];
-        assertEquals(notices.length, 2, "both the worktree copy and the registry entry are reported");
-        assertEquals(notices.map((notice) => notice.kind).sort(), ["execution_plan_fixed", "worktree_record_fixed"]);
+        assertEquals(notices, [{ kind: "execution_plan_fixed", planName: "p" }]);
 
-        // All three converge on the canonical id, so nothing is left to strand a
-        // later recovery that looks the attempt up by planId.
+        // The execution Plan converges on the durable attempt id. The primary
+        // checkout remains byte-for-byte outside the recovery transaction.
         const healed = await loadPlan(worktreePath, "p");
-        assertEquals(healed?.attrs.planId, "canonical-plan-id");
+        assertEquals(healed?.attrs.planId, "plan-p");
         const entry = await findById(projectRoot, "wt-1");
-        assertEquals(entry?.planId, "canonical-plan-id");
+        assertEquals(entry?.planId, "plan-p");
         const canonical = await loadPlan(projectRoot, "p");
         assertEquals(
             canonical?.attrs.planId,

@@ -234,7 +234,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string} createdAt - ISO timestamp
  * @property {string} [updatedAt] - ISO timestamp (set on revision)
  * @property {string} [planId] - Durable project-scoped resource identity for Workspace URLs
- * @property {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"validated_ci"|"validated_reviewer"|"verified"|"user_verified"|"closed_without_verification"|"on_hold"} status
+ * @property {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"validated_ci"|"validated_reviewer"|"validated"|"verified"|"user_verified"|"closed_without_verification"|"on_hold"} status
  * @property {"internal"|"external"} [origin] - "internal" = created by a RunWield agent; "external" = a pre-existing markdown file loaded from an arbitrary path and resumed with RunWield
  * @property {string} [parentPlan] - Canonical parent plan name for child FEATURE plans
  * @property {number} [order] - Epic child FEATURE execution order.
@@ -242,7 +242,8 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string|null} [failureReason] - Concise durable failure detail for failed or unverified implemented plans
  * @property {string|null} [failedAt] - ISO timestamp when execution failed
  * @property {string|null} [implementedAt] - ISO timestamp when execution finished
- * @property {string|null} [verifiedAt] - ISO timestamp when validation passed
+ * @property {string|null} [validatedAt] - ISO timestamp when every required validation gate passed
+ * @property {string|null} [verifiedAt] - Legacy timestamp used by Plans completed before validated/published were split
  * @property {string|null} [userVerifiedAt] - ISO timestamp when the user attested verification outside Workflow Validation
  * @property {string|null} [userVerificationNote] - Required note for user_verified terminal plans
  * @property {string|null} [closedWithoutVerificationReason] - Required reason for new manual closed_without_verification transitions
@@ -529,6 +530,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.failureReason, fm.failureReason);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.failedAt, fm.failedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.implementedAt, fm.implementedAt);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.validatedAt, fm.validatedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.verifiedAt, fm.verifiedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.userVerifiedAt, fm.userVerifiedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.userVerificationNote, fm.userVerificationNote);
@@ -598,6 +600,7 @@ const PLAN_STATUSES = new Set([
     "implemented",
     "validated_ci",
     "validated_reviewer",
+    "validated",
     "verified",
     "user_verified",
     "closed_without_verification",
@@ -609,6 +612,7 @@ const PLAN_LIST_STATUS_ORDER = new Map([
     ["implemented", 1],
     ["validated_ci", 1],
     ["validated_reviewer", 1],
+    ["validated", 8],
     ["ready_for_work", 2],
     ["ready_for_decomposition", 3],
     ["draft", 4],
@@ -645,7 +649,7 @@ function normalizePlanStatus(status) {
 
 /** @param {string | undefined | null} status */
 export function isRunWieldVerifiedStatus(status) {
-    return status === "verified";
+    return status === "validated" || status === "verified";
 }
 
 /** @param {string | undefined | null} status */
@@ -655,12 +659,13 @@ export function isUserVerifiedStatus(status) {
 
 /** @param {string | undefined | null} status */
 export function isPlanDependencySatisfiedStatus(status) {
-    return status === "verified" || status === "user_verified";
+    return status === "validated" || status === "verified" || status === "user_verified";
 }
 
 /** @param {string | undefined | null} status */
 export function isCompletedPlanStatus(status) {
-    return status === "verified" || status === "user_verified" || status === "closed_without_verification";
+    return status === "validated" || status === "verified" || status === "user_verified" ||
+        status === "closed_without_verification";
 }
 
 /**
@@ -1232,6 +1237,7 @@ export function injectFrontMatter(markdown, overrides = {}) {
         failureReason: optionalFrontMatterValue(overrides, existingFm, "failureReason"),
         failedAt: optionalFrontMatterValue(overrides, existingFm, "failedAt"),
         implementedAt: optionalFrontMatterValue(overrides, existingFm, "implementedAt"),
+        validatedAt: optionalFrontMatterValue(overrides, existingFm, "validatedAt"),
         verifiedAt: optionalFrontMatterValue(overrides, existingFm, "verifiedAt"),
         closedWithoutVerificationReason: optionalFrontMatterValue(
             overrides,
@@ -1368,6 +1374,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             failureReason: attrs.failureReason,
             failedAt: attrs.failedAt,
             implementedAt: attrs.implementedAt,
+            validatedAt: attrs.validatedAt,
             verifiedAt: attrs.verifiedAt,
             userVerifiedAt: attrs.userVerifiedAt,
             userVerificationNote: typeof attrs.userVerificationNote === "string"
@@ -2739,7 +2746,7 @@ export async function listPlans(cwd) {
 }
 
 const ARCHIVED_DIR_NAME = "archived";
-const TERMINAL_ARCHIVABLE_STATUSES = new Set(["verified", "user_verified", "closed_without_verification"]);
+const TERMINAL_ARCHIVABLE_STATUSES = new Set(["validated", "verified", "user_verified", "closed_without_verification"]);
 const RECOVERABLE_WORKTREE_STATUSES = new Set(["active", "execution_failed", "validation_failed", "merge_conflict"]);
 
 /**
@@ -2763,6 +2770,7 @@ export function isRecoverableWorktreeStatus(worktreeStatus) {
  * @property {string} [reason]
  * @property {boolean} [force]
  * @property {string} [now]
+ * @property {boolean} [abandonedWorktree] - Archive after the user confirmed abandonment in the active recovery flow.
  */
 
 /**
@@ -2877,7 +2885,7 @@ export async function archivePlan(cwd, planNameOrId, options = {}) {
         throw new Error(`Cannot archive from ${ARCHIVED_DIR_NAME}/...; choose an active Plan name.`);
     }
 
-    const worktreeStatus = source.attrs.worktreeStatus;
+    const worktreeStatus = options.abandonedWorktree ? "abandoned" : source.attrs.worktreeStatus;
     if (isRecoverableWorktreeStatus(worktreeStatus)) {
         throw new Error(
             `Cannot archive ${source.name}: worktreeStatus ${worktreeStatus} is recoverable. Resolve or abandon the worktree before archiving; --force does not bypass recoverable worktree guards.`,
@@ -2887,7 +2895,7 @@ export async function archivePlan(cwd, planNameOrId, options = {}) {
     const status = source.attrs.status;
     if (!isTerminalArchivableStatus(status) && !options.force) {
         throw new Error(
-            `Cannot archive ${source.name} with status ${status} without --force. Only verified, user_verified, and closed_without_verification archive by default.`,
+            `Cannot archive ${source.name} with status ${status} without --force. Only validated, verified, user_verified, and closed_without_verification archive by default.`,
         );
     }
 
@@ -2904,6 +2912,17 @@ export async function archivePlan(cwd, planNameOrId, options = {}) {
         archivedFromPath: projectRelativePath(cwd, source.path),
         updatedAt: now,
     };
+    if (options.abandonedWorktree) {
+        Object.assign(archiveMetadata, {
+            executionMode: undefined,
+            executionBaselineTree: undefined,
+            worktreeId: undefined,
+            worktreePath: undefined,
+            worktreeBranch: undefined,
+            worktreeBaseBranch: undefined,
+            worktreeStatus: "abandoned",
+        });
+    }
     if (options.reason !== undefined) archiveMetadata.archiveReason = options.reason;
     const markdown = mergeFrontMatterText(source.markdown, archiveMetadata);
     return await withPlanCatalogLock(cwd, async () =>
@@ -3882,7 +3901,7 @@ export function countChildPlanProgress(children) {
         const status = child.status || child.attrs?.status || "draft";
         byStatus[status] = (byStatus[status] || 0) + 1;
     }
-    const verified = byStatus.verified || 0;
+    const verified = (byStatus.validated || 0) + (byStatus.verified || 0);
     const userVerified = byStatus.user_verified || 0;
     const completed = verified + userVerified;
     const active = (byStatus.in_progress || 0) + (byStatus.implemented || 0);

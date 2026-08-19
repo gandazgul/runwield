@@ -5,11 +5,10 @@
 import { isPlannedChangeClassification } from "../../constants.js";
 import { loadPlan, normalizeExecutionMode, updatePlanFrontMatter } from "../../plan-store.js";
 import {
-    adoptCanonicalPlanId,
     describeRegistryAmbiguity,
+    findActiveByPlanName as findWorktreeRegistryEntryByPlanName,
     findById as findWorktreeRegistryEntryById,
     findByPlanId as findWorktreeRegistryEntryByPlanId,
-    findByPlanName as findWorktreeRegistryEntryByPlanName,
     reconcileEntryGitLocation,
     restoreEntryFromPlanEvidence,
     updateEntry as updateWorktreeRegistryEntry,
@@ -21,7 +20,14 @@ import { isInValidation } from "./plan-lifecycle.js";
 import { hasImplementationDiff, requiresImplementationDiff } from "./validation-scope.ts";
 import type { ValidationRecoveryNotice } from "./validation-user-messages.ts";
 
-const VALIDATION_ELIGIBLE_WORKTREE_STATUSES = new Set(["active", "completed", "validation_failed", "merge_conflict"]);
+const VALIDATION_ELIGIBLE_WORKTREE_STATUSES = new Set([
+    "active",
+    "completed",
+    "validation_failed",
+    "merge_conflict",
+    "validated",
+    "publication_failed",
+]);
 
 type PlanFrontMatter = import("../../plan-store.js").PlanFrontMatter;
 type ResolutionSource = "explicit" | "active_session" | "durable_recovery";
@@ -198,8 +204,16 @@ export async function resolveValidationExecutionContext({
     explicitContext,
     activeWorkflow,
 }: ResolveValidationExecutionContextOptions): Promise<ValidationContextResolution> {
-    const plan = await loadPlan(projectRoot, planName);
-    const attrs = plan?.attrs || triageMeta || {};
+    const selected = selectCandidateContext({ explicitContext, activeWorkflow });
+    const selectedExecutionCwd = selected.context?.executionMode === "worktree"
+        ? asString(selected.context.executionCwd)
+        : undefined;
+    const executionPlan = selectedExecutionCwd
+        ? await loadPlan(selectedExecutionCwd, planName).catch(() => null)
+        : null;
+    const projectPlan = await loadPlan(projectRoot, planName);
+    let plan = executionPlan || projectPlan;
+    let attrs = plan?.attrs || triageMeta || {};
     if (!plan && isPlannedChangeClassification(attrs.classification)) {
         await recordResolutionMetric({
             cwd: projectRoot,
@@ -240,19 +254,9 @@ export async function resolveValidationExecutionContext({
             },
         };
     }
-    if (plan && !isInValidation(typeof attrs.status === "string" ? attrs.status : undefined)) {
-        return blocked(
-            "plan_not_implemented",
-            `Plan ${planName} is ${
-                attrs.status || "unknown"
-            }; Workflow Validation requires a validation lifecycle status.`,
-        );
-    }
-
     // Session and caller data fill only facts the durable records do not have.
     // Registry and Git facts below always override them, so stale process state
     // cannot veto a proven attempt.
-    const selected = selectCandidateContext({ explicitContext, activeWorkflow });
     const candidate = selected.context || {};
     const candidateMode = candidate.nonGitInPlace === true ? "non_git_in_place" : candidate.executionMode;
     const normalizedCandidateMode = normalizeExecutionMode(candidateMode);
@@ -263,9 +267,13 @@ export async function resolveValidationExecutionContext({
     try {
         recoveredRegistryEntry = candidateWorktreeId
             ? await findWorktreeRegistryEntryById(projectRoot, candidateWorktreeId)
-            : canonicalPlanId
-            ? await findWorktreeRegistryEntryByPlanId(projectRoot, canonicalPlanId)
-            : await findWorktreeRegistryEntryByPlanName(projectRoot, planName);
+            : null;
+        if (!recoveredRegistryEntry && canonicalPlanId) {
+            recoveredRegistryEntry = await findWorktreeRegistryEntryByPlanId(projectRoot, canonicalPlanId);
+        }
+        if (!recoveredRegistryEntry) {
+            recoveredRegistryEntry = await findWorktreeRegistryEntryByPlanName(projectRoot, planName);
+        }
     } catch (error) {
         // A damaged registry is RunWield's bookkeeping, not the user's mistake. Let it
         // block the operation, but as a blocked result carrying the commands that fix
@@ -291,6 +299,14 @@ export async function resolveValidationExecutionContext({
     }
 
     if (executionMode === "non_git_in_place") {
+        if (plan && !isInValidation(typeof attrs.status === "string" ? attrs.status : undefined)) {
+            return blocked(
+                "plan_not_implemented",
+                `Plan ${planName} is ${
+                    attrs.status || "unknown"
+                }; Workflow Validation requires a validation lifecycle status.`,
+            );
+        }
         if (plan && attrs.executionMode !== "non_git_in_place" && selected.source !== "durable_recovery") {
             await updatePlanFrontMatter(
                 projectRoot,
@@ -346,6 +362,19 @@ export async function resolveValidationExecutionContext({
             `RunWield found that "${planName}" should validate from a worktree, but the recorded worktree identity is incomplete. Use /load-plan ${planName}, inspect the recovery report, then choose "Delete/recreate worktree and start over" or "Re-open for review".`,
         );
     }
+    const authoritativePlan = await loadPlan(worktreePath, planName).catch(() => null);
+    if (authoritativePlan) {
+        plan = authoritativePlan;
+        attrs = authoritativePlan.attrs;
+    }
+    if (plan && !isInValidation(typeof attrs.status === "string" ? attrs.status : undefined)) {
+        return blocked(
+            "plan_not_implemented",
+            `Plan ${planName} is ${
+                attrs.status || "unknown"
+            }; Workflow Validation requires a validation lifecycle status.`,
+        );
+    }
     if (candidate.planName && !planIdentityMatches(candidate.planName, planName)) {
         return blocked("plan_name_mismatch", `Execution context belongs to ${candidate.planName}, not ${planName}.`);
     }
@@ -396,23 +425,6 @@ export async function resolveValidationExecutionContext({
             "registry_status_not_validation_eligible",
             `Worktree registry entry ${worktreeId} is ${registryEntry.status}, not validation-eligible.`,
         );
-    }
-    // Every pairing check above has passed, so this entry is the attempt the
-    // canonical Plan names. A registry planId that disagrees is therefore a
-    // twice-minted id, and leaving it in place would make recovery-by-planId miss
-    // this attempt later.
-    if (asString(attrs.planId) && registryEntry.planId !== attrs.planId) {
-        const adopted = await adoptCanonicalPlanId(projectRoot, worktreeId, {
-            planName,
-            planId: String(attrs.planId),
-        }).catch((error) => ({
-            rebound: false,
-            from: undefined,
-            reason: error instanceof Error ? error.message : String(error),
-        }));
-        if (adopted.rebound) {
-            selfHealNotices.push({ kind: "worktree_record_fixed", planName });
-        }
     }
     if (!baselineTree) baselineTree = asString(registryEntry.executionBaselineTree) || asString(registryEntry.baseTree);
     const candidateBaseCommit = asString(candidate.worktreeBaseCommit) || asString(candidate.baseCommit);
@@ -539,12 +551,17 @@ export async function resolveValidationExecutionContext({
         selfHealNotices.push({ kind: "review_range_fixed", planName });
     }
 
-    const hasStoredMergeRepairCandidate = attrs.status === "validated_reviewer" &&
+    const hasStoredMergeRepairCandidate = ["validated_reviewer", "validated"].includes(String(attrs.status || "")) &&
         typeof attrs.validationMergeRepairWorktree === "string" &&
         attrs.validationMergeRepairWorktree.length > 0;
     let restoredPlanFile: { relativePath: string } | undefined;
     if (!hasStoredMergeRepairCandidate) {
-        const planFile = await prepareExecutionPlanFile({ projectRoot, executionCwd: canonicalWorktreePath, planName });
+        const planFile = await prepareExecutionPlanFile({
+            projectRoot,
+            executionCwd: canonicalWorktreePath,
+            planName,
+            executionAuthoritative: true,
+        });
         // "reconciled" is as usable as "present": ensureExecutionPlanFile has already
         // synchronized the RunWield-owned metadata with the locked canonical Plan and
         // verified the bytes on disk. Rejecting it here strands validation at
@@ -571,11 +588,20 @@ export async function resolveValidationExecutionContext({
     }
 
     let persistedLegacyExecutionMode = false;
-    if (plan && !attrs.worktreeId && worktreeId) {
-        await updatePlanFrontMatter(projectRoot, planName, { worktreeId }, attrs, {
-            expectedRevision: plan.revision,
-        });
-        persistedLegacyExecutionMode = attrs.executionMode !== "worktree";
+    const currentExecutionPlan = await loadPlan(canonicalWorktreePath, planName);
+    if (currentExecutionPlan) {
+        const ownedRepairs: Partial<PlanFrontMatter> = {};
+        if (registryEntry.planId && currentExecutionPlan.attrs.planId !== registryEntry.planId) {
+            ownedRepairs.planId = registryEntry.planId;
+            selfHealNotices.push({ kind: "execution_plan_fixed", planName });
+        }
+        if (!currentExecutionPlan.attrs.worktreeId) ownedRepairs.worktreeId = worktreeId;
+        if (Object.keys(ownedRepairs).length > 0) {
+            await updatePlanFrontMatter(canonicalWorktreePath, planName, ownedRepairs, currentExecutionPlan.attrs, {
+                expectedRevision: currentExecutionPlan.revision,
+            });
+        }
+        persistedLegacyExecutionMode = currentExecutionPlan.attrs.executionMode !== "worktree";
     }
     await recordResolutionMetric({
         cwd: projectRoot,

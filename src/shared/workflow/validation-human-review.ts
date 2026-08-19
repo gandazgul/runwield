@@ -31,7 +31,7 @@ export async function runHumanReviewPhase(
         ? persistedMode
         : getCodeReviewMode(context.projectRoot);
     if (mode === "none") {
-        await persistHumanReviewMetadata(args, context.projectRoot, {
+        await persistHumanReviewMetadata(args, context.executionCwd, {
             humanReviewMode: "none",
             humanReviewDecision: "not_required",
             humanReviewedAt: null,
@@ -56,7 +56,7 @@ export async function runHumanReviewPhase(
             ],
         });
         if (response.outcome !== "selected" || response.value !== "open") {
-            await persistHumanReviewMetadata(args, context.projectRoot, {
+            await persistHumanReviewMetadata(args, context.executionCwd, {
                 humanReviewMode: "ask",
                 humanReviewDecision: "skipped",
                 humanReviewedAt: null,
@@ -118,7 +118,7 @@ export async function runHumanReviewPhase(
         });
         const humanReview = normalizeHumanReview(humanReviewResponse);
         if (humanReview.approved) {
-            await persistHumanReviewMetadata(args, context.projectRoot, {
+            await persistHumanReviewMetadata(args, context.executionCwd, {
                 humanReviewMode: mode,
                 humanReviewDecision: "approved",
                 humanReviewedAt: new Date().toISOString(),
@@ -151,7 +151,7 @@ export async function runHumanReviewPhase(
                 // The user owns this review from here. Recorded before the status
                 // moves, so the phase that picks the Plan up next can see it and hand
                 // the diff straight back rather than starting another sweep.
-                await persistHumanReviewMetadata(args, context.projectRoot, {
+                await persistHumanReviewMetadata(args, context.executionCwd, {
                     humanReviewMode: mode,
                     humanReviewDecision: "changes_requested",
                     humanReviewedAt: null,

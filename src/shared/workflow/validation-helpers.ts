@@ -155,7 +155,11 @@ interface WorkflowValidationResult {
     projectRoot: string;
     classification?: string;
     reason?: string;
-    epicContinuation?: { completedPlanName: string; projectRoot: string };
+    epicContinuation?: {
+        completedPlanName: string;
+        projectRoot: string;
+        resolution?: import("./epic-continuation.ts").EpicContinuationResolution;
+    };
 }
 
 interface RunManualQaChecklistPromptOptions {

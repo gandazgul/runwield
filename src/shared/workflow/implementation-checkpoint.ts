@@ -39,27 +39,28 @@ export async function finalizePlanImplementation({
         throw new Error(`Cannot complete ${planName}: durable execution context is missing.`);
     }
 
-    // Older tests and partial recovery paths may not provide a loadable primary
-    // Plan; keep the legacy in_progress assumption in that case.
+    const planCwd = executionContext.executionMode === "worktree" && executionContext.executionCwd
+        ? executionContext.executionCwd
+        : projectRoot;
     const currentPlan = await (async () => {
         try {
-            return await loadPlan(projectRoot, planName);
+            return await loadPlan(planCwd, planName);
         } catch {
             return null;
         }
     })();
-    const primaryStatus = currentPlan?.attrs?.status;
-    if (isInValidation(primaryStatus) || primaryStatus === "verified" || primaryStatus === "user_verified") {
+    const planStatus = currentPlan?.attrs?.status;
+    if (isInValidation(planStatus) || planStatus === "verified" || planStatus === "user_verified") {
         acknowledgeImplementationCompletion(hostedSession);
         return {};
     }
-    if (primaryStatus && primaryStatus !== "in_progress" && primaryStatus !== "ready_for_work") {
+    if (planStatus && planStatus !== "in_progress" && planStatus !== "ready_for_work") {
         throw new Error(
-            `Cannot complete ${planName}: primary Plan status is "${primaryStatus}", expected "in_progress" or "ready_for_work".`,
+            `Cannot complete ${planName}: Plan status is "${planStatus}", expected "in_progress" or "ready_for_work".`,
         );
     }
     const transition = await runImplementationCheckpointTransition({
-        projectRoot,
+        projectRoot: planCwd,
         planName,
         planId: typeof triageMeta.planId === "string" ? triageMeta.planId : undefined,
         worktreeId: executionContext.worktreeId,
@@ -67,6 +68,49 @@ export async function finalizePlanImplementation({
         checkpoint: async ({ markEffect }) => {
             /** @type {string | undefined} */
             let implementationCommit;
+            if (
+                executionContext.executionMode !== "worktree" &&
+                executionContext.executionMode !== "non_git_in_place" &&
+                executionContext.nonGitInPlace !== true
+            ) {
+                throw new Error(`Cannot complete ${planName}: execution mode is missing or unknown.`);
+            }
+            if (planStatus === "ready_for_work") {
+                await recordPlanEvent({
+                    cwd: planCwd,
+                    planName,
+                    event: "execution_started",
+                    currentStatus: "ready_for_work",
+                    details: {
+                        triageMeta,
+                        nonGitInPlace: executionContext.nonGitInPlace === true,
+                        executionMode: executionContext.executionMode,
+                        executionBaselineTree: executionContext.baselineTree,
+                        worktreeId: executionContext.worktreeId,
+                        worktreePath: executionContext.executionCwd,
+                        worktreeBranch: executionContext.worktreeBranch,
+                        worktreeBaseBranch: executionContext.worktreeBaseBranch,
+                        worktreeStatus: executionContext.executionMode === "worktree" ? "active" : undefined,
+                    },
+                });
+            }
+            await recordPlanEvent({
+                cwd: planCwd,
+                planName,
+                event: "implementation_finished",
+                currentStatus: "in_progress",
+                details: {
+                    triageMeta,
+                    nonGitInPlace: executionContext.nonGitInPlace === true,
+                    executionMode: executionContext.executionMode,
+                    executionBaselineTree: executionContext.baselineTree,
+                    worktreeId: executionContext.worktreeId,
+                    worktreePath: executionContext.executionCwd,
+                    worktreeBranch: executionContext.worktreeBranch,
+                    worktreeBaseBranch: executionContext.worktreeBaseBranch,
+                    executionReport,
+                },
+            });
             if (executionContext.executionMode === "worktree") {
                 if (!executionContext.executionCwd || !executionContext.worktreeBranch) {
                     throw new Error(
@@ -85,48 +129,7 @@ export async function finalizePlanImplementation({
                     worktreeId: executionContext.worktreeId,
                     worktreeBranch: executionContext.worktreeBranch,
                 });
-            } else if (
-                executionContext.executionMode !== "non_git_in_place" &&
-                executionContext.nonGitInPlace !== true
-            ) {
-                throw new Error(`Cannot complete ${planName}: execution mode is missing or unknown.`);
             }
-            if (primaryStatus === "ready_for_work") {
-                await recordPlanEvent({
-                    cwd: projectRoot,
-                    planName,
-                    event: "execution_started",
-                    currentStatus: "ready_for_work",
-                    details: {
-                        triageMeta,
-                        nonGitInPlace: executionContext.nonGitInPlace === true,
-                        executionMode: executionContext.executionMode,
-                        executionBaselineTree: executionContext.baselineTree,
-                        worktreeId: executionContext.worktreeId,
-                        worktreePath: executionContext.executionCwd,
-                        worktreeBranch: executionContext.worktreeBranch,
-                        worktreeBaseBranch: executionContext.worktreeBaseBranch,
-                        worktreeStatus: executionContext.executionMode === "worktree" ? "active" : undefined,
-                    },
-                });
-            }
-            await recordPlanEvent({
-                cwd: projectRoot,
-                planName,
-                event: "implementation_finished",
-                currentStatus: "in_progress",
-                details: {
-                    triageMeta,
-                    nonGitInPlace: executionContext.nonGitInPlace === true,
-                    executionMode: executionContext.executionMode,
-                    executionBaselineTree: executionContext.baselineTree,
-                    worktreeId: executionContext.worktreeId,
-                    worktreePath: executionContext.executionCwd,
-                    worktreeBranch: executionContext.worktreeBranch,
-                    worktreeBaseBranch: executionContext.worktreeBaseBranch,
-                    executionReport,
-                },
-            });
             await markActiveWorktreeStatus("completed", { hostedSession, workflow: executionContext });
             return implementationCommit ? { implementationCommit } : {};
         },

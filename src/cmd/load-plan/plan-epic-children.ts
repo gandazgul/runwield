@@ -70,7 +70,7 @@ export interface EpicChildPlan {
  */
 export function isDecomposedEpicStatus(attrs: PlanFrontMatter): boolean {
     return attrs.status === "ready_for_decomposition" || attrs.status === "ready_for_work" ||
-        (attrs.status === "verified" && attrs.epicCompletionMode === "done_enough");
+        (["validated", "verified"].includes(attrs.status) && attrs.epicCompletionMode === "done_enough");
 }
 
 /**
@@ -114,7 +114,8 @@ export function formatNextChildLabel(child: EpicChildPlan): string {
  * @returns {boolean}
  */
 export function isActionableNextChild(child: EpicChildPlan): boolean {
-    return child.attrs.status !== "verified" && child.attrs.status !== "user_verified" &&
+    return child.attrs.status !== "validated" && child.attrs.status !== "verified" &&
+        child.attrs.status !== "user_verified" &&
         child.attrs.status !== "closed_without_verification";
 }
 
@@ -150,7 +151,7 @@ export function countEpicChildStatuses(children: EpicChildPlan[]): EpicChildCoun
     };
     for (const child of children) {
         const status = child.attrs.status;
-        if (status === "verified") counts.verified += 1;
+        if (status === "validated" || status === "verified") counts.verified += 1;
         else if (status === "user_verified") counts.userVerified += 1;
         else if (status === "in_progress" || isInValidation(status)) counts.active += 1;
         else if (status === "failed") counts.failed += 1;

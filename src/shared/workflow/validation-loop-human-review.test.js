@@ -350,7 +350,7 @@ Deno.test("your feedback goes to the engineer, then the tests, then straight bac
     assertEquals(isolatedRuns, 1);
     assertEquals(result.kind, "verified");
     const plan = await loadPlan(projectRoot, "p");
-    assertEquals(plan?.attrs.status, "verified");
+    assertEquals(plan?.attrs.status, "validated");
     assertEquals(plan?.attrs.humanReviewDecision, "approved");
 });
 

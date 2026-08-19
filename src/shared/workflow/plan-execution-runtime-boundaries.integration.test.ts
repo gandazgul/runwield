@@ -135,7 +135,9 @@ Deno.test("an engineer-owned Plan runs under Plan Engineer while the Plan keeps 
             // The durable record never learns the runtime identity.
             assertEquals(result.executionContext?.executionAgent, "engineer");
             assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.executionAgent, "engineer");
-            const persisted = await loadPlan(projectRoot, "backend-feature");
+            const executionCwd = result.executionContext?.executionCwd;
+            assert(executionCwd);
+            const persisted = await loadPlan(executionCwd, "backend-feature");
             assertEquals(persisted?.attrs.executionAgent, "engineer");
 
             // Plan Engineer's task_completed was accepted, not rejected as a wrong owner.

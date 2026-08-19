@@ -28,6 +28,7 @@ import { runEngineerWithPlan, runEngineerWithSegmentHandoff } from "./engineer-r
 import { resolvePlanExecutionRuntimeAgent } from "./execution-agent.ts";
 import { createExecutionStartPorts, startActiveExecutionWorkflow } from "./execution-start.ts";
 import { emitLaunchingExecutionAgent } from "./execution-preparation-progress.ts";
+import { findActiveByPlanName as findExecutionWorktreeByPlanName } from "../worktree-registry.js";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { ActiveExecutionWorkflow, HostedSession } from "../session/hosted-session.js";
@@ -107,7 +108,9 @@ export async function executePlan({
 
     async function tryLoadPlanForExecution() {
         try {
-            return { plan: await loadPlan(projectRoot, planName), error: null };
+            const liveAttempt = await findExecutionWorktreeByPlanName(projectRoot, planName);
+            const authorityRoot = liveAttempt?.path || projectRoot;
+            return { plan: await loadPlan(authorityRoot, planName), error: null };
         } catch (error) {
             return { plan: null, error };
         }

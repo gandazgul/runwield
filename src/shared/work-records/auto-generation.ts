@@ -105,7 +105,7 @@ export async function resolveTargetedWorkRecordSource(
         if (!parent) return { skipReason: "parent_not_found", targetPlanName: parentName || planName };
         const parentWithChildren = await withEpicChildren(cwd, parent);
         if (
-            !((parentWithChildren.attrs.status === "verified" &&
+            !((["validated", "verified"].includes(parentWithChildren.attrs.status) &&
                 parentWithChildren.attrs.epicCompletionMode === "done_enough") ||
                 parentWithChildren.attrs.status === "user_verified")
         ) {

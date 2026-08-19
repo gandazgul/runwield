@@ -26,6 +26,7 @@ export const PLAN_FRONT_MATTER_KEYS = Object.freeze({
     failureReason: "failureReason",
     failedAt: "failedAt",
     implementedAt: "implementedAt",
+    validatedAt: "validatedAt",
     verifiedAt: "verifiedAt",
     userVerifiedAt: "userVerifiedAt",
     userVerificationNote: "userVerificationNote",

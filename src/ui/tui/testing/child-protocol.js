@@ -224,16 +224,20 @@ async function runChild(request) {
         for (const [key, value] of Object.entries(env.env)) Deno.env.set(key, value);
         Deno.chdir(env.projectRoot);
         Deno.env.set("WLD_GOLDEN_TUI_CHILD", "1");
+        await Deno.writeTextFile(join(timeoutArtifactDir, "startup-phase.txt"), "loading init state\n");
         const { _setTestStatePath } = await import("../../../cmd/init/init-state.ts");
         _setTestStatePath(join(env.runwieldDir, "init-state.json"));
+        await Deno.writeTextFile(join(timeoutArtifactDir, "startup-phase.txt"), "loading scenario runner\n");
         const { runGoldenScenario } = await import("./scenario-runner.js");
         const moduleUrl = request.scenarioModule.startsWith("file:")
             ? request.scenarioModule
             : toFileUrl(join(REPO_ROOT, request.scenarioModule)).href;
+        await Deno.writeTextFile(join(timeoutArtifactDir, "startup-phase.txt"), "loading scenario\n");
         const module = await import(moduleUrl);
         const scenario = module[request.exportName];
         if (!scenario) throw new Error(`Missing scenario export: ${request.exportName}`);
         try {
+            await Deno.writeTextFile(join(timeoutArtifactDir, "startup-phase.txt"), "starting scenario\n");
             const result = await runGoldenScenario(scenario, {
                 keepArtifacts: request.keepArtifacts,
                 artifactRoot: timeoutArtifactDir,

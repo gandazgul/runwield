@@ -289,31 +289,21 @@ For worktree-backed plans:
    restarting semantic review.
 8. If validation fails, RunWield keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
    leaves the worktree for recovery.
-9. If validation passes, RunWield commits any later validation or repair changes and seals the execution worktree into a
-   pinned candidate commit, captures the target branch head before merge, stages the already-reconciled canonical Plan
-   definition in the execution worktree, and records `validation_passed` there with `executionMode` plus versioned
-   `deliveryEvidence`. This branch-local `verified` state is staged for merge and is not yet canonical.
-10. RunWield snapshots the primary Plan's index and working-file state, returns both to the checked-in state, and merges
-    the execution branch. When the target branch is not checked out in the primary checkout, the merge updates that
-    target ref through a detached merge worktree and RunWield restores the primary snapshot; otherwise the successful
-    merge supplies the primary file directly. The staged verified Plan becomes canonical only after Git proves the
-    sealed candidate commit and metadata commit are ancestors of the target branch. By default, RunWield removes the
-    execution checkout only if it is still clean, then deletes its `.wld/worktrees.json` entry; the merged Plan has
-    `executionBaselineTree`, `worktreeId`, `worktreePath`, `worktreeBranch`, and `worktreeStatus` cleared. Unexpected
-    post-merge dirty state is preserved with its registry entry instead of being force-deleted. If
-    `cleanupMergedWorktrees` is `false`, the merged checkout, registry entry, and Plan pointers remain for inspection.
-11. If Direct Delivery creates a detached merge worktree and the conflict can be repaired without changing the already
-    approved implementation, RunWield records `validationMergeRepairWorktree` in Front Matter while the Plan remains
-    `validated_reviewer`. A later Workflow Validation call first verifies that stored path still exists and then asks
-    publication to finish that repaired merge worktree, rather than starting the same merge from scratch. Successful
-    publication spends the path and clears the field through `validation_passed`; if the path is missing, RunWield
-    clears it and attempts a fresh merge.
-12. `worktree_merge_failed` remains the separate lifecycle event for a merge failure that invalidates publication and
-    returns the Plan to `implemented` with `worktreeStatus: "merge_conflict"`. That event is not used for normal
-    status-preserving merge-repair continuation, because returning to `implemented` means fresh CI and review are
-    required. Any transition that returns to `implemented`, starts a new execution, resets recovery, reopens review,
-    resets a hold to draft, or verifies the Plan outside normal validation (`manual_user_verified`, `epic_done_enough`)
-    clears `validationMergeRepairWorktree` so stale merge trees cannot be published.
+9. If validation passes, RunWield checkpoints the implementation first. The resulting commit is the immutable
+   implementation commit recorded in Delivery Evidence. It then records `validation_passed` only in the execution
+   worktree, moving the Plan to `validated`, generates the Work Record there, and commits both. The Plan Front Matter is
+   final at this point; publication does not add another status or delivery stamp.
+10. RunWield assembles publication in a temporary clone, never in the user's primary checkout. It combines the latest
+    configured upstream target with the validated execution branch, then pushes the assembled commit to the Plan's
+    recorded target branch using a lease. It verifies the exact remote commit before reporting success.
+11. Until remote verification succeeds, `.wld/worktrees.json` retains the execution attempt as validated but not yet
+    published. Any push failure leaves the implementation, validated Plan, Work Record, worktree, and branch intact for
+    retry. A missing or damaged registry is not treated as proof of success; RunWield must also prove the recorded
+    commit is reachable from the remote target.
+12. After remote verification, RunWield may remove the clean execution checkout and branch and then removes the registry
+    entry. Operationally, a validated attempt is published when the remote contains its commit and no pending worktree
+    entry remains. The Plan itself stays `validated`; it is not dirtied by a second `published` transition. RunWield
+    tells the user to update any local checkout that still points at an older target commit.
 
 Human code review does not add a new primary Plan Status. While human review is pending, returning feedback, or
 canceled, the Plan remains `implemented`. Final `validation_passed` metadata records whether human review was not
@@ -321,9 +311,8 @@ required, skipped, or approved. Manual recovery and legacy staged worktrees pres
 decision, and timestamp evidence when no newer review result is supplied. RunWield clears stale human-review metadata
 when execution starts again, when recovery resets a plan, or when a plan is re-opened for review.
 
-After merge-back reports success, merge verification, primary snapshot restoration, registry updates, metrics, and
-cleanup are post-merge bookkeeping. Their failures are reported without recording `worktree_merge_failed` or
-`validation_failed` over the verified Plan. Inconclusive merge verification retains the worktree for inspection.
+After the push is remotely verified, registry updates, metrics, and cleanup are post-publication bookkeeping. Their
+failures never rewrite the validated Plan. Inconclusive remote verification retains the worktree and registry entry.
 
 For PROJECT Epics, child FEATURE Plans run their own Workflow Validation. The Epic can be marked done enough for now,
 but it does not run a validation loop as if it were an implementation diff.

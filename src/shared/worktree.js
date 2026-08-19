@@ -67,100 +67,6 @@ async function pathExists(path) {
 }
 
 /**
- * @typedef {Object} PrimaryPlanPathSnapshot
- * @property {string} projectRoot
- * @property {string} relativePath
- * @property {string} absolutePath
- * @property {boolean} existed
- * @property {boolean} tracked
- * @property {boolean} headTracked
- * @property {string|null} indexMode
- * @property {string|null} indexObjectId
- * @property {string|null} content
- */
-
-/**
- * Snapshot a dirty primary Plan path and return the checkout path to HEAD so
- * Git can merge the execution branch's finalized copy.
- *
- * @param {{ projectRoot: string, relativePath: string }} opts
- * @returns {Promise<PrimaryPlanPathSnapshot>}
- */
-export async function preparePrimaryPlanPathForMerge({ projectRoot, relativePath }) {
-    const normalizedPath = relativePath.replaceAll("\\", "/");
-    if (!normalizedPath.startsWith("docs/plans/") || !normalizedPath.endsWith(".md") || normalizedPath.includes("..")) {
-        throw new Error(`Refusing to prepare non-Plan merge path: ${relativePath}`);
-    }
-
-    const absolutePath = join(projectRoot, normalizedPath);
-    const existed = await pathExists(absolutePath);
-    const content = existed ? await Deno.readTextFile(absolutePath) : null;
-    const indexEntry = (await runGit(projectRoot, ["ls-files", "--stage", "--", normalizedPath])).trim();
-    const indexMatch = indexEntry.match(/^(\d+) ([0-9a-f]+) 0\t/);
-    const indexMode = indexMatch?.[1] || null;
-    const indexObjectId = indexMatch?.[2] || null;
-    const tracked = Boolean(indexObjectId);
-    const headResult = await runGitResult(projectRoot, ["cat-file", "-e", `HEAD:${normalizedPath}`]);
-    const headTracked = headResult.code === 0;
-    const snapshot = {
-        projectRoot,
-        relativePath: normalizedPath,
-        absolutePath,
-        existed,
-        tracked,
-        headTracked,
-        indexMode,
-        indexObjectId,
-        content,
-    };
-
-    if (headTracked) {
-        await runGit(projectRoot, ["restore", "--staged", "--worktree", "--source=HEAD", "--", normalizedPath]);
-    } else {
-        if (tracked) {
-            await runGit(projectRoot, ["rm", "--cached", "--force", "--ignore-unmatch", "--", normalizedPath]);
-        }
-        if (existed) await Deno.remove(absolutePath);
-    }
-    return snapshot;
-}
-
-/**
- * Restore the exact primary Plan working-file state captured before merge.
- *
- * @param {PrimaryPlanPathSnapshot} snapshot
- * @returns {Promise<void>}
- */
-export async function restorePrimaryPlanPathAfterMergeFailure(snapshot) {
-    if (snapshot.indexMode && snapshot.indexObjectId) {
-        await runGit(snapshot.projectRoot, [
-            "update-index",
-            "--add",
-            "--cacheinfo",
-            snapshot.indexMode,
-            snapshot.indexObjectId,
-            snapshot.relativePath,
-        ]);
-    } else {
-        await runGit(snapshot.projectRoot, [
-            "rm",
-            "--cached",
-            "--force",
-            "--ignore-unmatch",
-            "--",
-            snapshot.relativePath,
-        ]);
-    }
-
-    if (!snapshot.existed) {
-        if (await pathExists(snapshot.absolutePath)) await Deno.remove(snapshot.absolutePath);
-        return;
-    }
-    await Deno.mkdir(dirname(snapshot.absolutePath), { recursive: true });
-    await Deno.writeTextFile(snapshot.absolutePath, snapshot.content || "");
-}
-
-/**
  * @param {string} projectRoot
  * @returns {Promise<boolean>}
  */
@@ -352,17 +258,6 @@ async function remoteBranchExists(projectRoot, branch) {
 
 /**
  * @param {string} projectRoot
- * @param {string} localBranch
- * @param {string} remoteBranch
- * @returns {Promise<PreparedTargetBranchRef>}
- */
-async function createLocalTrackingBranch(projectRoot, localBranch, remoteBranch) {
-    await runGit(projectRoot, ["branch", "--track", localBranch, `origin/${remoteBranch}`]);
-    return { baseRef: `refs/heads/${localBranch}`, baseBranch: localBranch };
-}
-
-/**
- * @param {string} projectRoot
  * @param {string} branch
  * @returns {Promise<PreparedTargetBranchRef>}
  */
@@ -419,19 +314,16 @@ export async function resolveCurrentCheckoutBranch(projectRoot) {
 export async function prepareTargetBranchRef(projectRoot, branch) {
     await assertGitRepository(projectRoot, "Preparing an execution target branch");
     const target = await resolveTargetBranchName(projectRoot, branch);
-    if (await gitRefExists(projectRoot, `refs/heads/${target}`)) {
-        return { baseRef: `refs/heads/${target}`, baseBranch: target };
+    if (await remoteBranchExists(projectRoot, target)) {
+        return { baseRef: `refs/remotes/origin/${target}`, baseBranch: target };
     }
 
     if (typeof branch === "string" && branch.trim().startsWith("origin/")) {
-        if (!await remoteBranchExists(projectRoot, target)) {
-            throw new Error(`Remote target branch does not exist: origin/${target}`);
-        }
-        return await createLocalTrackingBranch(projectRoot, target, target);
+        throw new Error(`Remote target branch does not exist: origin/${target}`);
     }
 
-    if (await remoteBranchExists(projectRoot, target)) {
-        return await createLocalTrackingBranch(projectRoot, target, target);
+    if (await gitRefExists(projectRoot, `refs/heads/${target}`)) {
+        return { baseRef: `refs/heads/${target}`, baseBranch: target };
     }
 
     return await createLocalBranchFromMain(projectRoot, target);
@@ -626,6 +518,36 @@ export async function isCommitAncestorOfBranch(projectRoot, commit, branch) {
 }
 
 /**
+ * A compare-and-swap proves only that the target still points where the caller
+ * last saw it. Git will still replace that commit with an unrelated commit.
+ * Prove reachability separately at the final publication boundary.
+ *
+ * @param {string} projectRoot
+ * @param {string} targetCommit
+ * @param {string} candidateCommit
+ * @param {string} targetBranch
+ * @returns {Promise<void>}
+ */
+export async function assertPublicationCandidateContainsTarget(
+    projectRoot,
+    targetCommit,
+    candidateCommit,
+    targetBranch,
+) {
+    const result = await runGitResult(projectRoot, [
+        "merge-base",
+        "--is-ancestor",
+        targetCommit,
+        candidateCommit,
+    ]);
+    if (result.code === 0) return;
+    throw attachMergeRepairDetails(
+        new Error(`Publication candidate would discard commits already on ${targetBranch}. Publication was stopped.`),
+        { mergeFailureKind: "target_history_rewrite" },
+    );
+}
+
+/**
  * @param {string} projectRoot
  * @param {string | undefined} worktreeRoot
  * @returns {string}
@@ -762,62 +684,6 @@ function attachMergeRepairDetails(error, details) {
 
 /**
  * @param {string} cwd
- * @param {string} targetRef
- * @param {string} branch
- * @param {string | undefined} executionWorktreePath
- * @param {string[]} [preservePlanPaths]
- */
-async function alignPlanFilesWithMergeTarget(cwd, targetRef, branch, executionWorktreePath, preservePlanPaths = []) {
-    if (!executionWorktreePath) return;
-    const preserved = new Set(preservePlanPaths.map((path) => path.replaceAll("\\", "/")));
-    const mergeBase = (await runGit(cwd, ["merge-base", targetRef, branch])).trim();
-    const planFilesInBranch = new Set(
-        parseNameOnlyPaths(
-            await runGit(cwd, ["diff", "--name-only", `${mergeBase}..${branch}`, "--", "docs/plans/*.md"]),
-        ),
-    );
-    const planFilesInTarget = new Set(
-        parseNameOnlyPaths(
-            await runGit(cwd, [
-                "diff",
-                "--name-only",
-                "--diff-filter=AMRT",
-                `${mergeBase}..${targetRef}`,
-                "--",
-                "docs/plans/*.md",
-            ]),
-        ),
-    );
-    const conflictingPlanFiles = [...planFilesInBranch].filter((/** @type {string} */ file) =>
-        planFilesInTarget.has(file) && !preserved.has(file)
-    );
-    if (conflictingPlanFiles.length === 0) return;
-
-    for (const file of conflictingPlanFiles) {
-        const content = await runGit(cwd, ["show", `${targetRef}:${file}`]);
-        const fullPath = join(executionWorktreePath, file);
-        const parentDir = join(fullPath, "..");
-        await Deno.mkdir(parentDir, { recursive: true });
-        await Deno.writeTextFile(fullPath, content);
-    }
-    await runGit(executionWorktreePath, ["add", "-A", "--", ...conflictingPlanFiles]);
-    const stagedPlanChanges = await runGit(executionWorktreePath, [
-        "diff",
-        "--cached",
-        "--name-only",
-        "--",
-        ...conflictingPlanFiles,
-    ]);
-    if (!stagedPlanChanges.trim()) return;
-    await runGit(executionWorktreePath, [
-        "commit",
-        "-m",
-        "Align plan files with merge target to avoid frontmatter metadata conflicts",
-    ]);
-}
-
-/**
- * @param {string} cwd
  * @param {string} branch
  * @param {string[]} preservePlanPaths
  * @returns {Promise<string[]>}
@@ -847,12 +713,23 @@ async function restorePreservedPlanConflictPaths(cwd, branch, preservePlanPaths)
  * @param {string[]} preservePlanPaths
  * @returns {Promise<boolean>}
  */
-async function resolvePreservedPlanMergeConflicts(cwd, branch, preservePlanPaths) {
-    if (preservePlanPaths.length === 0 || !await isMergeInProgress(cwd)) return false;
+async function resolvePlanMergeConflicts(cwd, branch, preservePlanPaths) {
+    if (!await isMergeInProgress(cwd)) return false;
     const unresolvedPaths = parseNameOnlyPaths(await runGit(cwd, ["diff", "--name-only", "--diff-filter=U"]));
     if (unresolvedPaths.length === 0) return false;
-    const restoredPaths = await restorePreservedPlanConflictPaths(cwd, branch, preservePlanPaths);
-    if (restoredPaths.length !== unresolvedPaths.length) return false;
+    if (unresolvedPaths.some((path) => !path.startsWith("docs/plans/") || !path.endsWith(".md"))) return false;
+
+    const preserved = new Set(preservePlanPaths.map((path) => path.replaceAll("\\", "/")));
+    for (const path of unresolvedPaths) {
+        const source = preserved.has(path.replaceAll("\\", "/")) ? branch : "HEAD";
+        const existsAtSource = await runGitResult(cwd, ["cat-file", "-e", `${source}:${path}`]);
+        if (existsAtSource.code === 0) {
+            await runGit(cwd, ["restore", "--staged", "--worktree", `--source=${source}`, "--", path]);
+        } else {
+            await runGit(cwd, ["rm", "--force", "--ignore-unmatch", "--", path]);
+        }
+    }
+    await runGit(cwd, ["add", "-A", "--", ...unresolvedPaths]);
 
     await runGit(cwd, ["-c", "core.editor=true", "merge", "--continue"]);
     return true;
@@ -891,7 +768,7 @@ async function assertNoOverlappingDirtyPaths(cwd, branch, allowedDirtyPaths) {
  * @param {{ projectRoot: string, branch: string, worktreePath?: string, allowedDirtyPaths?: string[], preservePlanPaths?: string[] }} opts
  */
 async function mergeExecutionWorktreeIntoCurrentCheckout(
-    { projectRoot, branch, worktreePath, allowedDirtyPaths = [], preservePlanPaths = [] },
+    { projectRoot, branch, allowedDirtyPaths = [], preservePlanPaths = [] },
 ) {
     try {
         if (await isMergeInProgress(projectRoot)) {
@@ -912,13 +789,12 @@ async function mergeExecutionWorktreeIntoCurrentCheckout(
             return;
         }
         await assertNoOverlappingDirtyPaths(projectRoot, branch, allowedDirtyPaths);
-        await alignPlanFilesWithMergeTarget(projectRoot, "HEAD", branch, worktreePath, preservePlanPaths);
         await runGit(projectRoot, ["merge", "--no-ff", branch]);
         if (preservePlanPaths.length > 0) {
             await restoreExistingPathsFromHead(projectRoot, preservePlanPaths);
         }
     } catch (error) {
-        if (await resolvePreservedPlanMergeConflicts(projectRoot, branch, preservePlanPaths)) {
+        if (await resolvePlanMergeConflicts(projectRoot, branch, preservePlanPaths)) {
             if (preservePlanPaths.length > 0) {
                 await restoreExistingPathsFromHead(projectRoot, preservePlanPaths);
             }
@@ -1046,6 +922,12 @@ async function publishRepairedMergeWorktree(
     }
 
     try {
+        await assertPublicationCandidateContainsTarget(
+            projectRoot,
+            oldTargetCommit,
+            mergeCommit,
+            targetBranch,
+        );
         await runGit(projectRoot, ["update-ref", `refs/heads/${targetBranch}`, mergeCommit, oldTargetCommit]);
     } catch {
         await cleanupDetachedMergeWorktree(projectRoot, mergeWorktreePath);
@@ -1103,13 +985,6 @@ async function mergeExecutionWorktreeIntoTargetBranch({
             );
             if (published) return;
         }
-        await alignPlanFilesWithMergeTarget(
-            projectRoot,
-            `refs/heads/${targetBranch}`,
-            branch,
-            worktreePath,
-            preservePlanPaths,
-        );
         await mergeExecutionWorktreeIntoCurrentCheckout({
             projectRoot,
             branch,
@@ -1158,7 +1033,6 @@ async function mergeExecutionWorktreeIntoTargetBranch({
                 { mergeFailureKind: "target_branch_advanced" },
             );
         }
-        await alignPlanFilesWithMergeTarget(projectRoot, oldTargetCommit, branch, worktreePath, preservePlanPaths);
         const tempId = crypto.randomUUID().slice(0, 8);
         const mergeWorktreePath = join(parent, `${repoName}-merge-${slugify(targetBranch)}-${tempId}`);
         let preserveMergeWorktree = false;
@@ -1168,7 +1042,7 @@ async function mergeExecutionWorktreeIntoTargetBranch({
             try {
                 await runGit(mergeWorktreePath, ["merge", "--no-ff", branch]);
             } catch (mergeError) {
-                if (!await resolvePreservedPlanMergeConflicts(mergeWorktreePath, branch, preservePlanPaths)) {
+                if (!await resolvePlanMergeConflicts(mergeWorktreePath, branch, preservePlanPaths)) {
                     preserveMergeWorktree = true;
                     throw attachMergeRepairDetails(mergeError, {
                         repairCwd: mergeWorktreePath,
@@ -1179,6 +1053,12 @@ async function mergeExecutionWorktreeIntoTargetBranch({
             }
             const mergeCommit = (await runGit(mergeWorktreePath, ["rev-parse", "HEAD"])).trim();
             try {
+                await assertPublicationCandidateContainsTarget(
+                    projectRoot,
+                    oldTargetCommit,
+                    mergeCommit,
+                    targetBranch,
+                );
                 await runGit(projectRoot, ["update-ref", `refs/heads/${targetBranch}`, mergeCommit, oldTargetCommit]);
                 return;
             } catch (updateError) {
@@ -1269,6 +1149,7 @@ export async function inspectExecutionWorktreeMergeRisk({ projectRoot, branch, t
  * @typedef {Object} MergeExecutionWorktreeResult
  * @property {boolean} updatedPrimaryCheckout
  * @property {string} [executionMetadataCommit]
+ * @property {string} [targetHeadBeforeMerge]
  */
 
 /**
@@ -1349,7 +1230,9 @@ export async function mergeExecutionWorktree(
         allowedDirtyPaths,
         preservePlanPaths,
     });
-    return { updatedPrimaryCheckout, executionMetadataCommit };
+    const publishedCommit = await getBranchHead(projectRoot, normalizedTargetBranch);
+    const targetHeadBeforeMerge = (await runGit(projectRoot, ["rev-parse", `${publishedCommit}^1`])).trim();
+    return { updatedPrimaryCheckout, executionMetadataCommit, targetHeadBeforeMerge };
 }
 
 /**
@@ -1425,6 +1308,46 @@ export async function deleteMergedWorktreeBranch({ projectRoot, branch, baseComm
     }
     await runGit(projectRoot, ["branch", "-d", branch]);
     return { deleted: true, reason: `${branch} was merged into HEAD and deleted.` };
+}
+
+/**
+ * Delete an execution branch after an upstream publication proves its tip is
+ * reachable. This fetches into a temporary RunWield ref; it never advances a
+ * local target branch or changes the user's checkout.
+ *
+ * @param {{ projectRoot: string, branch: string, remote: string, upstreamBranch: string, publicationCommit: string }} opts
+ * @returns {Promise<{ deleted: boolean, reason: string }>}
+ */
+export async function deleteRemotelyPublishedWorktreeBranch({
+    projectRoot,
+    branch,
+    remote,
+    upstreamBranch,
+    publicationCommit,
+}) {
+    const proofRef = `refs/runwield/publication-proof/${crypto.randomUUID()}`;
+    try {
+        await runGit(projectRoot, [
+            "fetch",
+            remote,
+            `+refs/heads/${upstreamBranch}:${proofRef}`,
+        ]);
+        const remoteTip = (await runGit(projectRoot, ["rev-parse", proofRef])).trim();
+        if (remoteTip !== publicationCommit) {
+            return {
+                deleted: false,
+                reason: `The upstream target changed before branch cleanup, so ${branch} was kept.`,
+            };
+        }
+        const contains = await runGitResult(projectRoot, ["merge-base", "--is-ancestor", branch, proofRef]);
+        if (contains.code !== 0) {
+            return { deleted: false, reason: `The upstream target does not contain ${branch}, so it was kept.` };
+        }
+        await runGit(projectRoot, ["branch", "-D", branch]);
+        return { deleted: true, reason: `${branch} is published upstream and was deleted.` };
+    } finally {
+        await runGitResult(projectRoot, ["update-ref", "-d", proofRef]);
+    }
 }
 
 /** @param {{ projectRoot: string }} opts */

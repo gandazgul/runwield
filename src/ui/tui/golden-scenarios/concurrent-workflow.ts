@@ -36,6 +36,7 @@ interface GoldenScenarioResult {
         concurrentActiveProjectState?: CapturedProjectState;
         concurrentScreens?: Record<string, unknown>;
         gitState?: GitState;
+        publication?: { remoteTree?: string };
     };
     screenText: string;
     events: string[];
@@ -192,6 +193,7 @@ export const concurrentPlansIdentityScenario = {
         { type: "waitForIdle", timeoutMs: 120000 },
         { type: "captureConcurrentScreens" },
         { type: "captureGitState", paths: ["golden-concurrent-a.txt", "golden-concurrent-b.txt"] },
+        { type: "capturePublicationState", planName: "concurrent-a", deliveredPath: "golden-concurrent-a.txt" },
         { type: "captureProjectState", planNames: ["concurrent-a", "concurrent-b"] },
     ],
     assertions: [
@@ -230,15 +232,18 @@ export const concurrentPlansIdentityScenario = {
             const captured = plans(result);
             const first = captured.find((entry) => entry.name === "concurrent-a")?.attrs;
             const second = captured.find((entry) => entry.name === "concurrent-b")?.attrs;
-            assert(first?.status === "verified", `Expected concurrent-a to verify; got ${first?.status}`);
-            assert(second?.status === "verified", `Expected concurrent-b to verify; got ${second?.status}`);
+            assert(first?.status === "validated", `Expected concurrent-a to validate; got ${first?.status}`);
+            assert(second?.status === "validated", `Expected concurrent-b to validate; got ${second?.status}`);
             assert(first?.planId === "concurrent-plan-a", `Unexpected concurrent-a planId ${first?.planId}`);
             assert(second?.planId === "concurrent-plan-b", `Unexpected concurrent-b planId ${second?.planId}`);
-            const trackedFiles = String(result.state.gitState?.trackedFiles || "");
+            const remoteTree = String(result.state.publication?.remoteTree || "");
             assert(
-                trackedFiles.includes("golden-concurrent-a.txt") &&
-                    trackedFiles.includes("golden-concurrent-b.txt"),
-                `Expected both delivery artifacts tracked; got ${result.state.gitState?.trackedFiles}`,
+                remoteTree.includes("golden-concurrent-a.txt") && remoteTree.includes("golden-concurrent-b.txt"),
+                `Expected both delivery artifacts upstream; got ${remoteTree}`,
+            );
+            assert(
+                !String(result.state.gitState?.trackedFiles || "").trim(),
+                "Expected publication to leave the primary checkout untouched.",
             );
             assert(
                 (result.state.projectState?.registryEntries || []).length === 0,

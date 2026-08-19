@@ -20,8 +20,15 @@ const REQUIRED_CLIENT_ASSET_STABILITY_PASSES = 5;
  * @property {string} [serverEntry]
  * @property {string} [clientDir]
  * @property {string} [runtimeDir]
- * @property {(command: string, args: string[]) => Promise<void>} [run]
  */
+
+/**
+ * @typedef {Object} WorkspaceRuntimeBuildPort
+ * @property {(command: string, args: string[]) => Promise<void>} run
+ */
+
+/** @type {WorkspaceRuntimeBuildPort} */
+const SYSTEM_WORKSPACE_RUNTIME_BUILD_PORT = Object.freeze({ run: runCommand });
 
 /**
  * Return the stored filename for a passive browser asset.
@@ -317,14 +324,14 @@ async function waitForFile(path) {
 }
 
 /**
- * @param {WorkspaceRuntimeBuildOptions} [options]
+ * @param {WorkspaceRuntimeBuildOptions} options
+ * @param {WorkspaceRuntimeBuildPort} port
  * @returns {Promise<void>}
  */
-export async function buildWorkspaceRuntime(options = {}) {
+export async function buildWorkspaceRuntime(options, port) {
     const serverEntry = options.serverEntry || DEFAULT_SERVER_ENTRY;
     const clientDir = options.clientDir || DEFAULT_CLIENT_DIR;
     const runtimeDir = options.runtimeDir || DEFAULT_RUNTIME_DIR;
-    const run = options.run || runCommand;
     const serverOutput = join(runtimeDir, "server.mjs");
 
     await Deno.remove(runtimeDir, { recursive: true }).catch((error) => {
@@ -335,7 +342,7 @@ export async function buildWorkspaceRuntime(options = {}) {
     await replaceDenoAdapterShim(serverEntry);
     await patchDenoAdapterShimImport(serverEntry);
     await waitForServerEntryImports(serverEntry);
-    await run("deno", [
+    await port.run("deno", [
         "bundle",
         "--platform",
         "deno",
@@ -360,6 +367,6 @@ export async function buildWorkspaceRuntime(options = {}) {
 }
 
 if (import.meta.main) {
-    await buildWorkspaceRuntime();
+    await buildWorkspaceRuntime({}, SYSTEM_WORKSPACE_RUNTIME_BUILD_PORT);
     console.log(`Workspace runtime prepared at ${DEFAULT_RUNTIME_DIR} from ${basename(DEFAULT_SERVER_ENTRY)}.`);
 }

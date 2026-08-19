@@ -13,7 +13,7 @@ async function run(cwd: string, args: string[]) {
     return new TextDecoder().decode(output.stdout).trim();
 }
 
-Deno.test("worktree Objective Check amendment becomes canonical only after user approval", async () => {
+Deno.test("approved Objective Check amendment changes only the execution Plan", async () => {
     const projectRoot = await Deno.makeTempDir();
     const executionCwd = await Deno.makeTempDir();
     try {
@@ -55,14 +55,18 @@ Deno.test("worktree Objective Check amendment becomes canonical only after user 
         await applyValidationPlanAmendment(projectRoot, executionCwd, "feature", proposal);
         const primary = await loadPlan(projectRoot, "feature");
         const execution = await loadPlan(executionCwd, "feature");
-        assertEquals(primary?.body, "# Accepted body");
-        assertEquals(primary?.attrs.summary, "Worktree");
+        assertEquals(primary?.body, "# Primary body");
+        assertEquals(primary?.attrs.summary, "Primary");
         assertEquals(primary?.attrs.status, "implemented");
         assertEquals(primary?.attrs.worktreeId, "runwield-owned");
-        assertEquals(primary?.attrs.objectiveChecks?.[0].command, "deno eval 'Deno.exit(1)'");
+        assertEquals(primary?.attrs.objectiveChecks?.[0].command, "deno eval -A 'Deno.exit(1)'");
         assertEquals(primary?.attrs.objectiveChecksBaseline, undefined);
-        assertEquals(primary?.attrs.objectiveCheckWaivers, []);
-        assertEquals(execution?.markdown, primary?.markdown);
+        assertEquals(primary?.attrs.objectiveCheckWaivers?.length, 1);
+        assertEquals(execution?.body, "# Accepted body");
+        assertEquals(execution?.attrs.summary, "Worktree");
+        assertEquals(execution?.attrs.objectiveChecks?.[0].command, "deno eval 'Deno.exit(1)'");
+        assertEquals(execution?.attrs.objectiveChecksBaseline, undefined);
+        assertEquals(execution?.attrs.objectiveCheckWaivers, []);
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
         await Deno.remove(executionCwd, { recursive: true }).catch(() => undefined);
@@ -248,7 +252,7 @@ Deno.test("publication preserves an accepted execution Plan definition amendment
         assertEquals(staged?.body, "# New");
         assertEquals(staged?.attrs.summary, "New");
         assertEquals(staged?.attrs.objectiveChecks?.[0].command, "test -f new-file");
-        assertEquals(staged?.attrs.status, "verified");
+        assertEquals(staged?.attrs.status, "validated");
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
         await Deno.remove(executionCwd, { recursive: true }).catch(() => undefined);

@@ -80,8 +80,8 @@ function assertRuntimeSessionReplacementAndEpicEvidence(result, capability) {
             `Expected ${label} child canonical PLANNED_CHANGE metadata.`,
         );
         assert(
-            ["verified", "user_verified"].includes(String(childAttrs.status || "")),
-            `Expected ${label} child to finish verified; got ${childAttrs.status}`,
+            ["validated", "user_verified"].includes(String(childAttrs.status || "")),
+            `Expected ${label} child to finish validated; got ${childAttrs.status}`,
         );
     }
 
@@ -401,7 +401,7 @@ export const twoChildProjectContinuationScenario = {
         // the Epic finished, and after the continuation replaced the Session the
         // composition tracks a Session the Runtime has closed, so idle never settles.
         { type: "captureProjectDurability", planName: "epic" },
-        { type: "generateWorkRecord", planName: "epic/02-child-two" },
+        { type: "capturePublishedWorkRecords" },
         { type: "captureProjectState", planNames: ["epic", "epic/01-child-one", "epic/02-child-two"] },
     ],
     assertions: [
@@ -427,7 +427,7 @@ export const twoChildProjectContinuationScenario = {
                 projectState?.plans?.find((plan) => plan.name === "epic")?.attrs || undefined
             );
             const planReview = /** @type {PlanReviewState | undefined} */ (result.state.planReview);
-            assert(parent?.status === "verified", `Expected parent Epic verified; got ${parent?.status}`);
+            assert(parent?.status === "validated", `Expected parent Epic validated; got ${parent?.status}`);
             assert(
                 parent?.epicCompletionMode === "done_enough",
                 `Expected parent Epic done_enough; got ${parent?.epicCompletionMode}`,
@@ -455,13 +455,9 @@ export const twoChildProjectContinuationScenario = {
             const workRecord =
                 /** @type {{ status?: string, path?: string, error?: string, recordNames?: string[] } | undefined} */ (result
                     .state.workRecord);
-            // "skipped" is a real outcome, not a miss: the Epic's completed work
-            // already had a record, and generating a second one for the same source
-            // is what the generator exists to prevent. What must be true either way
-            // is that the real store now holds a real record on disk.
             assert(
-                workRecord?.status === "generated" || workRecord?.status === "skipped",
-                `Expected the Work Record generator to run against the verified child; got ${workRecord?.status} ${
+                workRecord?.status === "published",
+                `Expected Workflow Validation to publish its Work Record; got ${workRecord?.status} ${
                     workRecord?.error || ""
                 }`,
             );

@@ -2,6 +2,7 @@ import { assert, assertEquals } from "@std/assert";
 import { fromFileUrl } from "@std/path";
 import { loadPlan } from "../../../plan-store.js";
 import { git } from "../../../shared/worktree-test-helpers.js";
+import { findActiveByPlanName } from "../../../shared/worktree-registry.js";
 import { createGoldenIsolatedEnvironment } from "../testing/isolated-environment.js";
 import { runGoldenChild } from "../testing/subprocess-runner.js";
 
@@ -54,8 +55,10 @@ Deno.test({
                 `Expected SIGKILL after repair.\nstdout:\n${interrupted.stdout}\nstderr:\n${interrupted.stderr}`,
             );
 
-            const persisted = await loadPlan(environment.projectRoot, "repaired-merge");
-            assert(persisted, "Expected the interrupted process to leave the canonical Plan.");
+            const attempt = await findActiveByPlanName(environment.projectRoot, "repaired-merge");
+            assert(attempt?.path, "Expected the interrupted process to retain its execution worktree.");
+            const persisted = await loadPlan(attempt.path, "repaired-merge");
+            assert(persisted, "Expected the interrupted process to leave the execution Plan.");
             const repairWorktreePath = persisted.attrs.validationMergeRepairWorktree;
             assert(
                 typeof repairWorktreePath === "string" && repairWorktreePath,

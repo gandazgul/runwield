@@ -29,8 +29,12 @@ export const REQUIRED_WORKSPACE_RUNTIME_FILES = Object.freeze([
  * @property {string} [workspaceRuntimeDir]
  * @property {string} [runtimeDir]
  * @property {string} [bundlePath]
- * @property {(command: string, args: string[]) => Promise<void>} [run]
  * @property {RuntimeAssetCopy[]} [assetCopies]
+ */
+
+/**
+ * @typedef {Object} PlanServerRuntimeBuildPort
+ * @property {(command: string, args: string[]) => Promise<void>} run
  */
 
 /** @type {RuntimeAssetCopy[]} */
@@ -105,6 +109,9 @@ async function runCommand(command, args) {
     throw new Error(output || `${command} failed with exit code ${result.code}`);
 }
 
+/** @type {PlanServerRuntimeBuildPort} */
+const SYSTEM_PLAN_SERVER_RUNTIME_BUILD_PORT = Object.freeze({ run: runCommand });
+
 /**
  * @param {string} source
  * @param {string} destination
@@ -174,16 +181,16 @@ export function findProhibitedRuntimeFiles(files) {
 }
 
 /**
- * @param {PlanServerRuntimeBuildOptions} [options]
+ * @param {PlanServerRuntimeBuildOptions} options
+ * @param {PlanServerRuntimeBuildPort} port
  * @returns {Promise<void>}
  */
-export async function buildPlanServerRuntime(options = {}) {
+export async function buildPlanServerRuntime(options, port) {
     const remoteEntry = options.remoteEntry || DEFAULT_REMOTE_ENTRY;
     const workspaceRuntimeDir = options.workspaceRuntimeDir || DEFAULT_WORKSPACE_RUNTIME_DIR;
     const runtimeDir = options.runtimeDir || DEFAULT_PLAN_SERVER_RUNTIME_DIR;
     const bundlePath = options.bundlePath || DEFAULT_BUNDLE_PATH;
     const bundleOutput = join(runtimeDir, bundlePath);
-    const run = options.run || runCommand;
     const assetCopies = options.assetCopies || DEFAULT_PLAN_SERVER_RUNTIME_ASSETS;
 
     await assertFile(remoteEntry);
@@ -195,7 +202,7 @@ export async function buildPlanServerRuntime(options = {}) {
     });
     await Deno.mkdir(dirname(bundleOutput), { recursive: true });
 
-    await run("deno", [
+    await port.run("deno", [
         "bundle",
         "--platform",
         "deno",
@@ -221,7 +228,7 @@ export async function buildPlanServerRuntime(options = {}) {
 }
 
 if (import.meta.main) {
-    await buildPlanServerRuntime();
+    await buildPlanServerRuntime({}, SYSTEM_PLAN_SERVER_RUNTIME_BUILD_PORT);
     console.log(
         `Plan Server runtime prepared at ${DEFAULT_PLAN_SERVER_RUNTIME_DIR} from ${basename(DEFAULT_REMOTE_ENTRY)}.`,
     );

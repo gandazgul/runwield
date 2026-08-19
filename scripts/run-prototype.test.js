@@ -75,6 +75,7 @@ Deno.test("prototype runner constructs a local deno dev task command with inheri
         const code = await runPrototype({
             cwd: dir,
             slug: "command-check",
+        }, {
             spawn: (command, options) => {
                 calls.push({ command, options });
                 return { status: Promise.resolve({ success: true, code: 0, signal: null }) };

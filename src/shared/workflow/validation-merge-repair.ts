@@ -86,7 +86,7 @@ export async function persistValidationMergeRepairWorktree(
     path: string | null,
 ): Promise<{ kind: "committed" } | { kind: "blocked"; outcome: PublicationOutcome }> {
     const transition = await runPlanFrontMatterTransition({
-        projectRoot: context.projectRoot,
+        projectRoot: context.executionCwd,
         planName: args.planName,
         operation: "validation_merge_repair_worktree",
         updates: { validationMergeRepairWorktree: path },
@@ -139,6 +139,14 @@ export function describeMergePause(
             whatHappened:
                 `RunWield finished "${planName}" but could not add it to your ${targetBranch} branch, because that branch is checked out somewhere else.`,
             doThis: `Switch that other checkout off ${targetBranch}, then pick Retry.`,
+        };
+    }
+    if (kind === "publication_push_failed" || kind === "publication_verification_failed") {
+        return {
+            whatHappened:
+                `RunWield finished and validated "${planName}", but the ${targetBranch} branch could not be updated upstream.`,
+            doThis:
+                "The finished work is safe on its worktree branch. Fix the upstream connection or branch rule, then pick Retry.",
         };
     }
     const repairCwd = getMergeRepairCwd(error) || context.executionCwd;

@@ -5,7 +5,7 @@
  */
 
 import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
-import { loadPlan, savePlan } from "../../plan-store.js";
+import { loadPlan } from "../../plan-store.js";
 import { type ObjectiveCheckResult, runObjectiveChecks, summarizeObjectiveChecks } from "./objective-checks.ts";
 import { objectiveChecksWithoutWaivers, persistObjectiveCheckWaiver } from "./objective-check-waivers.ts";
 import type { ValidationLocalCIResult } from "./validation-ports.ts";
@@ -153,7 +153,13 @@ async function requestStaleEngineerReportDecision(
 
 async function reloadValidationPlanSnapshot(args: ValidationLoopArgs): Promise<ValidationPhaseResult | null> {
     const projectRoot = getProjectRoot(args);
-    const plan = await loadPlan(projectRoot, args.planName);
+    const activeWorkflow = args.session.getActiveWorkflow();
+    const planCwd = activeWorkflow?.executionMode === "worktree" && activeWorkflow.executionCwd
+        ? activeWorkflow.executionCwd
+        : args.executionContext?.executionMode === "worktree" && args.executionContext.executionCwd
+        ? args.executionContext.executionCwd
+        : projectRoot;
+    const plan = await loadPlan(planCwd, args.planName);
     if (!plan) {
         const reason = `Plan is missing and Mechanical Validation cannot safely continue: ${args.planName}`;
         const statusMessage = reason;
@@ -172,15 +178,10 @@ async function reloadValidationPlanSnapshot(args: ValidationLoopArgs): Promise<V
 }
 
 async function reconcileExecutionPlanToCanonical(args: ValidationLoopArgs, context: PhaseContext): Promise<void> {
-    const canonical = await loadPlan(context.projectRoot, args.planName);
-    if (!canonical) throw new Error(`Primary Plan disappeared while reconciling ${args.planName}.`);
     const execution = await loadPlan(context.executionCwd, args.planName);
-    if (!execution) throw new Error(`Execution Plan disappeared while reconciling ${args.planName}.`);
-    await savePlan(context.executionCwd, args.planName, canonical.body, canonical.attrs, {
-        expectedRevision: execution.revision,
-    });
-    args.triageMeta = canonical.attrs as ValidationLoopArgs["triageMeta"];
-    args.planContent = canonical.markdown;
+    if (!execution) throw new Error(`Plan disappeared from its execution worktree: ${args.planName}.`);
+    args.triageMeta = execution.attrs as ValidationLoopArgs["triageMeta"];
+    args.planContent = execution.markdown;
     context.workflowBase.triageMeta = args.triageMeta;
 }
 
@@ -188,7 +189,12 @@ async function resolveValidationPlanAmendment(
     args: ValidationLoopArgs,
     context: PhaseContext,
 ): Promise<PlanAmendmentDecision> {
-    const proposal = await detectValidationPlanAmendment(context.projectRoot, context.executionCwd, args.planName);
+    const proposal = await detectValidationPlanAmendment(
+        context.projectRoot,
+        context.executionCwd,
+        args.planName,
+        context.executionContext.executionMode === "worktree" ? context.baselineTree : undefined,
+    );
     if (!proposal) return { kind: "none" };
     if (isEngineerReportProjectionDrift(proposal, args.engineerReportedBrokenObjectiveChecks || [])) {
         // task_completed reports a judgement about canonical Objective-Failing
@@ -330,10 +336,9 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
         if (phase.kind === "blocked") return phase.result;
         ciAttempts = readCiAttempts(args.triageMeta);
         const amendmentAction = await resolveValidationPlanAmendment(args, phase.context);
-        if (amendmentAction.kind === "amended" || amendmentAction.kind === "waived") {
-            // Approval already synchronized the two Plan copies. Reload now while
-            // this validation claim is still active; a body-only amendment does
-            // not change the Front Matter revision used by the outer phase loop.
+        if (amendmentAction.kind === "waived") {
+            // A waiver changes the mechanical inputs, so rebuild the phase from
+            // the newly saved execution Plan before running the checks.
             continue;
         }
         const amendmentResult = finishPlanAmendmentDecision(args, phase.context, amendmentAction);
@@ -956,7 +961,7 @@ export async function runPlanObjectiveChecks(
     attempts: number,
     engineerReports: BrokenObjectiveCheckReport[] = [],
 ): Promise<ObjectiveCheckPhaseOutcome> {
-    const plan = await loadPlan(context.projectRoot, args.planName);
+    const plan = await loadPlan(context.executionCwd, args.planName);
     if (!plan) throw new Error(`Plan is missing and Objective-Failing Checks cannot safely continue: ${args.planName}`);
     args.triageMeta = plan.attrs as ValidationLoopArgs["triageMeta"];
     args.planContent = plan.markdown;

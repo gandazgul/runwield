@@ -25,7 +25,7 @@ import { createGitPort } from "../git-port.ts";
 import { systemLocalCIPort } from "./validation-local-ci.ts";
 import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../work-records/mnemosyne-port.ts";
 
-const TERMINAL_CHILD_STATUSES = new Set(["verified", "user_verified", "closed_without_verification"]);
+const TERMINAL_CHILD_STATUSES = new Set(["validated", "verified", "user_verified", "closed_without_verification"]);
 
 /** A child Plan of the Epic being continued. */
 export interface EpicContinuationChild {
@@ -49,7 +49,8 @@ export interface EpicContinuationResolution {
 function isActiveProjectEpic(attrs: PlanFrontMatter | undefined): boolean {
     if (attrs?.classification !== "PROJECT") return false;
     if (
-        attrs.status === "on_hold" || attrs.status === "verified" || attrs.status === "user_verified" ||
+        attrs.status === "on_hold" || attrs.status === "validated" || attrs.status === "verified" ||
+        attrs.status === "user_verified" ||
         attrs.status === "closed_without_verification"
     ) {
         return false;

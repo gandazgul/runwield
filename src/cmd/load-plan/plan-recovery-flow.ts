@@ -93,7 +93,14 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
     const { projectRoot, plan, uiAPI } = opts;
     try {
         await runPlansDoctor(projectRoot, true);
-        const refreshed = await loadPlan(projectRoot, plan.planName);
+        const primaryPlan = await loadPlan(projectRoot, plan.planName);
+        const recordedAttempt = await resolveRecoveryWorktree(
+            projectRoot,
+            primaryPlan ? { planName: plan.planName, attrs: primaryPlan.attrs, revision: primaryPlan.revision } : plan,
+        );
+        const refreshed = recordedAttempt?.path
+            ? await loadPlan(recordedAttempt.path, plan.planName).catch(() => null) || primaryPlan
+            : primaryPlan;
         if (refreshed) {
             plan.path = refreshed.path;
             plan.markdown = refreshed.markdown;
@@ -131,7 +138,7 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
     };
     context.refreshRecoveryWorktree = async () => {
         const resolved = await resolveRecoveryWorktree(projectRoot, plan);
-        plan.attrs = await persistRecoveredWorktreeMetadata(projectRoot, plan, resolved);
+        plan.attrs = await persistRecoveredWorktreeMetadata(resolved?.path || projectRoot, plan, resolved);
         context.worktreeContext = resolved;
         return resolved;
     };
@@ -274,7 +281,12 @@ async function promptRecoveryAction(
             ...(gitRecoveryBlocked ? [] : [{ value: "validate" as const, label: "Retry Workflow Validation" }]),
             common[0],
             ...(canMergeWorktree && !gitRecoveryBlocked
-                ? [{ value: "merge" as const, label: "Merge validated worktree changes" }]
+                ? [{
+                    value: "merge" as const,
+                    label: context.worktreeContext?.status === "publication_failed"
+                        ? "Retry publication"
+                        : "Merge validated worktree changes",
+                }]
                 : []),
             ...common.slice(1),
         ]

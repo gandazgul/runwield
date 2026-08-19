@@ -1535,7 +1535,7 @@ export async function runPlanAmendmentTransition<T>(
         operation: "validation_plan_amendment",
         resources,
         expectedRevision: opts.expectedRevision,
-        expectedEffects: ["primary_plan_amended", "execution_plan_synchronized"],
+        expectedEffects: ["execution_plan_amended"],
         apply: async (ctx) => await opts.settle(ctx),
         verify: opts.verifyAmendment ? async (value) => await opts.verifyAmendment?.(value) : undefined,
     });
@@ -1546,15 +1546,20 @@ export async function runPlanAmendmentTransition<T>(
  */
 export async function runDirectDeliveryPublicationTransition<T>(
     opts: TransitionOptionsBase & {
+        immutablePlan?: boolean;
         parentPlan?: string;
         siblingPlanNames?: string[];
         publicationProof?: Record<string, unknown>;
         publish: (ctx: RollbackTransitionContext) => Promise<T>;
     },
 ): Promise<TransitionResult> {
-    const resources: TransitionResource[] = [{ kind: "catalog" }, { kind: "plan", id: opts.planName }];
-    if (opts.parentPlan) resources.push({ kind: "plan", id: opts.parentPlan });
-    for (const siblingName of opts.siblingPlanNames || []) resources.push({ kind: "plan", id: siblingName });
+    const resources: TransitionResource[] = opts.immutablePlan
+        ? []
+        : [{ kind: "catalog" }, { kind: "plan", id: opts.planName }];
+    if (!opts.immutablePlan && opts.parentPlan) resources.push({ kind: "plan", id: opts.parentPlan });
+    if (!opts.immutablePlan) {
+        for (const siblingName of opts.siblingPlanNames || []) resources.push({ kind: "plan", id: siblingName });
+    }
     if (opts.worktreeId) resources.push({ kind: "attempt", id: opts.worktreeId });
     if (opts.targetRef) resources.push({ kind: "target_ref", id: opts.targetRef });
     const recoveryActions = [
@@ -1570,10 +1575,10 @@ export async function runDirectDeliveryPublicationTransition<T>(
         planName: opts.planName,
         operation: "direct_delivery_publication",
         resources,
-        expectedRevision: opts.expectedRevision,
+        expectedRevision: opts.immutablePlan ? undefined : opts.expectedRevision,
         recoveryActions,
         postconditions: {
-            planEvent: "validation_passed",
+            planState: opts.immutablePlan ? "validated_immutable" : "validation_passed",
             registryStatus: "merged",
             cleanup: "post_publication",
         },
@@ -1585,7 +1590,7 @@ export async function runDirectDeliveryPublicationTransition<T>(
             return {
                 publicationProof: opts.publicationProof || {},
                 postconditions: {
-                    planEvent: "validation_passed",
+                    planState: opts.immutablePlan ? "validated_immutable" : "validation_passed",
                     registryStatus: "merged",
                     cleanup: "post_publication",
                 },

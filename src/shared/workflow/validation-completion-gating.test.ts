@@ -353,7 +353,7 @@ Deno.test("PLANNED_CHANGE broken objective check records accepted waiver and con
     const run = await runBrokenObjectiveCheck("waive");
 
     assertEquals(run.result.kind, "verified");
-    assertEquals(run.plan?.attrs.status, "verified");
+    assertEquals(run.plan?.attrs.status, "validated");
     assertEquals(run.plan?.attrs.objectiveCheckWaivers?.[0].source, "mechanical_detection");
     assertEquals(run.plan?.attrs.objectiveCheckWaivers?.[0].id, "OC1");
 });
@@ -363,7 +363,7 @@ Deno.test("PLANNED_CHANGE skips already waived broken objective checks on later 
 
     assertEquals(run.promptSelections, []);
     assertEquals(run.result.kind, "verified");
-    assertEquals(run.plan?.attrs.status, "verified");
+    assertEquals(run.plan?.attrs.status, "validated");
     assertEquals(run.plan?.attrs.objectiveCheckWaivers?.[0].id, "OC1");
 });
 
@@ -385,7 +385,7 @@ Deno.test("PLANNED_CHANGE CI repair continues after Engineer calls task_complete
     assertEquals(run.prompts.length, 1);
     assertEquals(run.ciRuns, 2);
     assertEquals(run.result.kind, "verified");
-    assertEquals(run.plan?.attrs.status, "verified");
+    assertEquals(run.plan?.attrs.status, "validated");
 });
 
 Deno.test("PLANNED_CHANGE objective repair parks when Engineer does not call task_completed", async () => {
@@ -406,7 +406,7 @@ Deno.test("PLANNED_CHANGE objective repair continues after Engineer calls task_c
     assertEquals(run.prompts.length, 1);
     assertEquals(run.ciRuns, 2);
     assertEquals(run.result.kind, "verified");
-    assertEquals(run.plan?.attrs.status, "verified");
+    assertEquals(run.plan?.attrs.status, "validated");
 });
 
 Deno.test("Engineer-reported broken objective check can still pass after repair without a durable report", async () => {
@@ -414,7 +414,7 @@ Deno.test("Engineer-reported broken objective check can still pass after repair 
 
     assertEquals(run.ciRuns, 2);
     assertEquals(run.result.kind, "verified");
-    assertEquals(run.plan?.attrs.status, "verified");
+    assertEquals(run.plan?.attrs.status, "validated");
     assertEquals(run.plan?.attrs.objectiveCheckWaivers, undefined);
 });
 

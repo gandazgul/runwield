@@ -114,18 +114,19 @@ branch. During execution and recovery, the same field records the local branch t
 
 ### Merge Strategy
 
-RunWield merges the execution worktree branch into the recorded target branch after validation passes. For targeted
-plans, the target branch is `worktreeBaseBranch`; for legacy untargeted plans, merge-back uses the current-checkout
-fallback. When the target branch is not checked out, RunWield performs merge-back through a detached merge worktree and
-updates the target ref after a successful merge. When the target branch is checked out in the primary checkout, RunWield
-merges there and refuses blocking uncommitted changes while allowing RunWield-owned metadata paths needed during the
-workflow. If merge fails or is refused, RunWield records `worktree_merge_failed`, keeps Plan Status `implemented`, sets
-`worktreeStatus: "merge_conflict"`, and leaves the worktree branch/path intact for recovery.
+When execution starts, the Plan file in the execution worktree becomes authoritative for that attempt. RunWield does not
+synchronize lifecycle metadata back through the user's primary checkout, and publication never stages, restores, checks
+out, or merges in that checkout.
 
-Dirty primary checkout state is therefore a **merge-back risk** only for legacy current-checkout fallback or when the
-recorded target branch is checked out in the primary checkout; it is not a worktree creation blocker. Worktree creation
-can start from `HEAD` or a prepared target branch even when the primary checkout has unrelated uncommitted edits; those
-edits are not copied into the execution worktree.
+After validation succeeds, the execution branch contains the implementation, the immutable `validated` Plan, and its
+Work Record. RunWield clones the repository into a temporary publication checkout, combines the recorded target branch,
+the latest upstream target, and the execution branch there, and pushes the resulting commit to the configured upstream
+with a lease. The target may be any recorded `worktreeBaseBranch`; it is never assumed to be `main`.
+
+The push is the publication boundary. If assembly, conflict repair, the lease, or remote verification fails, the
+execution worktree, branch, and registry entry remain. Their status records that validation succeeded but publication is
+pending, so retry does not depend on a stale primary Plan. Cleanup happens only after the remote confirms the exact
+publication commit. The user's primary checkout remains untouched and may simply be behind until the user updates it.
 
 ### Recovery Integration
 

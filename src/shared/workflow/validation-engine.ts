@@ -24,7 +24,7 @@ import type { ValidationPhaseName } from "./validation-ports.ts";
 import type { ValidationLoopArgs, ValidationPhaseResult, WorkflowValidationResult } from "./validation-types.ts";
 import { MAX_PHASES_PER_CALL, PHASE_STATUS, VALIDATION_STATUS_ORDER } from "./validation-types.ts";
 
-type PlanStatus = "implemented" | "validated_ci" | "validated_reviewer";
+type PlanStatus = "implemented" | "validated_ci" | "validated_reviewer" | "validated";
 type PlanFrontMatter = import("../../plan-store.js").PlanFrontMatter;
 
 /**
@@ -66,9 +66,9 @@ export async function runValidationPhase(args: ValidationLoopArgs): Promise<Vali
  */
 function resolveNextPhase(
     args: ValidationLoopArgs,
-    status: "implemented" | "validated_ci" | "validated_reviewer",
+    status: "implemented" | "validated_ci" | "validated_reviewer" | "validated",
 ): ValidationPhaseName {
-    const fromStatus: ValidationPhaseName = status === "validated_reviewer"
+    const fromStatus: ValidationPhaseName = status === "validated_reviewer" || status === "validated"
         ? "delivery"
         : status === "validated_ci"
         ? "semantic"
@@ -97,7 +97,8 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
     let result: ValidationPhaseResult | undefined;
     let phaseArgs = args;
     for (let phase = 0; phase < MAX_PHASES_PER_CALL; phase += 1) {
-        const before = (await loadPlan(projectRoot, args.planName))?.frontMatterRevision;
+        const planCwd = validationPlanCwd(phaseArgs, projectRoot);
+        const before = (await loadPlan(planCwd, args.planName))?.frontMatterRevision;
         result = await runValidationPhase(phaseArgs);
         if (result.kind !== "paused") {
             // Verified/failed finish; a semantic repair handoff pauses outside this activated operation.
@@ -109,7 +110,8 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
         // again; otherwise a question or ordinary text response could advance the
         // Plan merely because failure-attempt bookkeeping changed Front Matter.
         if (result.awaitingTaskCompletion) return result;
-        const after = (await loadPlan(projectRoot, args.planName))?.frontMatterRevision;
+        if (result.awaitingUserAction) return result;
+        const after = (await loadPlan(validationPlanCwd(phaseArgs, projectRoot), args.planName))?.frontMatterRevision;
         // Front Matter revision, not status: human review reaches a decision without
         // changing status, and publication is what runs next. Comparing status alone
         // parked every Plan at `validated_reviewer` with its review already decided.
@@ -123,7 +125,7 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
         // stopped without a word.
         phaseArgs = { ...phaseArgs, executionContext: undefined, continuationPhase: undefined };
     }
-    const plan = await loadPlan(projectRoot, args.planName);
+    const plan = await loadPlan(validationPlanCwd(phaseArgs, projectRoot), args.planName);
     const phase = validationPhaseForStatus(plan?.attrs.status);
     emitStatus(args, validationUserMessage("retry_pause"), "warning");
     return {
@@ -140,14 +142,14 @@ export async function loadCanonicalValidationPlan(
 ): Promise<
     | {
         kind: "ok";
-        status: "implemented" | "validated_ci" | "validated_reviewer";
+        status: "implemented" | "validated_ci" | "validated_reviewer" | "validated";
         attrs: PlanFrontMatter;
         markdown: string;
     }
     | { kind: "blocked"; result: ValidationPhaseResult }
 > {
     const projectRoot = getProjectRoot(args);
-    const plan = await loadPlan(projectRoot, args.planName);
+    const plan = await loadPlan(validationPlanCwd(args, projectRoot), args.planName);
     if (!plan) {
         return {
             kind: "blocked",
@@ -185,10 +187,21 @@ export async function loadCanonicalValidationPlan(
     }
     return {
         kind: "ok",
-        status: status as "implemented" | "validated_ci" | "validated_reviewer",
+        status: status as "implemented" | "validated_ci" | "validated_reviewer" | "validated",
         attrs: plan.attrs,
         markdown: plan.markdown,
     };
+}
+
+function validationPlanCwd(args: ValidationLoopArgs, projectRoot: string): string {
+    const activeWorkflow = args.session.getActiveWorkflow();
+    if (activeWorkflow?.executionMode === "worktree" && activeWorkflow.executionCwd) {
+        return activeWorkflow.executionCwd;
+    }
+    if (args.executionContext?.executionMode === "worktree" && args.executionContext.executionCwd) {
+        return args.executionContext.executionCwd;
+    }
+    return projectRoot;
 }
 
 export function getPlanContentStatus(planContent: string): string | undefined {

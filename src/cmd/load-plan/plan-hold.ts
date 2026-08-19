@@ -84,7 +84,7 @@ export interface HandleOnHoldPlanOptions {
  * @returns {boolean}
  */
 export function isHoldableStatus(status: string): boolean {
-    return Boolean(status) && status !== "verified" && status !== "user_verified" &&
+    return Boolean(status) && status !== "validated" && status !== "verified" && status !== "user_verified" &&
         status !== "closed_without_verification" && status !== "on_hold";
 }
 

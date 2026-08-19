@@ -42,15 +42,46 @@ objectiveChecks:
     - id: "OC5"
       command: "deno task seams:check && deno task check && deno task ci"
       rationale: "This protects the zero-seam baseline, TypeScript rules, Plan Lifecycle invariants, validation behavior, and the full repository."
+objectiveCheckWaivers:
+    - id: "OC5"
+      command: "deno task seams:check && deno task check && deno task ci"
+      source: "mechanical_detection"
+      explanation: "Objective check timed out after 120000ms."
+      userNote: "command cant execute"
+      waivedAt: "2026-08-19T13:37:45.570Z"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T00:47:42-04:00"
-updatedAt: "2026-08-17T22:39:26-04:00"
-status: "draft"
+updatedAt: "2026-08-19T13:37:45.716Z"
+status: "validated_ci"
 origin: "internal"
+implementedAt: "2026-08-19T01:26:34.635Z"
 userVerifiedAt: null
+executionReport: "- Added typed Workflow Validation operational errors and recovery decisions, including recovery classes, stable codes, bounded Retry-After parsing, capped full-jitter retry delay calculation, correction limits, and operational metrics.\n- Updated Local CI and isolated Agent outcome types to discriminated results; Local CI process-start and missing-command failures now use operational recovery before repair counters or lifecycle failure events.\n- Integrated semantic reviewer protocol corrections, transient operational handling, and publication routing so only proven merge conflicts dispatch merge repair and target-reference races retry.\n- Added `retry.validation.maxDelayMs` schema/docs and Plan Lifecycle docs that operational retries/pauses/halts do not advance or reset Plan Status.\n- Updated tests and fixtures for the new CI result contract; test delta: +9 automated tests, 0 tests removed. Golden publication scripts were reduced only where Agent repair is no longer expected for non-conflict operational failures.\n- Verification passed: focused operational/local-CI/review/repair/publication/resume tests, `deno task seams:check`, `deno task check`, and full `deno task ci` (336 files passed, 0 failed).\n- Note: the Plan listed `src/shared/workflow/validation-publication.test.ts`, but this checkout has `validation-publication-pause.test.js`; I ran the existing publication test file instead."
+humanReviewMode: null
+humanReviewDecision: null
+validationCheckpoint:
+    version: 1
+    attemptId: "4cf31cf5"
+    generation: "1057c05e-62c6-44f8-954f-206b7a1e0c40"
+    expectedStatus: "implemented"
+    nextPhase: "mechanical"
+    state: "running"
+    ownerPid: 64167
+    ownerHostname: "gandazgul-mbp"
+    updatedAt: "2026-08-19T01:26:37.126Z"
+executionMode: "worktree"
+executionBaselineTree: "28d3f5f24f9863475ee7dd66c4225b9a519c1ca8"
+worktreeId: "4cf31cf5"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-classify-validation-operational-errors-4cf31cf5"
+worktreeBranch: "worktree/classify-validation-operational-errors-4cf31cf5"
+worktreeBaseBranch: "main"
+worktreeStatus: "completed"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "validation error recovery"
+validationCiAttempts: 0
+validationObjectiveCheckAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Classify Workflow Validation Operational Errors

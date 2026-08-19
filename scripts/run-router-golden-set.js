@@ -234,13 +234,11 @@ async function readExistingCsv(path) {
  *   modelOverride?: string,
  *   rowTimeoutMs?: number,
  *   runAgentSession?: RouterAgentRunner,
- *   readLatestTriageOutcome?: typeof readLatestTriageOutcomeFn,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
  * }} [options]
  * @returns {Promise<import('../src/shared/workflow/orchestrator.ts').TriageOutcome>}
  */
 export async function runRouterForGoldenRequest(requestText, options = {}) {
-    const readLatestTriageOutcome = options.readLatestTriageOutcome || readLatestTriageOutcomeFn;
     const agentOptions = /** @type {RouterAgentRunOptions} */ ({
         agentName: AGENTS.ROUTER,
         toolNames: BENCHMARK_ROUTER_TOOLS,
@@ -273,7 +271,7 @@ export async function runRouterForGoldenRequest(requestText, options = {}) {
         const messages = options.rowTimeoutMs
             ? await withAbortTimeout(messagesPromise, options.rowTimeoutMs, cancel)
             : await messagesPromise;
-        const triage = readLatestTriageOutcome(messages);
+        const triage = readLatestTriageOutcomeFn(messages);
         if (!triage) throw new Error("Router did not call triage_report.");
         return triage;
     } finally {
@@ -289,7 +287,6 @@ export async function runRouterForGoldenRequest(requestText, options = {}) {
  *   modelOverride?: string,
  *   rowTimeoutMs?: number,
  *   runAgentSession?: RouterAgentRunner,
- *   readLatestTriageOutcome?: typeof readLatestTriageOutcomeFn,
  *   onProgress?: (message: string) => void,
  *   onRowComplete?: (rows: Array<Record<string, unknown>>) => Promise<void> | void,
  *   resume?: boolean,
@@ -309,7 +306,6 @@ export async function runRouterGoldenSet(rows, options = {}) {
  *   modelOverride?: string,
  *   rowTimeoutMs?: number,
  *   runAgentSession?: RouterAgentRunner,
- *   readLatestTriageOutcome?: typeof readLatestTriageOutcomeFn,
  *   onProgress?: (message: string) => void,
  *   onRowComplete?: (rows: Array<Record<string, unknown>>) => Promise<void> | void,
  *   resume?: boolean,
@@ -344,7 +340,6 @@ export async function runRouterGoldenSetWithSelection(rows, options = {}) {
                 modelOverride: options.modelOverride,
                 rowTimeoutMs: options.rowTimeoutMs,
                 runAgentSession: options.runAgentSession,
-                readLatestTriageOutcome: options.readLatestTriageOutcome,
             });
             normalized[index] = withRouterJudgementMetrics({
                 ...row,

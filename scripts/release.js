@@ -43,13 +43,9 @@ const WLD_RELEASE_ASSET_SUFFIXES = Object.freeze([
  */
 
 /**
- * @typedef {Object} ReleaseDeps
- * @property {CommandRunner} [run]
- * @property {(path: string) => Promise<string>} [readTextFile]
- * @property {(options?: { prefix?: string }) => Promise<string>} [makeTempDir]
- * @property {(path: string, options?: { recursive?: boolean }) => Promise<void>} [remove]
- * @property {(message?: unknown, ...optionalParams: unknown[]) => void} [log]
- * @property {(message?: unknown, ...optionalParams: unknown[]) => void} [error]
+ * @typedef {Object} ReleasePort
+ * @property {CommandRunner} run
+ * @property {(message?: unknown, ...optionalParams: unknown[]) => void} log
  */
 
 /**
@@ -184,32 +180,22 @@ function defaultRun() {
 }
 
 /**
- * @param {ReleaseDeps} deps
- */
-function normalizeDeps(deps = {}) {
-    return {
-        run: deps.run || defaultRun(),
-        readTextFile: deps.readTextFile || Deno.readTextFile,
-        makeTempDir: deps.makeTempDir || Deno.makeTempDir,
-        remove: deps.remove || Deno.remove,
-        log: deps.log || console.log,
-        error: deps.error || console.error,
-    };
-}
+/** @type {ReleasePort} */
+const SYSTEM_RELEASE_PORT = Object.freeze({ run: defaultRun(), log: console.log });
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @param {string} command
  * @param {string[]} args
  * @param {{ cwd?: string, env?: Record<string, string> }} [options]
  * @returns {Promise<CommandResult>}
  */
 export async function runGit(deps, command, args, options = {}) {
-    return await normalizeDeps(deps).run(command, args, options);
+    return await deps.run(command, args, options);
 }
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @param {string} label
  * @param {string} command
  * @param {string[]} args
@@ -217,7 +203,7 @@ export async function runGit(deps, command, args, options = {}) {
  * @returns {Promise<CommandResult>}
  */
 async function mustRun(deps, label, command, args, options = {}) {
-    const result = await normalizeDeps(deps).run(command, args, options);
+    const result = await deps.run(command, args, options);
     if (!result.success) {
         throw new Error(`${label} failed with exit code ${result.code}: ${result.stderr || result.stdout}`.trim());
     }
@@ -233,19 +219,19 @@ function splitLines(stdout) {
 }
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @returns {Promise<string[]>}
  */
-export async function listTags(deps = {}) {
+export async function listTags(deps) {
     const result = await mustRun(deps, "List release tags", "git", ["tag", "--list", "v*"]);
     return splitLines(result.stdout);
 }
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @returns {Promise<string[]>}
  */
-export async function listRemoteTags(deps = {}) {
+export async function listRemoteTags(deps) {
     const result = await mustRun(deps, "List remote release tags", "git", [
         "ls-remote",
         "--tags",
@@ -263,33 +249,33 @@ export async function listRemoteTags(deps = {}) {
 }
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @returns {Promise<string[]>}
  */
-export async function listAllReleaseTags(deps = {}) {
+export async function listAllReleaseTags(deps) {
     return [...new Set([...(await listTags(deps)), ...(await listRemoteTags(deps))])];
 }
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @param {string} tag
  * @returns {Promise<string | undefined>}
  */
 export async function resolveLocalTagCommit(deps, tag) {
     assertSafeTagText(tag);
-    const result = await normalizeDeps(deps).run("git", ["rev-parse", `${tag}^{commit}`]);
+    const result = await deps.run("git", ["rev-parse", `${tag}^{commit}`]);
     if (!result.success) return undefined;
     return result.stdout.trim() || undefined;
 }
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @param {string} tag
  * @returns {Promise<string | undefined>}
  */
 export async function resolveRemoteTagCommit(deps, tag) {
     assertSafeTagText(tag);
-    const result = await normalizeDeps(deps).run("git", ["ls-remote", "--tags", "origin", `refs/tags/${tag}*`]);
+    const result = await deps.run("git", ["ls-remote", "--tags", "origin", `refs/tags/${tag}*`]);
     if (!result.success) throw new Error(`Failed to inspect remote tag ${tag}: ${result.stderr || result.stdout}`);
     let tagObject;
     let peeledCommit;
@@ -302,7 +288,7 @@ export async function resolveRemoteTagCommit(deps, tag) {
 }
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @param {string} tag
  */
 async function assertTagAvailable(deps, tag) {
@@ -318,11 +304,11 @@ function isMissingGitHubReleaseError(stderr) {
 }
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @param {string} tag
  */
 async function assertHostReleaseAbsent(deps, tag) {
-    const result = await normalizeDeps(deps).run("gh", ["release", "view", tag, "--json", "id"]);
+    const result = await deps.run("gh", ["release", "view", tag, "--json", "id"]);
     if (result.success) throw new Error(`GitHub release already exists for ${tag}.`);
     const output = `${result.stderr}\n${result.stdout}`;
     if (!isMissingGitHubReleaseError(output)) {
@@ -361,7 +347,7 @@ export function expectedReleaseAssetNames(tag) {
 }
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @param {string} candidateTag
  */
 export async function assertCandidatePublished(deps, candidateTag) {
@@ -384,14 +370,14 @@ export async function assertCandidatePublished(deps, candidateTag) {
 }
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @param {string} tag
  * @param {string} targetCommit
  * @param {string} message
  * @param {boolean} dryRun
  */
 async function createAndPushTag(deps, tag, targetCommit, message, dryRun) {
-    const { log } = normalizeDeps(deps);
+    const { log } = deps;
     if (dryRun) {
         log(`[dry-run] would create annotated tag ${tag} at ${targetCommit}`);
         log(`[dry-run] would push refs/tags/${tag} to origin`);
@@ -402,7 +388,7 @@ async function createAndPushTag(deps, tag, targetCommit, message, dryRun) {
 }
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @returns {Promise<string>}
  */
 async function headCommit(deps) {
@@ -411,7 +397,7 @@ async function headCommit(deps) {
 }
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @param {string} tag
  * @param {boolean} dryRun
  */
@@ -445,7 +431,7 @@ export async function createCandidate(deps, tag, dryRun = false) {
 }
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @param {string} tag
  * @param {boolean} dryRun
  */
@@ -477,7 +463,7 @@ export async function createStable(deps, tag, dryRun = false) {
 }
 
 /**
- * @param {ReleaseDeps} deps
+ * @param {ReleasePort} deps
  * @param {string} candidateTag
  * @param {boolean} dryRun
  */
@@ -530,10 +516,10 @@ export function parseReleaseArgs(args) {
 }
 
 /**
- * @param {string[]} [args]
- * @param {ReleaseDeps} [deps]
+ * @param {string[]} args
+ * @param {ReleasePort} deps
  */
-export async function main(args = Deno.args, deps = {}) {
+export async function main(args, deps) {
     const options = parseReleaseArgs(args);
     if (options.command === "metadata") {
         if (!options.tag) throw new Error("release metadata requires --tag <tag>");
@@ -560,4 +546,4 @@ export async function main(args = Deno.args, deps = {}) {
     );
 }
 
-if (import.meta.main) await main();
+if (import.meta.main) await main(Deno.args, SYSTEM_RELEASE_PORT);

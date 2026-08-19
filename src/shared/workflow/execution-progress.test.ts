@@ -99,15 +99,15 @@ Deno.test("execution preparation progress reports fresh worktree setup before la
                 "preparing execution target...",
                 "creating execution worktree from base branch",
                 `created worktree ${workflow.worktreeBranch} from base branch`,
-                "running Plan Objective-Failing Check baseline...",
                 "materializing Plan in execution worktree...",
+                "running Plan Objective-Failing Check baseline...",
                 "updating Plan status to in_progress...",
                 "launching Plan Engineer to execute...",
             ]);
             // An `engineer`-owned Plan runs under the workflow-only Plan Engineer.
             assertEquals(hostedSession.getRootAgentName(), "plan-engineer");
-            const canonicalPlan = await loadPlan(projectRoot, "fresh-progress");
-            assertEquals(canonicalPlan?.attrs.status, "in_progress");
+            const executionPlan = await loadPlan(executionCwd, "fresh-progress");
+            assertEquals(executionPlan?.attrs.status, "in_progress");
         } finally {
             hostedSession.dispose();
             if (executionCwd) {
@@ -164,7 +164,7 @@ Deno.test("execution preparation progress reports reused worktree without claimi
         const messages = messagesFrom(events);
         assertStringIncludes(messages.join("\n"), `reusing worktree ${firstWorkflow.worktreeBranch}`);
         assertEquals(messages.some((message) => message.includes("creating execution worktree")), false);
-        assertStringIncludes(messages.join("\n"), "running Plan Objective-Failing Check baseline...");
+        assertEquals(messages.some((message) => message.includes("Objective-Failing Check baseline")), false);
     } finally {
         if (executionCwd) {
             await removeWorktreeGitArtifacts({ projectRoot, path: executionCwd, force: true }).catch(() => undefined);

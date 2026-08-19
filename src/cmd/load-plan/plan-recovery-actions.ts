@@ -1,4 +1,3 @@
-import { updatePlanFrontMatter } from "../../plan-store.js";
 import { AGENTS } from "../../constants.js";
 import { buildPlanEventUpdates } from "../../shared/workflow/plan-lifecycle.js";
 import {
@@ -326,9 +325,8 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
         planName: plan.planName,
         planId: plan.attrs.planId,
         worktreeId: context.worktreeContext?.id,
-        expectedRevision: plan.revision,
         action: "abandon",
-        recover: async ({ beforePlan }) => {
+        recover: async () => {
             if (context.worktreeContext?.path) {
                 try {
                     await removeWorktreeGitArtifacts({
@@ -370,13 +368,16 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
                     );
                 }
             }
-            return await updatePlanFrontMatter(
-                projectRoot,
-                plan.planName,
-                { worktreeStatus: "abandoned", worktreeId: null, worktreePath: null, worktreeBranch: null },
-                plan.attrs,
-                { expectedRevision: beforePlan?.revision },
-            );
+            return {
+                ...plan.attrs,
+                executionMode: null,
+                executionBaselineTree: null,
+                worktreeId: null,
+                worktreePath: null,
+                worktreeBranch: null,
+                worktreeBaseBranch: null,
+                worktreeStatus: "abandoned",
+            };
         },
     });
     if (transition.status !== "committed") {
@@ -391,7 +392,8 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
         "RunWield",
     );
     await context.recordRecoveryResult("abandon", "abandoned");
-    return plan.attrs.status === "verified" || plan.attrs.status === "user_verified"
+    return plan.attrs.status === "validated" || plan.attrs.status === "verified" ||
+            plan.attrs.status === "user_verified"
         ? { kind: "settled" }
         : { kind: "menu" };
 }

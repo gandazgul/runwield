@@ -20,6 +20,7 @@ type GitPort = import("../git-port.ts").GitPort;
 type WorkRecordMnemosynePort = import("../work-records/mnemosyne-port.ts").WorkRecordMnemosynePort;
 type RecordPlanEventArgs = Parameters<typeof import("./plan-lifecycle.js").recordPlanEvent>[0];
 type RecordPlanEventResult = Awaited<ReturnType<typeof import("./plan-lifecycle.js").recordPlanEvent>>;
+type EpicContinuationResolution = import("./epic-continuation.ts").EpicContinuationResolution;
 
 /** The engine's result shape, mirroring the public entry's `WorkflowValidationResult`. */
 export type WorkflowValidationResult = {
@@ -28,7 +29,11 @@ export type WorkflowValidationResult = {
     projectRoot: string;
     classification?: string;
     reason?: string;
-    epicContinuation?: { completedPlanName: string; projectRoot: string };
+    epicContinuation?: {
+        completedPlanName: string;
+        projectRoot: string;
+        resolution?: EpicContinuationResolution;
+    };
     semanticRepairHandoff?: SemanticRepairHandoff;
     recovery?: ValidationRecoveryResult;
     retainTaskCompletionClaim?: true;
@@ -47,13 +52,14 @@ export type SemanticRepairHandoff = {
 
 export type ValidationPhaseResult = WorkflowValidationResult & {
     awaitingTaskCompletion?: true;
+    awaitingUserAction?: true;
     retainTaskCompletionClaim?: true;
 };
 
 /** Triage metadata the engine reads Plan front matter through. */
 export type TriageMeta = import("../../tools/plan-written.ts").TriageMeta;
 
-type PlanStatus = "implemented" | "validated_ci" | "validated_reviewer";
+type PlanStatus = "implemented" | "validated_ci" | "validated_reviewer" | "validated";
 type PlanEvent = RecordPlanEventArgs["event"];
 type PlanEventStatus = RecordPlanEventArgs["currentStatus"];
 
@@ -173,7 +179,7 @@ export const SEMANTIC_REVIEW_CYCLES = 3;
 export const MAX_PHASES_PER_CALL = 12;
 
 /** Validation's three statuses in the order the loop passes through them. */
-export const VALIDATION_STATUS_ORDER = ["implemented", "validated_ci", "validated_reviewer"];
+export const VALIDATION_STATUS_ORDER = ["implemented", "validated_ci", "validated_reviewer", "validated"];
 
 /** The status a phase expects to find on the Plan it is about to run. */
 export const PHASE_STATUS: Record<import("./validation-ports.ts").ValidationPhaseName, string> = {

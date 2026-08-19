@@ -23,7 +23,7 @@ const LOCK_RETRY_MS = 50;
  * @property {string} [executionBaselineTree]
  * @property {string} branch
  * @property {string} path
- * @property {"active"|"completed"|"execution_failed"|"validation_failed"|"merge_conflict"|"merged"|"abandoned"} status
+ * @property {"active"|"completed"|"execution_failed"|"validation_failed"|"validated"|"publication_failed"|"merge_conflict"|"merged"|"abandoned"} status
  * @property {string} createdAt
  * @property {string} updatedAt
  * @property {{ reason: string, recordedAt: string, candidates?: string[] }} [migrationIssue]
@@ -298,6 +298,8 @@ const NONTERMINAL_STATUSES = new Set([
     "completed",
     "execution_failed",
     "validation_failed",
+    "validated",
+    "publication_failed",
     "merge_conflict",
 ]);
 
@@ -826,6 +828,20 @@ export async function findByPlanName(projectRoot, planName) {
     );
     if (legacyMatches.length > 1) throw duplicateLiveAttemptError(planName, legacyMatches);
     return legacyMatches[0] || null;
+}
+
+/**
+ * Resolve the one live attempt for a Plan name regardless of whether it already
+ * has a stable Plan ID. This is the recovery path when caller-held IDs are stale.
+ *
+ * @param {string} projectRoot
+ * @param {string} planName
+ */
+export async function findActiveByPlanName(projectRoot, planName) {
+    const entries = await listEntries(projectRoot);
+    const matches = entries.filter((entry) => entry.planName === planName && NONTERMINAL_STATUSES.has(entry.status));
+    if (matches.length > 1) throw duplicateLiveAttemptError(planName, matches);
+    return matches[0] || null;
 }
 
 /**

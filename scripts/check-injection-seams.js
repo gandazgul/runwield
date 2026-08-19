@@ -70,6 +70,12 @@
 
 const BASELINE_PATH = new URL("./injection-seam-baseline.json", import.meta.url);
 const SOURCE_ROOT = new URL("../src/", import.meta.url);
+const SCRIPTS_ROOT = new URL("./", import.meta.url);
+const PRODUCTION_ROOTS = Object.freeze([
+    { rootUrl: SOURCE_ROOT, pathPrefix: "src" },
+    { rootUrl: SCRIPTS_ROOT, pathPrefix: "scripts" },
+]);
+const SCAN_EXCLUDED_PATHS = new Set(["scripts/check-injection-seams.js"]);
 const SKIP_DIRS = new Set([
     ".astro",
     ".vite",
@@ -130,8 +136,7 @@ const MACHINERY_SEAMS = [
     "prepareTargetBranchRef",
     // Worktree *policy*, not Git. These have Git-sounding names and call Git, but each
     // one encodes a RunWield decision: mergeExecutionWorktree proves a sealed candidate
-    // and enforces allowed dirty paths, preparePrimaryPlanPathForMerge refuses non-Plan
-    // paths, sealExecutionWorktreeCandidate is the checkpoint policy. Replacing them in
+    // and enforces allowed dirty paths, while sealing is checkpoint policy. Replacing them in
     // a test replaces the behaviour under test. The genuine Git boundary is GitPort
     // (src/shared/git-port.ts); everything here is ours.
     "mergeExecutionWorktree",
@@ -140,8 +145,6 @@ const MACHINERY_SEAMS = [
     "settleWorktreeAttempt",
     "removeWorktreeGitArtifacts",
     "deleteMergedWorktreeBranch",
-    "preparePrimaryPlanPathForMerge",
-    "restorePrimaryPlanPathAfterMergeFailure",
     "verifyPostMergeCandidatePublished",
     "assertPreMergeCandidateUnchanged",
     "stageValidationPassedInExecutionWorktree",
@@ -919,21 +922,25 @@ export function collectConditionalSeamKeys(text) {
     return scanConditionalSeams(text).map((hit) => hit.key).sort();
 }
 
-/** @param {URL} rootUrl */
-async function collectSeams(rootUrl = SOURCE_ROOT) {
+/**
+ * @param {ReadonlyArray<{ rootUrl: URL, pathPrefix: string }>} [roots]
+ */
+export async function collectSeams(roots = PRODUCTION_ROOTS) {
     /** @type {SeamEntry} */
     const seams = {};
 
-    /** @param {URL} directoryUrl @param {string} relativeDirectory */
-    async function walk(directoryUrl, relativeDirectory) {
+    /** @param {URL} directoryUrl @param {string} relativeDirectory @param {string} pathPrefix */
+    async function walk(directoryUrl, relativeDirectory, pathPrefix) {
         for await (const entry of Deno.readDir(directoryUrl)) {
             const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
             if (entry.isDirectory) {
                 if (SKIP_DIRS.has(entry.name)) continue;
-                await walk(new URL(`${entry.name}/`, directoryUrl), relativePath);
+                await walk(new URL(`${entry.name}/`, directoryUrl), relativePath, pathPrefix);
                 continue;
             }
             if (!isProductionSourcePath(relativePath)) continue;
+            const productionPath = `${pathPrefix}/${relativePath}`;
+            if (SCAN_EXCLUDED_PATHS.has(productionPath)) continue;
             const text = await Deno.readTextFile(new URL(entry.name, directoryUrl));
             // Scan every production source file. A known-spelling prefilter made the
             // detector self-defeating: files using `dependencies`, nested ports,
@@ -942,7 +949,7 @@ async function collectSeams(rootUrl = SOURCE_ROOT) {
             const names = collectSeamNames(text);
             const conditional = collectConditionalSeamKeys(text);
             if (names.length === 0 && conditional.length === 0) continue;
-            seams[`src/${relativePath}`] = {
+            seams[productionPath] = {
                 seams: names,
                 machinery: names.filter(isMachinerySeam),
                 conditional,
@@ -950,7 +957,7 @@ async function collectSeams(rootUrl = SOURCE_ROOT) {
         }
     }
 
-    await walk(rootUrl, "");
+    for (const { rootUrl, pathPrefix } of roots) await walk(rootUrl, "", pathPrefix);
     return seams;
 }
 
@@ -1190,7 +1197,7 @@ if (import.meta.main) {
                 JSON.stringify(
                     {
                         comment:
-                            "Injection-seam ratchet. Seam, machinery, and conditional lists may only shrink. See docs/plans/replace-deps-bag-with-capability-ports.md.",
+                            "Injection-seam ratchet. Seam, machinery, and conditional lists may only shrink. See docs/plans/finish-injection-seam-ownership-enforcement.md.",
                         files: sortedSeams,
                     },
                     null,
@@ -1226,7 +1233,7 @@ if (import.meta.main) {
                 "If you ADDED a conditional seam: remove the branch; existing conditional debt may only shrink.\n" +
                 "If you REMOVED seams: run `deno task seams:update` to tighten the baseline in the same change.\n" +
                 "Never run `--update` to silence an addition; it refuses to loosen and will reject it.\n" +
-                "Background: docs/plans/replace-deps-bag-with-capability-ports.md and src/skills/write-tests/SKILL.md.",
+                "Background: docs/plans/finish-injection-seam-ownership-enforcement.md and src/skills/write-tests/SKILL.md.",
         );
         sections.push(
             "If you are an agent: do not make this pass by changing how the seam LOOKS.\n" +

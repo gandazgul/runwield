@@ -87,9 +87,9 @@ SessionRuntime is deliberately absent from the Attached path.
 
 The repository already has the extraction pattern this needs: `plans/split-workflow-entrypoint-modules.md` (verified)
 split `workflow.js` into cohesive modules under 1000 lines with the original file kept as a thin public entry point, and
-`docs/plans/replace-deps-bag-with-capability-ports.md` established the capability-port ownership heuristic (agent turns
-and user interactions are genuine boundaries and may be ports; Plan Lifecycle, transitions, registry, and locks are
-RunWield-owned machinery and never ports). Sibling extractions already exist: `validation-helpers.ts` (646),
+`docs/plans/finish-injection-seam-ownership-enforcement.md` establishes the capability-port ownership heuristic (agent
+turns and user interactions are genuine boundaries and may be ports; Plan Lifecycle, transitions, registry, and locks
+are RunWield-owned machinery and never ports). Sibling extractions already exist: `validation-helpers.ts` (646),
 `validation-scope.ts` (74), `validation-prompts.ts` (56), `validation-progress.ts` (204), `validation-position.ts` (72),
 `validation-local-ci.ts`, `execution-context.ts` (587), `review-ledger.ts` (155), `review-diff-tool.js` (477).
 

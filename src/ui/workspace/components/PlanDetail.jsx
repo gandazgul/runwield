@@ -9,7 +9,7 @@ import { BoardColumn } from "./BoardColumn.jsx";
 import { MarkdownView } from "./MarkdownView.jsx";
 import { ComplexityLabel, workspaceHref } from "./PlanCard.jsx";
 
-const CLOSED_STATUSES = new Set(["verified", "user_verified", "closed_without_verification"]);
+const CLOSED_STATUSES = new Set(["validated", "verified", "user_verified", "closed_without_verification"]);
 
 /** @param {string} status */
 export function tabForPlanStatus(status) {

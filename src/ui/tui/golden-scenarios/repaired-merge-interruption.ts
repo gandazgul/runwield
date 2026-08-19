@@ -41,6 +41,9 @@ async function stageInterruptedMergeFixture(): Promise<void> {
         planName,
         planId: initialPlan.attrs.planId,
     });
+    const executionPlanPath = join(worktree.path, "docs", "plans", `${planName}.md`);
+    await Deno.mkdir(join(worktree.path, "docs", "plans"), { recursive: true });
+    await Deno.writeTextFile(executionPlanPath, initialPlan.markdown);
     const targetBranch = worktree.baseBranch || await git(projectRoot, ["branch", "--show-current"]);
 
     await Deno.writeTextFile(join(worktree.path, "golden-repaired-merge.txt"), "execution version\n");
@@ -96,10 +99,10 @@ async function stageInterruptedMergeFixture(): Promise<void> {
         }
     }
     assert(repairWorktreePath, "Expected a detached Direct Delivery merge conflict.");
-    const planBeforeRepair = await loadPlan(projectRoot, planName);
+    const planBeforeRepair = await loadPlan(worktree.path, planName);
     assert(planBeforeRepair, "Expected Plan before detached merge repair.");
     await updatePlanFrontMatter(
-        projectRoot,
+        worktree.path,
         planName,
         {
             executionMode: "worktree",

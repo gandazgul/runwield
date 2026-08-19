@@ -3,9 +3,34 @@ import {
     collectConditionalSeamKeys,
     collectConditionalSeams,
     collectSeamNames,
+    collectSeams,
     findRegressions,
     isMachinerySeam,
 } from "./check-injection-seams.js";
+
+Deno.test("collectSeams scans production source and scripts but excludes tests", async () => {
+    const root = await Deno.makeTempDir({ prefix: "wld-seam-scan-roots-" });
+    try {
+        const sourceRoot = new URL(`file://${root}/src/`);
+        const scriptsRoot = new URL(`file://${root}/scripts/`);
+        await Deno.mkdir(sourceRoot, { recursive: true });
+        await Deno.mkdir(scriptsRoot, { recursive: true });
+        await Deno.writeTextFile(new URL("command.ts", sourceRoot), "const run = deps.run || systemRun; run();\n");
+        await Deno.writeTextFile(new URL("release.js", scriptsRoot), "const run = deps.run || systemRun; run();\n");
+        await Deno.writeTextFile(
+            new URL("release.test.js", scriptsRoot),
+            "const run = deps.run || systemRun; run();\n",
+        );
+
+        const seams = await collectSeams([
+            { rootUrl: sourceRoot, pathPrefix: "src" },
+            { rootUrl: scriptsRoot, pathPrefix: "scripts" },
+        ]);
+        assertEquals(Object.keys(seams).sort(), ["scripts/release.js", "src/command.ts"]);
+    } finally {
+        await Deno.remove(root, { recursive: true });
+    }
+});
 
 /** @param {string[]} lines */
 function conditionalLines(...lines) {

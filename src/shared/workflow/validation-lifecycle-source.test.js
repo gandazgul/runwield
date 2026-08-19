@@ -61,8 +61,8 @@ Deno.test("the irreversible merge runs inside the publication transaction", asyn
         "runPublicationPhase must publish inside runDirectDeliveryPublicationTransition",
     );
     const transactionStart = publication.indexOf("runDirectDeliveryPublicationTransition");
-    const mergeCall = publication.indexOf("await mergeExecutionWorktree(");
-    assert(mergeCall > transactionStart, "mergeExecutionWorktree must run inside the transaction, not before it");
+    const publishCall = publication.indexOf("await publishExecutionWorktreeIsolated(");
+    assert(publishCall > transactionStart, "the isolated push must run inside the transaction, not before it");
     assert(
         publication.includes('markEffect("direct_delivery_target_ref_moved"'),
         "the target-ref move must be journaled as a durable effect",

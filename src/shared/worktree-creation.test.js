@@ -284,7 +284,7 @@ Deno.test("prepareTargetBranchRef returns an existing local branch", async () =>
     }
 });
 
-Deno.test("prepareTargetBranchRef creates a local tracking branch for a remote-only target", async () => {
+Deno.test("prepareTargetBranchRef uses the remote ref without moving a local branch", async () => {
     const remoteRoot = await makeRepo();
     const projectRoot = await Deno.makeTempDir();
     try {
@@ -299,12 +299,31 @@ Deno.test("prepareTargetBranchRef creates a local tracking branch for a remote-o
 
         const prepared = await prepareTargetBranchRef(projectRoot, "feature-base");
 
-        assertEquals(prepared, { baseRef: "refs/heads/feature-base", baseBranch: "feature-base" });
-        assertEquals(
-            await git(projectRoot, ["rev-parse", "--abbrev-ref", "feature-base@{upstream}"]),
-            "origin/feature-base",
-        );
-        assertEquals(await git(projectRoot, ["show", "feature-base:remote.txt"]), "remote");
+        assertEquals(prepared, { baseRef: "refs/remotes/origin/feature-base", baseBranch: "feature-base" });
+        await assertRejects(() => git(projectRoot, ["rev-parse", "refs/heads/feature-base"]));
+        assertEquals(await git(projectRoot, ["show", "refs/remotes/origin/feature-base:remote.txt"]), "remote");
+    } finally {
+        await Deno.remove(remoteRoot, { recursive: true });
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("prepareTargetBranchRef refreshes a remote target while the local checkout stays stale", async () => {
+    const remoteRoot = await makeRepo();
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        await git(projectRoot, ["clone", remoteRoot, "."]);
+        const localHead = await git(projectRoot, ["rev-parse", "refs/heads/main"]);
+        await Deno.writeTextFile(`${remoteRoot}/new-remote.txt`, "new remote work\n");
+        await git(remoteRoot, ["add", "new-remote.txt"]);
+        await git(remoteRoot, ["commit", "-m", "advance remote target"]);
+        const remoteHead = await git(remoteRoot, ["rev-parse", "refs/heads/main"]);
+
+        const prepared = await prepareTargetBranchRef(projectRoot, "main");
+
+        assertEquals(prepared, { baseRef: "refs/remotes/origin/main", baseBranch: "main" });
+        assertEquals(await git(projectRoot, ["rev-parse", "refs/heads/main"]), localHead);
+        assertEquals(await git(projectRoot, ["rev-parse", prepared.baseRef]), remoteHead);
     } finally {
         await Deno.remove(remoteRoot, { recursive: true });
         await Deno.remove(projectRoot, { recursive: true });
@@ -325,8 +344,8 @@ Deno.test("prepareTargetBranchRef accepts explicit origin branch input", async (
 
         const prepared = await prepareTargetBranchRef(projectRoot, "origin/feature-explicit");
 
-        assertEquals(prepared, { baseRef: "refs/heads/feature-explicit", baseBranch: "feature-explicit" });
-        assertEquals(await git(projectRoot, ["show", "feature-explicit:explicit.txt"]), "remote");
+        assertEquals(prepared, { baseRef: "refs/remotes/origin/feature-explicit", baseBranch: "feature-explicit" });
+        assertEquals(await git(projectRoot, ["show", "refs/remotes/origin/feature-explicit:explicit.txt"]), "remote");
     } finally {
         await Deno.remove(remoteRoot, { recursive: true });
         await Deno.remove(projectRoot, { recursive: true });

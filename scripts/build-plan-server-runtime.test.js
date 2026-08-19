@@ -71,6 +71,7 @@ Deno.test("buildPlanServerRuntime creates a minimal runtime root", async () => {
             remoteEntry: join(root, "src/ui/workspace/remote-server.ts"),
             workspaceRuntimeDir: join(root, "dist/workspace-runtime"),
             runtimeDir: join(root, "dist/plan-server"),
+        }, {
             run: async (command, args) => {
                 commands.push({ command, args });
                 const outputIndex = args.indexOf("--output");
@@ -123,6 +124,7 @@ Deno.test("buildPlanServerRuntime removes stale output", async () => {
             remoteEntry: join(root, "src/ui/workspace/remote-server.ts"),
             workspaceRuntimeDir: join(root, "dist/workspace-runtime"),
             runtimeDir: join(root, "dist/plan-server"),
+        }, {
             run: async (_command, args) => {
                 await writeFile(args[args.indexOf("--output") + 1], "// bundled remote server\n");
             },
@@ -145,6 +147,7 @@ Deno.test("buildPlanServerRuntime fails when required inputs are missing", async
                     remoteEntry: join(root, "src/ui/workspace/remote-server.ts"),
                     workspaceRuntimeDir: join(root, "dist/workspace-runtime"),
                     runtimeDir: join(root, "dist/plan-server"),
+                }, {
                     run: async () => {},
                 }),
             Error,
@@ -168,6 +171,7 @@ Deno.test("buildPlanServerRuntime fails clearly when Workspace runtime output la
                     remoteEntry: join(root, "src/ui/workspace/remote-server.ts"),
                     workspaceRuntimeDir: join(root, "dist/workspace-runtime"),
                     runtimeDir: join(root, "dist/plan-server"),
+                }, {
                     run: () => {
                         didRunBundle = true;
                         return Promise.resolve();

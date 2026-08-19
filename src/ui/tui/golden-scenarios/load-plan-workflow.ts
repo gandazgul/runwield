@@ -498,7 +498,6 @@ export const loadPlanAbandonProgressScenario = {
     scriptedInteractions: [
         { type: "select", promptIncludes: "Plan recovery (in_progress)", value: "abandon" },
         { type: "select", promptIncludes: "Delete/abandon worktree", value: "confirm" },
-        { type: "select", promptIncludes: "Plan recovery", value: "cancel" },
     ],
     actions: [
         { type: "seedActiveWorktree", planName: "recover-abandon" },

@@ -317,8 +317,8 @@ export const validationTreeUnsupportedStatusScenario = withValidationBranches(
     ["lifecycle:unsupported-status-fails-closed"],
 );
 
-// A stored worktree id that no longer matches the registry must fail closed
-// instead of silently validating the wrong worktree.
+// A stale Plan-local worktree id must not override the registry's live attempt.
+// The registry locates the execution Plan; validation then continues normally.
 export const validationTreeMismatchedWorktreeIdentityScenario = withValidationBranches(
     {
         name: "validation-tree-mismatched-worktree-identity-base",
@@ -334,6 +334,31 @@ export const validationTreeMismatchedWorktreeIdentityScenario = withValidationBr
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Mismatched worktree identity\naffectedPaths: []\nstatus: ready_for_work\nplanId: mismatched-worktree-identity-plan\nobjectiveChecks:\n  - id: OC_MISMATCHED_WORKTREE\n    command: test -f mismatched-worktree-identity.txt\n---\n# Mismatched worktree identity\n\nDraft content.\n",
         }],
+        script: [
+            {
+                id: "reviewer-approves-registry-owned-worktree",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "mismatched-worktree-identity",
+                ordinal: 1,
+                requiredTools: ["review_diff", "review_complete"],
+                toolCalls: [
+                    { name: "review_diff", arguments: { command: "list" } },
+                    {
+                        name: "review_complete",
+                        arguments: { approved: true, feedback: "Registry-owned execution attempt approved." },
+                    },
+                ],
+            },
+            {
+                id: "reviewer-closes-registry-owned-worktree",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "mismatched-worktree-identity",
+                ordinal: 2,
+                text: "Approved the registry-owned execution attempt.",
+            },
+        ],
         scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (implemented)", value: "validate" }],
         actions: [
             {
@@ -345,16 +370,20 @@ export const validationTreeMismatchedWorktreeIdentityScenario = withValidationBr
             },
             { type: "type", text: "/load-plan mismatched-worktree-identity" },
             { type: "enter" },
-            { type: "sleep", ms: 1000 },
             { type: "enter" },
-            { type: "sleep", ms: 3000 },
+            {
+                type: "waitForPlanStatus",
+                planName: "mismatched-worktree-identity",
+                statuses: ["verified"],
+                timeoutMs: 90000,
+            },
             { type: "captureProjectState", planNames: ["mismatched-worktree-identity"] },
         ],
         assertions: [],
     },
     "validation-tree-mismatched-worktree-identity",
     ["mismatched-worktree-identity"],
-    ["lifecycle:mismatched-worktree-identity-fails-closed"],
+    ["lifecycle:registry-authority-ignores-stale-worktree-metadata"],
 );
 
 export const validationWorkflowLifecycleScenarios = [

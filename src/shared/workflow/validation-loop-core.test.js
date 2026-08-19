@@ -95,6 +95,7 @@ async function makePlannedReviewWorktree() {
     });
     return {
         projectRoot,
+        executionCwd: worktree.path,
         hostedSession,
         uiAPI,
         cleanup: async () => {
@@ -178,12 +179,12 @@ Deno.test("shouldContinueParentEpicAfterValidation ignores standalone FEATURE pl
     const plan = await loadPlan(projectRoot, "p");
     assertEquals(result.kind, "verified");
     assertEquals(result.epicContinuation, undefined);
-    assertEquals(plan?.attrs.status, "verified");
+    assertEquals(plan?.attrs.status, "validated");
     assertEquals(plan?.attrs.deliveryEvidence, { version: 1, mode: "non_git_in_place" });
 });
 
 Deno.test("runValidationLoop shows why FEATURE validation fails when workflow diff is empty", async () => {
-    const { projectRoot, hostedSession, uiAPI, cleanup } = await makePlannedReviewWorktree();
+    const { executionCwd, hostedSession, uiAPI, cleanup } = await makePlannedReviewWorktree();
     try {
         const result = await runValidationLoop({
             hostedSession,
@@ -193,7 +194,7 @@ Deno.test("runValidationLoop shows why FEATURE validation fails when workflow di
             semanticReviewPort: NO_ISOLATED_AGENT_PORT,
         });
 
-        const plan = await loadPlan(projectRoot, "p");
+        const plan = await loadPlan(executionCwd, "p");
         assertEquals(result.kind, "failed");
         assertStringIncludes(result.reason || "", "No implementation changes detected");
         assertEquals(plan?.attrs.status, "implemented");
@@ -280,10 +281,20 @@ Deno.test("runValidationLoop advances from waived Objective-Failing Checks into 
     const objectiveChecks = [{ id: "OC1", command: "false", rationale: "waived for test" }];
     const projectRoot = await makeRepo();
     await savePlan(projectRoot, "p", "# p\n\nvalidation fixture\n", {
+        planId: "plan-validation-waiver",
         classification: "PLANNED_CHANGE",
         status: "implemented",
         summary: "validation fixture",
         affectedPaths: [],
+        humanReviewMode: "always",
+        objectiveChecks: /** @type {any} */ (objectiveChecks),
+        objectiveCheckWaivers: /** @type {any} */ ([{
+            id: "OC1",
+            command: "false",
+            source: "mechanical_detection",
+            waivedAt: "2026-01-01T00:00:00.000Z",
+            explanation: "waived for test",
+        }]),
     });
     await git(projectRoot, ["add", "."]);
     await git(projectRoot, ["commit", "-m", "validation baseline"]);
@@ -291,10 +302,12 @@ Deno.test("runValidationLoop advances from waived Objective-Failing Checks into 
     const worktree = await createTestWorktreeAttempt({
         projectRoot,
         planName: "p",
+        planId: "plan-validation-waiver",
         worktreeRoot,
     });
     const baselinePlan = await loadPlan(projectRoot, "p");
     const validationAttrs = /** @type {import("../../plan-store.js").PlanFrontMatterInput} */ ({
+        planId: "plan-validation-waiver",
         classification: "PLANNED_CHANGE",
         status: "implemented",
         summary: "validation fixture",
@@ -384,7 +397,7 @@ Deno.test("runValidationLoop advances from waived Objective-Failing Checks into 
         },
     });
 
-    const plan = await loadPlan(projectRoot, "p");
+    const plan = await loadPlan(worktree.path, "p");
     assertEquals(result.kind, "paused", JSON.stringify(result));
     assertEquals(reviewCalls, 1, JSON.stringify({ result, status: plan?.attrs.status }));
     assertEquals(plan?.attrs.status, "validated_reviewer");

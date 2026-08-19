@@ -363,7 +363,7 @@ Deno.test("load-plan marks an Epic done enough only after the real lifecycle wri
             });
 
             const epic = await loadPlan(projectRoot, "epic");
-            assertEquals(epic?.attrs.status, "verified");
+            assertEquals(epic?.attrs.status, "validated");
             assertEquals(typeof epic?.attrs.epicDoneEnoughAt, "string");
             assertEquals((await loadPlan(projectRoot, "epic/child"))?.attrs.status, "ready_for_work");
         } finally {

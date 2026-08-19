@@ -10,6 +10,16 @@ import { join, normalize, relative, resolve } from "@std/path";
 const SAFE_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const THROWAWAY_MARKER = ["THROWAWAY", "PROTOTYPE"].join(" ");
 
+/**
+ * @typedef {Object} PrototypeProcessPort
+ * @property {(command: string, options: Deno.CommandOptions) => { status: Promise<{ code: number }> }} spawn
+ */
+
+/** @type {PrototypeProcessPort} */
+const SYSTEM_PROTOTYPE_PROCESS_PORT = Object.freeze({
+    spawn: (command, options) => new Deno.Command(command, options).spawn(),
+});
+
 /** @param {string} slug */
 export function isSafePrototypeSlug(slug) {
     return SAFE_SLUG_RE.test(slug);
@@ -76,15 +86,15 @@ export async function isGitIgnored(cwd, relativePath) {
 }
 
 /**
- * @param {{ cwd?: string, slug: string, spawn?: (command: string, options: Deno.CommandOptions) => { status: Promise<{ code: number }> } }} opts
+ * @param {{ cwd?: string, slug: string }} opts
+ * @param {PrototypeProcessPort} processPort
  * @returns {Promise<number>}
  */
-export async function runPrototype(opts) {
+export async function runPrototype(opts, processPort) {
     const cwd = opts.cwd || Deno.cwd();
     const setup = await validatePrototypeSetup(cwd, opts.slug);
     const args = ["task", "-c", setup.relativeConfigPath, "dev"];
-    const spawn = opts.spawn || ((command, options) => new Deno.Command(command, options).spawn());
-    const child = spawn(Deno.execPath(), {
+    const child = processPort.spawn(Deno.execPath(), {
         args,
         cwd,
         stdin: "inherit",
@@ -151,7 +161,7 @@ if (import.meta.main) {
         Deno.exit(2);
     }
     try {
-        Deno.exit(await runPrototype({ slug }));
+        Deno.exit(await runPrototype({ slug }, SYSTEM_PROTOTYPE_PROCESS_PORT));
     } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
         Deno.exit(1);

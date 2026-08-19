@@ -35,11 +35,15 @@ Deno.test("every production entry uses one validation owner", async () => {
     for (const relativePath of PRODUCTION_ENTRY_FILES) {
         const path = new URL(relativePath, import.meta.url);
         const source = await Deno.readTextFile(path);
-        assert(source.includes("continueWorkflowValidation"), `${relativePath} does not use the supervisor`);
+        assert(
+            source.includes("continueWorkflowValidation") || source.includes("runWorkflowValidationToStableBoundary"),
+            `${relativePath} does not use the supervisor`,
+        );
         assertEquals(source.includes("runValidationLoop"), false, `${relativePath} bypasses the supervisor`);
     }
     const supervisor = await Deno.readTextFile(new URL("./validation-supervisor.ts", import.meta.url));
     assert(supervisor.includes("export async function continueWorkflowValidation"));
+    assert(supervisor.includes("export async function runWorkflowValidationToStableBoundary"));
     assert(supervisor.includes("await runValidationLoop"));
     assert(supervisor.includes("continuationPhase: claim.checkpoint.nextPhase"));
     assert(supervisor.includes("prior.lastSettledOperationId === args.taskCompletionId"));

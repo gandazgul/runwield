@@ -360,10 +360,15 @@ async function verifyParentChain(root, segments, createMissing) {
 }
 
 /**
- * @param {{ executionCwd: string, planName: string, canonicalSource: Extract<Awaited<ReturnType<typeof loadCanonicalExecutionPlanSource>>, {kind:"loaded"}> }} opts
+ * @param {{ executionCwd: string, planName: string, canonicalSource: Extract<Awaited<ReturnType<typeof loadCanonicalExecutionPlanSource>>, {kind:"loaded"}>, reconcileFromCanonical?: boolean }} opts
  * @returns {Promise<ExecutionPlanFileResult>}
  */
-export async function ensureExecutionPlanFile({ executionCwd, planName, canonicalSource }) {
+export async function ensureExecutionPlanFile({
+    executionCwd,
+    planName,
+    canonicalSource,
+    reconcileFromCanonical = true,
+}) {
     const targetPath = getStoredPlanPath(executionCwd, planName);
     const relativePath = projectRelativePath(executionCwd, targetPath);
     const targetDir = dirname(targetPath);
@@ -413,6 +418,18 @@ export async function ensureExecutionPlanFile({ executionCwd, planName, canonica
         }
         try {
             const { attrs } = parsePlanFrontMatter(markdown);
+            if (!reconcileFromCanonical) {
+                if (hasPlanIdConflict(canonicalSource.attrs.planId, attrs.planId)) {
+                    return {
+                        kind: "restore_failed",
+                        path: targetPath,
+                        relativePath,
+                        reason:
+                            `Execution Plan identity does not match ${relativePath}. Existing evidence was preserved.`,
+                    };
+                }
+                return { kind: "present", path: targetPath, relativePath };
+            }
             const overrides = executionMetadataOverrides(canonicalSource.attrs, attrs);
             if (Object.keys(overrides).length > 0) {
                 const reconciledMarkdown = mergeFrontMatterText(markdown, overrides);
@@ -538,10 +555,24 @@ export async function ensureExecutionPlanFile({ executionCwd, planName, canonica
 }
 
 /**
- * @param {{ projectRoot: string, executionCwd: string, planName: string }} opts
+ * @param {{ projectRoot: string, executionCwd: string, planName: string, executionAuthoritative?: boolean }} opts
  * @returns {Promise<ExecutionPlanFileResult>}
  */
-export async function prepareExecutionPlanFile({ projectRoot, executionCwd, planName }) {
+export async function prepareExecutionPlanFile(
+    { projectRoot, executionCwd, planName, executionAuthoritative = false },
+) {
+    if (executionAuthoritative) {
+        const executionSource = await loadCanonicalExecutionPlanSource(executionCwd, planName);
+        if (executionSource.kind === "loaded") {
+            return await ensureExecutionPlanFile({
+                executionCwd,
+                planName,
+                canonicalSource: executionSource,
+                reconcileFromCanonical: false,
+            });
+        }
+        if (executionSource.kind !== "absent") return executionSource;
+    }
     const canonicalSource = await loadCanonicalExecutionPlanSource(projectRoot, planName);
     if (canonicalSource.kind !== "loaded") return canonicalSource;
     return await ensureExecutionPlanFile({ executionCwd, planName, canonicalSource });

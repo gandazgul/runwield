@@ -70,6 +70,7 @@ Deno.test("runReleaseCheck propagates build identity to compile and preserves st
         await runReleaseCheck({
             buildVersion: "v1.2.3-rc.1",
             rootDir: root,
+        }, {
             makeTempDir: () => Promise.resolve("release-temp"),
             remove: () => Promise.resolve(),
             async run(command, args, options = {}) {
@@ -126,6 +127,7 @@ Deno.test("runReleaseCheck short-circuits after compile failure and restores gen
                 runReleaseCheck({
                     buildVersion: "v1.2.3",
                     rootDir: root,
+                }, {
                     makeTempDir: () => Promise.resolve("release-temp"),
                     remove: () => Promise.resolve(),
                     async run(command) {
@@ -138,6 +140,10 @@ Deno.test("runReleaseCheck short-circuits after compile failure and restores gen
                     },
                     smokeTestBundledAgentReferenceExtraction() {
                         stages.push("references");
+                        return Promise.resolve();
+                    },
+                    smokeTestBinaryPlansUiSurface() {
+                        stages.push("plans-ui");
                         return Promise.resolve();
                     },
                     smokeTestBinaryReviewSurface() {
@@ -166,6 +172,7 @@ Deno.test("runReleaseCheck restores generated version after binary version misma
                 runReleaseCheck({
                     buildVersion: "v1.2.3-rc.1",
                     rootDir: root,
+                }, {
                     makeTempDir: () => Promise.resolve("release-temp"),
                     remove: () => Promise.resolve(),
                     async run(command, args) {
@@ -186,6 +193,10 @@ Deno.test("runReleaseCheck restores generated version after binary version misma
                     },
                     smokeTestBundledAgentReferenceExtraction() {
                         stages.push("references");
+                        return Promise.resolve();
+                    },
+                    smokeTestBinaryPlansUiSurface() {
+                        stages.push("plans-ui");
                         return Promise.resolve();
                     },
                     smokeTestBinaryReviewSurface() {

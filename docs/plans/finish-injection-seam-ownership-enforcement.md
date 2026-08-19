@@ -3,18 +3,23 @@ planId: "d9fa56fe-1ff7-4508-a29a-231cb5a6375e"
 classification: "PLANNED_CHANGE"
 workKind: "REFACTOR"
 complexity: "HIGH"
-summary: "Preserve RunWield's zero injection-seam baseline, split the mixed-ownership ValidationSessionPort, and make the detector reject required ports that expose RunWield-owned machinery while retaining explicit ports for genuine external capabilities."
+summary: "Finish injection-seam ownership enforcement: declare the genuine external ports by name, reject required ports that expose RunWield-owned machinery, and split the mixed-ownership ValidationSessionPort."
 affectedPaths:
     - "AGENTS.md"
     - "docs/domain-language.md"
     - "docs/plans/deep-semantic-source-modules.md"
-    - "docs/plans/export-test-architecture-enforcement.md"
-    - "docs/plans/replace-deps-bag-with-capability-ports.md"
+    - "docs/plans/flag-test-seam-risks-during-init.md"
+    - "docs/plans/finish-injection-seam-ownership-enforcement.md"
     - "scripts/check-injection-seams.js"
     - "scripts/check-injection-seams.test.js"
+    - "scripts/external-capability-ports.json"
+    - "src/cmd/load-plan/plan-recovery-flow.ts"
+    - "src/shared/extensions/wld-extension-manifest.js"
+    - "src/shared/package-resources.js"
     - "src/shared/session/architecture-boundary.test.js"
     - "src/shared/workflow/architecture-boundary.test.ts"
     - "src/shared/workflow/validation.ts"
+    - "src/shared/workflow/execution-start.ts"
     - "src/shared/workflow/validation-completion-gating.test.ts"
     - "src/shared/workflow/validation-context.ts"
     - "src/shared/workflow/validation-emit.ts"
@@ -30,6 +35,7 @@ affectedPaths:
     - "src/shared/workflow/validation-test-helpers.js"
     - "src/shared/workflow/validation-types.ts"
     - "src/shared/workflow/validation-loop-*.test.js"
+    - "src/ui/tui/interactive-session-port.ts"
 objectiveChecks:
     - id: "OC1"
       command: "! grep -rq 'ValidationSessionPort' src/shared/workflow"
@@ -43,13 +49,19 @@ objectiveChecks:
     - id: "OC4"
       command: "test -f src/shared/workflow/validation-runtime-context.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-runtime-context.test.ts src/shared/workflow/validation-completion-gating.test.ts"
       rationale: "Real HostedSession-backed validation state, progress, cancellation, and repair continuation must run through product machinery. The dedicated runtime-context regression suite does not exist today."
+    - id: "OC5"
+      command: "test -f scripts/external-capability-ports.json && deno run -A scripts/run-tests.js scripts/check-injection-seams.test.js && deno task seams:check"
+      rationale: "Every replaceable production behavior must be admitted through the named external-port manifest; an undeclared required Port must not escape the ownership check."
+    - id: "OC6"
+      command: "! grep -qE 'settingsManager\\s*[:=].*(\\|\\||\\?\\?)\\s*getSettingsManager' src/shared/package-resources.js src/shared/extensions/wld-extension-manifest.js"
+      rationale: "Package discovery must use real RunWield settings machinery over fixture homes instead of exposing an optional internal settings override."
 createdAt: "2026-07-30T17:54:11.445Z"
-updatedAt: "2026-08-09T12:00:00-0400"
+updatedAt: "2026-08-18T12:00:00-0400"
 status: "draft"
 origin: "user"
 ---
 
-# Replace dependency bags with capability ports
+# Finish injection-seam ownership enforcement
 
 ## Context
 
@@ -63,6 +75,10 @@ The original migration is complete. RunWield moved from 155 detected seams acros
   Mnemosyne uses fakeable ports;
 - the bundled `write-tests` skill and Agent prompts state the ownership rule directly.
 
+As of 2026-08-18, the ratchet scans production modules under both `src/` and `scripts/`. Expanding it to `scripts/`
+exposed seven old optional fallback bags. They were removed without adopting a baseline: script entrypoints now provide
+required environment/process ports, and the Router golden-set script calls the canonical triage parser directly.
+
 The migration fixed defects that the old `__deps` shape concealed. Validation tests had disabled lifecycle journals,
 locks, compare-and-set checks, and rollback. Workflow Slicer tests had bypassed the catalog lock and the decomposition
 transaction. Some tests used the developer checkout as their project root and wrote live `.wld` state. These failures
@@ -73,7 +89,26 @@ whose name ends in `Port` as safe. Its own source says required constructor inje
 That rule is too broad: making an internal collaborator required removes the silent fallback, but it still lets tests
 replace machinery that RunWield owns.
 
-## Current live gap: `ValidationSessionPort`
+## Remaining live gaps
+
+The expanded audit found that the remaining problem is no longer accurately described as “replace dependency bags.” The
+optional bags are gone from the enforced roots. What remains is ownership enforcement for required ports: a required
+object can still let tests replace RunWield machinery if the detector trusts the `Port` suffix.
+
+Confirmed mixed or internal ports that the current zero count does not reject:
+
+- `ExecutionStartPorts` exposes Worktree lookup, branch policy, canonical Plan loading, settings consent, and metric
+  recording. Keep the real functions and use fixture repositories, Plans, settings homes, and metric files. Retain
+  narrow ports only for the actual Git/subprocess, user-interaction, and clock boundaries.
+- `RecoveryFlowPorts` combines the genuine Git boundary with RunWield-owned workflow metric storage. Import metric
+  recording directly and exercise it over a fixture project home.
+- `InteractiveSessionPort` makes RunWield's own interactive-session startup replaceable by command tests. Commands
+  should exercise the real session composition with fake external Agent/browser/terminal capabilities.
+- `resolveInstalledPackagePromptResources` and `resolveInstalledWldExtensionResources` retain
+  `settingsManager || getSettingsManager()` fallbacks. Remove the settings override and use isolated fixture homes.
+- `ValidationSessionPort` remains the largest mixed-ownership port and is detailed below.
+
+### `ValidationSessionPort`
 
 The session-independent Workflow Validation extraction introduced
 `src/shared/workflow/validation-ports.ts#ValidationSessionPort`. It is a required engine argument, so the current
@@ -135,6 +170,34 @@ An injection seam is a public claim that a behavior is outside the product bound
 
 Ports are behavioral capabilities, not one injected function per call site. A missing port is a type error. No callee
 selects a system implementation with `||`, `??`, a default parameter, an optional property, or a test-only branch.
+
+## RunWield-internal named external ports
+
+This is repository-specific enforcement for RunWield's JavaScript and TypeScript source. It is not a format installed in
+customer projects and is not part of the `wld` product contract.
+
+Do not infer ownership from a suffix or a broad verb list. Maintain `scripts/external-capability-ports.json` as
+RunWield's small, reviewed declaration of production behavior RunWield does not own. Each entry names:
+
+- the exact exported Port type;
+- its source module;
+- the external system it represents, such as Git, browser, Pi/Agent execution, CI, clock, network, GitHub CLI, or
+  Mnemosyne;
+- the capability members that may be implemented by tests.
+
+The seam detector resolves required Port types and accepts them only when that exact type/module/member set is declared.
+Changing a port's members therefore requires an explicit architectural change to the manifest. A `Port`, `Deps`,
+`Hooks`, or constructor argument absent from the manifest receives normal machinery analysis; naming something
+`ExternalPort` is not an escape hatch.
+
+Keep the manifest about ownership, not implementations. It must not list `SYSTEM_*` objects, test fakes, convenience
+wrappers, or RunWield module boundaries. In particular, Plan storage, Worktree registries, settings, metrics, Runtime
+events, interactive-session startup, and validation state can never appear in it.
+
+Do not expose this manifest, its `path#exportedType` identity, the `Port` naming convention, the `src/` and `scripts/`
+roots, Deno tasks, or the seam detector through `wld init` or `wld check`. Customer repositories may use different
+languages, build systems, source layouts, and dependency-boundary idioms. The separate language-neutral project-checks
+Plan may export the general practice, but never this repository's implementation.
 
 ## Validation design
 
@@ -210,10 +273,21 @@ testability.
       fixture environments.
 - [x] **Create genuine external capability ports.** Git, Agent/model, CI, browser, network, process, clock, GitHub CLI,
       and Mnemosyne boundaries are explicit at production composition roots and explicit in tests.
+- [x] **Scan production scripts.** The ratchet now walks both `src/` and `scripts/`, excludes tests and fixtures, and
+      pins this coverage in `check-injection-seams.test.js`. Seven newly visible optional bags were removed without a
+      baseline entry.
+- [ ] **Declare named external ports.** Add `scripts/external-capability-ports.json` with the exact approved type,
+      module, external owner, and member names. Validate the manifest itself and reject stale declarations.
 - [ ] **Make the detector ownership-aware for required ports.** Change the rule that automatically exempts required
-      imported `*Port` types. Add positive cases for required internal machinery ports, including the current
-      `ValidationSessionPort`, and negative cases for required declared external ports and ordinary data parameters. The
-      detector must go red on the current port before the production refactor makes it green.
+      imported `*Port` types. Accept only exact declarations from the named external-port manifest. Add positive cases
+      for `ValidationSessionPort`, `ExecutionStartPorts`, `RecoveryFlowPorts.recordWorkflowMetric`, and
+      `InteractiveSessionPort`; add negative cases for declared external ports and ordinary data parameters. The
+      detector must go red on the current ports before their production refactors make it green.
+- [ ] **Remove the other required machinery ports.** Exercise execution start and recovery through real Git/Plan/home
+      fixtures, call workflow metrics directly, and make command tests enter real interactive-session composition while
+      faking only the external Agent/browser/terminal capabilities.
+- [ ] **Remove internal settings overrides.** Make package and WLD-extension discovery read the real settings manager
+      from fixture homes; remove both optional `settingsManager` fallbacks and their `any` annotations.
 - [ ] **Split `ValidationSessionPort` by ownership.** Introduce the narrow required `ValidationAgentPort` and
       `ValidationInteractionPort`; move no RunWield-owned member into either. Remove `ValidationSessionPort` completely.
 - [ ] **Remove the Agent-session fallback.** Make the Agent port required in `ValidationLoopArgs` and the Core Session
@@ -228,8 +302,11 @@ testability.
       each removed internal replacement point.
 - [ ] **Align downstream architecture documents.** Update `docs/domain-language.md` so it no longer defines the engine
       by `ValidationSessionPort`. Update `deep-semantic-source-modules.md` so it moves the new context and narrow ports,
-      not the old 16-member aggregate. Update `export-test-architecture-enforcement.md` so the future manifest never
-      allowlists `ValidationSessionPort` or `ValidationRuntimeContext` as an external capability.
+      not the old 16-member aggregate. Update `flag-test-seam-risks-during-init.md` so public guidance explains the
+      ownership rule without exporting either RunWield type as a customer-facing capability declaration.
+- [ ] **Keep advisory Init guidance separate.** Coordinate with `flag-test-seam-risks-during-init.md`, which may teach
+      the ownership rule and surface possible issues but must not ship this detector, manifest schema, source globs,
+      Port naming, RunWield CI wiring, or an automated cross-language verdict to customer repositories.
 
 ## Sequencing
 
@@ -240,7 +317,7 @@ Preferred order:
 1. complete this focused validation ownership refactor at the current paths;
 2. revise the ready source-tree Plan's file map and checks to move the resulting context and narrow ports;
 3. execute the source-tree move;
-4. execute `export-test-architecture-enforcement.md` against the final paths.
+4. execute `flag-test-seam-risks-during-init.md` independently; it must not consume these internal paths.
 
 If the source-tree move lands first, translate every current path in this Plan to `src/core/execution/validation/` and
 perform the same behavior change there. Do not use the move Plan's pre-existing-port allowlist to waive
@@ -248,7 +325,7 @@ perform the same behavior change there. Do not use the move Plan's pre-existing-
 
 ## Verification plan
 
-- Run OC1 through OC4 from Front Matter.
+- Run OC1 through OC6 from Front Matter.
 - Run `deno task seams:check`; it must report zero after the refactor without an adopted baseline entry.
 - Run all validation-loop, completion-gating, validation-progress, validation-position, architecture-boundary,
   SessionRuntime, orchestrator, and epic-continuation suites through `scripts/run-tests.js`.

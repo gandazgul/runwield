@@ -115,9 +115,9 @@ from appearing, and leaves the redesign to a follow-up Plan.
 `docs/plans/upgrade-pi-0-84-and-latex-rendering.md` is already `ready_for_work` and touches `deno.json` imports and TUI
 rendering. It must land and be verified **before** this Plan starts execution. A tree-wide move rebases badly against a
 pending dependency upgrade, and rerunning that upgrade against relocated TUI paths wastes the work twice. Two other
-drafts overlap this tree — `split-and-convert-tui-chat-session.md` and `export-test-architecture-enforcement.md`, the
-latter of which adds `src/shared/test-architecture/` and `src/cmd/check/`, two directories this Plan deletes. Neither
-should start before this Plan completes; if either has already started, resolve the ordering before beginning here.
+drafts overlap this tree — `split-and-convert-tui-chat-session.md` and `flag-test-seam-risks-during-init.md`, the latter
+of which adds `src/shared/test-architecture/` and `src/cmd/check/`, two directories this Plan deletes. Neither should
+start before this Plan completes; if either has already started, resolve the ordering before beginning here.
 
 ## Objective
 
@@ -578,7 +578,7 @@ a command_ must be rewritten against the composition root instead.
 
 | Risk                                                                      | Mitigation                                                                                                                                                                                                                                                             |
 | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A tree-wide move rebases badly against three queued Plans                 | `upgrade-pi-0-84-and-latex-rendering` lands and is verified first; `split-and-convert-tui-chat-session` and `export-test-architecture-enforcement` do not start until this Plan completes.                                                                             |
+| A tree-wide move rebases badly against three queued Plans                 | `upgrade-pi-0-84-and-latex-rendering` lands and is verified first; `split-and-convert-tui-chat-session` and `flag-test-seam-risks-during-init` do not start until this Plan completes.                                                                                 |
 | Literal source paths survive type-checking                                | `src/ui/workspace/pages/theme.css.js:44` embeds a path inside a `Deno eval` string; compile `--include` arguments and `import.meta.url` resolution are equally invisible to `deno check`. The compiled-binary smoke test and the Workspace dev-route check cover them. |
 | The standalone `createRequire` bootstrap breaks only in the binary        | `deno task compile && ./bin/wld --version` runs as a required verification step, not a spot check.                                                                                                                                                                     |
 | Regenerating the language-policy baseline silently blesses new JavaScript | The entry count must stay at 210 and every change must be a path rewrite. `--update` adding an entry is a failure, not a fix.                                                                                                                                          |

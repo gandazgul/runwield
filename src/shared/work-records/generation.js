@@ -196,7 +196,7 @@ export function deriveWorkRecordCompletionMode(source) {
     if (isEpicPlan(source.attrs) && source.attrs.epicCompletionMode === "done_enough") return "done_enough";
     if (source.attrs.status === "closed_without_verification") return "closed_without_verification";
     if (source.attrs.status === "user_verified") return "user_verified";
-    if (source.attrs.status === "verified") return "verified";
+    if (source.attrs.status === "validated" || source.attrs.status === "verified") return "verified";
     return "";
 }
 

@@ -252,6 +252,18 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 "RunWield",
             );
         }
+        const recordedAttempt = await resolveRecoveryWorktree(projectRoot, plan);
+        if (recordedAttempt?.path) {
+            const executionPlan = await loadPlan(recordedAttempt.path, plan.planName).catch(() => null);
+            if (executionPlan) {
+                plan.path = executionPlan.path;
+                plan.attrs = executionPlan.attrs;
+                plan.markdown = executionPlan.markdown;
+                plan.body = executionPlan.body;
+                plan.revision = executionPlan.revision;
+                plan.hasFrontMatter = true;
+            }
+        }
         // Loading is the deliberate action that adopts a plain markdown file the user
         // wrote into docs/plans/. Reads elsewhere tolerate the missing Front Matter and
         // leave the file alone; here it stops being an anonymous file and becomes a
@@ -385,9 +397,12 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
         );
         if (!dependenciesConfirmed) return;
 
-        if (plan.attrs.status === "verified" || plan.attrs.status === "user_verified") {
+        if (
+            plan.attrs.status === "validated" || plan.attrs.status === "verified" ||
+            plan.attrs.status === "user_verified"
+        ) {
             uiAPI.appendSystemMessage(
-                plan.attrs.status === "verified"
+                plan.attrs.status === "validated" || plan.attrs.status === "verified"
                     ? "This plan is already verified."
                     : "This plan is User Verified by user attestation.",
                 false,
@@ -408,7 +423,9 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                     continue;
                 }
                 if (answer === "archive") {
-                    const archived = await archivePlan(projectRoot, plan.planName);
+                    const archived = await archivePlan(projectRoot, plan.planName, {
+                        abandonedWorktree: plan.attrs.worktreeStatus === "abandoned",
+                    });
                     uiAPI.appendSystemMessage(
                         `Archived ${plan.planName} to ${archived.relativePath}`,
                         false,
