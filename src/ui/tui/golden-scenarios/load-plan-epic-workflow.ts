@@ -227,7 +227,6 @@ export const loadPlanEpicChildMenusScenario = {
         { type: "select", promptIncludes: "this Planned Change", value: "view" },
         { type: "select", promptIncludes: "this Planned Change", value: "back" },
         { type: "select", promptIncludes: "Load child Plan", value: "__next_child__" },
-        { type: "select", promptIncludes: "What would you like to do", value: "cancel" },
     ],
     actions: [
         { type: "type", text: "/load-plan ready-epic" },
