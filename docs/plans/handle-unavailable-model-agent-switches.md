@@ -22,7 +22,7 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-17T14:16:31-04:00"
-updatedAt: "2026-08-19T18:51:20.310Z"
+updatedAt: "2026-08-19T19:20:11.418Z"
 status: "validated"
 origin: "internal"
 implementedAt: "2026-08-17T18:56:16.291Z"
@@ -33,9 +33,10 @@ workRecord:
     status: "generated"
     recordId: "7665829e-ee64-4648-81e9-f500fcdc21ef"
     path: "docs/work-records/2026-08-19-handled-unavailable-model-failures-in-agent-and-model-switches.md"
-    lastAttemptAt: "2026-08-19T18:51:12.773Z"
+    lastAttemptAt: "2026-08-19T19:20:10.501Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+validationMergeRepairWorktree: "/var/folders/hw/zrm0bqr90xz63nflnb2g_qqr0000gn/T/runwield-publish-runwield-45a991e2bdd5fdac"
 validationCheckpoint:
     version: 1
     attemptId: "in-place"
