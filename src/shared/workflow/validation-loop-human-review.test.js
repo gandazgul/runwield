@@ -338,7 +338,7 @@ Deno.test("your feedback goes to the engineer, then the tests, then straight bac
             },
         },
         localCI: {
-            run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+            run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }),
         },
     });
 

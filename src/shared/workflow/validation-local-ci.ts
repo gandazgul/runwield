@@ -25,6 +25,7 @@ import {
 import { describeRuntimeTool } from "../session/tool-event-title.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { buildValidationUserMessage } from "./validation-user-messages.ts";
+import { classifyValidationOperationalError } from "./validation-operational-errors.ts";
 
 const VALIDATION_STREAM_OUTPUT_LIMIT_BYTES = PROCESS_STREAM_OUTPUT_LIMIT_BYTES;
 
@@ -71,11 +72,14 @@ async function getOrAskForValidationCommand(
 }
 
 /** Spawns the local validation step. */
-export interface LocalCIResult {
-    exitCode: number;
-    output: string;
-    canceled?: boolean;
-}
+export type LocalCIResult =
+    | { kind: "completed"; exitCode: number; output: string; timedOut?: boolean }
+    | { kind: "canceled"; output: string }
+    | {
+        kind: "operational_failure";
+        failure: import("./validation-operational-errors.ts").ValidationOperationalFailure;
+        output: string;
+    };
 
 export interface LocalCIPort {
     run(args: {
@@ -95,10 +99,17 @@ export async function runLocalCI(
     const cmdArgs = await getOrAskForValidationCommand(hostedSession, cwd);
 
     if (!cmdArgs) {
+        const output =
+            "RunWield could not auto-detect a build or test command for this repository. Set a validation command and retry.";
         return {
-            exitCode: 1,
-            output:
-                "RunWield could not auto-detect a build or test command for this repository. Please explore the project and manually run the appropriate compilation or linting commands to validate your changes.",
+            kind: "operational_failure",
+            output,
+            failure: classifyValidationOperationalError({
+                source: "local_process",
+                kind: "command_missing",
+                operation: "local_ci",
+                message: output,
+            }),
         };
     }
 
@@ -142,10 +153,11 @@ export async function runLocalCI(
             durationMs,
         });
 
+        if (canceled) return { kind: "canceled", output };
         return {
-            exitCode: canceled ? 130 : outcome.exitCode ?? 1,
+            kind: "completed",
+            exitCode: outcome.exitCode ?? 1,
             output,
-            ...(canceled ? { canceled: true } : {}),
         };
     } catch (error) {
         const canceled = abortController.signal.aborted;
@@ -160,10 +172,16 @@ export async function runLocalCI(
             isError: true,
             durationMs,
         });
+        if (canceled) return { kind: "canceled", output };
         return {
-            exitCode: canceled ? 130 : 1,
+            kind: "operational_failure",
             output,
-            ...(canceled ? { canceled: true } : {}),
+            failure: classifyValidationOperationalError({
+                source: "local_process",
+                kind: "process_start_failed",
+                operation: "local_ci",
+                message: output,
+            }),
         };
     } finally {
         // Reached only after the process tree and both streams have settled, so

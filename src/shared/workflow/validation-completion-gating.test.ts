@@ -62,8 +62,8 @@ async function runCiRepair({ reportCompletion }: RepairRunOptions) {
                         ciRuns += 1;
                         return Promise.resolve(
                             ciRuns === 1
-                                ? { exitCode: 1, output: "type error", canceled: false }
-                                : { exitCode: 0, output: "ok", canceled: false },
+                                ? { kind: "completed", exitCode: 1, output: "type error" }
+                                : { kind: "completed", exitCode: 0, output: "ok" },
                         );
                     },
                 },
@@ -122,7 +122,7 @@ async function runBrokenObjectiveCheck(selection = "reject") {
                     objectiveChecks,
                 },
                 localCI: {
-                    run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+                    run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }),
                 },
             });
 
@@ -183,7 +183,7 @@ async function runWaivedBrokenObjectiveCheckAgain() {
                 planContent: "# p",
                 triageMeta,
                 localCI: {
-                    run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+                    run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }),
                 },
             });
 
@@ -251,7 +251,7 @@ async function runEngineerReportedBrokenRepairThatNowPasses() {
                 localCI: {
                     run: () => {
                         ciRuns += 1;
-                        return Promise.resolve({ exitCode: 0, output: "ok", canceled: false });
+                        return Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" });
                     },
                 },
             });
@@ -323,7 +323,7 @@ async function runObjectiveRepair({ reportCompletion }: RepairRunOptions) {
                 localCI: {
                     run: () => {
                         ciRuns += 1;
-                        return Promise.resolve({ exitCode: 0, output: "ok", canceled: false });
+                        return Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" });
                     },
                 },
             });

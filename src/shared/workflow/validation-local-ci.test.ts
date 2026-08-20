@@ -40,9 +40,40 @@ Deno.test("runLocalCI reports the real exit code and captured output", async () 
     const { cwd, hostedSession } = await makeCiProject("printf ci-ok; exit 0");
     try {
         const result = await runLocalCI({ hostedSession, cwd });
+        assertEquals(result.kind, "completed");
+        if (result.kind !== "completed") throw new Error("CI should complete.");
         assertEquals(result.exitCode, 0);
-        assertEquals(result.canceled, undefined);
         assertStringIncludes(result.output, "ci-ok");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("runLocalCI returns an operational failure when no validation command is available", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-local-ci-missing-" });
+    const hostedSession = new HostedSession({ id: "local-ci-missing-test", cwd });
+    try {
+        const result = await runLocalCI({ hostedSession, cwd });
+        assertEquals(result.kind, "operational_failure");
+        if (result.kind !== "operational_failure") throw new Error("CI should report an operational failure.");
+        assertEquals(result.failure.code, "local_process/command_missing");
+        assertEquals(result.failure.recoveryClass, "missing_information");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("CI process start failure does not dispatch implementation repair", async () => {
+    const tooLargeForProcessArguments = `printf never-starts ${"x".repeat(3_000_000)}`;
+    const { cwd, hostedSession } = await makeCiProject(tooLargeForProcessArguments);
+    try {
+        const result = await runLocalCI({ hostedSession, cwd });
+
+        assertEquals(result.kind, "operational_failure");
+        if (result.kind !== "operational_failure") throw new Error("CI should report an operational failure.");
+        assertEquals(result.failure.code, "local_process/process_start_failed");
+        assertEquals(result.failure.recoveryClass, "missing_information");
+        assertStringIncludes(result.output, "Failed to spawn validation process:");
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }
@@ -52,6 +83,8 @@ Deno.test("runLocalCI keeps output bounded and says so when the tail is truncate
     const { cwd, hostedSession } = await makeCiProject("yes ci-flood | head -c 1300000");
     try {
         const result = await runLocalCI({ hostedSession, cwd });
+        assertEquals(result.kind, "completed");
+        if (result.kind !== "completed") throw new Error("CI should complete.");
         assertEquals(result.exitCode, 0);
         assertStringIncludes(result.output, "[RunWield] stdout truncated;");
     } finally {
@@ -79,8 +112,7 @@ Deno.test({
             hostedSession.cancelActiveInteractions();
             const result = await resultPromise;
 
-            assertEquals(result.canceled, true);
-            assertEquals(result.exitCode, 130);
+            assertEquals(result.kind, "canceled");
             assertEquals(
                 await waitForProcessDeath(descendantPid),
                 true,

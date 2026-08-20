@@ -145,7 +145,7 @@ Deno.test("Engineer-reported defective checks reach user judgement for met unmet
             planName: "p",
             planContent: "# p",
             triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
-            localCI: { run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }) },
+            localCI: { run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }) },
             git: /** @type {import('../git-port.ts').GitPort} */ ({}),
             workRecordMnemosynePort:
                 /** @type {import('../work-records/mnemosyne-port.ts').WorkRecordMnemosynePort} */ ({}),
@@ -218,7 +218,7 @@ Deno.test("stale Engineer defective-check reports pause for follow-up instead of
                 { id: "OC1", command: "false", explanation: "the old command is invalid" },
             ],
             semanticReviewPort: NO_ISOLATED_AGENT_PORT,
-            localCI: { run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }) },
+            localCI: { run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }) },
         });
 
         const plan = await loadPlan(projectRoot, "p");
@@ -252,7 +252,7 @@ Deno.test("Objective-Failing Check waiver follow-up collects user feedback", asy
             planName: "p",
             planContent: "# p",
             triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
-            localCI: { run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }) },
+            localCI: { run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }) },
             git: /** @type {import('../git-port.ts').GitPort} */ ({}),
             workRecordMnemosynePort:
                 /** @type {import('../work-records/mnemosyne-port.ts').WorkRecordMnemosynePort} */ ({}),
@@ -311,7 +311,7 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
             planContent: "# p",
             triageMeta: { classification: "QUICK_FIX", status: "implemented" },
             localCI: {
-                run: () => Promise.resolve({ exitCode: 1, output: "type error", canceled: false }),
+                run: () => Promise.resolve({ kind: "completed", exitCode: 1, output: "type error" }),
             },
         });
 
@@ -338,7 +338,7 @@ Deno.test("runValidationLoop dispatches repair when Objective-Failing Checks are
                 planContent: "# p",
                 triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
                 localCI: {
-                    run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+                    run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }),
                 },
             });
 
@@ -366,7 +366,7 @@ Deno.test("runValidationLoop sends rejected broken Objective-Failing Check waive
                 planContent: "# p",
                 triageMeta: { classification: "PLANNED_CHANGE", status: "implemented", objectiveChecks },
                 localCI: {
-                    run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+                    run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }),
                 },
             });
 
@@ -391,7 +391,7 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pa
                 planContent: "# p",
                 triageMeta: { classification: "QUICK_FIX", status: "implemented" },
                 localCI: {
-                    run: () => Promise.resolve({ exitCode: 1, output: "css failed", canceled: false }),
+                    run: () => Promise.resolve({ kind: "completed", exitCode: 1, output: "css failed" }),
                 },
             });
 
@@ -430,7 +430,7 @@ Deno.test("runValidationLoop offers a way out when the repair rounds for CI are 
         triageMeta: { classification: "QUICK_FIX", status: "implemented", validationCiAttempts: 2 },
         semanticReviewPort: repairPort(),
         localCI: {
-            run: () => Promise.resolve({ exitCode: 1, output: "type error", canceled: false }),
+            run: () => Promise.resolve({ kind: "completed", exitCode: 1, output: "type error" }),
         },
     });
 
@@ -483,7 +483,7 @@ Deno.test("Objective-Failing Checks after spent rounds can return control to Eng
         },
         semanticReviewPort: repairPort(["completed", "incomplete"]),
         localCI: {
-            run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }),
+            run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }),
         },
     });
 
@@ -534,7 +534,7 @@ Deno.test("Objective-Failing Checks offer recovery after three completed repairs
                 }]);
             },
         },
-        localCI: { run: () => Promise.resolve({ exitCode: 0, output: "ok", canceled: false }) },
+        localCI: { run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }) },
     });
 
     assertEquals(repairs, 3);
@@ -567,7 +567,7 @@ Deno.test("Objective-Failing Checks follow-up reopens the retained repair sessio
                 localCI: {
                     run: () => {
                         ciRuns += 1;
-                        return Promise.resolve({ exitCode: 0, output: "ok", canceled: false });
+                        return Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" });
                     },
                 },
             });
@@ -618,8 +618,8 @@ Deno.test("Retry after the CI rounds run out runs the tests again and carries on
                 ciRuns += 1;
                 return Promise.resolve(
                     ciRuns === 1
-                        ? { exitCode: 1, output: "type error", canceled: false }
-                        : { exitCode: 0, output: "ok", canceled: false },
+                        ? { kind: "completed", exitCode: 1, output: "type error" }
+                        : { kind: "completed", exitCode: 0, output: "ok" },
                 );
             },
         },
@@ -650,7 +650,7 @@ Deno.test("a stopped test run asks rather than reporting the work as broken", as
         triageMeta: { classification: "QUICK_FIX", status: "implemented" },
         semanticReviewPort: NO_ISOLATED_AGENT_PORT,
         localCI: {
-            run: () => Promise.resolve({ exitCode: 130, output: "", canceled: true }),
+            run: () => Promise.resolve({ kind: "canceled", output: "" }),
         },
     });
 
@@ -682,7 +682,7 @@ Deno.test("stopped validation can return control to the Engineer session", async
         triageMeta: { classification: "QUICK_FIX", status: "implemented" },
         semanticReviewPort: NO_ISOLATED_AGENT_PORT,
         localCI: {
-            run: () => Promise.resolve({ exitCode: 130, output: "", canceled: true }),
+            run: () => Promise.resolve({ kind: "canceled", output: "" }),
         },
     });
 
@@ -698,10 +698,11 @@ Deno.test("runValidationPhase keeps canonical progress when a stale checkpoint s
     await withIncompleteRepairModel("validation-repair-rerun-", {}, async ({ projectRoot, hostedSession }) => {
         /** @type {number[]} */
         const ciExitCodes = [];
+        /** @type {import("./validation-local-ci.ts").LocalCIPort} */
         const localCI = {
             run: () => {
                 ciExitCodes.push(1);
-                return Promise.resolve({ exitCode: 1, output: "type error", canceled: false });
+                return Promise.resolve({ kind: "completed", exitCode: 1, output: "type error" });
             },
         };
 

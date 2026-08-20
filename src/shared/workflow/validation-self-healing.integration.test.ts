@@ -154,7 +154,7 @@ Deno.test("stale RunWield state self-heals and validation continues", async () =
                 run: async ({ cwd }) => {
                     ciRuns += 1;
                     assertEquals(cwd, await Deno.realPath(testFixture.executionCwd));
-                    return { exitCode: 0, canceled: false, output: "ok" };
+                    return { kind: "completed", exitCode: 0, output: "ok" };
                 },
             },
             semanticReviewPort: {
@@ -238,7 +238,7 @@ Deno.test("approved body-only Plan amendment reloads and starts Mechanical Valid
             localCI: {
                 run: () => {
                     ciRuns += 1;
-                    return Promise.resolve({ exitCode: 0, canceled: false, output: "ok" });
+                    return Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" });
                 },
             },
             semanticReviewPort: {
@@ -309,7 +309,7 @@ Deno.test("stale Engineer broken-check reports do not amend the execution Plan",
             }],
             git: createGitPort(),
             localCI: {
-                run: () => Promise.resolve({ exitCode: 0, canceled: false, output: "ok" }),
+                run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }),
             },
             semanticReviewPort: {
                 runIsolatedAgentSession: () => Promise.reject(new Error("semantic review must not run")),

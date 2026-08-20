@@ -38,6 +38,12 @@ import {
     validateAmendedObjectiveChecksAgainstBaseline,
 } from "./validation-plan-amendment.ts";
 import { buildValidationUserMessage } from "./validation-user-messages.ts";
+import {
+    decideValidationRecovery,
+    readValidationRetryPolicy,
+    recordOperationalRecoveryMetric,
+    waitForValidationRetryWithSessionCancellation,
+} from "./validation-recovery.ts";
 
 const ENGINEER_FOLLOW_UP_OPTIONS: UserActionOption[] = [
     { value: "engineer_follow_up", label: "Engineer follow-up" },
@@ -98,6 +104,45 @@ function pausedResult(
         projectRoot: context.projectRoot,
         reason,
         ...(shouldRetainTaskCompletionClaim(args) ? { retainTaskCompletionClaim: true as const } : {}),
+    };
+}
+
+async function handleMechanicalOperationalFailure(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    ciResult: Extract<ValidationLocalCIResult, { kind: "operational_failure" }>,
+    operationalAttempt: number,
+): Promise<{ kind: "retry" } | { kind: "done"; result: ValidationPhaseResult }> {
+    const decision = decideValidationRecovery({
+        failure: ciResult.failure,
+        attempt: operationalAttempt,
+        policy: readValidationRetryPolicy(context.projectRoot),
+        nextPhase: "mechanical",
+    });
+    await recordOperationalRecoveryMetric(args, context.projectRoot, decision.result);
+    emitStatus(args, decision.result.message, decision.action === "halt" ? "error" : "warning");
+    if (decision.action === "retry") {
+        const wait = await waitForValidationRetryWithSessionCancellation(args, decision.delayMs, "mechanical");
+        if (wait === "completed") return { kind: "retry" };
+        return {
+            kind: "done",
+            result: pausedResult(
+                args,
+                context,
+                "Validation retry was canceled. Run this Plan again when you are ready.",
+            ),
+        };
+    }
+    return {
+        kind: "done",
+        result: {
+            kind: decision.action === "halt" ? "failed" : "paused",
+            planName: args.planName,
+            projectRoot: context.projectRoot,
+            reason: decision.result.message,
+            recovery: decision.result,
+            ...(shouldRetainTaskCompletionClaim(args) ? { retainTaskCompletionClaim: true as const } : {}),
+        },
     };
 }
 
@@ -328,6 +373,7 @@ function finishPlanAmendmentDecision(
 export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
     const localCI = args.localCI;
     let ciAttempts = readCiAttempts(args.triageMeta);
+    let ciOperationalAttempts = 0;
 
     for (;;) {
         const reloadFailure = await reloadValidationPlanSnapshot(args);
@@ -359,6 +405,18 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             },
         );
         const ciResult = await localCI.run({ cwd: phase.context.executionCwd });
+        if (ciResult.kind === "operational_failure") {
+            ciOperationalAttempts += 1;
+            const recovery = await handleMechanicalOperationalFailure(
+                args,
+                phase.context,
+                ciResult,
+                ciOperationalAttempts,
+            );
+            if (recovery.kind === "retry") continue;
+            return recovery.result;
+        }
+        ciOperationalAttempts = 0;
         await recordMetric(args, phase.context.projectRoot, {
             category: "validation",
             event: "ci_attempt",
@@ -366,12 +424,12 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             details: {
                 semanticRound: readSemanticRound(args.triageMeta) + 1,
                 mechanicalAttempt: ciAttempts + 1,
-                exitCode: ciResult.exitCode,
-                passed: ciResult.exitCode === 0,
-                canceled: ciResult.canceled === true,
+                exitCode: ciResult.kind === "completed" ? ciResult.exitCode : 130,
+                passed: ciResult.kind === "completed" && ciResult.exitCode === 0,
+                canceled: ciResult.kind === "canceled",
             },
         });
-        if (ciResult.canceled) {
+        if (ciResult.kind === "canceled") {
             const pause: UserActionPause = {
                 whatHappened:
                     `The tests for "${args.planName}" were stopped before they finished, so RunWield cannot tell yet whether the work is good.`,
@@ -1241,6 +1299,5 @@ export async function dispatchCiRepair(
 }
 
 export function getCiFailureReason(ciResult: ValidationLocalCIResult): string {
-    const output = "output" in ciResult && typeof ciResult.output === "string" ? ciResult.output : "";
-    return output || "Mechanical Validation failed.";
+    return ciResult.output || "Mechanical Validation failed.";
 }

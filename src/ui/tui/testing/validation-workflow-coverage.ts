@@ -57,6 +57,12 @@ export type ValidationWorkflowBranchId =
     | "publication:non-git-success"
     | "publication:isolated-dirty-primary"
     | "publication:remote-target-advance"
+    | "publication:merge-conflict-repair-completed"
+    | "publication:merge-conflict-repair-incomplete-retry"
+    | "publication:merge-conflict-repair-incomplete-stop"
+    | "publication:missing-target-branch"
+    | "publication:stale-repair-worktree"
+    | "publication:generic-git-failure"
     | "publication:push-failure-preserves"
     | "publication:push-retry"
     | "publication:legacy-partial-retry"
@@ -163,6 +169,12 @@ export const EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS: readonly ValidationWorkflo
     "publication:non-git-success",
     "publication:isolated-dirty-primary",
     "publication:remote-target-advance",
+    "publication:merge-conflict-repair-completed",
+    "publication:merge-conflict-repair-incomplete-retry",
+    "publication:merge-conflict-repair-incomplete-stop",
+    "publication:missing-target-branch",
+    "publication:stale-repair-worktree",
+    "publication:generic-git-failure",
     "publication:push-failure-preserves",
     "publication:push-retry",
     "publication:legacy-partial-retry",
@@ -242,6 +254,14 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "publication:non-git-success": "validation-tree-non-git-delivery",
     "publication:isolated-dirty-primary": "validation-tree-publication-isolated-dirty-primary",
     "publication:remote-target-advance": "validation-tree-publication-remote-target-advance",
+    "publication:merge-conflict-repair-completed": "validation-tree-publication-merge-conflict-repair-completed",
+    "publication:merge-conflict-repair-incomplete-retry":
+        "validation-tree-publication-merge-conflict-repair-incomplete-retry",
+    "publication:merge-conflict-repair-incomplete-stop":
+        "validation-tree-publication-merge-conflict-repair-incomplete-stop",
+    "publication:missing-target-branch": "validation-tree-publication-missing-target-branch",
+    "publication:stale-repair-worktree": "validation-tree-publication-stale-repair-worktree",
+    "publication:generic-git-failure": "validation-tree-publication-generic-git-failure",
     "publication:push-failure-preserves": "validation-tree-publication-push-failure-retry",
     "publication:push-retry": "validation-tree-publication-push-failure-retry",
     "publication:legacy-partial-retry": "validation-tree-publication-legacy-partial-retry",

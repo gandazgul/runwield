@@ -82,6 +82,8 @@ Deno.test("runLocalCI emits one semantic validation tool lifecycle", async () =>
 
         const result = await runLocalCI({ hostedSession, cwd: projectRoot });
 
+        assertEquals(result.kind, "completed");
+        if (result.kind !== "completed") throw new Error("CI should complete.");
         assertEquals(result.exitCode, 0);
         assertEquals(
             ui.toolCalls.some((call) => call.name === "bash" && call.args === "printf validation-output"),
@@ -105,6 +107,8 @@ Deno.test("runLocalCI streams large validation output without failing the proces
 
         const result = await runLocalCI({ hostedSession, cwd: projectRoot });
 
+        assertEquals(result.kind, "completed");
+        if (result.kind !== "completed") throw new Error("CI should complete.");
         assertEquals(result.exitCode, 0);
         assertStringIncludes(result.output, "tail-marker");
         assertStringIncludes(result.output, "stdout truncated; showing last");
@@ -117,7 +121,7 @@ Deno.test("Mechanical Validation runs real checklist and session machinery after
     await withRuntimeCommandFixture("mechanical-pass-", async ({ projectRoot, setModelResponse }) => {
         setModelResponse("Manual verification steps for small-fix\n- [ ] Save settings and reload.");
         const fixture = await activateMechanicalFixture(projectRoot);
-        const ci = defineLocalCIFixture([{ exitCode: 0, output: "ok" }]);
+        const ci = defineLocalCIFixture([{ kind: "completed", exitCode: 0, output: "ok" }]);
 
         const result = await runMechanicalValidation({
             hostedSession: fixture.hostedSession,
@@ -152,8 +156,8 @@ Deno.test("Mechanical Validation repairs through the real Engineer turn and then
         ]);
         const fixture = await activateMechanicalFixture(projectRoot);
         const ci = defineLocalCIFixture([
-            { exitCode: 1, output: "fixture failure" },
-            { exitCode: 0, output: "ok" },
+            { kind: "completed", exitCode: 1, output: "fixture failure" },
+            { kind: "completed", exitCode: 0, output: "ok" },
         ]);
 
         const result = await runMechanicalValidation({
@@ -181,7 +185,7 @@ Deno.test("Mechanical Validation ignores task completion from an earlier Enginee
             isError: false,
             timestamp: Date.now(),
         });
-        const ci = defineLocalCIFixture([{ exitCode: 1, output: "still failing" }]);
+        const ci = defineLocalCIFixture([{ kind: "completed", exitCode: 1, output: "still failing" }]);
 
         const result = await runMechanicalValidation({
             hostedSession: fixture.hostedSession,
@@ -205,6 +209,7 @@ Deno.test("Mechanical Validation stops after three real Engineer repair completi
         ]);
         const fixture = await activateMechanicalFixture(projectRoot);
         const ci = defineLocalCIFixture(Array.from({ length: 4 }, () => ({
+            kind: "completed" as const,
             exitCode: 1,
             output: "still broken",
         })));
@@ -236,9 +241,8 @@ Deno.test("Mechanical Validation preserves the Engineer session when local CI is
     await withRuntimeCommandFixture("mechanical-canceled-", async ({ projectRoot }) => {
         const fixture = await activateMechanicalFixture(projectRoot);
         const ci = defineLocalCIFixture([{
-            exitCode: 130,
+            kind: "canceled",
             output: "Validation canceled.",
-            canceled: true,
         }]);
 
         const result = await runMechanicalValidation({
