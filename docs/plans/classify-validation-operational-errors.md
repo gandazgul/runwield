@@ -57,16 +57,25 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T00:47:42-04:00"
-updatedAt: "2026-08-20T00:41:26.240Z"
-status: "verified"
+updatedAt: "2026-08-20T00:42:20.396Z"
+status: "validated"
 origin: "internal"
 implementedAt: "2026-08-19T01:26:34.635Z"
-verifiedAt: "2026-08-20T00:41:26.240Z"
+validatedAt: "2026-08-20T00:41:26.240Z"
 userVerifiedAt: null
 executionReport: "- Added typed Workflow Validation operational errors and recovery decisions, including recovery classes, stable codes, bounded Retry-After parsing, capped full-jitter retry delay calculation, correction limits, and operational metrics.\n- Updated Local CI and isolated Agent outcome types to discriminated results; Local CI process-start and missing-command failures now use operational recovery before repair counters or lifecycle failure events.\n- Integrated semantic reviewer protocol corrections, transient operational handling, and publication routing so only proven merge conflicts dispatch merge repair and target-reference races retry.\n- Added `retry.validation.maxDelayMs` schema/docs and Plan Lifecycle docs that operational retries/pauses/halts do not advance or reset Plan Status.\n- Updated tests and fixtures for the new CI result contract; test delta: +9 automated tests, 0 tests removed. Golden publication scripts were reduced only where Agent repair is no longer expected for non-conflict operational failures.\n- Verification passed: focused operational/local-CI/review/repair/publication/resume tests, `deno task seams:check`, `deno task check`, and full `deno task ci` (336 files passed, 0 failed).\n- Note: the Plan listed `src/shared/workflow/validation-publication.test.ts`, but this checkout has `validation-publication-pause.test.js`; I ran the existing publication test file instead."
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
-validationCheckpoint: null
+validationCheckpoint:
+    version: 1
+    attemptId: "in-place"
+    generation: "1e992499-e1b4-4508-8160-5326910e80c9"
+    expectedStatus: "validated"
+    nextPhase: "delivery"
+    state: "running"
+    ownerPid: 90031
+    ownerHostname: "gandazgul-mbp"
+    updatedAt: "2026-08-20T00:42:20.393Z"
 executionMode: "worktree"
 deliveryEvidence:
     version: 1
