@@ -17,6 +17,7 @@
  */
 
 import type { ReviewAdvisory, ReviewFinding } from "../../tools/review-complete.ts";
+import type { ValidationOperationalFailure } from "./validation-operational-errors.ts";
 import type { ReviewLedger } from "./review-ledger.ts";
 
 /** The phase that should run next for a Plan. */
@@ -199,22 +200,36 @@ export type IsolatedAgentSessionRequest =
 export type IsolatedAgentSessionOutcome =
     | {
         kind: "reviewer";
+        outcome: "completed";
         reviewOutcome: ValidationReviewOutcome | null;
         usedDiffTool: boolean;
         trustedClaudeMcpReview: boolean;
-        executionError?: string;
     }
     | {
         kind: "feedback_engineer";
+        outcome: "completed";
         taskReport: AgentTurnOutcome;
-        executionError?: string;
     }
     | {
         kind: "manual_qa";
         outcome: "recorded" | "already_present" | "missing_tool_call" | "rejected";
         relativePath?: string;
         warning?: string;
-        executionError?: string;
+    }
+    | {
+        kind: "reviewer";
+        outcome: "operational_failure";
+        failure: ValidationOperationalFailure;
+    }
+    | {
+        kind: "feedback_engineer";
+        outcome: "operational_failure";
+        failure: ValidationOperationalFailure;
+    }
+    | {
+        kind: "manual_qa";
+        outcome: "operational_failure";
+        failure: ValidationOperationalFailure;
     };
 
 /**
@@ -243,11 +258,10 @@ export type PostVerificationHandoffParams = {
 };
 
 /** Local CI result shape the engine consumes. */
-export type ValidationLocalCIResult = {
-    exitCode: number;
-    output: string;
-    canceled?: boolean;
-};
+export type ValidationLocalCIResult =
+    | { kind: "completed"; exitCode: number; output: string; timedOut?: boolean }
+    | { kind: "canceled"; output: string }
+    | { kind: "operational_failure"; failure: ValidationOperationalFailure; output: string };
 
 /**
  * The engine's CI port.

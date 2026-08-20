@@ -69,6 +69,39 @@ function recoveryDisplaySources(): string[] {
     return names.map((name) => new URL(name, directory).pathname);
 }
 
+Deno.test("publication messages name the selected target branch", () => {
+    const targetBranch = "release/next";
+    const phases = [
+        "preparing",
+        "reading_target",
+        "using_local_target",
+        "updating_target",
+        "combining_work",
+        "publishing",
+        "verifying",
+        "cleanup",
+    ] as const;
+    const messages = phases.map((phase) =>
+        buildValidationUserMessage({ kind: "publication_progress", phase, targetBranch })
+    );
+
+    assertEquals(messages, [
+        "The commits are ready.",
+        "Checking release/next for new commits.",
+        "No remote is configured. Adding the commits to the local release/next branch.",
+        "Adding new commits from release/next.",
+        "Adding the commits to release/next.",
+        "Sending the new commits to release/next.",
+        "Checking the new commits on release/next.",
+        "The new commits are on release/next. Cleaning up the worktree and source branch.",
+    ]);
+    assertEquals(
+        buildValidationUserMessage({ kind: "verified", planName: "demo", targetBranch }),
+        "demo is on release/next.",
+    );
+    assert(messages.every((message) => !message.includes("main")));
+});
+
 Deno.test("all validation recovery and doctor messages stay plain", async () => {
     const recoveryRequests: PlanRecoveryMessageRequest[] = [
         { kind: "manual_merge_unavailable" },
@@ -79,7 +112,6 @@ Deno.test("all validation recovery and doctor messages stay plain", async () => 
         { kind: "plan_restored", path: "docs/plans/demo.md" },
         { kind: "not_worktree" },
         { kind: "incomplete_worktree" },
-        { kind: "merge_progress", sourceBranch: "work", targetBranch: "main" },
         { kind: "snapshot_restore_failed" },
         { kind: "registry_update_failed" },
         { kind: "merged" },
@@ -177,8 +209,18 @@ Deno.test("all validation recovery and doctor messages stay plain", async () => 
         buildValidationUserMessage({ kind: "human_review_approved" }),
         buildValidationUserMessage({ kind: "qa_prepare", planName: "demo" }),
         buildValidationUserMessage({ kind: "qa_ready", path: "docs/qa/demo.md", existed: false }),
-        buildValidationUserMessage({ kind: "merge_progress", sourceBranch: "work", targetBranch: "main" }),
-        buildValidationUserMessage({ kind: "merge_dispatch", agent: "Engineer", cwd: "/tmp/demo" }),
+        ...([
+            "preparing",
+            "reading_target",
+            "updating_target",
+            "combining_work",
+            "publishing",
+            "verifying",
+            "cleanup",
+        ] as const).map((phase) =>
+            buildValidationUserMessage({ kind: "publication_progress", phase, targetBranch: "main" })
+        ),
+        buildValidationUserMessage({ kind: "merge_dispatch" }),
         buildValidationUserMessage({ kind: "verified", planName: "demo" }),
         buildValidationUserMessage({ kind: "context_blocked", planName: "demo" }),
         buildValidationUserMessage({ kind: "validation_command_missing" }),
@@ -210,7 +252,8 @@ Deno.test("all validation recovery and doctor messages stay plain", async () => 
         ...recoveryNotices.map(buildValidationRecoveryNotice),
         buildValidationUserMessage({ kind: "user_action", whatHappened: "The check stopped.", doThis: "Try again." }),
         ...listPlanRecoveryMessages(),
-        validationMergeRepairMessage("demo"),
+        validationMergeRepairMessage("demo", "target_update"),
+        validationMergeRepairMessage("demo", "work_combination"),
         validationPhasePauseMessage("mechanical"),
         validationReviewerPauseMessage("demo"),
         doctorCleanMessage(0),

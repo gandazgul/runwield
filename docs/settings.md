@@ -576,14 +576,19 @@ Nested Pi-backed objects such as `compaction`, `branchSummary`, `retry`, `termin
 
 ### `retry`
 
-| Key                              | Type    | Values / default | Description                                                                |
-| -------------------------------- | ------- | ---------------- | -------------------------------------------------------------------------- |
-| `retry.enabled`                  | boolean | default `true`   | Enable high-level retry behavior.                                          |
-| `retry.maxRetries`               | number  | default `3`      | Maximum high-level retry attempts.                                         |
-| `retry.baseDelayMs`              | number  | default `2000`   | Base exponential backoff delay in milliseconds.                            |
-| `retry.provider.timeoutMs`       | number  | unset            | Provider SDK/request timeout in milliseconds when supported.               |
-| `retry.provider.maxRetries`      | number  | unset            | Provider SDK/client retry attempts when supported.                         |
-| `retry.provider.maxRetryDelayMs` | number  | default `60000`  | Maximum server-requested retry delay before failing; `0` disables the cap. |
+| Key                              | Type    | Values / default | Description                                                                                           |
+| -------------------------------- | ------- | ---------------- | ----------------------------------------------------------------------------------------------------- |
+| `retry.enabled`                  | boolean | default `true`   | Enable high-level retry behavior.                                                                     |
+| `retry.maxRetries`               | number  | default `3`      | Maximum high-level retry attempts.                                                                    |
+| `retry.baseDelayMs`              | number  | default `2000`   | Base exponential backoff delay in milliseconds.                                                       |
+| `retry.validation.maxDelayMs`    | number  | default `60000`  | Maximum Workflow Validation operational retry delay in milliseconds. Must be greater than `0`.        |
+| `retry.provider.timeoutMs`       | number  | unset            | Provider SDK/request timeout in milliseconds when supported.                                          |
+| `retry.provider.maxRetries`      | number  | unset            | Provider SDK/client retry attempts when supported.                                                    |
+| `retry.provider.maxRetryDelayMs` | number  | default `60000`  | Provider SDK maximum server-requested retry delay before failing; `0` disables the provider cap only. |
+
+Workflow Validation uses `retry.enabled`, `retry.maxRetries`, `retry.baseDelayMs`, and `retry.validation.maxDelayMs` for
+operational retries. These retries do not spend CI repair rounds, Objective-Failing Check repair rounds, or Semantic
+Code Review rounds. The `retry.provider.*` settings stay provider-only.
 
 ### `terminal`
 

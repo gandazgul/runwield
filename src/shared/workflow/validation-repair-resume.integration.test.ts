@@ -72,7 +72,7 @@ async function runValidation(args: {
     hostedSession: HostedSession;
     projectRoot: string;
     triageMeta?: Record<string, unknown>;
-    localCI: { run: () => Promise<{ exitCode: number; output: string; canceled: false }> };
+    localCI: { run: () => Promise<{ kind: "completed"; exitCode: number; output: string }> };
     semanticReviewPort?: SemanticReviewPort;
 }) {
     return await continueWorkflowValidation({
@@ -143,8 +143,8 @@ Deno.test("human-review change repair resumes through CI and returns to Local Hu
                 ciRuns += 1;
                 return Promise.resolve(
                     ciRuns === 1
-                        ? { exitCode: 1, output: "type error", canceled: false }
-                        : { exitCode: 0, output: "ok", canceled: false },
+                        ? { kind: "completed", exitCode: 1, output: "type error" }
+                        : { kind: "completed", exitCode: 0, output: "ok" },
                 );
             },
         },
@@ -177,7 +177,7 @@ Deno.test("mechanical failure state is durable before CI repair dispatch", async
     const result = await runValidation({
         hostedSession,
         projectRoot,
-        localCI: { run: () => Promise.resolve({ exitCode: 1, output: "type error", canceled: false }) },
+        localCI: { run: () => Promise.resolve({ kind: "completed", exitCode: 1, output: "type error" }) },
         semanticReviewPort: makeRepairPort({ completed: false }, repairCounter),
     });
 
@@ -207,7 +207,7 @@ Deno.test("process loss before CI repair dispatch reclaims the checkpoint and re
         localCI: {
             run: () => {
                 ciRuns += 1;
-                return Promise.resolve({ exitCode: 1, output: "still failing", canceled: false });
+                return Promise.resolve({ kind: "completed", exitCode: 1, output: "still failing" });
             },
         },
         semanticReviewPort: makeRepairPort({ completed: false }, repairCounter),
@@ -233,7 +233,7 @@ Deno.test("process loss during CI repair reruns checks and may dispatch a new re
         localCI: {
             run: () => {
                 ciRuns += 1;
-                return Promise.resolve({ exitCode: 1, output: "still failing", canceled: false });
+                return Promise.resolve({ kind: "completed", exitCode: 1, output: "still failing" });
             },
         },
         semanticReviewPort: makeRepairPort({ completed: false }, repairCounter),
@@ -263,8 +263,8 @@ Deno.test("process loss after repair changes the worktree reruns checks and does
                 ciRuns += 1;
                 const fixed = await Deno.readTextFile(marker).then(() => true).catch(() => false);
                 return fixed
-                    ? { exitCode: 0, output: "ok", canceled: false }
-                    : { exitCode: 1, output: "still failing", canceled: false };
+                    ? { kind: "completed", exitCode: 0, output: "ok" }
+                    : { kind: "completed", exitCode: 1, output: "still failing" };
             },
         },
         semanticReviewPort: makeRepairPort({ completed: true }, repairCounter),
@@ -287,7 +287,7 @@ Deno.test("repair turn without task_completed settles paused and retry starts fr
     const first = await runValidation({
         hostedSession,
         projectRoot,
-        localCI: { run: () => Promise.resolve({ exitCode: 1, output: "first failure", canceled: false }) },
+        localCI: { run: () => Promise.resolve({ kind: "completed", exitCode: 1, output: "first failure" }) },
         semanticReviewPort: makeRepairPort({ completed: false }, firstRepairCounter),
     });
     const paused = await loadPlan(projectRoot, "p");
@@ -307,7 +307,7 @@ Deno.test("repair turn without task_completed settles paused and retry starts fr
         localCI: {
             run: () => {
                 retryCiRuns += 1;
-                return Promise.resolve({ exitCode: 1, output: "second failure", canceled: false });
+                return Promise.resolve({ kind: "completed", exitCode: 1, output: "second failure" });
             },
         },
         semanticReviewPort: makeRepairPort({ completed: false }, secondRepairCounter),

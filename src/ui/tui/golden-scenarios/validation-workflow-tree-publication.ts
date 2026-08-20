@@ -1,11 +1,11 @@
 import { assert, assertEquals } from "@std/assert";
-import { getCwd } from "../../../constants.js";
-import { git } from "../../../shared/worktree-test-helpers.js";
 import { assertsGoldenCoverage } from "../testing/portfolio-assertions.js";
 import { plannedChangeBlockedMergePauseScenario } from "./planned-change-workflow.js";
 import { withValidationBranches } from "./validation-workflow-tree-shared.ts";
 
 type PublicationState = {
+    scrollbackText?: string;
+    screenText?: string;
     state: {
         publicationBaseline?: {
             head?: string;
@@ -20,6 +20,7 @@ type PublicationState = {
             primaryFiles?: Record<string, string | null>;
             remoteHead?: string;
             remotePlanStatus?: string;
+            remotePlanAttrs?: { worktreeId?: string };
             remoteTree?: string;
             deliveredText?: string;
             registryEntries?: Array<{ status?: string }>;
@@ -33,6 +34,16 @@ type PublicationState = {
             primaryHead?: string;
             primaryStatus?: string;
             primaryFiles?: Record<string, string | null>;
+        };
+        turnSequence?: string[];
+        localPublication?: {
+            head?: string;
+            branch?: string;
+            status?: string;
+            files?: Record<string, string | null>;
+            planStatus?: string;
+            deliveredText?: string;
+            registryEntries?: Array<{ status?: string }>;
         };
     };
 };
@@ -73,6 +84,7 @@ function assertPublishedWithoutPrimaryMutation(result: PublicationState, deliver
     assertEquals(published.primaryStatus, baseline.status);
     assertEquals(published.primaryFiles, baseline.files);
     assertEquals(published.remotePlanStatus, "validated");
+    assertEquals(published.remotePlanAttrs?.worktreeId, undefined);
     assertEquals(published.deliveredText, deliveredText);
     assert(String(published.remoteTree || "").includes("docs/work-records/"), "Expected a published Work Record.");
     assertEquals(published.registryEntries, []);
@@ -196,6 +208,92 @@ export const validationTreePublicationDirtyStopResumeScenario = withValidationBr
     [],
 );
 
+export const validationTreePublicationIsolatedDirtyPrimaryScenario = isolatedPublicationScenario(
+    "validation-tree-publication-isolated-dirty-primary",
+);
+
+export const validationTreePublicationRemoteTargetAdvanceScenario = isolatedPublicationScenario(
+    "validation-tree-publication-remote-target-advance",
+    { advanceRemote: true },
+);
+
+const localPublicationPlanName = "validation-tree-publication-local-only";
+
+export const validationTreePublicationLocalOnlyScenario = withValidationBranches(
+    {
+        name: `${localPublicationPlanName}-base`,
+        composedTui: true,
+        initialAgentName: "guide",
+        terminal: { columns: 100, rows: 30 },
+        timeoutMs: 120000,
+        committedProjectFiles: [
+            { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
+            {
+                path: `docs/plans/${localPublicationPlanName}.md`,
+                text: publicationPlan(localPublicationPlanName, "local-publication.txt"),
+            },
+        ],
+        initialProjectFiles: [],
+        scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery", value: "validate" }],
+        actions: [
+            {
+                type: "seedActiveWorktree",
+                planName: localPublicationPlanName,
+                status: "validated_reviewer",
+                attrs: { humanReviewMode: "none", humanReviewDecision: "not_required" },
+                files: [{ path: "local-publication.txt", text: "local-only delivery\n" }],
+            },
+            { type: "removePlanRemote", planName: localPublicationPlanName },
+            {
+                type: "writeProjectFile",
+                path: ".gitignore",
+                text:
+                    "# BEGIN RunWield owned runtime state\n.wld/plan-locks\n.wld/plan-transitions\n.wld/plan-backups\n.wld/plan-staging\n.wld/worktrees\n.wld/debug\n.wld/worktrees.json\n.wld/worktrees.lock\n.wld/worktree-registry-migration-issues.json\n.wld/collaboration-secrets.json\n# END RunWield owned runtime state\n",
+            },
+            { type: "writeProjectFile", path: "untracked-user-note.txt", text: "preserve local note\n" },
+            {
+                type: "capturePublicationBaseline",
+                paths: [".gitignore", "untracked-user-note.txt", `docs/plans/${localPublicationPlanName}.md`],
+            },
+            { type: "type", text: `/load-plan ${localPublicationPlanName}` },
+            { type: "enter" },
+            { type: "enter" },
+            {
+                type: "waitForWorktreeRegistryStatus",
+                planName: localPublicationPlanName,
+                statuses: ["absent"],
+                timeoutMs: 90000,
+            },
+            { type: "waitForIdle", timeoutMs: 90000 },
+            {
+                type: "captureLocalPublicationState",
+                planName: localPublicationPlanName,
+                deliveredPath: "local-publication.txt",
+            },
+        ],
+        assertions: [
+            (result: PublicationState) => {
+                const baseline = result.state.publicationBaseline;
+                const published = result.state.localPublication;
+                assert(baseline && published, "Expected local publication evidence.");
+                assert(published.head !== baseline.head, "Expected local main to advance.");
+                assertEquals(published.branch, "main");
+                assertEquals(published.planStatus, "validated");
+                assertEquals(published.deliveredText, "local-only delivery\n");
+                assertEquals(published.files?.["untracked-user-note.txt"], "preserve local note\n");
+                assertEquals(published.registryEntries, []);
+                assert(
+                    `${result.scrollbackText || ""}\n${result.screenText || ""}`.includes("No remote is configured"),
+                    "Expected RunWield to explain the local publication fallback.",
+                );
+            },
+        ],
+    },
+    localPublicationPlanName,
+    [localPublicationPlanName],
+    [],
+);
+
 export const validationTreePublicationMissingTargetBranchScenario = withValidationBranches(
     {
         name: "validation-tree-publication-missing-target-branch-base",
@@ -241,7 +339,7 @@ export const validationTreePublicationMissingTargetBranchScenario = withValidati
     },
     "validation-tree-publication-missing-target-branch",
     ["publication-missing-target-branch"],
-    [],
+    ["publication:missing-target-branch"],
 );
 
 export const validationTreePublicationMergeConflictRepairCompletedScenario = withValidationBranches(
@@ -261,6 +359,32 @@ export const validationTreePublicationMergeConflictRepairCompletedScenario = wit
         }],
         script: [
             {
+                id: "operator-records-publication-qa",
+                agent: "operator",
+                phase: "operator",
+                ordinal: 1,
+                optional: true,
+                requiredTools: ["qa_checklist_generated"],
+                toolCalls: [{
+                    name: "qa_checklist_generated",
+                    arguments: {
+                        checklistMarkdown:
+                            "Manual verification steps for publication-merge-conflict-repair-completed\n\n- [ ] Confirm the repaired file is published.",
+                    },
+                }],
+            },
+            {
+                id: "recorder-records-publication-repair",
+                agent: "recorder",
+                phase: "work_record",
+                ordinal: 1,
+                text: JSON.stringify({
+                    title: "Publication repair",
+                    summary: "Recorded the repaired publication fixture.",
+                    deviationsFromPlan: "None.",
+                }),
+            },
+            {
                 id: "engineer-repairs-publication-merge-conflict",
                 agent: "engineer",
                 phase: "engineer",
@@ -272,7 +396,7 @@ export const validationTreePublicationMergeConflictRepairCompletedScenario = wit
                         name: "bash",
                         arguments: {
                             command:
-                                'plan=\'docs/plans/publication-merge-conflict-repair-completed.md\'\nif git ls-files -u -- "$plan" | grep -q .; then\n  git show ":3:$plan" > "$plan"\n  git add "$plan"\nfi\nprintf \'repaired version\n\' > publication-merge-conflict.txt\ngit add publication-merge-conflict.txt\ngit commit -m \'repair publication merge conflict\'',
+                                "printf 'repaired version\n' > publication-merge-conflict.txt\nrm -rf .wld\ngit add -A",
                         },
                     },
                     { name: "task_completed", arguments: { message: "- Repaired publication merge conflict." } },
@@ -298,30 +422,32 @@ export const validationTreePublicationMergeConflictRepairCompletedScenario = wit
                 path: "publication-merge-conflict.txt",
                 text: "target version\n",
             },
+            { type: "capturePublicationBaseline", paths: ["publication-merge-conflict.txt"] },
             { type: "type", text: "/load-plan publication-merge-conflict-repair-completed" },
             { type: "enter" },
             { type: "enter" },
             {
-                type: "waitForPlanStatus",
+                type: "waitForWorktreeRegistryStatus",
                 planName: "publication-merge-conflict-repair-completed",
-                statuses: ["verified"],
+                statuses: ["absent"],
                 timeoutMs: 120000,
             },
             { type: "waitForIdle", timeoutMs: 120000 },
-            { type: "captureProjectState", planNames: ["publication-merge-conflict-repair-completed"] },
+            {
+                type: "capturePublicationState",
+                planName: "publication-merge-conflict-repair-completed",
+                deliveredPath: "publication-merge-conflict.txt",
+            },
         ],
         assertions: [
-            async () => {
-                assertEquals(
-                    (await git(getCwd(), ["show", "main:publication-merge-conflict.txt"])).trim(),
-                    "repaired version",
-                );
+            (result: PublicationState) => {
+                assertPublishedWithoutPrimaryMutation(result, "repaired version");
             },
         ],
     },
     "validation-tree-publication-merge-conflict-repair-completed",
     ["publication-merge-conflict-repair-completed"],
-    [],
+    ["publication:merge-conflict-repair-completed"],
 );
 
 export const validationTreePublicationMergeConflictRepairIncompleteRetryScenario = withValidationBranches(
@@ -339,14 +465,36 @@ export const validationTreePublicationMergeConflictRepairIncompleteRetryScenario
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Publication merge conflict repair incomplete retry\naffectedPaths: []\nstatus: ready_for_work\nplanId: publication-merge-conflict-repair-incomplete-retry-plan\nobjectiveChecks:\n  - id: OC_PUBLICATION_MERGE_RETRY\n    command: test -f publication-merge-conflict-retry.txt\n---\n# Publication merge conflict repair incomplete retry\n\nDraft content.\n",
         }],
-        script: [1, 2, 3].map((ordinal) => ({
-            id: `engineer-leaves-publication-merge-conflict-retry-incomplete-${ordinal}`,
-            agent: "engineer",
-            phase: "engineer",
-            planName: "publication-merge-conflict-repair-incomplete-retry",
-            ordinal,
-            text: `Merge repair attempt ${ordinal} did not call task_completed before user retry.`,
-        })),
+        script: [
+            {
+                id: "operator-records-incomplete-retry-qa",
+                agent: "operator",
+                phase: "operator",
+                ordinal: 1,
+                optional: true,
+                text: "Manual QA is not needed for this fixture.",
+            },
+            {
+                id: "recorder-records-incomplete-retry",
+                agent: "recorder",
+                phase: "work_record",
+                ordinal: 1,
+                optional: true,
+                text: JSON.stringify({
+                    title: "Publication repair retry",
+                    summary: "Recorded the publication retry fixture.",
+                    deviationsFromPlan: "None.",
+                }),
+            },
+            {
+                id: "engineer-leaves-publication-merge-conflict-retry-incomplete-1",
+                agent: "engineer",
+                phase: "engineer",
+                planName: "publication-merge-conflict-repair-incomplete-retry",
+                ordinal: 1,
+                text: "Merge repair did not call task_completed before user retry.",
+            },
+        ],
         scriptedInteractions: [
             {
                 type: "select",
@@ -359,7 +507,8 @@ export const validationTreePublicationMergeConflictRepairIncompleteRetryScenario
                 userFixesFirst: {
                     path: "publication-merge-conflict-retry.txt",
                     text: "resolved version\n",
-                    commands: ["git add publication-merge-conflict-retry.txt"],
+                    target: "repair",
+                    commands: ["rm -rf .wld", "git add publication-merge-conflict-retry.txt"],
                 },
                 value: "retry",
             },
@@ -378,28 +527,32 @@ export const validationTreePublicationMergeConflictRepairIncompleteRetryScenario
                 path: "publication-merge-conflict-retry.txt",
                 text: "target version\n",
             },
+            { type: "capturePublicationBaseline", paths: ["publication-merge-conflict-retry.txt"] },
             { type: "type", text: "/load-plan publication-merge-conflict-repair-incomplete-retry" },
             { type: "enter" },
             { type: "enter" },
             {
-                type: "waitForPlanStatus",
+                type: "waitForWorktreeRegistryStatus",
                 planName: "publication-merge-conflict-repair-incomplete-retry",
-                statuses: ["verified"],
+                statuses: ["absent"],
                 timeoutMs: 120000,
+            },
+            { type: "waitForIdle", timeoutMs: 120000 },
+            {
+                type: "capturePublicationState",
+                planName: "publication-merge-conflict-repair-incomplete-retry",
+                deliveredPath: "publication-merge-conflict-retry.txt",
             },
         ],
         assertions: [
-            async () => {
-                assertEquals(
-                    (await git(getCwd(), ["show", "main:publication-merge-conflict-retry.txt"])).trim(),
-                    "resolved version",
-                );
+            (result: PublicationState) => {
+                assertPublishedWithoutPrimaryMutation(result, "resolved version");
             },
         ],
     },
     "validation-tree-publication-merge-conflict-repair-incomplete-retry",
     ["publication-merge-conflict-repair-incomplete-retry"],
-    [],
+    ["publication:merge-conflict-repair-incomplete-retry"],
 );
 
 export const validationTreePublicationMergeConflictRepairIncompleteStopScenario = withValidationBranches(
@@ -417,14 +570,36 @@ export const validationTreePublicationMergeConflictRepairIncompleteStopScenario 
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Publication merge conflict repair incomplete stop\naffectedPaths: []\nstatus: ready_for_work\nplanId: publication-merge-conflict-repair-incomplete-stop-plan\nobjectiveChecks:\n  - id: OC_PUBLICATION_MERGE_STOP\n    command: test -f publication-merge-conflict-stop.txt\n---\n# Publication merge conflict repair incomplete stop\n\nDraft content.\n",
         }],
-        script: [1, 2, 3].map((ordinal) => ({
-            id: `engineer-leaves-publication-merge-conflict-incomplete-${ordinal}`,
-            agent: "engineer",
-            phase: "engineer",
-            planName: "publication-merge-conflict-repair-incomplete-stop",
-            ordinal,
-            text: `Merge repair attempt ${ordinal} did not call task_completed.`,
-        })),
+        script: [
+            {
+                id: "operator-records-incomplete-stop-qa",
+                agent: "operator",
+                phase: "operator",
+                ordinal: 1,
+                optional: true,
+                text: "Manual QA is not needed for this fixture.",
+            },
+            {
+                id: "recorder-records-incomplete-stop",
+                agent: "recorder",
+                phase: "work_record",
+                ordinal: 1,
+                optional: true,
+                text: JSON.stringify({
+                    title: "Publication repair stop",
+                    summary: "Recorded the stopped publication repair fixture.",
+                    deviationsFromPlan: "None.",
+                }),
+            },
+            {
+                id: "engineer-leaves-publication-merge-conflict-incomplete-1",
+                agent: "engineer",
+                phase: "engineer",
+                planName: "publication-merge-conflict-repair-incomplete-stop",
+                ordinal: 1,
+                text: "Merge repair did not call task_completed.",
+            },
+        ],
         scriptedInteractions: [
             {
                 type: "select",
@@ -463,7 +638,7 @@ export const validationTreePublicationMergeConflictRepairIncompleteStopScenario 
     },
     "validation-tree-publication-merge-conflict-repair-incomplete-stop",
     ["publication-merge-conflict-repair-incomplete-stop"],
-    [],
+    ["publication:merge-conflict-repair-incomplete-stop"],
 );
 
 // A stale merge-repair path is discarded before publication. The normal merge
@@ -510,7 +685,7 @@ export const validationTreePublicationStaleRepairWorktreeScenario = withValidati
     },
     "validation-tree-publication-stale-repair-worktree",
     ["publication-stale-repair-worktree"],
-    [],
+    ["publication:stale-repair-worktree"],
 );
 
 export const validationTreePublicationGenericGitFailureScenario = withValidationBranches(
@@ -528,21 +703,13 @@ export const validationTreePublicationGenericGitFailureScenario = withValidation
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Publication generic git failure\naffectedPaths: []\nstatus: ready_for_work\nplanId: publication-generic-git-failure-plan\nobjectiveChecks:\n  - id: OC_PUBLICATION_GENERIC_FAILURE\n    command: test -f publication-generic-git-failure.txt\n---\n# Publication generic git failure\n\nDraft content.\n",
         }],
-        script: [1, 2, 3].map((ordinal) => ({
-            id: `engineer-cannot-repair-generic-publication-failure-${ordinal}`,
-            agent: "engineer",
-            phase: "engineer",
-            planName: "publication-generic-git-failure",
-            ordinal,
-            text: `Publication repair attempt ${ordinal} did not call task_completed.`,
-        })),
+        script: [],
         scriptedInteractions: [
             {
                 type: "select",
                 promptIncludes: "Plan recovery (validated_reviewer)",
                 value: "validate",
             },
-            { type: "select", promptIncludes: "could not add", value: "stop" },
         ],
         actions: [
             {
@@ -575,16 +742,7 @@ export const validationTreePublicationGenericGitFailureScenario = withValidation
     },
     "validation-tree-publication-generic-git-failure",
     ["publication-generic-git-failure"],
-    [],
-);
-
-export const validationTreePublicationIsolatedDirtyPrimaryScenario = isolatedPublicationScenario(
-    "validation-tree-publication-isolated-dirty-primary",
-);
-
-export const validationTreePublicationRemoteTargetAdvanceScenario = isolatedPublicationScenario(
-    "validation-tree-publication-remote-target-advance",
-    { advanceRemote: true },
+    ["publication:generic-git-failure"],
 );
 
 const pushRetryPlanName = "validation-tree-publication-push-failure-retry";
@@ -607,6 +765,17 @@ export const validationTreePublicationPushFailureRetryScenario = {
                 },
             ],
             initialProjectFiles: [],
+            script: [{
+                id: "recorder-records-push-retry-once",
+                agent: "operator",
+                phase: "operator",
+                ordinal: 1,
+                text: JSON.stringify({
+                    title: "Push retry",
+                    summary: "Recorded publication before the upstream retry.",
+                    deviationsFromPlan: "None.",
+                }),
+            }],
             scriptedInteractions: [
                 { type: "select", promptIncludes: "Plan recovery", value: "validate" },
                 { type: "select", promptIncludes: "could not be updated upstream", value: "stop" },
@@ -673,6 +842,12 @@ export const validationTreePublicationPushFailureRetryScenario = {
                     assertEquals(pending.primaryStatus, baseline.status);
                     assertEquals(pending.primaryFiles, baseline.files);
                     assertPublishedWithoutPrimaryMutation(result, "safe implementation");
+                    assertEquals(
+                        (result.state.turnSequence || []).filter((turn) => turn.startsWith("operator:operator:"))
+                            .length,
+                        1,
+                        "Publication retry must reuse the prepared Work Record instead of calling the Agent again.",
+                    );
                 }),
             ],
         },
@@ -683,16 +858,82 @@ export const validationTreePublicationPushFailureRetryScenario = {
     coverage: ["recovery:user-pause"],
 };
 
+const legacyRetryPlanName = "validation-tree-publication-legacy-partial-retry";
+
+export const validationTreePublicationLegacyPartialRetryScenario = withValidationBranches(
+    {
+        name: `${legacyRetryPlanName}-base`,
+        composedTui: true,
+        initialAgentName: "guide",
+        terminal: { columns: 100, rows: 30 },
+        timeoutMs: 150000,
+        committedProjectFiles: [
+            { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
+            { path: "user-work.txt", text: "committed user work\n" },
+            {
+                path: `docs/plans/${legacyRetryPlanName}.md`,
+                text: publicationPlan(legacyRetryPlanName, "legacy-publication-retry.txt"),
+            },
+        ],
+        scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery", value: "merge" }],
+        actions: [
+            {
+                type: "seedActiveWorktree",
+                planName: legacyRetryPlanName,
+                legacyStrandedPublication: true,
+                files: [{ path: "legacy-publication-retry.txt", text: "preserved legacy implementation\n" }],
+            },
+            { type: "writeProjectFile", path: "user-work.txt", text: "unsaved user work\n" },
+            { type: "writeProjectFile", path: "untracked-user-note.txt", text: "leave me alone\n" },
+            {
+                type: "capturePublicationBaseline",
+                paths: ["user-work.txt", "untracked-user-note.txt", `docs/plans/${legacyRetryPlanName}.md`],
+            },
+            { type: "type", text: `/load-plan ${legacyRetryPlanName}` },
+            { type: "enter" },
+            { type: "enter" },
+            {
+                type: "waitForRemotePlanStatus",
+                planName: legacyRetryPlanName,
+                statuses: ["validated"],
+                timeoutMs: 90000,
+            },
+            {
+                type: "waitForWorktreeRegistryStatus",
+                planName: legacyRetryPlanName,
+                statuses: ["absent"],
+                timeoutMs: 90000,
+            },
+            { type: "waitForIdle", timeoutMs: 90000 },
+            {
+                type: "capturePublicationState",
+                planName: legacyRetryPlanName,
+                deliveredPath: "legacy-publication-retry.txt",
+            },
+        ],
+        assertions: [
+            (result: PublicationState) => {
+                assertPublishedWithoutPrimaryMutation(result, "preserved legacy implementation");
+            },
+        ],
+    },
+    legacyRetryPlanName,
+    [legacyRetryPlanName],
+    ["publication:legacy-partial-retry"],
+);
+
 export const validationWorkflowPublicationScenarios = [
     validationTreePublicationDirtyCheckoutScenario,
     validationTreePublicationDirtyStopResumeScenario,
+    validationTreePublicationIsolatedDirtyPrimaryScenario,
+    validationTreePublicationRemoteTargetAdvanceScenario,
+    validationTreePublicationLocalOnlyScenario,
     validationTreePublicationMergeConflictRepairCompletedScenario,
     validationTreePublicationMergeConflictRepairIncompleteRetryScenario,
     validationTreePublicationMergeConflictRepairIncompleteStopScenario,
     validationTreePublicationMissingTargetBranchScenario,
     validationTreePublicationStaleRepairWorktreeScenario,
     validationTreePublicationGenericGitFailureScenario,
-    validationTreePublicationIsolatedDirtyPrimaryScenario,
-    validationTreePublicationRemoteTargetAdvanceScenario,
     validationTreePublicationPushFailureRetryScenario,
+    validationTreePublicationLegacyPartialRetryScenario,
 ];

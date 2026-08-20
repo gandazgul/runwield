@@ -173,7 +173,7 @@ const TOOL_PARAMS = Type.Object({
         Type.Literal("pair"),
     ], {
         description:
-            "Suggested execution style. pair is valid with either execution owner: use it when live user judgment between increments is worth the interruptions, otherwise omit or use autonomous. PROJECT Epics are non-executable and must omit this.",
+            "Suggested execution style. Use pair when live user judgment between increments is worth the interruptions, otherwise omit or use autonomous. PROJECT Epics are non-executable and must omit this.",
     })),
 });
 

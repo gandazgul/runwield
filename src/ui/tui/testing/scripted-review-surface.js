@@ -29,7 +29,7 @@ import { getCwd } from "../../../constants.js";
  * @property {"select"|"text"|"approval"} type
  * @property {string} [promptIncludes]
  * @property {string|null} [value]
- * @property {{ path: string, text: string, target?: "project"|"execution", planName?: string, commands?: string[] }} [userFixesFirst] what the user does in the
+ * @property {{ path: string, text: string, target?: "project"|"execution"|"repair", planName?: string, commands?: string[] }} [userFixesFirst] what the user does in the
  * project before answering. RunWield pauses precisely when it needs a person to change
  * something, so a scenario that cannot model the person changing it can only ever test
  * giving up — never the Retry that follows.
@@ -137,9 +137,13 @@ export class ScriptedInteractionSurface {
         const consumed = { request, interaction };
         this.consumed.push(consumed);
         if (interaction.userFixesFirst) {
+            const repairMatch = String(request.prompt || "").match(/Open ([^,\n]+), fix the files/);
             const cwd = interaction.userFixesFirst.target === "execution"
                 ? this.resolveExecutionCwd(interaction.userFixesFirst.planName)
+                : interaction.userFixesFirst.target === "repair"
+                ? repairMatch?.[1]
                 : getCwd();
+            if (!cwd) throw new Error("The interaction did not name a publication repair checkout.");
             const target = `${cwd}/${interaction.userFixesFirst.path}`;
             Deno.writeTextFileSync(target, interaction.userFixesFirst.text);
             consumed.userFixCwd = cwd;

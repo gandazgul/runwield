@@ -1139,6 +1139,21 @@ export async function stageValidationPassedInExecutionWorktree({
     if (executionPlan.attrs.status === "validated") {
         return { attrs: executionPlan.attrs, planPaths: [planPath] };
     }
+    if (executionPlan.attrs.status === "verified" && executionPlan.attrs.deliveryEvidence?.mode === "worktree_merge") {
+        const attrs = await updatePlanFrontMatter(
+            executionCwd,
+            planName,
+            {
+                status: "validated",
+                validatedAt: executionPlan.attrs.verifiedAt || executionPlan.attrs.updatedAt ||
+                    new Date().toISOString(),
+                verifiedAt: null,
+            },
+            executionPlan.attrs,
+            { expectedRevision: executionPlan.revision },
+        );
+        return { attrs, planPaths: [planPath] };
+    }
     if (executionPlan.attrs.status !== "validated_reviewer") {
         throw new Error(
             `Cannot record completed validation for ${planName}: the execution Plan is at ` +

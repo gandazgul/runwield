@@ -527,6 +527,108 @@ export const loadPlanAbandonProgressScenario = {
     ],
 };
 
+export const loadPlanContinueUsesExecutionPlanAuthorityScenario = {
+    name: "load-plan-continue-uses-execution-plan-authority",
+    composedTui: true,
+    initialAgentName: "guide",
+    terminal: { columns: 100, rows: 30 },
+    timeoutMs: 150000,
+    coverage: ["workflow:load-plan", "recovery:load-plan-worktree"],
+    committedProjectFiles: [
+        { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
+        {
+            path: "docs/plans/continue-authority.md",
+            text:
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Continue from the execution Plan\naffectedPaths: []\nstatus: ready_for_work\nplanId: continue-authority-plan\n---\n# Continue authority\n",
+        },
+    ],
+    script: [
+        {
+            id: "engineer-continues-authoritative-worktree",
+            agent: "engineer",
+            phase: "engineer",
+            planName: "continue-authority",
+            ordinal: 1,
+            requiredTools: ["bash", "task_completed"],
+            toolCalls: [
+                { name: "bash", arguments: { command: "printf resumed > continue-authority.txt" } },
+                { name: "task_completed", arguments: { message: "- Continued the existing worktree." } },
+            ],
+        },
+        {
+            id: "engineer-closes-authoritative-worktree",
+            agent: "engineer",
+            phase: "engineer",
+            planName: "continue-authority",
+            ordinal: 2,
+            text: "Existing worktree continued.",
+        },
+        {
+            id: "reviewer-approves-authoritative-worktree",
+            agent: "reviewer",
+            phase: "semantic_review",
+            planName: "continue-authority",
+            ordinal: 1,
+            requiredTools: ["review_diff", "review_complete"],
+            toolCalls: [
+                { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_complete", arguments: { approved: true, feedback: "Continuation approved." } },
+            ],
+        },
+        {
+            id: "reviewer-closes-authoritative-worktree",
+            agent: "reviewer",
+            phase: "semantic_review",
+            planName: "continue-authority",
+            ordinal: 2,
+            text: "Approved continued worktree.",
+        },
+    ],
+    scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (in_progress)", value: "continue" }],
+    actions: [
+        {
+            type: "seedActiveWorktree",
+            planName: "continue-authority",
+            status: "in_progress",
+            attrs: {
+                executionMode: "worktree",
+                humanReviewMode: "none",
+                humanReviewDecision: "not_required",
+            },
+        },
+        {
+            type: "setPrimaryPlanStatus",
+            planName: "continue-authority",
+            status: "draft",
+            clearWorktreeEvidence: true,
+        },
+        { type: "type", text: "/load-plan continue-authority" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
+        { type: "waitForRemotePlanStatus", planName: "continue-authority", statuses: ["validated"], timeoutMs: 90000 },
+        { type: "waitForIdle", timeoutMs: 90000 },
+        { type: "captureProjectState", planNames: ["continue-authority"] },
+    ],
+    assertions: [
+        assertsGoldenCoverage("workflow:load-plan", (result: GoldenScenarioResult) => {
+            assertEventIncludes(result, "project:primary-plan-status:continue-authority:draft");
+            assertEventIncludes(result, "runtime:tool:start:task_completed");
+            assert(
+                !`${result.scrollbackText || ""}\n${result.screenText}`.includes("old status data"),
+                "Continuation must not expose a mismatch between the primary and execution Plan copies.",
+            );
+        }),
+        assertsGoldenCoverage("recovery:load-plan-worktree", (result: GoldenScenarioResult) => {
+            const captured = projectState(result);
+            assert(
+                (captured.nonTerminalRegistryEntries || []).length === 0,
+                "Expected the continued worktree to publish and leave no live attempt.",
+            );
+        }),
+    ],
+};
+
 export const loadPlanMalformedFrontMatterScenario = {
     name: "load-plan-malformed-front-matter-fails-closed",
     composedTui: true,
@@ -594,12 +696,23 @@ export const loadPlanValidateWaivedObjectiveChecksScenario = {
         {
             path: "docs/plans/waived-validate.md",
             text:
-                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Waived Objective Check validation\naffectedPaths: []\nobjectiveChecks:\n  - id: OC1\n    command: "false"\nobjectiveCheckWaivers:\n  - id: OC1\n    command: "false"\n    source: engineer_report\n    explanation: Golden waiver.\n    waivedAt: "2026-08-13T00:00:00.000Z"\nstatus: draft\n---\n# Waived validate\n',
+                '---\nplanId: waived-validate-plan\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Waived Objective Check validation\naffectedPaths: []\nobjectiveChecks:\n  - id: OC1\n    command: "false"\nobjectiveCheckWaivers:\n  - id: OC1\n    command: "false"\n    source: engineer_report\n    explanation: Golden waiver.\n    waivedAt: "2026-08-13T00:00:00.000Z"\nstatus: draft\n---\n# Waived validate\n',
         },
     ],
     scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery", value: "validate" }],
     actions: [
-        { type: "seedActiveWorktree", planName: "waived-validate", status: "implemented" },
+        {
+            type: "seedActiveWorktree",
+            planName: "waived-validate",
+            status: "implemented",
+            attrs: { executionMode: "worktree" },
+        },
+        {
+            type: "setPrimaryPlanStatus",
+            planName: "waived-validate",
+            status: "ready_for_work",
+            clearPrimaryWorktreeEvidence: true,
+        },
         { type: "type", text: "/load-plan waived-validate" },
         { type: "enter" },
         { type: "enter" },
@@ -611,6 +724,13 @@ export const loadPlanValidateWaivedObjectiveChecksScenario = {
     assertions: [
         assertsGoldenCoverage("workflow:load-plan", (result: GoldenScenarioResult) => {
             assertEventIncludes(result, "terminal:type:/load-plan waived-validate");
+            assertEventIncludes(result, "project:primary-plan-status:waived-validate:ready_for_work");
+            assert(
+                !`${result.scrollbackText || ""}\n${result.screenText}`.includes(
+                    "execution mode is missing or unknown",
+                ),
+                "Validation must use the execution Plan instead of stale primary lifecycle metadata.",
+            );
             assertScreenIncludes(result, "All checks for waived-validate are waived");
             assertScreenIncludes(result, "The build, tests, and checks passed.");
             assertScreenIncludes(result, "Ask the Engineer to restore the code");
@@ -637,6 +757,7 @@ export const loadPlanWorkflowScenarios = [
     loadPlanInterruptedRecoveryScenario,
     loadPlanWorktreeInspectResetScenario,
     loadPlanAbandonProgressScenario,
+    loadPlanContinueUsesExecutionPlanAuthorityScenario,
     loadPlanMalformedFrontMatterScenario,
     loadPlanValidateWaivedObjectiveChecksScenario,
 ];

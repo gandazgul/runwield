@@ -16,12 +16,14 @@ import {
     validationCheckpointCanResume,
     validationPhaseForStatus,
 } from "./validation-checkpoint.ts";
-import { retryValidationLater } from "./validation-recovery.ts";
+import { classifyValidationOperationalError } from "./validation-operational-errors.ts";
+import { decideValidationRecovery, readValidationRetryPolicy, retryValidationLater } from "./validation-recovery.ts";
 import type { WorkflowValidationResult } from "./validation-types.ts";
 import { validationUserMessage } from "./validation-user-messages.ts";
 import { resumeValidationPlanAmendment } from "./validation-plan-amendment.ts";
 import { getDiffText, resolvePhaseContext } from "./validation-context.ts";
 import { renderOpenItems } from "./review-ledger.ts";
+import { PLAN_STATUSES } from "./plan-lifecycle.js";
 
 export type ValidationTrigger =
     | "execution_completion"
@@ -62,8 +64,12 @@ async function ownerIsAlive(checkpoint: ValidationCheckpoint): Promise<boolean> 
     return await isPidAlive(checkpoint.ownerPid);
 }
 
+function validationProjectRoot(args: ContinueWorkflowValidationArgs): string {
+    return args.executionContext?.projectRoot || args.hostedSession.cwd;
+}
+
 async function validationPlanCwd(args: ContinueWorkflowValidationArgs): Promise<string> {
-    const projectRoot = args.hostedSession.cwd;
+    const projectRoot = validationProjectRoot(args);
     const active = args.hostedSession.getActiveExecutionWorkflow();
     const candidates = [
         active?.executionMode === "worktree" ? active.executionCwd : undefined,
@@ -80,7 +86,7 @@ async function validationPlanCwd(args: ContinueWorkflowValidationArgs): Promise<
 }
 
 async function claimValidation(args: ContinueWorkflowValidationArgs): Promise<ClaimResult> {
-    const projectRoot = args.hostedSession.cwd;
+    const projectRoot = validationProjectRoot(args);
     const planCwd = await validationPlanCwd(args);
     for (let attempt = 0; attempt < 3; attempt += 1) {
         const plan = await loadPlan(planCwd, args.planName);
@@ -91,6 +97,9 @@ async function claimValidation(args: ContinueWorkflowValidationArgs): Promise<Cl
             if (pendingPublication) phase = "delivery";
         }
         if (!phase) {
+            if (!PLAN_STATUSES.includes(plan.attrs.status)) {
+                throw new Error(`Plan has unknown status: ${String(plan.attrs.status)}`);
+            }
             return { kind: "settled_completion", projectRoot };
         }
         const attemptId = plan.attrs.worktreeId || "in-place";
@@ -270,6 +279,49 @@ async function rebuildSemanticRepairHandoff(
     };
 }
 
+function operationalFailureResult(
+    args: ContinueWorkflowValidationArgs,
+    error: unknown,
+    phase?: ValidationCheckpoint["nextPhase"],
+): WorkflowValidationResult {
+    const message = error instanceof Error ? error.message : String(error);
+    const failure = classifyValidationOperationalError(
+        message.startsWith("Plan not found:")
+            ? {
+                source: "validation_state",
+                kind: "plan_missing",
+                operation: "validation_state",
+                message,
+            }
+            : message.startsWith("Plan has unknown status:")
+            ? {
+                source: "validation_state",
+                kind: "unknown_plan_status",
+                operation: "validation_state",
+                message,
+            }
+            : {
+                source: "policy",
+                kind: "lifecycle_invariant",
+                operation: "validation_state",
+                message,
+            },
+    );
+    const decision = decideValidationRecovery({
+        failure,
+        attempt: 1,
+        policy: readValidationRetryPolicy(validationProjectRoot(args)),
+        nextPhase: phase,
+    });
+    return {
+        kind: decision.action === "halt" ? "failed" : "paused",
+        planName: args.planName,
+        projectRoot: validationProjectRoot(args),
+        reason: decision.result.message,
+        recovery: decision.result,
+    };
+}
+
 function pausedResult(
     args: ContinueWorkflowValidationArgs,
     code: string,
@@ -279,7 +331,7 @@ function pausedResult(
     return {
         kind: "paused",
         planName: args.planName,
-        projectRoot: args.hostedSession.cwd,
+        projectRoot: validationProjectRoot(args),
         reason: message,
         recovery: retryValidationLater(code, message, phase),
     };
@@ -293,10 +345,11 @@ export async function continueWorkflowValidation(
     try {
         // Finish a journaled approved amendment before general repair scans. This
         // keeps the primary revision authoritative after a process stop.
-        await resumeValidationPlanAmendment(args.hostedSession.cwd, args.planName);
+        const projectRoot = validationProjectRoot(args);
+        await resumeValidationPlanAmendment(projectRoot, args.planName);
         // Repair provable RunWield bookkeeping before it can block validation. Doctor
         // never resets working changes or removes an unmerged worktree.
-        await runPlansDoctor(args.hostedSession.cwd, true);
+        await runPlansDoctor(projectRoot, true);
         const claimed = await claimValidation(args);
         if (claimed.kind === "active") {
             const message = validationUserMessage("already_running");
@@ -376,7 +429,7 @@ export async function continueWorkflowValidation(
         await settleValidation(args, claim.checkpoint, result, claim.planCwd);
         return result;
     } catch (error) {
-        const result = pausedResult(args, "validation_operation_failed", claim?.checkpoint.nextPhase);
+        const result = operationalFailureResult(args, error, claim?.checkpoint.nextPhase);
         if (claim) {
             await settleValidation(args, claim.checkpoint, result, claim.planCwd).catch((settlementError) => {
                 console.error("[RunWield] validation_pause_write_failed", settlementError);

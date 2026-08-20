@@ -472,11 +472,26 @@
                 "provider": {
                     "$ref": "#/$defs/providerRetry"
                 },
+                "validation": {
+                    "$ref": "#/$defs/validationRetry"
+                },
                 "maxDelayMs": {
                     "type": "number",
                     "minimum": 0,
                     "deprecated": true,
                     "description": "Deprecated legacy key. Use retry.provider.maxRetryDelayMs instead."
+                }
+            }
+        },
+        "validationRetry": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "maxDelayMs": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "default": 60000,
+                    "description": "Maximum Workflow Validation operational retry delay in milliseconds."
                 }
             }
         },

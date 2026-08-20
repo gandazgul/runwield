@@ -48,14 +48,31 @@ export async function readRepairedMergeCandidate(
     repairWorktreePath: string,
 ): Promise<RepairedMergeCandidate | null> {
     let metadata = await runGitForMergeVerification(repairWorktreePath, ["rev-parse", "HEAD^2"]);
-    const completed = metadata.exitCode === 0 && Boolean(metadata.stdout.trim());
+    let completedMerge = "HEAD";
+    let completed = metadata.exitCode === 0 && Boolean(metadata.stdout.trim());
     if (!completed) {
         metadata = await runGitForMergeVerification(repairWorktreePath, ["rev-parse", "MERGE_HEAD"]);
-        if (metadata.exitCode !== 0 || !metadata.stdout.trim()) return null;
+        if (metadata.exitCode !== 0 || !metadata.stdout.trim()) {
+            const merge = await runGitForMergeVerification(repairWorktreePath, [
+                "rev-list",
+                "--merges",
+                "-n",
+                "1",
+                "HEAD",
+            ]);
+            if (merge.exitCode !== 0 || !merge.stdout.trim()) return null;
+            completedMerge = merge.stdout.trim();
+            metadata = await runGitForMergeVerification(repairWorktreePath, [
+                "rev-parse",
+                `${completedMerge}^2`,
+            ]);
+            completed = metadata.exitCode === 0 && Boolean(metadata.stdout.trim());
+            if (!completed) return null;
+        }
     }
     const target = await runGitForMergeVerification(
         repairWorktreePath,
-        ["rev-parse", completed ? "HEAD^1" : "HEAD"],
+        ["rev-parse", completed ? `${completedMerge}^1` : "HEAD"],
     );
     const execution = await runGitForMergeVerification(
         repairWorktreePath,

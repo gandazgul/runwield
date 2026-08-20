@@ -26,7 +26,6 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-05T15:03:52-04:00"
-updatedAt: "2026-08-18T00:25:26.594Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-17T21:11:18.678Z"
@@ -51,6 +50,10 @@ deliveryEvidence:
 validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-19T19:36:16.588Z"
+archivedAt: "2026-08-19T19:36:16.588Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/finish-agent-prompt-architecture-cleanup.md"
 ---
 
 # Finish Agent Prompt Architecture Cleanup

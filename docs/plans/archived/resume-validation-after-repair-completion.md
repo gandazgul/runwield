@@ -29,7 +29,6 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T17:01:39-04:00"
-updatedAt: "2026-08-18T00:32:56.489Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-17T21:24:22.196Z"
@@ -55,6 +54,10 @@ sessionName: "validation repair resume"
 validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
 validationSemanticRounds: 1
+updatedAt: "2026-08-19T19:35:52.245Z"
+archivedAt: "2026-08-19T19:35:52.245Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/resume-validation-after-repair-completion.md"
 ---
 
 # Resume Validation After Repair Completion

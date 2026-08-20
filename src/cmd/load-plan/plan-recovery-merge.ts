@@ -5,6 +5,7 @@ import { resolveValidationExecutionContext } from "../../shared/workflow/executi
 import {
     buildPlanRecoveryUserMessage,
     buildValidationRecoveryNotice,
+    buildValidationUserMessage,
     planRecoveryMessage,
 } from "../../shared/workflow/validation-user-messages.ts";
 import {
@@ -15,6 +16,8 @@ import {
     removeWorktreeGitArtifacts,
 } from "../../shared/worktree.js";
 import { publishExecutionWorktreeIsolated } from "../../shared/isolated-publication.ts";
+import { autoGenerateWorkRecordForCompletedPlan } from "../../shared/work-records/auto-generation.js";
+import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../../shared/work-records/mnemosyne-port.ts";
 import {
     pruneEntry as pruneWorktreeRegistryEntry,
     updateEntry as updateWorktreeRegistryEntry,
@@ -54,7 +57,8 @@ export async function mergeRecoveredWorktree(context: RecoveryActionContext): Pr
         uiAPI.appendSystemMessage(buildPlanRecoveryUserMessage({ kind: "missing_worktree" }), true, "RunWield");
         return { kind: "menu" };
     }
-    if (!context.loadedWorktreeId) {
+    const recoveryWorktreeId = context.worktreeContext.id;
+    if (!recoveryWorktreeId) {
         uiAPI.appendSystemMessage(
             buildPlanRecoveryUserMessage({ kind: "missing_plan_pointer" }),
             true,
@@ -81,7 +85,7 @@ export async function mergeRecoveredWorktree(context: RecoveryActionContext): Pr
             triageMeta: plan.attrs,
             executionMode: plan.attrs.executionMode,
             baselineTree: plan.attrs.executionBaselineTree,
-            worktreeId: context.loadedWorktreeId,
+            worktreeId: recoveryWorktreeId,
             worktreeBranch: plan.attrs.worktreeBranch,
             worktreeBaseBranch: plan.attrs.worktreeBaseBranch,
             executionCwd: plan.attrs.worktreePath,
@@ -207,6 +211,13 @@ async function attemptManualPublication(
                         cleanupMergedWorktrees,
                     },
                 });
+                await autoGenerateWorkRecordForCompletedPlan({
+                    cwd: manualWorktreePath,
+                    planName: plan.planName,
+                    mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+                }).catch((error) => {
+                    console.error("[RunWield] recovery_work_record_failed", error);
+                });
                 const validatedCandidate = await checkpointExecutionWorktree({
                     worktreePath: manualWorktreePath,
                     branch: manualWorktreeBranch,
@@ -214,13 +225,6 @@ async function attemptManualPublication(
                     planDescription: authorityPlan.attrs.summary,
                     mergeTargetRef: deliveryEvidence.targetHeadBeforeMerge,
                 });
-                uiAPI.appendSystemMessage(
-                    buildPlanRecoveryUserMessage({
-                        kind: "merge_progress",
-                        sourceBranch: manualWorktreeBranch,
-                        targetBranch: manualTargetBranch,
-                    }),
-                );
                 const mergeResult = await publishExecutionWorktreeIsolated({
                     projectRoot,
                     executionCwd: manualWorktreePath,
@@ -230,6 +234,17 @@ async function attemptManualPublication(
                     planDescription: plan.attrs.summary,
                     sealedExecutionCommit: validatedCandidate.executionCommit,
                     allowedPlanPaths: stagingResult.planPaths.length > 0 ? stagingResult.planPaths : [planPath],
+                    onProgress: (phase) => {
+                        uiAPI.appendSystemMessage(
+                            buildValidationUserMessage({
+                                kind: "publication_progress",
+                                phase,
+                                targetBranch: manualTargetBranch,
+                            }),
+                            false,
+                            "RunWield",
+                        );
+                    },
                 });
                 remotePublication = mergeResult;
                 publicationConfirmed = true;
@@ -242,8 +257,13 @@ async function attemptManualPublication(
                     expectedTargetHead: mergeResult.targetHeadBeforeMerge,
                     executionMetadataCommit: mergeResult.executionMetadataCommit,
                     publicationCommit: mergeResult.publicationCommit,
-                    upstreamRemote: mergeResult.upstreamRemote,
-                    upstreamBranch: mergeResult.upstreamBranch,
+                    publicationMode: mergeResult.publicationMode,
+                    ...(mergeResult.publicationMode === "remote"
+                        ? {
+                            upstreamRemote: mergeResult.upstreamRemote,
+                            upstreamBranch: mergeResult.upstreamBranch,
+                        }
+                        : {}),
                 });
                 if (mergeWorktreeId) {
                     try {
@@ -273,6 +293,15 @@ async function attemptManualPublication(
             throw new Error(publication.message || `Worktree merge transaction did not commit for ${plan.planName}.`);
         }
         if (cleanupMergedWorktrees && context.worktreeContext?.path) {
+            uiAPI.appendSystemMessage(
+                buildValidationUserMessage({
+                    kind: "publication_progress",
+                    phase: "cleanup",
+                    targetBranch: manualTargetBranch,
+                }),
+                false,
+                "RunWield",
+            );
             try {
                 await removeWorktreeGitArtifacts({
                     projectRoot,
@@ -280,7 +309,7 @@ async function attemptManualPublication(
                     force: false,
                 });
                 if (context.worktreeContext.branch) {
-                    if (remotePublication) {
+                    if (remotePublication?.publicationMode === "remote") {
                         await deleteRemotelyPublishedWorktreeBranch({
                             projectRoot,
                             branch: context.worktreeContext.branch,

@@ -408,7 +408,7 @@ export function createUiApi(
             if (outputSuppressed) return;
             const children = messageList.children;
             let lastBlockIndex = children.length - 1;
-            if (lastBlockIndex >= 0 && children[lastBlockIndex] instanceof Spacer) {
+            while (lastBlockIndex >= 0 && children[lastBlockIndex] instanceof Spacer) {
                 lastBlockIndex--;
             }
 
@@ -418,7 +418,14 @@ export function createUiApi(
                 lastBlock instanceof SystemMessageBlock && lastBlock.isError === isError &&
                 JSON.stringify(lastBlock.style) === JSON.stringify(style)
             ) {
+                // Async status transitions can leave more than one trailing spacer.
+                // Collapse them before extending the same visible message block so
+                // publication and its immediate repair read as one continuous update.
+                for (let index = children.length - 1; index > lastBlockIndex; index--) {
+                    messageList.removeChild(children[index]);
+                }
                 lastBlock.appendText(text, header, style);
+                messageList.addChild(new Spacer(1));
                 tui.requestRender();
                 return;
             }

@@ -133,6 +133,17 @@ Deno.test("createUiApi appends visible blocks, merges compatible system messages
     agent.appendText("hi");
     ui.appendSystemMessage("one");
     ui.appendSystemMessage("two");
+    messageList.addChild(new Spacer(1));
+    ui.appendSystemMessage("three");
+    assertEquals(messageList.children.filter((child) => child instanceof SystemMessageBlock).length, 1);
+    assertEquals(messageList.children.at(-1) instanceof Spacer, true);
+    assertEquals(messageList.children.at(-2) instanceof SystemMessageBlock, true);
+    let trailingSpacers = 0;
+    for (const child of messageList.children.toReversed()) {
+        if (!(child instanceof Spacer)) break;
+        trailingSpacers += 1;
+    }
+    assertEquals(trailingSpacers, 1);
 
     const tool = ui.startToolExecution("tool-1", "bash", "$ echo hi");
     tool.setOutput("output");

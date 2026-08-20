@@ -29,7 +29,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-13T15:48:47-04:00"
-updatedAt: "2026-08-16T18:11:10-04:00"
 status: "user_verified"
 origin: "internal"
 failureReason: "- Branch ownership still overclaims at least one path: `validation-tree-objective-none` owns `mechanical:objective:all-pass` even though the fixture defines no Objective Checks.\n- `validation-tree-human-review-ask-skip` also owns `human-review:none`; audit whether that final state genuinely proves the distinct mode-none entry path or split it into its own scenario.\n- Some evidence requirements remain category-level. Tighten them to prove the exact interaction value, next phase or Agent turn, and branch-specific durable field before describing the inventory as independently branch-complete."
@@ -45,14 +44,15 @@ workRecord:
 humanReviewMode: null
 humanReviewDecision: null
 validationCheckpoint: null
-executionMode: "worktree"
-executionBaselineTree: "879e28bfbd1a748342c340ae33a159a882ecd7be"
-worktreeBaseBranch: "main"
-worktreeStatus: "abandoned"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "deepen golden TUI tests"
 validationCiAttempts: 0
 validationSemanticRounds: 1
+updatedAt: "2026-08-19T19:35:35.948Z"
+worktreeStatus: "abandoned"
+archivedAt: "2026-08-19T19:35:35.948Z"
+archivedFromStatus: "user_verified"
+archivedFromPath: "docs/plans/deepen-golden-tui-validation-workflow-coverage.md"
 ---
 
 # Deepen Golden TUI Workflow Validation Coverage

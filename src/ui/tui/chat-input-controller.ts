@@ -9,6 +9,7 @@ import { createGenerationGuard } from "./generation-guard.js";
 import { type ChatView, createPastedImagePreview } from "./chat-view.ts";
 import type { ImageAttachment } from "../../shared/session/types.js";
 import type { UiAPI } from "./types.js";
+import { ClaudeCliBackendError } from "../../shared/session/backends/claude-cli/failure.ts";
 
 export interface QueuedInput {
     text: string;
@@ -58,7 +59,11 @@ function imageWarningKey(image: ImageAttachment): string {
     return image.ref || image.path || `${image.mimeType}:${image.base64.slice(0, 24)}`;
 }
 
-function userTurnFailureMessage(error: Error | string): string {
+function userTurnFailureMessage(error: Error | string): string | null {
+    if (error instanceof ClaudeCliBackendError) {
+        // The backend already emitted its sanitized message as a system status.
+        return null;
+    }
     console.error("[RunWield] tui_submit_failed", error);
     if (error instanceof Error && error.message.includes("model")) {
         return "RunWield could not send the message because model setup is not ready. Choose a model, then try again.";
@@ -142,11 +147,8 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         } catch (err) {
             restoreQueuedItemToEditor({ text: userRequest, images: savedImages });
             if (generationStillCurrent(thisGen)) {
-                uiAPI.appendSystemMessage(
-                    userTurnFailureMessage(err instanceof Error ? err : String(err)),
-                    true,
-                    "RunWield",
-                );
+                const message = userTurnFailureMessage(err instanceof Error ? err : String(err));
+                if (message) uiAPI.appendSystemMessage(message, true, "RunWield");
             }
         } finally {
             options.managedSyncController.resume();
@@ -282,13 +284,10 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         }
         if (isProcessingSubmission) {
             if (isImmediateBuiltinSlashCommandWhileStreaming(userRequest)) {
-                executeUserRequest(userRequest, images).catch((error) =>
-                    uiAPI.appendSystemMessage(
-                        userTurnFailureMessage(error instanceof Error ? error : String(error)),
-                        true,
-                        "RunWield",
-                    )
-                );
+                executeUserRequest(userRequest, images).catch((error) => {
+                    const message = userTurnFailureMessage(error instanceof Error ? error : String(error));
+                    if (message) uiAPI.appendSystemMessage(message, true, "RunWield");
+                });
                 return;
             }
             if (userRequest.startsWith("/")) {

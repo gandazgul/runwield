@@ -150,15 +150,17 @@ Deno.test("bundled validation repair engineer prompt is repair-scoped without Pl
     assertStringIncludes(prompt, "**Your claims are evidence, not resolution.**");
 });
 
-Deno.test("validation repair engineer keeps user authority, working-tree safety, and engineering practice", async () => {
-    // These rules used to be copy-pasted into the prompt file and were asserted
-    // there. They now arrive through `sharedPractice`, so the assertion follows
-    // them to the composed prompt — this agent cannot rely on a skill being
-    // loaded at the model's discretion, and a fragment that stops composing
-    // would otherwise be invisible.
+Deno.test("validation repair engineer keeps working-tree safety and engineering practice, but not user authority", async () => {
+    // These rules arrive through `sharedPractice`, so the assertion follows them to
+    // the composed prompt — this agent cannot rely on a skill being loaded at the
+    // model's discretion, and a fragment that stops composing would be invisible.
+    // User authority is deliberately absent: this prompt states "You have no user
+    // turn", so a policy built on the user confirming and repeating an instruction
+    // describes a dialogue that can never happen here.
     const { systemPrompt } = await loadSubAgentDefinition(SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER);
 
-    assertStringIncludes(systemPrompt, "After one concern, the discussion is complete. The user decides.");
+    assertEquals(systemPrompt.includes("After one concern, the discussion is complete. The user decides."), false);
+    assertStringIncludes(systemPrompt, "You have no user turn");
     assertStringIncludes(systemPrompt, "`git stash` is the last resort");
     assertStringIncludes(systemPrompt, "The Zero-Trust Implementation Protocol");
     assertStringIncludes(systemPrompt, "No Rogue Commits");

@@ -1,6 +1,7 @@
 ---
 name: Recorder
 description: "Work Record generation agent that distills completed planned work into concise retrospective planning memory."
+workflowOnly: true
 temperature: 0.3
 sharedPractice:
     - user-authority
@@ -41,6 +42,15 @@ Return only structured JSON with this shape:
             "reason": "Concise explanation of the material replacement"
         }
     ]
+}
+```
+
+Omit every optional field when it is empty, `supersessionProposals` included. A minimal record is just:
+
+```json
+{
+    "title": "Short outcome title",
+    "summary": "Concise retrospective summary of what completed and why future planning should care."
 }
 ```
 

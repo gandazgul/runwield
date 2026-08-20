@@ -2,6 +2,8 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import { createDelegateAgentTool, diffDelegatedChangeSnapshot, resolveDelegatedToolNames } from "../delegate-agent.ts";
+import { loadSubAgentDefinition } from "../../shared/session/subagent-definitions.ts";
+import { SUBAGENTS } from "../../constants.js";
 
 /**
  * @typedef {Object} DelegateToolDetails
@@ -153,7 +155,13 @@ Deno.test("delegated agent prompt includes inherited repository context placehol
     assertStringIncludes(prompt, "{{MEMORIES}}");
     assertStringIncludes(prompt, "Treat core memories as background context");
     assertStringIncludes(prompt, "Leave all changes uncommitted");
-    assertStringIncludes(prompt, "tools: []");
+    // The prompt must not declare `tools:` at all. barePrompt subagents take their
+    // ceiling from the allowedTools registry entry, so a field here would be ignored
+    // while reading as authoritative — this file once claimed `tools: []` while the
+    // delegate actually received write access.
+    assertEquals(/^tools:/m.test(prompt), false);
+    const delegated = await loadSubAgentDefinition(SUBAGENTS.DELEGATED);
+    assertEquals(delegated.tools.includes("write"), true);
 });
 
 Deno.test("delegate_agent returns child output without inheriting workflow tools", async () => {

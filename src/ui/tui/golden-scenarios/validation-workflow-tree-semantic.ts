@@ -83,7 +83,6 @@ export const validationTreeSemanticReviewerIncompletePauseScenario = withValidat
         })),
         scriptedInteractions: [
             { type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" },
-            { type: "select", promptIncludes: "could not finish looking", value: "stop" },
         ],
         actions: [
             {
@@ -96,8 +95,9 @@ export const validationTreeSemanticReviewerIncompletePauseScenario = withValidat
             { type: "type", text: "/load-plan semantic-reviewer-incomplete" },
             { type: "enter" },
             { type: "enter" },
-            { type: "waitForEvent", event: "runtime:interaction:select:selected", timeoutMs: 90000 },
+            { type: "waitForScreen", text: "Code review", timeoutMs: 90000 },
             { type: "waitForIdle", timeoutMs: 90000 },
+            { type: "captureProjectState", planNames: ["semantic-reviewer-incomplete"] },
         ],
         assertions: [],
     },

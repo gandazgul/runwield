@@ -91,8 +91,11 @@ Deno.test("Engineer is told to load domain Skills rather than refuse unfamiliar 
     // lands here. Engineer has to reach for the browser Skills, not decline.
     const { systemPrompt } = await loadAgentDef(QUICK_FIX_AGENT);
     const normalized = systemPrompt.replaceAll(/\s+/g, " ");
-    assertStringIncludes(normalized, "Load the domain Skills that cover it before editing");
-    assertStringIncludes(normalized, "Browser-rendered UI work means the frontend and browser Skills");
+    assertStringIncludes(normalized, "Load the Skill that covers the domain");
+    assertStringIncludes(normalized, "Browser UI means the frontend and browser Skills");
+    // Skills do not cover every library, so Engineer is also pointed at the web
+    // tools it actually holds for documentation it cannot find locally.
+    assertStringIncludes(normalized, "`web_docs_search`");
 });
 
 Deno.test("Plan Engineer owns non-browser Plan execution and says so", async () => {

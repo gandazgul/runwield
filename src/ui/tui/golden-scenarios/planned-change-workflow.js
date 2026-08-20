@@ -46,7 +46,7 @@ function assertRealPlanReviewRevisionAndApproval(result) {
     assertScreenIncludes(result, "Running the tests in");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
     assertScreenIncludes(result, "found no need for a fix");
-    assertScreenIncludes(result, "Merging branch");
+    assertScreenIncludes(result, "Adding the commits to main");
     assertEventIncludes(result, "workflow:durability:delivery-checked");
     assertEventIncludes(result, "workflow:durability:registry-clean");
     assertEventIncludes(result, "workflow:durability:ancestry-checked");
@@ -534,7 +534,7 @@ export const plannedChangeCiRepairReentryScenario = {
             // Semantic Review is only reachable once Mechanical Validation passes, so
             // this is the proof that re-entry landed in the right place.
             assertScreenIncludes(result, "found no need for a fix");
-            assertScreenIncludes(result, "Merging branch");
+            assertScreenIncludes(result, "Adding the commits to main");
             const durability =
                 /** @type {{ goldenFileExists?: boolean, trackedFiles?: string, executionCommitPublished?: boolean } | undefined} */ (result
                     .state.workflowDurability);

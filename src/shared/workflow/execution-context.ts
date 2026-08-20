@@ -524,7 +524,15 @@ export async function resolveValidationExecutionContext({
             `Execution worktree is on ${checkedOutBranch || "detached HEAD"}, not ${worktreeBranch}.`,
         );
     }
-    await runGit(projectRoot, ["rev-parse", `refs/heads/${worktreeBaseBranch}`]);
+    const targetBranchExists = await runGit(projectRoot, ["rev-parse", `refs/heads/${worktreeBaseBranch}`])
+        .then(() => true)
+        .catch(() => false);
+    if (!targetBranchExists) {
+        return blocked(
+            "missing_target_branch",
+            `Target branch ${worktreeBaseBranch} is missing. Restore or create that branch, then run validation again.`,
+        );
+    }
     const actualBaselineTree = await runGit(canonicalWorktreePath, ["rev-parse", `${baselineTree}^{tree}`]);
     if (!actualBaselineTree) {
         return blocked(
@@ -595,7 +603,9 @@ export async function resolveValidationExecutionContext({
             ownedRepairs.planId = registryEntry.planId;
             selfHealNotices.push({ kind: "execution_plan_fixed", planName });
         }
-        if (!currentExecutionPlan.attrs.worktreeId) ownedRepairs.worktreeId = worktreeId;
+        if (currentExecutionPlan.attrs.status !== "validated" && !currentExecutionPlan.attrs.worktreeId) {
+            ownedRepairs.worktreeId = worktreeId;
+        }
         if (Object.keys(ownedRepairs).length > 0) {
             await updatePlanFrontMatter(canonicalWorktreePath, planName, ownedRepairs, currentExecutionPlan.attrs, {
                 expectedRevision: currentExecutionPlan.revision,

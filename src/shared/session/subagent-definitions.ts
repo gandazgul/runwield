@@ -255,6 +255,13 @@ export async function loadBarePromptDefinition(
         );
     }
     const { attrs, body } = await readBundledPromptFrontMatter(relativePath);
+    if (attrs.tools !== undefined) {
+        throw new Error(
+            `Subagent prompt "${relativePath}" (barePrompt) declares a \`tools:\` field, which is ignored: ` +
+                `the tool ceiling for "${definition.id}" comes from its allowedTools registry entry. ` +
+                "Remove the field so the file cannot claim a ceiling it does not set.",
+        );
+    }
     const displayName = typeof attrs.name === "string" && attrs.name.trim()
         ? attrs.name.trim()
         : definition.displayNameFallback;

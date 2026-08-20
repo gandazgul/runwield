@@ -1,6 +1,6 @@
 /** Shared Plan action evidence and lifecycle executor. */
 
-import { findPlanEvidenceById, getPlanRevisionForText, type PlanFrontMatter } from "../../plan-store.js";
+import { findPlanEvidenceById, getPlanRevisionForText, loadPlan, type PlanFrontMatter } from "../../plan-store.js";
 import { readPlanActionWorktreeEvidence } from "../worktree-registry.js";
 import { getPlanLifecycleActionMetadata, recordPlanEvent } from "./plan-lifecycle.js";
 import type { PlanEvent, PlanStatus } from "./plan-lifecycle.js";
@@ -75,6 +75,19 @@ const NONTERMINAL_WORKTREE_STATUSES = new Set([
 
 type WorktreeEvidenceResult = Awaited<ReturnType<typeof readPlanActionWorktreeEvidence>>;
 type WorktreeEvidenceOk = Extract<WorktreeEvidenceResult, { kind: "ok" }>;
+
+type PlanActionAuthority = {
+    cwd: string;
+    planId: string;
+    planName: string;
+    attrs: PlanFrontMatter;
+    markdown: string;
+    revision?: string;
+};
+
+type PlanActionAuthorityResult =
+    | { kind: "ok"; plan: PlanActionAuthority; registry: WorktreeEvidenceOk }
+    | Extract<PlanActionResult, { kind: "recovery_required" | "invalid_action" }>;
 
 function sanitizeMessage(message: string): string {
     if (message.includes("remote-canonical") || message.includes("wld plans pull")) return message;
@@ -185,13 +198,16 @@ function validatePlanRegistryIdentity(
     return null;
 }
 
-export async function loadPlanActionEvidence(projectRoot: string, planId: string): Promise<PlanActionResult> {
+async function resolvePlanActionAuthority(
+    projectRoot: string,
+    planId: string,
+): Promise<PlanActionAuthorityResult> {
     try {
-        const plan = await findPlanEvidenceById(projectRoot, planId);
+        const primaryPlan = await findPlanEvidenceById(projectRoot, planId);
         const registry = await readPlanActionWorktreeEvidence(
             projectRoot,
-            plan.planId,
-            expectedRegistryOptions(plan.attrs),
+            primaryPlan.planId,
+            expectedRegistryOptions(primaryPlan.attrs),
         );
         if (registry.kind !== "ok") {
             return {
@@ -200,24 +216,58 @@ export async function loadPlanActionEvidence(projectRoot: string, planId: string
                 entryIds: registry.entryIds,
             };
         }
+        const executionPlan = registry.live?.path
+            ? await loadPlan(registry.live.path, primaryPlan.planName).catch(() => null)
+            : null;
+        if (registry.live && (!executionPlan || executionPlan.attrs.planId !== primaryPlan.planId)) {
+            return {
+                kind: "recovery_required",
+                message: "RunWield could not confirm the saved implementation. Your work is unchanged.",
+                entryIds: [registry.live.id],
+            };
+        }
+        const plan: PlanActionAuthority = executionPlan
+            ? {
+                cwd: registry.live?.path || projectRoot,
+                planId: primaryPlan.planId,
+                planName: primaryPlan.planName,
+                attrs: executionPlan.attrs,
+                markdown: executionPlan.markdown,
+                revision: executionPlan.revision,
+            }
+            : {
+                cwd: projectRoot,
+                planId: primaryPlan.planId,
+                planName: primaryPlan.planName,
+                attrs: primaryPlan.attrs,
+                markdown: primaryPlan.markdown,
+                revision: primaryPlan.revision,
+            };
         const identityIssue = validatePlanRegistryIdentity(plan.attrs, registry);
         if (identityIssue) return { kind: "recovery_required", ...identityIssue };
-        const revision = plan.revision || await getPlanRevisionForText(plan.markdown);
-        return {
-            kind: "success",
-            message: "Plan action evidence loaded.",
-            evidence: {
-                planId: plan.planId,
-                planName: plan.planName,
-                revision,
-                status: currentStatus(plan.attrs),
-                worktree: registry.live ? toAttemptExpectation(registry.live) : { kind: "none" },
-            },
-        };
+        return { kind: "ok", plan, registry };
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return { kind: "invalid_action", message: sanitizeMessage(message) };
     }
+}
+
+export async function loadPlanActionEvidence(projectRoot: string, planId: string): Promise<PlanActionResult> {
+    const resolved = await resolvePlanActionAuthority(projectRoot, planId);
+    if (resolved.kind !== "ok") return resolved;
+    const { plan, registry } = resolved;
+    const revision = plan.revision || await getPlanRevisionForText(plan.markdown);
+    return {
+        kind: "success",
+        message: "Plan action evidence loaded.",
+        evidence: {
+            planId: plan.planId,
+            planName: plan.planName,
+            revision,
+            status: currentStatus(plan.attrs),
+            worktree: registry.live ? toAttemptExpectation(registry.live) : { kind: "none" },
+        },
+    };
 }
 
 function validateRequest(request: PlanActionRequest): string | null {
@@ -308,13 +358,9 @@ function eventForRequest(
 export async function executePlanAction(projectRoot: string, request: PlanActionRequest): Promise<PlanActionResult> {
     const invalid = validateRequest(request);
     if (invalid) return { kind: "invalid_action", message: invalid };
-    let plan;
-    try {
-        plan = await findPlanEvidenceById(projectRoot, request.planId);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return { kind: "invalid_action", message: sanitizeMessage(message) };
-    }
+    const resolved = await resolvePlanActionAuthority(projectRoot, request.planId);
+    if (resolved.kind !== "ok") return resolved;
+    const { plan, registry } = resolved;
     const revision = plan.revision || await getPlanRevisionForText(plan.markdown);
     const status = currentStatus(plan.attrs);
     const currentEvidence: PlanActionEvidence = {
@@ -331,16 +377,6 @@ export async function executePlanAction(projectRoot: string, request: PlanAction
             evidence: currentEvidence,
         };
     }
-    const registry = await readPlanActionWorktreeEvidence(
-        projectRoot,
-        plan.planId,
-        expectedRegistryOptions(plan.attrs),
-    );
-    if (registry.kind !== "ok") {
-        return { kind: "recovery_required", message: sanitizeMessage(registry.message), entryIds: registry.entryIds };
-    }
-    const identityIssue = validatePlanRegistryIdentity(plan.attrs, registry);
-    if (identityIssue) return { kind: "recovery_required", ...identityIssue };
     const live = registry.live;
     currentEvidence.worktree = live ? toAttemptExpectation(live) : { kind: "none" };
     if (request.expectedWorktree.kind === "none" && live) {
@@ -371,7 +407,7 @@ export async function executePlanAction(projectRoot: string, request: PlanAction
     if ("error" in dispatch) return { kind: "invalid_action", message: dispatch.error };
     try {
         await recordPlanEvent({
-            cwd: projectRoot,
+            cwd: plan.cwd,
             planName: plan.planName,
             event: dispatch.event,
             currentStatus: status,

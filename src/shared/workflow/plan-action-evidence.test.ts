@@ -136,6 +136,54 @@ Deno.test("rejects Plan and registry worktree identity mismatches before returni
     assertEquals(evidence.kind, "recovery_required");
 });
 
+Deno.test("live execution Plan owns action evidence when the primary copy is stale", async () => {
+    const { root } = await makeProject();
+    const executionRoot = await Deno.makeTempDir({ prefix: "runwield-plan-action-execution-" });
+    await savePlan(executionRoot, "demo", "# Demo\n\nImplemented\n", {
+        planId: "plan-demo",
+        status: "implemented",
+        classification: "FEATURE",
+        executionMode: "worktree",
+        worktreeId: "attempt-one",
+        worktreePath: executionRoot,
+        worktreeBranch: "rw/demo-1",
+        worktreeBaseBranch: "main",
+        worktreeStatus: "completed",
+    });
+    await writeRegistry(root, [{
+        id: "attempt-one",
+        planName: "demo",
+        planId: "plan-demo",
+        baseBranch: "main",
+        baseRef: "refs/heads/main",
+        baseCommit: "111",
+        branch: "rw/demo-1",
+        path: executionRoot,
+        status: "completed",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+    }]);
+
+    const evidence = await loadPlanActionEvidence(root, "plan-demo");
+
+    assertEquals(evidence.kind, "success");
+    if (evidence.kind === "success") {
+        assertEquals(evidence.evidence.status, "implemented");
+        assertEquals(evidence.evidence.worktree.kind, "attempt");
+        const action = await executePlanAction(root, {
+            planId: "plan-demo",
+            expectedRevision: evidence.evidence.revision,
+            expectedStatus: evidence.evidence.status,
+            expectedWorktree: evidence.evidence.worktree,
+            action: "put_on_hold",
+            holdReason: "pause the execution attempt",
+        });
+        assertEquals(action.kind, "success");
+        assertEquals((await loadPlan(executionRoot, "demo"))?.attrs.status, "on_hold");
+        assertEquals((await loadPlan(root, "demo"))?.attrs.status, "draft");
+    }
+});
+
 Deno.test("rejects ambiguous registry integrity issues before lifecycle mutation", async () => {
     const { root } = await makeProject();
     const evidence = await loadPlanActionEvidence(root, "plan-demo");

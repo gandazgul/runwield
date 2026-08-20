@@ -1584,6 +1584,9 @@ export async function runDirectDeliveryPublicationTransition<T>(
         },
         expectedEffects: ["direct_delivery_target_ref_moved"],
         irreversibleEffects: ["direct_delivery_target_ref_moved"],
+        // Retrying a failed publication is the recovery operation for the same
+        // attempt and target. A successful retry retires the older journal.
+        supersedesUnresolved: true,
         apply: async (ctx) => {
             const value = await opts.publish(ctx);
             await ctx.markEffect("direct_delivery_published", opts.publicationProof || {});

@@ -233,7 +233,7 @@ Deno.test("QUICK_FIX completion runs real Mechanical Validation around the CI po
             fauxAssistantMessage(fauxText("Manual verification steps\n- [ ] Save settings and reload.")),
         ]);
         const fixture = createSessionFixture(projectRoot);
-        const ci = defineLocalCIFixture([{ exitCode: 0, output: "ok" }]);
+        const ci = defineLocalCIFixture([{ kind: "completed", exitCode: 0, output: "ok" }]);
 
         await dispatchPostTriage({
             hostedSession: fixture.hostedSession,
@@ -541,7 +541,7 @@ Deno.test("completed planned work runs the real validation lifecycle around exte
                 if (request.type === "select") return { outcome: "selected", value: "proceed" };
                 return { outcome: "canceled" };
             });
-            const ci = defineLocalCIFixture([{ exitCode: 0, output: "fixture CI passed" }]);
+            const ci = defineLocalCIFixture([{ kind: "completed", exitCode: 0, output: "fixture CI passed" }]);
 
             const result = await dispatchPostTriage({
                 hostedSession: fixture.hostedSession,

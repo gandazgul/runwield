@@ -30,6 +30,7 @@ import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
 import { NO_OPEN_BROWSER_PORT } from "../../../shared/browser-port.ts";
 import { getCwd } from "../../../constants.js";
 import { getWorktreeRegistryPath } from "../../../shared/worktree-registry.js";
+import { PLAN_STATUSES } from "../../../shared/workflow/plan-lifecycle.js";
 
 /**
  * Scenario waits poll and return the moment the condition holds, so this budget
@@ -1742,6 +1743,19 @@ async function runComposedTuiScenario(scenario, options) {
                     }
                     events.push(`publication:remote-push-rejection:${typed.enabled === false ? "off" : "on"}`);
                     await writeHeartbeat();
+                } else if (typed.type === "removePlanRemote") {
+                    const planName = String(typed.planName || "");
+                    const loaded = await loadPlan(Deno.cwd(), planName);
+                    if (!loaded) throw new Error(`Cannot remove remote for missing Plan ${planName}`);
+                    const targetBranch = String(loaded.attrs.worktreeBaseBranch || "main");
+                    const remote = await runGoldenGit(
+                        ["config", "--get", `branch.${targetBranch}.remote`],
+                        Deno.cwd(),
+                    ).catch(() => "origin") || "origin";
+                    await runGoldenGit(["branch", "--unset-upstream", targetBranch], Deno.cwd()).catch(() => {});
+                    await runGoldenGit(["remote", "remove", remote], Deno.cwd());
+                    events.push(`publication:remote-removed:${planName}:${targetBranch}`);
+                    await writeHeartbeat();
                 } else if (typed.type === "installPlanWorktreeFailingPreCommitHook") {
                     const planName = String(typed.planName || "");
                     const loaded = await loadPlan(Deno.cwd(), planName);
@@ -1786,7 +1800,15 @@ async function runComposedTuiScenario(scenario, options) {
                         await runGoldenGit(["add", "."], entry.path);
                         await runGoldenGit(["commit", "-m", `seed ${planName} worktree diff`], entry.path);
                     }
-                    const status = typeof typed.status === "string" ? typed.status : "in_progress";
+                    const legacyStrandedPublication = typed.legacyStrandedPublication === true;
+                    const executionCommit = legacyStrandedPublication
+                        ? await runGoldenGit(["rev-parse", "HEAD"], entry.path)
+                        : "";
+                    const status = legacyStrandedPublication
+                        ? "verified"
+                        : typeof typed.status === "string"
+                        ? typed.status
+                        : "in_progress";
                     const rememberedValidationPhase = ["mechanical", "semantic", "delivery"].includes(
                             typed.rememberedValidationPhase,
                         )
@@ -1797,7 +1819,9 @@ async function runComposedTuiScenario(scenario, options) {
                         : rememberedValidationPhase === "semantic"
                         ? "validated_ci"
                         : "validated_reviewer";
-                    const registryStatus = typed.registryStatus === "validation_failed"
+                    const registryStatus = legacyStrandedPublication
+                        ? "completed"
+                        : typed.registryStatus === "validation_failed"
                         ? "validation_failed"
                         : typed.registryStatus === "completed" || status === "implemented"
                         ? "completed"
@@ -1805,13 +1829,32 @@ async function runComposedTuiScenario(scenario, options) {
                     if (registryStatus !== "active") {
                         await updateEntry(Deno.cwd(), entry.id, { status: registryStatus });
                     }
-                    const seededPlanUpdates = {
-                        status,
+                    const attemptMetadata = legacyStrandedPublication ? {} : {
                         worktreeId: entry.id,
                         worktreePath: entry.path,
                         worktreeBranch: entry.branch,
                         worktreeBaseBranch: entry.baseBranch,
                         worktreeStatus: registryStatus,
+                    };
+                    const seededPlanUpdates = {
+                        status,
+                        ...attemptMetadata,
+                        ...(legacyStrandedPublication
+                            ? {
+                                executionMode: "worktree",
+                                verifiedAt: new Date().toISOString(),
+                                deliveryEvidence: {
+                                    version: 1,
+                                    mode: "worktree_merge",
+                                    executionCommit,
+                                    targetBranch: entry.baseBranch,
+                                    targetHeadBeforeMerge: await runGoldenGit(
+                                        ["rev-parse", entry.baseBranch],
+                                        Deno.cwd(),
+                                    ),
+                                },
+                            }
+                            : {}),
                         ...(status === "validated_ci" || status === "validated_reviewer"
                             ? { validationSemanticRounds: 0 }
                             : {}),
@@ -1845,8 +1888,62 @@ async function runComposedTuiScenario(scenario, options) {
                         executionPlan.attrs,
                         { expectedRevision: executionPlan.revision },
                     );
+                    if (legacyStrandedPublication) {
+                        const planPath = `docs/plans/${planName}.md`;
+                        await runGoldenGit(["add", planPath], Deno.cwd());
+                        await runGoldenGit(
+                            ["commit", "-m", `legacy metadata-only publication for ${planName}`],
+                            Deno.cwd(),
+                        );
+                        await runGoldenGit(["push", "origin", entry.baseBranch], Deno.cwd());
+                    }
                     events.push(`project:worktree-seeded:${planName}`);
                     events.push(`project:worktree-seeded:${planName}:${status}`);
+                    await writeHeartbeat();
+                } else if (typed.type === "setPrimaryPlanStatus") {
+                    const planName = String(typed.planName || "");
+                    const rawStatus = String(typed.status || "");
+                    if (
+                        !PLAN_STATUSES.includes(
+                            /** @type {import('../../../shared/workflow/plan-lifecycle.js').PlanStatus} */ (rawStatus),
+                        )
+                    ) {
+                        throw new Error(`Cannot set invalid primary Plan status: ${rawStatus}`);
+                    }
+                    const status = /** @type {import('../../../shared/workflow/plan-lifecycle.js').PlanStatus} */ (
+                        rawStatus
+                    );
+                    const loaded = await loadPlan(Deno.cwd(), planName);
+                    if (!loaded) throw new Error(`Cannot update missing primary Plan ${planName}`);
+                    const { updatePlanFrontMatter } = await import("../../../plan-store.js");
+                    const clearWorktreeEvidence = typed.clearWorktreeEvidence === true;
+                    const clearPrimaryWorktreeEvidence = clearWorktreeEvidence ||
+                        typed.clearPrimaryWorktreeEvidence === true;
+                    await updatePlanFrontMatter(
+                        Deno.cwd(),
+                        planName,
+                        {
+                            status,
+                            ...(clearPrimaryWorktreeEvidence
+                                ? {
+                                    executionMode: null,
+                                    executionBaselineTree: null,
+                                    worktreeId: null,
+                                    worktreePath: null,
+                                    worktreeBranch: null,
+                                    worktreeBaseBranch: null,
+                                    worktreeStatus: null,
+                                }
+                                : {}),
+                        },
+                        loaded.attrs,
+                        { expectedRevision: loaded.revision },
+                    );
+                    if (clearWorktreeEvidence && loaded.attrs.worktreeId) {
+                        const { pruneEntry } = await import("../../../shared/worktree-registry.js");
+                        await pruneEntry(Deno.cwd(), loaded.attrs.worktreeId);
+                    }
+                    events.push(`project:primary-plan-status:${planName}:${status}`);
                     await writeHeartbeat();
                 } else if (typed.type === "captureGitState") {
                     const paths = Array.isArray(typed.paths) ? typed.paths.map(String) : [];
@@ -2305,6 +2402,30 @@ async function runComposedTuiScenario(scenario, options) {
                         worktreeBranchExists: branchExists,
                     };
                     events.push(`publication:state-captured:${planName}`);
+                } else if (typed.type === "captureLocalPublicationState") {
+                    const planName = String(typed.planName || "");
+                    const deliveredPath = String(typed.deliveredPath || "");
+                    const plan = await loadPlan(Deno.cwd(), planName);
+                    const registry = await (await import("../../../shared/worktree-registry.js"))
+                        .inspectWorktreeRegistry(Deno.cwd());
+                    const baselineFiles = state.publicationBaseline?.files || {};
+                    /** @type {Record<string, string | null>} */
+                    const currentFiles = {};
+                    for (const path of Object.keys(baselineFiles)) {
+                        currentFiles[path] = await Deno.readTextFile(join(Deno.cwd(), path)).catch(() => null);
+                    }
+                    state.localPublication = {
+                        head: await runGoldenGit(["rev-parse", "HEAD"], Deno.cwd()),
+                        branch: await runGoldenGit(["branch", "--show-current"], Deno.cwd()),
+                        status: await runGoldenGit(["status", "--porcelain", "--untracked-files=all"], Deno.cwd()),
+                        files: currentFiles,
+                        planStatus: plan?.attrs.status,
+                        deliveredText: deliveredPath
+                            ? await Deno.readTextFile(join(Deno.cwd(), deliveredPath)).catch(() => "")
+                            : "",
+                        registryEntries: registry.entries,
+                    };
+                    events.push(`publication:local-state-captured:${planName}`);
                 } else if (typed.type === "waitForPlanAbsent") {
                     const planName = String(typed.planName || "");
                     const timeoutMs = typed.timeoutMs || scenario.timeoutMs || 3000;

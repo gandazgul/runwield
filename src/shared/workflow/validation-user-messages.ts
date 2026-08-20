@@ -62,9 +62,22 @@ export type ValidationMessageRequest =
     | { kind: "human_review_approved" }
     | { kind: "qa_prepare"; planName: string }
     | { kind: "qa_ready"; path?: string; existed?: boolean }
-    | { kind: "merge_progress"; sourceBranch: string; targetBranch: string }
-    | { kind: "merge_dispatch"; agent: string; cwd: string }
-    | { kind: "verified"; planName: string }
+    | {
+        kind: "publication_progress";
+        phase:
+            | "preparing"
+            | "reading_target"
+            | "using_local_target"
+            | "updating_target"
+            | "combining_work"
+            | "publishing"
+            | "verifying"
+            | "cleanup";
+        targetBranch: string;
+    }
+    | { kind: "merge_dispatch" }
+    | { kind: "publication_blocked"; planName: string }
+    | { kind: "verified"; planName: string; targetBranch?: string }
     | { kind: "context_blocked"; planName: string }
     | { kind: "validation_command_missing" }
     | { kind: "validation_command_prompt" }
@@ -85,6 +98,7 @@ export type ValidationMessageRequest =
     | { kind: "quick_fix_repair"; agent: string; attempt: number; maxAttempts: number }
     | { kind: "quick_fix_waiting"; agent: string }
     | { kind: "recovery_repair_failed" }
+    | { kind: "implementation_checkpoint_failed" }
     | { kind: "user_action"; whatHappened: string; doThis: string; details?: string[] };
 
 export type ValidationRecoveryNotice =
@@ -117,7 +131,7 @@ export function buildValidationRecoveryNotice(notice: ValidationRecoveryNotice):
         case "review_range_fixed":
             return "RunWield found the code and fixed its review. The review will go on.";
         case "merge_plan_preserved":
-            return `The checked Plan copy for ${notice.planName} is safe while the merge runs.`;
+            return `The Plan for ${notice.planName} is safe.`;
     }
 }
 
@@ -214,12 +228,37 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             return request.existed
                 ? `The test list is at ${request.path}.`
                 : `The test list was saved at ${request.path}.`;
-        case "merge_progress":
-            return `Merging branch ${request.sourceBranch} into branch ${request.targetBranch}.`;
+        case "publication_progress":
+            switch (request.phase) {
+                case "preparing":
+                    return "The commits are ready.";
+                case "reading_target":
+                    return `Checking ${request.targetBranch} for new commits.`;
+                case "using_local_target":
+                    return `No remote is configured. Adding the commits to the local ${request.targetBranch} branch.`;
+                case "updating_target":
+                    return `Adding new commits from ${request.targetBranch}.`;
+                case "combining_work":
+                    return `Adding the commits to ${request.targetBranch}.`;
+                case "publishing":
+                    return `Sending the new commits to ${request.targetBranch}.`;
+                case "verifying":
+                    return `Checking the new commits on ${request.targetBranch}.`;
+                case "cleanup":
+                    return `The new commits are on ${request.targetBranch}. Cleaning up the worktree and source branch.`;
+                default: {
+                    const exhaustivePhase: never = request.phase;
+                    return exhaustivePhase;
+                }
+            }
         case "merge_dispatch":
-            return `${request.agent} will fix the merge in ${request.cwd}.`;
+            return "The repair Engineer is fixing the file clashes. The fix will be checked next.";
+        case "publication_blocked":
+            return `Publication stopped because the saved copy for ${request.planName} is incomplete. The validated commits are safe. Update RunWield, then load this Plan again.`;
         case "verified":
-            return `${request.planName} is done and on its target branch.`;
+            return request.targetBranch
+                ? `${request.planName} is on ${request.targetBranch}.`
+                : `${request.planName} is done.`;
         case "context_blocked":
             return `RunWield cannot check ${request.planName} now. Your work is safe. Try again.`;
         case "validation_command_missing":
@@ -264,6 +303,8 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             return `${request.agent} stopped. The fix is not done. Send a work note when it is done.`;
         case "recovery_repair_failed":
             return "RunWield could not check for safe fixes. Your work is safe. Try again.";
+        case "implementation_checkpoint_failed":
+            return "RunWield could not verify the saved implementation. Your work is unchanged. Inspect it or try validation again.";
         case "user_action": {
             const details = request.details?.length
                 ? `\n\n${request.details.map((detail) => `  ${detail}`).join("\n")}`
@@ -283,8 +324,13 @@ export function validationPhasePauseMessage(phase?: "mechanical" | "semantic" | 
     return `The check stopped before the ${names[phase]}. Your work is safe.`;
 }
 
-export function validationMergeRepairMessage(planName: string): string {
-    return `The merge for ${planName} did not work. Your work is safe. RunWield will fix it.`;
+export function validationMergeRepairMessage(
+    planName: string,
+    problem: "target_update" | "work_combination",
+): string {
+    return problem === "target_update"
+        ? `The latest target branch changed in the same files as ${planName}. The commits are safe.`
+        : `The source and target branches changed the same files in ${planName}. The commits are safe.`;
 }
 
 export function validationReviewerPauseMessage(planName: string): string {
@@ -308,7 +354,6 @@ export type PlanRecoveryMessageRequest =
     | { kind: "plan_restored"; path: string }
     | { kind: "not_worktree" }
     | { kind: "incomplete_worktree" }
-    | { kind: "merge_progress"; sourceBranch: string; targetBranch: string }
     | { kind: "snapshot_restore_failed" }
     | { kind: "registry_update_failed" }
     | { kind: "merged" }
@@ -365,8 +410,6 @@ export function buildPlanRecoveryUserMessage(request: PlanRecoveryMessageRequest
             return "This Plan does not use a worktree merge.";
         case "incomplete_worktree":
             return "The saved worktree details are incomplete. Your work is safe.";
-        case "merge_progress":
-            return `Merging branch ${request.sourceBranch} into branch ${request.targetBranch}.`;
         case "snapshot_restore_failed":
             return "The merge is done. RunWield could not restore the local Plan copy.";
         case "registry_update_failed":

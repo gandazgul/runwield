@@ -3,6 +3,7 @@ import {
     loadPlanAbandonProgressScenario,
     loadPlanActionsScenario,
     loadPlanCanceledExecutionThenPlannerReviewScenario,
+    loadPlanContinueUsesExecutionPlanAuthorityScenario,
     loadPlanInterruptedRecoveryScenario,
     loadPlanMalformedFrontMatterScenario,
     loadPlanResetReviewArchiveScenario,
@@ -18,6 +19,7 @@ const scenarioExportNames = new Map<object, string>([
     [loadPlanInterruptedRecoveryScenario, "loadPlanInterruptedRecoveryScenario"],
     [loadPlanWorktreeInspectResetScenario, "loadPlanWorktreeInspectResetScenario"],
     [loadPlanAbandonProgressScenario, "loadPlanAbandonProgressScenario"],
+    [loadPlanContinueUsesExecutionPlanAuthorityScenario, "loadPlanContinueUsesExecutionPlanAuthorityScenario"],
     [loadPlanMalformedFrontMatterScenario, "loadPlanMalformedFrontMatterScenario"],
     [loadPlanValidateWaivedObjectiveChecksScenario, "loadPlanValidateWaivedObjectiveChecksScenario"],
 ]);

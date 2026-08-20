@@ -144,7 +144,11 @@ export class ClaudeCliExecutionSession {
             : this.turnAbortController.signal;
         this.isStreaming = true;
 
-        const emitFailure = (kind: ConstructorParameters<typeof ClaudeCliBackendError>[0], exitCode: number | null) => {
+        const emitFailure = (
+            kind: ConstructorParameters<typeof ClaudeCliBackendError>[0],
+            exitCode: number | null,
+            message?: string,
+        ) => {
             // emitBackendStatus persists the sanitized runwield.backend_status transcript entry.
             if (statusEmitted) return;
             statusEmitted = true;
@@ -153,6 +157,7 @@ export class ClaudeCliExecutionSession {
                 this.sessionManager,
                 buildBackendStatusEntry(kind, {
                     exitCode,
+                    ...(message ? { message } : {}),
                     requestId: options.requestId,
                     attemptId: options.attemptId,
                 }),
@@ -295,15 +300,18 @@ export class ClaudeCliExecutionSession {
                 emitFailure("canceled", status.code);
                 throw new ClaudeCliBackendError("canceled", { exitCode: status.code });
             }
-            if (!status.success) {
+            if (parsed.metadata.isError || !status.success) {
                 const stderr = await process.stderrText;
-                const kind = isAuthFailure(stderr) ? "auth_failed" : "non_zero_exit";
-                emitFailure(kind, status.code);
                 const excerpt = sanitizeStderrForDisplay(stderr);
+                const claudeMessage = parsed.metadata.isError ? sanitizeStderrForDisplay(parsed.text) : "";
+                const detail = claudeMessage || excerpt;
+                const kind = isAuthFailure(detail) ? "auth_failed" : "non_zero_exit";
                 const base = buildBackendStatusEntry(kind, { exitCode: status.code }).message;
+                const message = detail || base;
+                emitFailure(kind, status.code, message);
                 throw new ClaudeCliBackendError(kind, {
                     exitCode: status.code,
-                    message: excerpt ? `${base}\n${excerpt}` : base,
+                    message,
                 });
             }
             this.sessionManager.appendModelChange(this.model.provider, this.model.id);

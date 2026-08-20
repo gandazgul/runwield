@@ -1,3 +1,4 @@
+import { join } from "@std/path";
 import {
     PLAN_BACKUPS_DIR_NAME,
     PLAN_LOCKS_DIR_NAME,
@@ -63,3 +64,22 @@ const GITIGNORE_END = "# END RunWield owned runtime state";
 export const RUNWIELD_GITIGNORE_BLOCK = `${GITIGNORE_START}\n${
     RUNWIELD_OWNED_RUNTIME_PATHS.join("\n")
 }\n${GITIGNORE_END}\n`;
+
+export async function ensureRunWieldOwnedGitignoreBlock(projectRoot: string): Promise<void> {
+    const gitignorePath = join(projectRoot, ".gitignore");
+    let existing = "";
+    try {
+        existing = await Deno.readTextFile(gitignorePath);
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+    const pattern = new RegExp(
+        `${GITIGNORE_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*?${
+            GITIGNORE_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        }\\n?`,
+    );
+    const next = pattern.test(existing)
+        ? existing.replace(pattern, RUNWIELD_GITIGNORE_BLOCK)
+        : `${existing}${existing && !existing.endsWith("\n") ? "\n" : ""}${RUNWIELD_GITIGNORE_BLOCK}`;
+    if (next !== existing) await Deno.writeTextFile(gitignorePath, next);
+}
