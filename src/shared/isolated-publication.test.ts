@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import {
     isExecutionCommitPublishedUpstream,
+    IsolatedPublicationError,
     type IsolatedPublicationProgress,
     publishExecutionWorktreeIsolated,
 } from "./isolated-publication.ts";
@@ -179,6 +180,86 @@ Deno.test("failed upstream publication leaves the validated execution branch rec
         if (worktree) {
             await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
         }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("completed publication repair imports a newer execution commit before retrying", async () => {
+    const projectRoot = await makeRepo();
+    const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-repaired-publication-remote-" });
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-repaired-publication-worktree-" });
+    let worktree: Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined;
+    let repairRoot: string | undefined;
+    try {
+        await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "base\n");
+        await git(projectRoot, ["add", "conflict.txt"]);
+        await git(projectRoot, ["commit", "-m", "Add conflict fixture"]);
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+        await git(projectRoot, ["push", "-u", "origin", "main"]);
+
+        worktree = await createTestWorktreeAttempt({ projectRoot, planName: "repaired-delivery", worktreeRoot });
+        await Deno.writeTextFile(`${worktree.path}/conflict.txt`, "execution\n");
+        await git(worktree.path, ["add", "conflict.txt"]);
+        await git(worktree.path, ["commit", "-m", "Validated conflicting candidate"]);
+        const firstSealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
+
+        await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "target\n");
+        await git(projectRoot, ["add", "conflict.txt"]);
+        await git(projectRoot, ["commit", "-m", "Advance target with conflict"]);
+        await git(projectRoot, ["push", "origin", "main"]);
+
+        try {
+            await publishExecutionWorktreeIsolated({
+                projectRoot,
+                executionCwd: worktree.path,
+                executionBranch: worktree.branch,
+                targetBranch: "main",
+                planName: "repaired-delivery",
+                sealedExecutionCommit: firstSealedCommit,
+                allowedPlanPaths: [],
+            });
+            throw new Error("Expected the first publication attempt to conflict.");
+        } catch (error) {
+            if (!(error instanceof IsolatedPublicationError) || !error.mergeWorktreePath) throw error;
+            repairRoot = error.mergeWorktreePath;
+        }
+
+        assert(repairRoot);
+        await Deno.writeTextFile(`${repairRoot}/conflict.txt`, "resolved\n");
+        await git(repairRoot, ["add", "conflict.txt"]);
+        await git(repairRoot, ["commit", "--no-edit"]);
+
+        await Deno.writeTextFile(`${worktree.path}/final-lifecycle.txt`, "recorded after repair\n");
+        await git(worktree.path, ["add", "final-lifecycle.txt"]);
+        await git(worktree.path, ["commit", "-m", "Record final lifecycle state"]);
+        const finalSealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
+
+        const published = await publishExecutionWorktreeIsolated({
+            projectRoot,
+            executionCwd: worktree.path,
+            executionBranch: worktree.branch,
+            targetBranch: "main",
+            planName: "repaired-delivery",
+            sealedExecutionCommit: finalSealedCommit,
+            allowedPlanPaths: [],
+            repairedPublicationRoot: repairRoot,
+        });
+
+        const remoteHead = (await git(projectRoot, ["ls-remote", "origin", "refs/heads/main"])).split(/\s+/)[0];
+        assertEquals(remoteHead, published.publicationCommit);
+        await git(projectRoot, ["fetch", "origin", "main"]);
+        await git(projectRoot, ["merge-base", "--is-ancestor", finalSealedCommit, "origin/main"]);
+        assertEquals(await git(projectRoot, ["show", "origin/main:conflict.txt"]), "resolved");
+        assertEquals(await git(projectRoot, ["show", "origin/main:final-lifecycle.txt"]), "recorded after repair");
+        repairRoot = undefined;
+    } finally {
+        if (worktree) {
+            await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
+        }
+        if (repairRoot) await Deno.remove(repairRoot, { recursive: true }).catch(() => {});
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
         await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});

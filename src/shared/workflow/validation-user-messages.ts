@@ -76,6 +76,7 @@ export type ValidationMessageRequest =
         targetBranch: string;
     }
     | { kind: "merge_dispatch" }
+    | { kind: "publication_blocked"; planName: string }
     | { kind: "verified"; planName: string }
     | { kind: "context_blocked"; planName: string }
     | { kind: "validation_command_missing" }
@@ -252,6 +253,8 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             }
         case "merge_dispatch":
             return "The repair Engineer is fixing those file clashes now. RunWield will check the fix, then try again.";
+        case "publication_blocked":
+            return `RunWield could not finish publishing ${request.planName} because its saved publication copy was incomplete. Your validated work is safe. Update RunWield, then load this Plan again to resume publication.`;
         case "verified":
             return `${request.planName} is done and on its target branch.`;
         case "context_blocked":

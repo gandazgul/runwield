@@ -78,9 +78,14 @@ export type ValidationWorkflowBranchId =
 
 export interface ValidationEvidenceRequirement {
     transcriptIncludes: string[];
+    transcriptExcludes: string[];
     eventIncludes: string[];
     turnIncludes: string[];
     statePaths: string[];
+    stateEquals: Record<string, ValidationStateValue>;
+    stateAbsent: string[];
+    interactionValues: string[];
+    interactionAbsentValues: string[];
 }
 
 export interface ValidationWorkflowBranch {
@@ -212,7 +217,7 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "mechanical:ci:exhausted-follow-up": "validation-tree-validation-exhausted-follow-up",
     "mechanical:ci:exhausted-stop": "validation-tree-validation-exhausted-stop",
     "mechanical:objective:none": "validation-tree-objective-none",
-    "mechanical:objective:all-pass": "validation-tree-objective-none",
+    "mechanical:objective:all-pass": "validation-tree-objective-all-pass",
     "mechanical:objective:mixed-waived": "validation-tree-objective-mixed-waived",
     "mechanical:objective:repair-completed": "validation-tree-objective-repair-completed",
     "mechanical:objective:repair-incomplete": "validation-tree-objective-repair-incomplete",
@@ -244,7 +249,7 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "semantic:entry:non-git-skip": "validation-tree-non-git-delivery",
     "semantic:entry:empty-diff-skip": "validation-tree-empty-diff-skip",
     "semantic:entry:plan-only-diff-fails": "validation-tree-plan-only-diff-fails",
-    "human-review:none": "validation-tree-human-review-ask-skip",
+    "human-review:none": "validation-tree-human-review-none",
     "human-review:ask-skip": "validation-tree-human-review-ask-skip",
     "human-review:ask-open-approve": "validation-tree-human-review-ask-open-approve",
     "human-review:always-approve": "validation-tree-human-review-always-approve",
@@ -296,6 +301,10 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "lifecycle:unsupported-status-fails-closed") return ["Plan has unknown status: sideways"];
     if (id.includes("plan-amendment")) return ["Plan amendment"];
     if (id.includes(":ci:")) return ["CI"];
+    if (id === "mechanical:objective:none") return ["The build and tests passed."];
+    if (id === "mechanical:objective:all-pass") {
+        return ["Objective Check passed.", "done and on its target branch"];
+    }
     if (id.includes(":objective:")) return ["Objective"];
     if (id.includes("broken-objective")) return ["Objective-Failing Check"];
     if (id.startsWith("semantic:round-limit:")) return ["Look once more, read it, or stop."];
@@ -304,7 +313,8 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "semantic:entry:empty-diff-skip") return ["Review skipped"];
     if (id === "semantic:entry:plan-only-diff-fails") return ["No implementation changes detected"];
     if (id.startsWith("semantic:")) return ["Code review"];
-    if (id === "human-review:ask-skip" || id === "human-review:none") return ["Workflow Validation verified"];
+    if (id === "human-review:none") return ["Workflow Validation verified"];
+    if (id === "human-review:ask-skip") return ["Workflow Validation verified"];
     if (id === "human-review:no-answer-retry" || id === "human-review:no-answer-stop") {
         return ["Pick Retry to open it again"];
     }
@@ -341,6 +351,22 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
             "done and on its target branch",
         ];
     }
+    if (id === "publication:merge-conflict-repair-completed") {
+        return [
+            "repair Engineer is fixing",
+            ...successfulPublicationProgress,
+            "done and on its target branch",
+        ];
+    }
+    if (id === "publication:merge-conflict-repair-incomplete-retry") {
+        return [...successfulPublicationProgress, "done and on its target branch"];
+    }
+    if (id === "publication:merge-conflict-repair-incomplete-stop") return ["could not combine"];
+    if (id === "publication:missing-target-branch") return ["Target branch main is missing"];
+    if (id === "publication:stale-repair-worktree") {
+        return [...successfulPublicationProgress, "done and on its target branch"];
+    }
+    if (id === "publication:generic-git-failure") return ["saved publication copy was incomplete"];
     if (id.startsWith("publication:")) return ["Publication"];
     return ["Plan recovery"];
 }
@@ -349,6 +375,7 @@ function turnRequirementFor(id: ValidationWorkflowBranchId): string[] {
     const objectiveSuccess = id === "mechanical:objective:none" || id === "mechanical:objective:all-pass" ||
         id === "mechanical:objective:mixed-waived";
     if (objectiveSuccess) return ["reviewer"];
+    if (id === "publication:merge-conflict-repair-completed") return ["engineer"];
     if (id.startsWith("publication:")) return [];
     if (id.includes("follow-up") || id.includes("repair") || id.includes("feedback")) return ["engineer"];
     if (id.startsWith("semantic:entry:")) return [];
@@ -376,12 +403,57 @@ function statePathsFor(id: ValidationWorkflowBranchId): string[] {
     return paths;
 }
 
+function stateEqualsFor(id: ValidationWorkflowBranchId): Record<string, ValidationStateValue> {
+    if (id === "mechanical:objective:all-pass") {
+        return {
+            "publication.remotePlanAttrs.objectiveChecks.0.id": "OC_PASS",
+            "publication.remotePlanAttrs.objectiveChecks.0.command": "true",
+        };
+    }
+    if (id === "human-review:none") {
+        return {
+            "projectState.plans.0.attrs.humanReviewMode": "none",
+            "projectState.plans.0.attrs.humanReviewDecision": "not_required",
+        };
+    }
+    if (id === "human-review:ask-skip") {
+        return {
+            "projectState.plans.0.attrs.humanReviewMode": "ask",
+            "projectState.plans.0.attrs.humanReviewDecision": "skipped",
+        };
+    }
+    return {};
+}
+
+function stateAbsentFor(id: ValidationWorkflowBranchId): string[] {
+    return id === "mechanical:objective:none" ? ["projectState.plans.0.attrs.objectiveChecks"] : [];
+}
+
+function interactionValuesFor(id: ValidationWorkflowBranchId): string[] {
+    return id === "human-review:ask-skip" ? ["skip"] : [];
+}
+
+function transcriptExcludesFor(id: ValidationWorkflowBranchId): string[] {
+    if (id === "mechanical:objective:none") return ["Running checks for"];
+    if (id === "human-review:none") return ["read the changes before the merge"];
+    return [];
+}
+
+function interactionAbsentValuesFor(id: ValidationWorkflowBranchId): string[] {
+    return id === "human-review:none" ? ["open", "skip"] : [];
+}
+
 function evidenceFor(id: ValidationWorkflowBranchId): ValidationEvidenceRequirement {
     return {
         transcriptIncludes: transcriptRequirementFor(id),
+        transcriptExcludes: transcriptExcludesFor(id),
         eventIncludes: ["project:state:captured"],
         turnIncludes: turnRequirementFor(id),
         statePaths: statePathsFor(id),
+        stateEquals: stateEqualsFor(id),
+        stateAbsent: stateAbsentFor(id),
+        interactionValues: interactionValuesFor(id),
+        interactionAbsentValues: interactionAbsentValuesFor(id),
     };
 }
 
@@ -498,6 +570,9 @@ export function assertValidationBranchEvidence(
     for (const required of branch.evidence.transcriptIncludes) {
         assert(text.includes(required), `Branch ${id} missing visible transcript text: ${required}`);
     }
+    for (const forbidden of branch.evidence.transcriptExcludes) {
+        assert(!text.includes(forbidden), `Branch ${id} unexpectedly showed transcript text: ${forbidden}`);
+    }
     for (const required of branch.evidence.eventIncludes) {
         assert(
             (result.events || []).some((event) => event.includes(required)),
@@ -511,6 +586,28 @@ export function assertValidationBranchEvidence(
     }
     for (const required of branch.evidence.statePaths) {
         assert(stateValue(result, required) !== undefined, `Branch ${id} missing durable state path: ${required}`);
+    }
+    for (const [path, expected] of Object.entries(branch.evidence.stateEquals)) {
+        assertEquals(stateValue(result, path), expected, `Branch ${id} has the wrong durable state at ${path}.`);
+    }
+    for (const path of branch.evidence.stateAbsent) {
+        assertEquals(stateValue(result, path), undefined, `Branch ${id} unexpectedly has durable state at ${path}.`);
+    }
+    const consumedInteractionValues = (stateValue(result, "scriptedInteractions") as ValidationStateValue[] || [])
+        .map((entry) => {
+            if (!entry || typeof entry !== "object" || Array.isArray(entry)) return undefined;
+            const interaction = entry.interaction;
+            if (!interaction || typeof interaction !== "object" || Array.isArray(interaction)) return undefined;
+            return interaction.value;
+        });
+    for (const value of branch.evidence.interactionValues) {
+        assert(consumedInteractionValues.includes(value), `Branch ${id} did not consume interaction value ${value}.`);
+    }
+    for (const value of branch.evidence.interactionAbsentValues) {
+        assert(
+            !consumedInteractionValues.includes(value),
+            `Branch ${id} unexpectedly consumed interaction value ${value}.`,
+        );
     }
 }
 

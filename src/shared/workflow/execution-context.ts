@@ -524,7 +524,15 @@ export async function resolveValidationExecutionContext({
             `Execution worktree is on ${checkedOutBranch || "detached HEAD"}, not ${worktreeBranch}.`,
         );
     }
-    await runGit(projectRoot, ["rev-parse", `refs/heads/${worktreeBaseBranch}`]);
+    const targetBranchExists = await runGit(projectRoot, ["rev-parse", `refs/heads/${worktreeBaseBranch}`])
+        .then(() => true)
+        .catch(() => false);
+    if (!targetBranchExists) {
+        return blocked(
+            "missing_target_branch",
+            `Target branch ${worktreeBaseBranch} is missing. Restore or create that branch, then run validation again.`,
+        );
+    }
     const actualBaselineTree = await runGit(canonicalWorktreePath, ["rev-parse", `${baselineTree}^{tree}`]);
     if (!actualBaselineTree) {
         return blocked(

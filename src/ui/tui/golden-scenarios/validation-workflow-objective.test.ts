@@ -1,4 +1,5 @@
 import {
+    validationTreeObjectiveAllPassScenario,
     validationTreeObjectiveCancelFollowUpScenario,
     validationTreeObjectiveCancelRetryScenario,
     validationTreeObjectiveCancelStopScenario,
@@ -14,6 +15,7 @@ import { registerValidationWorkflowTests } from "./validation-workflow-test-runn
 
 registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow-tree-mechanical.ts", [
     { scenario: validationTreeObjectiveNoneScenario, exportName: "validationTreeObjectiveNoneScenario" },
+    { scenario: validationTreeObjectiveAllPassScenario, exportName: "validationTreeObjectiveAllPassScenario" },
     {
         scenario: validationTreeObjectiveMixedWaivedScenario,
         exportName: "validationTreeObjectiveMixedWaivedScenario",

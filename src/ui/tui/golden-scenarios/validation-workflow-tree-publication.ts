@@ -1,6 +1,4 @@
 import { assert, assertEquals } from "@std/assert";
-import { getCwd } from "../../../constants.js";
-import { git } from "../../../shared/worktree-test-helpers.js";
 import { assertsGoldenCoverage } from "../testing/portfolio-assertions.js";
 import { withValidationBranches } from "./validation-workflow-tree-shared.ts";
 
@@ -303,6 +301,32 @@ export const validationTreePublicationMergeConflictRepairCompletedScenario = wit
         }],
         script: [
             {
+                id: "operator-records-publication-qa",
+                agent: "operator",
+                phase: "operator",
+                ordinal: 1,
+                optional: true,
+                requiredTools: ["qa_checklist_generated"],
+                toolCalls: [{
+                    name: "qa_checklist_generated",
+                    arguments: {
+                        checklistMarkdown:
+                            "Manual verification steps for publication-merge-conflict-repair-completed\n\n- [ ] Confirm the repaired file is published.",
+                    },
+                }],
+            },
+            {
+                id: "recorder-records-publication-repair",
+                agent: "recorder",
+                phase: "work_record",
+                ordinal: 1,
+                text: JSON.stringify({
+                    title: "Publication repair",
+                    summary: "Recorded the repaired publication fixture.",
+                    deviationsFromPlan: "None.",
+                }),
+            },
+            {
                 id: "engineer-repairs-publication-merge-conflict",
                 agent: "engineer",
                 phase: "engineer",
@@ -314,7 +338,7 @@ export const validationTreePublicationMergeConflictRepairCompletedScenario = wit
                         name: "bash",
                         arguments: {
                             command:
-                                "printf 'repaired version\n' > publication-merge-conflict.txt\ngit add publication-merge-conflict.txt\ngit commit -m 'repair publication merge conflict'",
+                                "printf 'repaired version\n' > publication-merge-conflict.txt\nrm -rf .wld\ngit add -A",
                         },
                     },
                     { name: "task_completed", arguments: { message: "- Repaired publication merge conflict." } },
@@ -340,24 +364,26 @@ export const validationTreePublicationMergeConflictRepairCompletedScenario = wit
                 path: "publication-merge-conflict.txt",
                 text: "target version\n",
             },
+            { type: "capturePublicationBaseline", paths: ["publication-merge-conflict.txt"] },
             { type: "type", text: "/load-plan publication-merge-conflict-repair-completed" },
             { type: "enter" },
             { type: "enter" },
             {
-                type: "waitForPlanStatus",
+                type: "waitForWorktreeRegistryStatus",
                 planName: "publication-merge-conflict-repair-completed",
-                statuses: ["verified"],
+                statuses: ["absent"],
                 timeoutMs: 120000,
             },
             { type: "waitForIdle", timeoutMs: 120000 },
-            { type: "captureProjectState", planNames: ["publication-merge-conflict-repair-completed"] },
+            {
+                type: "capturePublicationState",
+                planName: "publication-merge-conflict-repair-completed",
+                deliveredPath: "publication-merge-conflict.txt",
+            },
         ],
         assertions: [
-            async () => {
-                assertEquals(
-                    (await git(getCwd(), ["show", "main:publication-merge-conflict.txt"])).trim(),
-                    "repaired version",
-                );
+            (result: PublicationState) => {
+                assertPublishedWithoutPrimaryMutation(result, "repaired version");
             },
         ],
     },
@@ -381,14 +407,36 @@ export const validationTreePublicationMergeConflictRepairIncompleteRetryScenario
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Publication merge conflict repair incomplete retry\naffectedPaths: []\nstatus: ready_for_work\nplanId: publication-merge-conflict-repair-incomplete-retry-plan\nobjectiveChecks:\n  - id: OC_PUBLICATION_MERGE_RETRY\n    command: test -f publication-merge-conflict-retry.txt\n---\n# Publication merge conflict repair incomplete retry\n\nDraft content.\n",
         }],
-        script: [1].map((ordinal) => ({
-            id: `engineer-leaves-publication-merge-conflict-retry-incomplete-${ordinal}`,
-            agent: "engineer",
-            phase: "engineer",
-            planName: "publication-merge-conflict-repair-incomplete-retry",
-            ordinal,
-            text: `Merge repair attempt ${ordinal} did not call task_completed before user retry.`,
-        })),
+        script: [
+            {
+                id: "operator-records-incomplete-retry-qa",
+                agent: "operator",
+                phase: "operator",
+                ordinal: 1,
+                optional: true,
+                text: "Manual QA is not needed for this fixture.",
+            },
+            {
+                id: "recorder-records-incomplete-retry",
+                agent: "recorder",
+                phase: "work_record",
+                ordinal: 1,
+                optional: true,
+                text: JSON.stringify({
+                    title: "Publication repair retry",
+                    summary: "Recorded the publication retry fixture.",
+                    deviationsFromPlan: "None.",
+                }),
+            },
+            {
+                id: "engineer-leaves-publication-merge-conflict-retry-incomplete-1",
+                agent: "engineer",
+                phase: "engineer",
+                planName: "publication-merge-conflict-repair-incomplete-retry",
+                ordinal: 1,
+                text: "Merge repair did not call task_completed before user retry.",
+            },
+        ],
         scriptedInteractions: [
             {
                 type: "select",
@@ -401,7 +449,8 @@ export const validationTreePublicationMergeConflictRepairIncompleteRetryScenario
                 userFixesFirst: {
                     path: "publication-merge-conflict-retry.txt",
                     text: "resolved version\n",
-                    commands: ["git add publication-merge-conflict-retry.txt"],
+                    target: "repair",
+                    commands: ["rm -rf .wld", "git add publication-merge-conflict-retry.txt"],
                 },
                 value: "retry",
             },
@@ -420,22 +469,26 @@ export const validationTreePublicationMergeConflictRepairIncompleteRetryScenario
                 path: "publication-merge-conflict-retry.txt",
                 text: "target version\n",
             },
+            { type: "capturePublicationBaseline", paths: ["publication-merge-conflict-retry.txt"] },
             { type: "type", text: "/load-plan publication-merge-conflict-repair-incomplete-retry" },
             { type: "enter" },
             { type: "enter" },
             {
-                type: "waitForPlanStatus",
+                type: "waitForWorktreeRegistryStatus",
                 planName: "publication-merge-conflict-repair-incomplete-retry",
-                statuses: ["verified"],
+                statuses: ["absent"],
                 timeoutMs: 120000,
+            },
+            { type: "waitForIdle", timeoutMs: 120000 },
+            {
+                type: "capturePublicationState",
+                planName: "publication-merge-conflict-repair-incomplete-retry",
+                deliveredPath: "publication-merge-conflict-retry.txt",
             },
         ],
         assertions: [
-            async () => {
-                assertEquals(
-                    (await git(getCwd(), ["show", "main:publication-merge-conflict-retry.txt"])).trim(),
-                    "resolved version",
-                );
+            (result: PublicationState) => {
+                assertPublishedWithoutPrimaryMutation(result, "resolved version");
             },
         ],
     },
@@ -459,14 +512,36 @@ export const validationTreePublicationMergeConflictRepairIncompleteStopScenario 
             text:
                 "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Publication merge conflict repair incomplete stop\naffectedPaths: []\nstatus: ready_for_work\nplanId: publication-merge-conflict-repair-incomplete-stop-plan\nobjectiveChecks:\n  - id: OC_PUBLICATION_MERGE_STOP\n    command: test -f publication-merge-conflict-stop.txt\n---\n# Publication merge conflict repair incomplete stop\n\nDraft content.\n",
         }],
-        script: [1, 2, 3].map((ordinal) => ({
-            id: `engineer-leaves-publication-merge-conflict-incomplete-${ordinal}`,
-            agent: "engineer",
-            phase: "engineer",
-            planName: "publication-merge-conflict-repair-incomplete-stop",
-            ordinal,
-            text: `Merge repair attempt ${ordinal} did not call task_completed.`,
-        })),
+        script: [
+            {
+                id: "operator-records-incomplete-stop-qa",
+                agent: "operator",
+                phase: "operator",
+                ordinal: 1,
+                optional: true,
+                text: "Manual QA is not needed for this fixture.",
+            },
+            {
+                id: "recorder-records-incomplete-stop",
+                agent: "recorder",
+                phase: "work_record",
+                ordinal: 1,
+                optional: true,
+                text: JSON.stringify({
+                    title: "Publication repair stop",
+                    summary: "Recorded the stopped publication repair fixture.",
+                    deviationsFromPlan: "None.",
+                }),
+            },
+            {
+                id: "engineer-leaves-publication-merge-conflict-incomplete-1",
+                agent: "engineer",
+                phase: "engineer",
+                planName: "publication-merge-conflict-repair-incomplete-stop",
+                ordinal: 1,
+                text: "Merge repair did not call task_completed.",
+            },
+        ],
         scriptedInteractions: [
             {
                 type: "select",
@@ -577,7 +652,6 @@ export const validationTreePublicationGenericGitFailureScenario = withValidation
                 promptIncludes: "Plan recovery (validated_reviewer)",
                 value: "validate",
             },
-            { type: "select", promptIncludes: "could not add", value: "stop" },
         ],
         actions: [
             {

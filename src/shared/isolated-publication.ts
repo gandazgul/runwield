@@ -214,6 +214,19 @@ export async function publishExecutionWorktreeIsolated(
         if (args.repairedPublicationRoot) {
             const expectedRemoteHead = await remoteHead(publicationRoot, upstream.url, upstream.branch);
             const targetHeadBeforeMerge = await runGit(publicationRoot, ["rev-parse", "HEAD^1"]);
+            // The execution worktree can gain a final lifecycle commit after the
+            // repair clone was created. A clone owns a separate object database, so
+            // referring to that new commit by hash before fetching it produces
+            // "not something we can merge" forever on every retry.
+            const sourceRemote = await runGitResult(publicationRoot, ["remote", "get-url", "runwield-source"]);
+            if (sourceRemote.code !== 0) {
+                await runGit(publicationRoot, ["remote", "add", "runwield-source", args.projectRoot]);
+            }
+            await runGit(publicationRoot, [
+                "fetch",
+                "runwield-source",
+                `+refs/heads/${args.executionBranch}:refs/remotes/runwield-source/${args.executionBranch}`,
+            ]);
             args.onProgress?.("combining_work");
             const containsExecutionHead = await runGitResult(publicationRoot, [
                 "merge-base",
@@ -341,11 +354,11 @@ export async function publishExecutionWorktreeIsolated(
         } catch (error) {
             preserveForRecovery = true;
             const mergeError = error instanceof Error ? error : new Error(String(error));
-            const classified = mergeError as IsolatedPublicationError;
-            classified.repairCwd = publicationRoot;
-            classified.mergeWorktreePath = publicationRoot;
-            classified.mergeFailureKind ||= "isolated_publication_conflict";
-            throw classified;
+            throw new IsolatedPublicationError(mergeError.message, {
+                repairCwd: publicationRoot,
+                mergeWorktreePath: publicationRoot,
+                mergeFailureKind: "isolated_publication_conflict",
+            });
         }
         const deliveryCommit = await runGit(publicationRoot, ["rev-parse", "HEAD"]);
         const publicationCommit = await commitPublicationMetadata(publicationRoot, args.planName);

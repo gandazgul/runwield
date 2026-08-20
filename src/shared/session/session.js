@@ -959,6 +959,34 @@ export function applySessionTemperature(session, temperature) {
     };
 }
 
+/** @type {WeakMap<object, Set<string>>} */
+const emittedAgentModelFallbacks = new WeakMap();
+
+/**
+ * @param {import('./hosted-session.js').HostedSession | undefined} hostedSession
+ * @param {string} agentName
+ * @param {string} displayName
+ * @param {string} engineerModel
+ */
+function emitAgentModelFallback(hostedSession, agentName, displayName, engineerModel) {
+    const key = `${agentName}\u0000${engineerModel}`;
+    if (hostedSession) {
+        let emitted = emittedAgentModelFallbacks.get(hostedSession);
+        if (!emitted) {
+            emitted = new Set();
+            emittedAgentModelFallbacks.set(hostedSession, emitted);
+        }
+        if (emitted.has(key)) return;
+        emitted.add(key);
+    }
+    const subject = agentName === AGENTS.REVIEWER_FEEDBACK_ENGINEER ? "The repair Engineer" : displayName;
+    emitSystemStatus(
+        hostedSession,
+        `${subject} will use the Engineer model (${engineerModel}).`,
+        { level: "info", header: "RunWield" },
+    );
+}
+
 /**
  * Resolve the model to use for an agent invocation, based on the following priority:
  * 1) Active model state from a manual /model switch
@@ -1023,10 +1051,11 @@ async function resolveModel(
         } else if (candidateModels.length === 0 && agentName.toLowerCase() !== "engineer") {
             const engineerModel = getConfiguredAgentModel("engineer", projectRoot);
             if (engineerModel) {
-                emitSystemStatus(
+                emitAgentModelFallback(
                     hostedSession || undefined,
-                    `[RunWield] No model configured for agent "${agentName}"; falling back to Engineer model: ${engineerModel}`,
-                    { level: "warning" },
+                    agentName,
+                    agentDef.displayName || agentName,
+                    engineerModel,
                 );
                 candidateModels.push({
                     model: engineerModel,

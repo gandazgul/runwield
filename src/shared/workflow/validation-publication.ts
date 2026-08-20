@@ -41,6 +41,7 @@ import { MAX_AGENT_MERGE_REPAIRS } from "./validation-types.ts";
 import {
     describeMergePause,
     dispatchMergeRepair,
+    finalizeMergeRepair,
     getMergeFailureKind,
     getMergeWorktreePath,
     persistValidationMergeRepairWorktree,
@@ -283,7 +284,13 @@ export async function runPublicationPhase(
                 },
             };
         }
-        if (await pauseForUserAction(args, pause) === "retry") continue;
+        if (await pauseForUserAction(args, pause) === "retry") {
+            // The user may have staged resolutions, left unstaged repair files, or
+            // committed some/all of the repair themselves. Normalize every one of
+            // those valid states before publication reads the repaired candidate.
+            if (repairMergeWorktreePath && await finalizeMergeRepair(repairMergeWorktreePath)) continue;
+            continue;
+        }
         return {
             recorded: false,
             result: {
@@ -335,24 +342,22 @@ export async function runPublicationPhase(
         };
         const hierarchy = await loadDirectDeliveryHierarchySnapshot(context.executionCwd, args.planName)
             .catch(() => ({ revision: undefined, parentPlan: undefined, siblingPlans: [] }));
-        const repairedPlanPaths = new Set([planPath]);
-        if (hierarchy.parentPlan) repairedPlanPaths.add(`docs/plans/${hierarchy.parentPlan}.md`);
-        for (const sibling of hierarchy.siblingPlans) repairedPlanPaths.add(`docs/plans/${sibling.name}.md`);
-        const staging = repairedCandidate
-            ? { planPaths: [...repairedPlanPaths] }
-            : await stageValidationPassedInExecutionWorktree({
-                projectRoot: context.projectRoot,
-                executionCwd: context.executionCwd,
-                planName: args.planName,
-                details: {
-                    triageMeta: args.triageMeta,
-                    executionMode: "worktree",
-                    deliveryEvidence,
-                    worktreeStatus: "merged",
-                    cleanupMergedWorktrees,
-                    ...humanReviewMetadata,
-                },
-            });
+        // Repair may have happened before the latest lifecycle state was written.
+        // Always stage the current validated Plan in the execution worktree; the
+        // repaired publication clone imports that later commit before it publishes.
+        const staging = await stageValidationPassedInExecutionWorktree({
+            projectRoot: context.projectRoot,
+            executionCwd: context.executionCwd,
+            planName: args.planName,
+            details: {
+                triageMeta: args.triageMeta,
+                executionMode: "worktree",
+                deliveryEvidence,
+                worktreeStatus: "merged",
+                cleanupMergedWorktrees,
+                ...humanReviewMetadata,
+            },
+        });
         // The validated Plan and Work Record are the final Git-visible lifecycle
         // state. Generate them in the execution worktree before publication so a
         // failed push leaves one complete, retryable branch.

@@ -25,7 +25,7 @@ I would order the overlapping group like this:
 
 4. Reassess/archive mode-specific-engineer-context.md and generalize-pair-execution-to-engineer.md.
 
-5. classify-validation-operational-errors.md - in progress
+5. classify-validation-operational-errors.md - done
 
 6. Optional before foundation: guided-validation-repair.md
 

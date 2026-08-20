@@ -412,6 +412,58 @@ async function writeVisionModelConfig(tempHome) {
     );
 }
 
+Deno.test("Engineer model fallback is one regular system message per Agent", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-agent-model-fallback-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession[]} */
+        const sessions = [];
+        /** @type {import('../session-runtime-events.js').SessionRuntimeEvent[]} */
+        const events = [];
+        try {
+            Deno.env.set("HOME", tempHome);
+            await writeVisionModelConfig(tempHome);
+            await Deno.writeTextFile(
+                join(tempHome, ".wld", "settings.json"),
+                `${JSON.stringify({ agents: { engineer: { model: "test/model" } } }, null, 4)}\n`,
+            );
+            __resetSettingsForTests();
+            const eventSink = {
+                /** @param {import('../session-runtime-events.js').SessionRuntimeEvent} event */
+                emit(event) {
+                    events.push(event);
+                },
+            };
+            const hostedSession = new HostedSession({
+                id: "agent-model-fallback",
+                cwd: tempHome,
+                eventSink,
+            });
+
+            for (let index = 0; index < 2; index++) {
+                const built = await buildAgentSession({
+                    hostedSession,
+                    agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+                    subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
+                });
+                sessions.push(built.session);
+            }
+
+            const notices = events.filter((event) => event.type === "system_status");
+            assertEquals(notices.length, 1);
+            assertEquals(notices[0].header, "RunWield");
+            assertEquals(notices[0].level, "info");
+            assertEquals(notices[0].message, "The repair Engineer will use the Engineer model (test/model).");
+        } finally {
+            for (const session of sessions) session.dispose();
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            await removeTempDir(tempHome);
+        }
+    });
+});
+
 Deno.test("buildAgentSession applies invocation thinking override before settings and agent defaults", async () => {
     await withProcessGlobalTestLock(async () => {
         const originalHome = Deno.env.get("HOME");

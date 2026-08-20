@@ -11,10 +11,18 @@ import {
 } from "./validation-workflow-coverage.ts";
 
 function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowResultLike {
-    const owner = VALIDATION_WORKFLOW_BRANCHES.find((branch) => branch.id === id)?.owner || "";
+    const branch = VALIDATION_WORKFLOW_BRANCHES.find((entry) => entry.id === id);
+    const owner = branch?.owner || "";
+    const humanReviewMode = id === "human-review:none" ? "none" : id === "human-review:ask-skip" ? "ask" : "always";
+    const humanReviewDecision = id === "human-review:none"
+        ? "not_required"
+        : id === "human-review:ask-skip"
+        ? "skipped"
+        : "approved";
+    const objectiveChecks = id === "mechanical:objective:all-pass" ? [{ id: "OC_PASS", command: "true" }] : undefined;
     return {
         name: owner,
-        screenText: VALIDATION_WORKFLOW_BRANCHES.flatMap((branch) => branch.evidence.transcriptIncludes).join("\n"),
+        screenText: branch?.evidence.transcriptIncludes.join("\n") || "",
         scrollbackText: [
             `validation branch ${id}`,
             "Build, tests, and Objective-Failing Checks passed.",
@@ -35,7 +43,9 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
                         status: "verified",
                         validationCiAttempts: 0,
                         validationSemanticRounds: 1,
-                        humanReviewDecision: "approved",
+                        humanReviewMode,
+                        humanReviewDecision,
+                        ...(objectiveChecks ? { objectiveChecks } : {}),
                         failureReason: null,
                     },
                 }],
@@ -46,7 +56,9 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
                 { interaction: { value: "validation-command" } },
                 { interaction: { value: "retry" } },
                 { interaction: { value: "validate" } },
-                ...Object.keys(VALIDATION_INTERACTION_OPTION_BRANCHES).map((value) => ({ interaction: { value } })),
+                ...Object.keys(VALIDATION_INTERACTION_OPTION_BRANCHES)
+                    .filter((value) => id !== "human-review:none" || (value !== "open" && value !== "skip"))
+                    .map((value) => ({ interaction: { value } })),
             ],
             humanReviews: {
                 decisions: [
@@ -56,6 +68,7 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
             },
             publication: {
                 remotePlanStatus: "validated",
+                remotePlanAttrs: objectiveChecks ? { objectiveChecks } : {},
                 registryEntries: [],
             },
             pendingPublication: {

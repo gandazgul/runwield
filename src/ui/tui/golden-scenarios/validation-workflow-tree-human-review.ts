@@ -1,6 +1,25 @@
 import { plannedChangeReviewRepairValidationScenario } from "./planned-change-workflow.js";
 import { withValidationBranches } from "./validation-workflow-tree-shared.ts";
 
+export const validationTreeHumanReviewNoneScenario = withValidationBranches(
+    {
+        ...plannedChangeReviewRepairValidationScenario,
+        committedProjectFiles: [
+            {
+                path: ".wld/settings.json",
+                text: `${JSON.stringify({ codereview: "none" }, null, 4)}\n`,
+            },
+        ],
+        actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
+            action.type !== "assertWorkflowDurability"
+        ),
+        assertions: [],
+    },
+    "validation-tree-human-review-none",
+    ["plan"],
+    ["human-review:none"],
+);
+
 export const validationTreeHumanReviewAskSkipScenario = withValidationBranches(
     {
         ...plannedChangeReviewRepairValidationScenario,
@@ -21,7 +40,7 @@ export const validationTreeHumanReviewAskSkipScenario = withValidationBranches(
     },
     "validation-tree-human-review-ask-skip",
     ["plan"],
-    ["human-review:ask-skip", "human-review:none"],
+    ["human-review:ask-skip"],
 );
 
 export const validationTreeHumanReviewAskOpenApproveScenario = withValidationBranches(
@@ -184,6 +203,7 @@ export const validationTreeHumanReviewFeedbackRepairApproveScenario = withValida
 );
 
 export const validationWorkflowHumanReviewScenarios = [
+    validationTreeHumanReviewNoneScenario,
     validationTreeHumanReviewAskSkipScenario,
     validationTreeHumanReviewAskOpenApproveScenario,
     validationTreeHumanReviewAlwaysApproveScenario,

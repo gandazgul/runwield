@@ -12,6 +12,7 @@ export {
     validationTreeCiLoopScenario,
     validationTreeCiRepairIncompleteScenario,
     validationTreeCiRetrySuccessScenario,
+    validationTreeObjectiveAllPassScenario,
     validationTreeObjectiveCancelFollowUpScenario,
     validationTreeObjectiveCancelRetryScenario,
     validationTreeObjectiveCancelStopScenario,
@@ -54,14 +55,21 @@ export {
     validationTreeHumanReviewFeedbackRepairApproveScenario,
     validationTreeHumanReviewNoAnswerRetryScenario,
     validationTreeHumanReviewNoAnswerStopScenario,
+    validationTreeHumanReviewNoneScenario,
     validationWorkflowHumanReviewScenarios,
 } from "./validation-workflow-tree-human-review.ts";
 export {
+    validationTreePublicationGenericGitFailureScenario,
     validationTreePublicationIsolatedDirtyPrimaryScenario,
     validationTreePublicationLegacyPartialRetryScenario,
     validationTreePublicationLocalOnlyScenario,
+    validationTreePublicationMergeConflictRepairCompletedScenario,
+    validationTreePublicationMergeConflictRepairIncompleteRetryScenario,
+    validationTreePublicationMergeConflictRepairIncompleteStopScenario,
+    validationTreePublicationMissingTargetBranchScenario,
     validationTreePublicationPushFailureRetryScenario,
     validationTreePublicationRemoteTargetAdvanceScenario,
+    validationTreePublicationStaleRepairWorktreeScenario,
     validationWorkflowPublicationScenarios,
 } from "./validation-workflow-tree-publication.ts";
 export {

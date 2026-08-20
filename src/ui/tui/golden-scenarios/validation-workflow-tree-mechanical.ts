@@ -1060,7 +1060,78 @@ export const validationTreeObjectiveNoneScenario = withValidationBranches(
     },
     "validation-tree-objective-none",
     ["objective-none"],
-    ["mechanical:objective:none", "mechanical:objective:all-pass"],
+    ["mechanical:objective:none"],
+);
+
+export const validationTreeObjectiveAllPassScenario = withValidationBranches(
+    {
+        name: "validation-tree-objective-all-pass-base",
+        composedTui: true,
+        initialAgentName: "guide",
+        terminal: { columns: 100, rows: 30 },
+        timeoutMs: 180000,
+        committedProjectFiles: [
+            { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
+        ],
+        initialProjectFiles: [{
+            path: "docs/plans/objective-all-pass.md",
+            text:
+                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Objective all pass\naffectedPaths: []\nstatus: ready_for_work\nplanId: objective-all-pass-plan\nobjectiveChecks:\n  - id: OC_PASS\n    command: "true"\n---\n# Objective all pass\n\nAlready implemented content.\n',
+        }],
+        script: [
+            {
+                id: "reviewer-approves-objective-all-pass",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "objective-all-pass",
+                ordinal: 1,
+                requiredTools: ["review_diff", "review_complete"],
+                toolCalls: [
+                    { name: "review_diff", arguments: { command: "list" } },
+                    { name: "review_complete", arguments: { approved: true, feedback: "All-pass path approved." } },
+                ],
+            },
+            {
+                id: "reviewer-closes-objective-all-pass",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "objective-all-pass",
+                ordinal: 2,
+                text: "Approved validation after the Objective Check passed.",
+            },
+        ],
+        scriptedInteractions: [
+            { type: "select", promptIncludes: "Plan recovery (implemented)", value: "validate" },
+        ],
+        actions: [
+            {
+                type: "seedActiveWorktree",
+                planName: "objective-all-pass",
+                status: "implemented",
+                files: [{ path: "implementation.txt", text: "implemented\n" }],
+            },
+            { type: "type", text: "/load-plan objective-all-pass" },
+            { type: "enter" },
+            { type: "enter" },
+            {
+                type: "waitForWorktreeRegistryStatus",
+                planName: "objective-all-pass",
+                statuses: ["absent"],
+                timeoutMs: 90000,
+            },
+            { type: "waitForIdle", timeoutMs: 90000 },
+            { type: "captureProjectState", planNames: ["objective-all-pass"] },
+            {
+                type: "capturePublicationState",
+                planName: "objective-all-pass",
+                deliveredPath: "implementation.txt",
+            },
+        ],
+        assertions: [],
+    },
+    "validation-tree-objective-all-pass",
+    ["objective-all-pass"],
+    ["mechanical:objective:all-pass"],
 );
 
 export const validationTreeObjectiveMixedWaivedScenario = withValidationBranches(
@@ -1474,6 +1545,7 @@ export const validationWorkflowMechanicalScenarios = [
     validationTreeObjectiveCancelStopScenario,
     validationTreeObjectiveMixedWaivedScenario,
     validationTreeObjectiveNoneScenario,
+    validationTreeObjectiveAllPassScenario,
     validationTreeObjectiveRepairCompletedScenario,
     validationTreeObjectiveRepairIncompleteScenario,
     validationTreeObjectiveExhaustedRetryScenario,
