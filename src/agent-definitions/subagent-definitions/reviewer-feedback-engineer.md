@@ -3,7 +3,6 @@ name: Validation Repair Engineer
 description: "Focused repair agent that fixes one supplied validation failure in retained context."
 temperature: 0.4
 sharedPractice:
-    - user-authority
     - working-tree-safety
     - engineering-practice
 tools:

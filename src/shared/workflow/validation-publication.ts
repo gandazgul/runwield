@@ -20,9 +20,11 @@ import {
 } from "../worktree.js";
 import { publishExecutionWorktreeIsolated } from "../isolated-publication.ts";
 import {
+    findById as findWorktreeRegistryEntryById,
     pruneEntry as pruneWorktreeRegistryEntry,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
+import { ensureRunWieldOwnedGitignoreBlock } from "../runwield-owned-paths.ts";
 import { stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
 import { runDirectDeliveryPublicationTransition } from "./state-transition.ts";
 import { readRepairedMergeCandidate } from "./validation-merge-verification.ts";
@@ -158,6 +160,13 @@ export async function runPublicationPhase(
     // drops that narrowing inside the hoisted helpers below.
     const targetBranch: string = worktreeBaseBranch;
     const executionBranch: string = context.worktreeBranch;
+    const storedAttempt = context.worktreeId
+        ? await findWorktreeRegistryEntryById(context.projectRoot, context.worktreeId, { migrate: false }).catch(() =>
+            null
+        )
+        : null;
+    let publicationArtifactsPrepared = storedAttempt?.status === "publication_failed" ||
+        storedAttempt?.status === "validated";
 
     for (;;) {
         const attempt = await attemptPublication();
@@ -215,7 +224,10 @@ export async function runPublicationPhase(
     }
 
     async function publishOnce(): Promise<PublicationOutcome> {
-        if (!repairMergeWorktreePath) await prepareEpicChildManualQaArtifact(args, context.executionCwd);
+        if (!repairMergeWorktreePath && !publicationArtifactsPrepared) {
+            await prepareEpicChildManualQaArtifact(args, context.executionCwd);
+        }
+        await ensureRunWieldOwnedGitignoreBlock(context.executionCwd);
         const repairedCandidate = repairMergeWorktreePath
             ? await readRepairedMergeCandidate(repairMergeWorktreePath)
             : null;
@@ -258,7 +270,10 @@ export async function runPublicationPhase(
         // The validated Plan and Work Record are the final Git-visible lifecycle
         // state. Generate them in the execution worktree before publication so a
         // failed push leaves one complete, retryable branch.
-        await runPostVerificationHandoffs(args, context.executionCwd);
+        if (!publicationArtifactsPrepared) {
+            await runPostVerificationHandoffs(args, context.executionCwd);
+            publicationArtifactsPrepared = true;
+        }
         const validatedCandidate = await checkpointExecutionWorktree({
             worktreePath: context.executionCwd,
             branch: executionBranch,
@@ -340,8 +355,13 @@ export async function runPublicationPhase(
                     sealedExecutionCommit: deliveryEvidence.executionCommit,
                     expectedTargetHead: mergeResult.targetHeadBeforeMerge,
                     publicationCommit: mergeResult.publicationCommit,
-                    upstreamRemote: mergeResult.upstreamRemote,
-                    upstreamBranch: mergeResult.upstreamBranch,
+                    publicationMode: mergeResult.publicationMode,
+                    ...(mergeResult.publicationMode === "remote"
+                        ? {
+                            upstreamRemote: mergeResult.upstreamRemote,
+                            upstreamBranch: mergeResult.upstreamBranch,
+                        }
+                        : {}),
                 });
                 emitStatus(
                     args,
@@ -375,9 +395,10 @@ export async function settlePublishedWorktree(
     context: PhaseContext,
     cleanupMergedWorktrees: boolean,
     publication?: {
+        publicationMode: "local" | "remote";
         publicationCommit: string;
-        upstreamRemote: string;
-        upstreamBranch: string;
+        upstreamRemote?: string;
+        upstreamBranch?: string;
     },
 ): Promise<void> {
     if (context.worktreeId) {
@@ -399,7 +420,8 @@ export async function settlePublishedWorktree(
     }
     if (cleanupMergedWorktrees && context.worktreeBranch) {
         try {
-            const branchCleanup = publication
+            const branchCleanup = publication?.publicationMode === "remote" &&
+                    publication.upstreamRemote && publication.upstreamBranch
                 ? await deleteRemotelyPublishedWorktreeBranch({
                     projectRoot: context.projectRoot,
                     branch: context.worktreeBranch,

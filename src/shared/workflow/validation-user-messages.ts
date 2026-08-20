@@ -67,6 +67,7 @@ export type ValidationMessageRequest =
         phase:
             | "preparing"
             | "reading_target"
+            | "using_local_target"
             | "updating_target"
             | "combining_work"
             | "publishing"
@@ -96,6 +97,7 @@ export type ValidationMessageRequest =
     | { kind: "quick_fix_repair"; agent: string; attempt: number; maxAttempts: number }
     | { kind: "quick_fix_waiting"; agent: string }
     | { kind: "recovery_repair_failed" }
+    | { kind: "implementation_checkpoint_failed" }
     | { kind: "user_action"; whatHappened: string; doThis: string; details?: string[] };
 
 export type ValidationRecoveryNotice =
@@ -231,6 +233,8 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
                     return "RunWield is getting the work ready now.";
                 case "reading_target":
                     return `Reading the latest ${request.targetBranch} branch.`;
+                case "using_local_target":
+                    return `This project has no remote. RunWield will add the finished work to your local ${request.targetBranch} branch.`;
                 case "updating_target":
                     return `RunWield is bringing the safe copy up to date with ${request.targetBranch}.`;
                 case "combining_work":
@@ -294,6 +298,8 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             return `${request.agent} stopped. The fix is not done. Send a work note when it is done.`;
         case "recovery_repair_failed":
             return "RunWield could not check for safe fixes. Your work is safe. Try again.";
+        case "implementation_checkpoint_failed":
+            return "RunWield could not verify the saved implementation. Your work is unchanged. Inspect it or try validation again.";
         case "user_action": {
             const details = request.details?.length
                 ? `\n\n${request.details.map((detail) => `  ${detail}`).join("\n")}`

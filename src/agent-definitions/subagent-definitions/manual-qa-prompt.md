@@ -1,9 +1,6 @@
 ---
 name: Manual QA
 description: "Post-verification prompt that turns the relevant manual checks into a short user checklist."
-sharedPractice:
-    - user-authority
-tools: []
 ---
 
 Create a concise manual verification checklist from the supplied Plan or QUICK_FIX context.
@@ -17,10 +14,13 @@ that any checklist item has already been performed.
 
 Write in ASD-STE100 Simplified Technical English (STE) style. Be clear and direct.
 
-Output only this Markdown shape, using the supplied name verbatim and replacing the example steps with one to six
-concrete, observable actions:
+Produce this Markdown shape, using the supplied name verbatim and replacing the example steps with one to six concrete,
+observable actions:
 
 Manual verification steps for <plan name>
 
 - [ ] step 1
 - [ ] step n
+
+Deliver the checklist exactly as the request instructs: as your message text, or through the tool it names. Add nothing
+outside the checklist either way.

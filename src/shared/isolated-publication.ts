@@ -1,10 +1,11 @@
 /**
- * Assemble Direct Delivery in a temporary clone and push the result to the
- * Plan target branch's upstream. The user's checkout is read-only throughout.
+ * Assemble Direct Delivery in a temporary clone and push it when an upstream
+ * exists. Local-only projects publish through their checked-out target branch.
  */
 
-import { basename } from "@std/path";
+import { basename, dirname, join } from "@std/path";
 import { assertPreMergeCandidateUnchanged, checkpointExecutionWorktree, mergeExecutionWorktree } from "./worktree.js";
+import { RUNWIELD_GITIGNORE_BLOCK } from "./runwield-owned-paths.ts";
 
 interface CommandResult {
     code: number;
@@ -28,20 +29,33 @@ export interface IsolatedPublicationArgs {
 export type IsolatedPublicationProgress =
     | "preparing"
     | "reading_target"
+    | "using_local_target"
     | "updating_target"
     | "combining_work"
     | "publishing"
     | "verifying";
 
-export interface IsolatedPublicationResult {
-    updatedPrimaryCheckout: false;
+interface PublicationResultBase {
+    publicationMode: "local" | "remote";
+    updatedPrimaryCheckout: boolean;
     executionMetadataCommit: string;
     targetHeadBeforeMerge: string;
     deliveryCommit: string;
     publicationCommit: string;
+}
+
+export interface LocalPublicationResult extends PublicationResultBase {
+    publicationMode: "local";
+}
+
+export interface RemotePublicationResult extends PublicationResultBase {
+    publicationMode: "remote";
+    updatedPrimaryCheckout: false;
     upstreamRemote: string;
     upstreamBranch: string;
 }
+
+export type IsolatedPublicationResult = LocalPublicationResult | RemotePublicationResult;
 
 interface UpstreamTarget {
     remote: string;
@@ -83,14 +97,11 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
     throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
 }
 
-async function resolveUpstream(projectRoot: string, targetBranch: string): Promise<UpstreamTarget> {
+async function resolveUpstream(projectRoot: string, targetBranch: string): Promise<UpstreamTarget | null> {
     const configuredRemote = await runGitResult(projectRoot, ["config", "--get", `branch.${targetBranch}.remote`]);
     const remote = configuredRemote.code === 0 && configuredRemote.stdout ? configuredRemote.stdout : "origin";
     if (remote === ".") {
-        throw new IsolatedPublicationError(
-            `The target branch ${targetBranch} has no publishable upstream. Configure a remote upstream and retry.`,
-            { mergeFailureKind: "upstream_unavailable" },
-        );
+        return null;
     }
     const configuredMerge = await runGitResult(projectRoot, ["config", "--get", `branch.${targetBranch}.merge`]);
     const branch = configuredMerge.code === 0 && configuredMerge.stdout.startsWith("refs/heads/")
@@ -98,10 +109,7 @@ async function resolveUpstream(projectRoot: string, targetBranch: string): Promi
         : targetBranch;
     const remoteUrl = await runGitResult(projectRoot, ["remote", "get-url", remote]);
     if (remoteUrl.code !== 0 || !remoteUrl.stdout) {
-        throw new IsolatedPublicationError(
-            `The target branch ${targetBranch} has no publishable upstream. Configure one and retry.`,
-            { mergeFailureKind: "upstream_unavailable" },
-        );
+        return null;
     }
     return { remote, branch, url: remoteUrl.stdout };
 }
@@ -136,6 +144,15 @@ export async function isExecutionCommitPublishedUpstream(
     args: UpstreamPublicationInspectionArgs,
 ): Promise<boolean> {
     const upstream = await resolveUpstream(args.projectRoot, args.targetBranch);
+    if (!upstream) {
+        const result = await runGitResult(args.projectRoot, [
+            "merge-base",
+            "--is-ancestor",
+            args.executionCommit,
+            `refs/heads/${args.targetBranch}`,
+        ]);
+        return result.code === 0;
+    }
     const inspectionRoot = await Deno.makeTempDir({ prefix: `runwield-inspect-${basename(args.projectRoot)}-` });
     try {
         await runGit(args.projectRoot, ["clone", "--no-hardlinks", args.projectRoot, inspectionRoot]);
@@ -186,6 +203,10 @@ export async function publishExecutionWorktreeIsolated(
     });
     args.onProgress?.("reading_target");
     const upstream = await resolveUpstream(args.projectRoot, args.targetBranch);
+    if (!upstream) {
+        args.onProgress?.("using_local_target");
+        return await publishToLocalTarget(args, checkpoint.executionCommit);
+    }
     const publicationRoot = args.repairedPublicationRoot ||
         await Deno.makeTempDir({ prefix: `runwield-publish-${basename(args.projectRoot)}-` });
     let preserveForRecovery = Boolean(args.repairedPublicationRoot);
@@ -234,6 +255,7 @@ export async function publishExecutionWorktreeIsolated(
             }
             preserveForRecovery = false;
             return {
+                publicationMode: "remote",
                 updatedPrimaryCheckout: false,
                 executionMetadataCommit: checkpoint.executionCommit,
                 targetHeadBeforeMerge,
@@ -351,6 +373,7 @@ export async function publishExecutionWorktreeIsolated(
             );
         }
         return {
+            publicationMode: "remote",
             updatedPrimaryCheckout: false,
             executionMetadataCommit: checkpoint.executionCommit,
             targetHeadBeforeMerge,
@@ -361,5 +384,137 @@ export async function publishExecutionWorktreeIsolated(
         };
     } finally {
         if (!preserveForRecovery) await Deno.remove(publicationRoot, { recursive: true }).catch(() => {});
+    }
+}
+
+async function publishToLocalTarget(
+    args: IsolatedPublicationArgs,
+    executionMetadataCommit: string,
+): Promise<LocalPublicationResult> {
+    if (args.repairedPublicationRoot) {
+        throw new IsolatedPublicationError(
+            "RunWield cannot reuse a remote publication repair after the project changed to local publication.",
+            { mergeFailureKind: "publication_target_changed" },
+        );
+    }
+    const targetHeadBeforeMerge = await runGit(args.projectRoot, ["rev-parse", `refs/heads/${args.targetBranch}`]);
+    const gitignorePath = join(args.projectRoot, ".gitignore");
+    const trackedGitignore = await runGitResult(args.projectRoot, ["ls-files", "--error-unmatch", ".gitignore"]);
+    let savedOwnedGitignore: string | undefined;
+    const savedAuthoritativePlans = new Map<string, Uint8Array>();
+    try {
+        for (const relativePath of args.allowedPlanPaths) {
+            const staged = await runGitResult(args.projectRoot, ["diff", "--cached", "--quiet", "--", relativePath]);
+            if (staged.code !== 0) {
+                throw new IsolatedPublicationError(
+                    `The project folder has a staged change to ${relativePath}. Commit or unstage it before retrying.`,
+                    { mergeFailureKind: "primary_checkout_dirty" },
+                );
+            }
+        }
+        for (const relativePath of args.allowedPlanPaths) {
+            const path = join(args.projectRoot, relativePath);
+            const bytes = await Deno.readFile(path).catch((error) => {
+                if (error instanceof Deno.errors.NotFound) return null;
+                throw error;
+            });
+            if (!bytes) continue;
+            const changed = await runGitResult(args.projectRoot, ["diff", "--quiet", "--", relativePath]);
+            const tracked = await runGitResult(args.projectRoot, ["ls-files", "--error-unmatch", relativePath]);
+            if (changed.code === 0 && tracked.code === 0) continue;
+            savedAuthoritativePlans.set(relativePath, bytes);
+            if (tracked.code === 0) {
+                await runGit(args.projectRoot, ["restore", "--worktree", "--source=HEAD", "--", relativePath]);
+            } else {
+                await Deno.remove(path);
+            }
+        }
+        if (trackedGitignore.code !== 0) {
+            const current = await Deno.readTextFile(gitignorePath).catch((error) => {
+                if (error instanceof Deno.errors.NotFound) return "";
+                throw error;
+            });
+            if (current === RUNWIELD_GITIGNORE_BLOCK) {
+                savedOwnedGitignore = await Deno.makeTempFile({ prefix: "runwield-owned-gitignore-" });
+                await Deno.rename(gitignorePath, savedOwnedGitignore);
+            }
+        }
+        args.onProgress?.("combining_work");
+        await mergeExecutionWorktree({
+            projectRoot: args.projectRoot,
+            branch: args.executionBranch,
+            targetBranch: args.targetBranch,
+            worktreePath: args.executionCwd,
+            preservePlanPaths: [],
+            expectedTargetHead: targetHeadBeforeMerge,
+            sealedExecutionCommit: args.sealedExecutionCommit,
+            planName: args.planName,
+            planDescription: args.planDescription,
+        });
+        args.onProgress?.("verifying");
+        const publicationCommit = await runGit(args.projectRoot, ["rev-parse", `refs/heads/${args.targetBranch}`]);
+        const containsCandidate = await runGitResult(args.projectRoot, [
+            "merge-base",
+            "--is-ancestor",
+            args.sealedExecutionCommit,
+            publicationCommit,
+        ]);
+        if (containsCandidate.code !== 0) {
+            throw new IsolatedPublicationError(
+                `The local ${args.targetBranch} branch does not contain the validated work.`,
+                { mergeFailureKind: "publication_verification_failed" },
+            );
+        }
+        if (savedOwnedGitignore) await Deno.remove(savedOwnedGitignore).catch(() => {});
+        return {
+            publicationMode: "local",
+            updatedPrimaryCheckout: true,
+            executionMetadataCommit,
+            targetHeadBeforeMerge,
+            deliveryCommit: publicationCommit,
+            publicationCommit,
+        };
+    } catch (error) {
+        const mergeHead = await runGitResult(args.projectRoot, ["rev-parse", "--verify", "MERGE_HEAD"]);
+        if (mergeHead.code === 0) await runGitResult(args.projectRoot, ["merge", "--abort"]);
+        const currentTargetHead = await runGitResult(args.projectRoot, [
+            "rev-parse",
+            `refs/heads/${args.targetBranch}`,
+        ]);
+        const targetMoved = currentTargetHead.code === 0 && currentTargetHead.stdout !== targetHeadBeforeMerge;
+        let restorationError: Error | undefined;
+        if (!targetMoved) {
+            for (const [relativePath, bytes] of savedAuthoritativePlans) {
+                const path = join(args.projectRoot, relativePath);
+                try {
+                    await Deno.mkdir(dirname(path), { recursive: true });
+                    await Deno.writeFile(path, bytes);
+                } catch (restoreError) {
+                    restorationError = restoreError instanceof Error ? restoreError : new Error(String(restoreError));
+                }
+            }
+        }
+        if (savedOwnedGitignore) {
+            const pathExists = await Deno.stat(gitignorePath).then(() => true).catch(() => false);
+            if (!pathExists && !targetMoved) {
+                try {
+                    await Deno.rename(savedOwnedGitignore, gitignorePath);
+                } catch (restoreError) {
+                    restorationError = restoreError instanceof Error ? restoreError : new Error(String(restoreError));
+                }
+            } else if (targetMoved) {
+                await Deno.remove(savedOwnedGitignore).catch(() => {});
+            }
+        }
+        if (restorationError) throw restorationError;
+        if (error instanceof IsolatedPublicationError || error instanceof Error) {
+            const classified = error as IsolatedPublicationError;
+            if (classified.mergeFailureKind === "current_checkout_merge_conflict") {
+                classified.mergeFailureKind = "local_publication_conflict";
+                classified.repairCwd = undefined;
+                classified.mergeWorktreePath = undefined;
+            }
+        }
+        throw error;
     }
 }

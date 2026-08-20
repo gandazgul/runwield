@@ -695,12 +695,23 @@ export const loadPlanValidateWaivedObjectiveChecksScenario = {
         {
             path: "docs/plans/waived-validate.md",
             text:
-                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Waived Objective Check validation\naffectedPaths: []\nobjectiveChecks:\n  - id: OC1\n    command: "false"\nobjectiveCheckWaivers:\n  - id: OC1\n    command: "false"\n    source: engineer_report\n    explanation: Golden waiver.\n    waivedAt: "2026-08-13T00:00:00.000Z"\nstatus: draft\n---\n# Waived validate\n',
+                '---\nplanId: waived-validate-plan\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Waived Objective Check validation\naffectedPaths: []\nobjectiveChecks:\n  - id: OC1\n    command: "false"\nobjectiveCheckWaivers:\n  - id: OC1\n    command: "false"\n    source: engineer_report\n    explanation: Golden waiver.\n    waivedAt: "2026-08-13T00:00:00.000Z"\nstatus: draft\n---\n# Waived validate\n',
         },
     ],
     scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery", value: "validate" }],
     actions: [
-        { type: "seedActiveWorktree", planName: "waived-validate", status: "implemented" },
+        {
+            type: "seedActiveWorktree",
+            planName: "waived-validate",
+            status: "implemented",
+            attrs: { executionMode: "worktree" },
+        },
+        {
+            type: "setPrimaryPlanStatus",
+            planName: "waived-validate",
+            status: "ready_for_work",
+            clearPrimaryWorktreeEvidence: true,
+        },
         { type: "type", text: "/load-plan waived-validate" },
         { type: "enter" },
         { type: "enter" },
@@ -712,6 +723,13 @@ export const loadPlanValidateWaivedObjectiveChecksScenario = {
     assertions: [
         assertsGoldenCoverage("workflow:load-plan", (result: GoldenScenarioResult) => {
             assertEventIncludes(result, "terminal:type:/load-plan waived-validate");
+            assertEventIncludes(result, "project:primary-plan-status:waived-validate:ready_for_work");
+            assert(
+                !`${result.scrollbackText || ""}\n${result.screenText}`.includes(
+                    "execution mode is missing or unknown",
+                ),
+                "Validation must use the execution Plan instead of stale primary lifecycle metadata.",
+            );
             assertScreenIncludes(result, "All checks for waived-validate are waived");
             assertScreenIncludes(result, "The build, tests, and checks passed.");
             assertScreenIncludes(result, "Ask the Engineer to restore the code");

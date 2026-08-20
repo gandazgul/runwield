@@ -44,7 +44,7 @@ import { recordWorkflowMetric } from "./metrics.js";
 import { runExecutionPreparationTransition } from "./state-transition.ts";
 import { CollaborationStyles, resolveExecutionOwner } from "./execution-collaboration.ts";
 import { ensureObjectiveChecksBaseline, ObjectiveChecksBaselineRejectionError } from "./objective-checks-baseline.ts";
-import { RUNWIELD_GITIGNORE_BLOCK } from "../runwield-owned-paths.ts";
+import { ensureRunWieldOwnedGitignoreBlock } from "../runwield-owned-paths.ts";
 
 export function normalizeExecutionTargetBranch(value) {
     if (typeof value !== "string") return undefined;
@@ -52,26 +52,9 @@ export function normalizeExecutionTargetBranch(value) {
     return target && target !== "HEAD" ? target : undefined;
 }
 
-async function ensureRunWieldOwnedGitignoreBlock(projectRoot) {
-    const gitignorePath = `${projectRoot}/.gitignore`;
-    const start = "# BEGIN RunWield owned runtime state";
-    const end = "# END RunWield owned runtime state";
+async function addRunWieldOwnedGitignoreBlock(projectRoot) {
     try {
-        let existing = "";
-        try {
-            existing = await Deno.readTextFile(gitignorePath);
-        } catch (error) {
-            if (!(error instanceof Deno.errors.NotFound)) throw error;
-        }
-        const pattern = new RegExp(
-            `${start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*?${
-                end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-            }\\n?`,
-        );
-        const next = pattern.test(existing)
-            ? existing.replace(pattern, RUNWIELD_GITIGNORE_BLOCK)
-            : `${existing}${existing && !existing.endsWith("\n") ? "\n" : ""}${RUNWIELD_GITIGNORE_BLOCK}`;
-        if (next !== existing) await Deno.writeTextFile(gitignorePath, next);
+        await ensureRunWieldOwnedGitignoreBlock(projectRoot);
     } catch {
         // Defence in depth only. Worktree creation must not fail if the project does not allow writes.
     }
@@ -492,8 +475,9 @@ export async function startActiveExecutionWorkflow(
                     attemptId,
                     ...targetPreparation,
                 };
-                await ensureRunWieldOwnedGitignoreBlock(projectRoot);
+                await addRunWieldOwnedGitignoreBlock(projectRoot);
                 const worktreeArtifacts = await createWorktreeGitArtifacts(worktreeOptions);
+                await addRunWieldOwnedGitignoreBlock(worktreeArtifacts.path);
                 emitCreatedExecutionWorktree(hostedSession, {
                     worktreeBranch: worktreeArtifacts.branch,
                     baseBranch: worktreeArtifacts.baseBranch || worktreeArtifacts.baseRef,

@@ -1727,6 +1727,19 @@ async function runComposedTuiScenario(scenario, options) {
                     }
                     events.push(`publication:remote-push-rejection:${typed.enabled === false ? "off" : "on"}`);
                     await writeHeartbeat();
+                } else if (typed.type === "removePlanRemote") {
+                    const planName = String(typed.planName || "");
+                    const loaded = await loadPlan(Deno.cwd(), planName);
+                    if (!loaded) throw new Error(`Cannot remove remote for missing Plan ${planName}`);
+                    const targetBranch = String(loaded.attrs.worktreeBaseBranch || "main");
+                    const remote = await runGoldenGit(
+                        ["config", "--get", `branch.${targetBranch}.remote`],
+                        Deno.cwd(),
+                    ).catch(() => "origin") || "origin";
+                    await runGoldenGit(["branch", "--unset-upstream", targetBranch], Deno.cwd()).catch(() => {});
+                    await runGoldenGit(["remote", "remove", remote], Deno.cwd());
+                    events.push(`publication:remote-removed:${planName}:${targetBranch}`);
+                    await writeHeartbeat();
                 } else if (typed.type === "installPlanWorktreeFailingPreCommitHook") {
                     const planName = String(typed.planName || "");
                     const loaded = await loadPlan(Deno.cwd(), planName);
@@ -1888,12 +1901,14 @@ async function runComposedTuiScenario(scenario, options) {
                     if (!loaded) throw new Error(`Cannot update missing primary Plan ${planName}`);
                     const { updatePlanFrontMatter } = await import("../../../plan-store.js");
                     const clearWorktreeEvidence = typed.clearWorktreeEvidence === true;
+                    const clearPrimaryWorktreeEvidence = clearWorktreeEvidence ||
+                        typed.clearPrimaryWorktreeEvidence === true;
                     await updatePlanFrontMatter(
                         Deno.cwd(),
                         planName,
                         {
                             status,
-                            ...(clearWorktreeEvidence
+                            ...(clearPrimaryWorktreeEvidence
                                 ? {
                                     executionMode: null,
                                     executionBaselineTree: null,
@@ -2371,6 +2386,30 @@ async function runComposedTuiScenario(scenario, options) {
                         worktreeBranchExists: branchExists,
                     };
                     events.push(`publication:state-captured:${planName}`);
+                } else if (typed.type === "captureLocalPublicationState") {
+                    const planName = String(typed.planName || "");
+                    const deliveredPath = String(typed.deliveredPath || "");
+                    const plan = await loadPlan(Deno.cwd(), planName);
+                    const registry = await (await import("../../../shared/worktree-registry.js"))
+                        .inspectWorktreeRegistry(Deno.cwd());
+                    const baselineFiles = state.publicationBaseline?.files || {};
+                    /** @type {Record<string, string | null>} */
+                    const currentFiles = {};
+                    for (const path of Object.keys(baselineFiles)) {
+                        currentFiles[path] = await Deno.readTextFile(join(Deno.cwd(), path)).catch(() => null);
+                    }
+                    state.localPublication = {
+                        head: await runGoldenGit(["rev-parse", "HEAD"], Deno.cwd()),
+                        branch: await runGoldenGit(["branch", "--show-current"], Deno.cwd()),
+                        status: await runGoldenGit(["status", "--porcelain", "--untracked-files=all"], Deno.cwd()),
+                        files: currentFiles,
+                        planStatus: plan?.attrs.status,
+                        deliveredText: deliveredPath
+                            ? await Deno.readTextFile(join(Deno.cwd(), deliveredPath)).catch(() => "")
+                            : "",
+                        registryEntries: registry.entries,
+                    };
+                    events.push(`publication:local-state-captured:${planName}`);
                 } else if (typed.type === "waitForPlanAbsent") {
                     const planName = String(typed.planName || "");
                     const timeoutMs = typed.timeoutMs || scenario.timeoutMs || 3000;

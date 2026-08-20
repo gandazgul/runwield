@@ -214,13 +214,15 @@ Deno.test("the agent CLI listing hides workflow-only Plan executors", async () =
 Deno.test("naming a workflow-only Agent explains what activates it instead of switching", async () => {
     await withRuntimeCommandFixture("agent-workflow-only-cli-", async ({ projectRoot }) => {
         Deno.chdir(projectRoot);
-        for (const agentName of ["plan-engineer", "frontend-engineer"]) {
+        // Recorder is workflow-only too, and it activates when a Plan completes
+        // rather than when one executes — so the message must not name execution.
+        for (const agentName of ["plan-engineer", "frontend-engineer", "recorder"]) {
             const logs = (await captureLogs(() =>
                 runAgentsCommand([agentName, "do", "the", "work"], { sessionPort: UNEXPECTED_SESSION_PORT })
             )).join("\n");
 
             // An unexpected session port would have thrown, so no switch happened.
-            assertStringIncludes(logs, "activated by RunWield when an approved Plan executes");
+            assertStringIncludes(logs, "activated by RunWield as part of a workflow, not by hand");
             assertEquals(logs.includes("Unknown agent"), false);
         }
     });
@@ -249,7 +251,7 @@ Deno.test("naming a workflow-only Agent in the TUI leaves the active Agent uncha
             });
 
             assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "router");
-            assertStringIncludes(systemMessages.join("\n"), "activated by RunWield when an approved Plan executes");
+            assertStringIncludes(systemMessages.join("\n"), "activated by RunWield as part of a workflow, not by hand");
             assertEquals(systemMessages.join("\n").includes("not found"), false);
         } finally {
             harness.tui.stop();

@@ -368,7 +368,7 @@ export async function isWorkflowOnlyAgent(agentName, projectRoot) {
  */
 export function buildWorkflowOnlyAgentMessage(agentName, projectRoot) {
     const displayName = getAgentDisplayName(agentName, projectRoot);
-    return `${displayName} is activated by RunWield when an approved Plan executes, not by hand. ` +
+    return `${displayName} is activated by RunWield as part of a workflow, not by hand. ` +
         `Staying with the current agent.`;
 }
 

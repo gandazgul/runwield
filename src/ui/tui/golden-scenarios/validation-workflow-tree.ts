@@ -59,6 +59,7 @@ export {
 export {
     validationTreePublicationIsolatedDirtyPrimaryScenario,
     validationTreePublicationLegacyPartialRetryScenario,
+    validationTreePublicationLocalOnlyScenario,
     validationTreePublicationPushFailureRetryScenario,
     validationTreePublicationRemoteTargetAdvanceScenario,
     validationWorkflowPublicationScenarios,

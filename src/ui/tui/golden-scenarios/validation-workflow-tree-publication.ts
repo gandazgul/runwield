@@ -3,6 +3,8 @@ import { assertsGoldenCoverage } from "../testing/portfolio-assertions.js";
 import { withValidationBranches } from "./validation-workflow-tree-shared.ts";
 
 type PublicationState = {
+    scrollbackText?: string;
+    screenText?: string;
     state: {
         publicationBaseline?: {
             head?: string;
@@ -31,6 +33,15 @@ type PublicationState = {
             primaryHead?: string;
             primaryStatus?: string;
             primaryFiles?: Record<string, string | null>;
+        };
+        localPublication?: {
+            head?: string;
+            branch?: string;
+            status?: string;
+            files?: Record<string, string | null>;
+            planStatus?: string;
+            deliveredText?: string;
+            registryEntries?: Array<{ status?: string }>;
         };
     };
 };
@@ -148,6 +159,83 @@ export const validationTreePublicationRemoteTargetAdvanceScenario = isolatedPubl
     { advanceRemote: true },
 );
 
+const localPublicationPlanName = "validation-tree-publication-local-only";
+
+export const validationTreePublicationLocalOnlyScenario = withValidationBranches(
+    {
+        name: `${localPublicationPlanName}-base`,
+        composedTui: true,
+        initialAgentName: "guide",
+        terminal: { columns: 100, rows: 30 },
+        timeoutMs: 120000,
+        committedProjectFiles: [
+            { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
+            {
+                path: `docs/plans/${localPublicationPlanName}.md`,
+                text: publicationPlan(localPublicationPlanName, "local-publication.txt"),
+            },
+        ],
+        initialProjectFiles: [],
+        scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery", value: "validate" }],
+        actions: [
+            {
+                type: "seedActiveWorktree",
+                planName: localPublicationPlanName,
+                status: "validated_reviewer",
+                attrs: { humanReviewMode: "none", humanReviewDecision: "not_required" },
+                files: [{ path: "local-publication.txt", text: "local-only delivery\n" }],
+            },
+            { type: "removePlanRemote", planName: localPublicationPlanName },
+            {
+                type: "writeProjectFile",
+                path: ".gitignore",
+                text:
+                    "# BEGIN RunWield owned runtime state\n.wld/plan-locks\n.wld/plan-transitions\n.wld/plan-backups\n.wld/plan-staging\n.wld/worktrees\n.wld/debug\n.wld/worktrees.json\n.wld/worktrees.lock\n.wld/worktree-registry-migration-issues.json\n.wld/collaboration-secrets.json\n# END RunWield owned runtime state\n",
+            },
+            { type: "writeProjectFile", path: "untracked-user-note.txt", text: "preserve local note\n" },
+            {
+                type: "capturePublicationBaseline",
+                paths: [".gitignore", "untracked-user-note.txt", `docs/plans/${localPublicationPlanName}.md`],
+            },
+            { type: "type", text: `/load-plan ${localPublicationPlanName}` },
+            { type: "enter" },
+            { type: "enter" },
+            {
+                type: "waitForWorktreeRegistryStatus",
+                planName: localPublicationPlanName,
+                statuses: ["absent"],
+                timeoutMs: 90000,
+            },
+            { type: "waitForIdle", timeoutMs: 90000 },
+            {
+                type: "captureLocalPublicationState",
+                planName: localPublicationPlanName,
+                deliveredPath: "local-publication.txt",
+            },
+        ],
+        assertions: [
+            (result: PublicationState) => {
+                const baseline = result.state.publicationBaseline;
+                const published = result.state.localPublication;
+                assert(baseline && published, "Expected local publication evidence.");
+                assert(published.head !== baseline.head, "Expected local main to advance.");
+                assertEquals(published.branch, "main");
+                assertEquals(published.planStatus, "validated");
+                assertEquals(published.deliveredText, "local-only delivery\n");
+                assertEquals(published.files?.["untracked-user-note.txt"], "preserve local note\n");
+                assertEquals(published.registryEntries, []);
+                assert(
+                    `${result.scrollbackText || ""}\n${result.screenText || ""}`.includes("This project has no remote"),
+                    "Expected RunWield to explain the local publication fallback.",
+                );
+            },
+        ],
+    },
+    localPublicationPlanName,
+    [localPublicationPlanName],
+    [],
+);
+
 const pushRetryPlanName = "validation-tree-publication-push-failure-retry";
 
 export const validationTreePublicationPushFailureRetryScenario = {
@@ -234,6 +322,11 @@ export const validationTreePublicationPushFailureRetryScenario = {
                     assertEquals(pending.primaryStatus, baseline.status);
                     assertEquals(pending.primaryFiles, baseline.files);
                     assertPublishedWithoutPrimaryMutation(result, "safe implementation");
+                    assert(
+                        (result.scrollbackText || "").split("Generating the Work Record for the current plan").length -
+                                1 <= 1,
+                        "Publication retry must reuse the prepared Work Record instead of calling the Agent again.",
+                    );
                 }),
             ],
         },
@@ -311,6 +404,7 @@ export const validationTreePublicationLegacyPartialRetryScenario = withValidatio
 export const validationWorkflowPublicationScenarios = [
     validationTreePublicationIsolatedDirtyPrimaryScenario,
     validationTreePublicationRemoteTargetAdvanceScenario,
+    validationTreePublicationLocalOnlyScenario,
     validationTreePublicationPushFailureRetryScenario,
     validationTreePublicationLegacyPartialRetryScenario,
 ];

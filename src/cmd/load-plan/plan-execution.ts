@@ -21,7 +21,10 @@ import {
 } from "../../shared/workflow/execution-context.ts";
 import { formatCommitHeadsUp } from "./plan-presentation.ts";
 import { reportInvalidRecoveryPolicy } from "./plan-recovery-worktree.ts";
-import { buildValidationRecoveryNotice } from "../../shared/workflow/validation-user-messages.ts";
+import {
+    buildValidationRecoveryNotice,
+    buildValidationUserMessage,
+} from "../../shared/workflow/validation-user-messages.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { UiAPI } from "../../ui/tui/types.js";
 import type { PlanSessionSurface, RecoveryWorktreeContext, ReviewImage } from "./plan-session-types.ts";
@@ -183,11 +186,20 @@ export async function validateCompletedExecution(
         return false;
     }
     if (!/** @type {{ executionComplete?: boolean }} */ (executionResult).executionComplete) return false;
+    const returnedExecutionContext = (executionResult as { executionContext?: ExecutionContextCandidate })
+        .executionContext;
+    const returnedExecutionCwd = returnedExecutionContext?.executionCwd;
+    const authorityRoot = typeof returnedExecutionCwd === "string" && returnedExecutionCwd
+        ? returnedExecutionCwd
+        : worktreeContext?.path ||
+            (triageMeta.executionMode === "worktree" && triageMeta.worktreePath
+                ? triageMeta.worktreePath
+                : projectRoot);
     let planContent = fallbackPlanContent;
     let effectiveMeta = triageMeta;
     let latestPlan = null;
     try {
-        latestPlan = await loadPlan(projectRoot, planName);
+        latestPlan = await loadPlan(authorityRoot, planName);
         planContent = latestPlan?.markdown || latestPlan?.body || fallbackPlanContent;
         if (latestPlan?.attrs) effectiveMeta = latestPlan.attrs;
     } catch {
@@ -201,8 +213,6 @@ export async function validateCompletedExecution(
         }
         throw new Error(policy.error);
     }
-    const returnedExecutionContext =
-        (executionResult as { executionContext?: Record<string, unknown> }).executionContext;
     const explicitContext = returnedExecutionContext || {
         planName,
         triageMeta: effectiveMeta,
@@ -261,10 +271,10 @@ export async function validateCompletedExecution(
                 executionReport: typeof completionReport === "string" ? completionReport : undefined,
             });
         } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
+            console.error("[RunWield] implementation_checkpoint_failed", error);
             if (uiAPI) {
                 uiAPI.appendSystemMessage(
-                    `Validation blocked: implementation checkpoint failed before Workflow Validation: ${reason}`,
+                    buildValidationUserMessage({ kind: "implementation_checkpoint_failed" }),
                     true,
                     "RunWield",
                 );
@@ -273,7 +283,7 @@ export async function validateCompletedExecution(
             throw error;
         }
         try {
-            latestPlan = await loadPlan(projectRoot, planName);
+            latestPlan = await loadPlan(authorityRoot, planName);
             planContent = latestPlan?.markdown || latestPlan?.body || fallbackPlanContent;
             if (latestPlan?.attrs) effectiveMeta = latestPlan.attrs;
         } catch {

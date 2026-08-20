@@ -60,7 +60,16 @@ Deno.test("every registered subagent loads from the moved bundled prompt files",
         loadedIds.push(id);
         assertEquals(agentDef.name, definition.agentName);
         assertEquals(prompt.trim().length > 0, true);
-        assertStringIncludes(agentDef.systemPrompt, USER_AUTHORITY_MARKER, `${id} is missing user authority`);
+        // Only Slicer negotiates with a person. The rest run context-isolated with no
+        // user to defer to, and several forbid asking questions outright — user
+        // authority there would describe a dialogue that can never happen.
+        assertEquals(
+            agentDef.systemPrompt.includes(USER_AUTHORITY_MARKER),
+            id === SUBAGENTS.SLICER,
+            `${id} has the wrong user-authority state for an ${
+                id === SUBAGENTS.SLICER ? "interactive" : "isolated"
+            } subagent`,
+        );
     }
 
     assertEquals(loadedIds.sort(), Object.values(SUBAGENTS).sort());
@@ -74,8 +83,8 @@ Deno.test("reviewer discovery and verify prompts load through one registry id", 
     assertEquals(verify.name, AGENTS.REVIEWER);
     assertStringIncludes(discovery.systemPrompt, "Your Default Is Approval");
     assertStringIncludes(verify.systemPrompt, "verification round");
-    assertStringIncludes(discovery.systemPrompt, USER_AUTHORITY_MARKER);
-    assertStringIncludes(verify.systemPrompt, USER_AUTHORITY_MARKER);
+    assertEquals(discovery.systemPrompt.includes(USER_AUTHORITY_MARKER), false);
+    assertEquals(verify.systemPrompt.includes(USER_AUTHORITY_MARKER), false);
 });
 
 Deno.test("bare-prompt subagents receive canonical tool ceilings without the shared system prompt", async () => {
@@ -163,7 +172,7 @@ Deno.test("loadSubAgentDefinition composes delegated role overlays", async () =>
     // The overlay adds only the role-specific adversarial task and handoff contract.
     assertStringIncludes(adversary.systemPrompt, "Role: Verification Adversary");
     assertStringIncludes(adversary.systemPrompt, "not-discriminating");
-    assertStringIncludes(adversary.systemPrompt, USER_AUTHORITY_MARKER);
+    assertEquals(adversary.systemPrompt.includes(USER_AUTHORITY_MARKER), false);
     assertEquals(general.systemPrompt.includes("not-discriminating"), false);
     assertEquals(adversary.systemPrompt.startsWith(general.systemPrompt), true);
     assertEquals(adversary.name, AGENTS.DELEGATED);

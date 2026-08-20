@@ -6,6 +6,62 @@ import {
 } from "./isolated-publication.ts";
 import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.js";
 import { removeWorktreeGitArtifacts } from "./worktree.js";
+import { RUNWIELD_GITIGNORE_BLOCK } from "./runwield-owned-paths.ts";
+
+Deno.test("publication without a remote safely advances the local target branch", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-local-publication-worktree-" });
+    let worktree: Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined;
+    try {
+        worktree = await createTestWorktreeAttempt({ projectRoot, planName: "local-delivery", worktreeRoot });
+        await Deno.writeTextFile(`${projectRoot}/.gitignore`, RUNWIELD_GITIGNORE_BLOCK);
+        await Deno.writeTextFile(`${projectRoot}/untracked-user-note.txt`, "preserve me\n");
+        await Deno.writeTextFile(
+            `${worktree.path}/.gitignore`,
+            `node_modules\n${RUNWIELD_GITIGNORE_BLOCK}`,
+        );
+        await Deno.writeTextFile(`${worktree.path}/implementation.txt`, "local validated implementation\n");
+        await git(worktree.path, ["add", ".gitignore", "implementation.txt"]);
+        await git(worktree.path, ["commit", "-m", "Validated local candidate"]);
+        const sealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
+        const oldMain = await git(projectRoot, ["rev-parse", "main"]);
+        const progress: IsolatedPublicationProgress[] = [];
+
+        const published = await publishExecutionWorktreeIsolated({
+            projectRoot,
+            executionCwd: worktree.path,
+            executionBranch: worktree.branch,
+            targetBranch: "main",
+            planName: "local-delivery",
+            sealedExecutionCommit: sealedCommit,
+            allowedPlanPaths: [],
+            onProgress: (step) => progress.push(step),
+        });
+
+        assertEquals(published.publicationMode, "local");
+        assertEquals(progress, ["preparing", "reading_target", "using_local_target", "combining_work", "verifying"]);
+        assert((await git(projectRoot, ["rev-parse", "main"])) !== oldMain);
+        await git(projectRoot, ["merge-base", "--is-ancestor", sealedCommit, "main"]);
+        assertEquals(await Deno.readTextFile(`${projectRoot}/implementation.txt`), "local validated implementation\n");
+        assertEquals(await Deno.readTextFile(`${projectRoot}/untracked-user-note.txt`), "preserve me\n");
+        assertEquals(await Deno.readTextFile(`${projectRoot}/.gitignore`), `node_modules\n${RUNWIELD_GITIGNORE_BLOCK}`);
+        assertEquals(
+            await isExecutionCommitPublishedUpstream({
+                projectRoot,
+                executionBranch: worktree.branch,
+                targetBranch: "main",
+                executionCommit: sealedCommit,
+            }),
+            true,
+        );
+    } finally {
+        if (worktree) {
+            await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
 
 Deno.test("isolated publication pushes the target upstream without touching the primary checkout", async () => {
     const projectRoot = await makeRepo();

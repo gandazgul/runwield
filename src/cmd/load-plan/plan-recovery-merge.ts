@@ -257,8 +257,13 @@ async function attemptManualPublication(
                     expectedTargetHead: mergeResult.targetHeadBeforeMerge,
                     executionMetadataCommit: mergeResult.executionMetadataCommit,
                     publicationCommit: mergeResult.publicationCommit,
-                    upstreamRemote: mergeResult.upstreamRemote,
-                    upstreamBranch: mergeResult.upstreamBranch,
+                    publicationMode: mergeResult.publicationMode,
+                    ...(mergeResult.publicationMode === "remote"
+                        ? {
+                            upstreamRemote: mergeResult.upstreamRemote,
+                            upstreamBranch: mergeResult.upstreamBranch,
+                        }
+                        : {}),
                 });
                 if (mergeWorktreeId) {
                     try {
@@ -304,7 +309,7 @@ async function attemptManualPublication(
                     force: false,
                 });
                 if (context.worktreeContext.branch) {
-                    if (remotePublication) {
+                    if (remotePublication?.publicationMode === "remote") {
                         await deleteRemotelyPublishedWorktreeBranch({
                             projectRoot,
                             branch: context.worktreeContext.branch,
