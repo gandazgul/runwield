@@ -59,6 +59,53 @@ Deno.test("maps transient failures to retry and pauses after the retry budget", 
     assertEquals(spent.result.kind, "retry_later");
 });
 
+Deno.test("transient Reviewer failures use jittered backoff without consuming semantic rounds", () => {
+    const retry = decideValidationRecovery({
+        failure: classifyValidationOperationalError({
+            source: "provider",
+            kind: "timeout",
+            operation: "semantic_review",
+            message: "Reviewer timed out",
+        }),
+        attempt: 1,
+        correctionAttempt: 1,
+        nextPhase: "semantic",
+        policy: DEFAULT_VALIDATION_RETRY_POLICY,
+        randomUnit: 0.5,
+    });
+
+    assertEquals(retry.action, "retry");
+    if (retry.action !== "retry") throw new Error("Reviewer timeout should retry.");
+    assertEquals(retry.result.kind, "retry_later");
+    assertEquals(retry.result.nextPhase, "semantic");
+    assertEquals(retry.result.attempt, 1);
+    assertEquals(retry.result.maxAttempts, DEFAULT_VALIDATION_RETRY_POLICY.maxRetries);
+    assertEquals(retry.delayMs, DEFAULT_VALIDATION_RETRY_POLICY.baseDelayMs * 0.5);
+});
+
+Deno.test("correctable Reviewer failures stay in the same session with structured feedback", () => {
+    const correction = decideValidationRecovery({
+        failure: classifyValidationOperationalError({
+            source: "reviewer_protocol",
+            kind: "missing_review_complete",
+            operation: "semantic_review",
+            message: "Reviewer ended without review_complete.",
+            required: "Call review_complete with the review result.",
+        }),
+        attempt: 1,
+        correctionAttempt: 1,
+        nextPhase: "semantic",
+        policy: DEFAULT_VALIDATION_RETRY_POLICY,
+    });
+
+    assertEquals(correction.action, "correct");
+    assertEquals(correction.result.kind, "agent_correction");
+    assertEquals(correction.result.action, "correct_agent_output");
+    assertEquals(correction.result.message, "Call review_complete with the review result.");
+    assertEquals(correction.result.nextPhase, "semantic");
+    assertEquals(correction.result.attempt, 1);
+});
+
 Deno.test("maps correctable, missing-information, and fatal failures to separate actions", () => {
     const correctable = decideValidationRecovery({
         failure: classifyValidationOperationalError({

@@ -21,6 +21,8 @@ import { validationPhasePauseMessage, validationUserMessage } from "./validation
 import { runMechanicalValidationPhase } from "./validation-mechanical.ts";
 import { runSemanticReviewPhase, runValidatedReviewerPhase } from "./validation-semantic.ts";
 import type { ValidationPhaseName } from "./validation-ports.ts";
+import { classifyValidationOperationalError } from "./validation-operational-errors.ts";
+import { decideValidationRecovery, readValidationRetryPolicy } from "./validation-recovery.ts";
 import type { ValidationLoopArgs, ValidationPhaseResult, WorkflowValidationResult } from "./validation-types.ts";
 import { MAX_PHASES_PER_CALL, PHASE_STATUS, VALIDATION_STATUS_ORDER } from "./validation-types.ts";
 
@@ -135,6 +137,27 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
     };
 }
 
+function canonicalOperationalResult(
+    args: ValidationLoopArgs,
+    projectRoot: string,
+    source: Parameters<typeof classifyValidationOperationalError>[0],
+): ValidationPhaseResult {
+    const failure = classifyValidationOperationalError(source);
+    const decision = decideValidationRecovery({
+        failure,
+        attempt: 1,
+        policy: readValidationRetryPolicy(projectRoot),
+        nextPhase: validationPhaseForStatus(args.triageMeta.status) || undefined,
+    });
+    return {
+        kind: decision.action === "halt" ? "failed" : "paused",
+        planName: args.planName,
+        projectRoot,
+        reason: decision.result.message,
+        recovery: decision.result,
+    };
+}
+
 export async function loadCanonicalValidationPlan(
     args: ValidationLoopArgs,
 ): Promise<
@@ -151,36 +174,36 @@ export async function loadCanonicalValidationPlan(
     if (!plan) {
         return {
             kind: "blocked",
-            result: {
-                kind: "failed",
-                planName: args.planName,
-                projectRoot,
-                reason: `Plan not found: ${args.planName}`,
-            },
+            result: canonicalOperationalResult(args, projectRoot, {
+                source: "validation_state",
+                kind: "plan_missing",
+                operation: "validation_state",
+                message: `Plan not found: ${args.planName}`,
+            }),
         };
     }
     const rawStatus = getPlanContentStatus(plan.markdown);
     if (rawStatus !== undefined && !PLAN_STATUSES.includes(rawStatus as PlanStatus)) {
         return {
             kind: "blocked",
-            result: {
-                kind: "failed",
-                planName: args.planName,
-                projectRoot,
-                reason: `Plan has unknown status: ${rawStatus}`,
-            },
+            result: canonicalOperationalResult(args, projectRoot, {
+                source: "validation_state",
+                kind: "unknown_plan_status",
+                operation: "validation_state",
+                message: `Plan has unknown status: ${rawStatus}`,
+            }),
         };
     }
     const status = plan.attrs.status;
     if (!VALIDATION_PLAN_STATUSES.includes(status as PlanStatus)) {
         return {
             kind: "blocked",
-            result: {
-                kind: "failed",
-                planName: args.planName,
-                projectRoot,
-                reason: `Workflow Validation cannot run from Plan status "${status}".`,
-            },
+            result: canonicalOperationalResult(args, projectRoot, {
+                source: "policy",
+                kind: "lifecycle_invariant",
+                operation: "validation_state",
+                message: `Workflow Validation cannot run from Plan status "${status}".`,
+            }),
         };
     }
     return {

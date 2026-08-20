@@ -52,6 +52,13 @@ import { recordLifecycleEvent } from "./validation-context.ts";
 import { completeProgressRecord, emitProgress, emitStatus } from "./validation-emit.ts";
 import { pauseForUserAction } from "./validation-interactions.ts";
 import { buildValidationUserMessage, validationUserMessage } from "./validation-user-messages.ts";
+import { classifyValidationOperationalError, type GitPublicationErrorKind } from "./validation-operational-errors.ts";
+import {
+    decideValidationRecovery,
+    readValidationRetryPolicy,
+    recordOperationalRecoveryMetric,
+    waitForValidationRetryWithSessionCancellation,
+} from "./validation-recovery.ts";
 
 type DeliveryEvidence = import("../../plan-store.js").DeliveryEvidence;
 type WorktreeDeliveryEvidence = import("../../plan-store.js").WorktreeDeliveryEvidence;
@@ -59,6 +66,26 @@ type WorktreeDeliveryEvidence = import("../../plan-store.js").WorktreeDeliveryEv
 function firstMarkdownHeading(markdown: string, fallback: string): string {
     const heading = markdown.split(/\r?\n/).find((line) => /^#\s+\S/.test(line));
     return heading ? heading.replace(/^#\s+/, "").trim() : fallback;
+}
+
+function publicationFailureKindFromMergeKind(failureKind: string | undefined): GitPublicationErrorKind {
+    switch (failureKind) {
+        case "target_reference_race":
+            return "target_reference_race";
+        case "detached_merge_conflict":
+        case "current_checkout_merge_conflict":
+        case "content_conflict":
+            return "content_conflict";
+        case "primary_checkout_dirty":
+            return "primary_checkout_dirty";
+        case "permission_denied":
+            return "permission_denied";
+        case "policy_violation":
+        case "target_checked_out":
+            return "policy_violation";
+        default:
+            return "post_publication_bookkeeping";
+    }
 }
 
 async function prepareEpicChildManualQaArtifact(args: ValidationLoopArgs, cwd: string): Promise<void> {
@@ -157,6 +184,7 @@ export async function runPublicationPhase(
     if (storedRepairWorktree.kind === "blocked") return storedRepairWorktree.outcome;
     let repairMergeWorktreePath = storedRepairWorktree.path;
     let agentRepairs = 0;
+    let publicationOperationalAttempt = 1;
     // Captured once, as plain strings: the guards above narrowed both, but TypeScript
     // drops that narrowing inside the hoisted helpers below.
     const targetBranch: string = worktreeBaseBranch;
@@ -181,23 +209,75 @@ export async function runPublicationPhase(
             repairMergeWorktreePath = nextRepairMergeWorktreePath;
         }
         const failureKind = getMergeFailureKind(error);
+        const operationalFailure = classifyValidationOperationalError({
+            source: "git_publication",
+            kind: publicationFailureKindFromMergeKind(failureKind),
+            operation: "publication",
+            message: reason,
+        });
+        const decision = decideValidationRecovery({
+            failure: operationalFailure,
+            attempt: publicationOperationalAttempt,
+            correctionAttempt: agentRepairs + 1,
+            policy: readValidationRetryPolicy(context.projectRoot),
+            nextPhase: "delivery",
+        });
+        await recordOperationalRecoveryMetric(args, context.projectRoot, decision.result);
 
-        if (failureKind === "target_reference_race") {
-            emitStatus(args, validationUserMessage("retry_pause"), "warning");
-            continue;
+        if (decision.action === "retry") {
+            emitStatus(args, decision.result.message, "warning");
+            const wait = await waitForValidationRetryWithSessionCancellation(args, decision.delayMs, "publication");
+            if (wait === "completed") {
+                publicationOperationalAttempt += 1;
+                continue;
+            }
+            return {
+                recorded: false,
+                result: {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: context.projectRoot,
+                    reason: "Validation retry was canceled. Run this Plan again when you are ready.",
+                    recovery: decision.result,
+                },
+            };
         }
 
         // Only a proven content conflict can go to merge repair. Other publication
         // errors need retry, deterministic recovery, or a user action.
-        if (
-            (failureKind === "detached_merge_conflict" || failureKind === "current_checkout_merge_conflict" ||
-                failureKind === "content_conflict") && agentRepairs < MAX_AGENT_MERGE_REPAIRS
-        ) {
+        if (decision.action === "correct" && agentRepairs < MAX_AGENT_MERGE_REPAIRS) {
             agentRepairs += 1;
             if (await dispatchMergeRepair(args, context, reason, error)) continue;
         }
 
+        if (decision.action === "halt") {
+            emitStatus(args, decision.result.message, "error");
+            return {
+                recorded: false,
+                result: {
+                    kind: "failed",
+                    planName: args.planName,
+                    projectRoot: context.projectRoot,
+                    reason: decision.result.message,
+                    recovery: decision.result,
+                },
+            };
+        }
+
         const pause = describeMergePause(args.planName, worktreeBaseBranch, error, reason, context);
+        if (decision.action === "pause" && decision.result.recoveryClass !== "missing_information") {
+            emitStatus(args, decision.result.message, "warning");
+            return {
+                recorded: false,
+                result: {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: context.projectRoot,
+                    reason: decision.result.message,
+                    recovery: decision.result,
+                },
+            };
+        }
         if (await pauseForUserAction(args, pause) === "retry") continue;
         return {
             recorded: false,

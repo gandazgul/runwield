@@ -10,6 +10,8 @@ import type { PhaseContext, PublicationOutcome, UserActionPause, ValidationLoopA
 import { emitStatus } from "./validation-emit.ts";
 import { buildValidationUserMessage, validationMergeRepairMessage } from "./validation-user-messages.ts";
 import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
+import { classifyValidationOperationalError } from "./validation-operational-errors.ts";
+import { decideValidationRecovery, readValidationRetryPolicy } from "./validation-recovery.ts";
 
 /**
  * Where a merge failure has to be repaired.
@@ -94,11 +96,29 @@ export async function persistValidationMergeRepairWorktree(
     });
     if (transition.status === "committed") return { kind: "committed" };
     const reason = transition.message || `Could not save merge repair worktree state for ${args.planName}.`;
+    const failure = classifyValidationOperationalError({
+        source: "validation_state",
+        kind: "publication_record_missing",
+        operation: "publication",
+        message: reason,
+    });
+    const decision = decideValidationRecovery({
+        failure,
+        attempt: 1,
+        policy: readValidationRetryPolicy(context.projectRoot),
+        nextPhase: "delivery",
+    });
     return {
         kind: "blocked",
         outcome: {
             recorded: false,
-            result: { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason },
+            result: {
+                kind: decision.action === "halt" ? "failed" : "paused",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                reason: decision.result.message,
+                recovery: decision.result,
+            },
         },
     };
 }

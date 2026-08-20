@@ -42,7 +42,7 @@ import {
     decideValidationRecovery,
     readValidationRetryPolicy,
     recordOperationalRecoveryMetric,
-    waitForValidationRetry,
+    waitForValidationRetryWithSessionCancellation,
 } from "./validation-recovery.ts";
 
 const ENGINEER_FOLLOW_UP_OPTIONS: UserActionOption[] = [
@@ -122,7 +122,7 @@ async function handleMechanicalOperationalFailure(
     await recordOperationalRecoveryMetric(args, context.projectRoot, decision.result);
     emitStatus(args, decision.result.message, decision.action === "halt" ? "error" : "warning");
     if (decision.action === "retry") {
-        const wait = await waitForValidationRetry(decision.delayMs);
+        const wait = await waitForValidationRetryWithSessionCancellation(args, decision.delayMs, "mechanical");
         if (wait === "completed") return { kind: "retry" };
         return {
             kind: "done",

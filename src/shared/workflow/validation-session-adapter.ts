@@ -43,6 +43,11 @@ import type {
     SessionManagerHandle,
     ValidationSessionPort,
 } from "./validation-ports.ts";
+import {
+    classifyValidationOperationalError,
+    type ProviderErrorKind,
+    type ValidationOperation,
+} from "./validation-operational-errors.ts";
 
 /**
  * The options shape the pre-existing isolated-session boundary takes.
@@ -96,6 +101,63 @@ function getPendingRepairManager(hostedSession: HostedSession, cwd: string, user
 
 function clearPendingRepairManager(hostedSession: HostedSession, cwd: string, userRequest: string): void {
     pendingRepairManagers.get(hostedSession)?.delete(`${cwd}\u0000${userRequest}`);
+}
+
+function readErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+function readErrorField(
+    error: unknown,
+    field: "code" | "kind" | "name" | "retryAfter",
+): string | number | Date | undefined {
+    if (!error || typeof error !== "object" || !(field in error)) return undefined;
+    const value = (error as { code?: unknown; kind?: unknown; name?: unknown; retryAfter?: unknown })[field];
+    if (typeof value === "string" || typeof value === "number" || value instanceof Date) return value;
+    return undefined;
+}
+
+function providerKindFromError(error: unknown): ProviderErrorKind {
+    const typed = String(
+        readErrorField(error, "kind") || readErrorField(error, "code") || readErrorField(error, "name") || "",
+    )
+        .toLowerCase();
+    const message = readErrorMessage(error).toLowerCase();
+    const text = `${typed} ${message}`;
+    if (text.includes("rate") || text.includes("429")) return "rate_limited";
+    if (
+        text.includes("timeout") || text.includes("timed out") || text.includes("context window") ||
+        text.includes("abort")
+    ) return "timeout";
+    if (text.includes("network") || text.includes("econn") || text.includes("enotfound")) return "network";
+    if (text.includes("unavailable") || text.includes("overloaded") || text.includes("503")) {
+        return "service_unavailable";
+    }
+    if (text.includes("auth") || text.includes("api key") || text.includes("401")) return "authentication";
+    if (text.includes("permission") || text.includes("forbidden") || text.includes("403")) return "permission_denied";
+    return "service_unavailable";
+}
+
+function classifyIsolatedAgentExecutionFailure(
+    request: IsolatedAgentSessionRequest,
+    error: unknown,
+): Extract<IsolatedAgentSessionOutcome, { outcome: "operational_failure" }> {
+    const operation: ValidationOperation = request.kind === "reviewer" ? "semantic_review" : "agent_session";
+    const code = readErrorField(error, "code");
+    const retryAfter = readErrorField(error, "retryAfter");
+    const kind = providerKindFromError(error);
+    return {
+        kind: request.kind,
+        outcome: "operational_failure",
+        failure: classifyValidationOperationalError({
+            source: "provider",
+            kind,
+            operation,
+            message: kind === "legacy_text" ? readErrorMessage(error) : "Provider execution failed.",
+            code: typeof code === "string" ? code : undefined,
+            retryAfter,
+        }),
+    };
 }
 
 function readLatestQaChecklistGeneratedOutcome(
@@ -306,8 +368,13 @@ export function createValidationSessionPort(
         runIsolatedAgentSession: async <K extends IsolatedAgentSessionRequest["kind"]>(
             request: Extract<IsolatedAgentSessionRequest, { kind: K }>,
         ): Promise<Extract<IsolatedAgentSessionOutcome, { kind: K }>> => {
-            const outcome = await runIsolatedRequest(hostedSession, isolatedSessions, request);
-            return outcome as Extract<IsolatedAgentSessionOutcome, { kind: K }>;
+            try {
+                const outcome = await runIsolatedRequest(hostedSession, isolatedSessions, request);
+                return outcome as Extract<IsolatedAgentSessionOutcome, { kind: K }>;
+            } catch (error) {
+                const outcome = classifyIsolatedAgentExecutionFailure(request, error);
+                return outcome as Extract<IsolatedAgentSessionOutcome, { kind: K }>;
+            }
         },
         getAgentDisplayName: (agentName, projectRoot) => getSessionAgentDisplayName(agentName, projectRoot),
         runPostVerificationHandoffs: async ({ planName, planContent, projectRoot, mnemosynePort }) => {

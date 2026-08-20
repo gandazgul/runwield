@@ -42,6 +42,7 @@ export type ProviderOperationalError = {
     kind: ProviderErrorKind;
     operation: ValidationOperation;
     message: string;
+    code?: string;
     retryAfter?: string | number | Date;
 };
 
@@ -162,7 +163,9 @@ function transientFailure(
     source: ProviderOperationalError | GitPublicationOperationalError,
 ): ValidationOperationalFailure {
     return {
-        code: `${source.source}/${source.kind}`,
+        code: "code" in source && typeof source.code === "string" && source.code
+            ? source.code
+            : `${source.source}/${source.kind}`,
         message: sanitizeOperationalMessage(source.message),
         operation: source.operation,
         recoveryClass: "transient",
@@ -187,6 +190,10 @@ function localProcessFailure(source: LocalProcessOperationalError): ValidationOp
     };
 }
 
+function providerCode(source: ProviderOperationalError, fallback: string): string {
+    return typeof source.code === "string" && source.code ? source.code : fallback;
+}
+
 function assertNever(value: never): never {
     throw new Error(`Unhandled validation operational error source: ${String(value)}`);
 }
@@ -204,7 +211,7 @@ export function classifyValidationOperationalError(
                     return transientFailure(source);
                 case "authentication":
                     return {
-                        code: "provider/authentication",
+                        code: providerCode(source, "provider/authentication"),
                         message: sanitizeOperationalMessage(source.message),
                         operation: source.operation,
                         recoveryClass: "missing_information",
@@ -212,7 +219,7 @@ export function classifyValidationOperationalError(
                     };
                 case "permission_denied":
                     return {
-                        code: "provider/permission_denied",
+                        code: providerCode(source, "provider/permission_denied"),
                         message: sanitizeOperationalMessage(source.message),
                         operation: source.operation,
                         recoveryClass: "fatal",
@@ -220,7 +227,7 @@ export function classifyValidationOperationalError(
                     };
                 case "legacy_text":
                     return {
-                        code: "provider/legacy_unclassified",
+                        code: providerCode(source, "provider/legacy_unclassified"),
                         message: sanitizeOperationalMessage(source.message),
                         operation: source.operation,
                         recoveryClass: "fatal",

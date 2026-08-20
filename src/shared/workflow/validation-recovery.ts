@@ -129,7 +129,7 @@ export function decideValidationRecovery(args: {
     };
     switch (args.failure.recoveryClass) {
         case "transient": {
-            if (!args.policy.enabled || args.attempt > args.policy.maxRetries) {
+            if (!args.policy.enabled || args.attempt >= args.policy.maxRetries) {
                 return {
                     action: "pause",
                     result: {
@@ -237,6 +237,22 @@ export async function waitForValidationRetry(delayMs: number, signal?: AbortSign
         };
         signal?.addEventListener("abort", onAbort, { once: true });
     });
+}
+
+export async function waitForValidationRetryWithSessionCancellation(
+    args: ValidationLoopArgs,
+    delayMs: number,
+    operation: string,
+): Promise<"completed" | "canceled"> {
+    if (delayMs <= 0) return "completed";
+    const abortController = new AbortController();
+    const interactionId = `validation-retry:${args.planName}:${operation}:${Date.now()}`;
+    args.session.registerActiveInteraction(interactionId, abortController);
+    try {
+        return await waitForValidationRetry(delayMs, abortController.signal);
+    } finally {
+        args.session.unregisterActiveInteraction(interactionId);
+    }
 }
 
 export async function recordOperationalRecoveryMetric(

@@ -63,6 +63,22 @@ Deno.test("runLocalCI returns an operational failure when no validation command 
     }
 });
 
+Deno.test("CI process start failure does not dispatch implementation repair", async () => {
+    const tooLargeForProcessArguments = `printf never-starts ${"x".repeat(3_000_000)}`;
+    const { cwd, hostedSession } = await makeCiProject(tooLargeForProcessArguments);
+    try {
+        const result = await runLocalCI({ hostedSession, cwd });
+
+        assertEquals(result.kind, "operational_failure");
+        if (result.kind !== "operational_failure") throw new Error("CI should report an operational failure.");
+        assertEquals(result.failure.code, "local_process/process_start_failed");
+        assertEquals(result.failure.recoveryClass, "missing_information");
+        assertStringIncludes(result.output, "Failed to spawn validation process:");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("runLocalCI keeps output bounded and says so when the tail is truncated", async () => {
     const { cwd, hostedSession } = await makeCiProject("yes ci-flood | head -c 1300000");
     try {
