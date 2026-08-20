@@ -57,7 +57,7 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T00:47:42-04:00"
-updatedAt: "2026-08-20T00:42:23.132Z"
+updatedAt: "2026-08-20T01:14:00.374Z"
 status: "validated"
 origin: "internal"
 implementedAt: "2026-08-19T01:26:34.635Z"
@@ -70,13 +70,13 @@ validationMergeRepairWorktree: "/var/folders/hw/zrm0bqr90xz63nflnb2g_qqr0000gn/T
 validationCheckpoint:
     version: 1
     attemptId: "in-place"
-    generation: "1e992499-e1b4-4508-8160-5326910e80c9"
+    generation: "f4411078-409b-4682-90e7-f5c2364dd0a0"
     expectedStatus: "validated"
     nextPhase: "delivery"
     state: "running"
-    ownerPid: 90031
+    ownerPid: 53263
     ownerHostname: "gandazgul-mbp"
-    updatedAt: "2026-08-20T00:42:20.393Z"
+    updatedAt: "2026-08-20T01:14:00.369Z"
 executionMode: "worktree"
 deliveryEvidence:
     version: 1
