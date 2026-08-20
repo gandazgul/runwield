@@ -172,6 +172,7 @@ function findFixturePlanLifecycle(directory, expectedStatus) {
  * @property {boolean} [skipModelWelcome]
  * @property {boolean} [captureModelTurns]
  * @property {boolean} [captureGlobalSettings]
+ * @property {boolean} [captureSystemMessages]
  * @property {Array<{ marker: string, keys?: string, text?: string }>} [startupInput]
  * @property {boolean} [expectedCleanExit]
  */
@@ -210,6 +211,7 @@ function findFixturePlanLifecycle(directory, expectedStatus) {
  *     screen?: string,
  *     activeAgent?: string,
  *     publicationBaseline?: PublicationBaseline,
+ *     systemMessages?: Array<{ text: string, isError: boolean, header?: string }>,
  * }} ComposedScenarioState
  */
 
@@ -872,6 +874,20 @@ async function runComposedTuiScenario(scenario, options) {
         let activeScriptedInteractionType = null;
         /** @param {import('../types.js').UiAPI} uiAPI */
         const configureScriptedUiAPI = (uiAPI) => {
+            if (scenario.captureSystemMessages) {
+                const originalAppendSystemMessage = uiAPI.appendSystemMessage.bind(uiAPI);
+                uiAPI.appendSystemMessage = (text, isError = false, header, style) => {
+                    const systemMessages = Array.isArray(state.systemMessages) ? state.systemMessages : [];
+                    const entry = {
+                        text: String(text),
+                        isError: isError === true,
+                        ...(typeof header === "string" ? { header } : {}),
+                    };
+                    systemMessages.push(entry);
+                    state.systemMessages = systemMessages;
+                    return originalAppendSystemMessage(text, isError, header, style);
+                };
+            }
             if (!interactionSurface) return;
             uiAPI.promptSelect = (prompt, options) => {
                 const value = interactionSurface.next(activeScriptedInteractionType || "select", {

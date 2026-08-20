@@ -3,6 +3,7 @@ import { fromFileUrl, join } from "@std/path";
 import { Container, Editor, type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { setCustomSetting } from "../../shared/settings.js";
 import { getEditorTheme } from "../../ui/theme/theme.js";
 import { createUiApi } from "../../ui/tui/api.js";
 import { SpinnerBlock } from "../../ui/tui/blocks.js";
@@ -14,6 +15,7 @@ const decoder = new TextDecoder();
 const FIXTURE_AGENT = "fixture-agent";
 /** A real selectable Agent, used to close a chooser that must not list the hidden ones. */
 const FIXTURE_AGENT_FALLBACK = "guide";
+const FIXTURE_MODEL = "runtime-command-fixture/fixture-model";
 const UNEXPECTED_SESSION_PORT: InteractiveSessionPort = {
     startInteractiveSession: () => Promise.reject(new Error("Unexpected interactive session in agent command test")),
 };
@@ -30,6 +32,11 @@ class CompatibleVirtualTerminal extends VirtualTerminal {
     override setProgress(active: boolean | number | null): void {
         super.setProgress(typeof active === "boolean" ? (active ? 1 : null) : active);
     }
+}
+
+interface CapturedSystemMessage {
+    text: string;
+    isError: boolean;
 }
 
 interface AgentTuiHarness {
@@ -160,6 +167,86 @@ Deno.test("unknown agent exits an isolated CLI process with status one", async (
     assertEquals(result.code, 1);
     assertStringIncludes(decoder.decode(result.stderr), 'Unknown agent: "not-a-real-agent"');
     assertStringIncludes(decoder.decode(result.stdout), "Available agents:");
+});
+
+Deno.test("agent command keeps the active Agent when its configured model is unavailable", async () => {
+    await withRuntimeCommandFixture("agent-tui-unavailable-model-", async ({ projectRoot }) => {
+        Deno.chdir(projectRoot);
+        await setCustomSetting(
+            "modelPresets",
+            { broken: { agents: { planner: { model: "runtime-command-fixture/missing" } } } },
+            "global",
+            projectRoot,
+        );
+        await setCustomSetting("activeModelPreset", "broken", "global", projectRoot);
+        const runtime = createSessionRuntime();
+        const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+        const sessionId = created.sessionId;
+        await runtime.switchAgent(sessionId, { agentName: "guide" });
+        const harness = makeTuiHarness();
+        const messages: CapturedSystemMessage[] = [];
+        const originalAppendSystemMessage = harness.uiAPI.appendSystemMessage.bind(harness.uiAPI);
+        harness.uiAPI.appendSystemMessage = (message, isError = false, header) => {
+            messages.push({ text: message, isError });
+            originalAppendSystemMessage(message, isError, header);
+        };
+        try {
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "guide");
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                model: "fixture-model",
+                provider: "runtime-command-fixture",
+            });
+
+            await runAgentsCommand(["planner"], {
+                uiAPI: harness.uiAPI,
+                editor: harness.editor,
+                tui: harness.tui,
+                sessionId,
+                sessionRuntime: runtime,
+                sessionPort: UNEXPECTED_SESSION_PORT,
+            });
+
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "guide");
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                model: "fixture-model",
+                provider: "runtime-command-fixture",
+            });
+            assertEquals(messages.length, 1);
+            assertEquals(messages[0].isError, true);
+            assertStringIncludes(messages[0].text, 'Could not switch to Agent "planner"');
+            assertStringIncludes(messages[0].text, "runtime-command-fixture/missing");
+            assertStringIncludes(messages[0].text, "The active Agent did not change");
+            assertStringIncludes(messages[0].text, "/model or /settings");
+            assertEquals(harness.editor.focused, true);
+
+            await setCustomSetting(
+                "modelPresets",
+                { fixed: { agents: { planner: { model: FIXTURE_MODEL } } } },
+                "global",
+                projectRoot,
+            );
+            await setCustomSetting("activeModelPreset", "fixed", "global", projectRoot);
+
+            await runAgentsCommand(["planner"], {
+                uiAPI: harness.uiAPI,
+                editor: harness.editor,
+                tui: harness.tui,
+                sessionId,
+                sessionRuntime: runtime,
+                sessionPort: UNEXPECTED_SESSION_PORT,
+            });
+
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "planner");
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                model: "fixture-model",
+                provider: "runtime-command-fixture",
+            });
+            assertEquals(messages.length, 1);
+        } finally {
+            harness.tui.stop();
+            runtime.closeSession(sessionId);
+        }
+    });
 });
 
 Deno.test("agent chooser switches the real Runtime session to a fixture definition", async () => {

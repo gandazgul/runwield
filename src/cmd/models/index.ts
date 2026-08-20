@@ -18,7 +18,7 @@ interface ModelSelectItem {
 }
 
 interface ModelsCommandUi {
-    appendSystemMessage(message: string): void;
+    appendSystemMessage(message: string, isError?: boolean): void;
     promptSelect(title: string, options: ModelSelectItem[]): Promise<string | null>;
     showModelSelector?(): Promise<void> | void;
 }
@@ -94,7 +94,7 @@ export async function runModelsCommand(argv: string[], options: ModelsCommandOpt
                                     : `Switched model to ${found.provider}/${found.id}`,
                             );
                         } else {
-                            uiAPI.appendSystemMessage(`Unknown model: ${selection}. Use /model to switch.`);
+                            uiAPI.appendSystemMessage(`Unknown model: ${selection}. Use /model to switch.`, true);
                         }
                     }
                 }
@@ -107,14 +107,14 @@ export async function runModelsCommand(argv: string[], options: ModelsCommandOpt
 
     const parsedArgs = parseProviderModel(firstArg);
     if (!parsedArgs.ok) {
-        if (uiAPI) uiAPI.appendSystemMessage("Invalid model format. Use /model to switch.");
+        if (uiAPI) uiAPI.appendSystemMessage("Invalid model format. Use /model to switch.", true);
         else console.log("Invalid model format. Use provider/id.");
         return;
     }
 
     const targetModel = modelRegistry.find(parsedArgs.provider, parsedArgs.id);
     if (!targetModel) {
-        if (uiAPI) uiAPI.appendSystemMessage(`Unknown model: ${firstArg}. Use /model to switch.`);
+        if (uiAPI) uiAPI.appendSystemMessage(`Unknown model: ${firstArg}. Use /model to switch.`, true);
         else console.log(`Unknown model: ${firstArg}`);
         return;
     }
