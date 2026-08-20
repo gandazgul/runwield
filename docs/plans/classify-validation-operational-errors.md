@@ -57,7 +57,7 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T00:47:42-04:00"
-updatedAt: "2026-08-20T00:42:20.396Z"
+updatedAt: "2026-08-20T00:42:23.132Z"
 status: "validated"
 origin: "internal"
 implementedAt: "2026-08-19T01:26:34.635Z"
@@ -66,6 +66,7 @@ userVerifiedAt: null
 executionReport: "- Added typed Workflow Validation operational errors and recovery decisions, including recovery classes, stable codes, bounded Retry-After parsing, capped full-jitter retry delay calculation, correction limits, and operational metrics.\n- Updated Local CI and isolated Agent outcome types to discriminated results; Local CI process-start and missing-command failures now use operational recovery before repair counters or lifecycle failure events.\n- Integrated semantic reviewer protocol corrections, transient operational handling, and publication routing so only proven merge conflicts dispatch merge repair and target-reference races retry.\n- Added `retry.validation.maxDelayMs` schema/docs and Plan Lifecycle docs that operational retries/pauses/halts do not advance or reset Plan Status.\n- Updated tests and fixtures for the new CI result contract; test delta: +9 automated tests, 0 tests removed. Golden publication scripts were reduced only where Agent repair is no longer expected for non-conflict operational failures.\n- Verification passed: focused operational/local-CI/review/repair/publication/resume tests, `deno task seams:check`, `deno task check`, and full `deno task ci` (336 files passed, 0 failed).\n- Note: the Plan listed `src/shared/workflow/validation-publication.test.ts`, but this checkout has `validation-publication-pause.test.js`; I ran the existing publication test file instead."
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+validationMergeRepairWorktree: "/var/folders/hw/zrm0bqr90xz63nflnb2g_qqr0000gn/T/runwield-publish-runwield-5bf560853db07c63"
 validationCheckpoint:
     version: 1
     attemptId: "in-place"
