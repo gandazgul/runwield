@@ -1,4 +1,5 @@
 ---
+planId: "d90a8cb8-cdfd-4192-ba1e-d2aa1f9ac3af"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
@@ -8,11 +9,6 @@ affectedPaths:
     - "scripts/run-ci.ts"
     - "scripts/run-ci.test.ts"
     - "docs/contributing.md"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: "2026-08-20T19:58:32-04:00"
-status: "draft"
 objectiveChecks:
     - id: "OC1"
       command: "grep -qF '\"ci\": \"deno run -A scripts/run-ci.ts\"' deno.json && deno eval -A 'const m=await import(\"./scripts/run-ci.ts\");const d=Promise.withResolvers();const calls=[];const run=m.runCi(async n=>{calls.push(n);if(n===m.PRE_TEST_TASKS[0])await d.promise;return {name:n,code:0};});await new Promise(r=>setTimeout(r,0));if(calls.join(\",\")!==m.PRE_TEST_TASKS.join(\",\"))throw Error(\"pre-test wave is not concurrent\");d.resolve();const result=await run;if(calls.at(-1)!==\"test\"||result.exitCode!==0)throw Error(\"test did not follow the barrier\");'"
@@ -22,8 +18,11 @@ objectiveChecks:
       rationale: "This can pass only when multiple pre-test failures are retained in task order, produce a failed CI result, and prevent the test task from starting."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-updatedAt: "2026-08-21T00:00:33.357Z"
-planId: "d90a8cb8-cdfd-4192-ba1e-d2aa1f9ac3af"
+createdAt: "2026-08-20T19:58:32-04:00"
+updatedAt: "2026-08-21T00:34:34.718Z"
+status: "ready_for_work"
+origin: "internal"
+userVerifiedAt: null
 ---
 
 # Parallelize Independent CI Stages

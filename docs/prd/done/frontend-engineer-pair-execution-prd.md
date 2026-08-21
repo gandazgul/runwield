@@ -163,7 +163,7 @@ The planning and execution contracts represent three independent product decisio
 2. whether Planner recommends Pair or autonomous execution; and
 3. what browser and deterministic verification the Plan requires.
 
-Executable FEATURE Plans use `executionAgent: "engineer" | "frontend-engineer"`. Frontend-owned Plans may use
+Executable FEATURE Plans use `executionAgent: "engineer" | "frontend-engineer"`. Either owner may use
 `collaborationRecommendation: "autonomous" | "pair"` as Planner guidance. The retired `frontend` boolean is not emitted
 for new Plans or retained in active nonterminal Plans. Legacy executable FEATURE Plans with `frontend: true` resolve to
 Frontend Engineer autonomous execution, while legacy `frontend: false` has no effect; PROJECT Epics remain

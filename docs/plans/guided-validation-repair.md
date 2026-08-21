@@ -38,7 +38,7 @@ objectiveChecks:
       rationale: "This proves the desired multi-round loop. One task_completed resumes the correct validation path, and a later failure stays guided instead of dispatching an unrelated automatic repair session."
     - id: "OC4"
       command: "grep -q 'Guided Repair does not enable Pair Execution checkpoints or change collaboration style' src/shared/workflow/validation-guided-repair.test.ts && deno run -A scripts/run-tests.js src/shared/workflow/validation-guided-repair.test.ts --filter 'Guided Repair does not enable Pair Execution checkpoints or change collaboration style'"
-      rationale: "Guided Repair and Pair Execution are separate product concepts. This prevents the new repair mode from enabling pair_checkpoint, changing collaborationStyle, or inheriting frontend-only semantics."
+      rationale: "Guided Repair and Pair Execution are separate product concepts. This prevents the new repair mode from enabling pair_checkpoint or changing collaborationStyle."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-08T00:37:47-04:00"

@@ -56,27 +56,27 @@ Typical flow:
    and `collaborationRecommendation`; sending Feedback does not persist temporary control changes.
 4. On approval, RunWield writes the selected canonical execution metadata and marks the Plan ready for work.
 5. RunWield dispatches the recorded `executionAgent`. Browser UI FEATURE Plans may use Frontend Engineer; other Plans
-   use Engineer. Frontend Engineer runs autonomously or, in a capable TUI, through blocking Pair checkpoints.
+   use Engineer. Either execution owner can run autonomously or, in a capable TUI, through blocking Pair checkpoints.
 6. RunWield runs workflow validation.
 7. The plan is marked verified only after validation records explicit delivery evidence and, for worktree execution, Git
    proves the sealed implementation commit and verified metadata were merged to the target branch.
 
-Executable FEATURE Plans express ownership with `executionAgent: "engineer" | "frontend-engineer"`. Frontend-owned
-FEATURE Plans may add `collaborationRecommendation: "autonomous" | "pair"` to capture Planner guidance; Pair is a
-runtime style, not a separate Agent. PROJECT Epics are non-executable containers and should not receive an execution
-Agent solely because their child work may include browser UI.
+Executable FEATURE Plans express ownership with `executionAgent: "engineer" | "frontend-engineer"`. Either owner may use
+`collaborationRecommendation: "autonomous" | "pair"` to capture Planner guidance. Pair is a runtime style, not a
+separate Agent. PROJECT Epics are non-executable containers and should not receive an execution Agent solely because
+their child work may include browser UI.
 
 The legacy `frontend` field is retired from new Plan writes and active nonterminal Plans. For compatibility, a legacy
 executable FEATURE with `frontend: true` resolves to Frontend Engineer plus autonomous execution; `frontend: false` has
 no effect. Legacy PROJECT Epics remain non-executable and any old value is only historical child-slicing context.
 
 Runtime collaboration style is ephemeral active-workflow state, not durable Plan execution metadata. Each execution or
-recovery derives the style from the current Plan recommendation and current host capability: a Frontend Engineer Plan
-with `collaborationRecommendation: "pair"` uses Pair only in a capable TUI, while ACP, headless, and other incapable
-hosts run autonomously without writing a fallback style to the Plan. If runtime context is lost, recovery re-derives
-from the Plan and host instead of restoring or asking for a stored selection. Validation repairs preserve the original
-execution owner but run in an independent Agent session. The repair packet names the checkout, worktree identity when
-available, Plan file path, and current feedback. It does not copy the implementation transcript or inline the Plan.
+recovery derives the style from the current Plan recommendation and current host capability: any executable Plan with
+`collaborationRecommendation: "pair"` uses Pair only in a capable TUI, while ACP, headless, and other incapable hosts
+run autonomously without writing a fallback style to the Plan. If runtime context is lost, recovery re-derives from the
+Plan and host instead of restoring or asking for a stored selection. Validation repairs preserve the original execution
+owner but run in an independent Agent session. The repair packet names the checkout, worktree identity when available,
+Plan file path, and current feedback. It does not copy the implementation transcript or inline the Plan.
 
 Pair checkpoints are implementation-time steering points only. They may approve an increment, request revision, switch
 the remaining work to autonomous execution, or stop the run in progress; they are not Task Completion, Manual QA,

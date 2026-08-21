@@ -28,14 +28,16 @@ I would order the overlapping group like this:
    1. docs/plans/execution-agent-context-boundaries.md
    2.
 
-5. classify-validation-operational-errors.md - in progress
+5. classify-validation-operational-errors.md - done
 
-6. Optional before foundation: guided-validation-repair.md
+6. flag-test-seam-risks-during-init.md
 
-7. simplify-validation-and-lifecycle-messages.md Better after the error/repair model is stable.
+7. Optional before foundation: guided-validation-repair.md
 
-8. plan-packages-and-independent-validation.md
+8. simplify-validation-and-lifecycle-messages.md Better after the error/repair model is stable.
 
-9. plan-package-frontend-experience-planning.md
+9. plan-packages-and-independent-validation.md
 
-10. epic-branch-publication-workflow.md
+10. plan-package-frontend-experience-planning.md
+
+11. epic-branch-publication-workflow.md

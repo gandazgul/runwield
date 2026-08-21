@@ -16,8 +16,8 @@ objectiveChecks:
       command: "! grep -q 'Execute the following plan step by step' src/shared/workflow/workflow-prompts.js && ! grep -q 'buildTriageReport(triageMeta, { plannedExecution: true })' src/shared/workflow/workflow-prompts.js"
       rationale: "The Engineer request builder must stop duplicating static process instructions and generic triage prose already owned elsewhere."
     - id: "OC2"
-      command: "! grep -q 'Pair Execution is available only with Frontend Engineer' src/ui/workspace/react/PlanReviewSurface.tsx && ! grep -q 'executionAgent === \"engineer\" ? \"autonomous\"' src/ui/workspace/react/PlanReviewSurface.tsx"
-      rationale: "Workspace must no longer disable or erase the Engineer Pair recommendation supported by the canonical policy and runtime."
+      command: "grep -q 'choosing Pair for an Engineer-owned Plan is kept' src/ui/workspace/react/plan-review-policy.test.ts && ! grep -q 'executionAgent === \"engineer\" ? \"autonomous\"' src/ui/workspace/react/PlanReviewSurface.tsx"
+      rationale: "Workspace must preserve an Engineer Pair recommendation supported by the canonical policy and runtime."
     - id: "OC3"
       command: "deno run -A scripts/run-tests.js src/shared/workflow/workflow-prompts.test.js src/shared/workflow/workflow.test.js src/ui/workspace/react/plan-review-policy.test.ts"
       rationale: "Focused tests must protect the smaller execution-request contract and medium-neutral Workspace policy behavior."
@@ -67,9 +67,9 @@ test-change accounting, and falsifiable Verification Plans are now canonical ins
 
 Three integration leftovers remain:
 
-- Workspace's Plan Review surface still disables Pair Execution when `executionAgent` is `engineer`, rewrites a stored
-  Engineer Pair recommendation to `autonomous` while reading review data, and says Engineer always runs autonomously.
-  That contradicts `resolvePlanExecutionPolicy`, Planner, shared Plan execution practice, and runtime selection.
+- Workspace's Plan Review surface had stale autonomous-only behavior for `executionAgent: "engineer"`, including erasing
+  a stored Engineer Pair recommendation while reading review data. That contradicted `resolvePlanExecutionPolicy`,
+  Planner, shared Plan execution practice, and runtime selection.
 - `buildEngineerRequest` still injects “Execute the following plan step by step” and a completion ceremony already owned
   by the Engineer/process prompt. Editing the Markdown can therefore leave a second stale copy in code.
 - The same builder still renders the generic seven-field `buildTriageReport` for planned execution. Routing intent,
@@ -136,7 +136,7 @@ testable without rendering the full React surface. `PlanReviewSurface.tsx` consu
 - [ ] `buildTriageReport` and all non-execution callers retain their existing structured rendering; this change does not
       alter Router, Slicer, Plan presentation, or Epic continuation contracts.
 - [ ] Workspace Plan Review offers Pair and Autonomous for both `engineer` and `frontend-engineer`, and its explanatory
-      copy no longer claims Engineer always runs autonomously or that Pair is frontend-only.
+      copy says Pair is available for either execution owner when the host supports checkpoints.
 - [ ] Reading review data preserves `executionAgent: "engineer"` with `collaborationRecommendation: "pair"`; absent or
       invalid recommendations still normalize to `autonomous`.
 - [ ] Workspace continues to store the Planner recommendation, not the host-resolved runtime style. An incapable host
