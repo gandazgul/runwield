@@ -69,6 +69,16 @@ Deno.test("classifies reviewer protocol, missing state, git, auth, permission, a
 
     assertEquals(
         classifyValidationOperationalError({
+            source: "git_publication",
+            kind: "remote_unavailable",
+            operation: "publication",
+            message: "network unavailable",
+        }).recoveryClass,
+        "transient",
+    );
+
+    assertEquals(
+        classifyValidationOperationalError({
             source: "provider",
             kind: "authentication",
             operation: "semantic_review",

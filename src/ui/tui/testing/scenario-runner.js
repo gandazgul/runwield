@@ -1329,6 +1329,10 @@ async function runComposedTuiScenario(scenario, options) {
                     await Deno.mkdir(join(path, ".."), { recursive: true });
                     await Deno.writeTextFile(path, String(typed.text || ""));
                     events.push(`project:write:${typed.path || ""}`);
+                } else if (typed.type === "deleteProjectFile") {
+                    const path = join(Deno.cwd(), typed.path || "");
+                    await Deno.remove(path);
+                    events.push(`project:delete:${typed.path || ""}`);
                 } else if (typed.type === "repairStoredMergeWorktreeAndKill") {
                     const planName = String(typed.planName || "");
                     const filePath = String(typed.path || "");
@@ -1742,6 +1746,32 @@ async function runComposedTuiScenario(scenario, options) {
                         await Deno.chmod(hookPath, 0o755);
                     }
                     events.push(`publication:remote-push-rejection:${typed.enabled === false ? "off" : "on"}`);
+                    await writeHeartbeat();
+                } else if (typed.type === "setPlanRemoteUnavailable") {
+                    const planName = String(typed.planName || "");
+                    const loaded = await loadPlan(Deno.cwd(), planName);
+                    if (!loaded) throw new Error(`Cannot configure upstream for missing Plan ${planName}`);
+                    const targetBranch = String(loaded.attrs.worktreeBaseBranch || "main");
+                    const remote = await runGoldenGit(
+                        ["config", "--get", `branch.${targetBranch}.remote`],
+                        Deno.cwd(),
+                    ) || "origin";
+                    const savedRemoteUrls = /** @type {Record<string, string>} */ (state.savedRemoteUrls ||= {});
+                    if (typed.enabled === false) {
+                        const savedUrl = savedRemoteUrls[remote];
+                        if (typeof savedUrl !== "string" || !savedUrl) {
+                            throw new Error(`No saved URL for temporarily unavailable remote ${remote}`);
+                        }
+                        await runGoldenGit(["remote", "set-url", remote, savedUrl], Deno.cwd());
+                    } else {
+                        const remoteUrl = await runGoldenGit(["remote", "get-url", remote], Deno.cwd());
+                        savedRemoteUrls[remote] = remoteUrl;
+                        await runGoldenGit(
+                            ["remote", "set-url", remote, `${remoteUrl}.temporarily-unavailable`],
+                            Deno.cwd(),
+                        );
+                    }
+                    events.push(`publication:remote-unavailable:${typed.enabled === false ? "off" : "on"}`);
                     await writeHeartbeat();
                 } else if (typed.type === "removePlanRemote") {
                     const planName = String(typed.planName || "");

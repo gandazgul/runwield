@@ -6,7 +6,6 @@ import {
     buildPlanRecoveryUserMessage,
     buildValidationRecoveryNotice,
     buildValidationUserMessage,
-    planRecoveryMessage,
 } from "../../shared/workflow/validation-user-messages.ts";
 import {
     checkpointExecutionWorktree,
@@ -327,7 +326,24 @@ async function attemptManualPublication(
             } catch (cleanupError) {
                 const cleanupReason = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
                 console.error("[RunWield] Worktree cleanup failed", cleanupReason);
-                uiAPI.appendSystemMessage(planRecoveryMessage("merge_cleanup_failed"), true, "RunWield");
+                uiAPI.appendSystemMessage(
+                    buildValidationUserMessage({
+                        kind: "user_action",
+                        whatHappened: `The commits are on ${manualTargetBranch}, but Git could not finish cleanup.`,
+                        details: [
+                            cleanupReason,
+                            `Worktree: ${context.worktreeContext.path}`,
+                            ...(context.worktreeContext.branch
+                                ? [`Source branch: ${context.worktreeContext.branch}`]
+                                : []),
+                        ],
+                        doThis:
+                            `Inspect the worktree with \`git -C "${context.worktreeContext.path}" status --short\`. ` +
+                            "Save anything you need, then run `wld plans doctor` before removing the worktree or source branch manually.",
+                    }),
+                    true,
+                    "RunWield",
+                );
             }
         }
         uiAPI.appendSystemMessage(buildPlanRecoveryUserMessage({ kind: "merged" }), false, "RunWield");
@@ -345,7 +361,18 @@ async function attemptManualPublication(
         if (publicationConfirmed) {
             const reason = error instanceof Error ? error.message : String(error);
             console.error("[RunWield] Post-merge step failed", reason);
-            uiAPI.appendSystemMessage(planRecoveryMessage("handoff_failed"), true, "RunWield");
+            uiAPI.appendSystemMessage(
+                buildValidationUserMessage({
+                    kind: "user_action",
+                    whatHappened:
+                        `The commits reached ${manualTargetBranch}, but a later record or cleanup step failed. Do not publish the branch again until you inspect it.`,
+                    details: [reason],
+                    doThis:
+                        `Run \`git log -1 ${manualTargetBranch}\` and \`wld plans doctor\` to confirm the published commit and remaining cleanup.`,
+                }),
+                true,
+                "RunWield",
+            );
             return { kind: "handled" };
         }
         const reason = isGitRepositoryRequiredError(error)
@@ -354,7 +381,22 @@ async function attemptManualPublication(
             ? error.message
             : String(error);
         console.error("[RunWield] Worktree merge failed", reason);
-        uiAPI.appendSystemMessage(planRecoveryMessage("merge_failed"), true, "RunWield");
+        uiAPI.appendSystemMessage(
+            buildValidationUserMessage({
+                kind: "user_action",
+                whatHappened: `Git did not publish the worktree branch to ${manualTargetBranch}.`,
+                details: [
+                    reason,
+                    `Worktree: ${manualWorktreePath}`,
+                    `Source branch: ${manualWorktreeBranch}`,
+                    `Target branch: ${manualTargetBranch}`,
+                ],
+                doThis:
+                    `Inspect \`git -C "${manualWorktreePath}" status\` and \`git branch -vv\`. Fix the reported Git problem, then load this Plan and retry publication.`,
+            }),
+            true,
+            "RunWield",
+        );
         if (context.worktreeContext?.id) {
             try {
                 await updateWorktreeRegistryEntry(projectRoot, context.worktreeContext.id, {

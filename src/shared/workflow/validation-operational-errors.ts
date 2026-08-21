@@ -82,6 +82,7 @@ export type WorktreeOperationalError = {
 
 export type GitPublicationErrorKind =
     | "target_reference_race"
+    | "remote_unavailable"
     | "content_conflict"
     | "primary_checkout_dirty"
     | "permission_denied"
@@ -296,6 +297,7 @@ export function classifyValidationOperationalError(
         case "git_publication":
             switch (source.kind) {
                 case "target_reference_race":
+                case "remote_unavailable":
                     return transientFailure(source);
                 case "content_conflict":
                     return {
@@ -314,12 +316,20 @@ export function classifyValidationOperationalError(
                         userAction: "Clean or save primary checkout changes, then retry publication.",
                     };
                 case "permission_denied":
+                    return {
+                        code: `${source.source}/${source.kind}`,
+                        message: sanitizeOperationalMessage(source.message),
+                        operation: source.operation,
+                        recoveryClass: "missing_information",
+                        userAction: "Restore Git credentials or upstream write access, then load this Plan and retry.",
+                    };
                 case "policy_violation":
                     return {
                         code: `${source.source}/${source.kind}`,
                         message: sanitizeOperationalMessage(source.message),
                         operation: source.operation,
-                        recoveryClass: "fatal",
+                        recoveryClass: "missing_information",
+                        userAction: "Resolve the branch rule Git reported, then load this Plan and retry.",
                     };
                 case "post_publication_bookkeeping":
                     return {

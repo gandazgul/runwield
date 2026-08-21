@@ -71,6 +71,10 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
                 remotePlanAttrs: objectiveChecks ? { objectiveChecks } : {},
                 registryEntries: [],
             },
+            localPublication: {
+                planStatus: "validated",
+                registryEntries: [],
+            },
             pendingPublication: {
                 registryStatus: "publication_failed",
                 executionPlanStatus: "validated",

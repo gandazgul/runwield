@@ -1,6 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
 import { assertsGoldenCoverage } from "../testing/portfolio-assertions.js";
-import { plannedChangeBlockedMergePauseScenario } from "./planned-change-workflow.js";
 import { withValidationBranches } from "./validation-workflow-tree-shared.ts";
 
 type PublicationState = {
@@ -160,52 +159,148 @@ function isolatedPublicationScenario(
     );
 }
 
-export const validationTreePublicationDirtyCheckoutScenario = withValidationBranches(
-    plannedChangeBlockedMergePauseScenario,
-    "validation-tree-publication-dirty-checkout",
-    ["plan"],
-    [],
-);
+const dirtyPublicationPlanName = "validation-tree-publication-dirty-checkout";
 
-export const validationTreePublicationDirtyStopResumeScenario = withValidationBranches(
+export const validationTreePublicationDirtyCheckoutScenario = withValidationBranches(
     {
-        ...plannedChangeBlockedMergePauseScenario,
-        name: "validation-tree-publication-dirty-stop-resume-base",
+        name: `${dirtyPublicationPlanName}-base`,
+        composedTui: true,
+        initialAgentName: "guide",
+        terminal: { columns: 100, rows: 30 },
+        timeoutMs: 150000,
+        committedProjectFiles: [
+            { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
+            {
+                path: `docs/plans/${dirtyPublicationPlanName}.md`,
+                text: publicationPlan(dirtyPublicationPlanName, "dirty-overlap.txt"),
+            },
+            { path: "dirty-overlap.txt", text: "committed baseline\n" },
+        ],
+        initialProjectFiles: [],
         scriptedInteractions: [
-            { type: "text", promptIncludes: "Enter the command that runs this project's tests", value: "true" },
-            { type: "select", promptIncludes: "have not saved to git yet", value: "stop" },
-            { type: "select", promptIncludes: "Plan recovery (validated_reviewer)", value: "validate" },
+            { type: "select", promptIncludes: "Plan recovery", value: "validate" },
+            {
+                type: "select",
+                promptIncludes: "have not saved to git yet",
+                userFixesFirst: { path: "dirty-overlap.txt", text: "committed baseline\n" },
+                value: "retry",
+            },
         ],
         actions: [
             {
-                type: "writeProjectFile",
-                path: "docs/plans/plan.md",
-                text:
-                    "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Golden PLANNED_CHANGE\naffectedPaths: []\nstatus: draft\n---\n# Golden PLANNED_CHANGE\n\nDraft content.\n",
+                type: "seedActiveWorktree",
+                planName: dirtyPublicationPlanName,
+                status: "validated_reviewer",
+                attrs: { humanReviewMode: "none", humanReviewDecision: "not_required" },
+                files: [{ path: "dirty-overlap.txt", text: "validated implementation\n" }],
             },
-            { type: "writeProjectFile", path: "golden-planned-change.txt", text: "my own unsaved edit\n" },
-            { type: "type", text: "submit the planned change for review" },
-            { type: "enter" },
-            { type: "waitForScreen", text: "have not saved to git yet", timeoutMs: 240000 },
-            { type: "waitForPlanStatus", planName: "plan", statuses: ["validated_reviewer"], timeoutMs: 240000 },
-            { type: "writeProjectFile", path: "golden-planned-change.txt", text: "committed baseline\n" },
-            { type: "type", text: "/load-plan plan" },
+            { type: "removePlanRemote", planName: dirtyPublicationPlanName },
+            { type: "writeProjectFile", path: "dirty-overlap.txt", text: "my unsaved edit\n" },
+            { type: "type", text: `/load-plan ${dirtyPublicationPlanName}` },
             { type: "enter" },
             { type: "enter" },
-            { type: "waitForPlanStatus", planName: "plan", statuses: ["verified"], timeoutMs: 180000 },
-            { type: "assertWorkflowDurability" },
+            {
+                type: "waitForWorktreeRegistryStatus",
+                planName: dirtyPublicationPlanName,
+                statuses: ["absent"],
+                timeoutMs: 90000,
+            },
+            { type: "waitForIdle", timeoutMs: 90000 },
+            {
+                type: "captureLocalPublicationState",
+                planName: dirtyPublicationPlanName,
+                deliveredPath: "dirty-overlap.txt",
+            },
         ],
         assertions: [
-            (result: DirtyStopResumeResult) => {
+            (result: PublicationState & DirtyStopResumeResult) => {
+                assertEquals(result.state.localPublication?.planStatus, "validated");
+                assertEquals(result.state.localPublication?.deliveredText, "validated implementation\n");
+                assertEquals(result.state.localPublication?.registryEntries, []);
+                const interactions = result.state.scriptedInteractions || [];
+                assertEquals(interactions[1]?.interaction?.value, "retry");
+            },
+        ],
+    },
+    dirtyPublicationPlanName,
+    [dirtyPublicationPlanName],
+    ["publication:dirty-primary-retry"],
+);
+
+const dirtyStopPlanName = "validation-tree-publication-dirty-stop-resume";
+
+export const validationTreePublicationDirtyStopResumeScenario = withValidationBranches(
+    {
+        name: `${dirtyStopPlanName}-base`,
+        composedTui: true,
+        initialAgentName: "guide",
+        terminal: { columns: 100, rows: 30 },
+        timeoutMs: 180000,
+        committedProjectFiles: [
+            { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
+            {
+                path: `docs/plans/${dirtyStopPlanName}.md`,
+                text: publicationPlan(dirtyStopPlanName, "dirty-stop-overlap.txt"),
+            },
+            { path: "dirty-stop-overlap.txt", text: "committed baseline\n" },
+        ],
+        initialProjectFiles: [],
+        scriptedInteractions: [
+            { type: "select", promptIncludes: "Plan recovery", value: "validate" },
+            { type: "select", promptIncludes: "have not saved to git yet", value: "stop" },
+            { type: "select", promptIncludes: "Plan recovery", value: "validate" },
+        ],
+        actions: [
+            {
+                type: "seedActiveWorktree",
+                planName: dirtyStopPlanName,
+                status: "validated_reviewer",
+                attrs: { humanReviewMode: "none", humanReviewDecision: "not_required" },
+                files: [{ path: "dirty-stop-overlap.txt", text: "validated implementation\n" }],
+            },
+            { type: "removePlanRemote", planName: dirtyStopPlanName },
+            { type: "writeProjectFile", path: "dirty-stop-overlap.txt", text: "my unsaved edit\n" },
+            { type: "type", text: `/load-plan ${dirtyStopPlanName}` },
+            { type: "enter" },
+            { type: "enter" },
+            {
+                type: "waitForWorktreeRegistryStatus",
+                planName: dirtyStopPlanName,
+                statuses: ["publication_failed"],
+                timeoutMs: 90000,
+            },
+            { type: "waitForIdle", timeoutMs: 90000 },
+            { type: "writeProjectFile", path: "dirty-stop-overlap.txt", text: "committed baseline\n" },
+            { type: "type", text: `/load-plan ${dirtyStopPlanName}` },
+            { type: "enter" },
+            { type: "enter" },
+            {
+                type: "waitForWorktreeRegistryStatus",
+                planName: dirtyStopPlanName,
+                statuses: ["absent"],
+                timeoutMs: 90000,
+            },
+            { type: "waitForIdle", timeoutMs: 90000 },
+            {
+                type: "captureLocalPublicationState",
+                planName: dirtyStopPlanName,
+                deliveredPath: "dirty-stop-overlap.txt",
+            },
+        ],
+        assertions: [
+            (result: PublicationState & DirtyStopResumeResult) => {
+                assertEquals(result.state.localPublication?.planStatus, "validated");
+                assertEquals(result.state.localPublication?.deliveredText, "validated implementation\n");
+                assertEquals(result.state.localPublication?.registryEntries, []);
                 const interactions = result.state.scriptedInteractions || [];
                 assertEquals(interactions[1]?.interaction?.value, "stop");
                 assertEquals(interactions[2]?.interaction?.value, "validate");
             },
         ],
     },
-    "validation-tree-publication-dirty-stop-resume",
-    ["plan"],
-    [],
+    dirtyStopPlanName,
+    [dirtyStopPlanName],
+    ["publication:dirty-primary-stop-resume"],
 );
 
 export const validationTreePublicationIsolatedDirtyPrimaryScenario = isolatedPublicationScenario(
@@ -215,6 +310,159 @@ export const validationTreePublicationIsolatedDirtyPrimaryScenario = isolatedPub
 export const validationTreePublicationRemoteTargetAdvanceScenario = isolatedPublicationScenario(
     "validation-tree-publication-remote-target-advance",
     { advanceRemote: true },
+);
+
+const restoredPrimaryPlanName = "validation-tree-publication-primary-plan-restored";
+
+export const validationTreePublicationPrimaryPlanRestoredScenario = withValidationBranches(
+    {
+        name: `${restoredPrimaryPlanName}-base`,
+        composedTui: true,
+        initialAgentName: "guide",
+        terminal: { columns: 100, rows: 30 },
+        timeoutMs: 150000,
+        committedProjectFiles: [
+            { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
+            {
+                path: `docs/plans/${restoredPrimaryPlanName}.md`,
+                text: publicationPlan(restoredPrimaryPlanName, "restored-primary-plan.txt"),
+            },
+        ],
+        initialProjectFiles: [],
+        scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery", value: "validate" }],
+        actions: [
+            {
+                type: "seedActiveWorktree",
+                planName: restoredPrimaryPlanName,
+                status: "validated_reviewer",
+                attrs: { humanReviewMode: "none", humanReviewDecision: "not_required" },
+                files: [{ path: "restored-primary-plan.txt", text: "safe implementation\n" }],
+            },
+            { type: "deleteProjectFile", path: `docs/plans/${restoredPrimaryPlanName}.md` },
+            {
+                type: "capturePublicationBaseline",
+                paths: [`docs/plans/${restoredPrimaryPlanName}.md`],
+            },
+            { type: "type", text: `/load-plan ${restoredPrimaryPlanName}` },
+            { type: "enter" },
+            { type: "enter" },
+            {
+                type: "waitForRemotePlanStatus",
+                planName: restoredPrimaryPlanName,
+                statuses: ["validated"],
+                timeoutMs: 90000,
+            },
+            {
+                type: "waitForWorktreeRegistryStatus",
+                planName: restoredPrimaryPlanName,
+                statuses: ["absent"],
+                timeoutMs: 90000,
+            },
+            { type: "waitForIdle", timeoutMs: 90000 },
+            {
+                type: "capturePublicationState",
+                planName: restoredPrimaryPlanName,
+                deliveredPath: "restored-primary-plan.txt",
+            },
+        ],
+        assertions: [
+            (result: PublicationState) => {
+                const baseline = result.state.publicationBaseline;
+                const publication = result.state.publication;
+                assert(baseline && publication, "Expected restored-primary publication evidence.");
+                assertEquals(baseline.files?.[`docs/plans/${restoredPrimaryPlanName}.md`], null);
+                assert(
+                    typeof publication.primaryFiles?.[`docs/plans/${restoredPrimaryPlanName}.md`] === "string",
+                    "Expected /load-plan to restore the missing primary Plan from the execution worktree.",
+                );
+                assertEquals(publication.primaryHead, baseline.head);
+                assertEquals(publication.remotePlanStatus, "validated");
+                assertEquals(publication.deliveredText, "safe implementation");
+                assertEquals(publication.registryEntries, []);
+                assertEquals(publication.worktreeBranchExists, false);
+            },
+        ],
+    },
+    restoredPrimaryPlanName,
+    [restoredPrimaryPlanName],
+    ["publication:primary-plan-restored"],
+);
+
+const remoteUnavailablePlanName = "validation-tree-publication-remote-unavailable-retry";
+
+export const validationTreePublicationRemoteUnavailableRetryScenario = withValidationBranches(
+    {
+        name: `${remoteUnavailablePlanName}-base`,
+        composedTui: true,
+        initialAgentName: "guide",
+        terminal: { columns: 100, rows: 30 },
+        timeoutMs: 180000,
+        committedProjectFiles: [
+            { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
+            {
+                path: `docs/plans/${remoteUnavailablePlanName}.md`,
+                text: publicationPlan(remoteUnavailablePlanName, "remote-unavailable-retry.txt"),
+            },
+        ],
+        initialProjectFiles: [],
+        scriptedInteractions: [
+            { type: "select", promptIncludes: "Plan recovery", value: "validate" },
+            { type: "select", promptIncludes: "Plan recovery", value: "validate" },
+        ],
+        actions: [
+            {
+                type: "seedActiveWorktree",
+                planName: remoteUnavailablePlanName,
+                status: "validated_reviewer",
+                attrs: { humanReviewMode: "none", humanReviewDecision: "not_required" },
+                files: [{ path: "remote-unavailable-retry.txt", text: "safe after outage\n" }],
+            },
+            { type: "setPlanRemoteUnavailable", planName: remoteUnavailablePlanName },
+            { type: "type", text: `/load-plan ${remoteUnavailablePlanName}` },
+            { type: "enter" },
+            { type: "enter" },
+            {
+                type: "waitForWorktreeRegistryStatus",
+                planName: remoteUnavailablePlanName,
+                statuses: ["publication_failed"],
+                timeoutMs: 90000,
+            },
+            { type: "waitForIdle", timeoutMs: 90000 },
+            { type: "setPlanRemoteUnavailable", planName: remoteUnavailablePlanName, enabled: false },
+            { type: "type", text: `/load-plan ${remoteUnavailablePlanName}` },
+            { type: "enter" },
+            { type: "enter" },
+            {
+                type: "waitForRemotePlanStatus",
+                planName: remoteUnavailablePlanName,
+                statuses: ["validated"],
+                timeoutMs: 90000,
+            },
+            {
+                type: "waitForWorktreeRegistryStatus",
+                planName: remoteUnavailablePlanName,
+                statuses: ["absent"],
+                timeoutMs: 90000,
+            },
+            { type: "waitForIdle", timeoutMs: 90000 },
+            {
+                type: "capturePublicationState",
+                planName: remoteUnavailablePlanName,
+                deliveredPath: "remote-unavailable-retry.txt",
+            },
+        ],
+        assertions: [
+            (result: PublicationState) => {
+                assertEquals(result.state.publication?.remotePlanStatus, "validated");
+                assertEquals(result.state.publication?.deliveredText, "safe after outage");
+                assertEquals(result.state.publication?.registryEntries, []);
+                assertEquals(result.state.publication?.worktreeBranchExists, false);
+            },
+        ],
+    },
+    remoteUnavailablePlanName,
+    [remoteUnavailablePlanName],
+    ["publication:remote-unavailable-retry"],
 );
 
 const localPublicationPlanName = "validation-tree-publication-local-only";
@@ -927,6 +1175,8 @@ export const validationWorkflowPublicationScenarios = [
     validationTreePublicationDirtyStopResumeScenario,
     validationTreePublicationIsolatedDirtyPrimaryScenario,
     validationTreePublicationRemoteTargetAdvanceScenario,
+    validationTreePublicationPrimaryPlanRestoredScenario,
+    validationTreePublicationRemoteUnavailableRetryScenario,
     validationTreePublicationLocalOnlyScenario,
     validationTreePublicationMergeConflictRepairCompletedScenario,
     validationTreePublicationMergeConflictRepairIncompleteRetryScenario,

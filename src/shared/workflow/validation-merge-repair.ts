@@ -205,6 +205,22 @@ export function describeMergePause(
             doThis: `Switch that other checkout off ${targetBranch}, then pick Retry.`,
         };
     }
+    if (kind === "permission_denied") {
+        return {
+            whatHappened:
+                `Git refused permission to update the upstream ${targetBranch} branch. The validated commits remain on the worktree branch.`,
+            doThis:
+                "Restore the remote credentials or write permission, confirm with `git push --dry-run`, then pick Retry.",
+        };
+    }
+    if (kind === "policy_violation" || kind === "publication_target_changed") {
+        return {
+            whatHappened:
+                `Git refused to update the upstream ${targetBranch} branch because its branch rules or configured publication target changed. The validated commits remain on the worktree branch.`,
+            doThis:
+                `Inspect the remote and branch settings with \`git remote -v\` and \`git branch -vv\`, resolve the reported rule or target change, then pick Retry.`,
+        };
+    }
     if (kind === "publication_push_failed" || kind === "publication_verification_failed") {
         return {
             whatHappened:
@@ -235,6 +251,7 @@ export function describeMergePause(
 export function publicationFailureNeedsUserAction(error: unknown): boolean {
     const kind = getMergeFailureKind(error);
     return kind === "primary_checkout_dirty" || kind === "target_checked_out" ||
+        kind === "permission_denied" || kind === "policy_violation" || kind === "publication_target_changed" ||
         kind === "publication_push_failed" || kind === "publication_verification_failed" ||
         kind === "detached_merge_conflict" || kind === "current_checkout_merge_conflict" ||
         kind === "isolated_publication_conflict" || kind === "target_sync_conflict" || kind === "content_conflict";

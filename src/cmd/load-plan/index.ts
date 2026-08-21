@@ -80,6 +80,7 @@ import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 import { RuntimeInteractionOutcomes } from "../../shared/session/session-runtime-interactions.js";
 import { recoverLegacyUnpublishedPlan } from "./legacy-publication-recovery.ts";
+import { resolvePlanWithPrimaryRecovery } from "./primary-plan-recovery.ts";
 import type { CommandContext } from "../registry.js";
 
 export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
@@ -203,7 +204,19 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
     let unresolvedLifecycleRecords: TransitionRecoveryRecord[] = [];
 
     try {
-        const plan = await resolvePlan(projectRoot, planArg);
+        const resolved = await resolvePlanWithPrimaryRecovery(projectRoot, planArg);
+        const plan = resolved.plan;
+        if (resolved.restored) {
+            const backup = resolved.restored.backupRelativePath
+                ? ` The unreadable file was preserved at ${resolved.restored.backupRelativePath}.`
+                : "";
+            uiAPI.appendSystemMessage(
+                `Restored ${resolved.restored.relativePath} from execution branch ${resolved.restored.executionBranch}.` +
+                    ` No implementation files changed.${backup}`,
+                false,
+                "RunWield",
+            );
+        }
         loadedPlanName = plan.planName;
         const rawStatus = getPlanContentStatus(plan.markdown);
         if (rawStatus !== undefined && !PLAN_STATUSES.some((status) => status === rawStatus)) {
@@ -257,6 +270,15 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
         if (recordedAttempt?.path) {
             const executionPlan = await loadPlan(recordedAttempt.path, plan.planName).catch(() => null);
             if (executionPlan) {
+                if (executionPlan.body !== plan.body) {
+                    uiAPI.appendSystemMessage(
+                        `The Plan text in the main checkout differs from the execution copy at ${recordedAttempt.path}. ` +
+                            "RunWield left the main-checkout file unchanged and will continue from the execution copy. " +
+                            "If the main-checkout edits should change this work, stop here and copy or merge them into the execution worktree before continuing.",
+                        true,
+                        "RunWield",
+                    );
+                }
                 plan.path = executionPlan.path;
                 plan.attrs = executionPlan.attrs;
                 plan.markdown = executionPlan.markdown;

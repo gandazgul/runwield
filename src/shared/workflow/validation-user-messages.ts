@@ -77,6 +77,13 @@ export type ValidationMessageRequest =
     }
     | { kind: "merge_dispatch" }
     | { kind: "publication_blocked"; planName: string }
+    | {
+        kind: "publication_cleanup_incomplete";
+        targetBranch: string;
+        worktreePath?: string;
+        worktreeBranch?: string;
+        details: string[];
+    }
     | { kind: "verified"; planName: string; targetBranch?: string }
     | { kind: "context_blocked"; planName: string }
     | { kind: "validation_command_missing" }
@@ -255,6 +262,21 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             return "The repair Engineer is fixing the file clashes. The fix will be checked next.";
         case "publication_blocked":
             return `Publication stopped because the saved copy for ${request.planName} is incomplete. The validated commits are safe. Update RunWield, then load this Plan again.`;
+        case "publication_cleanup_incomplete": {
+            const facts = request.details.map((detail) => `- ${detail}`).join("\n");
+            const checks = [
+                request.worktreePath
+                    ? `Inspect remaining files with \`git -C "${
+                        request.worktreePath.replaceAll('"', '\\"')
+                    }" status --short\`.`
+                    : "",
+                request.worktreeBranch
+                    ? `After saving anything you need, verify and delete the source branch with \`git branch -d ${request.worktreeBranch}\`.`
+                    : "",
+                "Run `wld plans doctor` to confirm no recovery record remains.",
+            ].filter(Boolean).join(" ");
+            return `The commits are on ${request.targetBranch}, but Git cleanup is incomplete.\n${facts}\n\n${checks}`;
+        }
         case "verified":
             return request.targetBranch
                 ? `${request.planName} is on ${request.targetBranch}.`

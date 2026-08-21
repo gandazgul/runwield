@@ -143,7 +143,7 @@ Deno.test("published worktree settlement keeps registry proof when branch cleanu
             updatedAt: "2026-01-01T00:00:00.000Z",
         });
 
-        await settlePublishedWorktree(
+        const cleanup = await settlePublishedWorktree(
             {} as SettlePublishedWorktreeArgs,
             {
                 projectRoot: cwd,
@@ -154,6 +154,9 @@ Deno.test("published worktree settlement keeps registry proof when branch cleanu
             true,
         );
 
+        assertEquals(cleanup.finished, false);
+        assertEquals(cleanup.branchKept, true);
+        assertEquals(cleanup.details.some((detail) => detail.includes(branch)), true);
         assertEquals((await findById(cwd, "unpublished-wt"))?.status, "merged");
         const report = await runPlansDoctor(cwd, false);
         assertEquals(report.issues.some((issue) => issue.kind === "orphan_worktree_branch"), false);

@@ -1,4 +1,6 @@
 import {
+    validationTreePublicationDirtyCheckoutScenario,
+    validationTreePublicationDirtyStopResumeScenario,
     validationTreePublicationGenericGitFailureScenario,
     validationTreePublicationIsolatedDirtyPrimaryScenario,
     validationTreePublicationLegacyPartialRetryScenario,
@@ -7,13 +9,23 @@ import {
     validationTreePublicationMergeConflictRepairIncompleteRetryScenario,
     validationTreePublicationMergeConflictRepairIncompleteStopScenario,
     validationTreePublicationMissingTargetBranchScenario,
+    validationTreePublicationPrimaryPlanRestoredScenario,
     validationTreePublicationPushFailureRetryScenario,
     validationTreePublicationRemoteTargetAdvanceScenario,
+    validationTreePublicationRemoteUnavailableRetryScenario,
     validationTreePublicationStaleRepairWorktreeScenario,
 } from "./validation-workflow-tree-publication.ts";
 import { registerValidationWorkflowTests } from "./validation-workflow-test-runner.ts";
 
 registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow-tree-publication.ts", [
+    {
+        scenario: validationTreePublicationDirtyCheckoutScenario,
+        exportName: "validationTreePublicationDirtyCheckoutScenario",
+    },
+    {
+        scenario: validationTreePublicationDirtyStopResumeScenario,
+        exportName: "validationTreePublicationDirtyStopResumeScenario",
+    },
     {
         scenario: validationTreePublicationLocalOnlyScenario,
         exportName: "validationTreePublicationLocalOnlyScenario",
@@ -25,6 +37,14 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreePublicationRemoteTargetAdvanceScenario,
         exportName: "validationTreePublicationRemoteTargetAdvanceScenario",
+    },
+    {
+        scenario: validationTreePublicationPrimaryPlanRestoredScenario,
+        exportName: "validationTreePublicationPrimaryPlanRestoredScenario",
+    },
+    {
+        scenario: validationTreePublicationRemoteUnavailableRetryScenario,
+        exportName: "validationTreePublicationRemoteUnavailableRetryScenario",
     },
     {
         scenario: validationTreePublicationMergeConflictRepairCompletedScenario,

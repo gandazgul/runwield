@@ -102,6 +102,23 @@ Deno.test("publication messages name the selected target branch", () => {
     assert(messages.every((message) => !message.includes("main")));
 });
 
+Deno.test("incomplete publication cleanup names the Git objects and recovery commands", () => {
+    const message = buildValidationUserMessage({
+        kind: "publication_cleanup_incomplete",
+        targetBranch: "release/next",
+        worktreePath: "/tmp/demo-worktree",
+        worktreeBranch: "runwield/demo",
+        details: ["Git kept the worktree because it has an untracked file."],
+    });
+
+    assert(message.includes("commits are on release/next"));
+    assert(message.includes("/tmp/demo-worktree"));
+    assert(message.includes("runwield/demo"));
+    assert(message.includes("git -C"));
+    assert(message.includes("git branch -d"));
+    assert(message.includes("wld plans doctor"));
+});
+
 Deno.test("all validation recovery and doctor messages stay plain", async () => {
     const recoveryRequests: PlanRecoveryMessageRequest[] = [
         { kind: "manual_merge_unavailable" },

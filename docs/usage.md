@@ -355,5 +355,14 @@ If a lifecycle action is interrupted, RunWield may leave a recovery record in `.
 `wld load-plan`, validation retry, or doctor run uses that record to decide whether the action was already completed,
 can be rolled back, or needs user confirmation.
 
+If the main-checkout Plan file is missing or has unreadable front matter, `wld load-plan <name>` can restore it from the
+one matching execution worktree. RunWield verifies the Plan/worktree identity first. An unreadable file is copied to
+`.wld/recovery/` before it is replaced. A valid main-checkout Plan is never overwritten by this recovery path.
+
+Known Git gotcha: treat an execution worktree as exclusively owned by its active run. If another process commits or
+edits source files there after validation has finished but before a publication retry, the retry can include that newer
+work without rerunning the completed checks. This is not expected in isolated RunWield deployments. For a local run,
+inspect the execution worktree before retrying if another tool may have touched it.
+
 RunWield also supports Projects without Git. In that mode FEATURE execution can run in the current checkout after the
 non-Git prompt/consent path. Doctor skips Git worktree checks that do not apply and reports only Plan metadata issues.

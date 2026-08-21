@@ -56,7 +56,11 @@ export type ValidationWorkflowBranchId =
     | "human-review:feedback-repair-approve"
     | "publication:non-git-success"
     | "publication:isolated-dirty-primary"
+    | "publication:dirty-primary-retry"
+    | "publication:dirty-primary-stop-resume"
     | "publication:remote-target-advance"
+    | "publication:primary-plan-restored"
+    | "publication:remote-unavailable-retry"
     | "publication:merge-conflict-repair-completed"
     | "publication:merge-conflict-repair-incomplete-retry"
     | "publication:merge-conflict-repair-incomplete-stop"
@@ -173,7 +177,11 @@ export const EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS: readonly ValidationWorkflo
     "human-review:feedback-repair-approve",
     "publication:non-git-success",
     "publication:isolated-dirty-primary",
+    "publication:dirty-primary-retry",
+    "publication:dirty-primary-stop-resume",
     "publication:remote-target-advance",
+    "publication:primary-plan-restored",
+    "publication:remote-unavailable-retry",
     "publication:merge-conflict-repair-completed",
     "publication:merge-conflict-repair-incomplete-retry",
     "publication:merge-conflict-repair-incomplete-stop",
@@ -258,7 +266,11 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "human-review:feedback-repair-approve": "validation-tree-human-review-feedback-repair-approve",
     "publication:non-git-success": "validation-tree-non-git-delivery",
     "publication:isolated-dirty-primary": "validation-tree-publication-isolated-dirty-primary",
+    "publication:dirty-primary-retry": "validation-tree-publication-dirty-checkout",
+    "publication:dirty-primary-stop-resume": "validation-tree-publication-dirty-stop-resume",
     "publication:remote-target-advance": "validation-tree-publication-remote-target-advance",
+    "publication:primary-plan-restored": "validation-tree-publication-primary-plan-restored",
+    "publication:remote-unavailable-retry": "validation-tree-publication-remote-unavailable-retry",
     "publication:merge-conflict-repair-completed": "validation-tree-publication-merge-conflict-repair-completed",
     "publication:merge-conflict-repair-incomplete-retry":
         "validation-tree-publication-merge-conflict-repair-incomplete-retry",
@@ -344,10 +356,35 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "publication:isolated-dirty-primary") {
         return [...successfulPublicationProgress, "is on main"];
     }
+    if (id === "publication:dirty-primary-retry" || id === "publication:dirty-primary-stop-resume") {
+        return [
+            "have not saved to git yet",
+            "No remote is configured. Adding the commits to the local main branch",
+            "Cleaning up the worktree",
+            "is on main",
+        ];
+    }
     if (id === "publication:remote-target-advance") {
         return [
             ...successfulPublicationProgress,
             "Adding new commits from main",
+            "is on main",
+        ];
+    }
+    if (id === "publication:primary-plan-restored") {
+        return [
+            "Restored docs/plans/validation-tree-publication-primary-plan-restored.md",
+            "implementation files changed",
+            ...successfulPublicationProgress,
+            "is on main",
+        ];
+    }
+    if (id === "publication:remote-unavailable-retry") {
+        return [
+            "Could not read the upstream main branch",
+            "Git could not publish",
+            "Source branch:",
+            ...successfulPublicationProgress,
             "is on main",
         ];
     }
@@ -392,9 +429,13 @@ function statePathsFor(id: ValidationWorkflowBranchId): string[] {
     }
     if (
         id === "publication:isolated-dirty-primary" || id === "publication:remote-target-advance" ||
-        id === "publication:push-retry" || id === "publication:legacy-partial-retry"
+        id === "publication:primary-plan-restored" || id === "publication:push-retry" ||
+        id === "publication:remote-unavailable-retry" || id === "publication:legacy-partial-retry"
     ) {
         return ["publication.remotePlanStatus", "publication.registryEntries"];
+    }
+    if (id === "publication:dirty-primary-retry" || id === "publication:dirty-primary-stop-resume") {
+        return ["localPublication.planStatus", "localPublication.registryEntries"];
     }
     const paths = ["projectState.plans.0.attrs.status"];
     if (id.includes(":ci:")) paths.push("projectState.plans.0.attrs.validationCiAttempts");
@@ -430,6 +471,8 @@ function stateAbsentFor(id: ValidationWorkflowBranchId): string[] {
 }
 
 function interactionValuesFor(id: ValidationWorkflowBranchId): string[] {
+    if (id === "publication:dirty-primary-retry") return ["retry"];
+    if (id === "publication:dirty-primary-stop-resume") return ["stop", "validate"];
     return id === "human-review:ask-skip" ? ["skip"] : [];
 }
 
@@ -463,12 +506,14 @@ export const VALIDATION_INTERACTION_OPTION_BRANCHES: Readonly<Record<string, rea
             "mechanical:ci:cancel-retry",
             "mechanical:objective:cancel-retry",
             "human-review:no-answer-retry",
+            "publication:dirty-primary-retry",
         ],
         stop: [
             "mechanical:ci:cancel-stop",
             "mechanical:objective:cancel-stop",
             "semantic:round-limit:stop",
             "human-review:no-answer-stop",
+            "publication:dirty-primary-stop-resume",
         ],
         engineer_follow_up: [
             "mechanical:ci:cancel-follow-up",

@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import {
     isExecutionCommitPublishedUpstream,
     IsolatedPublicationError,
@@ -158,7 +158,7 @@ Deno.test("failed upstream publication leaves the validated execution branch rec
         await Deno.writeTextFile(hookPath, "#!/bin/sh\nexit 1\n");
         await Deno.chmod(hookPath, 0o755);
 
-        await assertRejects(() =>
+        const failure = await assertRejects(() =>
             publishExecutionWorktreeIsolated({
                 projectRoot,
                 executionCwd: worktree!.path,
@@ -169,6 +169,8 @@ Deno.test("failed upstream publication leaves the validated execution branch rec
                 allowedPlanPaths: [],
             })
         );
+        assert(failure instanceof IsolatedPublicationError);
+        assertEquals(failure.mergeFailureKind, "publication_push_failed");
 
         assert((await Deno.stat(worktree.path)).isDirectory);
         assertEquals(await git(worktree.path, ["rev-parse", "HEAD"]), sealedCommit);
@@ -176,6 +178,91 @@ Deno.test("failed upstream publication leaves the validated execution branch rec
         const remoteHeadAfter = (await git(projectRoot, ["ls-remote", "origin", "refs/heads/main"]))
             .split(/\s+/)[0];
         assertEquals(remoteHeadAfter, remoteHeadBefore);
+    } finally {
+        if (worktree) {
+            await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("force-with-lease rejection is typed as a target race", async () => {
+    const projectRoot = await makeRepo();
+    const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-publication-lease-race-" });
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-publication-lease-worktree-" });
+    let worktree: Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined;
+    try {
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+        await git(projectRoot, ["push", "-u", "origin", "main"]);
+        worktree = await createTestWorktreeAttempt({ projectRoot, planName: "lease-race", worktreeRoot });
+        await Deno.writeTextFile(`${worktree.path}/implementation.txt`, "safe candidate\n");
+        await git(worktree.path, ["add", "implementation.txt"]);
+        await git(worktree.path, ["commit", "-m", "Validated candidate"]);
+        const sealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
+        const hookPath = `${remoteRoot}/hooks/pre-receive`;
+        await Deno.writeTextFile(hookPath, "#!/bin/sh\necho 'stale info: target moved' >&2\nexit 1\n");
+        await Deno.chmod(hookPath, 0o755);
+
+        const failure = await assertRejects(() =>
+            publishExecutionWorktreeIsolated({
+                projectRoot,
+                executionCwd: worktree!.path,
+                executionBranch: worktree!.branch,
+                targetBranch: "main",
+                planName: "lease-race",
+                sealedExecutionCommit: sealedCommit,
+                allowedPlanPaths: [],
+            })
+        );
+
+        assert(failure instanceof IsolatedPublicationError);
+        assertEquals(failure.mergeFailureKind, "target_reference_race");
+        assertStringIncludes(failure.message, "force-with-lease");
+    } finally {
+        if (worktree) {
+            await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("unreachable upstream is typed as transient without changing the primary checkout", async () => {
+    const projectRoot = await makeRepo();
+    const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-publication-unavailable-remote-" });
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-publication-unavailable-worktree-" });
+    let worktree: Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined;
+    try {
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+        await git(projectRoot, ["push", "-u", "origin", "main"]);
+        worktree = await createTestWorktreeAttempt({ projectRoot, planName: "remote-down", worktreeRoot });
+        await Deno.writeTextFile(`${worktree.path}/implementation.txt`, "safe candidate\n");
+        await git(worktree.path, ["add", "implementation.txt"]);
+        await git(worktree.path, ["commit", "-m", "Validated candidate"]);
+        const sealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
+        const primaryHead = await git(projectRoot, ["rev-parse", "HEAD"]);
+        await git(projectRoot, ["remote", "set-url", "origin", `${remoteRoot}-missing`]);
+
+        const failure = await assertRejects(() =>
+            publishExecutionWorktreeIsolated({
+                projectRoot,
+                executionCwd: worktree!.path,
+                executionBranch: worktree!.branch,
+                targetBranch: "main",
+                planName: "remote-down",
+                sealedExecutionCommit: sealedCommit,
+                allowedPlanPaths: [],
+            })
+        );
+
+        assert(failure instanceof IsolatedPublicationError);
+        assertEquals(failure.mergeFailureKind, "remote_unavailable");
+        assertEquals(await git(projectRoot, ["rev-parse", "HEAD"]), primaryHead);
     } finally {
         if (worktree) {
             await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});

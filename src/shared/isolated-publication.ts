@@ -116,9 +116,54 @@ async function resolveUpstream(projectRoot: string, targetBranch: string): Promi
 
 async function remoteHead(cwd: string, remote: string, branch: string): Promise<string | null> {
     const result = await runGitResult(cwd, ["ls-remote", "--heads", remote, `refs/heads/${branch}`]);
-    if (result.code !== 0) throw new Error(result.stderr || result.stdout || `Could not read ${remote}/${branch}.`);
+    if (result.code !== 0) {
+        const detail = result.stderr || result.stdout || "Git returned no error text.";
+        throw new IsolatedPublicationError(
+            `Could not read the upstream ${branch} branch: ${detail}`,
+            { mergeFailureKind: classifyRemoteFailure(detail) },
+        );
+    }
     const hash = result.stdout.split(/\s+/)[0];
     return /^[0-9a-f]{40}$/i.test(hash || "") ? hash : null;
+}
+
+function classifyRemoteFailure(message: string): "permission_denied" | "remote_unavailable" {
+    return /authentication failed|permission denied|access denied|authorization failed|publickey|could not read username/i
+            .test(message)
+        ? "permission_denied"
+        : "remote_unavailable";
+}
+
+function isLeaseRace(message: string): boolean {
+    return /stale info|fetch first|non-fast-forward|remote ref updated since checkout|cannot lock ref.*expected/i
+        .test(message);
+}
+
+async function pushPublication(
+    cwd: string,
+    args: string[],
+    branch: string,
+    repairCwd?: string,
+): Promise<void> {
+    const result = await runGitResult(cwd, ["push", ...args]);
+    if (result.code === 0) return;
+    const detail = result.stderr || result.stdout || "Git returned no error text.";
+    const remoteFailure = classifyRemoteFailure(detail);
+    const mergeFailureKind = isLeaseRace(detail)
+        ? "target_reference_race"
+        : remoteFailure === "permission_denied"
+        ? remoteFailure
+        : /could not resolve host|unable to access|connection (?:timed out|refused|reset)|network is unreachable|connection closed/i
+                .test(detail)
+        ? "remote_unavailable"
+        : "publication_push_failed";
+    const message = mergeFailureKind === "target_reference_race"
+        ? `The upstream ${branch} branch received another commit before this push completed. Git rejected the stale force-with-lease safely.`
+        : `Git could not push the completed commits to upstream ${branch}: ${detail}`;
+    throw new IsolatedPublicationError(message, {
+        mergeFailureKind,
+        ...(repairCwd ? { repairCwd } : {}),
+    });
 }
 
 async function commitPublicationMetadata(publicationRoot: string, planName: string): Promise<string> {
@@ -293,17 +338,16 @@ export async function publishExecutionWorktreeIsolated(
             const publicationCommit = await commitPublicationMetadata(publicationRoot, args.planName);
             const lease = expectedRemoteHead || "";
             args.onProgress?.("publishing");
-            await runGit(publicationRoot, [
-                "push",
-                `--force-with-lease=refs/heads/${upstream.branch}:${lease}`,
-                upstream.url,
-                `HEAD:refs/heads/${upstream.branch}`,
-            ]).catch((error) => {
-                throw new IsolatedPublicationError(
-                    error instanceof Error ? error.message : String(error),
-                    { mergeFailureKind: "publication_push_failed", repairCwd: publicationRoot },
-                );
-            });
+            await pushPublication(
+                publicationRoot,
+                [
+                    `--force-with-lease=refs/heads/${upstream.branch}:${lease}`,
+                    upstream.url,
+                    `HEAD:refs/heads/${upstream.branch}`,
+                ],
+                upstream.branch,
+                publicationRoot,
+            );
             args.onProgress?.("verifying");
             const confirmedRemoteHead = await remoteHead(publicationRoot, upstream.url, upstream.branch);
             if (confirmedRemoteHead !== publicationCommit) {
@@ -410,19 +454,11 @@ export async function publishExecutionWorktreeIsolated(
         const publicationCommit = await commitPublicationMetadata(publicationRoot, args.planName);
         const lease = expectedRemoteHead || "";
         args.onProgress?.("publishing");
-        try {
-            await runGit(publicationRoot, [
-                "push",
-                `--force-with-lease=refs/heads/${upstream.branch}:${lease}`,
-                "publication",
-                `HEAD:refs/heads/${upstream.branch}`,
-            ]);
-        } catch (error) {
-            throw new IsolatedPublicationError(
-                error instanceof Error ? error.message : String(error),
-                { mergeFailureKind: "publication_push_failed" },
-            );
-        }
+        await pushPublication(publicationRoot, [
+            `--force-with-lease=refs/heads/${upstream.branch}:${lease}`,
+            "publication",
+            `HEAD:refs/heads/${upstream.branch}`,
+        ], upstream.branch);
         args.onProgress?.("verifying");
         const confirmedRemoteHead = await remoteHead(publicationRoot, "publication", upstream.branch);
         if (confirmedRemoteHead !== publicationCommit) {

@@ -72,6 +72,8 @@ function publicationFailureKindFromMergeKind(failureKind: string | undefined): G
     switch (failureKind) {
         case "target_reference_race":
             return "target_reference_race";
+        case "remote_unavailable":
+            return "remote_unavailable";
         case "target_sync_conflict":
         case "isolated_publication_conflict":
         case "detached_merge_conflict":
@@ -80,10 +82,14 @@ function publicationFailureKindFromMergeKind(failureKind: string | undefined): G
             return "content_conflict";
         case "primary_checkout_dirty":
             return "primary_checkout_dirty";
+        case "target_branch_advanced":
+        case "target_history_rewrite":
+            return "target_reference_race";
         case "permission_denied":
             return "permission_denied";
         case "policy_violation":
         case "target_checked_out":
+        case "publication_target_changed":
             return "policy_violation";
         default:
             return "post_publication_bookkeeping";
@@ -278,15 +284,24 @@ export async function runPublicationPhase(
 
         const pause = describeMergePause(args.planName, worktreeBaseBranch, error, context);
         if (decision.action === "pause" && decision.result.recoveryClass !== "missing_information") {
-            emitStatus(args, decision.result.message, "warning");
+            const retryPauseMessage = buildValidationUserMessage({
+                kind: "user_action",
+                whatHappened:
+                    `Git could not publish "${args.planName}" to ${targetBranch} after ${publicationOperationalAttempt} automatic attempts.`,
+                details: [reason, `Source branch: ${executionBranch}`, `Target branch: ${targetBranch}`],
+                doThis:
+                    `Restore the remote connection or wait for ${targetBranch} to stop changing, then run \`wld load-plan ${args.planName}\` and retry publication.`,
+            });
+            const recovery = { ...decision.result, message: retryPauseMessage };
+            emitStatus(args, retryPauseMessage, "warning");
             return {
                 recorded: false,
                 result: {
                     kind: "paused",
                     planName: args.planName,
                     projectRoot: context.projectRoot,
-                    reason: decision.result.message,
-                    recovery: decision.result,
+                    reason: retryPauseMessage,
+                    recovery,
                 },
             };
         }
@@ -480,7 +495,20 @@ export async function runPublicationPhase(
                     args,
                     buildValidationUserMessage({ kind: "publication_progress", phase: "cleanup", targetBranch }),
                 );
-                await settlePublishedWorktree(args, context, cleanupMergedWorktrees, mergeResult);
+                const cleanup = await settlePublishedWorktree(args, context, cleanupMergedWorktrees, mergeResult);
+                if (!cleanup.finished) {
+                    emitStatus(
+                        args,
+                        buildValidationUserMessage({
+                            kind: "publication_cleanup_incomplete",
+                            targetBranch,
+                            worktreePath: cleanup.worktreeKept ? context.executionCwd : undefined,
+                            worktreeBranch: cleanup.branchKept ? context.worktreeBranch : undefined,
+                            details: cleanup.details,
+                        }),
+                        "warning",
+                    );
+                }
                 if (context.worktreeId) {
                     await markEffect("worktree_registry_updated", { worktreeId: context.worktreeId, status: "merged" });
                 }
@@ -513,12 +541,15 @@ export async function settlePublishedWorktree(
         upstreamRemote?: string;
         upstreamBranch?: string;
     },
-): Promise<void> {
+): Promise<{ finished: boolean; worktreeKept: boolean; branchKept: boolean; details: string[] }> {
     if (context.worktreeId) {
         await updateWorktreeRegistryEntry(context.projectRoot, context.worktreeId, { status: "merged" });
     }
 
-    let cleanupFinished = cleanupMergedWorktrees;
+    let cleanupFinished = true;
+    let worktreeKept = false;
+    let branchKept = false;
+    const details: string[] = [];
     if (cleanupMergedWorktrees && context.executionCwd) {
         try {
             await removeWorktreeGitArtifacts({
@@ -528,7 +559,15 @@ export async function settlePublishedWorktree(
             });
         } catch (error) {
             if (error instanceof Deno.errors.NotFound) cleanupFinished = true;
-            else cleanupFinished = false;
+            else {
+                cleanupFinished = false;
+                worktreeKept = true;
+                details.push(
+                    `Git kept worktree ${context.executionCwd}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                );
+            }
         }
     }
     if (cleanupMergedWorktrees && context.worktreeBranch) {
@@ -547,14 +586,34 @@ export async function settlePublishedWorktree(
                     branch: context.worktreeBranch,
                 });
             cleanupFinished = cleanupFinished && branchCleanup.deleted;
-        } catch {
+            if (!branchCleanup.deleted) {
+                branchKept = true;
+                details.push(`Git kept source branch ${context.worktreeBranch}: ${branchCleanup.reason}`);
+            }
+        } catch (error) {
             cleanupFinished = false;
+            branchKept = true;
+            details.push(
+                `Git could not delete source branch ${context.worktreeBranch}: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
         }
     }
 
     if (context.worktreeId && cleanupFinished) {
-        await pruneWorktreeRegistryEntry(context.projectRoot, context.worktreeId).catch(() => {});
+        try {
+            await pruneWorktreeRegistryEntry(context.projectRoot, context.worktreeId);
+        } catch (error) {
+            cleanupFinished = false;
+            details.push(
+                `Git cleanup finished, but the saved recovery record remains: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+        }
     }
+    return { finished: cleanupFinished, worktreeKept, branchKept, details };
 }
 
 export async function runPostVerificationHandoffs(args: ValidationLoopArgs, projectRoot: string): Promise<void> {

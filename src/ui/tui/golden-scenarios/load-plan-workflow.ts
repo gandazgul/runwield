@@ -602,6 +602,12 @@ export const loadPlanContinueUsesExecutionPlanAuthorityScenario = {
             status: "draft",
             clearWorktreeEvidence: true,
         },
+        {
+            type: "writeProjectFile",
+            path: "docs/plans/continue-authority.md",
+            text:
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Main checkout edit\naffectedPaths: []\nstatus: draft\nplanId: continue-authority-plan\n---\n# Main checkout edit\n\nKeep this local text.\n",
+        },
         { type: "type", text: "/load-plan continue-authority" },
         { type: "enter" },
         { type: "enter" },
@@ -609,11 +615,25 @@ export const loadPlanContinueUsesExecutionPlanAuthorityScenario = {
         { type: "waitForRemotePlanStatus", planName: "continue-authority", statuses: ["validated"], timeoutMs: 90000 },
         { type: "waitForIdle", timeoutMs: 90000 },
         { type: "captureProjectState", planNames: ["continue-authority"] },
+        {
+            type: "captureProjectFileText",
+            path: "docs/plans/continue-authority.md",
+            key: "primaryPlanAfterExecutionAuthority",
+        },
     ],
     assertions: [
         assertsGoldenCoverage("workflow:load-plan", (result: GoldenScenarioResult) => {
             assertEventIncludes(result, "project:primary-plan-status:continue-authority:draft");
             assertEventIncludes(result, "runtime:tool:start:task_completed");
+            assert(
+                `${result.scrollbackText || ""}\n${result.screenText}`.includes("Plan text in the main checkout"),
+                "Expected the TUI to explain that it is using the different execution-worktree Plan text.",
+            );
+            assert(
+                typeof result.state.primaryPlanAfterExecutionAuthority === "string" &&
+                    result.state.primaryPlanAfterExecutionAuthority.includes("Keep this local text."),
+                "Expected remote publication to leave the edited main-checkout Plan intact.",
+            );
             assert(
                 !`${result.scrollbackText || ""}\n${result.screenText}`.includes("old status data"),
                 "Continuation must not expose a mismatch between the primary and execution Plan copies.",

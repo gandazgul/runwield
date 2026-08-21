@@ -23,11 +23,12 @@ function decidePublicationFailure(kind: GitPublicationErrorKind) {
 Deno.test("publication dispatches merge repair only for a content conflict", () => {
     const cases: Array<{ kind: GitPublicationErrorKind; action: "retry" | "correct" | "pause" | "halt" }> = [
         { kind: "target_reference_race", action: "retry" },
+        { kind: "remote_unavailable", action: "retry" },
         { kind: "content_conflict", action: "correct" },
         { kind: "primary_checkout_dirty", action: "pause" },
         { kind: "post_publication_bookkeeping", action: "pause" },
-        { kind: "permission_denied", action: "halt" },
-        { kind: "policy_violation", action: "halt" },
+        { kind: "permission_denied", action: "pause" },
+        { kind: "policy_violation", action: "pause" },
     ];
 
     for (const scenario of cases) {
@@ -36,17 +37,17 @@ Deno.test("publication dispatches merge repair only for a content conflict", () 
     }
 });
 
-Deno.test("fatal publication error halts without retry or repair", () => {
+Deno.test("permission and branch-policy failures pause with a concrete user action", () => {
     const permissionDenied = decidePublicationFailure("permission_denied");
-    assertEquals(permissionDenied.action, "halt");
-    assertEquals(permissionDenied.result.kind, "terminal");
-    assertEquals(permissionDenied.result.action, "none");
+    assertEquals(permissionDenied.action, "pause");
+    assertEquals(permissionDenied.result.kind, "user_action");
+    assertEquals(permissionDenied.result.action, "choose");
     assertEquals(permissionDenied.result.nextPhase, "delivery");
 
     const policyViolation = decidePublicationFailure("policy_violation");
-    assertEquals(policyViolation.action, "halt");
-    assertEquals(policyViolation.result.kind, "terminal");
-    assertEquals(policyViolation.result.action, "none");
+    assertEquals(policyViolation.action, "pause");
+    assertEquals(policyViolation.result.kind, "user_action");
+    assertEquals(policyViolation.result.action, "choose");
     assertEquals(policyViolation.result.nextPhase, "delivery");
 });
 
