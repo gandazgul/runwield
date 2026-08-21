@@ -274,6 +274,7 @@ export const validationTreeSemanticNudgeMissingReviewCompleteScenario = withVali
             { type: "type", text: "/load-plan semantic-nudge-missing-review-complete" },
             { type: "enter" },
             { type: "enter" },
+            { type: "waitForIdle", timeoutMs: 180000 },
             {
                 type: "waitForPlanStatus",
                 planName: "semantic-nudge-missing-review-complete",
@@ -354,6 +355,7 @@ export const validationTreeSemanticNudgeMissingDiffInspectionScenario = withVali
             { type: "type", text: "/load-plan semantic-nudge-missing-diff" },
             { type: "enter" },
             { type: "enter" },
+            { type: "waitForIdle", timeoutMs: 180000 },
             {
                 type: "waitForPlanStatus",
                 planName: "semantic-nudge-missing-diff",
@@ -776,8 +778,8 @@ export const validationTreeEmptyDiffSkipScenario = withValidationBranches(
             { type: "type", text: "/load-plan empty-diff-skip" },
             { type: "enter" },
             { type: "enter" },
+            { type: "waitForIdle", timeoutMs: 180000 },
             { type: "waitForPlanStatus", planName: "empty-diff-skip", statuses: ["verified"], timeoutMs: 90000 },
-            { type: "waitForIdle", timeoutMs: 12000 },
         ],
         assertions: [],
     },
@@ -874,6 +876,7 @@ export const validationTreePlanOnlyDiffFailsScenario = withValidationBranches(
             { type: "type", text: "/load-plan plan-only-diff" },
             { type: "enter" },
             { type: "enter" },
+            { type: "waitForIdle", timeoutMs: 180000 },
             { type: "waitForPlanStatus", planName: "plan-only-diff", statuses: ["implemented"], timeoutMs: 90000 },
         ],
         assertions: [],
