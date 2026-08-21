@@ -62,7 +62,6 @@ function readApprovedExecutionPolicy(
     const collaborationRecommendation = decision.collaborationRecommendation;
     if (executionAgent !== "engineer" && executionAgent !== "frontend-engineer") return null;
     if (collaborationRecommendation !== "autonomous" && collaborationRecommendation !== "pair") return null;
-    if (executionAgent === "engineer" && collaborationRecommendation !== "autonomous") return null;
     return { executionAgent, collaborationRecommendation };
 }
 

@@ -95,6 +95,45 @@ Deno.test("shared Plan review rejects stale revision status and worktree before 
     }
 });
 
+Deno.test("shared Plan review approval accepts every execution policy combination", async () => {
+    const combinations = [
+        { executionAgent: "engineer", collaborationRecommendation: "autonomous" },
+        { executionAgent: "engineer", collaborationRecommendation: "pair" },
+        { executionAgent: "frontend-engineer", collaborationRecommendation: "autonomous" },
+        { executionAgent: "frontend-engineer", collaborationRecommendation: "pair" },
+    ] as const;
+
+    for (const combination of combinations) {
+        const fixture = await makePlanFile();
+        try {
+            const result = await applySharedPlanReviewDecision({
+                cwd: fixture.dir,
+                planName: "plan",
+                planPath: fixture.planPath,
+                planWithFrontMatter: fixture.markdown,
+                planRevision: fixture.revision,
+                originalAttrs: fixture.attrs,
+                trustedClassification: "PLANNED_CHANGE",
+                decision: {
+                    approved: true,
+                    approvalAction: "run",
+                    executionAgent: combination.executionAgent,
+                    collaborationRecommendation: combination.collaborationRecommendation,
+                },
+            });
+            const attrs = (await loadPlan(fixture.dir, "plan"))?.attrs;
+
+            assertEquals(result.approved, true);
+            assertEquals(result.planAttrs?.executionAgent, combination.executionAgent);
+            assertEquals(result.planAttrs?.collaborationRecommendation, combination.collaborationRecommendation);
+            assertEquals(attrs?.executionAgent, combination.executionAgent);
+            assertEquals(attrs?.collaborationRecommendation, combination.collaborationRecommendation);
+        } finally {
+            await Deno.remove(fixture.dir, { recursive: true });
+        }
+    }
+});
+
 Deno.test("shared Plan review commits edited Feedback and approval notes with classification-correct outcomes", async () => {
     const feedbackFixture = await makePlanFile();
     const approvalFixture = await makePlanFile({ classification: "PROJECT" });
