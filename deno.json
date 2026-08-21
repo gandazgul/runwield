@@ -120,7 +120,7 @@
         "@xterm/headless": "npm:@xterm/headless@5.5.0"
     },
     "tasks": {
-        "ci": "deno task -q submodules:check && deno task -q snip:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q language-policy:check && deno task -q seams:check && deno task -q doc-links:check && deno task -q test",
+        "ci": "deno run -A scripts/run-ci.ts",
         "cli": "deno run -A --unstable-no-legacy-abort src/cli.ts",
         "submodules:check": "deno run -A scripts/check-submodules.js",
         "submodules:check:remote": "deno run -A scripts/check-submodule-fetchability.js",

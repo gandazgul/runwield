@@ -34,9 +34,11 @@ deno task ci
 deno task compile
 ```
 
-`deno task ci` runs submodule checks, Deno checks, Workspace checks, lint, language-policy checks, seam checks, and
-tests. Always use `deno task test` or `deno run -A scripts/run-tests.js <deno test args>` for tests; do not run
-`deno test` directly, because the test runner sandboxes `HOME` and process-global state per file.
+`deno task ci` starts the eight pre-test gates together: submodule checks, Snip filter checks, Deno checks, Workspace
+checks, lint, language-policy checks, seam checks, and doc-link checks. Tests start only after all eight gates pass. The
+test task still uses `scripts/write-version.js` and the safe `scripts/run-tests.js` runner. Always use `deno task test`
+or `deno run -A scripts/run-tests.js <deno test args>` for tests; do not run `deno test` directly, because the test
+runner sandboxes `HOME` and process-global state per file.
 
 The ordinary test task includes the Golden TUI Scenario portfolio. You can run that portfolio directly with
 `deno task test:golden-tui`; `deno task test:golden-tui:extensive` is the explicit release-tier alias for the same
