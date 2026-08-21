@@ -357,6 +357,40 @@ Deno.test("chat input controller restores the last queued draft through real key
     });
 });
 
+Deno.test("chat input controller recalls queued steering into the editor oldest to newest on Escape", async () => {
+    await withRuntimeCommandFixture("chat-input-real-escape-steering-", async ({ setModelResponseFactory }) => {
+        const releaseModel = deferredSignal();
+        let modelStarted = false;
+        setModelResponseFactory(async () => {
+            modelStarted = true;
+            await releaseModel.promise;
+            return fauxAssistantMessage(fauxText("Delayed response."));
+        });
+        const { composition, terminal } = await startComposition();
+        try {
+            await submitText(terminal, "hold turn");
+            await waitFor(() => modelStarted, "active model turn");
+            await submitText(terminal, "oldest steering");
+            await submitText(terminal, "newest steering");
+            await waitFor(
+                () => composition.runtime.getQueuedMessages(composition.sessionId).length === 2,
+                "two queued steering messages",
+            );
+
+            terminal.pressEscape();
+            await terminal.flush();
+            await waitFor(() => terminal.getScreenText().includes("oldest steering"), "recalled steering");
+
+            const screen = terminal.getScreenText();
+            assert(screen.indexOf("oldest steering") < screen.indexOf("newest steering"));
+            assertEquals(composition.runtime.getQueuedMessages(composition.sessionId).length, 0);
+        } finally {
+            releaseModel.resolve();
+            await composition.dispose();
+        }
+    });
+});
+
 Deno.test("chat input controller preflights pasted image attachments through the composed TUI", async () => {
     await withRuntimeCommandFixture(
         "chat-input-real-image-preflight-",

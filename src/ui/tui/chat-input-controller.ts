@@ -100,6 +100,14 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             previewImages.addChild(createPastedImagePreview(img));
         }
     }
+    function recallQueuedSubmissionsToEditor(): void {
+        const queuedMessages = runtime.getQueuedMessages(options.getSessionId());
+        if (queuedMessages.length === 0) return;
+        restoreQueuedItemToEditor({
+            text: queuedMessages.map((message) => message.text).join("\n"),
+            images: queuedMessages.flatMap((message) => message.images),
+        });
+    }
     async function dequeueLastSubmission(): Promise<boolean> {
         const dequeued = await runtime.dequeueLastQueuedMessage(options.getSessionId());
         if (!dequeued.ok || !dequeued.message) return false;
@@ -317,6 +325,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         generationGuard,
         dismissActivePrompt,
         dequeueLastSubmission,
+        recallQueuedSubmissionsToEditor,
         forceResetUI,
         markCtrlCPendingExit: options.markCtrlCPendingExit,
         isCtrlCPendingExit: options.isCtrlCPendingExit,

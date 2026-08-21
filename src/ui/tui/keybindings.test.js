@@ -36,6 +36,7 @@ function makeContext(overrides = {}) {
     let resets = 0;
     let invalidations = 0;
     let dequeues = 0;
+    let recalls = 0;
     let pendingExit = false;
     let dequeueResult = false;
 
@@ -85,6 +86,9 @@ function makeContext(overrides = {}) {
         dequeueLastSubmission: () => {
             dequeues++;
             return dequeueResult;
+        },
+        recallQueuedSubmissionsToEditor: () => {
+            recalls++;
         },
         forceResetUI: () => {
             resets++;
@@ -142,6 +146,9 @@ function makeContext(overrides = {}) {
             get dequeues() {
                 return dequeues;
             },
+            get recalls() {
+                return recalls;
+            },
             /** @param {boolean} value */
             set dequeueResult(value) {
                 dequeueResult = value;
@@ -152,11 +159,18 @@ function makeContext(overrides = {}) {
 }
 
 Deno.test({
-    name: "installKeybindings translates Escape into Runtime cancellation without rendering directly",
+    name: "installKeybindings recalls queued submissions before Escape cancellation",
     fn: async () => {
         let runtimeCancelCalls = 0;
+        /** @type {string[]} */
+        const events = [];
         const ctx = makeContext({
+            recallQueuedSubmissionsToEditor: () => {
+                events.push("recall");
+                ctx.editor.setText("oldest\nnewest");
+            },
             cancelRuntimeSession: () => {
+                events.push("cancel");
                 runtimeCancelCalls++;
                 return true;
             },
@@ -165,6 +179,8 @@ Deno.test({
 
         await ctx.editor.handleInput(RAW_KEY.escape);
 
+        assertEquals(events, ["recall", "cancel"]);
+        assertEquals(ctx.stats.text, "oldest\nnewest");
         assertEquals(ctx.stats.invalidations, 1);
         assertEquals(runtimeCancelCalls, 1);
         assertEquals(ctx.stats.resets, 1);
