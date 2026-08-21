@@ -22,7 +22,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-17T14:16:31-04:00"
-updatedAt: "2026-08-20T02:54:05.747Z"
 status: "validated"
 origin: "internal"
 implementedAt: "2026-08-17T18:56:16.291Z"
@@ -57,6 +56,11 @@ deliveryEvidence:
 validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-21T00:24:00.716Z"
+archivedAt: "2026-08-21T00:24:00.716Z"
+archiveReason: "Implementation and validation were completed and merged into main; archive the disconnected completed Plan."
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/handle-unavailable-model-agent-switches.md"
 ---
 
 # Handle Unavailable Models During Agent Switches
