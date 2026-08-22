@@ -11,44 +11,24 @@ affectedPaths:
     - "docs/contributing.md"
 objectiveChecks:
     - id: "OC1"
-      command: "grep -qF '\"ci\": \"deno run -A scripts/run-ci.ts\"' deno.json && deno eval -A 'const m=await import(\"./scripts/run-ci.ts\");const d=Promise.withResolvers();const calls=[];const run=m.runCi(async n=>{calls.push(n);if(n===m.PRE_TEST_TASKS[0])await d.promise;return {name:n,code:0};});await new Promise(r=>setTimeout(r,0));if(calls.join(\",\")!==m.PRE_TEST_TASKS.join(\",\"))throw Error(\"pre-test wave is not concurrent\");d.resolve();const result=await run;if(calls.at(-1)!==\"test\"||result.exitCode!==0)throw Error(\"test did not follow the barrier\");'"
+      command: "grep -qF '\"ci\": \"deno run -A scripts/run-ci.ts\"' deno.json && deno eval 'const m=await import(\"./scripts/run-ci.ts\");const d=Promise.withResolvers();const calls=[];const run=m.runCi(async n=>{calls.push(n);if(n===m.PRE_TEST_TASKS[0])await d.promise;return {name:n,code:0};});await new Promise(r=>setTimeout(r,0));if(calls.join(\",\")!==m.PRE_TEST_TASKS.join(\",\"))throw Error(\"pre-test wave is not concurrent\");d.resolve();const result=await run;if(calls.at(-1)!==\"test\"||result.exitCode!==0)throw Error(\"test did not follow the barrier\");'"
       rationale: "This directly proves that the CI task uses the new runner, every declared pre-test task starts without waiting for a blocked sibling, and test starts only after the barrier."
     - id: "OC2"
-      command: "deno eval -A 'const m=await import(\"./scripts/run-ci.ts\");const calls=[];const result=await m.runCi(async n=>{calls.push(n);return {name:n,code:n===\"lint\"?7:n===\"seams:check\"?8:0};});const got=result.failures.map(f=>`${f.name}:${f.code}`).join(\",\");if(calls.includes(\"test\")||result.exitCode===0||got!==\"lint:7,seams:check:8\")throw Error(\"pre-test failures were not collected\");'"
+      command: "deno eval 'const m=await import(\"./scripts/run-ci.ts\");const calls=[];const result=await m.runCi(async n=>{calls.push(n);return {name:n,code:n===\"lint\"?7:n===\"seams:check\"?8:0};});const got=result.failures.map(f=>`${f.name}:${f.code}`).join(\",\");if(calls.includes(\"test\")||result.exitCode===0||got!==\"lint:7,seams:check:8\")throw Error(\"pre-test failures were not collected\");'"
       rationale: "This can pass only when multiple pre-test failures are retained in task order, produce a failed CI result, and prevent the test task from starting."
-objectiveChecksBaseline:
-    recordedAt: "2026-08-21T00:35:08.161Z"
-    head: "34f526bef04398cbe40f057acf82c33653926fe0"
-    results:
-        - id: "OC1"
-          command: "grep -qF '\"ci\": \"deno run -A scripts/run-ci.ts\"' deno.json && deno eval -A 'const m=await import(\"./scripts/run-ci.ts\");const d=Promise.withResolvers();const calls=[];const run=m.runCi(async n=>{calls.push(n);if(n===m.PRE_TEST_TASKS[0])await d.promise;return {name:n,code:0};});await new Promise(r=>setTimeout(r,0));if(calls.join(\",\")!==m.PRE_TEST_TASKS.join(\",\"))throw Error(\"pre-test wave is not concurrent\");d.resolve();const result=await run;if(calls.at(-1)!==\"test\"||result.exitCode!==0)throw Error(\"test did not follow the barrier\");'"
-          rationale: "This directly proves that the CI task uses the new runner, every declared pre-test task starts without waiting for a blocked sibling, and test starts only after the barrier."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 27
-          output: "\n"
-        - id: "OC2"
-          command: "deno eval -A 'const m=await import(\"./scripts/run-ci.ts\");const calls=[];const result=await m.runCi(async n=>{calls.push(n);return {name:n,code:n===\"lint\"?7:n===\"seams:check\"?8:0};});const got=result.failures.map(f=>`${f.name}:${f.code}`).join(\",\");if(calls.includes(\"test\")||result.exitCode===0||got!==\"lint:7,seams:check:8\")throw Error(\"pre-test failures were not collected\");'"
-          rationale: "This can pass only when multiple pre-test failures are retained in task order, produce a failed CI result, and prevent the test task from starting."
-          status: "unmet"
-          stdout: ""
-          stderr: "\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: unexpected argument '-A' found\n\n  tip: to pass '-A' as a value, use '-- -A'\n\nUsage: deno eval [OPTIONS] [CODE_ARG]...\n\n"
-          exitCode: 1
-          durationMs: 23
-          output: "\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: unexpected argument '-A' found\n\n  tip: to pass '-A' as a value, use '-- -A'\n\nUsage: deno eval [OPTIONS] [CODE_ARG]...\n\n"
+objectiveCheckWaivers:
+    []
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-20T19:58:32-04:00"
-updatedAt: "2026-08-21T00:59:45.422Z"
-status: "implemented"
+updatedAt: "2026-08-22T23:56:24.158Z"
+status: "validated_reviewer"
 origin: "internal"
 implementedAt: "2026-08-21T00:59:45.422Z"
 userVerifiedAt: null
 executionReport: "- Implemented `scripts/run-ci.ts` with exported `PRE_TEST_TASKS`, concurrent pre-test scheduling, all-failure collection, test barrier, Deno task subprocess executor, inherited child output, and named timing lines.\n- Updated `deno.json` so `ci` runs `deno run -A scripts/run-ci.ts`; existing check and test task definitions remain in place.\n- Added `scripts/run-ci.test.ts` coverage for all-at-once pre-test starts, the test barrier, all pre-test failure collection, process-start failure handling, and test exit-code propagation. Test count delta: +5 tests, 0 removed.\n- Updated `docs/contributing.md` to describe the concurrent pre-test wave, test barrier, and continued use of `scripts/run-tests.js`.\n- Verification passed: `deno run -A scripts/run-tests.js scripts/run-ci.test.ts`; `deno fmt --check deno.json scripts/run-ci.ts scripts/run-ci.test.ts docs/contributing.md`; `deno task check`; `deno task language-policy:check`; `deno task seams:check`; `deno task doc-links:check`; final `deno task ci`.\n- Note: the first `deno task ci` run failed in `src/ui/tui/golden-scenarios/load-plan-epic-workflow.test.ts`; that file passed when rerun directly, and the final full `deno task ci` passed."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 validationCheckpoint: null
 executionMode: "worktree"
 executionBaselineTree: "63e4c7f0e5512883a6edfbe0c647bcc50a152bc9"
