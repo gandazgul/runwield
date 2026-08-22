@@ -12,6 +12,21 @@ Deno.test("Phone Plan review keeps full editing annotations and actions reachabl
     assertStringIncludes(surface, "Feedback");
 });
 
+Deno.test("Plan feedback action sits above the annotation list with theme accent styling", async () => {
+    const surface = await Deno.readTextFile(SURFACE_PATH);
+    const styles = await Deno.readTextFile("src/ui/workspace/react/plannotator.css");
+    const sidebarIndex = surface.indexOf('className="rw-plan-review-annotation-sidebar"');
+    const actionIndex = surface.indexOf('label="Send Annotations"');
+    const panelIndex = surface.indexOf('presentation="embedded"');
+
+    assertStringIncludes(surface, 'className="rw-plan-review-feedback-action"');
+    assertStringIncludes(styles, ".rw-plan-review-feedback-action");
+    assertStringIncludes(styles, "var(--rw-accent)");
+    if (sidebarIndex < 0 || actionIndex < sidebarIndex || panelIndex < actionIndex) {
+        throw new Error("Send Annotations must sit above the right-side annotation list");
+    }
+});
+
 Deno.test("Feedback and Run return to Session while Later stays on confirmation", async () => {
     const route = await Deno.readTextFile(ROUTE_PATH);
     const surface = await Deno.readTextFile(SURFACE_PATH);

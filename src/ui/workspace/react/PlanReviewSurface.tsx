@@ -234,15 +234,6 @@ export function PlanReviewSurface({ payload }) {
                                     disabled={submitting !== null}
                                 />
                             )}
-                            <FeedbackButton
-                                onClick={submitFeedback}
-                                disabled={(annotations.length === 0 && globalAttachments.length === 0) ||
-                                    submitting !== null}
-                                isLoading={submitting === "feedback"}
-                                title={annotations.length === 0 && globalAttachments.length === 0
-                                    ? "Add an annotation or global comment before sending feedback"
-                                    : "Send feedback"}
-                            />
                             <PlanApprovalSplitButton
                                 primaryAction={primaryApprovalAction}
                                 onApprove={submitApprove}
@@ -432,21 +423,57 @@ export function PlanReviewSurface({ payload }) {
                                         )}
                                 </div>
                             </main>
-                            <AnnotationPanel
-                                isOpen={annotationsOpen}
-                                annotations={annotations}
-                                blocks={parsed.blocks}
-                                onSelect={setSelectedAnnotationId}
-                                onDelete={removeAnnotation}
-                                onEdit={(id, updates) =>
-                                    setAnnotations((items) =>
-                                        items.map((item) => item.id === id ? { ...item, ...updates } : item)
-                                    )}
-                                selectedId={selectedAnnotationId}
-                                sharingEnabled={false}
-                                width={320}
-                                onClose={() => setAnnotationsOpen(false)}
-                            />
+                            {annotationsOpen && (
+                                <aside
+                                    className="rw-plan-review-annotation-sidebar"
+                                    data-annotation-panel="true"
+                                    data-plan-sidebar="right"
+                                    aria-labelledby="rw-plan-review-annotations-heading"
+                                >
+                                    <div className="rw-plan-review-annotation-heading">
+                                        <div>
+                                            <h2 id="rw-plan-review-annotations-heading">Annotations</h2>
+                                            {annotations.length > 0 && <span>{annotations.length}</span>}
+                                        </div>
+                                        <button
+                                            className="rw-plan-review-annotation-close"
+                                            type="button"
+                                            onClick={() => setAnnotationsOpen(false)}
+                                            title="Close annotations"
+                                            aria-label="Close annotations"
+                                        >
+                                            <CloseIcon />
+                                        </button>
+                                    </div>
+                                    <div className="rw-plan-review-feedback-action">
+                                        <FeedbackButton
+                                            onClick={submitFeedback}
+                                            disabled={(annotations.length === 0 && globalAttachments.length === 0) ||
+                                                submitting !== null}
+                                            isLoading={submitting === "feedback"}
+                                            label="Send Annotations"
+                                            loadingLabel="Sending Annotations…"
+                                            title={annotations.length === 0 && globalAttachments.length === 0
+                                                ? "Add an annotation or global comment before sending annotations"
+                                                : "Send annotations"}
+                                        />
+                                    </div>
+                                    <AnnotationPanel
+                                        isOpen
+                                        presentation="embedded"
+                                        annotations={annotations}
+                                        blocks={parsed.blocks}
+                                        onSelect={setSelectedAnnotationId}
+                                        onDelete={removeAnnotation}
+                                        onEdit={(id, updates) =>
+                                            setAnnotations((items) =>
+                                                items.map((item) => item.id === id ? { ...item, ...updates } : item)
+                                            )}
+                                        selectedId={selectedAnnotationId}
+                                        sharingEnabled={false}
+                                    />
+                                </aside>
+                            )}
                             {!annotationsOpen && (
                                 <button
                                     className="rw-annotation-reopen"
@@ -708,6 +735,14 @@ function ClockIcon() {
                 strokeLinejoin="round"
                 d="M12 6v6l4 2M12 22a10 10 0 110-20 10 10 0 010 20z"
             />
+        </svg>
+    );
+}
+
+function CloseIcon() {
+    return (
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
         </svg>
     );
 }
