@@ -733,6 +733,11 @@ html[class*="theme-"] {
     color: var(--plannotator-accent);
 }
 
+.rw-plan-diff-context {
+    color: var(--rw-text-muted);
+    font-size: 0.72rem;
+}
+
 .rw-editor-save-controls {
     color: var(--muted-foreground);
     font-size: 0.75rem;
@@ -769,6 +774,11 @@ html[class*="theme-"] {
     justify-content: center;
     box-sizing: border-box;
     padding: 1rem 0;
+}
+
+.rw-plan-diff-canvas {
+    align-items: flex-start;
+    padding-inline: 1rem;
 }
 
 .review-toolbar {

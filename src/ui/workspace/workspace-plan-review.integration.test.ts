@@ -25,6 +25,14 @@ Deno.test("Workspace Plan review returns Feedback to the same live Core interact
     assertStringIncludes(continuation, "operation.answer.resolve(runtimeResponse)");
 });
 
+Deno.test("Workspace Plan review carries the initial Plan into revised review rounds", async () => {
+    const route = await Deno.readTextFile(ROUTE_PATH);
+    const continuation = await Deno.readTextFile(SESSION_CONTINUATION_PATH);
+
+    assertStringIncludes(continuation, 'previousPlan: typeof meta.previousPlan === "string"');
+    assertStringIncludes(route, "previousPlan: liveReview.request?.planReview?.previousPlan");
+});
+
 Deno.test("lost review interaction prepares but does not send Agent resubmission", async () => {
     const route = await Deno.readTextFile(ROUTE_PATH);
     const continuation = await Deno.readTextFile(SESSION_CONTINUATION_PATH);

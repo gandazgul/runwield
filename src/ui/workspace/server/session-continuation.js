@@ -71,6 +71,7 @@ function safePlanReviewReference(request) {
         expectedWorktree: meta.expectedWorktree && typeof meta.expectedWorktree === "object"
             ? meta.expectedWorktree
             : null,
+        previousPlan: typeof meta.previousPlan === "string" && meta.previousPlan.trim() ? meta.previousPlan : null,
     };
 }
 

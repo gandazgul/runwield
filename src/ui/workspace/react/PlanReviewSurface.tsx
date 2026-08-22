@@ -8,6 +8,7 @@ import { MarkdownEditor } from "@plannotator/ui/components/MarkdownEditor.tsx";
 import { AnnotationPanel } from "@plannotator/ui/components/AnnotationPanel.tsx";
 import { AnnotationToolstrip } from "@plannotator/ui/components/AnnotationToolstrip.tsx";
 import { FeedbackButton } from "@plannotator/ui/components/ToolbarButtons.tsx";
+import { PlanDiffViewer } from "@plannotator/ui/components/plan-diff/PlanDiffViewer.tsx";
 import { CompletionOverlay } from "@plannotator/ui/components/CompletionOverlay.tsx";
 import { ActionMenu, ActionMenuItem } from "@plannotator/ui/components/ActionMenu.tsx";
 import { Button } from "@plannotator/ui/components/ui/button.tsx";
@@ -16,6 +17,7 @@ import { ResizeHandle } from "@plannotator/ui/components/ResizeHandle.tsx";
 import { SidebarContainer } from "@plannotator/ui/components/sidebar/SidebarContainer.tsx";
 import { SidebarTabs } from "@plannotator/ui/components/sidebar/SidebarTabs.tsx";
 import { ScrollViewportContext } from "@plannotator/ui/hooks/useScrollViewport.ts";
+import { usePlanDiff } from "@plannotator/ui/hooks/usePlanDiff.ts";
 import { usePrintMode } from "@plannotator/ui/hooks/usePrintMode.ts";
 import { useConfigValue } from "@plannotator/ui/config/index.ts";
 import { getPlanSaveSettings } from "@plannotator/ui/utils/planSave.ts";
@@ -43,6 +45,8 @@ export function PlanReviewSurface({ payload }) {
     const [plan, setPlan] = useState(initialPayload.plan || "");
     const [draftPlan, setDraftPlan] = useState(initialPayload.plan || "");
     const [editorMode, setEditorMode] = useState("view");
+    const [isPlanDiffActive, setIsPlanDiffActive] = useState(false);
+    const [planDiffMode, setPlanDiffMode] = useState("clean");
     const [uiPreferences, setUiPreferences] = useState(() => getUIPreferences());
     const [sidebarOpen, setSidebarOpen] = useState(() => getUIPreferences().tocEnabled);
     const [annotationsOpen, setAnnotationsOpen] = useState(true);
@@ -72,6 +76,14 @@ export function PlanReviewSurface({ payload }) {
             frontmatter: frontmatterResult.frontmatter,
         };
     }, [plan]);
+    const previousPlan = typeof initialPayload.previousPlan === "string" && initialPayload.previousPlan.trim()
+        ? initialPayload.previousPlan
+        : null;
+    const planDiff = usePlanDiff(
+        plan,
+        previousPlan,
+        previousPlan ? { version: 2, totalVersions: 2, project: "RunWield" } : null,
+    );
     const trustedPolicy = readPlanReviewExecutionPolicy(initialPayload, parsed.frontmatter);
     const planClassification = trustedPolicy.classification;
     const showExecutionPolicyControls = trustedPolicy.canSelectExecutionPolicy;
@@ -146,6 +158,21 @@ export function PlanReviewSurface({ payload }) {
         setPlan(nextPlan);
         setDraftPlan(nextPlan);
         setEditorMode("view");
+    }
+
+    function showPlanView() {
+        setIsPlanDiffActive(false);
+        setEditorMode("view");
+    }
+
+    function showPlanEditor() {
+        setIsPlanDiffActive(false);
+        setEditorMode("edit");
+    }
+
+    function showPlanChanges() {
+        setEditorMode("view");
+        setIsPlanDiffActive(true);
     }
 
     function applyUIPreferences(next) {
@@ -290,16 +317,19 @@ export function PlanReviewSurface({ payload }) {
                                     blocks={parsed.blocks}
                                     annotations={annotations}
                                     activeSection={activeSection}
-                                    onTocNavigate={setActiveSection}
+                                    onTocNavigate={(blockId) => {
+                                        showPlanView();
+                                        setActiveSection(blockId);
+                                    }}
                                     showFilesTab={false}
                                     showVersionsTab={false}
                                     versionInfo={null}
                                     versions={[]}
                                     selectedBaseVersion={null}
                                     onSelectBaseVersion={() => {}}
-                                    isPlanDiffActive={false}
-                                    hasPreviousVersion={false}
-                                    onActivatePlanDiff={() => {}}
+                                    isPlanDiffActive={isPlanDiffActive}
+                                    hasPreviousVersion={planDiff.hasPreviousVersion}
+                                    onActivatePlanDiff={showPlanChanges}
                                     isLoadingVersions={false}
                                     isSelectingVersion={false}
                                     fetchingVersion={null}
@@ -326,21 +356,37 @@ export function PlanReviewSurface({ payload }) {
                                         aria-label="Plan review mode"
                                     >
                                         <button
-                                            className={editorMode === "view" ? "active" : ""}
+                                            className={editorMode === "view" && !isPlanDiffActive ? "active" : ""}
                                             type="button"
-                                            onClick={() => setEditorMode("view")}
+                                            onClick={showPlanView}
                                         >
                                             View
                                         </button>
                                         <button
-                                            className={editorMode === "edit" ? "active" : ""}
+                                            className={editorMode === "edit" && !isPlanDiffActive ? "active" : ""}
                                             type="button"
-                                            onClick={() => setEditorMode("edit")}
+                                            onClick={showPlanEditor}
                                         >
                                             Edit
                                         </button>
+                                        {planDiff.hasPreviousVersion && (
+                                            <button
+                                                className={isPlanDiffActive ? "active" : ""}
+                                                type="button"
+                                                onClick={showPlanChanges}
+                                                title="Compare this revision with the initial Plan"
+                                            >
+                                                Changes
+                                            </button>
+                                        )}
                                     </div>
-                                    {editorMode === "view"
+                                    {isPlanDiffActive
+                                        ? (
+                                            <span className="rw-plan-diff-context" role="status">
+                                                Comparing current revision with initial Plan
+                                            </span>
+                                        )
+                                        : editorMode === "view"
                                         ? (
                                             <AnnotationToolstrip
                                                 inputMethod={inputMethod}
@@ -373,7 +419,31 @@ export function PlanReviewSurface({ payload }) {
                                             showAgentTerminalTab={false}
                                         />
                                     )}
-                                    {editorMode === "view"
+                                    {isPlanDiffActive && planDiff.diffBlocks && planDiff.diffStats
+                                        ? (
+                                            <OverlayScrollArea
+                                                className="rw-plannotator-scroll-area"
+                                                onViewportReady={setScrollViewport}
+                                            >
+                                                <div className="rw-plan-document-canvas rw-plan-diff-canvas">
+                                                    <PlanDiffViewer
+                                                        diffBlocks={planDiff.diffBlocks}
+                                                        diffStats={planDiff.diffStats}
+                                                        diffMode={planDiffMode}
+                                                        onDiffModeChange={setPlanDiffMode}
+                                                        onPlanDiffToggle={showPlanView}
+                                                        baseVersionLabel="initial Plan"
+                                                        maxWidth={planMaxWidth}
+                                                        annotations={annotations}
+                                                        onAddAnnotation={addAnnotation}
+                                                        onSelectAnnotation={setSelectedAnnotationId}
+                                                        selectedAnnotationId={selectedAnnotationId}
+                                                        mode={annotationMode}
+                                                    />
+                                                </div>
+                                            </OverlayScrollArea>
+                                        )
+                                        : editorMode === "view"
                                         ? (
                                             <OverlayScrollArea
                                                 className="rw-plannotator-scroll-area"

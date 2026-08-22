@@ -17,6 +17,7 @@ import { loadPlan } from "../../plan-store.js";
  */
 async function makeHarness(options = {}) {
     const events = /** @type {any[]} */ ([]);
+    const interactionRequests = /** @type {any[]} */ ([]);
     const reviewResponses = [...(options.reviewResponses || [])];
     const cwd = await Deno.makeTempDir();
     await Deno.mkdir(`${cwd}/docs/plans`, { recursive: true });
@@ -44,6 +45,7 @@ status: approved
     hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
     hostedSession.setInteractionAdapter({
         requestInteraction: (request) => {
+            interactionRequests.push(request);
             if (request.type === "approval") {
                 return Promise.resolve(options.retryResponse || { outcome: "canceled", value: false });
             }
@@ -83,7 +85,7 @@ status: approved
     });
     /** Read the Plan the tool actually wrote. */
     const readPlan = (name = "runtime-boundary") => loadPlan(cwd, name);
-    return { tool, hostedSession, events, readPlan, cwd };
+    return { tool, hostedSession, events, interactionRequests, readPlan, cwd };
 }
 
 /**
@@ -296,6 +298,36 @@ Deno.test("plan_written returns review feedback and images to the planning agent
     assertEquals(result.content.some((/** @type {any} */ item) => item.type === "image"), true);
     // Feedback is not readiness: the Plan must still be sitting at `approved`.
     assertEquals((await readPlan())?.attrs.status, "approved");
+});
+
+Deno.test("plan_written compares a revised Plan with the first reviewed Plan", async () => {
+    const { tool, cwd, interactionRequests } = await makeHarness({
+        reviewResponses: [
+            {
+                outcome: "selected",
+                _meta: { approved: false, feedback: "Revise the approach." },
+            },
+            {
+                outcome: "accepted",
+                _meta: { approved: true, approvalAction: "later" },
+            },
+        ],
+    });
+
+    const firstResult = await execute(tool);
+    assertEquals(firstResult.details.outcome, "feedback");
+
+    const planPath = `${cwd}/docs/plans/runtime-boundary.md`;
+    const firstPlan = await Deno.readTextFile(planPath);
+    await Deno.writeTextFile(planPath, firstPlan.replace("# runtime-boundary", "# Revised runtime boundary"));
+
+    const secondResult = await execute(tool);
+    assertEquals(secondResult.details.outcome, "saved");
+
+    const reviewRequests = interactionRequests.filter((request) => request.type === "plan_review");
+    assertEquals(reviewRequests.length, 2);
+    assertEquals(reviewRequests[0]._meta.previousPlan, undefined);
+    assertEquals(reviewRequests[1]._meta.previousPlan, firstPlan);
 });
 
 Deno.test("plan_written cancellation asks whether to reopen review before completing", async () => {

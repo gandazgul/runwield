@@ -128,6 +128,21 @@ collaborationRecommendation: pair
     },
 );
 
+reviewLauncherTest("revised Plan Review exposes its initial Plan baseline", async (projectRoot) => {
+    const server = await startPlanReviewSurface<PlanDecision>({
+        cwd: projectRoot,
+        plan: "# Revised Plan\n\nNew approach\n",
+        previousPlan: "# Initial Plan\n\nOld approach\n",
+        browser: recordingBrowser(false),
+    });
+    const html = await (await fetch(server.url)).text();
+    const decision = server.waitForDecision();
+    await server.stop();
+
+    assertStringIncludes(html, '"previousPlan":"# Initial Plan\\n\\nOld approach\\n"');
+    assertEquals(await decision, { approved: false, feedback: "", exit: true, canceled: true });
+});
+
 reviewLauncherTest(
     "Code Review exposes guided-review and Git status payload through the real server",
     async () => {

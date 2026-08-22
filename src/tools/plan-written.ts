@@ -367,6 +367,7 @@ async function resolveTriageMeta(
 export function createPlanWrittenTool({ triageMeta, agentName = "planner", hostedSession }: PlanWrittenOptions = {}) {
     if (!hostedSession) throw new Error("createPlanWrittenTool: hostedSession is required");
     const cwd = hostedSession.cwd;
+    const initialReviewPlans = new Map<string, string>();
     return defineTool({
         name: "plan_written",
         label: "Plan Written",
@@ -534,6 +535,12 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             const canonicalReviewEvidence = initialReviewEvidence.kind === "success"
                 ? initialReviewEvidence.evidence
                 : null;
+            const currentReviewPlan = await Deno.readTextFile(planPath);
+            const initialReviewPlan = initialReviewPlans.get(planName);
+            if (initialReviewPlan === undefined) initialReviewPlans.set(planName, currentReviewPlan);
+            const previousPlan = initialReviewPlan !== undefined && initialReviewPlan !== currentReviewPlan
+                ? initialReviewPlan
+                : undefined;
 
             const recoverableReview = await requestRecoverablePlanReview({
                 requestReview: () =>
@@ -551,6 +558,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                                 expectedRevision: canonicalReviewEvidence?.revision,
                                 expectedStatus: canonicalReviewEvidence?.status,
                                 expectedWorktree: canonicalReviewEvidence?.worktree,
+                                previousPlan,
                                 triageMeta: effectiveMeta,
                                 onOutput: onReviewServerOutput,
                                 onSurfaceReady: onReviewSurfaceReady,

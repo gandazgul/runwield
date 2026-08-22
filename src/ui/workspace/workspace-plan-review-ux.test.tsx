@@ -44,3 +44,12 @@ Deno.test("Plan and Epic reviews expose classification-correct actions", async (
     assertStringIncludes(surface, "Approve & Slice");
     assertStringIncludes(surface, "Approve & Run");
 });
+
+Deno.test("revised Plan reviews expose Plannotator Changes beside View and Edit", async () => {
+    const surface = await Deno.readTextFile(SURFACE_PATH);
+
+    assertStringIncludes(surface, "usePlanDiff");
+    assertStringIncludes(surface, "PlanDiffViewer");
+    assertStringIncludes(surface, "Compare this revision with the initial Plan");
+    assertStringIncludes(surface, ">\n                                                Changes\n");
+});

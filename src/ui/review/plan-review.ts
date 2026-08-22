@@ -75,6 +75,7 @@ interface SubmitPlanForReviewOptions {
     cwd: string;
     planName: string;
     planPath: string;
+    previousPlan?: string;
     triageMeta?: Partial<PlanFrontMatter>;
     onOutput?(output: ReviewServerOutput): void;
     onSurfaceReady?(surface: ReviewSurfaceReady): void;
@@ -160,6 +161,7 @@ export async function submitPlanForReview({
     cwd,
     planName,
     planPath,
+    previousPlan,
     triageMeta,
     onOutput,
     onSurfaceReady,
@@ -199,6 +201,7 @@ export async function submitPlanForReview({
         cwd,
         plan: planWithFm,
         planPath,
+        previousPlan,
         browser,
         onOutput,
         onSurfaceReady,

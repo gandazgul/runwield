@@ -110,6 +110,25 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vestibulum lacinia arcu
 ad litora torquent per conubia nostra per inceptos himenaeos curabitur sodales ligula in libero.
 `;
 
+const INITIAL_PLAN_FIXTURE = PLAN_FIXTURE
+    .replace(
+        'summary: "Fixture test plan for exercising every Plan Review UI interaction"',
+        'summary: "Initial fixture plan before review feedback"',
+    )
+    .replace(
+        "This is a fixture test plan for exercising the complete Plan Review UI.",
+        "This initial fixture plan covers the core Plan Review UI.",
+    )
+    .replace("- Sed convallis tristique sem, proin ut ligula vel nunc egestas porttitor.\n", "")
+    .replace(
+        "Lorem ipsum dolor sit amet, consectetur adipiscing elit. In hac habitasse platea dictumst morbi vestibulum volutpat",
+        "The initial approach keeps the review surface focused on reading and annotation before revision comparison. Morbi vestibulum volutpat",
+    )
+    .replace(
+        "- [ ] Step 3: Duis sagittis ipsum praesent mauris fusce nec tellus sed augue semper porta.",
+        "- [ ] Step 3: Add the first review toolbar actions.",
+    );
+
 const PROJECT_PLAN_FIXTURE = PLAN_FIXTURE
     .replace('classification: "FEATURE"', 'classification: "PROJECT"')
     .replace(
@@ -644,6 +663,7 @@ export function ReviewDevSurface({ surface }) {
         }
         : {
             plan: PLAN_FIXTURE,
+            previousPlan: INITIAL_PLAN_FIXTURE,
             token: `dev-plan-review-${planVariant}`,
             mode: "dev",
             classification: "FEATURE",
