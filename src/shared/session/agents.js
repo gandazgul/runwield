@@ -590,6 +590,9 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
 export function loadAgentDef(agentName, projectRoot) {
     const canonicalName = normalizeAgentInternalName(agentName);
     const filePaths = getAgentDefLayerDirs(projectRoot).map((dir) => join(dir, `${canonicalName}.md`));
+    if (canonicalName === AGENTS.REVIEWER_FEEDBACK_ENGINEER) {
+        filePaths.splice(1, 0, join(AGENT_DEFS_DIR, "subagent-definitions", `${canonicalName}.md`));
+    }
 
     return loadAgentDefFromPaths(canonicalName, filePaths, projectRoot);
 }

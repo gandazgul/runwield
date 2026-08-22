@@ -60,14 +60,15 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-19T22:32:06-04:00"
-updatedAt: "2026-08-22T15:02:21.592Z"
-status: "implemented"
+updatedAt: "2026-08-22T23:51:12.378Z"
+status: "validated_reviewer"
 origin: "internal"
 implementedAt: "2026-08-22T15:02:21.592Z"
 userVerifiedAt: null
 executionReport: "- Added `contextContract` declarations for Engineer, Plan Engineer, Frontend Engineer, and Validation Repair Engineer; `loadAgentDef` now exposes the validated metadata without using it for runtime dispatch.\n- Rewrote `agent-contracts.test.ts` into the table-driven contract matrix; previous prompt-shape tests were rewritten into the matrix, including shared-practice, required/forbidden language, discoverability, workflow-only, domain-skill, and override behavior checks. Test count in that file changed from 11 to 3 because related checks are grouped by contract.\n- Extended Golden TUI coverage: session resume now proves Quick Fix resumes under Engineer, planned-change workflows assert actual Plan Engineer and Frontend Engineer system prompts, and the harness captures `runtimeAgent` for model turns.\n- Kept validation repair focused through contract and existing validation prompt/repair suites.\n- Recorded static prompt baselines in test output as comparison data only; no prompt-composition layer was added.\n- Verification passed: `deno run -A scripts/run-tests.js src/shared/session/agent-contracts.test.ts`; session-resume golden suite; planned-change golden suite; validation prompt/repair suites; and final `deno task ci` (`341 files passed`).\n- Manual inspection was covered through Golden TUI evidence for Quick Fix resume, Plan Engineer execution, Frontend Engineer execution, and resumed execution identity; no separate live TUI manual session was run."
-humanReviewMode: null
-humanReviewDecision: null
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-22T23:51:12.326Z"
 validationCheckpoint: null
 executionMode: "worktree"
 executionBaselineTree: "8e7cd6ec82511b46f394e2f733ba64dadf57ba60"
