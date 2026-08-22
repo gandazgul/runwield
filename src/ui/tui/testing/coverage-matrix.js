@@ -68,6 +68,10 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         "recovery:malformed-plan-front-matter",
     ],
     validationWorkflow: VALIDATION_WORKFLOW_REQUIRED_CAPABILITIES,
+    contextIdentity: [
+        "context:plan-engineer-identity",
+        "context:frontend-engineer-identity",
+    ],
     durableOutcomes: [
         "durable:plan-lifecycle",
         "durable:worktree-publication",

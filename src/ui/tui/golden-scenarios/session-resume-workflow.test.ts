@@ -3,11 +3,13 @@ import {
     resumeCorruptSessionScenario,
     resumeInterruptedSessionScenario,
     resumePersistedSessionScenario,
+    resumeQuickFixSessionScenario,
     sessionResumeWorkflowScenarios,
 } from "./session-resume-workflow.ts";
 
 const scenarioExportNames = new Map<object, string>([
     [resumePersistedSessionScenario, "resumePersistedSessionScenario"],
+    [resumeQuickFixSessionScenario, "resumeQuickFixSessionScenario"],
     [resumeCorruptSessionScenario, "resumeCorruptSessionScenario"],
     [resumeInterruptedSessionScenario, "resumeInterruptedSessionScenario"],
 ]);

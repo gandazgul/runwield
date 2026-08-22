@@ -26,12 +26,59 @@ objectiveChecks:
     - id: "OC3"
       command: "grep -q 'execution Agent context identity survives recovery' src/ui/tui/golden-scenarios/session-resume-workflow.test.ts && grep -q 'systemPrompt' src/ui/tui/golden-scenarios/session-resume-workflow.test.ts && grep -q 'runtime:agent:' src/ui/tui/golden-scenarios/session-resume-workflow.test.ts && deno run -A scripts/run-tests.js src/ui/tui/golden-scenarios/session-resume-workflow.test.ts --filter 'execution Agent context identity survives recovery'"
       rationale: "The baseline has no recovery identity scenario. The check requires a focused golden test with runtime/system-prompt evidence, not only a new Agent definition."
+objectiveChecksBaseline:
+    recordedAt: "2026-08-22T14:24:41.787Z"
+    head: "381fc3856301da9e961ad32a4e21c4f7bb2a437b"
+    results:
+        - id: "OC1"
+          command: "deno eval 'import { loadAgentDef } from \"./src/shared/session/agents.js\"; const expected={engineer:\"quick-fix\",\"plan-engineer\":\"plan-execution\",\"frontend-engineer\":\"frontend-plan-execution\",\"reviewer-feedback-engineer\":\"validation-repair\"}; for (const [name,contract] of Object.entries(expected)) { const def=await loadAgentDef(name); if(def.contextContract!==contract) throw new Error(`${name} did not expose ${contract}`); }'"
+          rationale: "The current loader does not expose contextContract, so this fails until all four declarations are parsed and returned as Agent metadata."
+          status: "unmet"
+          stdout: ""
+          stderr: "\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: engineer did not expose quick-fix\n    at \u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-execution-agent-context-boundaries-9be2052d/\u001b[0m\u001b[0m\u001b[36m$deno$eval.mts\u001b[0m:\u001b[0m\u001b[33m1\u001b[0m:\u001b[0m\u001b[33m366\u001b[0m\n"
+          exitCode: 1
+          durationMs: 100
+          output: "\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Uncaught (in promise) Error: engineer did not expose quick-fix\n    at \u001b[0m\u001b[2m\u001b[38;5;245mfile:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-execution-agent-context-boundaries-9be2052d/\u001b[0m\u001b[0m\u001b[36m$deno$eval.mts\u001b[0m:\u001b[0m\u001b[33m1\u001b[0m:\u001b[0m\u001b[33m366\u001b[0m\n"
+        - id: "OC2"
+          command: "grep -q 'declared context contracts and prompt boundaries' src/shared/session/agent-contracts.test.ts && grep -q 'contextContract' src/shared/session/agent-contracts.test.ts && deno run -A scripts/run-tests.js src/shared/session/agent-contracts.test.ts --filter 'declared context contracts and prompt boundaries'"
+          rationale: "The baseline has no named contract-matrix test. The check requires a focused test that executes against real loaded definitions and contract metadata."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 12
+          output: "\n"
+        - id: "OC3"
+          command: "grep -q 'execution Agent context identity survives recovery' src/ui/tui/golden-scenarios/session-resume-workflow.test.ts && grep -q 'systemPrompt' src/ui/tui/golden-scenarios/session-resume-workflow.test.ts && grep -q 'runtime:agent:' src/ui/tui/golden-scenarios/session-resume-workflow.test.ts && deno run -A scripts/run-tests.js src/ui/tui/golden-scenarios/session-resume-workflow.test.ts --filter 'execution Agent context identity survives recovery'"
+          rationale: "The baseline has no recovery identity scenario. The check requires a focused golden test with runtime/system-prompt evidence, not only a new Agent definition."
+          status: "unmet"
+          stdout: ""
+          stderr: ""
+          exitCode: 1
+          durationMs: 10
+          output: "\n"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-19T22:32:06-04:00"
-updatedAt: "2026-08-20T03:03:51.706Z"
-status: "feedback"
+updatedAt: "2026-08-22T15:02:21.592Z"
+status: "implemented"
 origin: "internal"
+implementedAt: "2026-08-22T15:02:21.592Z"
+userVerifiedAt: null
+executionReport: "- Added `contextContract` declarations for Engineer, Plan Engineer, Frontend Engineer, and Validation Repair Engineer; `loadAgentDef` now exposes the validated metadata without using it for runtime dispatch.\n- Rewrote `agent-contracts.test.ts` into the table-driven contract matrix; previous prompt-shape tests were rewritten into the matrix, including shared-practice, required/forbidden language, discoverability, workflow-only, domain-skill, and override behavior checks. Test count in that file changed from 11 to 3 because related checks are grouped by contract.\n- Extended Golden TUI coverage: session resume now proves Quick Fix resumes under Engineer, planned-change workflows assert actual Plan Engineer and Frontend Engineer system prompts, and the harness captures `runtimeAgent` for model turns.\n- Kept validation repair focused through contract and existing validation prompt/repair suites.\n- Recorded static prompt baselines in test output as comparison data only; no prompt-composition layer was added.\n- Verification passed: `deno run -A scripts/run-tests.js src/shared/session/agent-contracts.test.ts`; session-resume golden suite; planned-change golden suite; validation prompt/repair suites; and final `deno task ci` (`341 files passed`).\n- Manual inspection was covered through Golden TUI evidence for Quick Fix resume, Plan Engineer execution, Frontend Engineer execution, and resumed execution identity; no separate live TUI manual session was run."
+humanReviewMode: null
+humanReviewDecision: null
+validationCheckpoint: null
+executionMode: "worktree"
+executionBaselineTree: "8e7cd6ec82511b46f394e2f733ba64dadf57ba60"
+worktreeId: "9be2052d"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-execution-agent-context-boundaries-9be2052d"
+worktreeBranch: "worktree/execution-agent-context-boundaries-9be2052d"
+worktreeBaseBranch: "main"
+worktreeStatus: "completed"
+validationCiAttempts: 0
+validationObjectiveCheckAttempts: 0
+validationSemanticRounds: 0
 ---
 
 # Harden Execution-Agent Context Boundaries

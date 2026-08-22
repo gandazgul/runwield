@@ -342,6 +342,7 @@ function inferGoldenTurnIdentity(snapshotAgentName, availableTools, systemPrompt
     // regardless of which Agent RunWield activates for it, the same way the
     // Validation Repair Engineer is matched above.
     if (systemPrompt.includes("You are the Plan Engineer")) return { agent: "engineer", phase: "engineer" };
+    if (systemPrompt.includes("You are the Frontend Engineer")) return { agent: "engineer", phase: "engineer" };
     if (availableTools.includes("slicer_finalize_decomposition")) return { agent: "slicer", phase: "slicer" };
     if (availableTools.includes("plan_written")) {
         // Planner and Architect deliberately share the Plan tool surface. The
@@ -936,6 +937,7 @@ async function runComposedTuiScenario(scenario, options) {
                     modelTurns.push({
                         agent,
                         phase,
+                        runtimeAgent: snapshot?.activeAgent || "",
                         model: model?.id || "",
                         provider: model?.provider || "",
                         systemPrompt,

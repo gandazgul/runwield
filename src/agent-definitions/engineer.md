@@ -1,6 +1,7 @@
 ---
 name: Engineer
 description: "Full-stack coding helper for bounded quick fixes across any layer of the repository."
+contextContract: quick-fix
 temperature: 0.4
 sharedPractice:
     - user-authority
