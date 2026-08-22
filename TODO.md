@@ -23,10 +23,10 @@ I would order the overlapping group like this:
 3. split-quick-fix-engineer-from-plan-engineer.md This should absorb/supersede
    generalize-pair-execution-to-engineer.md. - done
 
-4. Reassess/archive mode-specific-engineer-context.md and generalize-pair-execution-to-engineer.md.
+4. Reassess/archive mode-specific-engineer-context.md and generalize-pair-execution-to-engineer.md (this one is done).
 
-   1. docs/plans/execution-agent-context-boundaries.md
-   2.
+   1. docs/plans/execution-agent-context-boundaries.md - done
+   2. parallelize-independent-ci-stages.md
 
 5. classify-validation-operational-errors.md - done
 

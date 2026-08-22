@@ -58,6 +58,8 @@ type PlanAmendmentDecision =
     | { kind: "engineer_follow_up"; feedback: string }
     | { kind: "stop" };
 
+type PlanAmendmentProposal = NonNullable<Awaited<ReturnType<typeof detectValidationPlanAmendment>>>;
+
 type ObjectiveCheckWaiverDecision =
     | { kind: "waived" }
     | { kind: "rejected"; feedback: string }
@@ -78,6 +80,17 @@ function isEngineerReportProjectionDrift(
 
 function shouldRetainTaskCompletionClaim(args: ValidationLoopArgs): boolean {
     return (args.engineerReportedBrokenObjectiveChecks || []).length > 0;
+}
+
+function retireReportsForApprovedCheckChanges(args: ValidationLoopArgs, proposal: PlanAmendmentProposal): void {
+    const changedIds = new Set(proposal.changedObjectiveChecks.map((check) => check.id));
+    for (const diff of proposal.diffs) {
+        const removed = /^objectiveChecks\.([^.]+)$/.exec(diff.field);
+        if (removed && diff.after === "<removed>") changedIds.add(removed[1]);
+    }
+    if (!changedIds.size) return;
+    const remaining = (args.engineerReportedBrokenObjectiveChecks || []).filter((report) => !changedIds.has(report.id));
+    args.engineerReportedBrokenObjectiveChecks = remaining.length ? remaining : undefined;
 }
 
 function adoptRecordedPlanState(
@@ -307,6 +320,10 @@ async function resolveValidationPlanAmendment(
         );
         args.triageMeta = canonical.attrs as ValidationLoopArgs["triageMeta"];
         args.planContent = canonical.markdown;
+        // The user approved replacements for these exact check definitions. Any
+        // Engineer report about their former commands is now historical evidence,
+        // not an active defect claim. Keep reports for unrelated checks.
+        retireReportsForApprovedCheckChanges(args, proposal);
         const statusMessage = buildValidationUserMessage({ kind: "amendment_approved" });
         emitStatus(args, statusMessage, "success");
         return { kind: "amended" };
