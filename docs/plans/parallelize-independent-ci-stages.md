@@ -21,22 +21,28 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-20T19:58:32-04:00"
-updatedAt: "2026-08-22T23:56:24.158Z"
-status: "validated_reviewer"
+updatedAt: "2026-08-22T23:56:33.284Z"
+status: "validated"
 origin: "internal"
 implementedAt: "2026-08-21T00:59:45.422Z"
+validatedAt: "2026-08-22T23:56:24.809Z"
 userVerifiedAt: null
 executionReport: "- Implemented `scripts/run-ci.ts` with exported `PRE_TEST_TASKS`, concurrent pre-test scheduling, all-failure collection, test barrier, Deno task subprocess executor, inherited child output, and named timing lines.\n- Updated `deno.json` so `ci` runs `deno run -A scripts/run-ci.ts`; existing check and test task definitions remain in place.\n- Added `scripts/run-ci.test.ts` coverage for all-at-once pre-test starts, the test barrier, all pre-test failure collection, process-start failure handling, and test exit-code propagation. Test count delta: +5 tests, 0 removed.\n- Updated `docs/contributing.md` to describe the concurrent pre-test wave, test barrier, and continued use of `scripts/run-tests.js`.\n- Verification passed: `deno run -A scripts/run-tests.js scripts/run-ci.test.ts`; `deno fmt --check deno.json scripts/run-ci.ts scripts/run-ci.test.ts docs/contributing.md`; `deno task check`; `deno task language-policy:check`; `deno task seams:check`; `deno task doc-links:check`; final `deno task ci`.\n- Note: the first `deno task ci` run failed in `src/ui/tui/golden-scenarios/load-plan-epic-workflow.test.ts`; that file passed when rerun directly, and the final full `deno task ci` passed."
+workRecord:
+    status: "generated"
+    recordId: "0fbfd7d6-dd6d-44bb-b06d-61803dd2fb06"
+    path: "docs/work-records/2026-08-22-parallel-ci-pre-test-gates.md"
+    lastAttemptAt: "2026-08-22T23:56:24.879Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 validationCheckpoint: null
 executionMode: "worktree"
-executionBaselineTree: "63e4c7f0e5512883a6edfbe0c647bcc50a152bc9"
-worktreeId: "1b99b73f"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-parallelize-independent-ci-stages-1b99b73f"
-worktreeBranch: "worktree/parallelize-independent-ci-stages-1b99b73f"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "50b379c933a3e4d9486164dccaf85a4e135d50d7"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "fa305427c8ef095ca4499a6f6d467889f8e7be30"
 validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
 validationSemanticRounds: 0
