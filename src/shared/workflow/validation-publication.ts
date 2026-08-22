@@ -44,7 +44,9 @@ import {
     finalizeMergeRepair,
     getMergeFailureKind,
     getMergeWorktreePath,
+    normalizePublicationFailure,
     persistValidationMergeRepairWorktree,
+    type PublicationFailure,
     publicationFailureNeedsUserAction,
     resolveStoredValidationMergeRepairWorktree,
 } from "./validation-merge-repair.ts";
@@ -52,7 +54,11 @@ import { recordLifecycleEvent } from "./validation-context.ts";
 import { completeProgressRecord, emitProgress, emitStatus } from "./validation-emit.ts";
 import { pauseForUserAction } from "./validation-interactions.ts";
 import { buildValidationUserMessage, validationUserMessage } from "./validation-user-messages.ts";
-import { classifyValidationOperationalError, type GitPublicationErrorKind } from "./validation-operational-errors.ts";
+import {
+    classifyValidationOperationalError,
+    type GitPublicationErrorKind,
+    type ValidationOperationalFailure,
+} from "./validation-operational-errors.ts";
 import {
     decideValidationRecovery,
     readValidationRetryPolicy,
@@ -62,6 +68,7 @@ import {
 
 type DeliveryEvidence = import("../../plan-store.js").DeliveryEvidence;
 type WorktreeDeliveryEvidence = import("../../plan-store.js").WorktreeDeliveryEvidence;
+type ManualQaPreparationResult = { kind: "ready" } | { kind: "blocked"; outcome: PublicationOutcome };
 
 function firstMarkdownHeading(markdown: string, fallback: string): string {
     const heading = markdown.split(/\r?\n/).find((line) => /^#\s+\S/.test(line));
@@ -96,16 +103,45 @@ function publicationFailureKindFromMergeKind(failureKind: string | undefined): G
     }
 }
 
-async function prepareEpicChildManualQaArtifact(args: ValidationLoopArgs, cwd: string): Promise<void> {
+function operationalPhaseResult(
+    args: ValidationLoopArgs,
+    projectRoot: string,
+    failure: ValidationOperationalFailure,
+    attempt: number,
+): PublicationOutcome {
+    const decision = decideValidationRecovery({
+        failure,
+        attempt,
+        policy: readValidationRetryPolicy(projectRoot),
+        nextPhase: "delivery",
+    });
+    return {
+        recorded: false,
+        result: {
+            kind: decision.action === "halt" ? "failed" : "paused",
+            planName: args.planName,
+            projectRoot,
+            reason: decision.result.message,
+            recovery: decision.result,
+        },
+    };
+}
+
+async function prepareEpicChildManualQaArtifact(
+    args: ValidationLoopArgs,
+    cwd: string,
+    projectRoot: string,
+): Promise<ManualQaPreparationResult> {
     const plan = await loadPlan(cwd, args.planName).catch(() => null);
     const parentPlan = typeof plan?.attrs.parentPlan === "string" && plan.attrs.parentPlan.trim()
         ? plan.attrs.parentPlan.trim()
         : "";
-    if (!parentPlan) return;
+    if (!parentPlan) return { kind: "ready" };
     const parent = await loadPlan(cwd, parentPlan).catch(() => null);
-    if (parent?.attrs.classification !== "PROJECT") return;
+    if (parent?.attrs.classification !== "PROJECT") return { kind: "ready" };
 
-    try {
+    let attempt = 1;
+    for (;;) {
         emitStatus(args, buildValidationUserMessage({ kind: "qa_prepare", planName: args.planName }), "info");
         const userRequest = [
             "Prepare this Epic child's Manual QA checklist.",
@@ -127,14 +163,29 @@ async function prepareEpicChildManualQaArtifact(args: ValidationLoopArgs, cwd: s
             childPlanName: args.planName,
             childHeading: firstMarkdownHeading(args.planContent, args.planName),
         });
-        const outcome = await args.session.runIsolatedAgentSession({
-            kind: "manual_qa",
-            agentName: AGENTS.OPERATOR,
-            userRequest,
-            cwd,
-            customTools: [tool as unknown as OpaqueToolDefinition],
-            sessionManager: args.session.createInMemorySessionManager(cwd),
-        });
+        let outcome;
+        try {
+            outcome = await args.session.runIsolatedAgentSession({
+                kind: "manual_qa",
+                agentName: AGENTS.OPERATOR,
+                userRequest,
+                cwd,
+                customTools: [tool as unknown as OpaqueToolDefinition],
+                sessionManager: args.session.createInMemorySessionManager(cwd),
+            });
+        } catch (caught) {
+            const error = caught instanceof Error ? caught : new Error(String(caught));
+            outcome = {
+                kind: "manual_qa" as const,
+                outcome: "operational_failure" as const,
+                failure: classifyValidationOperationalError({
+                    source: "provider",
+                    kind: "legacy_text",
+                    operation: "agent_session",
+                    message: error.message,
+                }),
+            };
+        }
         if (outcome.outcome === "recorded" || outcome.outcome === "already_present") {
             emitStatus(
                 args,
@@ -145,13 +196,30 @@ async function prepareEpicChildManualQaArtifact(args: ValidationLoopArgs, cwd: s
                 }),
                 "info",
             );
-            return;
+            return { kind: "ready" };
+        }
+        if (outcome.outcome === "operational_failure") {
+            const decision = decideValidationRecovery({
+                failure: outcome.failure,
+                attempt,
+                policy: readValidationRetryPolicy(projectRoot),
+                nextPhase: "delivery",
+            });
+            await recordOperationalRecoveryMetric(args, projectRoot, decision.result);
+            if (decision.action === "retry") {
+                emitStatus(args, decision.result.message, "warning");
+                const wait = await waitForValidationRetryWithSessionCancellation(args, decision.delayMs, "publication");
+                if (wait === "completed") {
+                    attempt += 1;
+                    continue;
+                }
+            }
+            emitStatus(args, decision.result.message, decision.action === "halt" ? "error" : "warning");
+            return { kind: "blocked", outcome: operationalPhaseResult(args, projectRoot, outcome.failure, attempt) };
         }
         console.error("[RunWield] test_note_not_generated");
         emitStatus(args, validationUserMessage("publication_note_failed"), "warning");
-    } catch (error) {
-        console.error("[RunWield] test_note_generation_failed", error);
-        emitStatus(args, validationUserMessage("publication_note_failed"), "warning");
+        return { kind: "ready" };
     }
 }
 
@@ -161,7 +229,12 @@ export async function runPublicationPhase(
     humanReviewMetadata: HumanReviewMetadata,
 ): Promise<PublicationOutcome> {
     if (context.nonGitInPlace || !context.worktreeBranch) {
-        await prepareEpicChildManualQaArtifact(args, context.executionCwd || context.projectRoot);
+        const manualQa = await prepareEpicChildManualQaArtifact(
+            args,
+            context.executionCwd || context.projectRoot,
+            context.projectRoot,
+        );
+        if (manualQa.kind === "blocked") return manualQa.outcome;
         const deliveryEvidence: DeliveryEvidence = context.nonGitInPlace
             ? { version: 1, mode: "non_git_in_place" }
             : null;
@@ -178,11 +251,17 @@ export async function runPublicationPhase(
     if (!worktreeBaseBranch) {
         const reason =
             `Target branch metadata is missing for worktree branch ${context.worktreeBranch}; Workflow Validation cannot publish Delivery Evidence without a concrete target branch.`;
-        await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_reviewer", reason);
-        return {
-            recorded: true,
-            result: { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason },
-        };
+        const failure = classifyValidationOperationalError({
+            source: "validation_state",
+            kind: "worktree_record_missing",
+            operation: "publication",
+            message: reason,
+        });
+        const outcome = operationalPhaseResult(args, context.projectRoot, failure, 1);
+        if (outcome.result.recovery) {
+            await recordOperationalRecoveryMetric(args, context.projectRoot, outcome.result.recovery);
+        }
+        return outcome;
     }
 
     // A remotely verified publication spends its execution attempt. Keeping a
@@ -215,17 +294,18 @@ export async function runPublicationPhase(
         const attempt = await attemptPublication();
         if (attempt.kind === "published") return attempt.outcome;
 
-        const { error, reason } = attempt;
+        const { failure } = attempt;
+        const reason = failure.reason;
         // Publication may have already succeeded. The merge is irreversible, so an
         // error after the target ref moved is bookkeeping noise over finished work —
         // finish rather than dispatching an Agent to repair a conflict that is gone.
-        const nextRepairMergeWorktreePath = getMergeWorktreePath(error);
+        const nextRepairMergeWorktreePath = getMergeWorktreePath(failure);
         if (nextRepairMergeWorktreePath) {
             const persisted = await persistValidationMergeRepairWorktree(args, context, nextRepairMergeWorktreePath);
             if (persisted.kind === "blocked") return persisted.outcome;
             repairMergeWorktreePath = nextRepairMergeWorktreePath;
         }
-        const failureKind = getMergeFailureKind(error);
+        const failureKind = getMergeFailureKind(failure);
         const operationalFailure = classifyValidationOperationalError({
             source: "git_publication",
             kind: publicationFailureKindFromMergeKind(failureKind),
@@ -265,7 +345,7 @@ export async function runPublicationPhase(
         // deterministic recovery, or a user action.
         if (decision.action === "correct" && agentRepairs < MAX_AGENT_MERGE_REPAIRS) {
             agentRepairs += 1;
-            if (await dispatchMergeRepair(args, context, reason, error)) continue;
+            if (await dispatchMergeRepair(args, context, reason, failure)) continue;
         }
 
         if (decision.action === "halt") {
@@ -282,7 +362,7 @@ export async function runPublicationPhase(
             };
         }
 
-        const pause = describeMergePause(args.planName, worktreeBaseBranch, error, context);
+        const pause = describeMergePause(args.planName, worktreeBaseBranch, failure, context);
         if (decision.action === "pause" && decision.result.recoveryClass !== "missing_information") {
             const retryPauseMessage = buildValidationUserMessage({
                 kind: "user_action",
@@ -305,7 +385,7 @@ export async function runPublicationPhase(
                 },
             };
         }
-        if (!publicationFailureNeedsUserAction(error)) {
+        if (!publicationFailureNeedsUserAction(failure)) {
             const blockedMessage = buildValidationUserMessage({
                 kind: "publication_blocked",
                 planName: args.planName,
@@ -344,18 +424,20 @@ export async function runPublicationPhase(
     }
 
     async function attemptPublication(): Promise<
-        { kind: "published"; outcome: PublicationOutcome } | { kind: "failed"; error: unknown; reason: string }
+        { kind: "published"; outcome: PublicationOutcome } | { kind: "failed"; failure: PublicationFailure }
     > {
         try {
             return { kind: "published", outcome: await publishOnce() };
-        } catch (error) {
-            return { kind: "failed", error, reason: error instanceof Error ? error.message : String(error) };
+        } catch (caught) {
+            const error = caught instanceof Error ? caught : new Error(String(caught));
+            return { kind: "failed", failure: normalizePublicationFailure(error) };
         }
     }
 
     async function publishOnce(): Promise<PublicationOutcome> {
         if (!repairMergeWorktreePath && !publicationArtifactsPrepared) {
-            await prepareEpicChildManualQaArtifact(args, context.executionCwd);
+            const manualQa = await prepareEpicChildManualQaArtifact(args, context.executionCwd, context.projectRoot);
+            if (manualQa.kind === "blocked") return manualQa.outcome;
         }
         await ensureRunWieldOwnedGitignoreBlock(context.executionCwd);
         const repairedCandidate = repairMergeWorktreePath

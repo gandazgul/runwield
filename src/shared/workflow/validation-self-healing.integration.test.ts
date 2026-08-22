@@ -165,7 +165,7 @@ Deno.test("stale RunWield state self-heals and validation continues", async () =
             },
         });
 
-        assertEquals(result.kind, "paused", result.reason || "the test stops only at the fake semantic boundary");
+        assertEquals(result.kind, "failed", result.reason || "the fake semantic boundary must stop validation");
         assertEquals(ciRuns, 1, `fresh Mechanical Validation must run once: ${JSON.stringify(result)}`);
         const executionAfter = parsePlanFrontMatter(await Deno.readTextFile(testFixture.executionPath));
         assertEquals(executionAfter.attrs.planId, "plan-demo");
@@ -252,7 +252,7 @@ Deno.test("approved body-only Plan amendment reloads and starts Mechanical Valid
         const amendmentPrompts = prompts.filter((prompt) => prompt.includes("Approve this Plan Amendment"));
         assertEquals(amendmentPrompts.length, 1);
         assertEquals(ciRuns, 1);
-        assertEquals(result.kind, "paused");
+        assertEquals(result.kind, "failed");
         const executionAfter = await loadPlan(testFixture.executionCwd, "demo");
         assertExists(executionAfter);
         assertEquals(executionAfter.body, "# Demo\n\nEngineer clarified the implementation notes.\n");

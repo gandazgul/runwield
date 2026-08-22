@@ -340,7 +340,71 @@ Deno.test("runValidationPhase nudges the same reviewer session when review_compl
     assertStringIncludes(uiAPI.messages.join(" "), "reviewer needs more time");
 });
 
-Deno.test("runValidationPhase pauses at validated_ci when the reviewer never finishes", async () => {
+Deno.test("runValidationPhase returns invalid review_complete arguments to the same Reviewer session", async () => {
+    const { hostedSession } = await makeValidatedCiRun();
+    const reviewOpts = /** @type {any[]} */ ([]);
+
+    await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+        semanticReviewPort: reviewPort({
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                reviewOpts.push(opts);
+                if (reviewOpts.length === 1) {
+                    return Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "toolResult",
+                            toolName: "review_complete",
+                            isError: true,
+                            content: [{ type: "text", text: "findings must be an array" }],
+                        }]),
+                    );
+                }
+                return Promise.resolve(reviewerMessages());
+            },
+        }),
+    });
+
+    assertEquals(reviewOpts.length, 2);
+    assertStringIncludes(reviewOpts[1].userRequest, "Correct the review_complete arguments");
+    assertEquals(reviewOpts[0].sessionManager, reviewOpts[1].sessionManager);
+});
+
+Deno.test("runValidationPhase replans after a missing review_diff item without retrying it", async () => {
+    const { hostedSession } = await makeValidatedCiRun();
+    const reviewOpts = /** @type {any[]} */ ([]);
+
+    await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+        semanticReviewPort: reviewPort({
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                reviewOpts.push(opts);
+                if (reviewOpts.length === 1) {
+                    return Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "toolResult",
+                            toolName: "review_diff",
+                            isError: true,
+                            content: [{ type: "text", text: "file does not exist" }],
+                        }]),
+                    );
+                }
+                return Promise.resolve(reviewerMessages());
+            },
+        }),
+    });
+
+    assertEquals(reviewOpts.length, 2);
+    assertStringIncludes(reviewOpts[1].userRequest, "Do not request the missing item again");
+    assertEquals(reviewOpts[0].sessionManager, reviewOpts[1].sessionManager);
+});
+
+Deno.test("runValidationPhase stops after one unknown Reviewer failure", async () => {
     const { projectRoot, hostedSession, uiAPI } = await makeValidatedCiRun({ validationSemanticRounds: 1 });
     let reviewCalls = 0;
 
@@ -358,12 +422,11 @@ Deno.test("runValidationPhase pauses at validated_ci when the reviewer never fin
     });
 
     const plan = await loadPlan(projectRoot, "p");
-    assertEquals(reviewCalls, 3);
-    assertEquals(result.kind, "paused");
+    assertEquals(reviewCalls, 1);
+    assertEquals(result.kind, "failed");
     assertEquals(plan?.attrs.status, "validated_ci");
-    assertEquals(hostedSession.getActiveExecutionWorkflow()?.semanticRound, 1);
     assertStringIncludes(uiAPI.messages.join(" "), "The code review for p stopped.");
-    assertEquals(uiAPI.messages.join(" ").includes("Context window exceeded"), false);
+    assertStringIncludes(uiAPI.messages.join(" "), "Context window exceeded");
 });
 
 Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Feedback Engineer and records feedback event", async () => {

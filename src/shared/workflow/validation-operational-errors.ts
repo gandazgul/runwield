@@ -320,7 +320,7 @@ export function classifyValidationOperationalError(
                         code: `${source.source}/${source.kind}`,
                         message: sanitizeOperationalMessage(source.message),
                         operation: source.operation,
-                        recoveryClass: "missing_information",
+                        recoveryClass: "fatal",
                         userAction: "Restore Git credentials or upstream write access, then load this Plan and retry.",
                     };
                 case "policy_violation":
@@ -328,7 +328,7 @@ export function classifyValidationOperationalError(
                         code: `${source.source}/${source.kind}`,
                         message: sanitizeOperationalMessage(source.message),
                         operation: source.operation,
-                        recoveryClass: "missing_information",
+                        recoveryClass: "fatal",
                         userAction: "Resolve the branch rule Git reported, then load this Plan and retry.",
                     };
                 case "post_publication_bookkeeping":

@@ -189,12 +189,23 @@ export function decideValidationRecovery(args: {
             };
         }
         case "missing_information":
+            if (args.failure.correction) {
+                return {
+                    action: "correct",
+                    result: {
+                        ...base,
+                        kind: "agent_correction",
+                        action: "correct_agent_output",
+                        message: args.failure.correction.required,
+                    },
+                };
+            }
             return {
                 action: "pause",
                 result: {
                     ...base,
                     kind: "user_action",
-                    action: args.failure.correction ? "correct_agent_output" : "choose",
+                    action: "choose",
                     message: args.failure.userAction
                         ? `${args.failure.message} ${args.failure.userAction}`
                         : args.failure.message,

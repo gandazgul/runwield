@@ -15,6 +15,32 @@ import { decideValidationRecovery, readValidationRetryPolicy } from "./validatio
 
 type GitCommandResult = { code: number; stdout: string; stderr: string };
 
+type AnnotatedPublicationError = Error & {
+    repairCwd?: string;
+    mergeWorktreePath?: string;
+    mergeFailureKind?: string;
+    blockingPaths?: string[];
+};
+
+export type PublicationFailure = {
+    reason: string;
+    repairCwd?: string;
+    mergeWorktreePath?: string;
+    mergeFailureKind?: string;
+    blockingPaths: string[];
+};
+
+export function normalizePublicationFailure(error: Error): PublicationFailure {
+    const annotated = error as AnnotatedPublicationError;
+    return {
+        reason: error.message,
+        repairCwd: annotated.repairCwd,
+        mergeWorktreePath: annotated.mergeWorktreePath,
+        mergeFailureKind: annotated.mergeFailureKind,
+        blockingPaths: annotated.blockingPaths || [],
+    };
+}
+
 async function runRepairGit(cwd: string, args: string[]): Promise<GitCommandResult> {
     const output = await new Deno.Command("git", { cwd, args, stdout: "piped", stderr: "piped" }).output();
     const decoder = new TextDecoder();
@@ -65,32 +91,20 @@ export async function finalizeMergeRepair(repairCwd: string): Promise<boolean> {
  * so dispatching the repair agent into `executionCwd` unconditionally sends it to a
  * directory with no conflict in it, where it finds nothing to fix.
  */
-export function getMergeRepairCwd(error: unknown): string | undefined {
-    if (error && typeof error === "object" && "repairCwd" in error) {
-        const repairCwd = (error as { repairCwd?: unknown }).repairCwd;
-        return typeof repairCwd === "string" ? repairCwd : undefined;
-    }
-    return undefined;
+export function getMergeRepairCwd(failure: PublicationFailure): string | undefined {
+    return failure.repairCwd;
 }
 
 /** What RunWield tells the user, and what it asks them to do about it. */
-export function getMergeFailureKind(error: unknown): string | undefined {
-    if (error && typeof error === "object" && "mergeFailureKind" in error) {
-        const kind = (error as { mergeFailureKind?: unknown }).mergeFailureKind;
-        return typeof kind === "string" ? kind : undefined;
-    }
-    return undefined;
+export function getMergeFailureKind(failure: PublicationFailure): string | undefined {
+    return failure.mergeFailureKind;
 }
 
 /**
  * The merge worktree a repair happened in, so publication can finish that tree.
  */
-export function getMergeWorktreePath(error: unknown): string | undefined {
-    if (error && typeof error === "object" && "mergeWorktreePath" in error) {
-        const path = (error as { mergeWorktreePath?: unknown }).mergeWorktreePath;
-        return typeof path === "string" ? path : undefined;
-    }
-    return undefined;
+export function getMergeWorktreePath(failure: PublicationFailure): string | undefined {
+    return failure.mergeWorktreePath;
 }
 
 type ValidationMergeRepairWorktreeResolution =
@@ -167,12 +181,8 @@ export async function persistValidationMergeRepairWorktree(
     };
 }
 
-export function getBlockingPaths(error: unknown): string[] {
-    if (error && typeof error === "object" && "blockingPaths" in error) {
-        const paths = (error as { blockingPaths?: unknown }).blockingPaths;
-        if (Array.isArray(paths)) return paths.filter((path): path is string => typeof path === "string");
-    }
-    return [];
+export function getBlockingPaths(failure: PublicationFailure): string[] {
+    return failure.blockingPaths;
 }
 
 /**
@@ -185,17 +195,17 @@ export function getBlockingPaths(error: unknown): string[] {
 export function describeMergePause(
     planName: string,
     targetBranch: string,
-    error: unknown,
+    failure: PublicationFailure,
     context: PhaseContext,
 ): UserActionPause {
-    const kind = getMergeFailureKind(error);
+    const kind = getMergeFailureKind(failure);
     if (kind === "primary_checkout_dirty") {
         return {
             whatHappened:
                 `RunWield finished "${planName}" but could not add it to your ${targetBranch} branch, because your project folder has changes you have not saved to git yet — in the same files this work changes. Merging now would wipe them out.`,
             doThis:
                 "Commit or stash these files, then pick Retry. Nothing was lost. The commits are still on the worktree branch.",
-            details: getBlockingPaths(error),
+            details: getBlockingPaths(failure),
         };
     }
     if (kind === "target_checked_out") {
@@ -229,7 +239,7 @@ export function describeMergePause(
                 "The validated commits are safe on the worktree branch. Fix the upstream connection or branch rule, then pick Retry.",
         };
     }
-    const repairCwd = getMergeRepairCwd(error) || context.executionCwd;
+    const repairCwd = getMergeRepairCwd(failure) || context.executionCwd;
     if (
         kind === "detached_merge_conflict" || kind === "current_checkout_merge_conflict" ||
         kind === "isolated_publication_conflict" || kind === "target_sync_conflict" || kind === "content_conflict"
@@ -248,8 +258,8 @@ export function describeMergePause(
     };
 }
 
-export function publicationFailureNeedsUserAction(error: unknown): boolean {
-    const kind = getMergeFailureKind(error);
+export function publicationFailureNeedsUserAction(failure: PublicationFailure): boolean {
+    const kind = getMergeFailureKind(failure);
     return kind === "primary_checkout_dirty" || kind === "target_checked_out" ||
         kind === "permission_denied" || kind === "policy_violation" || kind === "publication_target_changed" ||
         kind === "publication_push_failed" || kind === "publication_verification_failed" ||
@@ -262,15 +272,15 @@ export async function dispatchMergeRepair(
     args: ValidationLoopArgs,
     context: PhaseContext,
     reason: string,
-    error?: unknown,
+    failure: PublicationFailure,
 ): Promise<boolean> {
-    const repairCwd = getMergeRepairCwd(error) || context.executionCwd;
+    const repairCwd = getMergeRepairCwd(failure) || context.executionCwd;
     // Say what happened before the agent starts. An Engineer turn appearing with no
     // explanation reads as RunWield doing something unprompted: the user sees tool
     // calls about merge conflicts they were never told about, in a directory they did
     // not choose.
     console.error("[RunWield] merge_repair_started", { planName: args.planName });
-    const problem = getMergeFailureKind(error) === "target_sync_conflict" ? "target_update" : "work_combination";
+    const problem = getMergeFailureKind(failure) === "target_sync_conflict" ? "target_update" : "work_combination";
     emitStatus(args, validationMergeRepairMessage(args.planName, problem), "warning");
     emitStatus(
         args,

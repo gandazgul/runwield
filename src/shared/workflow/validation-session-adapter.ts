@@ -22,6 +22,7 @@ import { runIsolatedAgentSession } from "../session/session.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { requestHostedSessionInteraction } from "../session/session-runtime-interactions.js";
 import { getAgentDisplayName as getSessionAgentDisplayName } from "../session/agents.js";
+import { ClaudeCliBackendError } from "../session/backends/claude-cli/failure.ts";
 import { REVIEWER_SUBAGENT_TOOLS } from "../session/subagent-definitions.ts";
 import { SUBAGENTS } from "../../constants.js";
 import {
@@ -47,6 +48,7 @@ import {
     classifyValidationOperationalError,
     type ProviderErrorKind,
     type ValidationOperation,
+    type ValidationOperationalFailure,
 } from "./validation-operational-errors.ts";
 
 /**
@@ -103,61 +105,95 @@ function clearPendingRepairManager(hostedSession: HostedSession, cwd: string, us
     pendingRepairManagers.get(hostedSession)?.delete(`${cwd}\u0000${userRequest}`);
 }
 
-function readErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
-}
+type ProviderFailureIdentity = {
+    kind: ProviderErrorKind;
+    code?: string;
+};
 
-function readErrorField(
-    error: unknown,
-    field: "code" | "kind" | "name" | "retryAfter",
-): string | number | Date | undefined {
-    if (!error || typeof error !== "object" || !(field in error)) return undefined;
-    const value = (error as { code?: unknown; kind?: unknown; name?: unknown; retryAfter?: unknown })[field];
-    if (typeof value === "string" || typeof value === "number" || value instanceof Date) return value;
-    return undefined;
-}
-
-function providerKindFromError(error: unknown): ProviderErrorKind {
-    const typed = String(
-        readErrorField(error, "kind") || readErrorField(error, "code") || readErrorField(error, "name") || "",
-    )
-        .toLowerCase();
-    const message = readErrorMessage(error).toLowerCase();
-    const text = `${typed} ${message}`;
-    if (text.includes("rate") || text.includes("429")) return "rate_limited";
-    if (
-        text.includes("timeout") || text.includes("timed out") || text.includes("context window") ||
-        text.includes("abort")
-    ) return "timeout";
-    if (text.includes("network") || text.includes("econn") || text.includes("enotfound")) return "network";
-    if (text.includes("unavailable") || text.includes("overloaded") || text.includes("503")) {
-        return "service_unavailable";
+function providerFailureIdentity(error: Error): ProviderFailureIdentity {
+    if (error instanceof ClaudeCliBackendError) {
+        switch (error.kind) {
+            case "auth_failed":
+                return { kind: "authentication", code: error.kind };
+            case "bridge_disconnected":
+                return { kind: "network", code: error.kind };
+            case "bridge_startup_failed":
+                return { kind: "service_unavailable", code: error.kind };
+            case "missing_executable":
+            case "non_zero_exit":
+            case "malformed_stream":
+            case "canceled":
+                return { kind: "legacy_text", code: error.kind };
+        }
     }
-    if (text.includes("auth") || text.includes("api key") || text.includes("401")) return "authentication";
-    if (text.includes("permission") || text.includes("forbidden") || text.includes("403")) return "permission_denied";
-    return "service_unavailable";
+
+    switch (error.name) {
+        case "RateLimitError":
+            return { kind: "rate_limited", code: error.name };
+        case "APIConnectionTimeoutError":
+        case "TimeoutError":
+            return { kind: "timeout", code: error.name };
+        case "APIConnectionError":
+        case "NetworkError":
+            return { kind: "network", code: error.name };
+        case "InternalServerError":
+        case "ServiceUnavailableError":
+            return { kind: "service_unavailable", code: error.name };
+        case "AuthenticationError":
+            return { kind: "authentication", code: error.name };
+        case "PermissionDeniedError":
+            return { kind: "permission_denied", code: error.name };
+        default:
+            return { kind: "legacy_text" };
+    }
 }
 
 function classifyIsolatedAgentExecutionFailure(
     request: IsolatedAgentSessionRequest,
-    error: unknown,
+    error: Error,
 ): Extract<IsolatedAgentSessionOutcome, { outcome: "operational_failure" }> {
     const operation: ValidationOperation = request.kind === "reviewer" ? "semantic_review" : "agent_session";
-    const code = readErrorField(error, "code");
-    const retryAfter = readErrorField(error, "retryAfter");
-    const kind = providerKindFromError(error);
+    const identity = providerFailureIdentity(error);
     return {
         kind: request.kind,
         outcome: "operational_failure",
         failure: classifyValidationOperationalError({
             source: "provider",
-            kind,
+            kind: identity.kind,
             operation,
-            message: kind === "legacy_text" ? readErrorMessage(error) : "Provider execution failed.",
-            code: typeof code === "string" ? code : undefined,
-            retryAfter,
+            message: identity.kind === "legacy_text" ? error.message : "Provider execution failed.",
+            code: identity.code,
         }),
     };
+}
+
+function readReviewerToolFailure(messages: AgentMessage[]): ValidationOperationalFailure | undefined {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message.role !== "toolResult" || !message.isError) continue;
+        if (message.toolName === "review_complete") {
+            return classifyValidationOperationalError({
+                source: "reviewer_protocol",
+                kind: "invalid_tool_arguments",
+                operation: "semantic_review",
+                message: "Semantic Reviewer called review_complete with invalid arguments.",
+                field: "review_complete",
+                required: "Correct the review_complete arguments from the tool error, then call review_complete again.",
+            });
+        }
+        if (message.toolName === "review_diff") {
+            return classifyValidationOperationalError({
+                source: "reviewer_protocol",
+                kind: "missing_optional_entity",
+                operation: "semantic_review",
+                message: "The requested review diff item is not available.",
+                field: "review_diff",
+                required:
+                    'Do not request the missing item again. Call review_diff(command: "list") and continue with an available file or without that item.',
+            });
+        }
+    }
+    return undefined;
 }
 
 function readLatestQaChecklistGeneratedOutcome(
@@ -222,10 +258,19 @@ async function runIsolatedRequest(
             includeEditFallback: false,
             sessionManager: request.sessionManager as unknown as SessionManager,
         });
+        const reviewOutcome = readLatestReviewOutcome(messages);
+        const toolFailure = reviewOutcome ? undefined : readReviewerToolFailure(messages);
+        if (toolFailure) {
+            return {
+                kind: "reviewer",
+                outcome: "operational_failure",
+                failure: toolFailure,
+            };
+        }
         return {
             kind: "reviewer",
             outcome: "completed",
-            reviewOutcome: readLatestReviewOutcome(messages),
+            reviewOutcome,
             usedDiffTool: usedReviewDiffTool(messages),
             trustedClaudeMcpReview: hasTrustedClaudeMcpReview(messages),
         };
@@ -372,7 +417,8 @@ export function createValidationSessionPort(
                 const outcome = await runIsolatedRequest(hostedSession, isolatedSessions, request);
                 return outcome as Extract<IsolatedAgentSessionOutcome, { kind: K }>;
             } catch (error) {
-                const outcome = classifyIsolatedAgentExecutionFailure(request, error);
+                const failureError = error instanceof Error ? error : new Error(String(error));
+                const outcome = classifyIsolatedAgentExecutionFailure(request, failureError);
                 return outcome as Extract<IsolatedAgentSessionOutcome, { kind: K }>;
             }
         },

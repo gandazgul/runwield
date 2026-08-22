@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 
 import { classifyValidationOperationalError, type GitPublicationErrorKind } from "./validation-operational-errors.ts";
 import { decideValidationRecovery, DEFAULT_VALIDATION_RETRY_POLICY } from "./validation-recovery.ts";
-import { publicationFailureNeedsUserAction } from "./validation-merge-repair.ts";
+import { normalizePublicationFailure, publicationFailureNeedsUserAction } from "./validation-merge-repair.ts";
 
 function decidePublicationFailure(kind: GitPublicationErrorKind) {
     return decideValidationRecovery({
@@ -27,8 +27,8 @@ Deno.test("publication dispatches merge repair only for a content conflict", () 
         { kind: "content_conflict", action: "correct" },
         { kind: "primary_checkout_dirty", action: "pause" },
         { kind: "post_publication_bookkeeping", action: "pause" },
-        { kind: "permission_denied", action: "pause" },
-        { kind: "policy_violation", action: "pause" },
+        { kind: "permission_denied", action: "halt" },
+        { kind: "policy_violation", action: "halt" },
     ];
 
     for (const scenario of cases) {
@@ -37,28 +37,35 @@ Deno.test("publication dispatches merge repair only for a content conflict", () 
     }
 });
 
-Deno.test("permission and branch-policy failures pause with a concrete user action", () => {
+Deno.test("permission and branch-policy failures halt publication", () => {
     const permissionDenied = decidePublicationFailure("permission_denied");
-    assertEquals(permissionDenied.action, "pause");
-    assertEquals(permissionDenied.result.kind, "user_action");
-    assertEquals(permissionDenied.result.action, "choose");
-    assertEquals(permissionDenied.result.nextPhase, "delivery");
+    assertEquals(permissionDenied.action, "halt");
+    assertEquals(permissionDenied.result.kind, "terminal");
 
     const policyViolation = decidePublicationFailure("policy_violation");
-    assertEquals(policyViolation.action, "pause");
-    assertEquals(policyViolation.result.kind, "user_action");
-    assertEquals(policyViolation.result.action, "choose");
-    assertEquals(policyViolation.result.nextPhase, "delivery");
+    assertEquals(policyViolation.action, "halt");
+    assertEquals(policyViolation.result.kind, "terminal");
 });
 
 Deno.test("publication offers Retry only when the user can change the outcome", () => {
-    assertEquals(publicationFailureNeedsUserAction(new Error("internal publication failure")), false);
     assertEquals(
-        publicationFailureNeedsUserAction({ mergeFailureKind: "isolated_publication_conflict" }),
+        publicationFailureNeedsUserAction(normalizePublicationFailure(new Error("internal publication failure"))),
+        false,
+    );
+    assertEquals(
+        publicationFailureNeedsUserAction(
+            normalizePublicationFailure(
+                Object.assign(new Error("conflict"), { mergeFailureKind: "isolated_publication_conflict" }),
+            ),
+        ),
         true,
     );
     assertEquals(
-        publicationFailureNeedsUserAction({ mergeFailureKind: "publication_push_failed" }),
+        publicationFailureNeedsUserAction(
+            normalizePublicationFailure(
+                Object.assign(new Error("push failed"), { mergeFailureKind: "publication_push_failed" }),
+            ),
+        ),
         true,
     );
 });

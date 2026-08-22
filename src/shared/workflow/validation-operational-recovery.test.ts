@@ -106,6 +106,28 @@ Deno.test("correctable Reviewer failures stay in the same session with structure
     assertEquals(correction.result.attempt, 1);
 });
 
+Deno.test("a missing optional Reviewer entity replans in the same session", () => {
+    const correction = decideValidationRecovery({
+        failure: classifyValidationOperationalError({
+            source: "reviewer_protocol",
+            kind: "missing_optional_entity",
+            operation: "semantic_review",
+            message: "The requested review item does not exist.",
+            field: "review_diff",
+            required: "List the available items and continue without the missing item.",
+        }),
+        attempt: 1,
+        correctionAttempt: 1,
+        nextPhase: "semantic",
+        policy: DEFAULT_VALIDATION_RETRY_POLICY,
+    });
+
+    assertEquals(correction.action, "correct");
+    assertEquals(correction.result.kind, "agent_correction");
+    assertEquals(correction.result.action, "correct_agent_output");
+    assertEquals(correction.result.nextPhase, "semantic");
+});
+
 Deno.test("maps correctable, missing-information, and fatal failures to separate actions", () => {
     const correctable = decideValidationRecovery({
         failure: classifyValidationOperationalError({

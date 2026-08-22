@@ -229,3 +229,84 @@ Deno.test("Epic child delivery commits its Manual QA artifact with verified meta
     assertStringIncludes(artifact, "- [ ] Check delivered child");
     assertStringIncludes(artifact, '<!-- runwield:manual-qa:end child="epic/01-one" -->');
 });
+
+Deno.test("Epic child publication stops when the Manual QA Agent has a fatal failure", async () => {
+    const projectRoot = await makeValidationProjectRoot("epic/01-one", {
+        classification: "PLANNED_CHANGE",
+        status: "validated_reviewer",
+        parentPlan: "epic",
+        humanReviewMode: "none",
+        humanReviewDecision: "not_required",
+    });
+    await savePlan(projectRoot, "epic", "# Epic", {
+        classification: "PROJECT",
+        status: "ready_for_work",
+        summary: "Epic",
+    });
+    const { hostedSession } = makeValidationUi();
+    /** @type {import('../../tools/plan-written.ts').TriageMeta} */
+    const triageMeta = {
+        classification: "PLANNED_CHANGE",
+        status: "validated_reviewer",
+        parentPlan: "epic",
+        humanReviewMode: "none",
+        humanReviewDecision: "not_required",
+    };
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "epic/01-one",
+        triageMeta,
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: true,
+    });
+
+    const result = await runValidationLoop({
+        hostedSession,
+        planName: "epic/01-one",
+        planContent: "# One\n\nimplemented child",
+        triageMeta,
+        semanticReviewPort: {
+            runIsolatedAgentSession: () => Promise.reject(new Error("Agent policy denied this operation")),
+        },
+    });
+
+    assertEquals(result.kind, "failed");
+    assertEquals((await loadPlan(projectRoot, "epic/01-one"))?.attrs.status, "validated_reviewer");
+});
+
+Deno.test("publication pauses on missing target branch metadata without recording validation failure", async () => {
+    const projectRoot = await makeValidationProjectRoot("p", {
+        classification: "QUICK_FIX",
+        status: "validated_reviewer",
+        humanReviewMode: "none",
+        humanReviewDecision: "not_required",
+    });
+    const { hostedSession } = makeValidationUi();
+    /** @type {import('../../tools/plan-written.ts').TriageMeta} */
+    const triageMeta = {
+        classification: "QUICK_FIX",
+        status: "validated_reviewer",
+        humanReviewMode: "none",
+        humanReviewDecision: "not_required",
+    };
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta,
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        worktreeBranch: "runwield/worktree/p-wt1",
+    });
+
+    const result = await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta,
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+    });
+
+    assertEquals(result.kind, "paused");
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_reviewer");
+});
