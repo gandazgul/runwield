@@ -1,6 +1,7 @@
 ---
 name: Validation Repair Engineer
 description: "Focused repair agent that fixes one supplied validation failure in retained context."
+contextContract: validation-repair
 temperature: 0.4
 sharedPractice:
     - working-tree-safety

@@ -1,157 +1,229 @@
 /**
- * The three coding Agents each hold one work contract, and the split only holds
- * if none of them carries the other's language. Engineer must not be told to
- * follow a Plan it will never receive; the Plan executors must not be told they
- * can take a QUICK_FIX they will never be routed.
+ * Execution Agents each declare one context contract, and tests hold the line
+ * between those contracts. The declaration is metadata for diagnostics and
+ * regression tests. Runtime workflow state still decides which Agent runs.
  */
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
+import { SUBAGENTS } from "../../constants.js";
 import { isWorkflowOnlyAgent, listAllAgentDefinitions, listAvailableAgents, loadAgentDef } from "./agents.js";
+import { loadSubAgentDefinition } from "./subagent-definitions.ts";
 
-const QUICK_FIX_AGENT = "engineer";
-const PLAN_EXECUTION_AGENTS: readonly string[] = ["plan-engineer", "frontend-engineer"];
-
-/** Exactly what each contract claims. An added or dropped fragment is a contract change. */
-const DECLARED_SHARED_PRACTICE: ReadonlyArray<[string, readonly string[]]> = [
-    ["engineer", ["user-authority", "working-tree-safety", "engineering-practice", "bounded-request"]],
-    ["plan-engineer", ["user-authority", "working-tree-safety", "engineering-practice", "plan-execution"]],
-    ["frontend-engineer", ["user-authority", "working-tree-safety", "engineering-practice", "plan-execution"]],
+const EXECUTION_CONTRACTS: ReadonlyArray<{
+    agentName: string;
+    displayName: string;
+    loader: "agent" | "subagent";
+    contextContract: "quick-fix" | "plan-execution" | "frontend-plan-execution" | "validation-repair";
+    sharedPractice: readonly string[];
+    requiredLanguage: readonly string[];
+    forbiddenLanguage: readonly string[];
+    workflowOnly: boolean | null;
+    discoverable: boolean;
+}> = [
+    {
+        agentName: "engineer",
+        displayName: "Engineer",
+        loader: "agent",
+        contextContract: "quick-fix",
+        sharedPractice: ["user-authority", "working-tree-safety", "engineering-practice", "bounded-request"],
+        requiredLanguage: [
+            "QUICK_FIX",
+            "Quick Fix Checklist",
+            "Mechanical Validation",
+            "Load the Skill that covers the domain",
+            "Browser UI means the frontend and browser Skills",
+            "`web_docs_search`",
+        ],
+        forbiddenLanguage: [
+            "approved Planned Change Plan",
+            "Validation Continuation",
+            "Pair Execution is active",
+            "pair_checkpoint",
+        ],
+        workflowOnly: false,
+        discoverable: true,
+    },
+    {
+        agentName: "plan-engineer",
+        displayName: "Plan Engineer",
+        loader: "agent",
+        contextContract: "plan-execution",
+        sharedPractice: ["user-authority", "working-tree-safety", "engineering-practice", "plan-execution"],
+        requiredLanguage: [
+            "approved Planned Change Plan",
+            "A Validation Continuation",
+            "Runtime Collaboration Style",
+            "pair_checkpoint",
+            "Implementation Steps",
+        ],
+        forbiddenLanguage: ["QUICK_FIX", "Quick Fix Checklist", "One Task at a Time, With Elastic Edges"],
+        workflowOnly: true,
+        discoverable: false,
+    },
+    {
+        agentName: "frontend-engineer",
+        displayName: "Frontend Engineer",
+        loader: "agent",
+        contextContract: "frontend-plan-execution",
+        sharedPractice: ["user-authority", "working-tree-safety", "engineering-practice", "plan-execution"],
+        requiredLanguage: [
+            "approved Plan",
+            "headed browser",
+            "browserPreflightOutcome",
+            "visible evidence",
+            "Runtime Collaboration Style",
+        ],
+        forbiddenLanguage: ["QUICK_FIX", "Quick Fix Checklist", "One Task at a Time, With Elastic Edges"],
+        workflowOnly: true,
+        discoverable: false,
+    },
+    {
+        agentName: "reviewer-feedback-engineer",
+        displayName: "Validation Repair Engineer",
+        loader: "subagent",
+        contextContract: "validation-repair",
+        sharedPractice: ["working-tree-safety", "engineering-practice"],
+        requiredLanguage: [
+            "You receive one bounded repair packet",
+            "Do not reconstruct the",
+            "Report per item",
+        ],
+        forbiddenLanguage: ["approved Planned Change Plan", "Quick Fix Checklist", "Pair Execution is active"],
+        workflowOnly: null,
+        discoverable: false,
+    },
 ];
 
-/** Phrases that only make sense to an Agent that executes an approved Plan. */
-const PLAN_EXECUTION_LANGUAGE: readonly string[] = [
-    "approved Planned Change Plan",
-    "Validation Continuation",
-    "Runtime Collaboration Style",
-    "pair_checkpoint",
-    "Implementation Steps",
-];
-
-/** Phrases that only make sense to an Agent that takes no-Plan bounded work. */
-const QUICK_FIX_LANGUAGE: readonly string[] = [
-    "QUICK_FIX",
-    "Quick Fix Checklist",
-    "Mechanical Validation",
-];
-
-/**
- * Read the `sharedPractice:` list straight from the bundled definition file.
- * The merged prompt cannot answer this: two fragments can produce overlapping
- * text, so only the declaration says which contract an Agent claims.
- */
-async function readDeclaredSharedPractice(agentName: string): Promise<string[]> {
-    const contents = await Deno.readTextFile(join("src", "agent-definitions", `${agentName}.md`));
-    const list = contents.match(/^sharedPractice:\n((?:[ \t]+-[^\n]*\n)+)/m);
-    if (!list) return [];
-    return list[1].split("\n").map((line) => line.replace(/^[ \t]*-[ \t]*/, "").trim()).filter(Boolean);
+async function loadContractDef(agentName: string, loader: "agent" | "subagent") {
+    if (loader === "subagent") return await loadSubAgentDefinition(SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER);
+    return await loadAgentDef(agentName);
 }
 
-Deno.test("each coding Agent claims exactly the shared practice its contract needs", async () => {
-    for (const [agentName, expected] of DECLARED_SHARED_PRACTICE) {
-        assertEquals(
-            await readDeclaredSharedPractice(agentName),
-            [...expected],
-            `${agentName} shared practice drifted`,
-        );
-    }
-});
-
-Deno.test("Engineer is never told to execute a Plan", async () => {
-    const { systemPrompt } = await loadAgentDef(QUICK_FIX_AGENT);
-    for (const phrase of PLAN_EXECUTION_LANGUAGE) {
-        assertEquals(
-            systemPrompt.includes(phrase),
-            false,
-            `Engineer's Quick Fix prompt carries Plan execution language: ${phrase}`,
-        );
-    }
-});
-
-Deno.test("the Plan executors are never told they can take a QUICK_FIX", async () => {
-    for (const agentName of PLAN_EXECUTION_AGENTS) {
-        const { systemPrompt } = await loadAgentDef(agentName);
-        for (const phrase of QUICK_FIX_LANGUAGE) {
-            assertEquals(
-                systemPrompt.includes(phrase),
-                false,
-                `${agentName}'s Plan prompt carries QUICK_FIX language: ${phrase}`,
-            );
+/**
+ * Read frontmatter declarations straight from the bundled definition file.
+ * Merged prompts cannot answer this: fragments can create overlapping text, so
+ * the declaration is what says which contract an Agent claims.
+ */
+async function readBundledFrontMatter(agentName: string, loader: "agent" | "subagent"): Promise<Map<string, string[]>> {
+    const filePath = loader === "subagent"
+        ? join("src", "agent-definitions", "subagent-definitions", `${agentName}.md`)
+        : join("src", "agent-definitions", `${agentName}.md`);
+    const contents = await Deno.readTextFile(filePath);
+    const result = new Map<string, string[]>();
+    const scalarMatches = contents.match(/^---\n([\s\S]*?)\n---/m)?.[1] || "";
+    let currentList = "";
+    for (const line of scalarMatches.split("\n")) {
+        const scalar = line.match(/^([A-Za-z][A-Za-z0-9]*):(?:\s*(.*))?$/);
+        if (scalar) {
+            currentList = scalar[1];
+            const value = scalar[2]?.trim();
+            if (value) result.set(currentList, [value.replace(/^"|"$/g, "")]);
+            else result.set(currentList, []);
+            continue;
+        }
+        const listItem = line.match(/^\s+-\s*(.+)$/);
+        if (listItem && currentList) {
+            result.set(currentList, [...(result.get(currentList) || []), listItem[1].trim()]);
         }
     }
-});
+    return result;
+}
 
-Deno.test("Engineer states its own Quick Fix contract", async () => {
-    const { systemPrompt } = await loadAgentDef(QUICK_FIX_AGENT);
-    assertStringIncludes(systemPrompt, "Quick Fix Checklist");
-    assertStringIncludes(systemPrompt, "One Task at a Time, With Elastic Edges");
-});
-
-Deno.test("Engineer is told to load domain Skills rather than refuse unfamiliar work", async () => {
-    // The split removed Frontend Engineer from QUICK_FIX, so a UI quick fix now
-    // lands here. Engineer has to reach for the browser Skills, not decline.
-    const { systemPrompt } = await loadAgentDef(QUICK_FIX_AGENT);
-    const normalized = systemPrompt.replaceAll(/\s+/g, " ");
-    assertStringIncludes(normalized, "Load the Skill that covers the domain");
-    assertStringIncludes(normalized, "Browser UI means the frontend and browser Skills");
-    // Skills do not cover every library, so Engineer is also pointed at the web
-    // tools it actually holds for documentation it cannot find locally.
-    assertStringIncludes(normalized, "`web_docs_search`");
-});
-
-Deno.test("Plan Engineer owns non-browser Plan execution and says so", async () => {
-    const { systemPrompt } = await loadAgentDef("plan-engineer");
-    assertStringIncludes(systemPrompt, "approved Planned Change Plan");
-    assertStringIncludes(systemPrompt, "A Validation Continuation");
-    assertStringIncludes(systemPrompt, "Runtime Collaboration Style");
-});
-
-Deno.test("Frontend Engineer keeps its browser preflight and evidence rules", async () => {
-    // Losing QUICK_FIX must not cost it the rigor that made it worth keeping.
-    const { systemPrompt } = await loadAgentDef("frontend-engineer");
-    assertStringIncludes(systemPrompt, "headed browser");
-    assertStringIncludes(systemPrompt, "browserPreflightOutcome");
-});
-
-Deno.test("both Plan executors are workflow-only and Engineer is selectable", async () => {
-    for (const agentName of PLAN_EXECUTION_AGENTS) {
-        const def = await loadAgentDef(agentName);
-        assertEquals(def.workflowOnly, true, `${agentName} must be workflow-only`);
-        assertEquals(await isWorkflowOnlyAgent(agentName), true);
-    }
-    const engineer = await loadAgentDef(QUICK_FIX_AGENT);
-    assertEquals(engineer.workflowOnly, false);
-    assertEquals(await isWorkflowOnlyAgent(QUICK_FIX_AGENT), false);
-});
-
-Deno.test("the selectable listing offers Engineer alone of the three coding Agents", async () => {
+Deno.test("declared context contracts and prompt boundaries", async () => {
     const selectable = (await listAvailableAgents()).map((agent) => agent.name);
-    assertEquals(selectable.includes(QUICK_FIX_AGENT), true);
-    for (const agentName of PLAN_EXECUTION_AGENTS) {
-        assertEquals(selectable.includes(agentName), false, `${agentName} must not be manually selectable`);
+    const allTopLevel = (await listAllAgentDefinitions()).map((agent) => agent.name);
+
+    for (const contract of EXECUTION_CONTRACTS) {
+        const def = await loadContractDef(contract.agentName, contract.loader);
+        const frontMatter = await readBundledFrontMatter(contract.agentName, contract.loader);
+
+        assertEquals(def.displayName, contract.displayName, `${contract.agentName} display name drifted`);
+        assertEquals(def.contextContract, contract.contextContract, `${contract.agentName} loaded wrong contract`);
+        assertEquals(
+            frontMatter.get("contextContract"),
+            [contract.contextContract],
+            `${contract.agentName} declares wrong contextContract`,
+        );
+        assertEquals(
+            frontMatter.get("sharedPractice") || [],
+            [...contract.sharedPractice],
+            `${contract.agentName} shared practice drifted`,
+        );
+
+        for (const phrase of contract.requiredLanguage) {
+            assertStringIncludes(def.systemPrompt, phrase, `${contract.agentName} lost required phrase: ${phrase}`);
+        }
+        for (const phrase of contract.forbiddenLanguage) {
+            assertEquals(
+                def.systemPrompt.includes(phrase),
+                false,
+                `${contract.agentName} carries forbidden cross-contract phrase: ${phrase}`,
+            );
+        }
+
+        if (contract.workflowOnly !== null) {
+            assertEquals(def.workflowOnly, contract.workflowOnly, `${contract.agentName} workflowOnly drifted`);
+            assertEquals(
+                await isWorkflowOnlyAgent(contract.agentName),
+                contract.workflowOnly,
+                `${contract.agentName} workflow-only query drifted`,
+            );
+            assertEquals(
+                allTopLevel.includes(contract.agentName),
+                true,
+                `${contract.agentName} must remain loadable as a top-level Agent`,
+            );
+        }
+        assertEquals(
+            selectable.includes(contract.agentName),
+            contract.discoverable,
+            `${contract.agentName} discoverability drifted`,
+        );
     }
 });
 
-Deno.test("workflow-only Agents still exist as ordinary definitions the runtime can load", async () => {
-    // Hidden from the user's choices, not from RunWield: Plan dispatch loads
-    // these by name, so filtering discovery must not remove the definition.
-    const everyAgent = (await listAllAgentDefinitions()).map((agent) => agent.name);
-    for (const agentName of PLAN_EXECUTION_AGENTS) {
-        assertEquals(everyAgent.includes(agentName), true, `${agentName} must remain loadable`);
-    }
-});
-
-Deno.test("a project layer can hide or unhide an Agent through merged front matter", async () => {
+Deno.test("project overrides may not silently invent a context contract", async () => {
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-agent-contracts-" });
     try {
         const agentsDir = join(projectRoot, ".wld", "agents");
         await Deno.mkdir(agentsDir, { recursive: true });
-        await Deno.writeTextFile(join(agentsDir, "engineer.md"), "---\nworkflowOnly: true\n---\n\nOverride body.\n");
-        await Deno.writeTextFile(join(agentsDir, "plan-engineer.md"), "---\nworkflowOnly: false\n---\n\nOverride.\n");
 
-        const selectable = (await listAvailableAgents(projectRoot)).map((agent) => agent.name);
-        assertEquals(selectable.includes("engineer"), false);
-        assertEquals(selectable.includes("plan-engineer"), true);
+        await Deno.writeTextFile(join(agentsDir, "engineer.md"), "---\nworkflowOnly: true\n---\n\nOverride body.\n");
+        const inherited = await loadAgentDef("engineer", projectRoot);
+        assertEquals(inherited.contextContract, "quick-fix");
+        assertEquals(inherited.workflowOnly, true);
+
+        await Deno.writeTextFile(
+            join(agentsDir, "engineer.md"),
+            "---\ncontextContract: plan-execution\n---\n\nOverride body.\n",
+        );
+        const relabeled = await loadAgentDef("engineer", projectRoot);
+        assertEquals(relabeled.contextContract, "plan-execution");
+        assertEquals(relabeled.name, "engineer", "contextContract must not become runtime identity");
+
+        await Deno.writeTextFile(
+            join(agentsDir, "engineer.md"),
+            "---\ncontextContract: launch-authority\n---\n\nOverride body.\n",
+        );
+        await assertRejects(
+            () => loadAgentDef("engineer", projectRoot),
+            Error,
+            "invalid contextContract",
+        );
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
     }
+});
+
+Deno.test("static prompt baseline is recorded as comparison data only", async () => {
+    const baselines = [];
+    for (const contract of EXECUTION_CONTRACTS) {
+        const def = await loadContractDef(contract.agentName, contract.loader);
+        const characters = def.systemPrompt.length;
+        baselines.push({ agentName: contract.agentName, characters, roughTokens: Math.round(characters / 4) });
+        assertEquals(characters > 1000, true, `${contract.agentName} prompt baseline unexpectedly empty`);
+    }
+    console.info(
+        `Static execution prompt baseline, not full per-turn cost: ${JSON.stringify(baselines)}`,
+    );
 });

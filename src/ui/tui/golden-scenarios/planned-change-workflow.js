@@ -3,7 +3,7 @@
  * Composed Golden PLANNED_CHANGE workflow scenarios.
  */
 
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { assertEventIncludes, assertScreenIncludes } from "../testing/scenario-runner.js";
 import { assertRuntimeEvent, assertsGoldenCoverage } from "../testing/portfolio-assertions.js";
 
@@ -97,8 +97,10 @@ export const plannedChangeReviewRepairValidationScenario = {
     // its own. `deno task ci` runs 12 files at a time, and this bounds the child process,
     // so it is sized for the contended case rather than the standalone one.
     timeoutMs: 420000,
+    captureModelTurns: true,
     coverage: [
         "workflow:PLANNED_CHANGE",
+        "context:plan-engineer-identity",
         "recovery:reviewer-rejection",
         "recovery:workflow-validation",
         "durable:plan-lifecycle",
@@ -298,6 +300,24 @@ export const plannedChangeReviewRepairValidationScenario = {
     ],
     assertions: [
         assertsGoldenCoverage("workflow:PLANNED_CHANGE", assertRealPlanReviewRevisionAndApproval),
+        assertsGoldenCoverage("context:plan-engineer-identity", (result) => {
+            assertEventIncludes(result, "runtime:agent:plan-engineer");
+            const turns = Array.isArray(result.state.modelTurns) ? result.state.modelTurns : [];
+            const executionTurn = turns.find((turn) =>
+                turn?.runtimeAgent === "plan-engineer" &&
+                String(turn?.systemPrompt || "").includes("You are the Plan Engineer")
+            );
+            assert(
+                executionTurn,
+                `Expected actual Plan Engineer system prompt in model turns; got ${
+                    JSON.stringify(turns.map((turn) => ({ agent: turn?.agent, runtimeAgent: turn?.runtimeAgent })))
+                }`,
+            );
+            assert(
+                !String(executionTurn.systemPrompt || "").includes("Quick Fix Checklist"),
+                "Plan execution must not use Quick Fix prompt context.",
+            );
+        }),
         assertsGoldenCoverage("recovery:reviewer-rejection", (result) => {
             assertEventIncludes(result, "runtime:tool:start:review_complete");
             assertScreenIncludes(result, "found no need for a fix");
@@ -932,8 +952,129 @@ export const plannedChangeValidationExhaustedScenario = {
     ],
 };
 
+/** @type {import('../testing/scenario-runner.js').GoldenScenario} */
+export const plannedChangeFrontendIdentityScenario = {
+    name: "planned-change-frontend-engineer-context-identity",
+    composedTui: true,
+    initialAgentName: "planner",
+    terminal: { columns: 100, rows: 30 },
+    timeoutMs: 180000,
+    captureModelTurns: true,
+    coverage: ["context:frontend-engineer-identity"],
+    committedProjectFiles: [
+        { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
+    ],
+    reviewDecisions: [{
+        approved: true,
+        feedback: "Approved for Frontend execution.",
+        approvalAction: "run",
+        executionAgent: "frontend-engineer",
+        collaborationRecommendation: "autonomous",
+    }],
+    reviewedPlan: "# Frontend identity\n\nGolden frontend identity content.\n",
+    script: [
+        {
+            id: "planner-submits-frontend-plan",
+            agent: "planner",
+            phase: "plan_review",
+            ordinal: 1,
+            requiredTools: ["plan_written"],
+            toolCalls: [{
+                name: "plan_written",
+                arguments: {
+                    planName: "frontend-identity",
+                    executionAgent: "frontend-engineer",
+                    objectiveChecks: [{ id: "OC1", command: "true" }],
+                },
+            }],
+        },
+        {
+            id: "frontend-engineer-implements-plan",
+            agent: "engineer",
+            phase: "engineer",
+            planName: "frontend-identity",
+            ordinal: 1,
+            requiredTools: ["write"],
+            toolCalls: [
+                { name: "write", arguments: { path: "golden-frontend-identity.txt", content: "frontend" } },
+            ],
+        },
+        {
+            id: "frontend-engineer-reports-plan-complete",
+            agent: "engineer",
+            phase: "engineer",
+            planName: "frontend-identity",
+            ordinal: 2,
+            requiredTools: ["task_completed"],
+            toolCalls: [{
+                name: "task_completed",
+                arguments: {
+                    message: "- Verified the frontend identity fixture with headed browser evidence.",
+                    browserPreflightOutcome: "externally_blocked",
+                },
+            }],
+        },
+        {
+            id: "reviewer-approves-frontend-identity",
+            agent: "reviewer",
+            phase: "semantic_review",
+            planName: "frontend-identity",
+            ordinal: 1,
+            requiredTools: ["review_diff", "review_complete"],
+            toolCalls: [
+                { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_complete", arguments: { approved: true, feedback: "Frontend identity approved." } },
+            ],
+        },
+        {
+            id: "reviewer-closes-frontend-identity",
+            agent: "reviewer",
+            phase: "semantic_review",
+            planName: "frontend-identity",
+            ordinal: 2,
+            optional: true,
+            text: "Approved frontend identity.",
+        },
+    ],
+    actions: [
+        {
+            type: "writeProjectFile",
+            path: "docs/plans/frontend-identity.md",
+            text:
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Frontend identity\naffectedPaths: []\nstatus: draft\nexecutionAgent: frontend-engineer\n---\n# Frontend identity\n\nDraft content.\n",
+        },
+        { type: "type", text: "submit frontend identity plan for review" },
+        { type: "enter" },
+        { type: "waitForEvent", event: "runtime:agent:frontend-engineer", timeoutMs: 90000 },
+        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 90000 },
+        { type: "waitForRemotePlanStatus", planName: "frontend-identity", statuses: ["validated"], timeoutMs: 90000 },
+    ],
+    assertions: [
+        assertsGoldenCoverage("context:frontend-engineer-identity", (result) => {
+            assertEventIncludes(result, "runtime:agent:frontend-engineer");
+            const turns = Array.isArray(result.state.modelTurns) ? result.state.modelTurns : [];
+            const executionTurn = turns.find((turn) =>
+                turn?.runtimeAgent === "frontend-engineer" &&
+                String(turn?.systemPrompt || "").includes("You are the Frontend Engineer")
+            );
+            assert(
+                executionTurn,
+                `Expected actual Frontend Engineer system prompt in model turns; got ${
+                    JSON.stringify(turns.map((turn) => ({ agent: turn?.agent, runtimeAgent: turn?.runtimeAgent })))
+                }`,
+            );
+            assertStringIncludes(String(executionTurn.systemPrompt || ""), "browserPreflightOutcome");
+            assert(
+                !String(executionTurn.systemPrompt || "").includes("Quick Fix Checklist"),
+                "Frontend Plan execution must not use Quick Fix prompt context.",
+            );
+        }),
+    ],
+};
+
 export const plannedChangeWorkflowScenarios = [
     plannedChangeReviewRepairValidationScenario,
+    plannedChangeFrontendIdentityScenario,
     plannedChangeCiRepairReentryScenario,
     plannedChangeNonGitInPlaceScenario,
     plannedChangeValidationFailureRetryScenario,

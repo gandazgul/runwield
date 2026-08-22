@@ -31,6 +31,7 @@ type ResumeState = GoldenResult["state"] & {
     modelTurns?: Array<{
         agent?: string;
         phase?: string;
+        runtimeAgent?: string;
         model?: string;
         provider?: string;
         systemPrompt?: string;
@@ -126,6 +127,60 @@ export const resumePersistedSessionScenario = {
     ],
 };
 
+export const resumeQuickFixSessionScenario = {
+    name: "slash-resume-retains-quick-fix-engineer-context",
+    composedTui: true,
+    initialAgentName: "guide",
+    terminal: { columns: 105, rows: 32 },
+    timeoutMs: 90000,
+    priorSession: {
+        userText: "fix the small persisted issue",
+        assistantText: "Engineer answer before restart.",
+        agentName: "engineer",
+    },
+    captureModelTurns: true,
+    scriptedInteractions: [{
+        type: "select",
+        promptIncludes: "Select a session to resume",
+        value: "__first_option__",
+    }],
+    script: [{
+        id: "engineer-continues-quick-fix-after-resume",
+        agent: "engineer",
+        phase: "engineer",
+        ordinal: 1,
+        text: "Engineer continued with the restored Quick Fix context.",
+    }],
+    actions: [
+        { type: "type", text: "/resume" },
+        { type: "enter" },
+        { type: "waitForScreen", text: "Engineer answer before restart.", timeoutMs: 30000 },
+        { type: "type", text: "continue the quick fix" },
+        { type: "enter" },
+        { type: "waitForIdle", timeoutMs: 30000 },
+    ],
+    assertions: [
+        (result: GoldenResult) => {
+            const state = resumeState(result);
+            assertScreenIncludes(result, "Engineer continued with the restored Quick Fix context.");
+            assert(state.snapshot?.activeAgent === "engineer", `Expected Engineer; got ${state.snapshot?.activeAgent}`);
+            const continuedTurn = state.modelTurns?.at(-1);
+            assert(
+                continuedTurn?.runtimeAgent === "engineer",
+                `Expected runtime Engineer turn; got ${JSON.stringify(continuedTurn)}`,
+            );
+            assert(
+                String(continuedTurn?.systemPrompt || "").includes("Quick Fix Checklist"),
+                "Expected resumed Quick Fix turn to use the Engineer system prompt.",
+            );
+            assert(
+                !String(continuedTurn?.systemPrompt || "").includes("approved Planned Change Plan"),
+                "Expected resumed Quick Fix turn not to use Plan execution context.",
+            );
+        },
+    ],
+};
+
 export const resumeCorruptSessionScenario = {
     name: "slash-resume-ignores-corrupt-session-and-keeps-shell-usable",
     composedTui: true,
@@ -211,6 +266,7 @@ export const resumeInterruptedSessionScenario = {
 
 export const sessionResumeWorkflowScenarios = [
     resumePersistedSessionScenario,
+    resumeQuickFixSessionScenario,
     resumeCorruptSessionScenario,
     resumeInterruptedSessionScenario,
 ];

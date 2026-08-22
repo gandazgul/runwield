@@ -1,6 +1,7 @@
 ---
 name: Frontend Engineer
 description: "Workflow-only execution agent for approved Plans whose dominant concern is browser-rendered UI and client-side behavior."
+contextContract: frontend-plan-execution
 workflowOnly: true
 temperature: 0.4
 sharedPractice:

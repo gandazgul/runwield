@@ -26,6 +26,13 @@ const SHARED_PRACTICE_DIR = "shared-practice";
 
 const SHARED_PRACTICE_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+const CONTEXT_CONTRACTS = Object.freeze([
+    "quick-fix",
+    "plan-execution",
+    "frontend-plan-execution",
+    "validation-repair",
+]);
+
 export const ATTENTION_NUDGE_TURN_INTERVAL = 6;
 
 export const _AGENT_ATTENTION_NUDGES = {
@@ -265,6 +272,22 @@ function normalizeTemperature(value) {
 }
 
 /**
+ * @param {unknown} value
+ * @param {string} agentName
+ * @returns {import('./types.js').AgentDefinition['contextContract']}
+ */
+function normalizeContextContract(value, agentName) {
+    if (value === undefined || value === null || value === "") return undefined;
+    if (typeof value !== "string" || !CONTEXT_CONTRACTS.includes(value)) {
+        throw new Error(
+            `Agent def "${agentName}" declares invalid contextContract: ${JSON.stringify(value)}. ` +
+                `Expected one of: ${CONTEXT_CONTRACTS.join(", ")}.`,
+        );
+    }
+    return /** @type {import('./types.js').AgentDefinition['contextContract']} */ (value);
+}
+
+/**
  * Resolve final requested tool names for a session while enforcing agent policy.
  *
  * - `toolNames` may narrow the agent's tool set but cannot add tools outside `agentTools`.
@@ -462,7 +485,7 @@ export async function composeSharedPracticePrompt(value, agentName, projectRoot)
  * @returns {Promise<import('./types.js').AgentDefinition>}
  */
 async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
-    /** @type {{ name?: string, model?: string, description?: string, promptOverride?: boolean, thinkingLevel?: string, temperature?: unknown, tools?: unknown[], [key: string]: unknown }} */
+    /** @type {{ name?: string, model?: string, description?: string, contextContract?: unknown, promptOverride?: boolean, thinkingLevel?: string, temperature?: unknown, tools?: unknown[], [key: string]: unknown }} */
     let mergedAttrs = {};
     /** @type {string[]} */
     let mergedTools = [];
@@ -519,6 +542,7 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
         ? mergedAttrs.thinkingLevel
         : undefined;
     const temperature = normalizeTemperature(mergedAttrs.temperature);
+    const contextContract = normalizeContextContract(mergedAttrs.contextContract, agentName);
     // Merged, so a project or home layer can mark its own Agent workflow-only —
     // or unhide a bundled one. The flag controls discoverability only; workflow
     // dispatch loads and activates the exact Agent identity either way.
@@ -544,6 +568,7 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
         displayName,
         model,
         description,
+        contextContract,
         thinkingLevel,
         temperature,
         tools,
@@ -565,6 +590,9 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
 export function loadAgentDef(agentName, projectRoot) {
     const canonicalName = normalizeAgentInternalName(agentName);
     const filePaths = getAgentDefLayerDirs(projectRoot).map((dir) => join(dir, `${canonicalName}.md`));
+    if (canonicalName === AGENTS.REVIEWER_FEEDBACK_ENGINEER) {
+        filePaths.splice(1, 0, join(AGENT_DEFS_DIR, "subagent-definitions", `${canonicalName}.md`));
+    }
 
     return loadAgentDefFromPaths(canonicalName, filePaths, projectRoot);
 }
