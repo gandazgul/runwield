@@ -158,6 +158,21 @@ Deno.test("deleteMergedWorktreeBranch deletes a merged branch and keeps an unmer
         assertEquals(untouched.deleted, true);
         assertStringIncludes(untouched.reason, "carried no work");
 
+        await git(projectRoot, ["checkout", "-b", "runwield/worktree/prepared", baseCommit]);
+        await Deno.writeTextFile(`${projectRoot}/prepared-plan.md`, "RunWield preparation\n");
+        await git(projectRoot, ["add", "prepared-plan.md"]);
+        await git(projectRoot, ["commit", "-m", "Prepare execution"]);
+        const ownedPreparationCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
+        await git(projectRoot, ["checkout", "main"]);
+        const prepared = await deleteMergedWorktreeBranch({
+            projectRoot,
+            branch: "runwield/worktree/prepared",
+            baseCommit,
+            ownedPreparationCommit,
+        });
+        assertEquals(prepared.deleted, true);
+        assertStringIncludes(prepared.reason, "preparation commit");
+
         const kept = await deleteMergedWorktreeBranch({ projectRoot, branch: "runwield/worktree/unmerged" });
         assertEquals(kept.deleted, false);
         assertStringIncludes(kept.reason, "not proven merged");

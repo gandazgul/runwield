@@ -356,6 +356,7 @@ async function isSameFilesystemPath(a, b) {
  * @typedef {Object} WorktreeCommitMessageOptions
  * @property {string} [planName]
  * @property {string} [planDescription]
+ * @property {"completion"|"preparation"} [phase]
  */
 
 /**
@@ -380,11 +381,13 @@ function formatStagedPaths(stagedPaths) {
  * @param {WorktreeCommitMessageOptions & { branch: string, stagedPaths: string[] }} options
  * @returns {WorktreeCommitMessage}
  */
-function buildWorktreeCommitMessage({ planName, planDescription, branch, stagedPaths }) {
+function buildWorktreeCommitMessage({ planName, planDescription, phase, branch, stagedPaths }) {
     const normalizedPlanName = normalizeCommitMessageLine(planName);
     const normalizedDescription = normalizeCommitMessageLine(planDescription);
     const subject = normalizedPlanName
-        ? normalizeCommitMessageLine(`Complete ${normalizedPlanName}`)
+        ? normalizeCommitMessageLine(
+            phase === "preparation" ? `Prepare ${normalizedPlanName} execution` : `Complete ${normalizedPlanName}`,
+        )
         : "Commit execution worktree updates";
     const bodyLines = [];
     if (normalizedPlanName) bodyLines.push(`- Plan: ${normalizedPlanName}`);
@@ -445,6 +448,62 @@ async function commitDirtyWorktreeState(
     if (stagedPaths.length === 0) return;
     const message = buildWorktreeCommitMessage({ ...messageOptions, branch, stagedPaths });
     await runGit(worktreePath, ["commit", "-m", message.subject, "-m", message.body]);
+}
+
+/**
+ * Commit only RunWield's execution-preparation files before an Agent can touch
+ * the worktree. The target commit remains the attempt's immutable base; this
+ * commit makes the materialized Plan ordinary tracked Git evidence.
+ *
+ * @param {Object} opts
+ * @param {string} opts.worktreePath
+ * @param {string} opts.branch
+ * @param {string} opts.baseCommit
+ * @param {string} opts.planName
+ * @param {string} opts.planRelativePath
+ * @param {string[]} [opts.relatedPlanPaths]
+ * @returns {Promise<{ preparationCommit: string }>}
+ */
+export async function checkpointExecutionPreparation({
+    worktreePath,
+    branch,
+    baseCommit,
+    planName,
+    planRelativePath,
+    relatedPlanPaths = [],
+}) {
+    const headBefore = (await runGit(worktreePath, ["rev-parse", "HEAD"])).trim();
+    if (headBefore !== baseCommit) {
+        throw new Error(
+            `Cannot checkpoint execution preparation for ${planName}: branch ${branch} moved from ${baseCommit} to ${headBefore}.`,
+        );
+    }
+    const preparationPaths = [...new Set([planRelativePath, ...relatedPlanPaths])];
+    if (await pathExists(join(worktreePath, ".gitignore"))) preparationPaths.push(".gitignore");
+    await commitDirtyWorktreeState(
+        worktreePath,
+        branch,
+        { planName, phase: "preparation" },
+        preparationPaths,
+    );
+    const preparationCommit = (await runGit(worktreePath, ["rev-parse", "HEAD"])).trim();
+    if (preparationCommit === headBefore) {
+        throw new Error(`Execution preparation for ${planName} did not create its required Plan commit.`);
+    }
+    const committedPlan = await runGitResult(worktreePath, [
+        "cat-file",
+        "-e",
+        `${preparationCommit}:${planRelativePath}`,
+    ]);
+    if (committedPlan.code !== 0) {
+        throw new Error(`Execution preparation commit ${preparationCommit} does not contain ${planRelativePath}.`);
+    }
+    const status = await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
+    const remainingDirtyPaths = parseStatusPaths(status).filter((path) => !isRunWieldOwnedRuntimePath(path));
+    if (remainingDirtyPaths.length > 0) {
+        throw new Error(`Execution worktree is dirty after preparation commit:\n${status}`);
+    }
+    return { preparationCommit };
 }
 
 /**
@@ -1283,10 +1342,10 @@ export async function removeWorktreeGitArtifacts({ projectRoot, path, force = fa
  * deleted, per PR-4. `baseCommit` is optional: callers that cannot prove the origin get
  * the merged check alone.
  *
- * @param {{ projectRoot: string, branch: string, baseCommit?: string }} opts
+ * @param {{ projectRoot: string, branch: string, baseCommit?: string, ownedPreparationCommit?: string }} opts
  * @returns {Promise<{ deleted: boolean, reason: string }>}
  */
-export async function deleteMergedWorktreeBranch({ projectRoot, branch, baseCommit }) {
+export async function deleteMergedWorktreeBranch({ projectRoot, branch, baseCommit, ownedPreparationCommit }) {
     if (baseCommit) {
         const tip = await runGitResult(projectRoot, ["rev-parse", `refs/heads/${branch}`]);
         if (tip.code === 0 && tip.stdout.trim() === baseCommit) {
@@ -1295,6 +1354,16 @@ export async function deleteMergedWorktreeBranch({ projectRoot, branch, baseComm
                 deleted: true,
                 reason: `${branch} never moved off ${baseCommit}, so it carried no work and was deleted.`,
             };
+        }
+        if (ownedPreparationCommit && tip.code === 0 && tip.stdout.trim() === ownedPreparationCommit) {
+            const parent = await runGitResult(projectRoot, ["rev-parse", `${ownedPreparationCommit}^`]);
+            if (parent.code === 0 && parent.stdout.trim() === baseCommit) {
+                await runGit(projectRoot, ["branch", "-D", branch]);
+                return {
+                    deleted: true,
+                    reason: `${branch} contained only RunWield's preparation commit and was deleted.`,
+                };
+            }
         }
     }
     const merged = await runGitResult(projectRoot, ["branch", "--merged", "HEAD"]);

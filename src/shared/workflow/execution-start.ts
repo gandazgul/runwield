@@ -9,6 +9,7 @@ import {
 import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import {
+    checkpointExecutionPreparation,
     createWorktreeGitArtifacts,
     deleteMergedWorktreeBranch,
     findReusableWorktree,
@@ -163,7 +164,8 @@ export function createExecutionStartPorts(): ExecutionStartPorts {
 
 async function materializeEpicPlanFamily(projectRoot, executionCwd, planName, planAttrs) {
     const parentPlan = typeof planAttrs.parentPlan === "string" ? planAttrs.parentPlan.trim() : "";
-    if (!parentPlan) return;
+    if (!parentPlan) return [];
+    const materializedPaths = [];
     const relatedPlanNames = [
         parentPlan,
         ...(await findPlansByParent(projectRoot, parentPlan)).map((plan) => plan.name),
@@ -192,7 +194,9 @@ async function materializeEpicPlanFamily(projectRoot, executionCwd, planName, pl
                 `Cannot prepare related Plan ${result.relativePath}: ${result.reason || result.kind}`,
             );
         }
+        materializedPaths.push(result.relativePath);
     }
+    return materializedPaths;
 }
 
 /**
@@ -359,7 +363,8 @@ export async function startActiveExecutionWorkflow(
                 path: existing.executionCwd,
                 branch: existing.worktreeBranch,
                 baseBranch: existing.worktreeBaseBranch,
-                baseCommit: existing.worktreeBaseCommit,
+                baseCommit: existing.worktreeBaseCommit ||
+                    (await findWorktreeRegistryEntryById(projectRoot, existing.worktreeId))?.baseCommit,
             }
             : !startsFresh && (currentStatus === "in_progress" || hasRecordedWorktree)
             ? await findReusable({
@@ -446,6 +451,7 @@ export async function startActiveExecutionWorkflow(
             }
             lockedCanonicalPlanSource = canonicalPlanSource;
             const reusedWorktree = Boolean(reusable);
+            let preparationCommit;
             /** @type {any} */
             let worktree;
             if (reusable) {
@@ -505,6 +511,7 @@ export async function startActiveExecutionWorkflow(
                             projectRoot,
                             branch: worktreeArtifacts.branch,
                             baseCommit: worktreeArtifacts.baseCommit,
+                            ownedPreparationCommit: preparationCommit,
                         });
                     }
                 });
@@ -550,8 +557,9 @@ export async function startActiveExecutionWorkflow(
                         : `${preparationError.message}; no Agent work began.`,
                 );
             }
+            let relatedPlanPaths = [];
             if (!reusedWorktree) {
-                await materializeEpicPlanFamily(
+                relatedPlanPaths = await materializeEpicPlanFamily(
                     projectRoot,
                     worktree.path,
                     planName,
@@ -643,6 +651,22 @@ export async function startActiveExecutionWorkflow(
                     planName,
                     event: "execution_started",
                     worktreeId: worktree.id,
+                });
+            }
+            if (!continuingReusableWorktree) {
+                const preparation = await checkpointExecutionPreparation({
+                    worktreePath: worktree.path,
+                    branch: worktree.branch,
+                    baseCommit: worktree.baseCommit,
+                    planName,
+                    planRelativePath: planFile.relativePath,
+                    relatedPlanPaths,
+                });
+                preparationCommit = preparation.preparationCommit;
+                await markEffect("execution_preparation_checkpoint_settled", {
+                    preparationCommit,
+                    worktreeId: worktree.id,
+                    worktreeBranch: worktree.branch,
                 });
             }
             const activeWorkflow = { ...workflow, executionStarted: true, executionAttemptStartedAtMs: now() };

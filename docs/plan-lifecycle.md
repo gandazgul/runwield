@@ -224,7 +224,15 @@ Plan backward, or dirty the user's checkout. Registry and lock files remain igno
 Each worktree-backed execution must also contain the canonical Plan Markdown at `docs/plans/<plan-name>.md` before the
 execution baseline is captured. If the execution worktree was created from a commit that did not yet contain that Plan
 file, RunWield copies the full primary-checkout Plan into the absent execution path first; the copied Plan then becomes
-part of the baseline given to implementation and validation.
+part of the baseline given to implementation and validation. After recording `execution_started`, RunWield creates a
+preparation commit on the execution branch containing the materialized Plan and any other RunWield-owned preparation
+files. The target `baseCommit` remains unchanged and `executionBaselineTree` remains the pre-implementation comparison
+tree; the preparation commit exists so the Plan is tracked, durable Git evidence before the execution Agent begins.
+
+Before accepting `task_completed`, RunWield verifies the execution Plan again. If the Agent deleted it, RunWield
+restores the exact Plan from `executionBaselineTree` before recording `implementation_finished` and checkpointing the
+work. An existing malformed, non-regular, or conflicting Plan is preserved and blocks completion rather than being
+overwritten.
 
 During Workflow Validation or `wld load-plan` recovery, a missing execution Plan file is repairable only after RunWield
 proves the recorded registry entry, linked worktree path, repository common directory, checked-out branch, target

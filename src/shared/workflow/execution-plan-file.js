@@ -577,3 +577,79 @@ export async function prepareExecutionPlanFile(
     if (canonicalSource.kind !== "loaded") return canonicalSource;
     return await ensureExecutionPlanFile({ executionCwd, planName, canonicalSource });
 }
+
+/**
+ * Restore a deleted execution Plan from the immutable pre-implementation tree.
+ * Existing files are classified and preserved; only an absent path is restored.
+ *
+ * @param {{ executionCwd: string, planName: string, baselineTree: string }} opts
+ * @returns {Promise<ExecutionPlanFileResult>}
+ */
+export async function restoreExecutionPlanFromBaseline({ executionCwd, planName, baselineTree }) {
+    const existing = await loadCanonicalExecutionPlanSource(executionCwd, planName);
+    if (existing.kind === "loaded") {
+        return await ensureExecutionPlanFile({
+            executionCwd,
+            planName,
+            canonicalSource: existing,
+            reconcileFromCanonical: false,
+        });
+    }
+    if (existing.kind !== "absent") return existing;
+    if (!/^[0-9a-f]{40,64}$/i.test(baselineTree)) {
+        return {
+            kind: "restore_failed",
+            relativePath: existing.relativePath,
+            reason: `Execution baseline is not a Git object id: ${baselineTree}.`,
+        };
+    }
+    const treeResult = await new Deno.Command("git", {
+        cwd: executionCwd,
+        args: ["rev-parse", `${baselineTree}^{tree}`],
+        stdout: "piped",
+        stderr: "piped",
+    }).output();
+    if (treeResult.code !== 0) {
+        return {
+            kind: "restore_failed",
+            relativePath: existing.relativePath,
+            reason: `Execution baseline tree is unavailable for ${existing.relativePath}.`,
+        };
+    }
+    const tree = new TextDecoder().decode(treeResult.stdout).trim();
+    const blobResult = await new Deno.Command("git", {
+        cwd: executionCwd,
+        args: ["show", `${tree}:${existing.relativePath}`],
+        stdout: "piped",
+        stderr: "piped",
+    }).output();
+    if (blobResult.code !== 0) {
+        return {
+            kind: "restore_failed",
+            relativePath: existing.relativePath,
+            reason: `Execution baseline does not contain ${existing.relativePath}.`,
+        };
+    }
+    const markdown = new TextDecoder().decode(blobResult.stdout);
+    try {
+        const { attrs } = parsePlanFrontMatter(markdown);
+        return await ensureExecutionPlanFile({
+            executionCwd,
+            planName,
+            canonicalSource: {
+                kind: "loaded",
+                path: existing.path || getStoredPlanPath(executionCwd, planName),
+                relativePath: existing.relativePath,
+                markdown,
+                attrs,
+            },
+            reconcileFromCanonical: false,
+        });
+    } catch (error) {
+        return {
+            kind: "restore_failed",
+            relativePath: existing.relativePath,
+            reason: `Execution baseline Plan is malformed: ${error instanceof Error ? error.message : String(error)}.`,
+        };
+    }
+}

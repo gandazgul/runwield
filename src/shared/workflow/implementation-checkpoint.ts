@@ -7,6 +7,7 @@ import {
     updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
 import { isInValidation, recordPlanEvent } from "./plan-lifecycle.js";
+import { restoreExecutionPlanFromBaseline } from "./execution-plan-file.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import { runImplementationCheckpointTransition } from "./state-transition.ts";
 
@@ -42,13 +43,40 @@ export async function finalizePlanImplementation({
     const planCwd = executionContext.executionMode === "worktree" && executionContext.executionCwd
         ? executionContext.executionCwd
         : projectRoot;
-    const currentPlan = await (async () => {
+    let currentPlan = await (async () => {
         try {
             return await loadPlan(planCwd, planName);
         } catch {
             return null;
         }
     })();
+    if (!currentPlan && executionContext.executionMode === "worktree") {
+        if (!executionContext.executionCwd || !executionContext.baselineTree) {
+            throw new Error(`Cannot complete ${planName}: the missing execution Plan has no recorded baseline source.`);
+        }
+        const restored = await restoreExecutionPlanFromBaseline({
+            executionCwd: executionContext.executionCwd,
+            planName,
+            baselineTree: executionContext.baselineTree,
+        });
+        if (restored.kind !== "restored" && restored.kind !== "present") {
+            throw new Error(
+                `Cannot complete ${planName}: execution Plan ${restored.relativePath} could not be restored from the recorded baseline: ${
+                    restored.reason || restored.kind
+                }`,
+            );
+        }
+        currentPlan = await loadPlan(executionContext.executionCwd, planName);
+    }
+    const expectedPlanId = typeof triageMeta.planId === "string" ? triageMeta.planId : undefined;
+    if (!currentPlan) throw new Error(`Cannot complete ${planName}: execution Plan is missing.`);
+    if (expectedPlanId && currentPlan.attrs.planId !== expectedPlanId) {
+        throw new Error(
+            `Cannot complete ${planName}: execution Plan identity is ${
+                currentPlan.attrs.planId || "missing"
+            }, expected ${expectedPlanId}.`,
+        );
+    }
     const planStatus = currentPlan?.attrs?.status;
     if (isInValidation(planStatus) || planStatus === "verified" || planStatus === "user_verified") {
         acknowledgeImplementationCompletion(hostedSession);

@@ -332,10 +332,22 @@ Deno.test("startActiveExecutionWorkflow bases the execution worktree on the requ
     assertEquals(entry?.baseRef, "refs/heads/feature-base");
     assertEquals(entry?.baseBranch, "feature-base");
     const targetCommit = await git(projectRoot, ["rev-parse", "refs/heads/feature-base"]);
+    const preparationCommit = await git(projectRoot, ["rev-parse", `${result.worktreeBranch}^{commit}`]);
     assertEquals(
+        await git(projectRoot, ["rev-parse", `${preparationCommit}^`]),
         targetCommit,
-        await git(projectRoot, ["rev-parse", `${result.worktreeBranch}^{commit}`]),
+        "the RunWield preparation commit is based directly on the selected target",
     );
+    assertEquals(preparationCommit === targetCommit, false);
+    assertStringIncludes(
+        await git(projectRoot, ["show", "-s", "--format=%s", preparationCommit]),
+        "Prepare targeted-plan execution",
+    );
+    assertStringIncludes(
+        await git(projectRoot, ["ls-tree", "-r", "--name-only", preparationCommit]),
+        "docs/plans/targeted-plan.md",
+    );
+    assertEquals(await git(/** @type {string} */ (result.executionCwd), ["status", "--porcelain"]), "");
     const plan = await loadPlan(/** @type {string} */ (result.executionCwd), "targeted-plan");
     assertEquals(plan?.attrs.objectiveChecksBaseline?.head, targetCommit);
     assertEquals(
@@ -575,10 +587,10 @@ Deno.test("startActiveExecutionWorkflow bases untargeted plans on the current ta
     // without ever moving the user's checkout.
     assertEquals(entry?.baseRef, "refs/heads/main");
     assertEquals(result.worktreeBaseBranch, "main");
-    assertEquals(
-        await git(projectRoot, ["rev-parse", "HEAD"]),
-        await git(projectRoot, ["rev-parse", `${result.worktreeBranch}^{commit}`]),
-    );
+    const targetCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
+    const preparationCommit = await git(projectRoot, ["rev-parse", `${result.worktreeBranch}^{commit}`]);
+    assertEquals(await git(projectRoot, ["rev-parse", `${preparationCommit}^`]), targetCommit);
+    assertEquals(preparationCommit === targetCommit, false);
 });
 
 Deno.test("startActiveExecutionWorkflow resolves implicit current branch before reusing a recorded worktree", async () => {
@@ -987,6 +999,48 @@ Deno.test("finalizePlanImplementation restores missing execution_started before 
         "implemented is unreachable from ready_for_work unless execution_started was restored first",
     );
     assertEquals((await findWorktreeRegistryEntryById(projectRoot, worktree.id))?.status, "completed");
+});
+
+Deno.test("finalizePlanImplementation restores a Plan deleted and committed by the Engineer", async () => {
+    const projectRoot = await makeWorkflowProject([{ name: "deleted-plan", status: "ready_for_work" }]);
+    const hostedSession = makeHostedSession("deleted-execution-plan", projectRoot);
+    const executionContext = await startActiveExecutionWorkflow({
+        planName: "deleted-plan",
+        triageMeta: {
+            classification: "PLANNED_CHANGE",
+            planId: PLAN_UNDER_TEST,
+            summary: "Keep the execution Plan durable.",
+        },
+        currentStatus: "ready_for_work",
+        hostedSession,
+        ports: createExecutionStartPorts(),
+    });
+    const worktreePath = /** @type {string} */ (executionContext.executionCwd);
+    const planPath = `${worktreePath}/docs/plans/deleted-plan.md`;
+    const preparationCommit = await git(worktreePath, ["rev-parse", "HEAD"]);
+    assertStringIncludes(await git(worktreePath, ["ls-files"]), "docs/plans/deleted-plan.md");
+
+    await Deno.writeTextFile(`${worktreePath}/implemented.txt`, "implementation survives\n");
+    await Deno.remove(planPath);
+    await git(worktreePath, ["add", "-A"]);
+    await git(worktreePath, ["commit", "-m", "Engineer accidentally deletes Plan"]);
+    assertEquals(await loadPlan(worktreePath, "deleted-plan"), null);
+
+    const result = await finalizePlanImplementation({
+        projectRoot,
+        planName: "deleted-plan",
+        triageMeta: executionContext.triageMeta,
+        executionContext,
+        executionReport: "- Implemented without deleting lifecycle evidence.",
+    });
+
+    assertEquals(typeof result.implementationCommit, "string");
+    assertEquals(await git(worktreePath, ["status", "--porcelain"]), "");
+    const finalized = await loadPlan(worktreePath, "deleted-plan");
+    assertEquals(finalized?.attrs.status, "implemented");
+    assertEquals(finalized?.attrs.planId, PLAN_UNDER_TEST);
+    assertEquals(finalized?.attrs.executionBaselineTree, executionContext.baselineTree);
+    assertEquals(await git(worktreePath, ["merge-base", "--is-ancestor", preparationCommit, "HEAD"]), "");
 });
 
 Deno.test("finalizePlanImplementation fails closed without durable execution context", async () => {
