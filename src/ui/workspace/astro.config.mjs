@@ -116,6 +116,7 @@ export default defineConfig({
                     "node_modules/@plannotator/markdown-editor/dist/index.js",
                 ),
                 "@plannotator/ui": resolve(PLANNOTATOR_DIR, "packages/ui"),
+                "@plannotator/core": resolve(PLANNOTATOR_DIR, "packages/core"),
                 "@plannotator/shared": resolve(PLANNOTATOR_DIR, "packages/shared"),
                 "@plannotator/ai": resolve(PLANNOTATOR_DIR, "packages/ai"),
             },

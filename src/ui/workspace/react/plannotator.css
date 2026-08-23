@@ -772,6 +772,57 @@ html[class*="theme-"] {
     background: color-mix(in oklab, var(--plannotator-surface) 92%, transparent);
 }
 
+.rw-plan-review-mode-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-width: 0;
+}
+
+.rw-affected-files-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid var(--rw-border);
+    border-radius: 0.375rem;
+    padding: 0.35rem 0.55rem;
+    background: color-mix(in oklab, var(--rw-surface-muted) 78%, transparent);
+    color: var(--rw-text-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+}
+
+.rw-affected-files-trigger:hover,
+.rw-affected-files-trigger.active {
+    border-color: color-mix(in oklab, var(--rw-accent) 55%, var(--rw-border));
+    background: color-mix(in oklab, var(--rw-accent) 12%, var(--rw-surface));
+    color: var(--rw-text);
+}
+
+.rw-affected-files-count {
+    display: inline-flex;
+    min-width: 1.15rem;
+    height: 1.15rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding-inline: 0.25rem;
+    background: color-mix(in oklab, var(--rw-accent) 18%, transparent);
+    color: var(--rw-accent-strong);
+    font-size: 0.66rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.rw-affected-files-menu-heading {
+    padding: 0.4rem 0.75rem 0.3rem;
+    color: var(--rw-text-muted);
+    font-size: 0.65rem;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
 .rw-document-mode-toggle,
 .rw-editor-save-controls {
     display: flex;

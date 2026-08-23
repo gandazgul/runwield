@@ -12,19 +12,28 @@ import { isAbsolute, relative, resolve } from "node:path";
  */
 export async function reviewFileContentApi(request, options = {}) {
     const url = new URL(request.url);
-    const filePath = url.searchParams.get("path")?.trim();
+    const filePath = stripLineReference(url.searchParams.get("path")?.trim() || "");
     const oldPath = url.searchParams.get("oldPath")?.trim();
+    const baseDir = url.searchParams.get("base")?.trim() || "";
     if (!filePath) return Response.json({ error: "File path required." }, { status: 400 });
 
     const cwd = resolve(options.cwd || Deno.cwd());
-    if (!isSafeRelativePath(filePath, cwd) || (oldPath && !isSafeRelativePath(oldPath, cwd))) {
+    if (
+        !hasSafeCandidate(filePath, baseDir, cwd) ||
+        (oldPath && !hasSafeCandidate(stripLineReference(oldPath), baseDir, cwd))
+    ) {
         return Response.json({ error: "File path is outside this review workspace." }, { status: 403 });
     }
 
     try {
+        const file = await readWorkspaceTextFile(cwd, filePath, baseDir);
         return Response.json({
             oldContent: null,
-            newContent: await readWorkspaceTextFile(cwd, filePath),
+            newContent: file?.contents ?? null,
+            codeFile: file !== null,
+            contents: file?.contents,
+            filepath: file?.path || filePath,
+            ...(!file && { error: `File not found in project: ${filePath}` }),
         }, {
             headers: { "cache-control": "no-store" },
         });
@@ -54,21 +63,44 @@ export function reviewLocalConfigApi() {
     });
 }
 
-/** @param {string} path @param {string} cwd */
-function isSafeRelativePath(path, cwd) {
-    if (!path || path.includes("\0") || isAbsolute(path)) return false;
-    return isPathInside(resolve(cwd, path), cwd);
+/** @param {string} value */
+function stripLineReference(value) {
+    return value.replace(/#.*$/, "").replace(/:\d+(?:-\d+)?$/, "");
 }
 
-/** @param {string} cwd @param {string} filePath */
-async function readWorkspaceTextFile(cwd, filePath) {
-    const candidate = resolve(cwd, filePath);
+/** @param {string} path @param {string} baseDir @param {string} cwd */
+function hasSafeCandidate(path, baseDir, cwd) {
+    if (!path || path.includes("\0") || isAbsolute(path)) return false;
+    return candidatePaths(cwd, path, baseDir).some((candidate) => isPathInside(candidate, cwd));
+}
+
+/** @param {string} cwd @param {string} filePath @param {string} baseDir */
+function candidatePaths(cwd, filePath, baseDir) {
+    const candidates = [resolve(cwd, filePath)];
+    if (baseDir && !baseDir.includes("\0") && !isAbsolute(baseDir)) {
+        candidates.push(resolve(cwd, baseDir, filePath));
+    }
+    return [...new Set(candidates)];
+}
+
+/** @param {string} cwd @param {string} filePath @param {string} baseDir */
+async function readWorkspaceTextFile(cwd, filePath, baseDir) {
+    const realCwd = await Deno.realPath(cwd);
+    for (const candidate of candidatePaths(cwd, filePath, baseDir)) {
+        if (!isPathInside(candidate, cwd)) continue;
+        const file = await readCandidate(realCwd, candidate);
+        if (file) return file;
+    }
+    return null;
+}
+
+/** @param {string} realCwd @param {string} candidate */
+async function readCandidate(realCwd, candidate) {
     try {
-        const realCwd = await Deno.realPath(cwd);
         const realPath = await Deno.realPath(candidate);
         if (!isPathInside(realPath, realCwd)) throw new Deno.errors.PermissionDenied();
         const stat = await Deno.stat(realPath);
-        return stat.isFile ? await Deno.readTextFile(realPath) : null;
+        return stat.isFile ? { path: relative(realCwd, realPath), contents: await Deno.readTextFile(realPath) } : null;
     } catch (error) {
         if (error instanceof Deno.errors.NotFound) return null;
         throw error;

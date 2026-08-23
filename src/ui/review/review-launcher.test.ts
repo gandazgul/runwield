@@ -133,6 +133,10 @@ reviewLauncherTest("revised Plan Review exposes its initial Plan baseline", asyn
         cwd: projectRoot,
         plan: "# Revised Plan\n\nNew approach\n",
         previousPlan: "# Initial Plan\n\nOld approach\n",
+        planVersions: [
+            { plan: "# Initial Plan\n\nOld approach\n", timestamp: "2026-08-23T01:00:00.000Z" },
+            { plan: "# Revised Plan\n\nNew approach\n", timestamp: "2026-08-23T02:00:00.000Z" },
+        ],
         browser: recordingBrowser(false),
     });
     const html = await (await fetch(server.url)).text();
@@ -140,6 +144,7 @@ reviewLauncherTest("revised Plan Review exposes its initial Plan baseline", asyn
     await server.stop();
 
     assertStringIncludes(html, '"previousPlan":"# Initial Plan\\n\\nOld approach\\n"');
+    assertStringIncludes(html, '"planVersions":[{"plan":"# Initial Plan');
     assertEquals(await decision, { approved: false, feedback: "", exit: true, canceled: true });
 });
 

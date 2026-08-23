@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { type Annotation, AnnotationType } from "@plannotator/ui/types.ts";
+import { type Annotation, AnnotationType, type CodeAnnotation } from "@plannotator/ui/types.ts";
 import {
     createPlanReviewDraft,
     parsePlanReviewDraft,
@@ -19,10 +19,22 @@ const annotation: Annotation = {
     createdA: 1,
 };
 
+const codeAnnotation: CodeAnnotation = {
+    id: "code-1",
+    type: "comment",
+    filePath: "src/example.ts",
+    lineStart: 3,
+    lineEnd: 3,
+    side: "new",
+    text: "Reuse the existing helper.",
+    createdAt: 2,
+};
+
 Deno.test("Plan Review drafts round-trip annotations, attachments, and direct edits", () => {
     const draft = createPlanReviewDraft({
         basePlan: "# Initial Plan\n",
         annotations: [annotation],
+        codeAnnotations: [codeAnnotation],
         globalAttachments: [{ path: "/tmp/reference.png", name: "reference" }],
         editedPlan: "# Edited Plan\n",
     });
@@ -31,7 +43,7 @@ Deno.test("Plan Review drafts round-trip annotations, attachments, and direct ed
 
     assertEquals(restored, draft);
     assertEquals(planReviewDraftKey("review-token"), "runwield:plan-review:review-token:draft");
-    assertStringIncludes(planReviewDraftDescription(draft), "1 annotation");
+    assertStringIncludes(planReviewDraftDescription(draft), "2 annotations");
     assertStringIncludes(planReviewDraftDescription(draft), "1 attachment");
     assertStringIncludes(planReviewDraftDescription(draft), "direct Plan edits");
 });
@@ -40,6 +52,7 @@ Deno.test("Plan Review drafts reject malformed data and a different submitted Pl
     const draft = createPlanReviewDraft({
         basePlan: "# Initial Plan\n",
         annotations: [],
+        codeAnnotations: [],
         globalAttachments: [],
         editedPlan: "# Edited Plan\n",
     });
@@ -53,6 +66,7 @@ Deno.test("Plan Review drafts reject malformed data and a different submitted Pl
             serializePlanReviewDraft(createPlanReviewDraft({
                 basePlan: "# Initial Plan\n",
                 annotations: [],
+                codeAnnotations: [],
                 globalAttachments: [],
                 editedPlan: null,
             })),

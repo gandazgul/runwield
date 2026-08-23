@@ -36,6 +36,8 @@ const reviewPayload = plan && liveReview
         mode: "workspace",
         plan: plan.markdown || plan.body || "",
         previousPlan: liveReview.request?.planReview?.previousPlan || undefined,
+        planVersions: liveReview.request?.planReview?.planVersions || undefined,
+        projectId,
         planPath: plan.path,
         classification: liveReview.request?.planReview?.classification,
         runwieldSessionId,

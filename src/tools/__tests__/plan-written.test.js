@@ -328,6 +328,9 @@ Deno.test("plan_written compares a revised Plan with the first reviewed Plan", a
     assertEquals(reviewRequests.length, 2);
     assertEquals(reviewRequests[0]._meta.previousPlan, undefined);
     assertEquals(reviewRequests[1]._meta.previousPlan, firstPlan);
+    assertEquals(reviewRequests[0]._meta.planVersions.length, 1);
+    assertEquals(reviewRequests[1]._meta.planVersions.length, 2);
+    assertEquals(reviewRequests[1]._meta.planVersions[0].plan, firstPlan);
 });
 
 Deno.test("plan_written cancellation asks whether to reopen review before completing", async () => {

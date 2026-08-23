@@ -5,6 +5,8 @@ export type PlanReviewOptions = {
     plan: string;
     token: string;
     planPath?: string;
+    previousPlan?: string;
+    planVersions?: Array<{ plan: string; timestamp: string }>;
     mode: "workflow" | "dev";
     classification?: "QUICK_FIX" | "FEATURE" | "PROJECT";
     frontmatter?: Record<string, unknown>;
@@ -14,6 +16,16 @@ export type PlanReviewOptions = {
         source?: string;
     };
     imageBaseDir?: string;
+};
+
+export type PlanReviewCodeAnnotation = {
+    id: string;
+    filePath: string;
+    lineStart: number;
+    lineEnd: number;
+    text?: string;
+    originalCode?: string;
+    createdAt: number;
 };
 
 export type ArtifactReadOptions = {
@@ -45,6 +57,7 @@ export type PlanReviewDecision = {
     approved: boolean;
     feedback?: string;
     annotations?: unknown[];
+    codeAnnotations?: PlanReviewCodeAnnotation[];
     plan?: string;
     savedPath?: string;
     approvalAction?: "run" | "decompose" | "later";

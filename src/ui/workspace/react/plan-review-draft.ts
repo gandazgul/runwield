@@ -1,4 +1,4 @@
-import type { Annotation, ImageAttachment } from "@plannotator/ui/types.ts";
+import type { Annotation, CodeAnnotation, ImageAttachment } from "@plannotator/ui/types.ts";
 
 const PLAN_REVIEW_DRAFT_VERSION = 1;
 
@@ -6,6 +6,7 @@ export interface PlanReviewDraft {
     version: 1;
     basePlanFingerprint: string;
     annotations: Annotation[];
+    codeAnnotations: CodeAnnotation[];
     globalAttachments: ImageAttachment[];
     editedPlan: string | null;
     updatedAt: string;
@@ -14,6 +15,7 @@ export interface PlanReviewDraft {
 export interface PlanReviewDraftInput {
     basePlan: string;
     annotations: Annotation[];
+    codeAnnotations: CodeAnnotation[];
     globalAttachments: ImageAttachment[];
     editedPlan: string | null;
 }
@@ -36,6 +38,7 @@ export function createPlanReviewDraft(input: PlanReviewDraftInput): PlanReviewDr
         version: PLAN_REVIEW_DRAFT_VERSION,
         basePlanFingerprint: planReviewPlanFingerprint(input.basePlan),
         annotations: input.annotations,
+        codeAnnotations: input.codeAnnotations,
         globalAttachments: input.globalAttachments,
         editedPlan: input.editedPlan,
         updatedAt: new Date().toISOString(),
@@ -53,21 +56,25 @@ export function parsePlanReviewDraft(raw: string, basePlan: string): PlanReviewD
             draft?.version !== PLAN_REVIEW_DRAFT_VERSION ||
             draft.basePlanFingerprint !== planReviewPlanFingerprint(basePlan) ||
             !Array.isArray(draft.annotations) ||
+            !(draft.codeAnnotations === undefined || Array.isArray(draft.codeAnnotations)) ||
             !Array.isArray(draft.globalAttachments) ||
             !(draft.editedPlan === null || typeof draft.editedPlan === "string") ||
             typeof draft.updatedAt !== "string" ||
-            (draft.annotations.length === 0 && draft.globalAttachments.length === 0 && draft.editedPlan === null)
+            (draft.annotations.length === 0 &&
+                (draft.codeAnnotations?.length ?? 0) === 0 &&
+                draft.globalAttachments.length === 0 &&
+                draft.editedPlan === null)
         ) {
             return null;
         }
-        return draft;
+        return { ...draft, codeAnnotations: draft.codeAnnotations ?? [] };
     } catch {
         return null;
     }
 }
 
 export function planReviewDraftDescription(draft: PlanReviewDraft): string {
-    const annotationCount = draft.annotations.length;
+    const annotationCount = draft.annotations.length + draft.codeAnnotations.length;
     const attachmentCount = draft.globalAttachments.length;
     const parts: string[] = [];
     if (annotationCount > 0) {

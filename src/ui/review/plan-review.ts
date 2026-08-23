@@ -46,6 +46,7 @@ interface PlanReviewDecision {
     images?: ReviewImageInput[];
     globalAttachments?: ReviewImageInput[];
     annotations?: ReviewAnnotationInput[];
+    codeAnnotations?: ReviewAnnotationInput[];
 }
 
 export interface PlanReviewResult {
@@ -76,6 +77,7 @@ interface SubmitPlanForReviewOptions {
     planName: string;
     planPath: string;
     previousPlan?: string;
+    planVersions?: Array<{ plan: string; timestamp: string }>;
     triageMeta?: Partial<PlanFrontMatter>;
     onOutput?(output: ReviewServerOutput): void;
     onSurfaceReady?(surface: ReviewSurfaceReady): void;
@@ -121,6 +123,9 @@ function collectReviewImageAttachments(decision: PlanReviewDecision): Array<{ pa
         ...readReviewImageAttachments(decision?.images),
         ...readReviewImageAttachments(decision?.globalAttachments),
         ...(Array.isArray(decision?.annotations) ? decision.annotations.flatMap(readAnnotationImageAttachments) : []),
+        ...(Array.isArray(decision?.codeAnnotations)
+            ? decision.codeAnnotations.flatMap(readAnnotationImageAttachments)
+            : []),
     ];
     const seen = new Set<string>();
     return candidates.filter((image) => {
@@ -162,6 +167,7 @@ export async function submitPlanForReview({
     planName,
     planPath,
     previousPlan,
+    planVersions,
     triageMeta,
     onOutput,
     onSurfaceReady,
@@ -202,6 +208,7 @@ export async function submitPlanForReview({
         plan: planWithFm,
         planPath,
         previousPlan,
+        planVersions,
         browser,
         onOutput,
         onSurfaceReady,

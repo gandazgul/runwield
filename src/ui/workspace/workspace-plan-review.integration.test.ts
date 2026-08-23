@@ -30,7 +30,9 @@ Deno.test("Workspace Plan review carries the initial Plan into revised review ro
     const continuation = await Deno.readTextFile(SESSION_CONTINUATION_PATH);
 
     assertStringIncludes(continuation, 'previousPlan: typeof meta.previousPlan === "string"');
+    assertStringIncludes(continuation, "planVersions: Array.isArray(meta.planVersions)");
     assertStringIncludes(route, "previousPlan: liveReview.request?.planReview?.previousPlan");
+    assertStringIncludes(route, "planVersions: liveReview.request?.planReview?.planVersions");
 });
 
 Deno.test("lost review interaction prepares but does not send Agent resubmission", async () => {

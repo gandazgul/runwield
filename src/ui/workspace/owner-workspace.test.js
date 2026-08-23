@@ -90,6 +90,8 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
     const otherProjectRoot = `${dir}/other-project`;
     await Deno.mkdir(projectRoot);
     await Deno.mkdir(otherProjectRoot);
+    await Deno.mkdir(`${projectRoot}/src`);
+    await Deno.writeTextFile(`${projectRoot}/src/referenced.ts`, "export const referenced = true;\n");
     await savePlan(projectRoot, "owner-plan", "# Owner Plan\n\nBody", {
         planId: "owner-plan-id",
         classification: "FEATURE",
@@ -220,6 +222,17 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         const detailText = JSON.stringify(detailJson);
         assertStringIncludes(detailText, "Owner Plan");
         assertEquals(detailText.includes(projectRoot), false);
+
+        const referencedFile = await app(
+            new Request(
+                `http://127.0.0.1:8787/api/owner/projects/${project.projectId}/files/content?path=src%2Freferenced.ts`,
+                { headers: { cookie: cookiePair(claimed.credential) } },
+            ),
+        );
+        assertEquals(referencedFile.status, 200);
+        const referencedFileJson = await referencedFile.json();
+        assertEquals(referencedFileJson.filepath, "src/referenced.ts");
+        assertEquals(referencedFileJson.contents, "export const referenced = true;\n");
 
         const registeredApi = await app(
             new Request("http://127.0.0.1:8787/api/owner/projects", {

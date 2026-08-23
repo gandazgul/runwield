@@ -928,7 +928,19 @@ Deno.test("code review host serves safe file content and disables unsupported op
         assertEquals(await content.json(), {
             oldContent: null,
             newContent: "export const fixture = true;\n",
+            codeFile: true,
+            contents: "export const fixture = true;\n",
+            filepath: "src/example.js",
         });
+
+        const relativeContent = await app(
+            new Request(
+                "http://localhost/api/file-content?path=..%2F..%2Fsrc%2Fexample.js&base=docs%2Fplans",
+                { headers },
+            ),
+        );
+        assertEquals(relativeContent.status, 200);
+        assertEquals((await relativeContent.json()).filepath, "src/example.js");
 
         const traversal = await app(
             new Request("http://localhost/api/file-content?path=..%2Foutside.js", { headers }),

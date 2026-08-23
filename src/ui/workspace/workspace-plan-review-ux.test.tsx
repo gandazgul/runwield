@@ -45,13 +45,26 @@ Deno.test("Plan and Epic reviews expose classification-correct actions", async (
     assertStringIncludes(surface, "Approve & Run");
 });
 
-Deno.test("revised Plan reviews expose Plannotator Changes beside View and Edit", async () => {
+Deno.test("revised Plan reviews expose selectable Plannotator version history", async () => {
     const surface = await Deno.readTextFile(SURFACE_PATH);
 
     assertStringIncludes(surface, "usePlanDiff");
     assertStringIncludes(surface, "PlanDiffViewer");
-    assertStringIncludes(surface, "Compare this revision with the initial Plan");
-    assertStringIncludes(surface, ">\n                                                Changes\n");
+    assertStringIncludes(surface, "normalizePlanReviewVersions");
+    assertStringIncludes(surface, "showVersionsTab={versionInfo !== null}");
+    assertStringIncludes(surface, "onSelectBaseVersion={selectPlanVersion}");
+    assertStringIncludes(surface, "Changes");
+});
+
+Deno.test("Plan reviews inspect affected files and export complete feedback", async () => {
+    const surface = await Deno.readTextFile(SURFACE_PATH);
+
+    assertStringIncludes(surface, "AffectedFilesMenu");
+    assertStringIncludes(surface, "onOpenCodeFile={codeFilePopout.open}");
+    assertStringIncludes(surface, "CodeFilePopout");
+    assertStringIncludes(surface, "codeAnnotations={codeAnnotations}");
+    assertStringIncludes(surface, "Export review feedback");
+    assertStringIncludes(surface, 'annotationsOutput={exportOpen ? currentFeedback() : ""}');
 });
 
 Deno.test("Plan reviews recover unfinished work and send direct edits as feedback", async () => {
@@ -62,5 +75,5 @@ Deno.test("Plan reviews recover unfinished work and send direct edits as feedbac
     assertStringIncludes(surface, "persistReviewDraftLocally");
     assertStringIncludes(surface, "directEdits={directEditPanel}");
     assertStringIncludes(surface, "disabled={!hasReviewFeedback || submitting !== null}");
-    assertStringIncludes(surface, "composeRunWieldPlanFeedback");
+    assertStringIncludes(surface, "buildPlanReviewFeedback");
 });

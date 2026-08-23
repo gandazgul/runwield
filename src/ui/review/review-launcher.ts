@@ -45,6 +45,7 @@ interface PlanReviewSurfaceOptions {
     plan: string;
     planPath?: string;
     previousPlan?: string;
+    planVersions?: Array<{ plan: string; timestamp: string }>;
     token?: string;
     browser: BrowserPort;
     onOutput?(output: ReviewServerOutput): void;
@@ -225,6 +226,7 @@ export async function startPlanReviewSurface<TDecision = ReviewDecisionValue>({
     plan,
     planPath,
     previousPlan,
+    planVersions,
     token = crypto.randomUUID(),
     browser,
     onOutput,
@@ -241,6 +243,7 @@ export async function startPlanReviewSurface<TDecision = ReviewDecisionValue>({
             plan,
             planPath,
             ...(previousPlan && { previousPlan }),
+            ...(planVersions && { planVersions }),
             classification: attrs.classification,
             frontmatter: attrs,
             ...(executionPolicy && { executionPolicy }),

@@ -57,6 +57,11 @@ interface ReviewImage {
     mimeType: string;
 }
 
+interface PlanReviewVersion {
+    plan: string;
+    timestamp: string;
+}
+
 interface ObjectiveCheckInput {
     id: string;
     command: string;
@@ -367,7 +372,7 @@ async function resolveTriageMeta(
 export function createPlanWrittenTool({ triageMeta, agentName = "planner", hostedSession }: PlanWrittenOptions = {}) {
     if (!hostedSession) throw new Error("createPlanWrittenTool: hostedSession is required");
     const cwd = hostedSession.cwd;
-    const initialReviewPlans = new Map<string, string>();
+    const reviewPlanVersions = new Map<string, PlanReviewVersion[]>();
     return defineTool({
         name: "plan_written",
         label: "Plan Written",
@@ -536,11 +541,12 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 ? initialReviewEvidence.evidence
                 : null;
             const currentReviewPlan = await Deno.readTextFile(planPath);
-            const initialReviewPlan = initialReviewPlans.get(planName);
-            if (initialReviewPlan === undefined) initialReviewPlans.set(planName, currentReviewPlan);
-            const previousPlan = initialReviewPlan !== undefined && initialReviewPlan !== currentReviewPlan
-                ? initialReviewPlan
-                : undefined;
+            const planVersions = reviewPlanVersions.get(planName) ?? [];
+            if (planVersions.at(-1)?.plan !== currentReviewPlan) {
+                planVersions.push({ plan: currentReviewPlan, timestamp: new Date().toISOString() });
+                reviewPlanVersions.set(planName, planVersions);
+            }
+            const previousPlan = planVersions.length > 1 ? planVersions.at(-2)?.plan : undefined;
 
             const recoverableReview = await requestRecoverablePlanReview({
                 requestReview: () =>
@@ -559,6 +565,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                                 expectedStatus: canonicalReviewEvidence?.status,
                                 expectedWorktree: canonicalReviewEvidence?.worktree,
                                 previousPlan,
+                                planVersions: planVersions.map((entry) => ({ ...entry })),
                                 triageMeta: effectiveMeta,
                                 onOutput: onReviewServerOutput,
                                 onSurfaceReady: onReviewSurfaceReady,

@@ -72,6 +72,16 @@ function safePlanReviewReference(request) {
             ? meta.expectedWorktree
             : null,
         previousPlan: typeof meta.previousPlan === "string" && meta.previousPlan.trim() ? meta.previousPlan : null,
+        planVersions: Array.isArray(meta.planVersions)
+            ? meta.planVersions.flatMap((entry) =>
+                entry && typeof entry === "object" && typeof entry.plan === "string"
+                    ? [{
+                        plan: entry.plan,
+                        timestamp: typeof entry.timestamp === "string" ? entry.timestamp : "",
+                    }]
+                    : []
+            )
+            : [],
     };
 }
 
