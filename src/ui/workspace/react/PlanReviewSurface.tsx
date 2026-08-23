@@ -93,9 +93,13 @@ export function PlanReviewSurface({ payload }) {
     );
     const hasReviewFeedback = annotations.length > 0 || codeAnnotations.length > 0 || globalAttachments.length > 0 ||
         directlyEditedPlan !== null;
+    const planWidthMode = uiPreferences.planWidth;
     const planMaxWidth = useMemo(
-        () => PLAN_WIDTH_OPTIONS.find((option) => option.id === uiPreferences.planWidth)?.px || 832,
-        [uiPreferences.planWidth],
+        () =>
+            planWidthMode === "wide"
+                ? null
+                : PLAN_WIDTH_OPTIONS.find((option) => option.id === planWidthMode)?.px || 832,
+        [planWidthMode],
     );
     const parsed = useMemo(() => {
         const frontmatterResult = extractFrontmatter(plan);
@@ -447,7 +451,11 @@ export function PlanReviewSurface({ payload }) {
             colorThemeStorageKey="runwield-review-color-theme"
         >
             <TooltipProvider>
-                <div className="rw-plannotator-host rw-plan-review" data-review-mode={initialPayload.mode}>
+                <div
+                    className="rw-plannotator-host rw-plan-review"
+                    data-review-mode={initialPayload.mode}
+                    data-plan-width={planWidthMode}
+                >
                     <header className="rw-plannotator-toolbar">
                         <div className="rw-plan-review-heading">
                             <PlanReviewOptionsMenu
@@ -709,7 +717,12 @@ export function PlanReviewSurface({ payload }) {
                                                 <span role="status">
                                                     {editorDirty ? "Unsaved changes" : "Saved"}
                                                 </span>
-                                                <button type="button" disabled={!editorDirty} onClick={saveEditor}>
+                                                <button
+                                                    className="rw-toolbar-button"
+                                                    type="button"
+                                                    disabled={!editorDirty}
+                                                    onClick={saveEditor}
+                                                >
                                                     Save
                                                 </button>
                                             </div>
@@ -741,7 +754,7 @@ export function PlanReviewSurface({ payload }) {
                                                         onDiffModeChange={setPlanDiffMode}
                                                         onPlanDiffToggle={showPlanView}
                                                         baseVersionLabel={selectedVersionLabel}
-                                                        maxWidth={planMaxWidth}
+                                                        maxWidth={planMaxWidth ?? undefined}
                                                         annotations={annotations}
                                                         onAddAnnotation={addAnnotation}
                                                         onSelectAnnotation={setSelectedAnnotationId}
@@ -1135,7 +1148,7 @@ function PlanReviewOptionsMenu({ iconOnly = false, onOpenExport, onOpenSettings,
     return (
         <ActionMenu
             panelClassName={iconOnly
-                ? "absolute top-full left-0 mt-1 w-56 rounded-lg border border-border bg-popover py-1 shadow-xl z-[70]"
+                ? "absolute top-full left-0 mt-1 w-56 rounded-lg border border-border bg-popover py-1 shadow-xl z-[90]"
                 : undefined}
             renderTrigger={({ isOpen, toggleMenu }) => (
                 <button

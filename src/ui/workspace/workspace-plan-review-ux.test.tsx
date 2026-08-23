@@ -96,6 +96,7 @@ Deno.test("Plan and Code review use shared toolbar structure with edge-aligned r
     const sidebarIndex = surface.indexOf('className="rw-plan-review-annotation-sidebar"');
     const collapseIndex = surface.indexOf('<PanelCollapseIcon side="right" />', sidebarIndex);
 
+    assertStringIncludes(surface, "data-plan-width={planWidthMode}");
     assertStringIncludes(surface, 'className="rw-review-toolbar rw-plan-review-controls"');
     assertStringIncludes(surface, 'className="rw-plan-sidebar-tab-toggle rw-segmented-toggle"');
     assertStringIncludes(surface, 'aria-label="Plan sidebar"');
@@ -108,6 +109,11 @@ Deno.test("Plan and Code review use shared toolbar structure with edge-aligned r
     assertStringIncludes(surface, '<h2 id="rw-plan-review-annotations-heading">Annotations</h2>');
     assertStringIncludes(surface, "<span>Contents</span>");
     assertStringIncludes(surface, "<span>Annotations</span>");
+    assertStringIncludes(surface, 'className="rw-toolbar-button"');
+    assertStringIncludes(surface, "disabled={!editorDirty}");
+    if (styles.includes(".rw-editor-save-controls button")) {
+        throw new Error("Plan Review Save button must use shared rw-toolbar-button CSS");
+    }
     assertStringIncludes(surface, '{ value: "engineer", label: "Engineer", icon: "engineer" }');
     assertStringIncludes(surface, '{ value: "frontend-engineer", label: "Frontend Engineer", icon: "frontend" }');
     assertStringIncludes(surface, '{ value: "pair", label: "Pair Execution", icon: "pair" }');
@@ -142,6 +148,8 @@ Deno.test("Plan and Code review use shared toolbar structure with edge-aligned r
     assertStringIncludes(surface, '<PanelCollapseIcon side="left" />');
     assertStringIncludes(surface, 'title="Collapse annotations sidebar"');
     assertStringIncludes(surface, 'aria-label="Collapse annotations sidebar"');
+    assertStringIncludes(surface, "z-[90]");
+    assertStringIncludes(surface, 'planWidthMode === "wide"');
     assertStringIncludes(surface, "function PanelCollapseIcon({ side })");
     assertStringIncludes(styles, ".rw-review-toolbar {");
     assertStringIncludes(styles, "grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);");
@@ -171,6 +179,12 @@ Deno.test("Plan and Code review use shared toolbar structure with edge-aligned r
     assertStringIncludes(styles, ".rw-plan-review-controls {");
     assertStringIncludes(styles, "grid-template-columns: auto minmax(0, 1fr) auto;");
     assertStringIncludes(styles, ".rw-plan-review-mode-actions {");
+    assertStringIncludes(styles, '.rw-plan-review[data-plan-width="wide"] .rw-plan-document-canvas');
+    assertStringIncludes(styles, '.rw-plan-review[data-plan-width="wide"] article[data-print-region="article"]');
+    assertStringIncludes(styles, "max-width: none !important;");
+    assertStringIncludes(styles, "border: 0 !important;");
+    assertStringIncludes(styles, "border-radius: 0 !important;");
+    assertStringIncludes(styles, "box-shadow: none !important;");
     assertStringIncludes(styles, "justify-content: flex-start;");
     assertStringIncludes(styles, "justify-self: start;");
     assertStringIncludes(styles, ".rw-plan-review-sidebar-collapse");

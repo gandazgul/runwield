@@ -833,21 +833,6 @@ html[class*="theme-"] {
     gap: 0.5rem;
 }
 
-.rw-editor-save-controls button {
-    border: 1px solid transparent;
-    border-radius: 0.375rem;
-    padding: 0.35rem 0.6rem;
-    color: var(--muted-foreground);
-    font-size: 0.75rem;
-    font-weight: 500;
-    transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
-}
-
-.rw-editor-save-controls button:hover:not(:disabled) {
-    background: var(--muted);
-    color: var(--foreground);
-}
-
 .rw-plan-diff-context {
     color: var(--rw-text-muted);
     font-size: 0.72rem;
@@ -856,17 +841,6 @@ html[class*="theme-"] {
 .rw-editor-save-controls {
     color: var(--muted-foreground);
     font-size: 0.75rem;
-}
-
-.rw-editor-save-controls button {
-    border-color: color-mix(in oklab, var(--plannotator-accent) 55%, var(--border));
-    background: color-mix(in oklab, var(--plannotator-accent) 16%, transparent);
-    color: var(--foreground);
-}
-
-.rw-editor-save-controls button:disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
 }
 
 .rw-plannotator-scroll-area {
@@ -894,6 +868,25 @@ html[class*="theme-"] {
 .rw-plan-diff-canvas {
     align-items: flex-start;
     padding-inline: 1rem;
+}
+
+.rw-plan-review[data-plan-width="wide"] .rw-plan-document-canvas,
+.rw-plan-review[data-plan-width="wide"] .rw-markdown-editor-pane {
+    justify-content: stretch;
+    padding: 0;
+}
+
+.rw-plan-review[data-plan-width="wide"] .rw-plan-document-canvas > .relative,
+.rw-plan-review[data-plan-width="wide"] .rw-markdown-editor-pane > .relative {
+    max-width: none !important;
+    flex: 1;
+}
+
+.rw-plan-review[data-plan-width="wide"] article[data-print-region="article"] {
+    min-height: 100%;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
 }
 
 .review-toolbar {
