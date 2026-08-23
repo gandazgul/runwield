@@ -1,6 +1,6 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
 import { Tooltip, TooltipProvider } from "@plannotator/ui/components/Tooltip.tsx";
 import { Viewer } from "@plannotator/ui/components/Viewer.tsx";
@@ -33,6 +33,14 @@ import {
     PLAN_APPROVAL_ACTIONS,
     primaryPlanApprovalActionForClassification,
 } from "../../../shared/workflow/plan-approval.js";
+import {
+    createPlanReviewDraft,
+    parsePlanReviewDraft,
+    planReviewDraftDescription,
+    planReviewDraftKey,
+    serializePlanReviewDraft,
+} from "./plan-review-draft.ts";
+import { buildRunWieldDirectEditPanel, composeRunWieldPlanFeedback } from "./plan-review-direct-edits.ts";
 import "./plannotator.css";
 
 const DEFAULT_PLAN_PAYLOAD = { plan: "", token: "", mode: "dev" };
@@ -42,6 +50,8 @@ export function PlanReviewSurface({ payload }) {
     const initialPayload = useMemo(() => payload || readEmbeddedPayload("review-payload") || DEFAULT_PLAN_PAYLOAD, [
         payload,
     ]);
+    const submittedPlan = initialPayload.plan || "";
+    const reviewDraftKey = planReviewDraftKey(initialPayload.token || initialPayload.planPath || "dev-plan");
     const [plan, setPlan] = useState(initialPayload.plan || "");
     const [draftPlan, setDraftPlan] = useState(initialPayload.plan || "");
     const [editorMode, setEditorMode] = useState("view");
@@ -61,10 +71,19 @@ export function PlanReviewSurface({ payload }) {
     const [submitting, setSubmitting] = useState(null);
     const [submitted, setSubmitted] = useState(null);
     const [error, setError] = useState("");
+    const [pendingReviewDraft, setPendingReviewDraft] = useState(null);
+    const [reviewDraftReady, setReviewDraftReady] = useState(false);
+    const [reviewDraftStorageError, setReviewDraftStorageError] = useState("");
     const editorHandleRef = useRef(null);
     const viewerHandleRef = useRef(null);
     const gridEnabled = useConfigValue("gridEnabled");
     const editorDirty = draftPlan !== plan;
+    const directlyEditedPlan = draftPlan === submittedPlan ? null : draftPlan;
+    const directEditPanel = useMemo(
+        () => buildRunWieldDirectEditPanel(submittedPlan, directlyEditedPlan ?? submittedPlan),
+        [directlyEditedPlan, submittedPlan],
+    );
+    const hasReviewFeedback = annotations.length > 0 || globalAttachments.length > 0 || directlyEditedPlan !== null;
     const planMaxWidth = useMemo(
         () => PLAN_WIDTH_OPTIONS.find((option) => option.id === uiPreferences.planWidth)?.px || 832,
         [uiPreferences.planWidth],
@@ -93,6 +112,54 @@ export function PlanReviewSurface({ payload }) {
     const executionAgent = executionPolicy.executionAgent;
     const collaborationRecommendation = executionPolicy.collaborationRecommendation;
 
+    const persistReviewDraftLocally = useCallback((reportError = true) => {
+        try {
+            if (!hasReviewFeedback) {
+                globalThis.localStorage?.removeItem(reviewDraftKey);
+            } else {
+                const draft = createPlanReviewDraft({
+                    basePlan: submittedPlan,
+                    annotations,
+                    globalAttachments,
+                    editedPlan: directlyEditedPlan,
+                });
+                globalThis.localStorage?.setItem(reviewDraftKey, serializePlanReviewDraft(draft));
+            }
+            if (reportError) setReviewDraftStorageError("");
+        } catch {
+            if (reportError) {
+                setReviewDraftStorageError("This review draft could not be saved in the browser.");
+            }
+        }
+    }, [annotations, directlyEditedPlan, globalAttachments, hasReviewFeedback, reviewDraftKey, submittedPlan]);
+
+    useEffect(() => {
+        setReviewDraftReady(false);
+        try {
+            const raw = globalThis.localStorage?.getItem(reviewDraftKey);
+            const recovered = raw ? parsePlanReviewDraft(raw, submittedPlan) : null;
+            if (raw && !recovered) globalThis.localStorage?.removeItem(reviewDraftKey);
+            setPendingReviewDraft(recovered);
+        } catch {
+            setReviewDraftStorageError("This review draft could not be read from the browser.");
+        } finally {
+            setReviewDraftReady(true);
+        }
+    }, [reviewDraftKey, submittedPlan]);
+
+    useEffect(() => {
+        if (!reviewDraftReady || pendingReviewDraft || submitted !== null) return;
+        const timer = setTimeout(() => persistReviewDraftLocally(), 500);
+        return () => clearTimeout(timer);
+    }, [pendingReviewDraft, persistReviewDraftLocally, reviewDraftReady, submitted]);
+
+    useEffect(() => {
+        if (!reviewDraftReady || pendingReviewDraft || submitted !== null) return;
+        const persistBeforeClose = () => persistReviewDraftLocally(false);
+        globalThis.addEventListener?.("pagehide", persistBeforeClose);
+        return () => globalThis.removeEventListener?.("pagehide", persistBeforeClose);
+    }, [pendingReviewDraft, persistReviewDraftLocally, reviewDraftReady, submitted]);
+
     async function submitApprove(approvalAction) {
         setSubmitting("approve");
         try {
@@ -103,6 +170,7 @@ export function PlanReviewSurface({ payload }) {
                 ...buildReviewPayload(),
                 ...buildPlanSavePayload(),
             });
+            clearReviewDraft();
             setSubmitted(
                 approvalAction === PLAN_APPROVAL_ACTIONS.LATER ? "approved-later" : `approved-${approvalAction}`,
             );
@@ -120,6 +188,7 @@ export function PlanReviewSurface({ payload }) {
                 ...buildReviewPayload(),
                 ...buildPlanSavePayload(),
             });
+            clearReviewDraft();
             setSubmitted("feedback");
         } catch {
             // submit() owns the visible error state.
@@ -161,6 +230,7 @@ export function PlanReviewSurface({ payload }) {
     }
 
     function showPlanView() {
+        if (editorMode === "edit" && editorDirty) saveEditor();
         setIsPlanDiffActive(false);
         setEditorMode("view");
     }
@@ -171,6 +241,7 @@ export function PlanReviewSurface({ payload }) {
     }
 
     function showPlanChanges() {
+        if (editorMode === "edit" && editorDirty) saveEditor();
         setEditorMode("view");
         setIsPlanDiffActive(true);
     }
@@ -187,14 +258,49 @@ export function PlanReviewSurface({ payload }) {
     }
 
     function buildReviewPayload() {
-        const hasAnnotations = annotations.length > 0 || globalAttachments.length > 0;
+        const reviewedPlan = currentPlan();
+        const feedback = composeRunWieldPlanFeedback(
+            exportAnnotations(parsed.blocks, annotations, globalAttachments),
+            submittedPlan,
+            reviewedPlan,
+        );
         return {
-            ...(hasAnnotations && {
-                feedback: exportAnnotations(parsed.blocks, annotations, globalAttachments),
-            }),
+            ...(hasReviewFeedback && { feedback }),
             annotations,
             globalAttachments,
         };
+    }
+
+    function restoreReviewDraft() {
+        if (!pendingReviewDraft) return;
+        setAnnotations(pendingReviewDraft.annotations);
+        setGlobalAttachments(pendingReviewDraft.globalAttachments);
+        if (pendingReviewDraft.editedPlan !== null) {
+            setPlan(pendingReviewDraft.editedPlan);
+            setDraftPlan(pendingReviewDraft.editedPlan);
+        }
+        setPendingReviewDraft(null);
+        setReviewDraftStorageError("");
+    }
+
+    function discardReviewDraft() {
+        try {
+            globalThis.localStorage?.removeItem(reviewDraftKey);
+        } catch {
+            // The in-memory review can continue even when browser storage is unavailable.
+        }
+        setPendingReviewDraft(null);
+        setReviewDraftStorageError("");
+    }
+
+    function clearReviewDraft() {
+        try {
+            globalThis.localStorage?.removeItem(reviewDraftKey);
+        } catch {
+            // Submission succeeded; a storage cleanup failure must not change the decision.
+        }
+        setPendingReviewDraft(null);
+        setReviewDraftStorageError("");
     }
 
     function buildApprovalPolicyPayload() {
@@ -304,6 +410,29 @@ export function PlanReviewSurface({ payload }) {
                                 )
                                 : null}
                         </section>
+                    )}
+                    {pendingReviewDraft && (
+                        <section
+                            className="rw-plan-review-notice rw-plan-review-draft-notice"
+                            aria-labelledby="rw-plan-review-draft-title"
+                        >
+                            <div>
+                                <strong id="rw-plan-review-draft-title">Unfinished review found</strong>
+                                <p>
+                                    Restore {planReviewDraftDescription(pendingReviewDraft)}{" "}
+                                    from this browser, or discard it and start fresh.
+                                </p>
+                            </div>
+                            <div className="rw-plan-review-draft-actions">
+                                <Button size="xs" type="button" onClick={restoreReviewDraft}>Restore draft</Button>
+                                <Button size="xs" type="button" variant="ghost" onClick={discardReviewDraft}>
+                                    Discard
+                                </Button>
+                            </div>
+                        </section>
+                    )}
+                    {reviewDraftStorageError && (
+                        <p className="rw-review-error" role="alert">{reviewDraftStorageError}</p>
                     )}
                     {error && <p className="rw-review-error" role="alert">{error}</p>}
                     <ScrollViewportContext.Provider value={scrollViewport}>
@@ -518,13 +647,12 @@ export function PlanReviewSurface({ payload }) {
                                     <div className="rw-plan-review-feedback-action">
                                         <FeedbackButton
                                             onClick={submitFeedback}
-                                            disabled={(annotations.length === 0 && globalAttachments.length === 0) ||
-                                                submitting !== null}
+                                            disabled={!hasReviewFeedback || submitting !== null}
                                             isLoading={submitting === "feedback"}
                                             label="Send Annotations"
                                             loadingLabel="Sending Annotations…"
-                                            title={annotations.length === 0 && globalAttachments.length === 0
-                                                ? "Add an annotation or global comment before sending annotations"
+                                            title={!hasReviewFeedback
+                                                ? "Add an annotation, attachment, or direct Plan edit before sending annotations"
                                                 : "Send annotations"}
                                         />
                                     </div>
@@ -541,6 +669,7 @@ export function PlanReviewSurface({ payload }) {
                                             )}
                                         selectedId={selectedAnnotationId}
                                         sharingEnabled={false}
+                                        directEdits={directEditPanel}
                                     />
                                 </aside>
                             )}

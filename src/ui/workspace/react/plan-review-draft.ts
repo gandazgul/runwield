@@ -1,0 +1,81 @@
+import type { Annotation, ImageAttachment } from "@plannotator/ui/types.ts";
+
+const PLAN_REVIEW_DRAFT_VERSION = 1;
+
+export interface PlanReviewDraft {
+    version: 1;
+    basePlanFingerprint: string;
+    annotations: Annotation[];
+    globalAttachments: ImageAttachment[];
+    editedPlan: string | null;
+    updatedAt: string;
+}
+
+export interface PlanReviewDraftInput {
+    basePlan: string;
+    annotations: Annotation[];
+    globalAttachments: ImageAttachment[];
+    editedPlan: string | null;
+}
+
+export function planReviewDraftKey(reviewToken: string): string {
+    return `runwield:plan-review:${reviewToken || "unknown"}:draft`;
+}
+
+export function planReviewPlanFingerprint(plan: string): string {
+    let hash = 2166136261;
+    for (let index = 0; index < plan.length; index += 1) {
+        hash ^= plan.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return `${plan.length}:${(hash >>> 0).toString(16)}`;
+}
+
+export function createPlanReviewDraft(input: PlanReviewDraftInput): PlanReviewDraft {
+    return {
+        version: PLAN_REVIEW_DRAFT_VERSION,
+        basePlanFingerprint: planReviewPlanFingerprint(input.basePlan),
+        annotations: input.annotations,
+        globalAttachments: input.globalAttachments,
+        editedPlan: input.editedPlan,
+        updatedAt: new Date().toISOString(),
+    };
+}
+
+export function serializePlanReviewDraft(draft: PlanReviewDraft): string {
+    return JSON.stringify(draft);
+}
+
+export function parsePlanReviewDraft(raw: string, basePlan: string): PlanReviewDraft | null {
+    try {
+        const draft: PlanReviewDraft = JSON.parse(raw);
+        if (
+            draft?.version !== PLAN_REVIEW_DRAFT_VERSION ||
+            draft.basePlanFingerprint !== planReviewPlanFingerprint(basePlan) ||
+            !Array.isArray(draft.annotations) ||
+            !Array.isArray(draft.globalAttachments) ||
+            !(draft.editedPlan === null || typeof draft.editedPlan === "string") ||
+            typeof draft.updatedAt !== "string" ||
+            (draft.annotations.length === 0 && draft.globalAttachments.length === 0 && draft.editedPlan === null)
+        ) {
+            return null;
+        }
+        return draft;
+    } catch {
+        return null;
+    }
+}
+
+export function planReviewDraftDescription(draft: PlanReviewDraft): string {
+    const annotationCount = draft.annotations.length;
+    const attachmentCount = draft.globalAttachments.length;
+    const parts: string[] = [];
+    if (annotationCount > 0) {
+        parts.push(`${annotationCount} annotation${annotationCount === 1 ? "" : "s"}`);
+    }
+    if (attachmentCount > 0) {
+        parts.push(`${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`);
+    }
+    if (draft.editedPlan !== null) parts.push("direct Plan edits");
+    return parts.join(", ");
+}

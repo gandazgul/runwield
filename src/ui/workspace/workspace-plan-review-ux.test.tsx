@@ -53,3 +53,14 @@ Deno.test("revised Plan reviews expose Plannotator Changes beside View and Edit"
     assertStringIncludes(surface, "Compare this revision with the initial Plan");
     assertStringIncludes(surface, ">\n                                                Changes\n");
 });
+
+Deno.test("Plan reviews recover unfinished work and send direct edits as feedback", async () => {
+    const surface = await Deno.readTextFile(SURFACE_PATH);
+
+    assertStringIncludes(surface, "Unfinished review found");
+    assertStringIncludes(surface, "Restore draft");
+    assertStringIncludes(surface, "persistReviewDraftLocally");
+    assertStringIncludes(surface, "directEdits={directEditPanel}");
+    assertStringIncludes(surface, "disabled={!hasReviewFeedback || submitting !== null}");
+    assertStringIncludes(surface, "composeRunWieldPlanFeedback");
+});
