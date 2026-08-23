@@ -588,7 +588,6 @@ export function CodeReviewSurface({ payload }) {
                                 annotationsOpen={annotationsOpen}
                                 fileTreeOpen={fileTreeOpen}
                                 onOpenSettings={() => setSettingsOpen(true)}
-                                onPrint={() => globalThis.print?.()}
                                 onToggleAnnotations={() => setAnnotationsOpen((open) => !open)}
                                 onToggleFileTree={() => setFileTreeOpen((open) => !open)}
                             />
@@ -1266,7 +1265,6 @@ function CodeReviewOptionsMenu({
     annotationsOpen,
     fileTreeOpen,
     onOpenSettings,
-    onPrint,
     onToggleAnnotations,
     onToggleFileTree,
 }) {
@@ -1311,14 +1309,6 @@ function CodeReviewOptionsMenu({
                     <ActionMenuItem
                         onClick={() => {
                             closeMenu();
-                            onPrint();
-                        }}
-                        icon={<PrintIcon />}
-                        label="Print / Save PDF"
-                    />
-                    <ActionMenuItem
-                        onClick={() => {
-                            closeMenu();
                             onOpenSettings();
                         }}
                         icon={<SettingsIcon />}
@@ -1353,18 +1343,6 @@ function CommentIcon() {
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 d="M7 8h10M7 12h6m-8 8 3.5-4H19a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2z"
-            />
-        </svg>
-    );
-}
-
-function PrintIcon() {
-    return (
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6v-8z"
             />
         </svg>
     );

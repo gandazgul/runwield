@@ -181,6 +181,9 @@ one-off local button styles for those actions.
 Use `.rw-segmented-toggle` for compact two-option toolbar choices such as `Changes` / `Files` and `Side by side` /
 `Unified`. Active buttons can use `.active`, `aria-pressed="true"`, or `aria-selected="true"`.
 
+Use `.rw-modal-primary-button` for the main action in a modal or composer. Put keyboard help such as `⌘↵` or
+`Ctrl+Enter` beside it with `.rw-modal-submit-hint` when the action has a keyboard shortcut.
+
 ### Boards and columns
 
 Use board columns for status-grouped workflow objects.
