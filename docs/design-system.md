@@ -178,8 +178,11 @@ Use `.rw-toolbar-button` for compact actions inside Workspace toolbars. This cla
 disabled state. Use it for toolbar actions that open side panels, switch helper views, or add comments. Do not make
 one-off local button styles for those actions.
 
-Use `.rw-segmented-toggle` for compact two-option toolbar choices such as `Changes` / `Files` and `Side by side` /
-`Unified`. Active buttons can use `.active`, `aria-pressed="true"`, or `aria-selected="true"`.
+Use `.rw-segmented-toggle` for compact toolbar choices such as `Changes` / `Files`, `Side by side` / `Unified`, Plan
+mode choices, and settings choices. Each option must include an icon, a label in a `<span>`, and a `title` that matches
+the label. Active buttons can use `.active`, `aria-pressed="true"`, or `aria-selected="true"`. The active option shows
+its label. Inactive options stay icon-only. Hover changes the icon/button color and the browser tooltip shows the label;
+hover must not expand labels.
 
 Use `.rw-modal-primary-button` for the main action in a modal or composer. Put keyboard help such as `⌘↵` or
 `Ctrl+Enter` beside it with `.rw-modal-submit-hint` when the action has a keyboard shortcut.

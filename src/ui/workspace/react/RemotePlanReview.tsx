@@ -8,7 +8,7 @@ import { parseCollaborationUrl } from "../../../shared/collaboration/urls.js";
 import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
 import { TooltipProvider } from "@plannotator/ui/components/Tooltip.tsx";
 import { Viewer } from "@plannotator/ui/components/Viewer.tsx";
-import { AnnotationToolstrip } from "@plannotator/ui/components/AnnotationToolstrip.tsx";
+import { RunWieldAnnotationToolstrip } from "./RunWieldAnnotationToolstrip.tsx";
 import { extractFrontmatter, parseMarkdownToBlocks } from "@plannotator/ui/utils/parser.ts";
 import { AnnotationType } from "@plannotator/ui/types.ts";
 import { RemoteCommentPanel } from "./RemoteCommentPanel.tsx";
@@ -262,7 +262,7 @@ export function RemotePlanReview({ spaceId }) {
                             />
                         </label>
                         <div className="rw-remote-toolstrip" aria-label="Annotation mode">
-                            <AnnotationToolstrip
+                            <RunWieldAnnotationToolstrip
                                 inputMethod={inputMethod}
                                 onInputMethodChange={setInputMethod}
                                 mode={annotationMode}

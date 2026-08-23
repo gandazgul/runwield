@@ -6,7 +6,7 @@ import { Tooltip, TooltipProvider } from "@plannotator/ui/components/Tooltip.tsx
 import { Viewer } from "@plannotator/ui/components/Viewer.tsx";
 import { MarkdownEditor } from "@plannotator/ui/components/MarkdownEditor.tsx";
 import { AnnotationPanel } from "@plannotator/ui/components/AnnotationPanel.tsx";
-import { AnnotationToolstrip } from "@plannotator/ui/components/AnnotationToolstrip.tsx";
+import { RunWieldAnnotationToolstrip } from "./RunWieldAnnotationToolstrip.tsx";
 import { FeedbackButton } from "@plannotator/ui/components/ToolbarButtons.tsx";
 import { PlanDiffViewer } from "@plannotator/ui/components/plan-diff/PlanDiffViewer.tsx";
 import { CompletionOverlay } from "@plannotator/ui/components/CompletionOverlay.tsx";
@@ -15,9 +15,7 @@ import { ExportModal } from "@plannotator/ui/components/ExportModal.tsx";
 import { ActionMenu, ActionMenuItem } from "@plannotator/ui/components/ActionMenu.tsx";
 import { Button } from "@plannotator/ui/components/ui/button.tsx";
 import { OverlayScrollArea } from "@plannotator/ui/components/OverlayScrollArea.tsx";
-import { ResizeHandle } from "@plannotator/ui/components/ResizeHandle.tsx";
 import { SidebarContainer } from "@plannotator/ui/components/sidebar/SidebarContainer.tsx";
-import { SidebarTabs } from "@plannotator/ui/components/sidebar/SidebarTabs.tsx";
 import { ScrollViewportContext } from "@plannotator/ui/hooks/useScrollViewport.ts";
 import { usePlanDiff } from "@plannotator/ui/hooks/usePlanDiff.ts";
 import { useCodeFilePopout } from "@plannotator/ui/hooks/useCodeFilePopout.ts";
@@ -557,7 +555,37 @@ export function PlanReviewSurface({ payload }) {
                     )}
                     {error && <p className="rw-review-error" role="alert">{error}</p>}
                     <ScrollViewportContext.Provider value={scrollViewport}>
-                        <div className="rw-plannotator-plan-layout" data-sidebar-open={sidebarOpen}>
+                        <div
+                            className="rw-plannotator-plan-layout"
+                            data-sidebar-open={sidebarOpen}
+                            data-annotations-open={annotationsOpen}
+                        >
+                            {sidebarOpen && versionInfo !== null && (
+                                <div
+                                    className="rw-plan-sidebar-tab-toggle rw-segmented-toggle"
+                                    role="tablist"
+                                    aria-label="Plan sidebar"
+                                >
+                                    <button
+                                        type="button"
+                                        aria-selected={sidebarTab === "toc"}
+                                        onClick={() => setSidebarTab("toc")}
+                                        title="Contents"
+                                    >
+                                        <ToggleIcon name="contents" />
+                                        <span>Contents</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        aria-selected={sidebarTab === "versions"}
+                                        onClick={() => setSidebarTab("versions")}
+                                        title="Versions"
+                                    >
+                                        <ToggleIcon name="versions" />
+                                        <span>Versions</span>
+                                    </button>
+                                </div>
+                            )}
                             {sidebarOpen && (
                                 <SidebarContainer
                                     activeTab={sidebarTab}
@@ -592,15 +620,31 @@ export function PlanReviewSurface({ payload }) {
                                 />
                             )}
                             {sidebarOpen && (
-                                <ResizeHandle
-                                    className="z-[55]"
-                                    side="left"
-                                    onCollapse={() => setSidebarOpen(false)}
-                                />
+                                <button
+                                    className="rw-plan-review-sidebar-collapse"
+                                    type="button"
+                                    onClick={() => setSidebarOpen(false)}
+                                    title="Collapse contents sidebar"
+                                    aria-label="Collapse contents sidebar"
+                                >
+                                    <PanelCollapseIcon side="left" />
+                                </button>
                             )}
                             <main className="rw-plannotator-main-pane">
-                                <div className="rw-plan-review-controls">
-                                    <div className="rw-plan-review-mode-actions">
+                                <div className="rw-review-toolbar rw-plan-review-controls">
+                                    <div className="rw-review-toolbar-edge rw-review-toolbar-edge-left rw-plan-review-sidebar-restore rw-plan-review-sidebar-restore-left">
+                                        {!sidebarOpen && (
+                                            <button
+                                                className="rw-toolbar-button"
+                                                type="button"
+                                                onClick={() => openSidebarTab("toc")}
+                                            >
+                                                <ToggleIcon name="contents" />
+                                                <span>Contents</span>
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="rw-review-toolbar-center rw-plan-review-mode-actions">
                                         <div
                                             className="rw-document-mode-toggle rw-segmented-toggle"
                                             role="tablist"
@@ -610,70 +654,79 @@ export function PlanReviewSurface({ payload }) {
                                                 className={editorMode === "view" && !isPlanDiffActive ? "active" : ""}
                                                 type="button"
                                                 onClick={showPlanView}
+                                                title="View"
                                             >
-                                                View
+                                                <ToggleIcon name="view" />
+                                                <span>View</span>
                                             </button>
                                             <button
                                                 className={editorMode === "edit" && !isPlanDiffActive ? "active" : ""}
                                                 type="button"
                                                 onClick={showPlanEditor}
+                                                title="Edit"
                                             >
-                                                Edit
+                                                <ToggleIcon name="edit" />
+                                                <span>Edit</span>
                                             </button>
                                             {planDiff.hasPreviousVersion && (
                                                 <button
                                                     className={isPlanDiffActive ? "active" : ""}
                                                     type="button"
                                                     onClick={showPlanChanges}
-                                                    title={`Compare this revision with ${selectedVersionLabel}`}
+                                                    title="Changes"
                                                 >
-                                                    Changes
+                                                    <ToggleIcon name="changes" />
+                                                    <span>Changes</span>
                                                 </button>
                                             )}
                                         </div>
                                         {affectedPaths.length > 0 && (
                                             <AffectedFilesMenu paths={affectedPaths} onOpen={codeFilePopout.open} />
                                         )}
+                                        {isPlanDiffActive
+                                            ? (
+                                                <span className="rw-plan-diff-context" role="status">
+                                                    Comparing current revision with {selectedVersionLabel}
+                                                </span>
+                                            )
+                                            : editorMode === "view"
+                                            ? (
+                                                <RunWieldAnnotationToolstrip
+                                                    inputMethod={inputMethod}
+                                                    onInputMethodChange={setInputMethod}
+                                                    mode={annotationMode}
+                                                    onModeChange={setAnnotationMode}
+                                                    taterMode={false}
+                                                    compact
+                                                    showHelpLink={false}
+                                                />
+                                            )
+                                            : null}
                                     </div>
-                                    {isPlanDiffActive
-                                        ? (
-                                            <span className="rw-plan-diff-context" role="status">
-                                                Comparing current revision with {selectedVersionLabel}
-                                            </span>
-                                        )
-                                        : editorMode === "view"
-                                        ? (
-                                            <AnnotationToolstrip
-                                                inputMethod={inputMethod}
-                                                onInputMethodChange={setInputMethod}
-                                                mode={annotationMode}
-                                                onModeChange={setAnnotationMode}
-                                                taterMode={false}
-                                                showHelpLink={false}
-                                            />
-                                        )
-                                        : (
+                                    <div className="rw-review-toolbar-edge rw-review-toolbar-edge-right rw-plan-review-sidebar-restore rw-plan-review-sidebar-restore-right">
+                                        {editorMode === "edit" && !isPlanDiffActive && (
                                             <div className="rw-editor-save-controls">
-                                                <span role="status">{editorDirty ? "Unsaved changes" : "Saved"}</span>
+                                                <span role="status">
+                                                    {editorDirty ? "Unsaved changes" : "Saved"}
+                                                </span>
                                                 <button type="button" disabled={!editorDirty} onClick={saveEditor}>
                                                     Save
                                                 </button>
                                             </div>
                                         )}
+                                        {!annotationsOpen && (
+                                            <button
+                                                className="rw-toolbar-button"
+                                                type="button"
+                                                onClick={() => setAnnotationsOpen(true)}
+                                            >
+                                                <ToggleIcon name="annotations" />
+                                                <span>Annotations</span>
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="rw-plan-content-area">
-                                    {!sidebarOpen && (
-                                        <SidebarTabs
-                                            className="rw-collapsed-sidebar-tabs"
-                                            activeTab={sidebarTab}
-                                            onToggleTab={openSidebarTab}
-                                            hasDiff={planDiff.hasPreviousVersion}
-                                            showFilesTab={false}
-                                            showVersionsTab={versionInfo !== null}
-                                            showMessagesTab={false}
-                                            showAgentTerminalTab={false}
-                                        />
-                                    )}
                                     {isPlanDiffActive && planDiff.diffBlocks && planDiff.diffStats
                                         ? (
                                             <OverlayScrollArea
@@ -760,6 +813,7 @@ export function PlanReviewSurface({ payload }) {
                                 >
                                     <div className="rw-plan-review-annotation-heading">
                                         <div>
+                                            <ToggleIcon name="annotations" />
                                             <h2 id="rw-plan-review-annotations-heading">Annotations</h2>
                                             {annotations.length + codeAnnotations.length > 0 && (
                                                 <span>{annotations.length + codeAnnotations.length}</span>
@@ -769,10 +823,10 @@ export function PlanReviewSurface({ payload }) {
                                             className="rw-plan-review-annotation-close"
                                             type="button"
                                             onClick={() => setAnnotationsOpen(false)}
-                                            title="Close annotations"
-                                            aria-label="Close annotations"
+                                            title="Collapse annotations sidebar"
+                                            aria-label="Collapse annotations sidebar"
                                         >
-                                            <CloseIcon />
+                                            <PanelCollapseIcon side="right" />
                                         </button>
                                     </div>
                                     <div className="rw-review-feedback-action rw-review-action">
@@ -820,15 +874,6 @@ export function PlanReviewSurface({ payload }) {
                                         directEdits={directEditPanel}
                                     />
                                 </aside>
-                            )}
-                            {!annotationsOpen && (
-                                <button
-                                    className="rw-annotation-reopen"
-                                    type="button"
-                                    onClick={() => setAnnotationsOpen(true)}
-                                >
-                                    Annotations
-                                </button>
                             )}
                         </div>
                     </ScrollViewportContext.Provider>
@@ -993,8 +1038,8 @@ function ExecutionPolicyControls({
                 onChange={onAgentChange}
                 disabled={disabled}
                 options={[
-                    { value: "engineer", label: "Engineer" },
-                    { value: "frontend-engineer", label: "Frontend Engineer" },
+                    { value: "engineer", label: "Engineer", icon: "engineer" },
+                    { value: "frontend-engineer", label: "Frontend Engineer", icon: "frontend" },
                 ]}
             />
             <SegmentedPolicyControl
@@ -1004,8 +1049,8 @@ function ExecutionPolicyControls({
                 onChange={onRecommendationChange}
                 disabled={disabled}
                 options={[
-                    { value: "pair", label: "Pair Execution" },
-                    { value: "autonomous", label: "Autonomous" },
+                    { value: "pair", label: "Pair Execution", icon: "pair" },
+                    { value: "autonomous", label: "Autonomous", icon: "autonomous" },
                 ]}
             />
         </section>
@@ -1026,9 +1071,10 @@ function SegmentedPolicyControl({ label, tooltip, value, onChange, disabled, opt
                             aria-pressed={value === option.value}
                             disabled={disabled}
                             onClick={() => onChange(option.value)}
-                            title={tooltip}
+                            title={option.label}
                         >
-                            {option.label}
+                            {option.icon && <ToggleIcon name={option.icon} />}
+                            <span>{option.label}</span>
                         </button>
                     ))}
                 </div>
@@ -1143,6 +1189,35 @@ function PlanReviewOptionsMenu({ iconOnly = false, onOpenExport, onOpenSettings,
     );
 }
 
+function ToggleIcon({ name }) {
+    const paths = {
+        contents: "M4 6h16M4 10h16M4 14h10M4 18h10",
+        versions: "M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z",
+        view: "M2.25 12s3.75-6 9.75-6 9.75 6 9.75 6-3.75 6-9.75 6-9.75-6-9.75-6z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+        edit: "M16.862 4.487 19.5 7.125 8.25 18.375 5 19l.625-3.25L16.862 4.487z",
+        changes: "M7 7h10M7 12h6M7 17h10",
+        annotations: "M7 8h10M7 12h6m-8 8 3.5-4H19a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2z",
+        engineer: "M14.7 6.3a4 4 0 0 0-5 5L4 17l3 3 5.7-5.7a4 4 0 0 0 5-5l-2.4 2.4-3-3 2.4-2.4z",
+        frontend: "M4 5h16v10H4z M8 19h8 M12 15v4",
+        pair:
+            "M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M3 20a5 5 0 0 1 10 0 M11 20a5 5 0 0 1 10 0",
+        autonomous:
+            "M12 3v3 M12 18v3 M3 12h3 M18 12h3 M5.6 5.6l2.1 2.1 M16.3 16.3l2.1 2.1 M18.4 5.6l-2.1 2.1 M7.7 16.3l-2.1 2.1 M12 9l1.2 2.4 2.6.4-1.9 1.8.5 2.6-2.4-1.2-2.4 1.2.5-2.6-1.9-1.8 2.6-.4L12 9z",
+    };
+    return (
+        <svg
+            aria-hidden="true"
+            className="w-3.5 h-3.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+        >
+            <path strokeLinecap="round" strokeLinejoin="round" d={paths[name]} />
+        </svg>
+    );
+}
+
 function CheckIcon() {
     return (
         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -1171,10 +1246,13 @@ function ClockIcon() {
     );
 }
 
-function CloseIcon() {
+function PanelCollapseIcon({ side }) {
+    const path = side === "left" ? "M15 6l-6 6 6 6" : "M9 6l6 6-6 6";
     return (
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
+            <path d="M5 4v16" strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M19 4v16" strokeWidth="1.5" strokeLinecap="round" />
+            <path d={path} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
     );
 }

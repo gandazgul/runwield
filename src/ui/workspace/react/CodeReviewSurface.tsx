@@ -61,17 +61,12 @@ function readStoredFilePanelMode() {
     return value === "tree" || value === "changes" ? value : null;
 }
 
-function toFilePanelMode(reviewPanelView) {
-    return reviewPanelView === "tree" ? "tree" : "changes";
-}
-
 function toReviewPanelView(filePanelMode) {
     return filePanelMode === "tree" ? "tree" : "sections";
 }
 
 function getInitialFilePanelMode() {
-    return readStoredFilePanelMode() ||
-        toFilePanelMode(configStore.get("reviewPanelViewLastUsed") || configStore.get("reviewPanelView"));
+    return readStoredFilePanelMode() || "tree";
 }
 
 function getInitialDiffStyle() {
@@ -136,8 +131,6 @@ export function CodeReviewSurface({ payload }) {
     const globalCommentButtonRef = useRef(null);
     const allFilesHostRef = useRef(null);
     const navigationLockRef = useRef(null);
-    const configuredReviewPanelView = useConfigValue("reviewPanelView") || "sections";
-    const configuredReviewPanelViewLastUsed = useConfigValue("reviewPanelViewLastUsed");
     const configuredDiffStyle = useConfigValue("diffStyle") || "split";
     const [diffStyle, setLocalDiffStyle] = useState(getInitialDiffStyle);
     const diffOverflow = useConfigValue("diffOverflow") || "scroll";
@@ -184,12 +177,6 @@ export function CodeReviewSurface({ payload }) {
     const guideProviderAvailable = initialPayload.mode === "dev"
         ? guideCapabilities?.available !== false
         : Boolean(guideCapabilities?.available);
-
-    useEffect(() => {
-        if (!readStoredFilePanelMode()) {
-            setFilePanelMode(toFilePanelMode(configuredReviewPanelViewLastUsed || configuredReviewPanelView));
-        }
-    }, [configuredReviewPanelView, configuredReviewPanelViewLastUsed]);
 
     useEffect(() => {
         if (!readStoredDiffStyle()) setLocalDiffStyle(configuredDiffStyle);
@@ -575,6 +562,14 @@ export function CodeReviewSurface({ payload }) {
                 <div className="rw-plannotator-host rw-code-review" data-review-mode={initialPayload.mode}>
                     <header className="rw-plannotator-toolbar">
                         <div className="rw-plan-review-heading">
+                            <CodeReviewOptionsMenu
+                                iconOnly
+                                annotationsOpen={annotationsOpen}
+                                fileTreeOpen={fileTreeOpen}
+                                onOpenSettings={() => setSettingsOpen(true)}
+                                onToggleAnnotations={() => setAnnotationsOpen((open) => !open)}
+                                onToggleFileTree={() => setFileTreeOpen((open) => !open)}
+                            />
                             <img src="/logo.svg" alt="" aria-hidden="true" />
                             <h1>Code Review</h1>
                             {initialPayload.mode === "dev" && (
@@ -584,13 +579,6 @@ export function CodeReviewSurface({ payload }) {
                             )}
                         </div>
                         <div className="rw-plannotator-actions">
-                            <CodeReviewOptionsMenu
-                                annotationsOpen={annotationsOpen}
-                                fileTreeOpen={fileTreeOpen}
-                                onOpenSettings={() => setSettingsOpen(true)}
-                                onToggleAnnotations={() => setAnnotationsOpen((open) => !open)}
-                                onToggleFileTree={() => setFileTreeOpen((open) => !open)}
-                            />
                             <ApproveButton
                                 onClick={submitApprove}
                                 disabled={submitting !== null}
@@ -611,22 +599,26 @@ export function CodeReviewSurface({ payload }) {
                                 <div className="rw-code-file-tabs">
                                     <div className="rw-segmented-toggle" role="tablist" aria-label="Code review files">
                                         <button
-                                            aria-selected={filePanelMode === "changes"}
-                                            className={filePanelMode === "changes" ? "active" : ""}
-                                            onClick={() => setRememberedFilePanelMode("changes")}
-                                            role="tab"
-                                            type="button"
-                                        >
-                                            Changes
-                                        </button>
-                                        <button
                                             aria-selected={filePanelMode === "tree"}
                                             className={filePanelMode === "tree" ? "active" : ""}
                                             onClick={() => setRememberedFilePanelMode("tree")}
                                             role="tab"
+                                            title="Files"
                                             type="button"
                                         >
-                                            Files
+                                            <FileTreeIcon />
+                                            <span>Files</span>
+                                        </button>
+                                        <button
+                                            aria-selected={filePanelMode === "changes"}
+                                            className={filePanelMode === "changes" ? "active" : ""}
+                                            onClick={() => setRememberedFilePanelMode("changes")}
+                                            role="tab"
+                                            title="Changes"
+                                            type="button"
+                                        >
+                                            <CodeToggleIcon name="changes" />
+                                            <span>Changes</span>
                                         </button>
                                     </div>
                                     <button
@@ -805,6 +797,7 @@ export function CodeReviewSurface({ payload }) {
                             <div className="rw-code-review-annotation-sidebar">
                                 <div className="rw-review-annotation-heading">
                                     <div>
+                                        <CommentIcon />
                                         <h2>Annotations</h2>
                                         {annotations.length > 0 && <span>{annotations.length}</span>}
                                     </div>
@@ -918,12 +911,13 @@ function DiffStyleToggle({
     onToggleGlobalComment,
 }) {
     return (
-        <div className="rw-code-diff-toolbar" aria-label="Diff view options">
-            <div className="rw-code-diff-left-controls">
+        <div className="rw-review-toolbar rw-code-diff-toolbar" aria-label="Diff view options">
+            <div className="rw-review-toolbar-edge rw-review-toolbar-edge-left rw-code-diff-left-controls">
                 <div className="rw-code-diff-sidebar-restore rw-code-diff-sidebar-restore-left">
                     {!fileTreeOpen && (
                         <button className="rw-toolbar-button" type="button" onClick={onRestoreFiles}>
-                            Files
+                            <FileTreeIcon />
+                            <span>Files</span>
                         </button>
                     )}
                 </div>
@@ -946,24 +940,28 @@ function DiffStyleToggle({
                     </span>
                 </div>
             </div>
-            <div className="rw-code-diff-layout-controls">
+            <div className="rw-review-toolbar-edge rw-review-toolbar-edge-right rw-code-diff-layout-controls">
                 <span>Diff view</span>
                 <div className="rw-segmented-toggle rw-code-diff-style-toggle" role="group" aria-label="Diff layout">
                     <button
                         aria-pressed={diffStyle === "split"}
                         className={diffStyle === "split" ? "active" : ""}
                         onClick={() => onChange("split")}
+                        title="Side by side"
                         type="button"
                     >
-                        Side by side
+                        <CodeToggleIcon name="side-by-side" />
+                        <span>Side by side</span>
                     </button>
                     <button
                         aria-pressed={diffStyle === "unified"}
                         className={diffStyle === "unified" ? "active" : ""}
                         onClick={() => onChange("unified")}
+                        title="Unified"
                         type="button"
                     >
-                        Unified
+                        <CodeToggleIcon name="unified" />
+                        <span>Unified</span>
                     </button>
                 </div>
                 <button
@@ -978,7 +976,8 @@ function DiffStyleToggle({
                 <div className="rw-code-diff-sidebar-restore rw-code-diff-sidebar-restore-right">
                     {!annotationsOpen && (
                         <button className="rw-toolbar-button" type="button" onClick={onRestoreAnnotations}>
-                            Annotations
+                            <CommentIcon />
+                            <span>Annotations</span>
                         </button>
                     )}
                 </div>
@@ -1262,6 +1261,7 @@ function exportReviewFeedbackWithImages(annotations) {
 }
 
 function CodeReviewOptionsMenu({
+    iconOnly = false,
     annotationsOpen,
     fileTreeOpen,
     onOpenSettings,
@@ -1270,11 +1270,16 @@ function CodeReviewOptionsMenu({
 }) {
     return (
         <ActionMenu
+            panelClassName={iconOnly
+                ? "absolute top-full left-0 mt-1 w-56 rounded-lg border border-border bg-popover py-1 shadow-xl z-[70]"
+                : undefined}
             renderTrigger={({ isOpen, toggleMenu }) => (
                 <button
                     type="button"
                     onClick={toggleMenu}
-                    className={`relative flex items-center gap-1.5 p-1.5 md:px-2.5 md:py-1 rounded-md text-xs font-medium transition-colors ${
+                    className={`relative flex items-center gap-1.5 p-1.5 ${
+                        iconOnly ? "" : "md:px-2.5 md:py-1"
+                    } rounded-md text-xs font-medium transition-colors ${
                         isOpen
                             ? "bg-muted text-foreground"
                             : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -1284,7 +1289,7 @@ function CodeReviewOptionsMenu({
                     aria-expanded={isOpen}
                 >
                     <MenuIcon />
-                    <span className="hidden md:inline">Options</span>
+                    {!iconOnly && <span className="hidden md:inline">Options</span>}
                 </button>
             )}
         >
@@ -1317,6 +1322,26 @@ function CodeReviewOptionsMenu({
                 </>
             )}
         </ActionMenu>
+    );
+}
+
+function CodeToggleIcon({ name }) {
+    const paths = {
+        changes: "M7 7h10M7 12h6M7 17h10",
+        "side-by-side": "M4 5h7v14H4z M13 5h7v14h-7z",
+        unified: "M5 5h14v14H5z M8 9h8M8 13h8M8 17h5",
+    };
+    return (
+        <svg
+            aria-hidden="true"
+            className="w-3.5 h-3.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+        >
+            <path strokeLinecap="round" strokeLinejoin="round" d={paths[name]} />
+        </svg>
     );
 }
 

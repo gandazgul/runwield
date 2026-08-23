@@ -410,12 +410,14 @@ function DisplaySettings({ gridEnabled, onGridEnabledChange, onUIPreferencesChan
                     {PLAN_WIDTH_OPTIONS.map((option) => (
                         <button
                             aria-pressed={uiPreferences.planWidth === option.id}
-                            className={`flex-1 ${uiPreferences.planWidth === option.id ? "active" : ""}`}
+                            className={uiPreferences.planWidth === option.id ? "active" : ""}
                             key={option.id}
                             onClick={() => onUIPreferencesChange({ planWidth: option.id })}
+                            title={option.label}
                             type="button"
                         >
-                            {option.label}
+                            <SettingsToggleIcon name={option.id} />
+                            <span>{option.label}</span>
                         </button>
                     ))}
                 </div>
@@ -538,12 +540,14 @@ function CodeDisplayChoice({ description, label, onChange, options, value }) {
                 {options.map((option) => (
                     <button
                         aria-pressed={value === option.value}
-                        className={`flex-1 ${value === option.value ? "active" : ""}`}
+                        className={value === option.value ? "active" : ""}
                         key={option.value}
                         onClick={() => onChange(option.value)}
+                        title={option.label}
                         type="button"
                     >
-                        {option.label}
+                        <SettingsToggleIcon name={option.value} />
+                        <span>{option.label}</span>
                     </button>
                 ))}
             </div>
@@ -818,6 +822,36 @@ function readCodeLabels(value) {
 
 function labelId(value) {
     return value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+}
+
+function SettingsToggleIcon({ name }) {
+    const paths = {
+        compact: "M8 5h8v14H8z",
+        default: "M6 5h12v14H6z",
+        wide: "M4 5h16v14H4z",
+        split: "M4 5h7v14H4z M13 5h7v14h-7z",
+        unified: "M5 5h14v14H5z M8 9h8M8 13h8M8 17h5",
+        scroll: "M7 4h10v16H7z M10 8h4M10 12h4M10 16h4",
+        wrap: "M4 7h10a4 4 0 0 1 0 8H9m0 0 3-3m-3 3 3 3",
+        bars: "M6 5v14M10 8h8M10 16h5",
+        classic: "M5 6h14M5 12h14M5 18h14",
+        none: "M6 6l12 12M18 6 6 18",
+        "word-alt": "M4 7h7M13 7h7M4 12h10M16 12h4M4 17h5M11 17h9",
+        word: "M4 8h16M4 13h12M4 18h8",
+        char: "M7 18 12 6l5 12M9 14h6",
+    };
+    return (
+        <svg
+            aria-hidden="true"
+            className="h-3.5 w-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            viewBox="0 0 24 24"
+        >
+            <path d={paths[name] || paths.none} strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+    );
 }
 
 function CloseIcon() {

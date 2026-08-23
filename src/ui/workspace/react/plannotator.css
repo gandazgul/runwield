@@ -292,11 +292,14 @@ html[class*="theme-"] {
 .rw-plan-review-annotation-heading,
 .rw-review-annotation-heading {
     display: flex;
-    min-height: 2.5rem;
+    box-sizing: border-box;
+    height: var(--rw-review-toolbar-h, 4rem);
+    min-height: var(--rw-review-toolbar-h, 4rem);
     align-items: center;
     justify-content: space-between;
-    padding: 0 0.75rem;
+    padding: var(--rw-review-toolbar-padding, 0.75rem);
     border-bottom: 1px solid color-mix(in srgb, var(--rw-border) 50%, transparent);
+    background: color-mix(in oklab, var(--plannotator-surface) 92%, transparent);
 }
 
 .rw-plan-review-annotation-heading > div,
@@ -312,6 +315,14 @@ html[class*="theme-"] {
     color: var(--rw-text);
     font-size: 0.75rem;
     font-weight: 500;
+}
+
+.rw-plan-review-annotation-heading > div > svg,
+.rw-review-annotation-heading > div > svg {
+    width: 0.875rem;
+    height: 0.875rem;
+    flex: none;
+    color: var(--rw-text-muted);
 }
 
 .rw-plan-review-annotation-heading span,
@@ -332,6 +343,7 @@ html[class*="theme-"] {
 }
 
 .rw-plan-review-annotation-close,
+.rw-plan-review-sidebar-collapse,
 .rw-code-annotation-sidebar-close,
 .rw-code-file-sidebar-close {
     display: inline-flex;
@@ -343,12 +355,18 @@ html[class*="theme-"] {
     color: var(--rw-text-muted);
 }
 
-.rw-plan-review-annotation-close {
-    display: none;
+.rw-plan-review-sidebar-collapse {
+    position: absolute;
+    top: calc((var(--rw-review-toolbar-h, 4rem) - 1.75rem) / 2);
+    left: calc(17.5rem - 2.25rem);
+    z-index: 65;
+    background: color-mix(in oklab, var(--rw-surface) 86%, transparent);
 }
 
 .rw-plan-review-annotation-close:hover,
 .rw-plan-review-annotation-close:focus-visible,
+.rw-plan-review-sidebar-collapse:hover,
+.rw-plan-review-sidebar-collapse:focus-visible,
 .rw-code-annotation-sidebar-close:hover,
 .rw-code-annotation-sidebar-close:focus-visible,
 .rw-code-file-sidebar-close:hover,
@@ -369,7 +387,7 @@ html[class*="theme-"] {
     min-height: 0;
     flex-direction: column;
     border-left: 1px solid color-mix(in srgb, var(--rw-border) 50%, transparent);
-    background: var(--rw-surface);
+    background: var(--card);
 }
 
 .rw-code-review-annotation-sidebar > aside {
@@ -377,6 +395,7 @@ html[class*="theme-"] {
     min-height: 0;
     flex: 1;
     border-left: 0;
+    background: var(--card) !important;
 }
 
 .rw-code-review-annotation-sidebar > aside > div:first-child {
@@ -399,12 +418,40 @@ html[class*="theme-"] {
     height: 100%;
 }
 
+.rw-plan-review .rw-plannotator-plan-layout > aside:not([data-annotation-panel]) > div:first-child {
+    box-sizing: border-box;
+    height: var(--rw-review-toolbar-h, 4rem);
+    min-height: var(--rw-review-toolbar-h, 4rem);
+    align-items: center;
+    padding: var(--rw-review-toolbar-padding, 0.75rem);
+    background: color-mix(in oklab, var(--plannotator-surface) 92%, transparent);
+}
+
+.rw-plan-review .rw-plannotator-plan-layout:has(> .rw-plan-sidebar-tab-toggle) > aside:not([data-annotation-panel]) > div:first-child > button {
+    display: none;
+}
+
+.rw-plan-sidebar-tab-toggle {
+    position: absolute;
+    top: calc((var(--rw-review-toolbar-h, 4rem) - 2.25rem) / 2);
+    left: 0.75rem;
+    z-index: 70;
+}
+
 .rw-plannotator-plan-layout {
-    grid-template-columns: 17.5rem 0 minmax(0, 1fr) 20rem;
+    grid-template-columns: 17.5rem minmax(0, 1fr) 20rem;
 }
 
 .rw-plannotator-plan-layout[data-sidebar-open="false"] {
     grid-template-columns: minmax(0, 1fr) 20rem;
+}
+
+.rw-plannotator-plan-layout[data-annotations-open="false"] {
+    grid-template-columns: 17.5rem minmax(0, 1fr);
+}
+
+.rw-plannotator-plan-layout[data-sidebar-open="false"][data-annotations-open="false"] {
+    grid-template-columns: minmax(0, 1fr);
 }
 
 .rw-artifact-read-layout,
@@ -531,51 +578,63 @@ html[class*="theme-"] {
     display: flex;
     flex-direction: column;
     height: 100%;
+    background: var(--card);
+}
+
+.rw-review-toolbar {
+    display: grid;
+    box-sizing: border-box;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.75rem 1rem;
+    flex: none;
+    min-height: var(--rw-review-toolbar-h, 4rem);
+    padding: var(--rw-review-toolbar-padding, 0.75rem);
+    border-bottom: 1px solid var(--rw-review-toolbar-border, color-mix(in oklab, var(--rw-border, #2d3748) 70%,
+        transparent));
+    background: color-mix(in oklab, var(--plannotator-surface) 92%, transparent);
+}
+
+.rw-review-toolbar-edge,
+.rw-review-toolbar-center,
+.rw-code-diff-sidebar-restore {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.rw-review-toolbar-edge-left,
+.rw-code-diff-sidebar-restore-left {
+    grid-column: 1;
+    justify-self: start;
+}
+
+.rw-review-toolbar-edge-right,
+.rw-code-diff-sidebar-restore-right {
+    grid-column: 3;
+    justify-self: end;
+}
+
+.rw-review-toolbar-center {
+    grid-column: 2;
+    justify-self: center;
 }
 
 .rw-code-diff-toolbar {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 0.75rem;
-    flex: none;
-    min-height: var(--panel-header-h, 2.5rem);
-    padding: 0.35rem 0.75rem;
-    border-bottom: 1px solid color-mix(in oklab, var(--rw-border, #2d3748) 70%, transparent);
-    background: color-mix(in oklab, var(--plannotator-surface) 92%, transparent);
     color: var(--muted-foreground);
     font-size: 0.7rem;
     font-weight: 600;
 }
 
-.rw-code-diff-left-controls,
-.rw-code-diff-sidebar-restore,
-.rw-code-diff-layout-controls {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.75rem;
-}
-
-.rw-code-diff-left-controls {
-    min-width: 0;
-    justify-self: start;
-}
-
-.rw-code-diff-sidebar-restore-left {
-    justify-self: start;
-}
-
-.rw-code-diff-sidebar-restore-right {
-    justify-self: end;
-}
-
-.rw-code-diff-layout-controls {
-    justify-self: end;
-}
-
 .rw-code-diff-stage {
     min-height: 0;
     flex: 1;
+    background: var(--card);
+}
+
+.rw-code-review diffs-container {
+    background: var(--card);
 }
 
 .rw-review-all-files-host .overflow-y-auto > div {
@@ -601,7 +660,7 @@ html[class*="theme-"] {
     min-height: 0;
     overflow: hidden;
     border-right: 1px solid var(--rw-border, #2d3748);
-    background: var(--plannotator-surface);
+    background: var(--card);
 }
 
 .rw-code-file-resize-handle {
@@ -646,13 +705,16 @@ html[class*="theme-"] {
 
 .rw-code-file-tabs {
     display: flex;
+    box-sizing: border-box;
+    height: var(--rw-review-toolbar-h, 4rem);
+    min-height: var(--rw-review-toolbar-h, 4rem);
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
     flex: none;
-    min-height: var(--panel-header-h, 2.5rem);
-    padding: 0.35rem 0.5rem;
+    padding: var(--rw-review-toolbar-padding, 0.75rem);
     border-bottom: 1px solid color-mix(in oklab, var(--rw-border, #2d3748) 70%, transparent);
+    background: color-mix(in oklab, var(--plannotator-surface) 92%, transparent);
 }
 
 .rw-code-file-tabs .rw-segmented-toggle {
@@ -691,9 +753,9 @@ html[class*="theme-"] {
 }
 
 .rw-plannotator-code-layout > aside:last-child > div:first-child {
-    min-height: var(--panel-header-h, 2.5rem);
-    height: var(--panel-header-h, 2.5rem) !important;
-    padding: 0.35rem 0.5rem;
+    min-height: var(--rw-review-toolbar-h, 4rem);
+    height: var(--rw-review-toolbar-h, 4rem) !important;
+    padding: var(--rw-review-toolbar-padding, 0.75rem);
     background: var(--plannotator-surface);
 }
 
@@ -706,21 +768,19 @@ html[class*="theme-"] {
 }
 
 .rw-plan-review-controls {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem 1rem;
-    flex-wrap: wrap;
-    padding: 0.75rem;
-    border-bottom: 1px solid var(--rw-border, #2d3748);
-    background: color-mix(in oklab, var(--plannotator-surface) 92%, transparent);
+    --rw-review-toolbar-border: var(--rw-border, #2d3748);
+    grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.rw-plan-review-sidebar-restore,
+.rw-plan-review-mode-actions {
+    gap: 0.55rem;
 }
 
 .rw-plan-review-mode-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.55rem;
-    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    justify-self: start;
 }
 
 .rw-affected-files-trigger {
