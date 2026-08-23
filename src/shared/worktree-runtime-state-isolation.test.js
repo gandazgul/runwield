@@ -67,6 +67,33 @@ Deno.test("checkpoint ignores gitignored RunWield runtime state", async () => {
     }
 });
 
+Deno.test("checkpoint preserves removal of a tracked file whose working copy is now ignored", async () => {
+    const cwd = await repo.checkout();
+    const worktreePath = await makeWorktree(cwd, "ignored-generated-side");
+    try {
+        await Deno.writeTextFile(join(worktreePath, ".gitignore"), ".wld/plan-locks\n.astro/\n");
+        await Deno.mkdir(join(worktreePath, ".astro"), { recursive: true });
+        await Deno.writeTextFile(join(worktreePath, ".astro", "settings.json"), "generated\n");
+        await git(worktreePath, ["add", ".gitignore"]);
+        await git(worktreePath, ["add", "-f", ".astro/settings.json"]);
+        await git(worktreePath, ["commit", "-m", "track old generated settings"]);
+
+        await git(worktreePath, ["rm", "--cached", ".astro/settings.json"]);
+        await Deno.writeTextFile(join(worktreePath, "feature.txt"), "work\n");
+
+        await checkpointExecutionWorktree({ worktreePath, branch: "ignored-generated-side" });
+
+        const committedPaths = await git(worktreePath, ["ls-tree", "-r", "--name-only", "HEAD"]);
+        assertEquals(committedPaths.includes("feature.txt"), true);
+        assertEquals(committedPaths.includes(".astro/settings.json"), false);
+        assertEquals(await Deno.readTextFile(join(worktreePath, ".astro", "settings.json")), "generated\n");
+    } finally {
+        await git(cwd, ["worktree", "remove", "--force", worktreePath]).catch(() => {});
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreePath, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("previously committed runtime state is removed before merge", async () => {
     const cwd = await repo.checkout();
     const worktreePath = await makeWorktree(cwd, "runtime-committed-side");

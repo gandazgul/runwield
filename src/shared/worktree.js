@@ -173,20 +173,25 @@ async function restoreExistingPathsFromHead(cwd, paths) {
 }
 
 /**
- * Stage all changed files except RunWield-owned runtime files.
- * Listing paths first avoids passing ignored exclusion paths to `git add`.
+ * Stage all changed files except RunWield-owned runtime files. Tracked updates
+ * and new files are staged separately so an ignored working copy left behind
+ * by an index removal is not accidentally passed back to `git add`.
  *
  * @param {string} worktreePath
  */
 async function stageDirtyPathsExceptOwnedRuntime(worktreePath) {
     const tracked = parseNameOnlyPaths(
         await runGit(worktreePath, ["diff", "--name-only", "--no-renames", "HEAD", "--"]),
-    );
+    ).filter((path) => !isRunWieldOwnedRuntimePath(path));
     const untracked = parseNameOnlyPaths(
         await runGit(worktreePath, ["ls-files", "--others", "--exclude-standard"]),
-    );
-    const paths = [...new Set([...tracked, ...untracked])].filter((path) => !isRunWieldOwnedRuntimePath(path));
-    if (paths.length > 0) await runGit(worktreePath, ["add", "-A", "--", ...paths]);
+    ).filter((path) => !isRunWieldOwnedRuntimePath(path));
+    const indexed = tracked.length > 0
+        ? new Set(parseNameOnlyPaths(await runGit(worktreePath, ["ls-files", "--cached", "--", ...tracked])))
+        : new Set();
+    const trackedUpdates = tracked.filter((path) => indexed.has(path));
+    if (trackedUpdates.length > 0) await runGit(worktreePath, ["add", "-u", "--", ...trackedUpdates]);
+    if (untracked.length > 0) await runGit(worktreePath, ["add", "--", ...untracked]);
 }
 
 /**
