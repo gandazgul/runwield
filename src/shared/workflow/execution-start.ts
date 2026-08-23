@@ -559,6 +559,12 @@ export async function startActiveExecutionWorkflow(
                 planName,
                 canonicalSource: canonicalPlanSource,
                 reconcileFromCanonical: !continuingReusableWorktree,
+                // Before the first Engineer turn, the locked primary Plan is the
+                // complete authority. A new worktree starts from the target branch,
+                // whose committed Plan may be older than a just-approved revision.
+                // Once execution begins, the execution copy becomes authoritative and
+                // this replacement is deliberately disabled.
+                replaceFromCanonical: !continuingReusableWorktree,
             });
             if (planFile.kind === "restored") emitRestoredPlanInExecutionWorktree(hostedSession);
             if (planFile.kind === "reconciled") emitReconciledPlanInExecutionWorktree(hostedSession);

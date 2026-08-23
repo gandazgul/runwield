@@ -356,6 +356,57 @@ Deno.test("startActiveExecutionWorkflow bases the execution worktree on the requ
     );
 });
 
+Deno.test("startActiveExecutionWorkflow uses the latest uncommitted Plan revision instead of the target branch copy", async () => {
+    const projectRoot = await makeWorkflowProject([{
+        name: "revised-before-execution",
+        status: "ready_for_work",
+        attrs: {
+            objectiveChecks: [{ id: "OC_OLD", command: "true", rationale: "stale check" }],
+        },
+    }]);
+    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["commit", "-m", "commit old Plan revision"]);
+    const committedPlan = await loadPlan(projectRoot, "revised-before-execution");
+    if (!committedPlan) throw new Error("committed Plan fixture disappeared");
+    await savePlan(projectRoot, "revised-before-execution", "# Latest approved Plan", {
+        classification: "PLANNED_CHANGE",
+        status: "ready_for_work",
+        summary: "latest approved Plan",
+        affectedPaths: [],
+        planId: PLAN_UNDER_TEST,
+        objectiveChecks: [{ id: "OC_NEW", command: "false", rationale: "corrected check" }],
+    }, { expectedRevision: committedPlan.revision });
+    const hostedSession = makeHostedSession("revised-before-execution", projectRoot);
+    let executionCwd;
+    try {
+        const result = await startActiveExecutionWorkflow({
+            planName: "revised-before-execution",
+            triageMeta: { planId: PLAN_UNDER_TEST, classification: "PLANNED_CHANGE" },
+            currentStatus: "ready_for_work",
+            hostedSession,
+            ports: createExecutionStartPorts(),
+        });
+        executionCwd = result.executionCwd;
+        const executionPlan = await loadPlan(result.executionCwd, "revised-before-execution");
+        assertEquals(executionPlan?.body.trim(), "# Latest approved Plan");
+        assertEquals(
+            executionPlan?.attrs.objectiveChecks?.map((check) => [check.id, check.command]),
+            [["OC_NEW", "false"]],
+        );
+        assertEquals(
+            executionPlan?.attrs.objectiveChecksBaseline?.results.map((
+                check,
+            ) => [check.id, check.command, check.status]),
+            [["OC_NEW", "false", "unmet"]],
+        );
+    } finally {
+        hostedSession.dispose();
+        if (executionCwd) {
+            await git(projectRoot, ["worktree", "remove", "--force", executionCwd]).catch(() => "");
+        }
+    }
+});
+
 Deno.test("startActiveExecutionWorkflow captures baseline after restored Plan preparation and records metric", async () => {
     const projectRoot = await makeWorkflowProject([{ name: "p", status: "ready_for_work" }]);
     const hostedSession = makeHostedSession("baseline-after-plan-restore", projectRoot);

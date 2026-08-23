@@ -321,8 +321,15 @@ Deno.test("plan_written compares a revised Plan with the first reviewed Plan", a
     const firstPlan = await Deno.readTextFile(planPath);
     await Deno.writeTextFile(planPath, firstPlan.replace("# runtime-boundary", "# Revised runtime boundary"));
 
-    const secondResult = await execute(tool);
+    const correctedChecks = [{
+        id: "OC_CORRECTED",
+        command: "false",
+        rationale: "The corrected check is red before implementation.",
+    }];
+    const secondResult = await execute(tool, "runtime-boundary", () => {}, { objectiveChecks: correctedChecks });
     assertEquals(secondResult.details.outcome, "saved");
+    assertEquals(secondResult.details.triageMeta.objectiveChecks, correctedChecks);
+    assertEquals((await loadPlan(cwd, "runtime-boundary"))?.attrs.objectiveChecks, correctedChecks);
 
     const reviewRequests = interactionRequests.filter((request) => request.type === "plan_review");
     assertEquals(reviewRequests.length, 2);

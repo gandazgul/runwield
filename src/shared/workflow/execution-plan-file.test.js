@@ -291,3 +291,32 @@ Deno.test("ensureExecutionPlanFile keeps a concurrent body while fixing owned me
     for await (const entry of Deno.readDir(join(executionRoot, "docs", "plans"))) entries.push(entry.name);
     assertEquals(entries.some((name) => name.startsWith(".rw-plan-")), false);
 });
+
+Deno.test("ensureExecutionPlanFile materializes the complete latest Plan before execution starts", async () => {
+    const projectRoot = await makeTempProject();
+    const executionRoot = await makeTempProject();
+    const canonicalMarkdown = injectFrontMatter("# Latest Plan", {
+        planId: "plan-1",
+        status: "ready_for_work",
+        objectiveChecks: [{ id: "OC_NEW", command: "false", rationale: "latest check" }],
+    });
+    const oldMarkdown = injectFrontMatter("# Old Plan", {
+        planId: "plan-1",
+        status: "draft",
+        objectiveChecks: [{ id: "OC_OLD", command: "true", rationale: "stale check" }],
+    });
+    await Deno.writeTextFile(join(projectRoot, "docs", "plans", "demo.md"), canonicalMarkdown);
+    await Deno.writeTextFile(join(executionRoot, "docs", "plans", "demo.md"), oldMarkdown);
+    const source = await loadCanonicalExecutionPlanSource(projectRoot, "demo");
+    if (source.kind !== "loaded") throw new Error("source did not load");
+
+    const result = await ensureExecutionPlanFile({
+        executionCwd: executionRoot,
+        planName: "demo",
+        canonicalSource: source,
+        replaceFromCanonical: true,
+    });
+
+    assertEquals(result.kind, "reconciled");
+    assertEquals(await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")), canonicalMarkdown);
+});

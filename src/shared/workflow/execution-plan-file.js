@@ -360,7 +360,7 @@ async function verifyParentChain(root, segments, createMissing) {
 }
 
 /**
- * @param {{ executionCwd: string, planName: string, canonicalSource: Extract<Awaited<ReturnType<typeof loadCanonicalExecutionPlanSource>>, {kind:"loaded"}>, reconcileFromCanonical?: boolean }} opts
+ * @param {{ executionCwd: string, planName: string, canonicalSource: Extract<Awaited<ReturnType<typeof loadCanonicalExecutionPlanSource>>, {kind:"loaded"}>, reconcileFromCanonical?: boolean, replaceFromCanonical?: boolean }} opts
  * @returns {Promise<ExecutionPlanFileResult>}
  */
 export async function ensureExecutionPlanFile({
@@ -368,6 +368,7 @@ export async function ensureExecutionPlanFile({
     planName,
     canonicalSource,
     reconcileFromCanonical = true,
+    replaceFromCanonical = false,
 }) {
     const targetPath = getStoredPlanPath(executionCwd, planName);
     const relativePath = projectRelativePath(executionCwd, targetPath);
@@ -418,16 +419,46 @@ export async function ensureExecutionPlanFile({
         }
         try {
             const { attrs } = parsePlanFrontMatter(markdown);
-            if (!reconcileFromCanonical) {
-                if (hasPlanIdConflict(canonicalSource.attrs.planId, attrs.planId)) {
+            if (
+                !replaceFromCanonical && !reconcileFromCanonical &&
+                hasPlanIdConflict(canonicalSource.attrs.planId, attrs.planId)
+            ) {
+                return {
+                    kind: "restore_failed",
+                    path: targetPath,
+                    relativePath,
+                    reason: `Execution Plan identity does not match ${relativePath}. Existing evidence was preserved.`,
+                };
+            }
+            if (replaceFromCanonical) {
+                if (markdown === canonicalSource.markdown) return { kind: "present", path: targetPath, relativePath };
+                const expectedRevision = await getPlanRevisionForText(markdown);
+                try {
+                    await writePlanMarkdownWithRevision(targetPath, canonicalSource.markdown, expectedRevision);
+                } catch {
+                    const concurrentMarkdown = await Deno.readTextFile(targetPath).catch(() => null);
+                    if (concurrentMarkdown === canonicalSource.markdown) {
+                        return { kind: "present", path: targetPath, relativePath };
+                    }
                     return {
                         kind: "restore_failed",
                         path: targetPath,
                         relativePath,
                         reason:
-                            `Execution Plan identity does not match ${relativePath}. Existing evidence was preserved.`,
+                            `Could not materialize the latest execution Plan at ${relativePath}. Existing evidence was preserved.`,
                     };
                 }
+                if (await Deno.readTextFile(targetPath) !== canonicalSource.markdown) {
+                    return {
+                        kind: "restore_failed",
+                        path: targetPath,
+                        relativePath,
+                        reason: `Could not verify the latest execution Plan at ${relativePath}.`,
+                    };
+                }
+                return { kind: "reconciled", path: targetPath, relativePath };
+            }
+            if (!reconcileFromCanonical) {
                 return { kind: "present", path: targetPath, relativePath };
             }
             const overrides = executionMetadataOverrides(canonicalSource.attrs, attrs);
