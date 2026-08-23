@@ -28,6 +28,14 @@ const DEFAULT_CODE_PAYLOAD = {
     guidedReview: null,
 };
 
+const FILE_PANEL_DEFAULT_WIDTH = 288;
+const FILE_PANEL_MIN_WIDTH = 208;
+const FILE_PANEL_MAX_WIDTH = 520;
+
+function clampFilePanelWidth(width) {
+    return Math.min(FILE_PANEL_MAX_WIDTH, Math.max(FILE_PANEL_MIN_WIDTH, width));
+}
+
 async function waitForGuideJob(jobId, token, setGuideJob) {
     const started = Date.now();
     while (Date.now() - started < 120000) {
@@ -62,6 +70,8 @@ export function CodeReviewSurface({ payload }) {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [fileTreeOpen, setFileTreeOpen] = useState(true);
     const [filePanelMode, setFilePanelMode] = useState("changes");
+    const [filePanelWidth, setFilePanelWidth] = useState(FILE_PANEL_DEFAULT_WIDTH);
+    const [resizingFilePanel, setResizingFilePanel] = useState(false);
     const [annotationsOpen, setAnnotationsOpen] = useState(true);
     const [submitting, setSubmitting] = useState(null);
     const [submitted, setSubmitted] = useState(null);
@@ -76,6 +86,7 @@ export function CodeReviewSurface({ payload }) {
     const [guideGenerating, setGuideGenerating] = useState(false);
     const [guideError, setGuideError] = useState("");
     const autoGuideStartedRef = useRef(false);
+    const filePanelResizeRef = useRef(null);
     const globalCommentButtonRef = useRef(null);
     const allFilesHostRef = useRef(null);
     const navigationLockRef = useRef(null);
@@ -180,6 +191,49 @@ export function CodeReviewSurface({ payload }) {
         autoGuideStartedRef.current = true;
         void generateGuide();
     }, [generateGuide, guideCapabilitiesKnown, guidePolicy.autoStart, guideProviderAvailable, guideReady]);
+
+    const startFilePanelResize = useCallback((event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        filePanelResizeRef.current = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startWidth: filePanelWidth,
+        };
+        setResizingFilePanel(true);
+    }, [filePanelWidth]);
+
+    const resizeFilePanel = useCallback((event) => {
+        const resize = filePanelResizeRef.current;
+        if (!resize || resize.pointerId !== event.pointerId) return;
+        setFilePanelWidth(clampFilePanelWidth(resize.startWidth + event.clientX - resize.startX));
+    }, []);
+
+    const finishFilePanelResize = useCallback((event) => {
+        const resize = filePanelResizeRef.current;
+        if (!resize || resize.pointerId !== event.pointerId) return;
+        event.currentTarget.releasePointerCapture?.(event.pointerId);
+        filePanelResizeRef.current = null;
+        setResizingFilePanel(false);
+    }, []);
+
+    const resizeFilePanelWithKeyboard = useCallback((event) => {
+        const step = event.shiftKey ? 48 : 16;
+        if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            setFilePanelWidth((width) => clampFilePanelWidth(width - step));
+        } else if (event.key === "ArrowRight") {
+            event.preventDefault();
+            setFilePanelWidth((width) => clampFilePanelWidth(width + step));
+        } else if (event.key === "Home") {
+            event.preventDefault();
+            setFilePanelWidth(FILE_PANEL_MIN_WIDTH);
+        } else if (event.key === "End") {
+            event.preventDefault();
+            setFilePanelWidth(FILE_PANEL_MAX_WIDTH);
+        }
+    }, []);
 
     const toggleViewedFile = useCallback((filePath) => {
         const wasViewed = viewedFiles.has(filePath);
@@ -525,6 +579,8 @@ export function CodeReviewSurface({ payload }) {
                         className="rw-plannotator-code-layout"
                         data-annotations-open={annotationsOpen}
                         data-file-tree-open={fileTreeOpen}
+                        data-resizing-file-panel={resizingFilePanel}
+                        style={{ "--rw-code-review-files-width": `${filePanelWidth}px` }}
                     >
                         {fileTreeOpen && (
                             <aside className="rw-review-file-tree">
@@ -548,6 +604,21 @@ export function CodeReviewSurface({ payload }) {
                                         Files
                                     </button>
                                 </div>
+                                <div
+                                    aria-label="Resize file panel"
+                                    aria-orientation="vertical"
+                                    aria-valuemax={FILE_PANEL_MAX_WIDTH}
+                                    aria-valuemin={FILE_PANEL_MIN_WIDTH}
+                                    aria-valuenow={filePanelWidth}
+                                    className="rw-code-file-resize-handle"
+                                    onKeyDown={resizeFilePanelWithKeyboard}
+                                    onPointerDown={startFilePanelResize}
+                                    onPointerMove={resizeFilePanel}
+                                    onPointerUp={finishFilePanelResize}
+                                    onPointerCancel={finishFilePanelResize}
+                                    role="separator"
+                                    tabIndex={0}
+                                />
                                 <div className="rw-code-file-panel">
                                     {filePanelMode === "tree"
                                         ? (
