@@ -127,11 +127,22 @@ async function remoteHead(cwd: string, remote: string, branch: string): Promise<
     return /^[0-9a-f]{40}$/i.test(hash || "") ? hash : null;
 }
 
-function classifyRemoteFailure(message: string): "permission_denied" | "remote_unavailable" {
-    return /authentication failed|permission denied|access denied|authorization failed|publickey|could not read username/i
+type RemoteFailureKind = "permission_denied" | "policy_violation" | "remote_unavailable";
+
+function classifyRemoteFailure(message: string): RemoteFailureKind {
+    if (
+        /authentication failed|permission denied|access denied|authorization failed|publickey|could not read username/i
             .test(message)
-        ? "permission_denied"
-        : "remote_unavailable";
+    ) {
+        return "permission_denied";
+    }
+    if (
+        /protected branch|repository rules?|rule violations?|pre-receive hook declined|hook declined|prohibited|not allowed to push|branch permissions?|GH00[136]/i
+            .test(message)
+    ) {
+        return "policy_violation";
+    }
+    return "remote_unavailable";
 }
 
 function isLeaseRace(message: string): boolean {
@@ -151,7 +162,7 @@ async function pushPublication(
     const remoteFailure = classifyRemoteFailure(detail);
     const mergeFailureKind = isLeaseRace(detail)
         ? "target_reference_race"
-        : remoteFailure === "permission_denied"
+        : remoteFailure === "permission_denied" || remoteFailure === "policy_violation"
         ? remoteFailure
         : /could not resolve host|unable to access|connection (?:timed out|refused|reset)|network is unreachable|connection closed/i
                 .test(detail)

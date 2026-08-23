@@ -3,6 +3,7 @@ import { assertEquals } from "@std/assert";
 import { classifyValidationOperationalError, type GitPublicationErrorKind } from "./validation-operational-errors.ts";
 import { decideValidationRecovery, DEFAULT_VALIDATION_RETRY_POLICY } from "./validation-recovery.ts";
 import { normalizePublicationFailure, publicationFailureNeedsUserAction } from "./validation-merge-repair.ts";
+import { publicationFailureKindFromMergeKind } from "./validation-publication.ts";
 
 function decidePublicationFailure(kind: GitPublicationErrorKind) {
     return decideValidationRecovery({
@@ -45,6 +46,17 @@ Deno.test("permission and branch-policy failures halt publication", () => {
     const policyViolation = decidePublicationFailure("policy_violation");
     assertEquals(policyViolation.action, "halt");
     assertEquals(policyViolation.result.kind, "terminal");
+});
+
+Deno.test("publication maps local merge conflicts to correction and protected-branch rejection to fatal", () => {
+    assertEquals(publicationFailureKindFromMergeKind("local_publication_conflict"), "content_conflict");
+    assertEquals(
+        decidePublicationFailure(publicationFailureKindFromMergeKind("local_publication_conflict")).action,
+        "correct",
+    );
+
+    assertEquals(publicationFailureKindFromMergeKind("policy_violation"), "policy_violation");
+    assertEquals(decidePublicationFailure(publicationFailureKindFromMergeKind("policy_violation")).action, "halt");
 });
 
 Deno.test("publication offers Retry only when the user can change the outcome", () => {

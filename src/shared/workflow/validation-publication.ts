@@ -75,7 +75,7 @@ function firstMarkdownHeading(markdown: string, fallback: string): string {
     return heading ? heading.replace(/^#\s+/, "").trim() : fallback;
 }
 
-function publicationFailureKindFromMergeKind(failureKind: string | undefined): GitPublicationErrorKind {
+export function publicationFailureKindFromMergeKind(failureKind: string | undefined): GitPublicationErrorKind {
     switch (failureKind) {
         case "target_reference_race":
             return "target_reference_race";
@@ -85,6 +85,7 @@ function publicationFailureKindFromMergeKind(failureKind: string | undefined): G
         case "isolated_publication_conflict":
         case "detached_merge_conflict":
         case "current_checkout_merge_conflict":
+        case "local_publication_conflict":
         case "content_conflict":
             return "content_conflict";
         case "primary_checkout_dirty":

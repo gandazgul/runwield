@@ -138,7 +138,7 @@ Deno.test("isolated publication pushes the target upstream without touching the 
     }
 });
 
-Deno.test("failed upstream publication leaves the validated execution branch recoverable", async () => {
+Deno.test("a remote policy rejection is typed as fatal and leaves the execution branch recoverable", async () => {
     const projectRoot = await makeRepo();
     const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-publication-rejecting-remote-" });
     const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-publication-retry-worktree-" });
@@ -155,7 +155,10 @@ Deno.test("failed upstream publication leaves the validated execution branch rec
         const remoteHeadBefore = (await git(projectRoot, ["ls-remote", "origin", "refs/heads/main"]))
             .split(/\s+/)[0];
         const hookPath = `${remoteRoot}/hooks/pre-receive`;
-        await Deno.writeTextFile(hookPath, "#!/bin/sh\nexit 1\n");
+        await Deno.writeTextFile(
+            hookPath,
+            "#!/bin/sh\necho 'protected branch policy: pre-receive hook declined' >&2\nexit 1\n",
+        );
         await Deno.chmod(hookPath, 0o755);
 
         const failure = await assertRejects(() =>
@@ -170,7 +173,7 @@ Deno.test("failed upstream publication leaves the validated execution branch rec
             })
         );
         assert(failure instanceof IsolatedPublicationError);
-        assertEquals(failure.mergeFailureKind, "publication_push_failed");
+        assertEquals(failure.mergeFailureKind, "policy_violation");
 
         assert((await Deno.stat(worktree.path)).isDirectory);
         assertEquals(await git(worktree.path, ["rev-parse", "HEAD"]), sealedCommit);
