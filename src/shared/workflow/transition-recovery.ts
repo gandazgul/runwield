@@ -220,11 +220,12 @@ export async function listGitWorktreePaths(projectRoot: string) {
  */
 export async function healSettledTransitionRecords(
     projectRoot: string,
-    options: { planName?: string; apply?: boolean } = {},
+    options: { planName?: string; apply?: boolean; evidenceProjectRoot?: string } = {},
 ): Promise<{ closed: TransitionReconciliation[]; remaining: TransitionReconciliation[] }> {
-    const inspection = await inspectWorktreeRegistry(projectRoot);
-    const gitWorktreePaths = await listGitWorktreePaths(projectRoot);
-    const proveEffect = buildEffectProver(projectRoot, {
+    const evidenceProjectRoot = options.evidenceProjectRoot || projectRoot;
+    const inspection = await inspectWorktreeRegistry(evidenceProjectRoot);
+    const gitWorktreePaths = await listGitWorktreePaths(evidenceProjectRoot);
+    const proveEffect = buildEffectProver(evidenceProjectRoot, {
         registryEntries: inspection.entries,
         gitWorktreePaths,
     });

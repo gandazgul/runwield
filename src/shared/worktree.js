@@ -124,6 +124,39 @@ function filterUserDirtyPaths(paths, allowed = new Set()) {
     return paths.filter((path) => !isRunWieldOwnedRuntimePath(path) && !isAllowedDirtyPath(path, allowed));
 }
 
+/** @param {string} path */
+function isExecutionPreparationPath(path) {
+    return path === ".gitignore" || path === "docs/plans" || path.startsWith("docs/plans/") ||
+        isRunWieldOwnedRuntimePath(path);
+}
+
+/**
+ * Detect evidence that an execution Agent already changed a reusable worktree.
+ * Plan materialization, the owned ignore block, and runtime files are setup—not
+ * implementation evidence.
+ *
+ * @param {Object} opts
+ * @param {string} opts.worktreePath
+ * @param {string} opts.baseRef
+ * @param {string} [opts.targetRef]
+ * @param {boolean} [opts.includeWorkingTree]
+ * @returns {Promise<boolean>}
+ */
+export async function hasExecutionChangesSince({
+    worktreePath,
+    baseRef,
+    targetRef = "HEAD",
+    includeWorkingTree = false,
+}) {
+    const committed = parseNameOnlyPaths(
+        await runGit(worktreePath, ["diff", "--name-only", `${baseRef}..${targetRef}`]),
+    );
+    const dirty = includeWorkingTree
+        ? parseStatusPaths(await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]))
+        : [];
+    return [...new Set([...committed, ...dirty])].some((path) => !isExecutionPreparationPath(path));
+}
+
 /**
  * @param {string} cwd
  * @param {string[]} paths
