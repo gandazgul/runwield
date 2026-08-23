@@ -171,6 +171,16 @@ Tab rules:
 
 Do not use tabs for one-off actions. Use action buttons instead.
 
+### Toolbar controls
+
+Use `.rw-toolbar-button` for compact actions inside Workspace toolbars. This class is shared in
+`src/ui/design-system/components.css` so related actions keep the same size, border, text color, hover state, and
+disabled state. Use it for toolbar actions that open side panels, switch helper views, or add comments. Do not make
+one-off local button styles for those actions.
+
+Use `.rw-segmented-toggle` for compact two-option toolbar choices such as `Changes` / `Files` and `Side by side` /
+`Unified`. Active buttons can use `.active`, `aria-pressed="true"`, or `aria-selected="true"`.
+
 ### Boards and columns
 
 Use board columns for status-grouped workflow objects.
@@ -339,6 +349,8 @@ Plannotator-specific mapping:
 
 - plan review page: use the shell plus a detail-panel layout;
 - Plan title, summary, Front Matter, and markdown body: follow Plan Detail and MarkdownView patterns;
+- annotation submission: label the action **Send Annotations** and place it directly below the annotation sidebar
+  heading, above the annotation list, using the shared accent treatment so it remains visible;
 - approve/save: primary action when it is the normal forward path;
 - request changes or deny: danger action when it sends Feedback back to the planning Agent;
 - comments and annotations: use badge, notice, and metadata patterns before inventing a separate comment aesthetic;

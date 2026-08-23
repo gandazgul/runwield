@@ -385,6 +385,60 @@ Deno.test("continuing an in-progress worktree keeps its Plan authoritative and r
             executionPlan.attrs,
             { expectedRevision: executionPlan.revision },
         );
+        const now = new Date().toISOString();
+        await addWorktreeRegistryEntry(project.projectRoot, {
+            id: attempt.worktreeId,
+            planName: project.plan.planName,
+            planId: "plan-1",
+            path: worktreePath,
+            branch: attempt.worktreeBranch,
+            baseBranch: attempt.worktreeBaseBranch,
+            baseRef: attempt.worktreeBaseBranch,
+            baseCommit: await runGit(project.projectRoot, ["rev-parse", "HEAD"]),
+            baseTree: project.baselineTree,
+            executionBaselineTree: project.baselineTree,
+            status: "active",
+            createdAt: now,
+            updatedAt: now,
+        });
+        const recoveryDirectory = getTransitionJournalDir(worktreePath);
+        const recoveryPath = `${recoveryDirectory}/interrupted-execution-setup.json`;
+        await Deno.mkdir(recoveryDirectory, { recursive: true });
+        await Deno.writeTextFile(
+            recoveryPath,
+            `${
+                JSON.stringify(
+                    {
+                        version: 1,
+                        transitionId: "interrupted-execution-setup",
+                        operation: "execution_preparation",
+                        planName: project.plan.planName,
+                        state: "needs_recovery",
+                        resources: [
+                            { kind: "plan", id: project.plan.planName },
+                            { kind: "attempt", id: attempt.worktreeId },
+                        ],
+                        completedEffects: [
+                            {
+                                effect: "git_worktree_reused",
+                                proof: {
+                                    worktreeId: attempt.worktreeId,
+                                    path: worktreePath,
+                                    branch: attempt.worktreeBranch,
+                                },
+                            },
+                            {
+                                effect: "worktree_registry_updated",
+                                proof: { worktreeId: attempt.worktreeId, status: "active" },
+                            },
+                            { effect: "plan_event_recorded", proof: { planName: project.plan.planName } },
+                        ],
+                    },
+                    null,
+                    2,
+                )
+            }\n`,
+        );
         project.plan.attrs = primaryAttrs;
         let executeCalls = 0;
         const ui = makeUi(["continue"]);
@@ -396,6 +450,7 @@ Deno.test("continuing an in-progress worktree keeps its Plan authoritative and r
 
         assertEquals(await handlePlanRecovery(options), "handled");
         assertEquals(executeCalls, 1);
+        assertEquals(await Deno.stat(recoveryPath).then(() => true).catch(() => false), false);
         assertEquals((await loadPlan(project.projectRoot, project.plan.planName))?.attrs.status, "ready_for_work");
         assertEquals((await loadPlan(worktreePath, project.plan.planName))?.attrs.status, "ready_for_work");
         assertEquals((await findWorktreeRegistryEntryById(project.projectRoot, attempt.worktreeId))?.status, "active");
@@ -409,6 +464,47 @@ Deno.test("continuing an in-progress worktree keeps its Plan authoritative and r
         await Deno.remove(project.projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(worktreePath, { recursive: true }).catch(() => {});
     }
+});
+
+Deno.test("validated work already contained in its target branch is complete without a worktree record", async () => {
+    const project = await makeRealRecoveryProject({ status: "validated", executionMode: "worktree" });
+    const executionCommit = await runGit(project.projectRoot, ["rev-parse", "HEAD"]);
+    const currentPlan = await loadPlan(project.projectRoot, project.plan.planName);
+    if (!currentPlan) throw new Error("published fixture Plan disappeared");
+    await updatePlanFrontMatter(
+        project.projectRoot,
+        project.plan.planName,
+        {
+            status: "validated",
+            executionMode: "worktree",
+            deliveryEvidence: {
+                version: 1,
+                mode: "worktree_merge",
+                executionCommit,
+                targetBranch: "main",
+                targetHeadBeforeMerge: executionCommit,
+            },
+        },
+        currentPlan.attrs,
+        { expectedRevision: currentPlan.revision },
+    );
+    await runGit(project.projectRoot, ["add", "."]);
+    await runGit(project.projectRoot, ["commit", "-m", "record validated publication"]);
+    const publishedPlan = await loadPlan(project.projectRoot, project.plan.planName);
+    if (!publishedPlan) throw new Error("published fixture Plan was not saved");
+    project.plan = { ...publishedPlan, planName: project.plan.planName };
+    const ui = makeUi([]);
+    const options = makeOptions(project.plan, ui, project.projectRoot);
+    let validationCalls = 0;
+    options.session.runValidation = () => {
+        validationCalls += 1;
+        return Promise.resolve({ status: "blocked" });
+    };
+
+    assertEquals(await handlePlanRecovery(options), "settled");
+    assertEquals(validationCalls, 0);
+    assertEquals(ui.prompts.length, 0);
+    assertEquals(ui.messages.includes(`${project.plan.planName} is on main.`), true);
 });
 
 Deno.test("Plan Recovery actions preserve live context", async () => {

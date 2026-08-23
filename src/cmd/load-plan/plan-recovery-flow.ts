@@ -14,6 +14,8 @@ import {
 import { runPlansDoctor } from "../plans/doctor.ts";
 import { isInValidation } from "../../shared/workflow/plan-lifecycle.js";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
+import { healSettledTransitionRecords } from "../../shared/workflow/transition-recovery.ts";
+import { verifyRecordedPublication } from "../../shared/workflow/validation-merge-verification.ts";
 import { isUserVerifiableStatus } from "./plan-hold.ts";
 import {
     canManuallyMergeRecoveredWorktree,
@@ -60,6 +62,7 @@ export interface UnresolvedTransitionRecord {
     transitionId?: string;
     operation?: string;
     reason?: string;
+    authorityRoot?: string;
 }
 
 export interface HandlePlanRecoveryOptions {
@@ -153,6 +156,44 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
         }, projectRoot);
     };
     context.worktreeContext = await context.refreshRecoveryWorktree();
+    if (context.worktreeContext?.path && context.worktreeContext.path !== projectRoot) {
+        const executionRecovery = await healSettledTransitionRecords(context.worktreeContext.path, {
+            planName: plan.planName,
+            evidenceProjectRoot: projectRoot,
+        });
+        const settledIds = new Set(executionRecovery.closed.map((record) => record.transitionId));
+        context.unresolvedRecords = context.unresolvedRecords
+            .filter((record) => !record.transitionId || !settledIds.has(record.transitionId))
+            .concat(executionRecovery.remaining.map((record) => ({
+                ...record,
+                authorityRoot: context.worktreeContext?.path,
+            })));
+        if (executionRecovery.closed.length > 0) {
+            uiAPI.appendSystemMessage(
+                buildPlanRecoveryUserMessage({ kind: "records_settled", count: executionRecovery.closed.length }),
+                false,
+                "RunWield",
+            );
+        }
+    }
+    if (!context.worktreeContext) {
+        const publication = await verifyRecordedPublication(projectRoot, plan.attrs);
+        if (publication.published) {
+            uiAPI.appendSystemMessage(
+                buildValidationUserMessage({
+                    kind: "verified",
+                    planName: plan.planName,
+                    targetBranch: publication.targetBranch,
+                }),
+                false,
+                "RunWield",
+            );
+            await context.recordRecoveryResult("validate", "already_published", {
+                targetBranch: publication.targetBranch,
+            });
+            return "settled";
+        }
+    }
 
     while (true) {
         const hasWorktree = hasWorktreeContext(context.worktreeContext);

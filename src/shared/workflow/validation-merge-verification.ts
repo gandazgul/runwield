@@ -28,6 +28,41 @@ interface MergeVerificationResult {
     message: string;
 }
 
+export interface RecordedPublicationResult {
+    published: boolean;
+    targetBranch?: string;
+}
+
+/**
+ * Prove the terminal publication state that intentionally has no worktree record.
+ *
+ * Once Direct Delivery succeeds, RunWield removes the attempt from the worktree
+ * registry. The Plan deliberately remains `validated`; its recorded execution commit
+ * and target branch are the durable proof that distinguishes "published" from
+ * "validated but still waiting to publish".
+ */
+export async function verifyRecordedPublication(
+    projectRoot: string,
+    attrs: import("../../plan-store.js").PlanFrontMatter,
+): Promise<RecordedPublicationResult> {
+    const evidence = attrs.deliveryEvidence;
+    if (
+        attrs.status !== "validated" || evidence?.mode !== "worktree_merge" ||
+        !evidence.executionCommit || !evidence.targetBranch
+    ) {
+        return { published: false };
+    }
+    const containment = await runGitForMergeVerification(projectRoot, [
+        "merge-base",
+        "--is-ancestor",
+        evidence.executionCommit,
+        evidence.targetBranch,
+    ]);
+    return containment.exitCode === 0
+        ? { published: true, targetBranch: evidence.targetBranch }
+        : { published: false, targetBranch: evidence.targetBranch };
+}
+
 export interface RepairedMergeCandidate {
     executionCommit: string;
     metadataCommit: string;

@@ -148,13 +148,30 @@ export async function restoreRecoveryWorktreeRecord(context: RecoveryActionConte
 
 export async function settleRecoveryRecords(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
     const { projectRoot, plan, uiAPI } = context;
-    const recheck = await healSettledTransitionRecords(projectRoot, { planName: plan.planName, apply: true }).catch(
-        () => null,
-    );
-    context.unresolvedRecords = recheck ? recheck.remaining : context.unresolvedRecords;
-    if (recheck && recheck.closed.length > 0) {
+    const authorityRoots = [
+        ...new Set([
+            projectRoot,
+            ...context.unresolvedRecords.map((record) => record.authorityRoot).filter((root): root is string =>
+                Boolean(root)
+            ),
+        ]),
+    ];
+    const rechecks = await Promise.all(authorityRoots.map(async (authorityRoot) => {
+        const result = await healSettledTransitionRecords(authorityRoot, {
+            planName: plan.planName,
+            apply: true,
+            evidenceProjectRoot: projectRoot,
+        });
+        return {
+            closed: result.closed,
+            remaining: result.remaining.map((record) => ({ ...record, authorityRoot })),
+        };
+    })).catch(() => null);
+    const closedCount = rechecks?.reduce((count, result) => count + result.closed.length, 0) ?? 0;
+    context.unresolvedRecords = rechecks ? rechecks.flatMap((result) => result.remaining) : context.unresolvedRecords;
+    if (closedCount > 0) {
         uiAPI.appendSystemMessage(
-            buildPlanRecoveryUserMessage({ kind: "records_settled", count: recheck.closed.length }),
+            buildPlanRecoveryUserMessage({ kind: "records_settled", count: closedCount }),
             false,
             "RunWield",
         );
@@ -183,7 +200,7 @@ export async function settleRecoveryRecords(context: RecoveryActionContext): Pro
     }
     for (const record of context.unresolvedRecords) {
         if (record.transitionId) {
-            await closeTransitionRecordByAttestation(projectRoot, record.transitionId, {
+            await closeTransitionRecordByAttestation(record.authorityRoot || projectRoot, record.transitionId, {
                 note: `Closed from Plan Recovery for ${plan.planName}.`,
             });
         }

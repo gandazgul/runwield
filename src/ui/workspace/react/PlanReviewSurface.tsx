@@ -601,7 +601,7 @@ export function PlanReviewSurface({ payload }) {
                                 <div className="rw-plan-review-controls">
                                     <div className="rw-plan-review-mode-actions">
                                         <div
-                                            className="rw-document-mode-toggle"
+                                            className="rw-document-mode-toggle rw-segmented-toggle"
                                             role="tablist"
                                             aria-label="Plan review mode"
                                         >
@@ -774,7 +774,7 @@ export function PlanReviewSurface({ payload }) {
                                             <CloseIcon />
                                         </button>
                                     </div>
-                                    <div className="rw-plan-review-feedback-action">
+                                    <div className="rw-review-feedback-action">
                                         <FeedbackButton
                                             onClick={submitFeedback}
                                             disabled={!hasReviewFeedback || submitting !== null}
@@ -1016,7 +1016,7 @@ function SegmentedPolicyControl({ label, tooltip, value, onChange, disabled, opt
         <Tooltip content={tooltip} side="bottom" align="center" wide>
             <fieldset className="rw-plan-review-segmented-policy" aria-label={label}>
                 <legend className="rw-visually-hidden">{label}</legend>
-                <div>
+                <div className="rw-segmented-toggle">
                     {options.map((option) => (
                         <button
                             key={option.value}

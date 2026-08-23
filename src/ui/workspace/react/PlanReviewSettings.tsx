@@ -406,15 +406,11 @@ function DisplaySettings({ gridEnabled, onGridEnabledChange, onUIPreferencesChan
                     <div className="text-sm font-medium">Plan Width</div>
                     <div className="text-xs text-muted-foreground">Maximum width of the plan card</div>
                 </div>
-                <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-0.5">
+                <div className="rw-segmented-toggle w-full">
                     {PLAN_WIDTH_OPTIONS.map((option) => (
                         <button
                             aria-pressed={uiPreferences.planWidth === option.id}
-                            className={`flex-1 rounded-md px-3 py-1.5 text-xs transition-colors ${
-                                uiPreferences.planWidth === option.id
-                                    ? "bg-background font-medium text-foreground shadow-sm"
-                                    : "text-muted-foreground hover:text-foreground"
-                            }`}
+                            className={`flex-1 ${uiPreferences.planWidth === option.id ? "active" : ""}`}
                             key={option.id}
                             onClick={() => onUIPreferencesChange({ planWidth: option.id })}
                             type="button"
@@ -538,14 +534,11 @@ function CodeDisplayChoice({ description, label, onChange, options, value }) {
                 <div className="text-sm font-medium">{label}</div>
                 <div className="text-xs text-muted-foreground">{description}</div>
             </div>
-            <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-0.5">
+            <div className="rw-segmented-toggle w-full">
                 {options.map((option) => (
                     <button
-                        className={`flex-1 rounded-md px-2 py-1.5 text-xs transition-colors ${
-                            value === option.value
-                                ? "bg-background font-medium text-foreground shadow-sm"
-                                : "text-muted-foreground hover:text-foreground"
-                        }`}
+                        aria-pressed={value === option.value}
+                        className={`flex-1 ${value === option.value ? "active" : ""}`}
                         key={option.value}
                         onClick={() => onChange(option.value)}
                         type="button"

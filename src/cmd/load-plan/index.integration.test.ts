@@ -199,6 +199,43 @@ Deno.test("load-plan archives a verified Plan through the real Plan store", asyn
     });
 });
 
+Deno.test("load-plan offers lifecycle actions for a validated Plan already published to its target branch", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await git(projectRoot, ["init", "-b", "main"]);
+        await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+        await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+        await git(projectRoot, ["commit", "--allow-empty", "-m", "fixture baseline"]);
+        const executionCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
+        await writePlan(projectRoot, "published", {
+            status: "validated",
+            executionMode: "worktree",
+            deliveryEvidence: {
+                version: 1,
+                mode: "worktree_merge",
+                executionCommit,
+                targetBranch: "main",
+                targetHeadBeforeMerge: executionCommit,
+            },
+        });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["archive"]);
+        try {
+            await runLoadPlanCommand(["published"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals(ui.prompts.includes("What would you like to do?"), true);
+            assertEquals(await loadPlan(projectRoot, "published"), null);
+            assertEquals((await loadArchivedPlan(projectRoot, "published"))?.attrs.archivedFromStatus, "validated");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
 Deno.test("load-plan abandons a lost worktree before archiving a User Verified Plan", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
         const lostPath = `${projectRoot}/lost-worktree`;

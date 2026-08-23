@@ -24,6 +24,8 @@
         "./node_modules",
         "./.astro",
         "./remote-server.ts",
+        "./**/*.test.ts",
+        "./**/*.test.tsx",
         "../../../third_party/plannotator/**/*.test.ts",
         "../../../third_party/plannotator/**/*.test.tsx",
         "../../../third_party/plannotator/apps/**/*"

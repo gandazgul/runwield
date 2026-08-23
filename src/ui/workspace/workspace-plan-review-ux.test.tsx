@@ -3,6 +3,7 @@ import { assertStringIncludes } from "@std/assert";
 
 const ROUTE_PATH = "src/ui/workspace/pages/projects/[projectId]/plans/[planId].astro";
 const SURFACE_PATH = "src/ui/workspace/react/PlanReviewSurface.tsx";
+const CODE_SURFACE_PATH = "src/ui/workspace/react/CodeReviewSurface.tsx";
 
 Deno.test("Phone Plan review keeps full editing annotations and actions reachable", async () => {
     const surface = await Deno.readTextFile(SURFACE_PATH);
@@ -19,11 +20,24 @@ Deno.test("Plan feedback action sits above the annotation list with theme accent
     const actionIndex = surface.indexOf('label="Send Annotations"');
     const panelIndex = surface.indexOf('presentation="embedded"');
 
-    assertStringIncludes(surface, 'className="rw-plan-review-feedback-action"');
-    assertStringIncludes(styles, ".rw-plan-review-feedback-action");
+    assertStringIncludes(surface, 'className="rw-review-feedback-action"');
+    assertStringIncludes(styles, ".rw-review-feedback-action");
     assertStringIncludes(styles, "var(--rw-accent)");
     if (sidebarIndex < 0 || actionIndex < sidebarIndex || panelIndex < actionIndex) {
         throw new Error("Send Annotations must sit above the right-side annotation list");
+    }
+});
+
+Deno.test("Code feedback action matches the Plan annotation sidebar treatment", async () => {
+    const surface = await Deno.readTextFile(CODE_SURFACE_PATH);
+    const sidebarIndex = surface.indexOf('className="rw-code-review-annotation-sidebar"');
+    const actionIndex = surface.indexOf('label="Send Annotations"');
+    const listIndex = surface.indexOf("<ReviewSidebar", sidebarIndex);
+
+    assertStringIncludes(surface, 'className="rw-review-feedback-action"');
+    assertStringIncludes(surface, 'label="Send Annotations"');
+    if (sidebarIndex < 0 || actionIndex < sidebarIndex || listIndex < actionIndex) {
+        throw new Error("Code Review's Send Annotations action must sit above the annotation list");
     }
 });
 
