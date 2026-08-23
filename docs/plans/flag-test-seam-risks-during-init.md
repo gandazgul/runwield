@@ -6,26 +6,32 @@ complexity: "MEDIUM"
 summary: "Teach the universal fake-external-systems rule during initialization and have the Init Agent report evidence-backed possible dependency-seam risks for the user to classify, without adding a cross-language checker or exporting RunWield internals."
 affectedPaths:
     - "docs/plans/flag-test-seam-risks-during-init.md"
-    - "docs/testing.md"
+    - "docs/domain-language.md"
     - "docs/user-facing-features.md"
-    - "src/agent-definitions/shared-practice/"
     - "src/agent-definitions/subagent-definitions/init-agent-prompt.md"
     - "src/shared/session/subagent-definitions.test.ts"
     - "src/skills/write-tests/"
 objectiveChecks:
     - id: "OC1"
       command: "grep -q 'Possible test-seam risks' src/agent-definitions/subagent-definitions/init-agent-prompt.md && deno run -A scripts/run-tests.js src/shared/session/subagent-definitions.test.ts"
-      rationale: "The Init Agent must explicitly report uncertain seam findings instead of silently classifying or fixing them."
+      rationale: "The Init Agent must explicitly report uncertain seam findings instead of silently classifying or fixing them, and the subagent contract tests must pass with that text present."
     - id: "OC2"
       command: "grep -q 'write-tests' src/agent-definitions/subagent-definitions/init-agent-prompt.md && grep -q 'product-owned machinery' src/agent-definitions/subagent-definitions/init-agent-prompt.md"
-      rationale: "Initialization must use the shared testing practice by name and preserve the ownership rule in language-neutral terms."
+      rationale: "Initialization must name the shared testing practice and state the ownership rule in language-neutral terms."
     - id: "OC3"
-      command: "! grep -qE 'check-injection-seams|external-capability-ports|deno task seams|ValidationSessionPort|ExecutionStartPorts' src/agent-definitions/subagent-definitions/init-agent-prompt.md"
-      rationale: "Customer-facing initialization must not expose RunWield's private scanner, build commands, manifest, or module names."
+      command: "grep -qE 'check-injection-seams|seams:check|ValidationSessionPort|ExecutionStartPorts' src/shared/session/subagent-definitions.test.ts"
+      rationale: "The no-leak guarantee must be pinned by a prompt-contract test that names the forbidden internal identifiers; red today because that test does not exist."
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T23:55:00-0400"
-updatedAt: "2026-08-18T14:30:00-0400"
-status: "draft"
+updatedAt: "2026-08-23T16:24:04.455Z"
+status: "feedback"
 origin: "user"
+userVerifiedAt: null
+humanReviewMode: null
+humanReviewDecision: null
+validationCheckpoint: null
+worktreeStatus: "abandoned"
 ---
 
 # Flag possible test-seam risks during initialization
@@ -45,8 +51,8 @@ This practice applies across languages. Reliable automatic enforcement does not.
 different languages, architecture conventions, source layouts, test frameworks, and dependency-injection idioms. A
 generic checker would either miss important cases or impose RunWield's JavaScript-specific assumptions on customers.
 
-Initialization already explores each repository deeply enough to notice suspicious examples. It should surface those
-examples as possible issues for the user to classify, not create a universal `wld check` framework.
+Initialization already explores each repository deeply enough to notice suspicious examples. It surfaces those examples
+as possible issues for the user to classify.
 
 ## Objective
 
@@ -57,8 +63,8 @@ Extend the Init Agent so it:
 - distinguishes confirmed syntax from an ownership judgment that still belongs to the user;
 - reports evidence-backed possible issues with file locations and a short explanation;
 - asks the user what, if anything, should be persisted or planned;
-- does not modify production code, tests, build files, CI, issue trackers, or Plans during discovery;
-- never claims the repository is clean merely because it found nothing.
+- keeps discovery read-only — production code, tests, build files, CI, issue trackers, and Plans stay untouched;
+- describes an empty result as bounded coverage with no candidates noticed.
 
 ## Advisory findings
 
@@ -72,8 +78,8 @@ The Init Agent may flag patterns such as:
   belong to the project;
 - broad mocks that prevent most of a feature's real code path from running.
 
-These are discovery hints, not universal violations. Dependency injection can be correct when it represents a genuine
-external system, and a name alone cannot establish ownership. Every finding must include:
+Treat these as discovery hints. Dependency injection can be correct when it represents a genuine external system, and
+ownership requires evidence beyond a name. Every finding must include:
 
 - the exact file and construct observed;
 - what behavior appears replaceable;
@@ -81,13 +87,13 @@ external system, and a name alone cannot establish ownership. Every finding must
 - what fixture environment could exercise the real implementation;
 - an explicit confidence level and the facts that remain uncertain.
 
-Do not report ordinary data/configuration parameters, test fixtures, or external-system fakes merely because they use a
-similar syntax.
+Ordinary data/configuration parameters, test fixtures, and external-system fakes stay out of the report even when they
+use a similar syntax.
 
 ## User-owned disposition
 
 End initialization with a `Possible test-seam risks` section. If there are no findings, say only that no candidates were
-noticed during bounded initialization; do not call that proof.
+noticed during bounded initialization.
 
 For each candidate, the user decides whether to:
 
@@ -96,33 +102,43 @@ For each candidate, the user decides whether to:
 - ask RunWield to create a Plan for a fixture-based refactor;
 - leave it unpersisted for now.
 
-The Init Agent must not guess where issues belong. Repositories may use GitHub Issues, Jira, Linear, local Markdown,
-Plans, or no tracker. It surfaces the candidates in the Init result and asks before writing to any persistent issue
-surface. Speculative findings must not be stored as established project facts in Memory or domain language.
+The Init Agent asks the user where accepted issues belong. Repositories may use GitHub Issues, Jira, Linear, local
+Markdown, Plans, or no tracker. It surfaces the candidates in the Init result and asks before writing to any persistent
+issue surface. Memory and domain language record established project facts only; speculative findings stay out of both.
 
-## No public checker
+## Scope boundary: advisory discovery only
 
-This Plan does not add `wld check`, a source analyzer, a cross-language manifest, or generated enforcement commands.
-RunWield's private seam detector, Deno tasks, `src/`/`scripts/` roots, Port naming, internal modules, and internal
-external-capability declaration remain repository-local implementation details.
+The feature ships as advisory discovery inside the Init result. This Plan explicitly prohibits adding `wld check`, a
+source analyzer, a cross-language manifest, or generated enforcement commands. RunWield's private seam scanner
+(`scripts/check-injection-seams.js`), its baseline (`scripts/injection-seam-baseline.json`), the `seams:check` Deno
+task, the `src/`/`scripts/` roots, and internal Port type names (`ValidationSessionPort`, `ExecutionStartPorts`) remain
+repository-local implementation details and stay out of the customer-facing Init prompt (OC3).
 
 A project may independently choose to turn an accepted finding into a native lint rule, architecture test, or CI check.
-That is a separate project change using its own language and tooling, not something Init installs automatically.
+That is a separate project change using its own language and tooling, which the user can request explicitly.
 
 ## Implementation steps
 
-1. **Reference `write-tests` explicitly.** Add it to the Init Agent's applicable practice and tell the Agent to read it
-   before evaluating test seams.
+1. **Reference `write-tests` explicitly.** In `src/agent-definitions/subagent-definitions/init-agent-prompt.md`, tell
+   the Init Agent to read the bundled `write-tests` skill before evaluating test seams, and state the ownership rule in
+   language-neutral terms: tests must not replace product-owned machinery; only genuine external systems earn fakes. Use
+   the phrase `product-owned machinery` — already canonical in
+   `src/agent-definitions/shared-practice/architecture-vocabulary.md` — not RunWield's internal seam vocabulary. The
+   Init definition (`SUBAGENTS.INIT` in `src/shared/session/subagent-definitions.ts`) composes no shared-practice
+   fragments, so this guidance goes directly into the Init prompt file.
 2. **Add bounded discovery guidance.** Inspect representative production composition and tests after the existing
-   architecture map is understood. Do not turn Init into an exhaustive repository audit.
+   architecture map is understood. Keep the audit bounded to those representative examples.
 3. **Define the advisory report.** Require evidence, ownership reasoning, fixture direction, confidence, and uncertainty
    for every candidate.
 4. **Keep disposition with the user.** Surface findings in the Init result and ask before creating a Plan or writing to
-   the repository's existing issue tracker. Persist nothing automatically.
-5. **Pin no-leak behavior.** Prompt tests reject RunWield's internal checker names, module names, Deno commands, source
-   layout, or Port-type manifest from the bundled Init prompt.
-6. **Document the feature honestly.** Describe it as advisory discovery with bounded coverage, not enforcement or a
-   clean bill of health.
+   the repository's existing issue tracker. Persistence requires an explicit user choice.
+5. **Pin no-leak behavior.** Add a contract test to `src/shared/session/subagent-definitions.test.ts` that loads the
+   composed Init prompt through `loadSubAgentDefinition(SUBAGENTS.INIT)` and rejects RunWield's internal identifiers:
+   `check-injection-seams`, `seams:check`, `injection-seam-baseline`, `ValidationSessionPort`, `ExecutionStartPorts`,
+   and `src/`/`scripts/` layout references.
+6. **Document the feature honestly.** Add it to `docs/user-facing-features.md` (beside the existing `wld init`
+   capability entries) as advisory discovery with bounded coverage, not enforcement or a clean bill of health. Add the
+   `Possible test-seam risks` report section as a defined term in `docs/domain-language.md`.
 
 ## Verification
 

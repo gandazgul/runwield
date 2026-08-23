@@ -26,11 +26,11 @@ I would order the overlapping group like this:
 4. Reassess/archive mode-specific-engineer-context.md and generalize-pair-execution-to-engineer.md (this one is done).
 
    1. docs/plans/execution-agent-context-boundaries.md - done
-   2. parallelize-independent-ci-stages.md
+   2. parallelize-independent-ci-stages.md - done
 
 5. classify-validation-operational-errors.md - done
 
-6. flag-test-seam-risks-during-init.md
+6. flag-test-seam-risks-during-init.md - in progress
 
 7. Optional before foundation: guided-validation-repair.md
 

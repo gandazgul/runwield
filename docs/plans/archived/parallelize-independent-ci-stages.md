@@ -21,7 +21,6 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-20T19:58:32-04:00"
-updatedAt: "2026-08-22T23:56:33.284Z"
 status: "validated"
 origin: "internal"
 implementedAt: "2026-08-21T00:59:45.422Z"
@@ -46,6 +45,10 @@ deliveryEvidence:
 validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-23T15:45:48.517Z"
+archivedAt: "2026-08-23T15:45:48.517Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/parallelize-independent-ci-stages.md"
 ---
 
 # Parallelize Independent CI Stages
