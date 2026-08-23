@@ -123,16 +123,17 @@ export function PlanReviewSurface({ payload }) {
         : null;
     const previousPlan = planVersions.length > 1 ? planVersions.at(-2)?.plan ?? null : null;
     const planDiffFetchers = useMemo(() => ({
-        fetchVersion: async (version) => {
+        fetchVersion: (version) => {
             const entry = planVersions.find((candidate) => candidate.version === version);
             if (!entry) throw new Error(`Plan version ${version} is unavailable.`);
-            return { plan: entry.plan, version: entry.version };
+            return Promise.resolve({ plan: entry.plan, version: entry.version });
         },
-        fetchVersions: async () => ({
-            project: "RunWield",
-            slug: initialPayload.planPath || "plan",
-            versions: planVersions.map(({ version, timestamp }) => ({ version, timestamp })),
-        }),
+        fetchVersions: () =>
+            Promise.resolve({
+                project: "RunWield",
+                slug: initialPayload.planPath || "plan",
+                versions: planVersions.map(({ version, timestamp }) => ({ version, timestamp })),
+            }),
     }), [initialPayload.planPath, planVersions]);
     const planDiff = usePlanDiff(
         plan,

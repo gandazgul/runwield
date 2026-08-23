@@ -160,6 +160,57 @@ Deno.test("full-agent subagents keep shared system-prompt composition and runtim
     assertStringIncludes(feedbackEngineer.systemPrompt, "## Memory System");
 });
 
+Deno.test("Init prompt teaches seam-risk guidance without leaking RunWield internals", async () => {
+    const init = await loadSubAgentDefinition(SUBAGENTS.INIT);
+    const requiredGuidance = [
+        "write-tests",
+        "product-owned machinery",
+        "Possible test-seam risks",
+        "bounded",
+        "initialization",
+        "exact file",
+        "fixture environment",
+        "confidence level",
+        "uncertain",
+        "dismiss",
+        "unpersisted",
+    ];
+    const forbiddenInternalIdentifiers = [
+        "check-injection-seams",
+        "seams:check",
+        "injection-seam-baseline",
+        "ValidationSessionPort",
+        "ExecutionStartPorts",
+        "src/",
+        "scripts/",
+    ];
+    const forbiddenDispositionClaims = [
+        "automatically create a Plan",
+        "write Memory",
+        "clean result",
+    ];
+
+    for (const phrase of requiredGuidance) {
+        assertStringIncludes(init.systemPrompt, phrase);
+    }
+    for (const identifier of forbiddenInternalIdentifiers) {
+        assertEquals(init.systemPrompt.includes(identifier), false, `${identifier} leaked into the Init prompt`);
+    }
+    for (const phrase of forbiddenDispositionClaims) {
+        assertEquals(init.systemPrompt.includes(phrase), false, `${phrase} would bypass user-owned disposition`);
+    }
+});
+
+Deno.test("Init prompt distinguishes internal fakes from external boundaries and uncertain cases", async () => {
+    const init = await loadSubAgentDefinition(SUBAGENTS.INIT);
+
+    assertStringIncludes(init.systemPrompt, "storage, lifecycle, transactions, registries");
+    assertStringIncludes(init.systemPrompt, "networks");
+    assertStringIncludes(init.systemPrompt, "subprocesses");
+    assertStringIncludes(init.systemPrompt, "hosted services");
+    assertStringIncludes(init.systemPrompt, "When ownership is ambiguous");
+});
+
 Deno.test("loadSubAgentDefinition composes delegated role overlays", async () => {
     const general = await loadSubAgentDefinition(SUBAGENTS.DELEGATED);
     const adversary = await loadSubAgentDefinition(SUBAGENTS.DELEGATED, {

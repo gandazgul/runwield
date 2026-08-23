@@ -407,6 +407,11 @@ recall, plan search, Engineer context tool
 **Project Knowledge Search**: Deliberate Agent retrieval over durable artifacts within the active Project. _Avoid_:
 Session Transcript search, automatic context injection, code search
 
+**Possible test-seam risks**: The advisory `wld init` result section for evidence-backed candidates where representative
+project tests appear able to replace product-owned behavior. Each candidate stays speculative until the user classifies
+it, and RunWield asks before it writes an issue or Plan for the risk. _Avoid_: seam check, clean test architecture
+report, automatic refactor
+
 **Engineer**: The selectable full-stack Agent for bounded no-plan QUICK_FIX code changes. Engineer can work in any layer
 by loading the relevant Skills, including browser UI Skills, but does not execute approved Plans. _Avoid_: Plan
 Engineer, Coder, implementer, developer
