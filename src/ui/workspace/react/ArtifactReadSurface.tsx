@@ -109,7 +109,7 @@ export function ArtifactReadSurface({ payload }) {
                         </div>
                         <div className="rw-plannotator-actions">
                             <button
-                                className="rw-artifact-close-button"
+                                className="rw-artifact-close-button rw-review-action-button"
                                 type="button"
                                 onClick={closeReadSurface}
                                 disabled={closing || closed}

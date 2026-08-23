@@ -147,6 +147,56 @@
     font-weight: 500;
 }
 
+.rw-review-action [data-slot="button"],
+.rw-review-action-button {
+    align-items: center;
+    display: inline-flex;
+    justify-content: center;
+    gap: 0.4rem;
+    width: 100%;
+    min-height: 2.25rem;
+    border: 1px solid color-mix(in srgb, var(--rw-accent) 78%, var(--rw-border));
+    border-radius: 0.45rem;
+    padding: 0.45rem 0.8rem;
+    background: color-mix(in srgb, var(--rw-accent) 88%, var(--rw-surface-raised));
+    color: var(--rw-page-bg);
+    box-shadow: 0 0.25rem 0.8rem color-mix(in srgb, var(--rw-accent) 18%, transparent);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 750;
+    line-height: 1.2;
+    text-decoration: none;
+    transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease, color 150ms ease;
+}
+
+.rw-review-action [data-slot="button"]:hover:not(:disabled),
+.rw-review-action [data-slot="button"]:focus-visible:not(:disabled),
+.rw-review-action-button:hover:not(:disabled),
+.rw-review-action-button:focus-visible:not(:disabled) {
+    border-color: var(--rw-accent);
+    background: color-mix(in srgb, var(--rw-accent) 76%, var(--rw-text-strong));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 20%, transparent),
+        0 0.35rem 1rem color-mix(in srgb, var(--rw-accent) 20%, transparent);
+}
+
+.rw-review-action [data-slot="button"]:focus-visible,
+.rw-review-action-button:focus-visible {
+    border-color: var(--rw-accent);
+    outline: 2px solid var(--rw-accent);
+    outline-offset: 2px;
+}
+
+.rw-review-action [data-slot="button"]:disabled,
+.rw-review-action-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.64;
+}
+
+.rw-review-action [data-slot="button"] > span:not([data-slot="button-icon"]) {
+    display: inline;
+}
+
 .card-actions a {
     color: var(--rw-accent-text);
     text-decoration: none;

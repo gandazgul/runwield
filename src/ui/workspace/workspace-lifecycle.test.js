@@ -133,7 +133,10 @@ Deno.test("ArtifactReadSurface keeps the React read surface to Contents, notices
     assertStringIncludes(surfaceSource, "Read-only {artifactLabel}");
     assertStringIncludes(surfaceSource, "aria-label={`${artifactLabel} notices`}");
     assertStringIncludes(surfaceSource, "{notices.map((notice) => <p key={notice}>{notice}</p>)}");
-    assertStringIncludes(surfaceSource, 'className="rw-artifact-close-button"');
+    const componentsCssSource = await Deno.readTextFile(new URL("../design-system/components.css", import.meta.url));
+
+    assertStringIncludes(surfaceSource, 'className="rw-artifact-close-button rw-review-action-button"');
+    assertStringIncludes(componentsCssSource, ".rw-review-action-button");
     assertStringIncludes(surfaceSource, 'activeTab="toc"');
     assertStringIncludes(surfaceSource, "showFilesTab={false}");
     assertStringIncludes(surfaceSource, "showVersionsTab={false}");

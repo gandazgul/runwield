@@ -17,6 +17,12 @@ Deno.test("design-system Dialog primitive is importable and styled", async () =>
     assertStringIncludes(css, ".rw-dialog-footer");
 });
 
+Deno.test("design-system exposes review action styling", async () => {
+    const css = await Deno.readTextFile(new URL("./components.css", import.meta.url));
+    assertStringIncludes(css, '.rw-review-action [data-slot="button"]');
+    assertStringIncludes(css, ".rw-review-action-button");
+});
+
 Deno.test("renderRunWieldThemeCss renders browser theme variables", () => {
     const css = renderRunWieldThemeCss({
         name: "design-system",

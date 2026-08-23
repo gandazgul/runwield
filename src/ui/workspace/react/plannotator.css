@@ -363,33 +363,6 @@ html[class*="theme-"] {
     background: color-mix(in srgb, var(--rw-accent) 5%, var(--rw-surface));
 }
 
-.rw-review-feedback-action [data-slot="button"] {
-    width: 100%;
-    min-height: 2.25rem;
-    border-color: color-mix(in srgb, var(--rw-accent) 78%, var(--rw-border));
-    background: color-mix(in srgb, var(--rw-accent) 88%, var(--rw-surface-raised));
-    color: var(--rw-page-bg);
-    box-shadow: 0 0.25rem 0.8rem color-mix(in srgb, var(--rw-accent) 18%, transparent);
-    font-weight: 750;
-}
-
-.rw-review-feedback-action [data-slot="button"]:hover:not(:disabled) {
-    border-color: var(--rw-accent);
-    background: color-mix(in srgb, var(--rw-accent) 76%, var(--rw-text-strong));
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 20%, transparent),
-        0 0.35rem 1rem color-mix(in srgb, var(--rw-accent) 20%, transparent);
-}
-
-.rw-review-feedback-action [data-slot="button"]:focus-visible {
-    border-color: var(--rw-accent);
-    outline: 2px solid var(--rw-accent);
-    outline-offset: 2px;
-}
-
-.rw-review-feedback-action [data-slot="button"] > span:not([data-slot="button-icon"]) {
-    display: inline;
-}
-
 .rw-code-review-annotation-sidebar {
     display: flex;
     min-width: 0;
@@ -476,26 +449,8 @@ html[class*="theme-"] {
 }
 
 .rw-artifact-close-button {
-    border: 1px solid color-mix(in oklab, var(--primary) 58%, var(--border));
-    border-radius: 999px;
-    padding: 0.5rem 0.9rem;
-    background: color-mix(in oklab, var(--primary) 18%, var(--rw-surface-raised, #1e293b));
-    color: var(--foreground);
-    font-size: 0.78rem;
-    font-weight: 700;
-    transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
-}
-
-.rw-artifact-close-button:hover:not(:disabled),
-.rw-artifact-close-button:focus-visible:not(:disabled) {
-    border-color: var(--primary);
-    background: color-mix(in oklab, var(--primary) 28%, var(--rw-surface-raised, #1e293b));
-    color: var(--rw-text-strong, var(--foreground));
-}
-
-.rw-artifact-close-button:disabled {
-    cursor: not-allowed;
-    opacity: 0.64;
+    width: auto;
+    flex: none;
 }
 
 .rw-artifact-notices,

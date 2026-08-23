@@ -536,6 +536,7 @@ export async function runSlicerAgent({
             reviewFeedback,
         });
         const slicerSessionManager = boundary?.manager || sessionManager;
+        hostedSession.setWorkflowPlanName(planName);
         const slicerCustomTools = createSlicerCustomTools(planName, projectRoot);
         await agentSwitching.runActiveAgentTurn({
             hostedSession,

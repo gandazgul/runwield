@@ -184,6 +184,11 @@ Use `.rw-segmented-toggle` for compact two-option toolbar choices such as `Chang
 Use `.rw-modal-primary-button` for the main action in a modal or composer. Put keyboard help such as `⌘↵` or
 `Ctrl+Enter` beside it with `.rw-modal-submit-hint` when the action has a keyboard shortcut.
 
+Use the **Review action button** pattern for a prominent safe action in Plan Review, Code Review, and read-only review
+surfaces. The CSS hooks are `.rw-review-action` for wrappers around Plannotator buttons and `.rw-review-action-button`
+for native buttons. Use it for actions such as **Send Annotations** or **Close** when the action must stay easy to find
+inside the review surface. Do not use it for destructive outcomes or low-emphasis toolbar controls.
+
 ### Boards and columns
 
 Use board columns for status-grouped workflow objects.
@@ -353,7 +358,7 @@ Plannotator-specific mapping:
 - plan review page: use the shell plus a detail-panel layout;
 - Plan title, summary, Front Matter, and markdown body: follow Plan Detail and MarkdownView patterns;
 - annotation submission: label the action **Send Annotations** and place it directly below the annotation sidebar
-  heading, above the annotation list, using the shared accent treatment so it remains visible;
+  heading, above the annotation list, using the Review action button pattern so it remains visible;
 - approve/save: primary action when it is the normal forward path;
 - request changes or deny: danger action when it sends Feedback back to the planning Agent;
 - comments and annotations: use badge, notice, and metadata patterns before inventing a separate comment aesthetic;

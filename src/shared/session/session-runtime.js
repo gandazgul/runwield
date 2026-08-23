@@ -76,6 +76,7 @@ import { getSessionKeyboardHelp } from "./session-help.js";
 import {
     deriveWorkflowContextFromExecutionWorkflow,
     readPersistedPendingSegmentContinuationEntry,
+    readPersistedWorkflowContext,
     recordSegmentLineageEvidence,
 } from "./workflow-context-session.js";
 import { executePlanAction } from "../workflow/plan-actions.ts";
@@ -91,6 +92,28 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 /** @type {AsyncLocalStorage<ManagedOperationContext>} */
 const ACTIVE_MANAGED_OPERATION = new AsyncLocalStorage();
+
+/**
+ * Rebuild the workflow-owned root configuration that an active-agent marker
+ * alone cannot describe. Slicer needs both its hidden definition and the
+ * finalize tool bound to the current Epic.
+ *
+ * @param {string} agentName
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager
+ * @param {string} cwd
+ */
+async function resolvePersistedRootConfiguration(agentName, sessionManager, cwd) {
+    if (agentName !== AGENTS.SLICER) return {};
+    const planName = readPersistedWorkflowContext(sessionManager)?.planName || "";
+    if (!planName) {
+        throw new Error("Cannot resume Slicer because its Epic context is missing from the Session transcript.");
+    }
+    const { createSlicerFinalizeTool } = await import("../workflow/workflow-slicer.ts");
+    return {
+        subAgentDefinition: { id: SUBAGENTS.SLICER },
+        customTools: [createSlicerFinalizeTool({ planName, cwd })],
+    };
+}
 
 /**
  * @typedef {Object} SessionRuntimeComposition
@@ -3444,16 +3467,22 @@ export class SessionRuntime {
             const persistedModel = resolvePersistedResumeModel(sessionManager);
             if (descriptor.activateAgent !== false) {
                 agentName ||= await resolveResumeAgentName(sessionManager);
+                const persistedRootConfiguration = await resolvePersistedRootConfiguration(
+                    agentName,
+                    sessionManager,
+                    hostedSession.cwd,
+                );
                 const pendingModel = pendingIntent.model || pendingIntent.provider
                     ? pendingIntent.provider && pendingIntent.model
                         ? `${pendingIntent.provider}/${pendingIntent.model}`
                         : pendingIntent.model || undefined
                     : undefined;
                 await this.#activateSessionAgent(hostedSession, {
+                    ...persistedRootConfiguration,
                     agentName,
                     model: pendingModel || persistedModel,
                     toolNames: options.toolNames,
-                    customTools: options.customTools,
+                    customTools: options.customTools || persistedRootConfiguration.customTools,
                     includeEditFallback: options.includeEditFallback,
                     managedOperationCapability: capability,
                 });

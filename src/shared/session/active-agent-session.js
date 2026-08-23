@@ -87,6 +87,12 @@ export async function resolveResumeAgentName(sessionManager) {
         const agentName = readAgentNameFromEntry(entries[i]);
         if (!agentName) continue;
 
+        // Slicer is a persistent interactive workflow phase, but its definition
+        // intentionally lives outside top-level Agent discovery. The Runtime
+        // reconstructs its Epic-scoped definition and tools when this marker is
+        // resumed, so do not skip back to the preceding Architect marker here.
+        if (agentName.trim().toLowerCase() === AGENTS.SLICER) return AGENTS.SLICER;
+
         try {
             const agentDefinition = await loadAgentDef(agentName, projectRoot || undefined);
             return agentDefinition.name;

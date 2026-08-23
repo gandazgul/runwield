@@ -1440,6 +1440,49 @@ Deno.test("SessionRuntime routes execution continuation input to the resolved Pl
     assertEquals(changedAgents, ["planner", "plan-engineer"]);
 });
 
+Deno.test("SessionRuntime keeps the next Epic decomposition reply with Slicer", async () => {
+    const projectRoot = join(runtimeProjectRoot(), `slicer-resume-${crypto.randomUUID()}`);
+    await Deno.mkdir(projectRoot, { recursive: true });
+    await savePlan(projectRoot, "epic-a", "# Epic A", {
+        classification: "PROJECT",
+        complexity: "HIGH",
+        summary: "Epic A",
+        affectedPaths: ["src/epic.ts"],
+        status: "ready_for_decomposition",
+    });
+    let resumedSystemPrompt = "";
+    const resumedToolNames = new Set([""]);
+    resumedToolNames.clear();
+    setRuntimeModelResponseFactories([
+        () => fauxAssistantMessage(fauxText("I recommend two child Plans. Should I finalize them?")),
+        (context) => {
+            resumedSystemPrompt = context.systemPrompt || "";
+            for (const tool of context.tools || []) resumedToolNames.add(tool.name);
+            return fauxAssistantMessage(fauxText("I will keep refining this Epic decomposition."));
+        },
+    ]);
+    const runtime = makeRuntime();
+    const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "architect" });
+
+    try {
+        const slicerResult = await runtime.runSlicerAgent(sessionId, { planName: "epic-a" });
+        assertEquals(slicerResult, { ok: true });
+        assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "slicer");
+
+        const replyResult = await runtime.promptUserTurn(sessionId, {
+            initialRequest: "Yes; use epic-base as the shared branch and finalize the children.",
+            initialImages: [],
+        });
+
+        assertEquals(replyResult.ok, true);
+        assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "slicer");
+        assertEquals(resumedSystemPrompt.includes("You are the Slicer"), true);
+        assertEquals(resumedToolNames.has("slicer_finalize_decomposition"), true);
+    } finally {
+        await runtime.closeSession(sessionId);
+    }
+});
+
 Deno.test("SessionRuntime owns managed submission blocking messages", () => {
     const sessionHost = new SessionHost();
     const session = sessionHost.createSession({

@@ -72,6 +72,15 @@ Deno.test("resolveResumeAgentName returns persisted valid agent", async () => {
     assertEquals(await resolveResumeAgentName(sessionManager), AGENTS.PLANNER);
 });
 
+Deno.test("resolveResumeAgentName preserves the persistent workflow-only Slicer", async () => {
+    const sessionManager = makeSessionManager([
+        { type: "custom", customType: ACTIVE_AGENT_CUSTOM_TYPE, data: { agentName: AGENTS.ARCHITECT } },
+        { type: "custom", customType: ACTIVE_AGENT_CUSTOM_TYPE, data: { agentName: AGENTS.SLICER } },
+    ]);
+
+    assertEquals(await resolveResumeAgentName(sessionManager), AGENTS.SLICER);
+});
+
 Deno.test("resolveResumeAgentName returns canonical filename identity instead of display casing", async () => {
     const sessionManager = makeSessionManager([
         { type: "custom", customType: ACTIVE_AGENT_CUSTOM_TYPE, data: { agentName: "Router" } },

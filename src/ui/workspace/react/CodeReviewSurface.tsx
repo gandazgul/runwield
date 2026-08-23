@@ -818,7 +818,7 @@ export function CodeReviewSurface({ payload }) {
                                         <PanelCollapseIcon side="right" />
                                     </button>
                                 </div>
-                                <div className="rw-review-feedback-action">
+                                <div className="rw-review-feedback-action rw-review-action">
                                     <FeedbackButton
                                         onClick={submitFeedback}
                                         disabled={annotations.length === 0 || submitting !== null}

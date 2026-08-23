@@ -19,13 +19,13 @@ objectiveChecks:
       command: "grep -q 'write-tests' src/agent-definitions/subagent-definitions/init-agent-prompt.md && grep -q 'product-owned machinery' src/agent-definitions/subagent-definitions/init-agent-prompt.md"
       rationale: "Initialization must name the shared testing practice and state the ownership rule in language-neutral terms."
     - id: "OC3"
-      command: "grep -qE 'check-injection-seams|seams:check|ValidationSessionPort|ExecutionStartPorts' src/shared/session/subagent-definitions.test.ts"
-      rationale: "The no-leak guarantee must be pinned by a prompt-contract test that names the forbidden internal identifiers; red today because that test does not exist."
+      command: "grep -q 'Deno.test(\"Init prompt teaches seam-risk guidance without leaking RunWield internals\"' src/shared/session/subagent-definitions.test.ts && deno eval 'import {SUBAGENTS as S} from \"./src/constants.js\";import {loadSubAgentDefinition as l} from \"./src/shared/session/subagent-definitions.ts\";const p=(await l(S.INIT)).systemPrompt;for(const s of [\"write-tests\",\"product-owned machinery\",\"Possible test-seam risks\",\"exact file\",\"fixture\",\"confidence\",\"uncertain\",\"bounded\",\"no candidates\",\"dismiss\",\"unpersisted\"])if(!p.includes(s))Deno.exit(1);for(const s of [\"check-injection-seams\",\"seams:check\",\"injection-seam-baseline\",\"ValidationSessionPort\",\"ExecutionStartPorts\",\"src/\",\"scripts/\"])if(p.includes(s))Deno.exit(1)' && deno run -A scripts/run-tests.js src/shared/session/subagent-definitions.test.ts --filter '^Init prompt teaches seam-risk guidance without leaking RunWield internals$'"
+      rationale: "The check loads the composed Init prompt itself and verifies its required guidance and forbidden identifiers, then requires and runs the named contract test. Prompt metadata, inert strings, an empty forbidden list, or a test that never loads the composed prompt cannot satisfy it."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T23:55:00-0400"
-updatedAt: "2026-08-23T16:24:04.455Z"
-status: "feedback"
+updatedAt: "2026-08-23T17:00:09.748Z"
+status: "ready_for_work"
 origin: "user"
 userVerifiedAt: null
 humanReviewMode: null
@@ -132,10 +132,14 @@ That is a separate project change using its own language and tooling, which the 
    for every candidate.
 4. **Keep disposition with the user.** Surface findings in the Init result and ask before creating a Plan or writing to
    the repository's existing issue tracker. Persistence requires an explicit user choice.
-5. **Pin no-leak behavior.** Add a contract test to `src/shared/session/subagent-definitions.test.ts` that loads the
-   composed Init prompt through `loadSubAgentDefinition(SUBAGENTS.INIT)` and rejects RunWield's internal identifiers:
-   `check-injection-seams`, `seams:check`, `injection-seam-baseline`, `ValidationSessionPort`, `ExecutionStartPorts`,
-   and `src/`/`scripts/` layout references.
+5. **Pin no-leak behavior.** The named contract test
+   `Init prompt teaches seam-risk guidance without leaking RunWield internals` in
+   `src/shared/session/subagent-definitions.test.ts` loads the composed Init prompt through
+   `loadSubAgentDefinition(SUBAGENTS.INIT)`. It asserts that the composed prompt contains the required advisory
+   guidance, then iterates over a `forbiddenInternalIdentifiers` list and asserts that each value is absent. The list
+   includes `check-injection-seams`, `seams:check`, `injection-seam-baseline`, `ValidationSessionPort`,
+   `ExecutionStartPorts`, and `src/`/`scripts/` layout references. Inert strings or a test that never loads the composed
+   prompt do not satisfy this step.
 6. **Document the feature honestly.** Add it to `docs/user-facing-features.md` (beside the existing `wld init`
    capability entries) as advisory discovery with bounded coverage, not enforcement or a clean bill of health. Add the
    `Possible test-seam risks` report section as a defined term in `docs/domain-language.md`.
