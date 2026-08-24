@@ -169,6 +169,8 @@
 
 - **Project context, memory, and code intelligence**
   - Initialize project context with `wld init` or `/init`.
+  - During initialization, report bounded advisory `Possible test-seam risks` when representative tests appear able to
+    replace product-owned behavior; this is not enforcement and not a clean bill of health.
   - Generate a project `docs/domain-language.md` during initialization.
   - Store durable project memories during initialization.
   - Use Mnemosyne for project and global memory recall; Mnemosyne models download lazily on first semantic use.
