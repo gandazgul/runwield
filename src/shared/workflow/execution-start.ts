@@ -38,7 +38,6 @@ import {
     emitReconciledPlanInExecutionWorktree,
     emitRestoredPlanInExecutionWorktree,
     emitReusingExecutionWorktree,
-    emitRunningObjectiveChecksBaseline,
     emitUpdatingPlanStatusToInProgress,
 } from "./execution-preparation-progress.ts";
 import { recordPlanEvent } from "./plan-lifecycle.js";
@@ -46,7 +45,6 @@ import { recordWorkflowMetric } from "./metrics.js";
 import { runExecutionPreparationTransition } from "./state-transition.ts";
 import { healSettledTransitionRecords } from "./transition-recovery.ts";
 import { CollaborationStyles, resolveExecutionOwner } from "./execution-collaboration.ts";
-import { ensureObjectiveChecksBaseline, ObjectiveChecksBaselineRejectionError } from "./objective-checks-baseline.ts";
 import { ensureRunWieldOwnedGitignoreBlock } from "../runwield-owned-paths.ts";
 
 export function normalizeExecutionTargetBranch(value) {
@@ -279,7 +277,7 @@ export async function startActiveExecutionWorkflow(
             planId: stablePlanId,
             worktreeId: attemptId,
             expectedRevision: canonicalPlan?.revision,
-            prepare: async ({ beforePlan, markEffect }) => {
+            prepare: async ({ markEffect }) => {
                 const workflow = {
                     planName,
                     triageMeta: effectiveTriageMeta,
@@ -291,18 +289,6 @@ export async function startActiveExecutionWorkflow(
                     executionMode: /** @type {const} */ ("non_git_in_place"),
                     nonGitInPlace: true,
                 };
-                const objectiveChecks = beforePlan?.attrs.objectiveChecks || canonicalPlan.attrs.objectiveChecks ||
-                    [];
-                if (objectiveChecks.length > 0) emitRunningObjectiveChecksBaseline(hostedSession);
-                await ensureObjectiveChecksBaseline({
-                    projectRoot,
-                    planName,
-                    attrs: beforePlan?.attrs || canonicalPlan.attrs,
-                    revision: beforePlan?.revision || canonicalPlan?.revision,
-                    checks: objectiveChecks,
-                    cwd: projectRoot,
-                    head: undefined,
-                });
                 emitUpdatingPlanStatusToInProgress(hostedSession);
                 await recordPlanEvent({
                     cwd: projectRoot,
@@ -343,7 +329,6 @@ export async function startActiveExecutionWorkflow(
             },
         });
         if (transition.status !== "committed") {
-            if (transition.cause instanceof ObjectiveChecksBaselineRejectionError) throw transition.cause;
             throw new Error(transition.message || `Non-Git execution preparation did not commit for ${planName}.`);
         }
         const activeWorkflow =
@@ -596,22 +581,6 @@ export async function startActiveExecutionWorkflow(
             }
             const executionPlan = await loadPlan(worktree.path, planName);
             if (!executionPlan) throw new Error(`Plan not found in its execution worktree: ${planName}`);
-            if (!continuingReusableWorktree) {
-                const objectiveChecksHead = "baseCommit" in worktree && typeof worktree.baseCommit === "string"
-                    ? worktree.baseCommit
-                    : undefined;
-                const objectiveChecks = executionPlan.attrs.objectiveChecks || [];
-                if (objectiveChecks.length > 0) emitRunningObjectiveChecksBaseline(hostedSession);
-                await ensureObjectiveChecksBaseline({
-                    projectRoot: worktree.path,
-                    planName,
-                    attrs: executionPlan.attrs,
-                    revision: executionPlan.revision,
-                    checks: objectiveChecks,
-                    cwd: worktree.path,
-                    head: objectiveChecksHead,
-                });
-            }
             // Re-entering an in-progress attempt must keep the tree from before the
             // implementation began. Capturing the current tree here makes completed
             // code disappear from the later review diff, especially after RunWield
@@ -806,7 +775,6 @@ export async function startActiveExecutionWorkflow(
         },
     });
     if (transition.status !== "committed") {
-        if (transition.cause instanceof ObjectiveChecksBaselineRejectionError) throw transition.cause;
         throw new Error(transition.message || `Execution preparation did not commit for ${planName}.`);
     }
     const activeWorkflow =

@@ -9,13 +9,6 @@ affectedPaths:
     - "src/cmd/auth/index.test.ts"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-objectiveChecks:
-    - id: "OC1"
-      command: "! grep -q 'if (options.sessionId && options.sessionRuntime)' src/cmd/auth/index.ts"
-      rationale: "Post-login setup must no longer disappear behind an optional-pair conditional."
-    - id: "OC2"
-      command: "grep -q 'skipPostLoginSetup: true' src/ui/tui/model-welcome.ts && deno run -A scripts/run-tests.js src/cmd/auth/index.test.ts src/ui/tui/model-welcome.test.ts"
-      rationale: "Startup must keep its explicit deferred-setup mode while real slash login continues through model selection and root Session activation."
 createdAt: "2026-08-05T15:16:53-04:00"
 status: "draft"
 origin: "internal"

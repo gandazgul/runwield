@@ -42,7 +42,7 @@ export const validationTreeResumeImplementedScenario = withValidationBranches(
         initialProjectFiles: [{
             path: "docs/plans/resume-implemented.md",
             text:
-                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Resume implemented\naffectedPaths: []\nstatus: ready_for_work\nplanId: resume-implemented-plan\nobjectiveChecks:\n  - id: OC_RESUME_IMPLEMENTED\n    command: test -f resume-implemented.txt\n---\n# Resume implemented\n\nDraft content.\n",
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Resume implemented\naffectedPaths: []\nstatus: ready_for_work\nplanId: resume-implemented-plan\n---\n# Resume implemented\n\nDraft content.\n",
         }],
         script: [
             {
@@ -103,7 +103,7 @@ export const validationTreeResumeValidatedCiScenario = withValidationBranches(
         initialProjectFiles: [{
             path: "docs/plans/resume-validated-ci.md",
             text:
-                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Resume validated CI\naffectedPaths: []\nstatus: ready_for_work\nplanId: resume-validated-ci-plan\nobjectiveChecks:\n  - id: OC_RESUME_VALIDATED_CI\n    command: test -f resume-validated-ci.txt\n---\n# Resume validated CI\n\nDraft content.\n",
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Resume validated CI\naffectedPaths: []\nstatus: ready_for_work\nplanId: resume-validated-ci-plan\n---\n# Resume validated CI\n\nDraft content.\n",
         }],
         script: [
             {
@@ -164,7 +164,7 @@ export const validationTreeResumeValidatedReviewerScenario = withValidationBranc
         initialProjectFiles: [{
             path: "docs/plans/resume-validated-reviewer.md",
             text:
-                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Resume validated reviewer\naffectedPaths: []\nstatus: ready_for_work\nplanId: resume-validated-reviewer-plan\nobjectiveChecks:\n  - id: OC_RESUME_VALIDATED_REVIEWER\n    command: test -f resume-validated-reviewer.txt\n---\n# Resume validated reviewer\n\nDraft content.\n",
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Resume validated reviewer\naffectedPaths: []\nstatus: ready_for_work\nplanId: resume-validated-reviewer-plan\n---\n# Resume validated reviewer\n\nDraft content.\n",
         }],
         scriptedInteractions: [{
             type: "select",
@@ -241,7 +241,7 @@ export const validationTreeAheadStatusScenario = withValidationBranches(
         initialProjectFiles: [{
             path: "docs/plans/ahead-status.md",
             text:
-                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Ahead status\naffectedPaths: []\nstatus: ready_for_work\nplanId: ahead-status-plan\nobjectiveChecks:\n  - id: OC_AHEAD\n    command: test -f ahead-status.txt\n---\n# Ahead status\n\nDraft content.\n",
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Ahead status\naffectedPaths: []\nstatus: ready_for_work\nplanId: ahead-status-plan\n---\n# Ahead status\n\nDraft content.\n",
         }],
         script: [
             {
@@ -332,7 +332,7 @@ export const validationTreeMismatchedWorktreeIdentityScenario = withValidationBr
         initialProjectFiles: [{
             path: "docs/plans/mismatched-worktree-identity.md",
             text:
-                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Mismatched worktree identity\naffectedPaths: []\nstatus: ready_for_work\nplanId: mismatched-worktree-identity-plan\nobjectiveChecks:\n  - id: OC_MISMATCHED_WORKTREE\n    command: test -f mismatched-worktree-identity.txt\n---\n# Mismatched worktree identity\n\nDraft content.\n",
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Mismatched worktree identity\naffectedPaths: []\nstatus: ready_for_work\nplanId: mismatched-worktree-identity-plan\n---\n# Mismatched worktree identity\n\nDraft content.\n",
         }],
         script: [
             {

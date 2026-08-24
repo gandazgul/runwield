@@ -4,7 +4,6 @@ export type ValidationWorkflowBranchId =
     | "mechanical:plan-amendment:approve"
     | "mechanical:plan-amendment:follow-up"
     | "mechanical:plan-amendment:stop"
-    | "mechanical:plan-amendment:invalid-baseline"
     | "mechanical:ci:pass"
     | "mechanical:ci:repair-completed"
     | "mechanical:ci:repair-incomplete"
@@ -14,24 +13,6 @@ export type ValidationWorkflowBranchId =
     | "mechanical:ci:exhausted-retry"
     | "mechanical:ci:exhausted-follow-up"
     | "mechanical:ci:exhausted-stop"
-    | "mechanical:objective:none"
-    | "mechanical:objective:all-pass"
-    | "mechanical:objective:mixed-waived"
-    | "mechanical:objective:repair-completed"
-    | "mechanical:objective:repair-incomplete"
-    | "mechanical:objective:cancel-retry"
-    | "mechanical:objective:cancel-follow-up"
-    | "mechanical:objective:cancel-stop"
-    | "mechanical:objective:exhausted-retry"
-    | "mechanical:objective:exhausted-follow-up"
-    | "mechanical:objective:exhausted-stop"
-    | "mechanical:broken-objective:detected-waive"
-    | "mechanical:broken-objective:detected-reject"
-    | "mechanical:broken-objective:engineer-reported-waive"
-    | "mechanical:broken-objective:engineer-reported-reject"
-    | "mechanical:broken-objective:follow-up"
-    | "mechanical:broken-objective:stop"
-    | "mechanical:broken-objective:stale-report"
     | "semantic:approval:first-round"
     | "semantic:findings:repair-completed"
     | "semantic:repair-incomplete"
@@ -115,7 +96,6 @@ export const EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS: readonly ValidationWorkflo
     "mechanical:plan-amendment:approve",
     "mechanical:plan-amendment:follow-up",
     "mechanical:plan-amendment:stop",
-    "mechanical:plan-amendment:invalid-baseline",
     "mechanical:ci:pass",
     "mechanical:ci:repair-completed",
     "mechanical:ci:repair-incomplete",
@@ -125,24 +105,6 @@ export const EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS: readonly ValidationWorkflo
     "mechanical:ci:exhausted-retry",
     "mechanical:ci:exhausted-follow-up",
     "mechanical:ci:exhausted-stop",
-    "mechanical:objective:none",
-    "mechanical:objective:all-pass",
-    "mechanical:objective:mixed-waived",
-    "mechanical:objective:repair-completed",
-    "mechanical:objective:repair-incomplete",
-    "mechanical:objective:cancel-retry",
-    "mechanical:objective:cancel-follow-up",
-    "mechanical:objective:cancel-stop",
-    "mechanical:objective:exhausted-retry",
-    "mechanical:objective:exhausted-follow-up",
-    "mechanical:objective:exhausted-stop",
-    "mechanical:broken-objective:detected-waive",
-    "mechanical:broken-objective:detected-reject",
-    "mechanical:broken-objective:engineer-reported-waive",
-    "mechanical:broken-objective:engineer-reported-reject",
-    "mechanical:broken-objective:follow-up",
-    "mechanical:broken-objective:stop",
-    "mechanical:broken-objective:stale-report",
     "semantic:approval:first-round",
     "semantic:findings:repair-completed",
     "semantic:repair-incomplete",
@@ -194,7 +156,6 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "mechanical:plan-amendment:approve": "validation-tree-plan-amendment-approve",
     "mechanical:plan-amendment:follow-up": "validation-tree-plan-amendment-follow-up",
     "mechanical:plan-amendment:stop": "validation-tree-plan-amendment-stop",
-    "mechanical:plan-amendment:invalid-baseline": "validation-tree-plan-amendment-invalid-baseline",
     "mechanical:ci:pass": "validation-tree-ci-loop",
     "mechanical:ci:repair-completed": "validation-tree-ci-loop",
     "mechanical:ci:repair-incomplete": "validation-tree-ci-repair-incomplete",
@@ -204,24 +165,6 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "mechanical:ci:exhausted-retry": "validation-tree-validation-exhausted-retry",
     "mechanical:ci:exhausted-follow-up": "validation-tree-validation-exhausted-follow-up",
     "mechanical:ci:exhausted-stop": "validation-tree-validation-exhausted-stop",
-    "mechanical:objective:none": "validation-tree-objective-none",
-    "mechanical:objective:all-pass": "validation-tree-objective-all-pass",
-    "mechanical:objective:mixed-waived": "validation-tree-objective-mixed-waived",
-    "mechanical:objective:repair-completed": "validation-tree-objective-repair-completed",
-    "mechanical:objective:repair-incomplete": "validation-tree-objective-repair-incomplete",
-    "mechanical:objective:cancel-retry": "validation-tree-objective-cancel-retry",
-    "mechanical:objective:cancel-follow-up": "validation-tree-objective-cancel-follow-up",
-    "mechanical:objective:cancel-stop": "validation-tree-objective-cancel-stop",
-    "mechanical:objective:exhausted-retry": "validation-tree-objective-exhausted-retry",
-    "mechanical:objective:exhausted-follow-up": "validation-tree-objective-exhausted-follow-up",
-    "mechanical:objective:exhausted-stop": "validation-tree-objective-exhausted-stop",
-    "mechanical:broken-objective:detected-waive": "validation-tree-broken-objective-detected-waive",
-    "mechanical:broken-objective:detected-reject": "validation-tree-broken-objective-detected-reject",
-    "mechanical:broken-objective:engineer-reported-waive": "validation-tree-broken-objective-engineer-reported-waive",
-    "mechanical:broken-objective:engineer-reported-reject": "validation-tree-broken-objective-engineer-reported-reject",
-    "mechanical:broken-objective:follow-up": "validation-tree-broken-objective-follow-up",
-    "mechanical:broken-objective:stop": "validation-tree-broken-objective-stop",
-    "mechanical:broken-objective:stale-report": "validation-tree-broken-objective-stale-report",
     "semantic:approval:first-round": "validation-tree-ci-retry-success",
     "semantic:findings:repair-completed": "validation-tree-semantic-review-loop",
     "semantic:repair-incomplete": "validation-tree-semantic-repair-incomplete",
@@ -281,12 +224,6 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "lifecycle:unsupported-status-fails-closed") return ["Plan has unknown status: sideways"];
     if (id.includes("plan-amendment")) return ["Plan amendment"];
     if (id.includes(":ci:")) return ["CI"];
-    if (id === "mechanical:objective:none") return ["The build and tests passed."];
-    if (id === "mechanical:objective:all-pass") {
-        return ["Objective Check passed.", "is on main"];
-    }
-    if (id.includes(":objective:")) return ["Objective"];
-    if (id.includes("broken-objective")) return ["Objective-Failing Check"];
     if (id.startsWith("semantic:round-limit:")) return ["Look once more, read it, or stop."];
     if (id.startsWith("semantic:nudge:")) return ["The reviewer needs more time"];
     if (id === "semantic:entry:non-git-skip") return ["Review skipped"];
@@ -340,9 +277,6 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
 }
 
 function turnRequirementFor(id: ValidationWorkflowBranchId): string[] {
-    const objectiveSuccess = id === "mechanical:objective:none" || id === "mechanical:objective:all-pass" ||
-        id === "mechanical:objective:mixed-waived";
-    if (objectiveSuccess) return ["reviewer"];
     if (id.startsWith("publication:")) return [];
     if (id.includes("follow-up") || id.includes("repair") || id.includes("feedback")) return ["engineer"];
     if (id.startsWith("semantic:entry:")) return [];
@@ -371,12 +305,6 @@ function statePathsFor(id: ValidationWorkflowBranchId): string[] {
 }
 
 function stateEqualsFor(id: ValidationWorkflowBranchId): Record<string, ValidationStateValue> {
-    if (id === "mechanical:objective:all-pass") {
-        return {
-            "publication.remotePlanAttrs.objectiveChecks.0.id": "OC_PASS",
-            "publication.remotePlanAttrs.objectiveChecks.0.command": "true",
-        };
-    }
     if (id === "human-review:none") {
         return {
             "projectState.plans.0.attrs.humanReviewMode": "none",
@@ -392,8 +320,8 @@ function stateEqualsFor(id: ValidationWorkflowBranchId): Record<string, Validati
     return {};
 }
 
-function stateAbsentFor(id: ValidationWorkflowBranchId): string[] {
-    return id === "mechanical:objective:none" ? ["projectState.plans.0.attrs.objectiveChecks"] : [];
+function stateAbsentFor(): string[] {
+    return [];
 }
 
 function interactionValuesFor(id: ValidationWorkflowBranchId): string[] {
@@ -402,7 +330,6 @@ function interactionValuesFor(id: ValidationWorkflowBranchId): string[] {
 }
 
 function transcriptExcludesFor(id: ValidationWorkflowBranchId): string[] {
-    if (id === "mechanical:objective:none") return ["Running checks for"];
     if (id === "human-review:none") return ["read the changes before the merge"];
     return [];
 }
@@ -419,7 +346,7 @@ function evidenceFor(id: ValidationWorkflowBranchId): ValidationEvidenceRequirem
         turnIncludes: turnRequirementFor(id),
         statePaths: statePathsFor(id),
         stateEquals: stateEqualsFor(id),
-        stateAbsent: stateAbsentFor(id),
+        stateAbsent: stateAbsentFor(),
         interactionValues: interactionValuesFor(id),
         interactionAbsentValues: interactionAbsentValuesFor(id),
     };
@@ -429,25 +356,19 @@ export const VALIDATION_INTERACTION_OPTION_BRANCHES: Readonly<Record<string, rea
     Object.freeze({
         retry: [
             "mechanical:ci:cancel-retry",
-            "mechanical:objective:cancel-retry",
             "human-review:no-answer-retry",
             "publication:dirty-primary-retry",
         ],
         stop: [
             "mechanical:ci:cancel-stop",
-            "mechanical:objective:cancel-stop",
             "semantic:round-limit:stop",
             "human-review:no-answer-stop",
         ],
         engineer_follow_up: [
             "mechanical:ci:cancel-follow-up",
-            "mechanical:objective:cancel-follow-up",
-            "mechanical:broken-objective:follow-up",
         ],
-        waive: ["mechanical:broken-objective:detected-waive", "mechanical:broken-objective:engineer-reported-waive"],
-        waive_defective_checks: ["mechanical:broken-objective:engineer-reported-waive"],
         approve_amendment: ["mechanical:plan-amendment:approve"],
-        reject: ["mechanical:broken-objective:detected-reject", "mechanical:broken-objective:engineer-reported-reject"],
+        reject: ["mechanical:plan-amendment:stop"],
         open: ["human-review:ask-open-approve"],
         skip: ["human-review:ask-skip"],
         continue: ["semantic:round-limit:continue"],

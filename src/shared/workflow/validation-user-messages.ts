@@ -32,20 +32,9 @@ export type ValidationMessageRequest =
     | { kind: "amendment_decision"; summary: string }
     | { kind: "amendment_approved" }
     | { kind: "ci_running"; cwd: string }
-    | { kind: "checks_passed"; objectiveChecks: boolean; waived?: boolean }
+    | { kind: "checks_passed" }
     | { kind: "repair_waiting"; agent: string }
     | { kind: "engineer_follow_up"; agent: string }
-    | { kind: "objective_all_waived"; planName: string }
-    | { kind: "objective_running"; planName: string; checkIds: string[]; skippedCount: number }
-    | { kind: "objective_canceled" }
-    | { kind: "objective_summary"; summary: string }
-    | { kind: "objective_report_stale" }
-    | { kind: "objective_waiver_notice"; source: "agent" | "runwield"; planName: string; reason: string }
-    | { kind: "objective_waiver_prompt"; source: "agent" | "runwield"; planName: string; reason: string }
-    | { kind: "objective_feedback_prompt" }
-    | { kind: "objective_feedback_default" }
-    | { kind: "objective_note_prompt" }
-    | { kind: "objective_repair"; agent: string }
     | { kind: "ci_repair"; agent: string }
     | { kind: "semantic_round"; round: number; maxRounds: number; mode: "discovery" | "verify" }
     | { kind: "semantic_diff_missing"; planOnly: boolean }
@@ -165,40 +154,11 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
         case "ci_running":
             return `Running the tests in ${request.cwd}.`;
         case "checks_passed":
-            if (request.waived) return "The build and tests passed. You waived the broken checks.";
-            return request.objectiveChecks ? "The build, tests, and checks passed." : "The build and tests passed.";
+            return "The build and tests passed.";
         case "repair_waiting":
             return `${request.agent} stopped. The repair is not done. The check will start when the work note comes.`;
         case "engineer_follow_up":
             return `The check is on hold. Send a note to ${request.agent} when you are ready.`;
-        case "objective_all_waived":
-            return `All checks for ${request.planName} are waived. RunWield will skip them.`;
-        case "objective_running": {
-            const skipped = request.skippedCount > 0 ? ` ${request.skippedCount} waived check(s) will be skipped.` : "";
-            return `Running checks for ${request.planName}: ${request.checkIds.join(", ")}.${skipped}`;
-        }
-        case "objective_canceled":
-            return "The checks were stopped.";
-        case "objective_summary":
-            return request.summary;
-        case "objective_report_stale":
-            return "The agent report does not match the current checks. A waiver is not ready.";
-        case "objective_waiver_notice": {
-            const lead = request.source === "agent" ? "The agent found broken checks" : "RunWield found broken checks";
-            return `${lead} for ${request.planName}.\n\n${request.reason}\n\nWaive a check only when the check is broken.`;
-        }
-        case "objective_waiver_prompt": {
-            const lead = request.source === "agent" ? "The agent found broken checks" : "RunWield found broken checks";
-            return `${lead} for ${request.planName}.\n\n${request.reason}\n\nWhat should RunWield do?`;
-        }
-        case "objective_feedback_prompt":
-            return "Tell the Engineer what to fix in these checks.";
-        case "objective_feedback_default":
-            return "The waiver was not approved. Fix the check or the work, then run it again.";
-        case "objective_note_prompt":
-            return "You can add a short note for this waiver.";
-        case "objective_repair":
-            return `The checks did not pass. ${request.agent} will fix them now.`;
         case "ci_repair":
             return `The build failed. ${request.agent} will fix it now.`;
         case "semantic_round":

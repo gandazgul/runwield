@@ -25,13 +25,6 @@ devServerUrl: null
 devServerHmr: null
 createdAt: "2026-08-15T10:38:18-04:00"
 status: "draft"
-objectiveChecks:
-    - id: "OC1"
-      command: "grep -Fq 'ask mode allows Review Override before semantic repair dispatch' src/shared/workflow/validation-loop-review.test.js && deno run -A scripts/run-tests.js src/shared/workflow/validation-loop-review.test.js"
-      rationale: "The named behavioral regression must exercise the real semantic-review lifecycle and can pass only after ask-mode acceptance bypasses repair while existing review behavior still passes."
-    - id: "OC2"
-      command: "grep -Fq 'getSemanticReviewInterventionMode defaults to never' src/shared/settings.test.js && grep -Fq '\"semanticReviewIntervention\"' config.schema.json && deno run -A scripts/run-tests.js src/shared/settings.test.js"
-      rationale: "The public setting must exist in the schema and have executable tests for its default, scope precedence, accepted values, and invalid-value fallback."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 updatedAt: "2026-08-15T14:39:52.838Z"

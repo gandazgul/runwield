@@ -5,7 +5,6 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { createWorktreeGitArtifacts, settleWorktreeAttempt } from "../worktree.js";
 import {
     buildSlicerRequest,
-    executePlan,
     extractAssistantOutput,
     finalizePlanImplementation,
     readLatestPlanOutcome,
@@ -141,93 +140,11 @@ Deno.test("HostedSession scopes active execution workflow independently", () => 
     assertEquals(sessionB.getActiveExecutionCwd(), "/work/b");
 });
 
-Deno.test("baseline rejects already-met Objective-Failing Checks before Engineer starts", async () => {
-    await withRuntimeCommandFixture("workflow-already-met-", async ({ setModelResponseFactory }) => {
-        const projectRoot = await makeWorkflowProject([{
-            name: "already-met-plan",
-            status: "ready_for_work",
-            attrs: {
-                objectiveChecks: [{ id: "OC_TRUE", command: "true" }],
-            },
-        }]);
-        const hostedSession = makeAgentHostedSession("already-met-baseline", projectRoot);
-        let planningContext = "";
-        setModelResponseFactory((context) => {
-            planningContext = JSON.stringify(context.messages);
-            return fauxAssistantMessage(fauxText("The baseline feedback needs a revised objective check."));
-        });
-
-        try {
-            const result = await executePlan({
-                planName: "already-met-plan",
-                triageMeta: { planId: PLAN_UNDER_TEST, classification: "FEATURE" },
-                hostedSession,
-            });
-
-            assertEquals(result.executionComplete, false);
-            assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
-            assertEquals(hostedSession.getRootAgentName(), "planner");
-            assertStringIncludes(planningContext, "already satisfied before implementation");
-            const plan = await loadPlan(projectRoot, "already-met-plan");
-            assertEquals(plan?.attrs.status, "feedback");
-            assertEquals(plan?.attrs.objectiveChecksBaseline, undefined);
-            assertEquals((await listWorktreeRegistryEntries(projectRoot)).length, 0);
-        } finally {
-            hostedSession.dispose();
-        }
-    });
-});
-
-Deno.test("re-baselines Objective-Failing Checks when head or command set changes", async () => {
-    const projectRoot = await makeWorkflowProject([{
-        name: "stale-baseline-plan",
-        status: "ready_for_work",
-        attrs: {
-            objectiveChecks: [{ id: "OC1", command: "test -f rebaseline-marker" }],
-            objectiveChecksBaseline: {
-                recordedAt: "2026-01-01T00:00:00.000Z",
-                head: "0000000000000000000000000000000000000000",
-                results: [{
-                    id: "OC1",
-                    command: "false",
-                    status: "unmet",
-                    stdout: "",
-                    stderr: "",
-                    exitCode: 1,
-                    durationMs: 1,
-                    output: "",
-                }],
-            },
-        },
-    }]);
-    const hostedSession = makeHostedSession("stale-baseline", projectRoot);
-
-    const workflow = await startActiveExecutionWorkflow({
-        planName: "stale-baseline-plan",
-        triageMeta: { planId: PLAN_UNDER_TEST, classification: "FEATURE" },
-        currentStatus: "ready_for_work",
-        hostedSession,
-        ports: createExecutionStartPorts(),
-    });
-
-    const plan = await loadPlan(/** @type {string} */ (workflow.executionCwd), "stale-baseline-plan");
-    assertEquals(plan?.attrs.objectiveChecksBaseline?.head, workflow.worktreeBaseCommit);
-    assertEquals(
-        plan?.attrs.objectiveChecksBaseline?.results.map((result) => [result.id, result.command, result.status]),
-        [
-            ["OC1", "test -f rebaseline-marker", "unmet"],
-        ],
-    );
-    assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "stale-baseline-plan");
-});
-
-Deno.test("startActiveExecutionWorkflow trusts existing Objective-Failing Checks when continuing an in-progress worktree", async () => {
+Deno.test("startActiveExecutionWorkflow continues an existing in-progress worktree", async () => {
     const projectRoot = await makeWorkflowProject([{
         name: "continued-plan",
         status: "in_progress",
-        attrs: {
-            objectiveChecks: [{ id: "OC_ALREADY_GREEN", command: "true" }],
-        },
+        attrs: {},
     }]);
     const hostedSession = makeHostedSession("continued-workflow", projectRoot);
     const recorded = await settleWorktreeAttempt(
@@ -236,7 +153,6 @@ Deno.test("startActiveExecutionWorkflow trusts existing Objective-Failing Checks
     );
     await savePlan(recorded.path, "continued-plan", "# continued-plan", {
         status: "in_progress",
-        objectiveChecks: [{ id: "OC_ALREADY_GREEN", command: "true" }],
     });
     await Deno.writeTextFile(`${recorded.path}/continued-implementation.ts`, "export const continued = true;\n");
     await git(recorded.path, ["add", "continued-implementation.ts"]);
@@ -255,7 +171,6 @@ Deno.test("startActiveExecutionWorkflow trusts existing Objective-Failing Checks
     assertEquals(workflow.baselineTree, recorded.baseTree);
     const plan = await loadPlan(recorded.path, "continued-plan");
     assertEquals(plan?.attrs.status, "in_progress");
-    assertEquals(plan?.attrs.objectiveChecksBaseline, undefined);
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, "continued-plan");
 });
 
@@ -308,9 +223,7 @@ Deno.test("startActiveExecutionWorkflow bases the execution worktree on the requ
     const projectRoot = await makeWorkflowProject([{
         name: "targeted-plan",
         status: "ready_for_work",
-        attrs: {
-            objectiveChecks: [{ id: "OC_TARGET_BASE", command: "test -f current-only-marker" }],
-        },
+        attrs: {},
     }]);
     const hostedSession = makeHostedSession("targeted-workflow", projectRoot);
     await Deno.writeTextFile(`${projectRoot}/current-only-marker`, "present only in the current checkout\n");
@@ -349,20 +262,14 @@ Deno.test("startActiveExecutionWorkflow bases the execution worktree on the requ
     );
     assertEquals(await git(/** @type {string} */ (result.executionCwd), ["status", "--porcelain"]), "");
     const plan = await loadPlan(/** @type {string} */ (result.executionCwd), "targeted-plan");
-    assertEquals(plan?.attrs.objectiveChecksBaseline?.head, targetCommit);
-    assertEquals(
-        plan?.attrs.objectiveChecksBaseline?.results.map((result) => [result.id, result.command, result.status]),
-        [["OC_TARGET_BASE", "test -f current-only-marker", "unmet"]],
-    );
+    assertEquals(plan?.attrs.status, "in_progress");
 });
 
 Deno.test("startActiveExecutionWorkflow uses the latest uncommitted Plan revision instead of the target branch copy", async () => {
     const projectRoot = await makeWorkflowProject([{
         name: "revised-before-execution",
         status: "ready_for_work",
-        attrs: {
-            objectiveChecks: [{ id: "OC_OLD", command: "true", rationale: "stale check" }],
-        },
+        attrs: {},
     }]);
     await git(projectRoot, ["add", "."]);
     await git(projectRoot, ["commit", "-m", "commit old Plan revision"]);
@@ -374,7 +281,6 @@ Deno.test("startActiveExecutionWorkflow uses the latest uncommitted Plan revisio
         summary: "latest approved Plan",
         affectedPaths: [],
         planId: PLAN_UNDER_TEST,
-        objectiveChecks: [{ id: "OC_NEW", command: "false", rationale: "corrected check" }],
     }, { expectedRevision: committedPlan.revision });
     const hostedSession = makeHostedSession("revised-before-execution", projectRoot);
     let executionCwd;
@@ -389,16 +295,7 @@ Deno.test("startActiveExecutionWorkflow uses the latest uncommitted Plan revisio
         executionCwd = result.executionCwd;
         const executionPlan = await loadPlan(result.executionCwd, "revised-before-execution");
         assertEquals(executionPlan?.body.trim(), "# Latest approved Plan");
-        assertEquals(
-            executionPlan?.attrs.objectiveChecks?.map((check) => [check.id, check.command]),
-            [["OC_NEW", "false"]],
-        );
-        assertEquals(
-            executionPlan?.attrs.objectiveChecksBaseline?.results.map((
-                check,
-            ) => [check.id, check.command, check.status]),
-            [["OC_NEW", "false", "unmet"]],
-        );
+        assertEquals(executionPlan?.attrs.summary, "latest approved Plan");
     } finally {
         hostedSession.dispose();
         if (executionCwd) {

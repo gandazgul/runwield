@@ -10,13 +10,6 @@ affectedPaths:
     - "src/cmd/load-plan/index.integration.test.ts"
     - "src/ui/tui/golden-scenarios/load-plan-workflow.ts"
     - "src/ui/tui/golden-scenarios/load-plan-epic-workflow.ts"
-objectiveChecks:
-    - id: "OC1"
-      command: "deno run -A scripts/run-tests.js src/cmd/load-plan/index.integration.test.ts --filter \"direct review\""
-      rationale: "The current integration suite has no direct-review cases, so this focused behavior check is red until real load-plan menu paths open Plan Review and complete the requested flows."
-    - id: "OC2"
-      command: "grep -q 'Review plan' src/cmd/load-plan/index.ts && grep -q 'Review plan' src/cmd/load-plan/plan-epic-flow.ts"
-      rationale: "The requested user-visible direct-review action is absent from both the non-Epic and PROJECT menu implementations today."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-20T21:30:12-04:00"

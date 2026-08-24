@@ -18,12 +18,6 @@ import {
     reconcileTransitionRecoveryRecords,
     runPlanAmendmentTransition,
 } from "./state-transition.ts";
-import {
-    classifyObjectiveChecksBaseline,
-    type ObjectiveCheck,
-    runObjectiveChecks,
-    summarizeObjectiveChecks,
-} from "./objective-checks.ts";
 
 export type PlanAmendmentDiff = {
     field: string;
@@ -36,8 +30,6 @@ export type PlanAmendmentProposal = {
     primaryRevision?: string;
     executionRevision?: string;
     definitionChanged: boolean;
-    objectiveChecksChanged: boolean;
-    changedObjectiveChecks: ObjectiveCheck[];
     diffs: PlanAmendmentDiff[];
     summary: string;
 };
@@ -58,23 +50,6 @@ function sameJson(
     return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
-function commandById(checks: ObjectiveCheck[] | undefined): Map<string, string> {
-    const result = new Map<string, string>();
-    for (const check of checks || []) result.set(check.id, check.command);
-    return result;
-}
-
-function checkById(checks: ObjectiveCheck[] | undefined): Map<string, ObjectiveCheck> {
-    const result = new Map<string, ObjectiveCheck>();
-    for (const check of checks || []) result.set(check.id, check);
-    return result;
-}
-
-function changedChecks(primaryChecks: ObjectiveCheck[] | undefined, executionChecks: ObjectiveCheck[] | undefined) {
-    const primary = commandById(primaryChecks);
-    return (executionChecks || []).filter((check) => primary.get(check.id) !== check.command);
-}
-
 async function loadPlanForAmendment(cwd: string, planName: string, label: string): Promise<LoadedPlan> {
     const result = await loadPlanStrict(cwd, planName);
     if (result.kind === "loaded") return result;
@@ -87,74 +62,11 @@ async function loadPlanForAmendment(cwd: string, planName: string, label: string
     throw new Error(`${label} Plan could not be loaded.`);
 }
 
-type ObjectiveCheckFeedback = {
-    id: string;
-    added?: boolean;
-    deleted?: boolean;
-    commandBefore?: string;
-    commandAfter?: string;
-    rationaleBefore?: string;
-    rationaleAfter?: string;
-};
-
-function summarizeObjectiveCheckFeedback(diffs: PlanAmendmentDiff[]): string[] {
-    const feedback = new Map<string, ObjectiveCheckFeedback>();
-    for (const diff of diffs) {
-        const match = /^objectiveChecks\.([^.]+)(?:\.(id|command|rationale))?$/.exec(diff.field);
-        if (!match) continue;
-        const [, id, field] = match;
-        const item = feedback.get(id) || { id };
-        if (!field && diff.after === "<removed>") {
-            item.deleted = true;
-            item.commandBefore = diff.before;
-        } else if (field === "id" && diff.before === "<absent>") {
-            item.added = true;
-        } else if (field === "command") {
-            item.commandBefore = diff.before;
-            item.commandAfter = diff.after;
-        } else if (field === "rationale") {
-            item.rationaleBefore = diff.before;
-            item.rationaleAfter = diff.after;
-        }
-        feedback.set(id, item);
-    }
-    return [...feedback.values()].flatMap((item) => {
-        if (item.deleted) {
-            return [`- Delete ${item.id}\n  current command: ${item.commandBefore || "<unknown>"}`];
-        }
-        if (item.added) {
-            return [`- Add ${item.id}\n  proposed command: ${item.commandAfter || "<unknown>"}`];
-        }
-        const lines = [`- Change ${item.id}`];
-        if (item.commandBefore !== undefined || item.commandAfter !== undefined) {
-            lines.push(`  before command: ${item.commandBefore || "<unknown>"}`);
-            lines.push(`  after command: ${item.commandAfter || "<unknown>"}`);
-        }
-        if (item.rationaleBefore !== undefined || item.rationaleAfter !== undefined) {
-            lines.push(`  before rationale: ${item.rationaleBefore || "<absent>"}`);
-            lines.push(`  after rationale: ${item.rationaleAfter || "<absent>"}`);
-        }
-        return [lines.join("\n")];
-    });
-}
-
 function summarizeProposal(planName: string, diffs: PlanAmendmentDiff[]): string {
-    const objectiveFeedback = summarizeObjectiveCheckFeedback(diffs);
-    const otherFields = diffs.filter((diff) => !diff.field.startsWith("objectiveChecks."));
-    const sections: string[] = [];
-    if (objectiveFeedback.length) {
-        sections.push(
-            `The Engineer gave feedback about the Objective-Failing Checks for ${planName}:`,
-            objectiveFeedback.join("\n"),
-        );
-    }
-    if (otherFields.length) {
-        sections.push(
-            `The Engineer also offered a Plan amendment for ${planName}:`,
-            otherFields.map((diff) => `- ${diff.field}: changed`).join("\n"),
-        );
-    }
-    return sections.join("\n\n");
+    return [
+        `The Engineer offered a Plan amendment for ${planName}:`,
+        diffs.map((diff) => `- ${diff.field}: changed`).join("\n"),
+    ].join("\n\n");
 }
 
 async function assertPlanFileSafe(plan: LoadedPlan, label: string): Promise<void> {
@@ -226,54 +138,7 @@ export async function detectValidationPlanAmendment(
         const primaryValue = primary.attrs[key as keyof PlanFrontMatter];
         const executionValue = execution.attrs[key as keyof PlanFrontMatter];
         if (sameJson(primaryValue, executionValue)) continue;
-        if (key === "objectiveChecks") {
-            const primaryChecks = checkById(primary.attrs.objectiveChecks);
-            for (const check of execution.attrs.objectiveChecks || []) {
-                const previous = primaryChecks.get(check.id);
-                if (!previous) {
-                    diffs.push({ field: `objectiveChecks.${check.id}.id`, before: "<absent>", after: check.id });
-                    diffs.push({
-                        field: `objectiveChecks.${check.id}.command`,
-                        before: "<absent>",
-                        after: check.command,
-                    });
-                    if (check.rationale !== undefined) {
-                        diffs.push({
-                            field: `objectiveChecks.${check.id}.rationale`,
-                            before: "<absent>",
-                            after: check.rationale,
-                        });
-                    }
-                    continue;
-                }
-                if (previous.command !== check.command) {
-                    diffs.push({
-                        field: `objectiveChecks.${check.id}.command`,
-                        before: previous.command,
-                        after: check.command,
-                    });
-                }
-                if ((previous.rationale ?? null) !== (check.rationale ?? null)) {
-                    diffs.push({
-                        field: `objectiveChecks.${check.id}.rationale`,
-                        before: previous.rationale ?? "<absent>",
-                        after: check.rationale ?? "<absent>",
-                    });
-                }
-            }
-            const executionIds = new Set((execution.attrs.objectiveChecks || []).map((check) => check.id));
-            for (const check of primary.attrs.objectiveChecks || []) {
-                if (!executionIds.has(check.id)) {
-                    diffs.push({
-                        field: `objectiveChecks.${check.id}`,
-                        before: stringify(check.command),
-                        after: "<removed>",
-                    });
-                }
-            }
-        } else {
-            diffs.push({ field: key, before: stringify(primaryValue), after: stringify(executionValue) });
-        }
+        diffs.push({ field: key, before: stringify(primaryValue), after: stringify(executionValue) });
     }
     if (!diffs.length) return null;
     assertMatchingPlanIdentity(primary, execution, planName);
@@ -285,61 +150,14 @@ export async function detectValidationPlanAmendment(
             }; fresh Plan review is required.`,
         );
     }
-    const objectiveChanges = changedChecks(primary.attrs.objectiveChecks, execution.attrs.objectiveChecks);
     return {
         planName,
         primaryRevision: primary.revision,
         executionRevision: execution.revision,
         definitionChanged: true,
-        objectiveChecksChanged: diffs.some((diff) => diff.field.startsWith("objectiveChecks.")),
-        changedObjectiveChecks: objectiveChanges,
         diffs,
         summary: summarizeProposal(planName, diffs),
     };
-}
-
-async function materializeTreeCheckout(cwd: string, tree: string): Promise<string> {
-    const temp = await Deno.makeTempDir({ prefix: "runwield-objective-baseline-" });
-    const command = new Deno.Command("bash", {
-        cwd,
-        args: ["-lc", `set -euo pipefail; git archive ${tree} | tar -x -C "$1"`, "bash", temp],
-        stdout: "piped",
-        stderr: "piped",
-    });
-    const output = await command.output();
-    if (output.code !== 0) {
-        await Deno.remove(temp, { recursive: true }).catch(() => undefined);
-        const decoder = new TextDecoder();
-        throw new Error(`Could not materialize execution baseline tree ${tree}: ${decoder.decode(output.stderr)}`);
-    }
-    return temp;
-}
-
-export async function validateAmendedObjectiveChecksAgainstBaseline(
-    executionCwd: string,
-    baselineTree: string | undefined,
-    checks: ObjectiveCheck[],
-): Promise<void> {
-    if (!checks.length) return;
-    if (!baselineTree) throw new Error("Changed Objective-Failing Checks need a recorded execution baseline tree.");
-    const baselineCwd = await materializeTreeCheckout(executionCwd, baselineTree);
-    try {
-        const results = await runObjectiveChecks({ checks, cwd: baselineCwd });
-        const classification = classifyObjectiveChecksBaseline(results);
-        if (classification.status !== "all_unmet") {
-            const summary = summarizeObjectiveChecks(classification.offendingResults).block;
-            throw new Error(
-                `Changed Objective-Failing Checks are not red against the recorded execution baseline.\n\n${summary}`,
-            );
-        }
-    } finally {
-        await Deno.remove(baselineCwd, { recursive: true }).catch(() => undefined);
-    }
-}
-
-function filterWaiversForCurrentCommands(attrs: PlanFrontMatter): PlanFrontMatter["objectiveCheckWaivers"] {
-    const currentCommands = commandById(attrs.objectiveChecks);
-    return (attrs.objectiveCheckWaivers || []).filter((waiver) => currentCommands.get(waiver.id) === waiver.command);
 }
 
 type AmendmentSyncProof = {
@@ -412,15 +230,7 @@ export async function applyValidationPlanAmendment(
                     "Execution-worktree Plan changed while the amendment was awaiting approval. Review the new diff.",
                 );
             }
-            let nextAttrs = { ...execution.attrs };
-            if (proposal.objectiveChecksChanged) {
-                nextAttrs = {
-                    ...nextAttrs,
-                    objectiveChecksBaseline: undefined,
-                    objectiveCheckWaivers: filterWaiversForCurrentCommands(nextAttrs),
-                };
-            }
-            await savePlan(executionCwd, planName, execution.body, nextAttrs, {
+            await savePlan(executionCwd, planName, execution.body, execution.attrs, {
                 expectedRevision: execution.revision,
             });
             const reconciled = await loadPlan(executionCwd, planName);

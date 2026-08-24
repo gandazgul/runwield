@@ -461,7 +461,6 @@ Deno.test("approved planned work executes through real lifecycle machinery and p
         setModelMessages([
             fauxAssistantMessage(fauxToolCall("plan_written", {
                 planName: "feature-a",
-                objectiveChecks: [{ id: "OC1", command: "test -f implemented.txt" }],
             })),
             fauxAssistantMessage(fauxText("Execution is paused before completion.")),
         ]);
@@ -521,11 +520,6 @@ Deno.test("completed planned work runs the real validation lifecycle around exte
             setModelMessages([
                 fauxAssistantMessage(fauxToolCall("plan_written", {
                     planName: "feature-validated",
-                    objectiveChecks: [{
-                        id: "OC1",
-                        command: "test -f implemented.txt",
-                        rationale: "the implementation creates its fixture artifact",
-                    }],
                 })),
                 fauxAssistantMessage(fauxToolCall("write", {
                     path: "implemented.txt",

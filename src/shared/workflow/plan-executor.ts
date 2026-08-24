@@ -19,7 +19,6 @@ import {
 } from "./plan-review-recovery.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import { CollaborationStyles, selectRuntimeCollaborationStyle } from "./execution-collaboration.ts";
-import { ObjectiveChecksBaselineRejectionError } from "./objective-checks-baseline.ts";
 import { finalizePlanImplementation } from "./implementation-checkpoint.ts";
 import { runPlanningAgent } from "./planning-agent.ts";
 import { buildExecutionSegmentContinuation } from "./execution-segment-handoff.ts";
@@ -50,9 +49,6 @@ export interface PlanExecutionResult {
     intentionalCompleteReason?: string;
     message?: string;
     feedback?: string;
-    baselineRejected?: boolean;
-    baselineRejectionKind?: "already_met" | "broken";
-    baselineRejectedCheckIds?: string[];
     pauseReason?: "stop" | "canceled";
     error?: string;
     completionReport?: string;
@@ -413,65 +409,6 @@ export async function executePlan({
         prepareSegmentHandoff,
     });
     if (!result.executionComplete) {
-        if (result.baselineRejected) {
-            const feedback = result.feedback || result.error || "Objective-Failing Check baseline rejected execution.";
-            await recordPlanEvent({
-                cwd: projectRoot,
-                planName,
-                event: "review_reopened",
-                currentStatus: plan.attrs.status,
-                details: /** @type {any} */ ({
-                    triageMeta: effectiveMeta,
-                    reason: "objective_checks_baseline_rejected",
-                    feedback,
-                }),
-            });
-            await recordWorkflowMetric({
-                category: "execution",
-                event: "plan_execution_rejected",
-                planName,
-                details: {
-                    reason: "objective_checks_baseline_rejected",
-                    kind: result.baselineRejectionKind,
-                    checkIds: result.baselineRejectedCheckIds,
-                },
-            }, projectRoot);
-            const planningAgentName = effectiveMeta.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
-            const revisionOutcome = await runPlanningAgent({
-                agentName: planningAgentName,
-                initialRequest: [
-                    `## Plan Objective-Failing Check Baseline Rejected: ${planName}`,
-                    "",
-                    feedback,
-                    "",
-                    "Revise the Plan's Objective-Failing Checks so every check fails against the unmodified execution tree before implementation starts.",
-                ].join("\n"),
-                triageMeta: effectiveMeta,
-                sessionManager,
-                hostedSession,
-            });
-            if (revisionOutcome.outcome === "approved_execute") {
-                return await executePlan({
-                    planName: revisionOutcome.planName || planName,
-                    triageMeta: revisionOutcome.triageMeta || effectiveMeta,
-                    sessionManager,
-                    hostedSession,
-                    routerMessage,
-                    reviewFeedback: revisionOutcome.feedback,
-                    reviewImages: revisionOutcome.images,
-                });
-            }
-            return {
-                repairRequired: false,
-                executionComplete: false,
-                intentionalComplete: revisionOutcome.outcome === "saved" || revisionOutcome.outcome === "canceled",
-                intentionalCompleteReason: `baseline_${revisionOutcome.outcome}`,
-                message: revisionOutcome.outcome === "saved" || revisionOutcome.outcome === "canceled"
-                    ? SESSION_COMPLETE_GUIDANCE
-                    : undefined,
-                feedback,
-            };
-        }
         await recordWorkflowMetric({
             category: "execution",
             event: "plan_execution_result",
@@ -595,21 +532,6 @@ export async function executeSingleEngineerPlan(
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (error instanceof ObjectiveChecksBaselineRejectionError) {
-            emitSystemStatus(hostedSession, `Execution did not start: ${message}`, {
-                level: "error",
-                header: "RunWield",
-            });
-            return {
-                repairRequired: false,
-                executionComplete: false,
-                baselineRejected: true,
-                baselineRejectionKind: error.kind,
-                baselineRejectedCheckIds: error.checkIds,
-                feedback: error.feedback,
-                error: message,
-            };
-        }
         const failedWorkflow = hostedSession?.getActiveExecutionWorkflow?.();
         if (failedWorkflow?.planName === planName && failedWorkflow.collaborationStyle === CollaborationStyles.PAIR) {
             hostedSession?.setActiveExecutionWorkflow({

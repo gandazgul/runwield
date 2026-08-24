@@ -20,13 +20,6 @@ devServerUrl: null
 devServerHmr: null
 createdAt: "2026-08-20T20:26:45-04:00"
 status: "draft"
-objectiveChecks:
-    - id: "OC1"
-      command: "grep -q 'projection replays one RunWield notice for each real Agent handoff' src/shared/session/session-transcript-projection.test.js && deno run -A scripts/run-tests.js src/shared/session/session-transcript-projection.test.js --filter 'projection replays one RunWield notice for each real Agent handoff'"
-      rationale: "The check requires and runs a new behavioral replay test that starts with persisted active-Agent markers and can pass only when real identity changes become ordered, durable notices while initialization and duplicates stay silent."
-    - id: "OC2"
-      command: "grep -q 'Agent switched to Planner' src/ui/tui/golden-scenarios/slash-command-tree-configuration.ts && deno run -A scripts/run-tests.js src/ui/tui/golden-scenarios/slash-command-configuration.test.ts --filter 'slash-command-agent-preset-model-precedence'"
-      rationale: "The existing composed TUI journey does not assert or render this notice today; the check requires the real /agent path to show the expected switch block and pass its Golden TUI scenario."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 updatedAt: "2026-08-21T00:38:21.894Z"

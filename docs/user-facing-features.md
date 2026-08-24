@@ -51,7 +51,7 @@
   - Use bundled specialist agents including Router, Guide, Ideator, Operator, Planner, Architect, Engineer, and Tester.
   - Use workflow specialists such as Slicer and Reviewer during plan decomposition and validation flows.
   - Let agents use bounded delegated agent sessions for parallel investigation or isolated implementation work.
-  - Let agents use a verification-adversary delegated role to attack objective checks and weak validation plans.
+  - Let agents use a verification-adversary delegated role to attack weak validation plans.
 
 - **Planning and execution**
   - Store plans as Markdown files under `docs/plans/`.
@@ -88,8 +88,6 @@
 - **Validation and review**
   - Run Mechanical Validation after direct `QUICK_FIX` work.
   - Run workflow validation after saved executable plan work.
-  - Run Objective-Failing Checks during Mechanical Validation.
-  - Baseline Objective-Failing Checks before execution so validation can prove they became satisfied.
   - Run semantic review against the original plan after saved plan implementation, in narrowing rounds: two full plan
     reviews, then verification-only rounds that check the repairs rather than re-reviewing everything.
   - Report code smells as non-blocking advisories instead of blocking findings.

@@ -79,8 +79,6 @@ function executionMetadataOverrides(canonicalAttrs, executionAttrs) {
         // delivery state back to the primary Plan.
         "createdAt",
         "updatedAt",
-        "objectiveChecksBaseline",
-        "objectiveCheckWaivers",
         "failureReason",
         "failedAt",
         "implementedAt",
@@ -95,7 +93,6 @@ function executionMetadataOverrides(canonicalAttrs, executionAttrs) {
         "humanReviewedAt",
         "validationCheckpoint",
         "validationCiAttempts",
-        "validationObjectiveCheckAttempts",
         "validationSemanticRounds",
         "epicCompletionMode",
         "epicDoneEnoughAt",

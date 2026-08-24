@@ -18,8 +18,8 @@ executor or force `SessionRuntime` to represent a conversation and transcript it
 
 The current workflow orchestrator and validation loop interleave durable workflow decisions with Pi session turns.
 Agent-neutral authorities already exist below that coupling, including the Plan Lifecycle state machine, Plan Store,
-worktree registry, objective checks, review ledger, merge safeguards, and Work Record generation. Attached Mode must
-reuse those authorities without copying their state machines into a Claude-specific adapter.
+worktree registry, review ledger, merge safeguards, and Work Record generation. Attached Mode must reuse those
+authorities without copying their state machines into a Claude-specific adapter.
 
 Claude Code also exposes different integration surfaces for different responsibilities. Hooks can synchronously enforce
 local restrictions, Model Context Protocol (MCP) tools can carry structured model-facing operations, and Skills or

@@ -587,8 +587,8 @@ Nested Pi-backed objects such as `compaction`, `branchSummary`, `retry`, `termin
 | `retry.provider.maxRetryDelayMs` | number  | default `60000`  | Provider SDK maximum server-requested retry delay before failing; `0` disables the provider cap only. |
 
 Workflow Validation uses `retry.enabled`, `retry.maxRetries`, `retry.baseDelayMs`, and `retry.validation.maxDelayMs` for
-operational retries. These retries do not spend CI repair rounds, Objective-Failing Check repair rounds, or Semantic
-Code Review rounds. The `retry.provider.*` settings stay provider-only.
+operational retries. These retries do not spend CI repair rounds or Semantic Code Review rounds. The `retry.provider.*`
+settings stay provider-only.
 
 ### `terminal`
 

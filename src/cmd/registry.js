@@ -395,6 +395,7 @@ export const commandRegistry = {
             `${bin("plans")}`,
             `${bin("plans read <plan-name-or-id> [--help]")}`,
             `${bin("plans doctor [--repair] [--help]")}`,
+            `${bin("plans clean-objective-checks [--dry-run] [--help]")}`,
             `${bin("plans share <plan-name-or-id> [--plan-server <url>] [--project-secrets] [--help]")}`,
             `${
                 bin("plans pull <maintainer-url-or-plan-name-or-id> [--plan-server <url>] [--project-secrets] [--to <plan-name>] [--help]")

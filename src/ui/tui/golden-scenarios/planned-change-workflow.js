@@ -130,11 +130,6 @@ export const plannedChangeReviewRepairValidationScenario = {
                 name: "plan_written",
                 arguments: {
                     planName: "plan",
-                    objectiveChecks: [{
-                        id: "OC1",
-                        command: "test -f golden-planned-change.txt",
-                        rationale: "implementation creates the golden planned-change artifact",
-                    }],
                 },
             }],
         },
@@ -149,11 +144,6 @@ export const plannedChangeReviewRepairValidationScenario = {
                 name: "plan_written",
                 arguments: {
                     planName: "plan",
-                    objectiveChecks: [{
-                        id: "OC1",
-                        command: "test -f golden-planned-change.txt",
-                        rationale: "implementation creates the golden planned-change artifact",
-                    }],
                 },
             }],
         },
@@ -328,6 +318,12 @@ export const plannedChangeReviewRepairValidationScenario = {
         assertsGoldenCoverage("recovery:workflow-validation", (result) => {
             assertScreenIncludes(result, "Running the tests in");
             assertEventIncludes(result, "workflow:durability:terminal-ready");
+            const transcript = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
+            assertEquals(
+                transcript.includes("Objective-Failing Check"),
+                false,
+                "The full Plan journey must not request or run the retired Objective Check phase.",
+            );
         }),
         assertsGoldenCoverage("durable:plan-lifecycle", (result) => {
             const planReview =
@@ -540,7 +536,6 @@ export const plannedChangeNonGitInPlaceScenario = {
                 name: "plan_written",
                 arguments: {
                     planName: "non-git-plan",
-                    objectiveChecks: [{ id: "OC1", command: "test -f golden-non-git.txt" }],
                 },
             }],
         },
@@ -643,7 +638,6 @@ export const plannedChangeValidationFailureRetryScenario = {
                 name: "plan_written",
                 arguments: {
                     planName: "validation-retry",
-                    objectiveChecks: [{ id: "OC1", command: "test -f golden-validation-retry.txt" }],
                 },
             }],
         },
@@ -797,7 +791,6 @@ export const plannedChangeValidationExhaustedScenario = {
                 name: "plan_written",
                 arguments: {
                     planName: "validation-exhausted",
-                    objectiveChecks: [{ id: "OC1", command: "test -f golden-validation-exhausted.txt" }],
                 },
             }],
         },
@@ -918,7 +911,6 @@ export const plannedChangeFrontendIdentityScenario = {
                 arguments: {
                     planName: "frontend-identity",
                     executionAgent: "frontend-engineer",
-                    objectiveChecks: [{ id: "OC1", command: "true" }],
                 },
             }],
         },

@@ -10,7 +10,6 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type { HostedSession } from "../shared/session/hosted-session.js";
 import { AGENTS } from "../constants.js";
-import type { BrokenObjectiveCheckReport } from "../shared/workflow/objective-checks.ts";
 import { recordAcceptedTaskCompletion } from "../shared/session/task-completion-session.ts";
 import { emitTaskCompletedMessage } from "../shared/session/workflow-messages.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
@@ -32,7 +31,6 @@ type TaskCompletedDetails =
         outcome: "task_completed";
         message: string;
         browserPreflightOutcome?: BrowserPreflightOutcome;
-        brokenObjectiveChecks?: BrokenObjectiveCheckReport[];
     };
 
 type TaskCompletedResult = AgentToolResult<TaskCompletedDetails> & { terminate: boolean };
@@ -64,25 +62,11 @@ function buildToolParams(agentName: string) {
         : isExecutionAgent(agentName) || isValidationRepairAgent(agentName)
         ? ENGINEER_MESSAGE_DESCRIPTION
         : DEFAULT_MESSAGE_DESCRIPTION;
-    const brokenObjectiveChecks = Type.Array(
-        Type.Object({
-            id: Type.String({ minLength: 1 }),
-            explanation: Type.String({ minLength: 1 }),
-            command: Type.Optional(Type.String({ minLength: 1 })),
-        }),
-        {
-            description:
-                "Optional execution-agent report of Objective-Failing Checks that are broken, not merely unmet. RunWield asks the user whether to waive them and records accepted waivers in the Plan.",
-        },
-    );
     return Type.Object({
         message: Type.String({
             description: messageDescription,
             minLength: 1,
         }),
-        ...(isExecutionAgent(agentName) || isValidationRepairAgent(agentName)
-            ? { brokenObjectiveChecks: Type.Optional(brokenObjectiveChecks) }
-            : {}),
         ...(normalized === "frontend-engineer"
             ? {
                 browserPreflightOutcome: Type.Union([
@@ -96,21 +80,6 @@ function buildToolParams(agentName: string) {
             }
             : {}),
     });
-}
-
-function normalizeBrokenObjectiveChecks(value: unknown): BrokenObjectiveCheckReport[] | undefined {
-    if (!Array.isArray(value)) return undefined;
-    const reports: BrokenObjectiveCheckReport[] = [];
-    for (const item of value) {
-        if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-        const source = item as Partial<Record<keyof BrokenObjectiveCheckReport, string>>;
-        const id = typeof source.id === "string" ? source.id.trim() : "";
-        const explanation = typeof source.explanation === "string" ? source.explanation.trim() : "";
-        if (!id || !explanation) continue;
-        const command = typeof source.command === "string" && source.command.trim() ? source.command.trim() : undefined;
-        reports.push({ id, explanation, ...(command ? { command } : {}) });
-    }
-    return reports.length ? reports : undefined;
 }
 
 function buildToolDescription(): string {
@@ -186,9 +155,6 @@ export function createTaskCompletedTool(
                 };
             }
             const report = typeof params.message === "string" ? params.message : "";
-            const brokenObjectiveChecks = isExecutionAgent(agentName) || isValidationRepairAgent(agentName)
-                ? normalizeBrokenObjectiveChecks(params.brokenObjectiveChecks)
-                : undefined;
             const timestampMs = now();
             recordAcceptedTaskCompletion({
                 hostedSession: targetHostedSession,
@@ -196,7 +162,6 @@ export function createTaskCompletedTool(
                 agentName: normalizedAgentName,
                 report,
                 timestampMs,
-                brokenObjectiveChecks,
             });
             emitTaskCompletedMessage(targetHostedSession, agentName, report);
             await recordWorkflowMetric({
@@ -233,7 +198,6 @@ export function createTaskCompletedTool(
                     ...(normalizedAgentName === "frontend-engineer"
                         ? { browserPreflightOutcome: params.browserPreflightOutcome as BrowserPreflightOutcome }
                         : {}),
-                    ...(brokenObjectiveChecks ? { brokenObjectiveChecks } : {}),
                 },
                 terminate: true,
             };

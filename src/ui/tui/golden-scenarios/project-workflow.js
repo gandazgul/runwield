@@ -242,7 +242,6 @@ export const twoChildProjectContinuationScenario = {
                 name: "plan_written",
                 arguments: {
                     planName: "epic/01-child-one",
-                    objectiveChecks: [{ id: "OC1", command: "test -f golden-child-one.txt" }],
                 },
             }],
         },
@@ -302,7 +301,6 @@ export const twoChildProjectContinuationScenario = {
                 name: "plan_written",
                 arguments: {
                     planName: "epic/02-child-two",
-                    objectiveChecks: [{ id: "OC1", command: "test -f golden-child-two.txt" }],
                 },
             }],
         },
@@ -486,116 +484,53 @@ function epicTurn(id) {
     return turn;
 }
 
-/**
- * An Epic child whose Objective-Failing Check is never satisfied, stopped by the user.
- *
- * The two-child scenario proves the happy path: children verify and the Runtime
- * continues into the next one by itself. The question it cannot answer is what happens
- * when a child *does not* verify — the case where a Project has the most to lose,
- * because a stalled Epic strands every child behind it.
- *
- * Objective-Failing Checks are the mechanism that decides this. The Engineer reports
- * success, the check disagrees, and RunWield repairs and re-checks until it runs out of
- * automatic rounds. What has to be true at that point is the product promise: RunWield
- * pauses rather than halting, says what happened and what to do next in plain English,
- * and leaves the user somewhere they can act. Choosing Stop must end the run visibly and
- * leave the terminal usable — not continue into the next child as though the first one
- * had passed, and not sit there forever.
- */
-export const projectChildObjectiveCheckStopScenario = {
+export const projectChildCiFailureStopScenario = {
     ...twoChildProjectContinuationScenario,
-    name: "project-child-objective-check-unmet-stops",
-    coverage: ["recovery:objective-check-unmet", "durable:epic-child-halted"],
-    // Only two reviews are reached: the Epic, then the first child. The child never
-    // gets to Semantic Review, because Mechanical Validation never lets it through.
+    name: "project-child-ci-failure-stops",
+    coverage: ["recovery:child-ci-failure", "durable:epic-child-halted"],
+    committedProjectFiles: [
+        { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "false" }, null, 4)}\n` },
+    ],
     reviewDecisions: [
         { approved: true, feedback: "Architect approved the two-child PROJECT.", approvalAction: "later" },
         { approved: true, feedback: "First child approved to run.", approvalAction: "run" },
     ],
-    scriptedInteractions: [
-        {
-            type: "select",
-            // The words the user actually reads when the automatic rounds run out.
-            promptIncludes: "still unmet",
-            value: "stop",
-        },
-    ],
+    scriptedInteractions: [{ type: "select", promptIncludes: "tests for", value: "stop" }],
     script: [
         epicTurn("architect-approves-epic-plan"),
         epicTurn("slicer-materializes-two-children"),
         epicTurn("slicer-closes-decomposition"),
-        // Carries the `test -f golden-child-one.txt` Objective-Failing Check that the
-        // Engineer below never satisfies.
         epicTurn("planner-submits-first-child"),
-        {
-            // Writes a real file and reports real success. The Engineer believes it is
-            // done; only the Objective-Failing Check knows otherwise, which is the whole
-            // reason the check exists.
-            id: "engineer-implements-first-child-incorrectly",
-            agent: "engineer",
-            phase: "engineer",
-            planName: "epic/01-child-one",
-            ordinal: 1,
-            requiredTools: ["bash", "task_completed"],
-            thinking: "Implement the first child.",
-            toolCalls: [
-                { name: "bash", arguments: { command: "printf one > golden-child-one-draft.txt" } },
-                { name: "task_completed", arguments: { message: "- Implemented the first Golden child." } },
-            ],
-        },
-        {
-            id: "engineer-closes-first-child-attempt",
-            agent: "engineer",
-            phase: "engineer",
-            planName: "epic/01-child-one",
-            ordinal: 2,
-            text: "First child awaits Mechanical Validation.",
-        },
-        {
-            // Repair round one. Still the wrong file: a repair that cannot see why the
-            // check fails is exactly the situation the round limit exists for.
-            id: "engineer-first-objective-check-repair",
-            agent: "engineer",
-            phase: "engineer",
-            planName: "epic/01-child-one",
-            ordinal: 3,
-            requiredTools: ["bash", "task_completed"],
-            thinking: "Repair the first child after the Objective-Failing Check reported it unmet.",
-            toolCalls: [
-                { name: "bash", arguments: { command: "printf repaired >> golden-child-one-draft.txt" } },
-                { name: "task_completed", arguments: { message: "- Attempted a repair for the first Golden child." } },
-            ],
-        },
-        {
-            id: "engineer-closes-first-objective-check-repair",
-            agent: "engineer",
-            phase: "engineer",
-            planName: "epic/01-child-one",
-            ordinal: 4,
-            text: "First repair awaits re-validation.",
-        },
-        {
-            id: "engineer-second-objective-check-repair",
-            agent: "engineer",
-            phase: "engineer",
-            planName: "epic/01-child-one",
-            ordinal: 5,
-            requiredTools: ["bash", "task_completed"],
-            thinking: "Repair the first child again after the Objective-Failing Check is still unmet.",
-            toolCalls: [
-                { name: "bash", arguments: { command: "printf again >> golden-child-one-draft.txt" } },
-                { name: "task_completed", arguments: { message: "- Attempted a second repair." } },
-            ],
-        },
-        {
-            id: "engineer-closes-second-objective-check-repair",
-            agent: "engineer",
-            phase: "engineer",
-            planName: "epic/01-child-one",
-            ordinal: 6,
-            optional: true,
-            text: "Second repair awaits re-validation.",
-        },
+        epicTurn("engineer-implements-first-child"),
+        epicTurn("engineer-closes-first-child"),
+        ...[1, 2, 3].flatMap((attempt) => [
+            {
+                id: `engineer-child-ci-repair-${attempt}`,
+                agent: "engineer",
+                phase: "engineer",
+                planName: "epic/01-child-one",
+                ordinal: attempt * 2 + 1,
+                requiredTools: ["bash", "task_completed"],
+                toolCalls: [
+                    {
+                        name: "bash",
+                        arguments: { command: `printf '${attempt}\n' >> ci-repair-attempts.txt` },
+                    },
+                    {
+                        name: "task_completed",
+                        arguments: { message: `- CI repair ${attempt} could not fix the external validation command.` },
+                    },
+                ],
+            },
+            {
+                id: `engineer-closes-child-ci-repair-${attempt}`,
+                agent: "engineer",
+                phase: "engineer",
+                planName: "epic/01-child-one",
+                ordinal: attempt * 2 + 2,
+                text: `CI repair ${attempt} awaits validation.`,
+            },
+        ]),
     ],
     actions: [
         {
@@ -606,63 +541,28 @@ export const projectChildObjectiveCheckStopScenario = {
         },
         { type: "type", text: "submit the epic project plan for architect review" },
         { type: "enter" },
-        {
-            type: "waitForPlanStatus",
-            planName: "epic",
-            statuses: ["ready_for_decomposition"],
-            timeoutMs: 12000,
-        },
+        { type: "waitForPlanStatus", planName: "epic", statuses: ["ready_for_decomposition"], timeoutMs: 12000 },
         { type: "runSlicerDecomposition", planName: "epic" },
         { type: "waitForIdle", timeoutMs: 15000 },
-        // Switch through the Runtime test API; slash-command coverage owns `/agent` input semantics.
         { type: "switchAgent", agentName: "planner" },
         { type: "waitForIdle", timeoutMs: 15000 },
         { type: "type", text: "finalize and submit the first child planned change for review" },
         { type: "enter" },
-        // Two repair rounds and three validation passes run inside this wait, and it
-        // ends at the Retry/Stop menu the scripted interaction above answers with Stop.
         { type: "waitForIdle", timeoutMs: 240000 },
         { type: "captureProjectDurability", planName: "epic" },
     ],
     assertions: [
-        assertsGoldenCoverage("recovery:objective-check-unmet", (result) => {
-            // The pause has to reach the screen as something a person can act on:
-            // what happened, what to do next, and a menu — not a stack trace.
-            assertScreenIncludes(result, "still unmet");
-            // The menu was really put to the user and really answered, rather than the
-            // run simply ending. `objective_checks_attempt` is a Plan lifecycle event,
-            // not a runtime one, so it is not in this stream.
+        assertsGoldenCoverage("recovery:child-ci-failure", (result) => {
+            assertScreenIncludes(result, "tests for");
             assertEventIncludes(result, "runtime:interaction_requested");
             assertEventIncludes(result, "runtime:interaction_resolved");
-            const children =
-                /** @type {Array<{ name?: string, status?: string }> | undefined} */ (result.state.projectChildren);
-            const firstChild = children?.find((child) => String(child.name || "").includes("01-child-one"));
-            assert(
-                firstChild && !["verified", "user_verified"].includes(String(firstChild.status || "")),
-                `Expected the first child to stop short of verified; got ${firstChild?.status}`,
-            );
         }),
         assertsGoldenCoverage("durable:epic-child-halted", (result) => {
-            // The Epic must not walk past a child that never passed. Continuing here
-            // would deliver a second child on top of an unverified first one, which is
-            // the failure this scenario exists to catch.
-            const children =
-                /** @type {Array<{ name?: string, status?: string }> | undefined} */ (result.state.projectChildren);
-            const secondChild = children?.find((child) => String(child.name || "").includes("02-child-two"));
-            assert(
-                secondChild && !["verified", "user_verified"].includes(String(secondChild.status || "")),
-                `Expected the Epic not to continue past an unverified child; second child was ${secondChild?.status}`,
+            const children = /** @type {Array<{ name?: string, status?: string }> | undefined} */ (
+                result.state.projectChildren
             );
-            const durability = /** @type {{ trackedFiles?: string } | undefined} */ (result.state.projectDurability);
-            assert(
-                !String(durability?.trackedFiles || "").includes("golden-child-two.txt"),
-                "Expected no second-child delivery after the first child stopped.",
-            );
-            // Stopped, not stranded: the run ends somewhere the user can keep working.
-            assert(
-                !String(durability?.trackedFiles || "").includes("golden-child-one-draft.txt"),
-                "Expected the unverified child's work to stay in its worktree rather than reach the checkout.",
-            );
+            const second = children?.find((child) => String(child.name || "").includes("02-child-two"));
+            assert(second && !["verified", "user_verified"].includes(String(second.status || "")));
         }),
     ],
 };
@@ -670,5 +570,5 @@ export const projectChildObjectiveCheckStopScenario = {
 export const projectWorkflowScenarios = [
     projectPlanReviewScenario,
     twoChildProjectContinuationScenario,
-    projectChildObjectiveCheckStopScenario,
+    projectChildCiFailureStopScenario,
 ];

@@ -320,7 +320,6 @@ async function runIsolatedRequest(
         taskReport: {
             completed: report.completed,
             report: report.message,
-            brokenObjectiveChecks: report.brokenObjectiveChecks || [],
         },
     };
 }
@@ -377,7 +376,6 @@ export function createValidationSessionPort(
             return {
                 completed: completion.completed,
                 report: completion.message,
-                brokenObjectiveChecks: completion.brokenObjectiveChecks || [],
             };
         },
         continueLastRepairTurn: async (userRequest) => {
@@ -406,7 +404,6 @@ export function createValidationSessionPort(
             return {
                 completed: completion.completed,
                 report: completion.message,
-                brokenObjectiveChecks: completion.brokenObjectiveChecks || [],
             };
         },
         createInMemorySessionManager: (cwd) => SessionManager.inMemory(cwd) as unknown as SessionManagerHandle,

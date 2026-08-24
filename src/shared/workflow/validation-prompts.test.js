@@ -144,7 +144,6 @@ Deno.test("bundled validation repair engineer prompt is repair-scoped without Pl
     assertStringIncludes(compact, "the general Engineer prompt");
     assertStringIncludes(prompt, "one bounded repair packet");
     assertStringIncludes(prompt, "CI diagnostics");
-    assertStringIncludes(prompt, "Objective-Failing Check evidence");
     assertStringIncludes(compact, "semantic review findings");
     assertEquals(prompt.includes("Plan"), false);
     assertStringIncludes(prompt, "**Your claims are evidence, not resolution.**");

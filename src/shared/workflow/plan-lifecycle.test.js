@@ -63,52 +63,15 @@ Deno.test("validation retry counters increment and reset on implemented re-entry
     assertEquals(failedCi.status, "implemented");
     assertEquals(failedCi.validationCiAttempts, 3);
 
-    const failedObjectiveCheck = buildPlanEventUpdates("mechanical_validation_failed", "implemented", {
-        triageMeta: { validationCiAttempts: 2, validationObjectiveCheckAttempts: 2 },
-        mechanicalFailureKind: "objective_check",
-    });
-    assertEquals(failedObjectiveCheck.validationCiAttempts, 2);
-    assertEquals(failedObjectiveCheck.validationObjectiveCheckAttempts, 3);
-
     const failedValidation = buildPlanEventUpdates("validation_failed", "validated_ci", {
         triageMeta: {
             validationCiAttempts: 3,
-            validationObjectiveCheckAttempts: 3,
             validationSemanticRounds: 2,
         },
     });
     assertEquals(failedValidation.status, "implemented");
     assertEquals(failedValidation.validationCiAttempts, 0);
-    assertEquals(failedValidation.validationObjectiveCheckAttempts, 0);
     assertEquals(failedValidation.validationSemanticRounds, 0);
-});
-
-Deno.test("buildPlanEventUpdates clears Objective Check baseline when plans become verified", () => {
-    const validationPassed = buildPlanEventUpdates("validation_passed", "validated_reviewer", {
-        ...TEST_DELIVERY_DETAILS,
-        triageMeta: { objectiveChecksBaseline: { recordedAt: "2026-01-01T00:00:00.000Z", results: [] } },
-    });
-    assertEquals(validationPassed.status, "validated");
-    assertEquals(Object.hasOwn(validationPassed, "objectiveChecksBaseline"), true);
-    assertEquals(validationPassed.objectiveChecksBaseline, undefined);
-
-    const userVerified = buildPlanEventUpdates("manual_user_verified", "implemented", {
-        triageMeta: { objectiveChecksBaseline: { recordedAt: "2026-01-01T00:00:00.000Z", results: [] } },
-        userVerificationNote: "Verified manually.",
-    });
-    assertEquals(userVerified.status, "user_verified");
-    assertEquals(Object.hasOwn(userVerified, "objectiveChecksBaseline"), true);
-    assertEquals(userVerified.objectiveChecksBaseline, undefined);
-
-    const epicDoneEnough = buildPlanEventUpdates("epic_done_enough", "ready_for_work", {
-        triageMeta: {
-            classification: "PROJECT",
-            objectiveChecksBaseline: { recordedAt: "2026-01-01T00:00:00.000Z", results: [] },
-        },
-    });
-    assertEquals(epicDoneEnough.status, "validated");
-    assertEquals(Object.hasOwn(epicDoneEnough, "objectiveChecksBaseline"), true);
-    assertEquals(epicDoneEnough.objectiveChecksBaseline, undefined);
 });
 
 Deno.test("buildPlanEventUpdates promotes approved plans to ready_for_work", () => {
@@ -626,49 +589,6 @@ Deno.test("recordPlanEvent mutates only the selected held plan file", async () =
         await recordPlanEvent({ cwd, planName: "epic/child", event: "plan_held", currentStatus: "ready_for_work" });
         assertEquals((await Deno.readTextFile(`${cwd}/docs/plans/epic.md`)).includes('status: "on_hold"'), true);
         assertEquals((await Deno.readTextFile(`${cwd}/docs/plans/epic/child.md`)).includes('status: "on_hold"'), true);
-    } finally {
-        await Deno.remove(cwd, { recursive: true });
-    }
-});
-
-Deno.test("recordPlanEvent removes Objective Check baseline from verified Plan front matter", async () => {
-    const cwd = await Deno.makeTempDir();
-    try {
-        await savePlan(cwd, "feature", "# Feature", {
-            classification: "FEATURE",
-            complexity: "MEDIUM",
-            summary: "Feature",
-            affectedPaths: [],
-            status: "validated_reviewer",
-            objectiveChecksBaseline: {
-                recordedAt: "2026-01-01T00:00:00.000Z",
-                head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                results: [{
-                    id: "OC1",
-                    command: "test ! -e sentinel.txt",
-                    status: "unmet",
-                    stdout: "",
-                    stderr: "",
-                    exitCode: 1,
-                    durationMs: 5,
-                    output: "",
-                }],
-            },
-        });
-
-        await recordPlanEvent({
-            cwd,
-            planName: "feature",
-            event: "validation_passed",
-            currentStatus: "validated_reviewer",
-            details: TEST_DELIVERY_DETAILS,
-        });
-
-        const plan = await loadPlan(cwd, "feature");
-        const markdown = await Deno.readTextFile(`${cwd}/docs/plans/feature.md`);
-        assertEquals(plan?.attrs.status, "validated");
-        assertEquals(plan?.attrs.objectiveChecksBaseline, undefined);
-        assertEquals(markdown.includes("objectiveChecksBaseline:"), false);
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

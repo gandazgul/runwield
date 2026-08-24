@@ -79,7 +79,6 @@ Deno.test("execution preparation progress reports fresh worktree setup before la
         setModelMessages([fauxAssistantMessage(fauxText("Execution remains paused in the fixture."))]);
         const projectRoot = await makeWorkflowProject([{
             name: "fresh-progress",
-            attrs: { objectiveChecks: [{ id: "OC_PROGRESS", command: "test -f fresh-progress-marker" }] },
         }]);
         const events: RuntimeStatusEvent[] = [];
         const hostedSession = makeHostedSession("fresh-progress", projectRoot, events);
@@ -103,7 +102,6 @@ Deno.test("execution preparation progress reports fresh worktree setup before la
                 "creating execution worktree from base branch",
                 `created worktree ${workflow.worktreeBranch} from base branch`,
                 "materializing Plan in execution worktree...",
-                "running Plan Objective-Failing Check baseline...",
                 "updating Plan status to in_progress...",
                 "launching Plan Engineer to execute...",
             ]);
@@ -126,7 +124,6 @@ Deno.test("execution preparation progress reports fresh worktree setup before la
 Deno.test("execution preparation progress reports reused worktree without claiming creation", async () => {
     const projectRoot = await makeWorkflowProject([{
         name: "reuse-progress",
-        attrs: { objectiveChecks: [{ id: "OC_PROGRESS", command: "test -f reuse-progress-marker" }] },
     }]);
     const events: RuntimeStatusEvent[] = [];
     const hostedSession = makeHostedSession("reuse-progress", projectRoot, events);
@@ -147,7 +144,6 @@ Deno.test("execution preparation progress reports reused worktree without claimi
             "reuse-progress",
             {
                 status: "ready_for_work",
-                objectiveChecks: [{ id: "OC_PROGRESS", command: "test -f reuse-progress-marker" }],
             },
             {},
             {
@@ -167,7 +163,6 @@ Deno.test("execution preparation progress reports reused worktree without claimi
         const messages = messagesFrom(events);
         assertStringIncludes(messages.join("\n"), `reusing worktree ${firstWorkflow.worktreeBranch}`);
         assertEquals(messages.some((message) => message.includes("creating execution worktree")), false);
-        assertEquals(messages.some((message) => message.includes("Objective-Failing Check baseline")), false);
     } finally {
         if (executionCwd) {
             await removeWorktreeGitArtifacts({ projectRoot, path: executionCwd, force: true }).catch(() => undefined);
@@ -198,11 +193,6 @@ Deno.test("restart resumes a dirty ready-for-work worktree without repeating pre
             summary: "restart-progress",
             affectedPaths: ["implemented.txt"],
             planId: PLAN_ID,
-            objectiveChecks: [{
-                id: "OC_RESTART",
-                command: "test -f implemented.txt",
-                rationale: "The implementation marker must not exist before execution.",
-            }],
         });
         await Deno.writeTextFile(`${worktree.path}/implemented.txt`, "Agent work survived the restart.\n");
         const poisonedBaseline = await captureWorktreeTree(worktree.path);
@@ -240,7 +230,6 @@ Deno.test("restart resumes a dirty ready-for-work worktree without repeating pre
         assertEquals(headAfter, headBefore, "resume must not checkpoint unreviewed Agent files as setup");
         const messages = messagesFrom(events);
         assertStringIncludes(messages.join("\n"), `reusing worktree ${worktree.branch}`);
-        assertEquals(messages.some((message) => message.includes("Objective-Failing Check baseline")), false);
 
         // Mirror the durable residue left by the old failure: the Plan Event landed,
         // the registry contains a tree captured after the Agent edits, and the
@@ -317,7 +306,6 @@ Deno.test("execution preparation progress reports non-Git in-place preparation w
             summary: "non-git-progress",
             affectedPaths: [],
             planId: PLAN_ID,
-            objectiveChecks: [{ id: "OC_PROGRESS", command: "test -f non-git-progress-marker" }],
         });
 
         await startActiveExecutionWorkflow({
@@ -335,42 +323,10 @@ Deno.test("execution preparation progress reports non-Git in-place preparation w
         assertMessageOrder(messages, [
             "preparing execution target...",
             "preparing in-place execution because Git is unavailable...",
-            "running Plan Objective-Failing Check baseline...",
             "updating Plan status to in_progress...",
         ]);
         assertEquals(messages.some((message) => message.includes("worktree")), false);
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
     }
-});
-
-Deno.test("execution preparation progress preserves Objective-Failing Check baseline rejection behavior", async () => {
-    await withRuntimeCommandFixture("execution-progress-rejected-", async ({ setModelMessages }) => {
-        setModelMessages([fauxAssistantMessage(fauxText("I will revise the already-satisfied check."))]);
-        const projectRoot = await makeWorkflowProject([{
-            name: "already-met-progress",
-            attrs: { objectiveChecks: [{ id: "OC_TRUE", command: "true" }] },
-        }]);
-        const events: RuntimeStatusEvent[] = [];
-        const hostedSession = makeHostedSession("already-met-progress", projectRoot, events);
-        try {
-            const result = await executePlan({
-                planName: "already-met-progress",
-                triageMeta: { planId: PLAN_ID, classification: "PLANNED_CHANGE" },
-                hostedSession,
-            });
-
-            const messages = messagesFrom(events).join("\n");
-            assertStringIncludes(messages, "running Plan Objective-Failing Check baseline...");
-            assertStringIncludes(messages, "Execution did not start:");
-            assertEquals(messages.includes("launching Plan Engineer to execute..."), false);
-            assertEquals(result.executionComplete, false);
-            assertEquals(hostedSession.getRootAgentName(), "planner");
-            const plan = await loadPlan(projectRoot, "already-met-progress");
-            assertEquals(plan?.attrs.status, "feedback");
-        } finally {
-            hostedSession.dispose();
-            await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
-        }
-    });
 });

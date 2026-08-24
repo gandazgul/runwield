@@ -144,7 +144,6 @@ export type ValidationReviewOutcome = {
 export type AgentTurnOutcome = {
     completed: boolean;
     report: string;
-    brokenObjectiveChecks: import("./objective-checks.ts").BrokenObjectiveCheckReport[];
 };
 
 /** What the engine asks for when it dispatches an independent completion-gated repair turn. */
@@ -301,7 +300,7 @@ export type ValidationSessionPort = {
     ): void;
     /** User interactions (requestHostedSessionInteraction behind the port). */
     requestInteraction(request: ValidationInteractionRequest): Promise<ValidationInteractionResponse>;
-    /** Escape-cancel registration for Objective-Failing Checks. */
+    /** Escape-cancel registration for retry waits and other active validation work. */
     registerActiveInteraction(id: string, abortController: AbortController): void;
     unregisterActiveInteraction(id: string): void;
     /** Completion-gated validation repair in a fresh Agent session. */

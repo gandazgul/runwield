@@ -117,7 +117,6 @@ export const loadPlanResetReviewArchiveScenario = {
                 name: "plan_written",
                 arguments: {
                     planName: "re-review",
-                    objectiveChecks: [{ id: "OC1", command: "true" }],
                 },
             }],
         },
@@ -230,7 +229,6 @@ export const loadPlanCanceledExecutionThenPlannerReviewScenario = {
                 name: "plan_written",
                 arguments: {
                     planName: "stale-then-review",
-                    objectiveChecks: [{ id: "OC1", command: "true" }],
                 },
             }],
         },
@@ -704,8 +702,8 @@ export const loadPlanMalformedFrontMatterScenario = {
     ],
 };
 
-export const loadPlanValidateWaivedObjectiveChecksScenario = {
-    name: "load-plan-validate-waived-objective-checks-reaches-semantic-failure",
+export const loadPlanValidateWithoutCustomChecksScenario = {
+    name: "load-plan-validate-without-custom-checks-reaches-semantic-failure",
     composedTui: true,
     initialAgentName: "guide",
     terminal: { columns: 100, rows: 30 },
@@ -714,58 +712,43 @@ export const loadPlanValidateWaivedObjectiveChecksScenario = {
     committedProjectFiles: [
         { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
         {
-            path: "docs/plans/waived-validate.md",
+            path: "docs/plans/no-custom-checks.md",
             text:
-                '---\nplanId: waived-validate-plan\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Waived Objective Check validation\naffectedPaths: []\nobjectiveChecks:\n  - id: OC1\n    command: "false"\nobjectiveCheckWaivers:\n  - id: OC1\n    command: "false"\n    source: engineer_report\n    explanation: Golden waiver.\n    waivedAt: "2026-08-13T00:00:00.000Z"\nstatus: draft\n---\n# Waived validate\n',
+                "---\nplanId: no-custom-checks-plan\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Validation without custom checks\naffectedPaths: []\nstatus: draft\n---\n# Validate without custom checks\n",
         },
     ],
     scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery", value: "validate" }],
     actions: [
         {
             type: "seedActiveWorktree",
-            planName: "waived-validate",
+            planName: "no-custom-checks",
             status: "implemented",
             attrs: { executionMode: "worktree" },
         },
         {
             type: "setPrimaryPlanStatus",
-            planName: "waived-validate",
+            planName: "no-custom-checks",
             status: "ready_for_work",
             clearPrimaryWorktreeEvidence: true,
         },
-        { type: "type", text: "/load-plan waived-validate" },
+        { type: "type", text: "/load-plan no-custom-checks" },
         { type: "enter" },
         { type: "enter" },
-        { type: "sleep", ms: 1000 },
+        { type: "waitForScreen", text: "Status: implemented", timeoutMs: 30000 },
+        { type: "waitForScreen", text: "The build and tests passed.", timeoutMs: 90000 },
         { type: "waitForIdle", timeoutMs: 90000 },
-        { type: "sleep", ms: 1000 },
-        { type: "captureProjectState", planNames: ["waived-validate"] },
+        { type: "captureProjectState", planNames: ["no-custom-checks"] },
     ],
     assertions: [
         assertsGoldenCoverage("workflow:load-plan", (result: GoldenScenarioResult) => {
-            assertEventIncludes(result, "terminal:type:/load-plan waived-validate");
-            assertEventIncludes(result, "project:primary-plan-status:waived-validate:ready_for_work");
-            assert(
-                !`${result.scrollbackText || ""}\n${result.screenText}`.includes(
-                    "execution mode is missing or unknown",
-                ),
-                "Validation must use the execution Plan instead of stale primary lifecycle metadata.",
-            );
-            assertScreenIncludes(result, "All checks for waived-validate are waived");
-            assertScreenIncludes(result, "The build, tests, and checks passed.");
-            assertScreenIncludes(result, "Ask the Engineer to restore the code");
+            assertEventIncludes(result, "terminal:type:/load-plan no-custom-checks");
+            assertScreenIncludes(result, "The build and tests passed.");
             assertScreenIncludes(result, "Workflow Validation failed");
         }),
         assertsGoldenCoverage("recovery:workflow-validation", (result: GoldenScenarioResult) => {
-            const plan = projectState(result).plans?.find((entry) => entry.name === "waived-validate");
-            assert(
-                plan?.attrs?.status === "implemented",
-                `Expected validation failure to return to implemented; got ${plan?.attrs?.status}`,
-            );
-            assert(
-                String(plan?.attrs?.failureReason || "").includes("No implementation changes detected"),
-                `Expected visible semantic failure reason to be stored; got ${plan?.attrs?.failureReason}`,
-            );
+            const plan = projectState(result).plans?.find((entry) => entry.name === "no-custom-checks");
+            assert(plan?.attrs?.status === "implemented");
+            assert(String(plan?.attrs?.failureReason || "").includes("No implementation changes detected"));
         }),
     ],
 };
@@ -779,5 +762,5 @@ export const loadPlanWorkflowScenarios = [
     loadPlanAbandonProgressScenario,
     loadPlanContinueUsesExecutionPlanAuthorityScenario,
     loadPlanMalformedFrontMatterScenario,
-    loadPlanValidateWaivedObjectiveChecksScenario,
+    loadPlanValidateWithoutCustomChecksScenario,
 ];

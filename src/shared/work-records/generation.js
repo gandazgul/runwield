@@ -609,16 +609,22 @@ export function aggregateWorkRecordTickets(source) {
 }
 
 /**
- * @param {WorkRecordSource} source
+ * Plans may require durable, deterministic statements in their Work Record.
+ * The recorder can improve prose around them, but it cannot omit this section.
+ *
+ * @param {string} body
+ * @returns {string}
  */
-function formatObjectiveCheckWaivers(source) {
-    const waivers = source.attrs.objectiveCheckWaivers || [];
-    if (!waivers.length) return "";
-    return waivers.map((waiver) =>
-        `- ${waiver.waivedAt} (${waiver.source}) ${waiver.id}: ${waiver.explanation} Command: ${waiver.command}${
-            waiver.userNote ? ` User note: ${waiver.userNote}` : ""
-        }`
-    ).join("\n");
+export function extractWorkRecordRequirements(body) {
+    const lines = String(body || "").split(/\r?\n/);
+    const heading = lines.findIndex((line) => line.trim() === "## Work Record Requirements");
+    if (heading === -1) return "";
+    const collected = [];
+    for (const line of lines.slice(heading + 1)) {
+        if (/^##\s+/.test(line)) break;
+        collected.push(line);
+    }
+    return collected.join("\n").trim();
 }
 
 /**
@@ -644,10 +650,8 @@ function buildBody(source, sections) {
     if (nonEmptyString(sections.futurePlanningNotes)) {
         lines.push("", "## Future Planning Notes", "", nonEmptyString(sections.futurePlanningNotes));
     }
-    const waiverText = formatObjectiveCheckWaivers(source);
-    if (waiverText) {
-        lines.push("", "## Objective Check Waivers", "", waiverText);
-    }
+    const requiredNotes = extractWorkRecordRequirements(source.body);
+    if (requiredNotes) lines.push("", "## Required Record Notes", "", requiredNotes);
     return lines.join("\n");
 }
 
@@ -780,14 +784,6 @@ export async function generateWorkRecordForSource(cwd, inputSource, options) {
             ...(supersessionProposals.length ? { supersessionProposal: { candidates: supersessionProposals } } : {}),
             provenance: {
                 sourcePlans: [source.planId],
-                ...(source.attrs.objectiveCheckWaivers?.length
-                    ? {
-                        evidence: [{
-                            path: source.relativePath,
-                            note: "Plan Front Matter contains accepted Objective-Failing Check waivers.",
-                        }],
-                    }
-                    : {}),
             },
         };
         const body = buildBody(source, sections);

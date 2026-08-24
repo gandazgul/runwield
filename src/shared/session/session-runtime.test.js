@@ -1735,7 +1735,6 @@ Deno.test("SessionRuntime keeps executePlan workflow operations busy while prepa
                 summary: planName,
                 affectedPaths: [],
                 planId: "execute-busy-plan-id",
-                objectiveChecks: [{ id: "OC_BUSY", command: "test -f missing-objective-marker" }],
             });
             // Exercise the real persisted-consent path against the fixture HOME. This keeps
             // the test on the non-Git execution branch without replacing workflow machinery
@@ -1759,7 +1758,6 @@ Deno.test("SessionRuntime keeps executePlan workflow operations busy while prepa
                     if (
                         event.message.includes("preparing execution target") ||
                         event.message.includes("preparing in-place execution") ||
-                        event.message.includes("running Plan Objective-Failing Check baseline") ||
                         event.message.includes("updating Plan status to in_progress") ||
                         event.message.includes("launching Plan Engineer to execute")
                     ) {
@@ -1798,11 +1796,10 @@ Deno.test("SessionRuntime keeps executePlan workflow operations busy while prepa
             assertEquals(preparationMessages.map((entry) => entry.message), [
                 "preparing execution target...",
                 "preparing in-place execution because Git is unavailable...",
-                "running Plan Objective-Failing Check baseline...",
                 "updating Plan status to in_progress...",
                 "launching Plan Engineer to execute...",
             ]);
-            assertEquals(preparationMessages.map((entry) => entry.busy), [true, true, true, true, true]);
+            assertEquals(preparationMessages.map((entry) => entry.busy), [true, true, true, true]);
             assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, false);
             runtime.closeAllSessions();
         },

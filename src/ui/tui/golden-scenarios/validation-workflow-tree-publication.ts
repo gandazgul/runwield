@@ -49,7 +49,7 @@ type PublicationState = {
     };
 };
 
-function publicationPlan(planName: string, deliveredPath: string): string {
+function publicationPlan(planName: string): string {
     return `---
 classification: PLANNED_CHANGE
 complexity: LOW
@@ -57,9 +57,6 @@ summary: ${planName}
 affectedPaths: []
 status: ready_for_work
 planId: ${planName}-plan
-objectiveChecks:
-  - id: OC_${planName.replaceAll("-", "_").toUpperCase()}
-    command: test -f ${deliveredPath}
 ---
 # ${planName}
 
@@ -101,7 +98,7 @@ function isolatedPublicationScenario(
             committedProjectFiles: [
                 { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
                 { path: "user-work.txt", text: "committed user work\n" },
-                { path: `docs/plans/${name}.md`, text: publicationPlan(name, deliveredPath) },
+                { path: `docs/plans/${name}.md`, text: publicationPlan(name) },
             ],
             initialProjectFiles: [],
             scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery", value: "validate" }],
@@ -166,7 +163,7 @@ export const validationTreePublicationDirtyCheckoutScenario = withValidationBran
             { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
             {
                 path: `docs/plans/${dirtyPublicationPlanName}.md`,
-                text: publicationPlan(dirtyPublicationPlanName, "dirty-overlap.txt"),
+                text: publicationPlan(dirtyPublicationPlanName),
             },
             { path: "dirty-overlap.txt", text: "committed baseline\n" },
         ],
@@ -243,7 +240,7 @@ export const validationTreePublicationPrimaryPlanRestoredScenario = withValidati
             { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
             {
                 path: `docs/plans/${restoredPrimaryPlanName}.md`,
-                text: publicationPlan(restoredPrimaryPlanName, "restored-primary-plan.txt"),
+                text: publicationPlan(restoredPrimaryPlanName),
             },
         ],
         initialProjectFiles: [],
@@ -319,7 +316,7 @@ export const validationTreePublicationLocalOnlyScenario = withValidationBranches
             { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
             {
                 path: `docs/plans/${localPublicationPlanName}.md`,
-                text: publicationPlan(localPublicationPlanName, "local-publication.txt"),
+                text: publicationPlan(localPublicationPlanName),
             },
         ],
         initialProjectFiles: [],
@@ -396,7 +393,7 @@ export const validationTreePublicationMissingTargetBranchScenario = withValidati
         initialProjectFiles: [{
             path: "docs/plans/publication-missing-target-branch.md",
             text:
-                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Publication missing target branch\naffectedPaths: []\nstatus: ready_for_work\nplanId: publication-missing-target-branch-plan\nobjectiveChecks:\n  - id: OC_PUBLICATION_MISSING_TARGET\n    command: test -f publication-missing-target-branch.txt\n---\n# Publication missing target branch\n\nDraft content.\n",
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Publication missing target branch\naffectedPaths: []\nstatus: ready_for_work\nplanId: publication-missing-target-branch-plan\n---\n# Publication missing target branch\n\nDraft content.\n",
         }],
         scriptedInteractions: [{
             type: "select",

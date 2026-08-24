@@ -137,25 +137,6 @@ Deno.test("task_completed rejects a paused Pair turn without terminal side effec
     assertEquals(events, []);
 });
 
-Deno.test("task_completed accepts execution-agent broken Objective Check reports", async () => {
-    const hostedSession = new HostedSession({ id: "task-completed-broken-objective", cwd: TASK_PROJECT_ROOT });
-    hostedSession.setActiveExecutionWorkflow({
-        planName: "p",
-        triageMeta: { classification: "PLANNED_CHANGE" },
-        executionAgent: "engineer",
-    });
-    const tool = createTaskCompletedTool({ hostedSession, agentName: "Plan Engineer" });
-
-    const result = await /** @type {any} */ (tool.execute)("call", {
-        message: "- Done, but one check is broken.",
-        brokenObjectiveChecks: [{ id: "OC1", explanation: "tool removed", command: "missing-tool" }],
-    });
-    const completion = hostedSession.consumePendingTaskCompletion(null);
-
-    assertEquals(result.details.brokenObjectiveChecks[0].explanation, "tool removed");
-    assertEquals(completion?.brokenObjectiveChecks?.[0].id, "OC1");
-});
-
 Deno.test("task_completed message schema owns Engineer report format and accepts runtime display name", () => {
     const hostedSession = new HostedSession({ id: "task-completed-schema", cwd: TASK_PROJECT_ROOT });
     const engineerTool = createTaskCompletedTool({ hostedSession, agentName: "Engineer" });

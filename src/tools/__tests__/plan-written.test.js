@@ -98,7 +98,6 @@ function execute(tool, planName = "runtime-boundary", onUpdate = () => {}, param
         "call",
         {
             planName,
-            objectiveChecks: [{ id: "OC1", command: "test -f src/shared/session/session-runtime.js" }],
             ...params,
         },
         new AbortController().signal,
@@ -263,7 +262,6 @@ Deno.test("plan_written persists a pair recommendation declared for Engineer-own
 Deno.test("plan_written rejects execution policy arguments on PROJECT Epics", async () => {
     const { tool, readPlan } = await makeHarness({ classification: "PROJECT" });
     const result = await execute(tool, "runtime-epic", () => {}, {
-        objectiveChecks: undefined,
         executionAgent: "engineer",
     });
 
@@ -290,7 +288,6 @@ Deno.test("plan_written returns review feedback and images to the planning agent
     assertEquals(result.terminate, undefined);
     assertEquals(result.details, {
         planName: "runtime-boundary",
-        objectiveChecks: [{ id: "OC1", command: "test -f src/shared/session/session-runtime.js" }],
         outcome: "feedback",
         feedback: "Remove the cross-boundary import.",
         imageCount: 1,
@@ -321,15 +318,8 @@ Deno.test("plan_written compares a revised Plan with the first reviewed Plan", a
     const firstPlan = await Deno.readTextFile(planPath);
     await Deno.writeTextFile(planPath, firstPlan.replace("# runtime-boundary", "# Revised runtime boundary"));
 
-    const correctedChecks = [{
-        id: "OC_CORRECTED",
-        command: "false",
-        rationale: "The corrected check is red before implementation.",
-    }];
-    const secondResult = await execute(tool, "runtime-boundary", () => {}, { objectiveChecks: correctedChecks });
+    const secondResult = await execute(tool);
     assertEquals(secondResult.details.outcome, "saved");
-    assertEquals(secondResult.details.triageMeta.objectiveChecks, correctedChecks);
-    assertEquals((await loadPlan(cwd, "runtime-boundary"))?.attrs.objectiveChecks, correctedChecks);
 
     const reviewRequests = interactionRequests.filter((request) => request.type === "plan_review");
     assertEquals(reviewRequests.length, 2);
@@ -378,41 +368,17 @@ Deno.test("plan_written feature approval returns execution outcome", async () =>
     assertEquals((await readPlan())?.attrs.status, "ready_for_work");
 });
 
-Deno.test("plan_written rejects planned changes without Objective-Failing Checks before review", async () => {
+Deno.test("plan_written accepts planned changes without custom shell checks", async () => {
     const { tool, readPlan } = await makeHarness({ classification: "PLANNED_CHANGE" });
-    const result = await execute(tool, "runtime-boundary", () => {}, { objectiveChecks: undefined });
-
-    assertEquals(result.details.outcome, "repair_required");
-    assertEquals(result.details.reason, "missing_objective_checks");
-    assertStringIncludes(
-        result.content[0].text,
-        "PLANNED_CHANGE Plans must provide at least one objectiveChecks entry",
-    );
-    assertEquals((await readPlan())?.attrs.status, "approved");
-});
-
-Deno.test("plan_written persists Objective-Failing Checks to front matter before review", async () => {
-    const { tool, hostedSession } = await makeHarness({ classification: "PLANNED_CHANGE" });
-    const result = await execute(tool, "runtime-boundary", () => {}, {
-        objectiveChecks: [
-            {
-                id: "OC1",
-                command: "grep -q runObjectiveChecks src/shared/workflow/validation.ts",
-                rationale: "validation calls checks",
-            },
-        ],
-    });
-    const markdown = await Deno.readTextFile(`${hostedSession.cwd}/docs/plans/runtime-boundary.md`);
+    const result = await execute(tool);
 
     assertEquals(result.details.outcome, "approved_execute");
-    assertStringIncludes(markdown, "objectiveChecks:");
-    assertStringIncludes(markdown, 'id: "OC1"');
-    assertStringIncludes(markdown, 'command: "grep -q runObjectiveChecks src/shared/workflow/validation.ts"');
+    assertEquals((await readPlan())?.attrs.status, "ready_for_work");
 });
 
-Deno.test("plan_written accepts PROJECT Epics without Objective-Failing Checks", async () => {
+Deno.test("plan_written accepts PROJECT Epics", async () => {
     const { tool, readPlan } = await makeHarness({ classification: "PROJECT", approvalAction: "decompose" });
-    const result = await execute(tool, "runtime-boundary", () => {}, { objectiveChecks: undefined });
+    const result = await execute(tool);
 
     assertEquals(result.details.outcome, "approved_decompose");
     assertEquals((await readPlan())?.attrs.status, "ready_for_decomposition");
@@ -433,9 +399,7 @@ status: approved
         );
         const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
         hostedSession.setInteractionAdapter({
-            // Read at review time, not before: the tool persists Objective-Failing
-            // Checks to Front Matter first, which moves the revision the lifecycle
-            // then checks against.
+            // Read at review time so the lifecycle checks the current revision.
             requestInteraction: async () => ({
                 outcome: "accepted",
                 _meta: {

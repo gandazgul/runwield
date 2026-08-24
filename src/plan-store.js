@@ -52,7 +52,6 @@ export const PLAN_AMENDMENT_DEFINITION_KEYS = Object.freeze([
     PLAN_FRONT_MATTER_KEYS.complexity,
     PLAN_FRONT_MATTER_KEYS.summary,
     PLAN_FRONT_MATTER_KEYS.affectedPaths,
-    PLAN_FRONT_MATTER_KEYS.objectiveChecks,
     PLAN_FRONT_MATTER_KEYS.tickets,
     PLAN_FRONT_MATTER_KEYS.frontend,
     PLAN_FRONT_MATTER_KEYS.devServerCommand,
@@ -220,9 +219,6 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {"LOW"|"MEDIUM"|"HIGH"} complexity
  * @property {string} summary - Brief description of what the plan addresses
  * @property {string[]} affectedPaths - Files that will be created/modified
- * @property {ObjectiveCheck[]} [objectiveChecks] - Executable Objective-Failing Checks owned by RunWield.
- * @property {ObjectiveChecksBaseline} [objectiveChecksBaseline] - Last trusted pre-execution red-state check results.
- * @property {ObjectiveCheckWaiver[]} [objectiveCheckWaivers] - User-accepted waivers for broken Objective-Failing Checks.
  * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Optional provider-neutral Ticket References identified by the user.
  * @property {string[]} [supersedes] - Optional ordered Work Record IDs that this Plan is confirmed to replace.
  * @property {unknown} [executionAgent] - Canonical FEATURE execution owner, preserved raw when invalid for diagnostics
@@ -254,7 +250,6 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string|null} [humanReviewedAt] - ISO timestamp when human review approved final validation; cleared when execution restarts or review reopens
  * @property {import('./shared/workflow/validation-checkpoint.ts').ValidationCheckpoint|null} [validationCheckpoint] - Durable validation continuation facts for the current attempt.
  * @property {number} [validationCiAttempts] - Mechanical Validation attempts spent for the current implementation.
- * @property {number} [validationObjectiveCheckAttempts] - Objective-Failing Check repair cycles spent for the current implementation.
  * @property {number} [validationSemanticRounds] - Semantic Code Review repair rounds spent for the current implementation.
  * @property {"done_enough"|null} [epicCompletionMode] - Explicit Epic completion mode when an Epic is marked done enough for now
  * @property {string|null} [epicDoneEnoughAt] - ISO timestamp when an Epic was marked done enough for now
@@ -283,44 +278,6 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {number} [collaborationRevision] - Latest known positive integer remote revision
  * @property {string} [collaborationBodyHash] - SHA-256 hash of the last controlled synced Plan body
  * @property {string} [collaborationSyncedAt] - ISO timestamp of the last controlled collaboration metadata write
- */
-
-/**
- * @typedef {Object} ObjectiveCheck
- * @property {string} id
- * @property {string} command
- * @property {string} [rationale]
- */
-
-/**
- * @typedef {Object} ObjectiveCheckResult
- * @property {string} id
- * @property {string} command
- * @property {string} [rationale]
- * @property {"met"|"unmet"|"broken"} status
- * @property {string} stdout
- * @property {string} stderr
- * @property {number|null} exitCode
- * @property {number} durationMs
- * @property {string} output
- * @property {string} [reason]
- */
-
-/**
- * @typedef {Object} ObjectiveChecksBaseline
- * @property {string} recordedAt
- * @property {string} [head]
- * @property {ObjectiveCheckResult[]} results
- */
-
-/**
- * @typedef {Object} ObjectiveCheckWaiver
- * @property {string} id
- * @property {string} command
- * @property {"mechanical_detection"|"engineer_report"} source
- * @property {string} explanation
- * @property {string} [userNote]
- * @property {string} waivedAt
  */
 
 /** @typedef {Partial<PlanFrontMatter> & Record<string, unknown>} PlanFrontMatterInput */
@@ -379,6 +336,13 @@ const DEFAULT_FRONT_MATTER = {
 
 /** @type {Set<string>} */
 const KNOWN_FRONT_MATTER_KEYS = new Set(PLAN_FRONT_MATTER_KEY_ORDER);
+
+export const OBSOLETE_OBJECTIVE_CHECK_FRONT_MATTER_KEYS = Object.freeze([
+    "objectiveChecks",
+    "objectiveChecksBaseline",
+    "objectiveCheckWaivers",
+    "validationObjectiveCheckAttempts",
+]);
 
 /**
  * @param {Record<string, unknown>} attrs
@@ -508,9 +472,6 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.complexity, fm.complexity);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.summary, fm.summary);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.affectedPaths, fm.affectedPaths);
-    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.objectiveChecks, fm.objectiveChecks);
-    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.objectiveChecksBaseline, fm.objectiveChecksBaseline);
-    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.objectiveCheckWaivers, fm.objectiveCheckWaivers);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.tickets, fm.tickets);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.supersedes, fm.supersedes);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionAgent, fm.executionAgent);
@@ -891,132 +852,6 @@ function normalizeSupersedes(value) {
 
 /**
  * @param {unknown} value
- * @returns {ObjectiveCheck[] | undefined}
- */
-export function normalizeObjectiveChecks(value) {
-    if (!Array.isArray(value)) return undefined;
-    /** @type {ObjectiveCheck[]} */
-    const checks = [];
-    const ids = new Set();
-    for (const item of value) {
-        if (!item || typeof item !== "object" || Array.isArray(item)) return undefined;
-        const source = /** @type {Record<string, unknown>} */ (item);
-        const id = typeof source.id === "string" ? source.id.trim() : "";
-        const command = typeof source.command === "string" ? source.command.trim() : "";
-        if (!id || !command || ids.has(id)) return undefined;
-        ids.add(id);
-        const rationale = typeof source.rationale === "string" ? source.rationale.trim() : "";
-        checks.push({ id, command, ...(rationale ? { rationale } : {}) });
-    }
-    return checks;
-}
-
-const OBJECTIVE_CHECK_RESULT_STATUSES = new Set(["met", "unmet", "broken"]);
-
-/**
- * @param {unknown} value
- * @returns {ObjectiveCheckResult | undefined}
- */
-function normalizeObjectiveCheckResult(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-    const source = /** @type {Record<string, unknown>} */ (value);
-    const id = typeof source.id === "string" ? source.id.trim() : "";
-    const command = typeof source.command === "string" ? source.command.trim() : "";
-    const status = typeof source.status === "string" && OBJECTIVE_CHECK_RESULT_STATUSES.has(source.status)
-        ? /** @type {ObjectiveCheckResult["status"]} */ (source.status)
-        : undefined;
-    const durationMs = normalizeNonNegativeInteger(source.durationMs);
-    const hasNullExitCode = source.exitCode === null;
-    const normalizedExitCode = typeof source.exitCode === "number" && Number.isInteger(source.exitCode)
-        ? source.exitCode
-        : undefined;
-    if (
-        !id || !command || !status || durationMs === undefined || (!hasNullExitCode && normalizedExitCode === undefined)
-    ) {
-        return undefined;
-    }
-    const stdout = typeof source.stdout === "string" ? source.stdout : "";
-    const stderr = typeof source.stderr === "string" ? source.stderr : "";
-    const output = typeof source.output === "string" ? source.output : "";
-    const rationale = typeof source.rationale === "string" ? source.rationale.trim() : "";
-    const reason = typeof source.reason === "string" ? source.reason.trim() : "";
-    return {
-        id,
-        command,
-        ...(rationale ? { rationale } : {}),
-        status,
-        stdout,
-        stderr,
-        exitCode: hasNullExitCode ? null : /** @type {number} */ (normalizedExitCode),
-        durationMs,
-        output,
-        ...(reason ? { reason } : {}),
-    };
-}
-
-/**
- * @param {unknown} value
- * @returns {ObjectiveChecksBaseline | undefined}
- */
-export function normalizeObjectiveChecksBaseline(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-    const source = /** @type {Record<string, unknown>} */ (value);
-    const recordedAt = typeof source.recordedAt === "string" && source.recordedAt.trim()
-        ? source.recordedAt.trim()
-        : "";
-    if (!recordedAt || !Array.isArray(source.results)) return undefined;
-    const head = typeof source.head === "string" && source.head.trim() ? source.head.trim() : undefined;
-    /** @type {ObjectiveCheckResult[]} */
-    const results = [];
-    for (const result of source.results) {
-        const normalized = normalizeObjectiveCheckResult(result);
-        if (!normalized) return undefined;
-        results.push(normalized);
-    }
-    return { recordedAt, ...(head ? { head } : {}), results };
-}
-
-const OBJECTIVE_CHECK_WAIVER_SOURCES = new Set(["mechanical_detection", "engineer_report"]);
-
-/**
- * @param {unknown} value
- * @returns {ObjectiveCheckWaiver | undefined}
- */
-function normalizeObjectiveCheckWaiver(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-    const source = /** @type {Record<string, unknown>} */ (value);
-    const id = typeof source.id === "string" ? source.id.trim() : "";
-    const command = typeof source.command === "string" ? source.command.trim() : "";
-    const waiverSource = typeof source.source === "string" && OBJECTIVE_CHECK_WAIVER_SOURCES.has(source.source)
-        ? /** @type {ObjectiveCheckWaiver["source"]} */ (source.source)
-        : undefined;
-    const explanation = typeof source.explanation === "string" && source.explanation.trim()
-        ? source.explanation.trim()
-        : "";
-    const userNote = typeof source.userNote === "string" && source.userNote.trim() ? source.userNote.trim() : "";
-    const waivedAt = typeof source.waivedAt === "string" && source.waivedAt.trim() ? source.waivedAt.trim() : "";
-    if (!id || !command || !waiverSource || !explanation || !waivedAt) return undefined;
-    return { id, command, source: waiverSource, explanation, ...(userNote ? { userNote } : {}), waivedAt };
-}
-
-/**
- * @param {unknown} value
- * @returns {ObjectiveCheckWaiver[] | undefined}
- */
-export function normalizeObjectiveCheckWaivers(value) {
-    if (!Array.isArray(value)) return undefined;
-    /** @type {ObjectiveCheckWaiver[]} */
-    const waivers = [];
-    for (const item of value) {
-        const normalized = normalizeObjectiveCheckWaiver(item);
-        if (!normalized) return undefined;
-        waivers.push(normalized);
-    }
-    return waivers;
-}
-
-/**
- * @param {unknown} value
  * @returns {number | undefined}
  */
 function normalizeNonNegativeInteger(value) {
@@ -1194,15 +1029,6 @@ export function injectFrontMatter(markdown, overrides = {}) {
         affectedPaths: overrides.affectedPaths ??
             existingFm.affectedPaths ??
             DEFAULT_FRONT_MATTER.affectedPaths,
-        objectiveChecks: Object.hasOwn(overrides, "objectiveChecks")
-            ? normalizeObjectiveChecks(overrides.objectiveChecks)
-            : normalizeObjectiveChecks(existingFm.objectiveChecks),
-        objectiveChecksBaseline: Object.hasOwn(overrides, "objectiveChecksBaseline")
-            ? normalizeObjectiveChecksBaseline(overrides.objectiveChecksBaseline)
-            : normalizeObjectiveChecksBaseline(existingFm.objectiveChecksBaseline),
-        objectiveCheckWaivers: Object.hasOwn(overrides, "objectiveCheckWaivers")
-            ? normalizeObjectiveCheckWaivers(overrides.objectiveCheckWaivers)
-            : normalizeObjectiveCheckWaivers(existingFm.objectiveCheckWaivers),
         tickets: Object.hasOwn(overrides, "tickets")
             ? normalizeTicketReferences(overrides.tickets)
             : normalizeTicketReferences(existingFm.tickets),
@@ -1295,6 +1121,9 @@ export function injectFrontMatter(markdown, overrides = {}) {
         restoredFromPath: optionalFrontMatterValue(overrides, existingFm, "restoredFromPath"),
     };
     Object.assign(fm, normalizeCollaborationFrontMatter({ ...existingFm, ...overrides }));
+    for (const key of OBSOLETE_OBJECTIVE_CHECK_FRONT_MATTER_KEYS) {
+        delete /** @type {Record<string, unknown>} */ (fm)[key];
+    }
     delete /** @type {Record<string, unknown>} */ (fm).collaborationMode;
     assertExecutionPolicyWriteAllowed(overrides, fm);
 
@@ -1327,6 +1156,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
     const { attrs, body } = extractYaml(markdown);
     const collaborationAttrs = normalizeCollaborationFrontMatter(attrs);
     const sourceAttrs = { ...attrs };
+    for (const key of OBSOLETE_OBJECTIVE_CHECK_FRONT_MATTER_KEYS) delete sourceAttrs[key];
     for (const key of Object.values(COLLABORATION_FRONT_MATTER_KEYS)) {
         delete sourceAttrs[key];
     }
@@ -1340,9 +1170,6 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             complexity: attrs.complexity || DEFAULT_FRONT_MATTER.complexity,
             summary: attrs.summary || DEFAULT_FRONT_MATTER.summary,
             affectedPaths: normalizeStringList(attrs.affectedPaths) || DEFAULT_FRONT_MATTER.affectedPaths,
-            objectiveChecks: normalizeObjectiveChecks(attrs.objectiveChecks),
-            objectiveChecksBaseline: normalizeObjectiveChecksBaseline(attrs.objectiveChecksBaseline),
-            objectiveCheckWaivers: normalizeObjectiveCheckWaivers(attrs.objectiveCheckWaivers),
             tickets: normalizeTicketReferences(attrs.tickets),
             supersedes: normalizeSupersedes(attrs.supersedes),
             executionAgent: Object.hasOwn(attrs, "executionAgent") ? attrs.executionAgent ?? undefined : undefined,
@@ -2519,6 +2346,81 @@ export async function updatePlanFrontMatter(
         await writePlanMarkdownWithRevision(result.path, withFm, result.revision);
         return parsePlanFrontMatter(withFm).attrs;
     });
+}
+
+/**
+ * Remove the retired Objective Check fields from one active Plan without
+ * normalizing or rewriting any unrelated Front Matter or body bytes.
+ *
+ * @param {string} cwd
+ * @param {string} planName
+ * @param {{ expectedRevision: string, dryRun?: boolean }} options
+ * @returns {Promise<{ status: "changed"|"already_clean"|"skipped_terminal", removed: string[] }>}
+ */
+export async function cleanupObsoleteObjectiveCheckMetadata(cwd, planName, options) {
+    return await withPlanLock(cwd, planName, async () => {
+        const result = await loadPlanStrict(cwd, planName);
+        if (result.kind === "not_found") throw new Error(`Plan not found: ${planName}`);
+        if (result.kind === "malformed") throw result.error;
+        if (result.kind !== "loaded") {
+            throw new PlanFileIssueError(
+                result.path,
+                result.kind,
+                planIssueMessage(result) || `Plan could not be cleaned: ${result.path}`,
+            );
+        }
+        if (result.revision !== options.expectedRevision) {
+            throw new StalePlanWriteError(options.expectedRevision, result.revision);
+        }
+        if (isTerminalArchivableStatus(result.attrs.status)) {
+            return { status: "skipped_terminal", removed: [] };
+        }
+        const { attrs } = extractYaml(result.markdown);
+        const removed = OBSOLETE_OBJECTIVE_CHECK_FRONT_MATTER_KEYS.filter((key) => Object.hasOwn(attrs, key));
+        if (!removed.length) return { status: "already_clean", removed };
+        if (!options.dryRun) {
+            const removals = Object.fromEntries(removed.map((key) => [key, undefined]));
+            const cleaned = mergeFrontMatterText(result.markdown, removals);
+            await writePlanMarkdownWithRevision(result.path, cleaned, result.revision);
+        }
+        return { status: "changed", removed };
+    });
+}
+
+/**
+ * Clean every active Plan under docs/plans while leaving the archived directory
+ * byte-for-byte untouched. Terminal Plans are sealed even before archival.
+ *
+ * @param {string} cwd
+ * @param {{ dryRun?: boolean }} [options]
+ * @returns {Promise<Array<{ planName: string, status: "changed"|"already_clean"|"skipped_terminal"|"failed", removed: string[], error?: string }>>}
+ */
+export async function cleanupActivePlanObjectiveCheckMetadata(cwd, options = {}) {
+    const plans = await listPlans(cwd);
+    /** @type {Array<{ planName: string, status: "changed"|"already_clean"|"skipped_terminal"|"failed", removed: string[], error?: string }>} */
+    const results = [];
+    for (const plan of plans) {
+        const loaded = await loadPlan(cwd, plan.name);
+        if (!loaded) {
+            results.push({ planName: plan.name, status: "failed", removed: [], error: "Plan disappeared." });
+            continue;
+        }
+        try {
+            const result = await cleanupObsoleteObjectiveCheckMetadata(cwd, plan.name, {
+                expectedRevision: loaded.revision,
+                dryRun: options.dryRun === true,
+            });
+            results.push({ planName: plan.name, ...result });
+        } catch (error) {
+            results.push({
+                planName: plan.name,
+                status: "failed",
+                removed: [],
+                error: formatErrorMessage(error),
+            });
+        }
+    }
+    return results;
 }
 
 /**

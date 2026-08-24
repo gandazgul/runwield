@@ -133,12 +133,6 @@ export function readCiAttempts(meta: Partial<PlanFrontMatter>): number {
         : 0;
 }
 
-export function readObjectiveCheckAttempts(meta: Partial<PlanFrontMatter>): number {
-    return typeof meta.validationObjectiveCheckAttempts === "number" && meta.validationObjectiveCheckAttempts > 0
-        ? meta.validationObjectiveCheckAttempts
-        : 0;
-}
-
 export function readSemanticRound(meta: Partial<PlanFrontMatter>): number {
     return typeof meta.validationSemanticRounds === "number" && meta.validationSemanticRounds > 0
         ? meta.validationSemanticRounds

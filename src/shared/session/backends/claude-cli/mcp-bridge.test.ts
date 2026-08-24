@@ -5,7 +5,6 @@ import { Client } from "@modelcontextprotocol/sdk/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp";
 import { HostedSession } from "../../hosted-session.js";
 import { RuntimeEventTypes } from "../../session-runtime-events.js";
-import { createPlanWrittenTool } from "../../../../tools/plan-written.ts";
 import { CLAUDE_CLI_MCP_PROVENANCE, mcpAliasFor, startRunWieldMcpBridge } from "./mcp-bridge.ts";
 
 interface RecordedCall {
@@ -245,44 +244,6 @@ Deno.test("workflow MCP bridge emits live Runtime tool events for delegated plan
         );
         assertEquals(toolEvents[2].output, "plan feedback for runtime-boundary");
     });
-});
-
-Deno.test("workflow MCP bridge returns long Objective Check commands for actionable tool validation", async () => {
-    const cwd = await Deno.makeTempDir({ prefix: "runwield-plan-written-command-" });
-    try {
-        await Deno.mkdir(`${cwd}/docs/plans`, { recursive: true });
-        await Deno.writeTextFile(
-            `${cwd}/docs/plans/long-objective-check.md`,
-            "---\nclassification: PLANNED_CHANGE\ncomplexity: MEDIUM\nstatus: draft\nexecutionAgent: engineer\n---\n# Long Objective Check\n",
-        );
-        const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
-        const planTool = createPlanWrittenTool({
-            hostedSession,
-            agentName: "planner",
-            triageMeta: {
-                classification: "PLANNED_CHANGE",
-                complexity: "MEDIUM",
-                summary: "Exercise the real Plan schema",
-                affectedPaths: ["src/tools/plan-written.ts"],
-            },
-        });
-        await withBridge([planTool], async (context) => {
-            const result = await context.client.callTool({
-                name: "runwield_plan_written",
-                arguments: {
-                    planName: "long-objective-check",
-                    objectiveChecks: [{ id: "OC1", command: `test -n '${"x".repeat(2000)}'` }],
-                },
-            });
-            assertEquals(result.isError, false);
-            assertStringIncludes(
-                resultText(result as { content: Array<{ type: string; text?: string }> }),
-                "command is too long",
-            );
-        });
-    } finally {
-        await Deno.remove(cwd, { recursive: true }).catch(() => undefined);
-    }
 });
 
 Deno.test("workflow MCP bridge accepts a delegated result, stamps provenance, and atomically closes the gate", async () => {

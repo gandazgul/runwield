@@ -33,7 +33,7 @@ function executionWorkflow(planName: string): import("../types.js").ActiveExecut
     };
 }
 
-Deno.test("defective-check claim survives process resume until validation handles it", async () => {
+Deno.test("task completion claim survives process resume until validation handles it", async () => {
     const sessionManager = SessionManager.inMemory(TASK_COMPLETION_PROJECT_ROOT);
     const original = new HostedSession({
         id: "durable-completion-original",
@@ -49,10 +49,7 @@ Deno.test("defective-check claim survives process resume until validation handle
 
     await tool.execute(
         "completion-call",
-        {
-            message: "- Completed before restart.",
-            brokenObjectiveChecks: [{ id: "OC1", explanation: "tool removed", command: "missing-tool" }],
-        },
+        { message: "- Completed before restart." },
         undefined,
         undefined,
         EXTENSION_CONTEXT,
@@ -74,7 +71,6 @@ Deno.test("defective-check claim survives process resume until validation handle
     assertExists(completion);
     assertEquals(completion.report, "- Completed before restart.");
     assertEquals(completion.workflow?.planName, "durable-plan");
-    assertEquals(completion.brokenObjectiveChecks?.[0].explanation, "tool removed");
     assertEquals(completion.durable, true);
 
     acknowledgeTaskCompletion(resumed, completion, 2345);

@@ -53,10 +53,6 @@ export function emitReusingExecutionWorktree(
     );
 }
 
-export function emitRunningObjectiveChecksBaseline(hostedSession: HostedSession | undefined): boolean {
-    return emitExecutionPreparationStatus(hostedSession, "running Plan Objective-Failing Check baseline...");
-}
-
 export function emitIndexingExecutionWorktree(hostedSession: HostedSession | undefined): boolean {
     return emitExecutionPreparationStatus(hostedSession, "indexing execution worktree for code search...");
 }

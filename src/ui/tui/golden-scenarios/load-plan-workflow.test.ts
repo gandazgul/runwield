@@ -7,7 +7,7 @@ import {
     loadPlanInterruptedRecoveryScenario,
     loadPlanMalformedFrontMatterScenario,
     loadPlanResetReviewArchiveScenario,
-    loadPlanValidateWaivedObjectiveChecksScenario,
+    loadPlanValidateWithoutCustomChecksScenario,
     loadPlanWorkflowScenarios,
     loadPlanWorktreeInspectResetScenario,
 } from "./load-plan-workflow.ts";
@@ -21,7 +21,7 @@ const scenarioExportNames = new Map<object, string>([
     [loadPlanAbandonProgressScenario, "loadPlanAbandonProgressScenario"],
     [loadPlanContinueUsesExecutionPlanAuthorityScenario, "loadPlanContinueUsesExecutionPlanAuthorityScenario"],
     [loadPlanMalformedFrontMatterScenario, "loadPlanMalformedFrontMatterScenario"],
-    [loadPlanValidateWaivedObjectiveChecksScenario, "loadPlanValidateWaivedObjectiveChecksScenario"],
+    [loadPlanValidateWithoutCustomChecksScenario, "loadPlanValidateWithoutCustomChecksScenario"],
 ]);
 
 for (const scenario of loadPlanWorkflowScenarios) {

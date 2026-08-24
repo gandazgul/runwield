@@ -5,6 +5,8 @@ import {
     archivePlansByStatus,
     buildPlanDefinitionProjection,
     buildRunWieldOwnedFrontMatterProjection,
+    cleanupActivePlanObjectiveCheckMetadata,
+    cleanupObsoleteObjectiveCheckMetadata,
     clearPlanCollaborationMetadata,
     countChildPlanProgress,
     createPulledCollaborationPlan,
@@ -28,8 +30,6 @@ import {
     loadPlan,
     loadPlanBodyById,
     loadPlanStrict,
-    normalizeObjectiveChecksBaseline,
-    normalizeObjectiveCheckWaivers,
     onboardExternalPlan,
     parsePlanFrontMatter,
     PLAN_AMENDMENT_DEFINITION_KEYS,
@@ -137,7 +137,7 @@ Deno.test("Plan Amendment partitions every known Front Matter key exactly once",
     }
     assertEquals(shaping.has(PLAN_FRONT_MATTER_KEYS.classification), true);
     assertEquals(runwieldOwned.has(PLAN_FRONT_MATTER_KEYS.status), true);
-    assertEquals(definition.has(PLAN_FRONT_MATTER_KEYS.objectiveChecks), true);
+    assertEquals(definition.has("objectiveChecks"), false);
 });
 
 Deno.test("Plan Amendment projection includes body and definition fields but excludes lifecycle fields", () => {
@@ -148,7 +148,6 @@ Deno.test("Plan Amendment projection includes body and definition fields but exc
         createdAt: "2026-01-01T00:00:00.000Z",
         status: "verified",
         summary: "Accepted summary",
-        objectiveChecks: [{ id: "OC1", command: "false" }],
         worktreeId: "owned-attempt",
     });
     const projection = buildPlanDefinitionProjection(attrs, "# Accepted body");
@@ -160,7 +159,6 @@ Deno.test("Plan Amendment projection includes body and definition fields but exc
             complexity: "LOW",
             summary: "Accepted summary",
             affectedPaths: [],
-            objectiveChecks: [{ id: "OC1", command: "false" }],
         },
     });
     assertEquals(owned.status, "verified");
@@ -168,87 +166,13 @@ Deno.test("Plan Amendment projection includes body and definition fields but exc
     assertEquals("summary" in owned, false);
 });
 
-Deno.test("objectiveChecksBaseline normalizes valid baseline results and drops malformed metadata", () => {
-    const baseline = normalizeObjectiveChecksBaseline({
-        recordedAt: "2026-01-01T00:00:00.000Z",
-        head: "0123456789012345678901234567890123456789",
-        results: [{
-            id: " OC1 ",
-            command: " grep needle src/file.ts ",
-            status: "unmet",
-            stdout: "out",
-            stderr: "err",
-            exitCode: 1,
-            durationMs: 12,
-            output: "out\nerr",
-            reason: " expected miss ",
-        }],
-    });
-
-    assertEquals(baseline, {
-        recordedAt: "2026-01-01T00:00:00.000Z",
-        head: "0123456789012345678901234567890123456789",
-        results: [{
-            id: "OC1",
-            command: "grep needle src/file.ts",
-            status: "unmet",
-            stdout: "out",
-            stderr: "err",
-            exitCode: 1,
-            durationMs: 12,
-            output: "out\nerr",
-            reason: "expected miss",
-        }],
-    });
-    assertEquals(normalizeObjectiveChecksBaseline({ recordedAt: "now", results: [{ id: "OC1" }] }), undefined);
-    assertEquals(normalizeObjectiveChecksBaseline({ recordedAt: "now", results: [] }), {
-        recordedAt: "now",
-        results: [],
-    });
-});
-
-Deno.test("objectiveCheckWaivers normalize accepted broken-check evidence only", () => {
-    const waivers = normalizeObjectiveCheckWaivers([{
-        id: " OC1 ",
-        command: " missing-tool ",
-        source: "mechanical_detection",
-        explanation: " User accepted the check defect. ",
-        userNote: " accepted by Alice ",
-        waivedAt: "2026-01-01T00:00:00.000Z",
-    }]);
-
-    assertEquals(waivers?.[0].id, "OC1");
-    assertEquals(waivers?.[0].source, "mechanical_detection");
-    assertEquals(waivers?.[0].userNote, "accepted by Alice");
-    assertEquals(
-        normalizeObjectiveCheckWaivers([{
-            id: "",
-            command: "missing-tool",
-            source: "mechanical_detection",
-            explanation: "x",
-            waivedAt: "now",
-        }]),
-        undefined,
-    );
-    assertEquals(
-        normalizeObjectiveCheckWaivers([{
-            id: "OC1",
-            command: "",
-            source: "mechanical_detection",
-            explanation: "x",
-            waivedAt: "now",
-        }]),
-        undefined,
-    );
-});
-
 Deno.test("front matter key constants expose canonical planning metadata order", () => {
     assertEquals(PLAN_FRONT_MATTER_KEYS.planId, "planId");
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER[0], PLAN_FRONT_MATTER_KEYS.planId);
     assertEquals(PLAN_FRONT_MATTER_KEYS.frontend, "frontend");
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.devServerUrl), true);
-    assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.objectiveChecksBaseline), true);
-    assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.objectiveCheckWaivers), true);
+    assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.map(String).includes("objectiveChecksBaseline"), false);
+    assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.map(String).includes("objectiveCheckWaivers"), false);
     assertEquals(PLAN_FRONT_MATTER_KEYS.supersedes, "supersedes");
     assertEquals(
         PLAN_FRONT_MATTER_KEY_ORDER.indexOf(PLAN_FRONT_MATTER_KEYS.tickets) <
@@ -262,60 +186,6 @@ Deno.test("front matter key constants expose canonical planning metadata order",
     );
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.worktreePath), true);
     assertEquals(new Set(PLAN_FRONT_MATTER_KEY_ORDER).size, PLAN_FRONT_MATTER_KEY_ORDER.length);
-});
-
-testWithFs("objectiveCheckWaivers round-trip through saved Plan front matter", async () => {
-    const cwd = await Deno.makeTempDir();
-    try {
-        await savePlan(cwd, "waived-plan", "# Waived", {
-            objectiveCheckWaivers: [{
-                id: "OC1",
-                command: "missing-tool",
-                source: "engineer_report",
-                explanation: "Engineer reported the check is broken.",
-                waivedAt: "2026-01-01T00:00:00.000Z",
-            }],
-        });
-
-        const loaded = await loadPlan(cwd, "waived-plan");
-        assertEquals(loaded?.attrs.objectiveCheckWaivers?.[0].source, "engineer_report");
-        assertEquals(loaded?.attrs.objectiveCheckWaivers?.[0].id, "OC1");
-        const markdown = await Deno.readTextFile(join(cwd, "docs", "plans", "waived-plan.md"));
-        assertStringIncludes(markdown, "objectiveCheckWaivers:");
-    } finally {
-        await Deno.remove(cwd, { recursive: true });
-    }
-});
-
-testWithFs("objectiveChecksBaseline round-trips through saved Plan front matter", async () => {
-    const cwd = await Deno.makeTempDir();
-    try {
-        await savePlan(cwd, "baseline-plan", "# Baseline", {
-            objectiveChecks: [{ id: "OC1", command: "grep needle src/file.ts" }],
-            objectiveChecksBaseline: {
-                recordedAt: "2026-01-01T00:00:00.000Z",
-                head: "0123456789012345678901234567890123456789",
-                results: [{
-                    id: "OC1",
-                    command: "grep needle src/file.ts",
-                    status: "unmet",
-                    stdout: "",
-                    stderr: "missing",
-                    exitCode: 1,
-                    durationMs: 7,
-                    output: "missing",
-                }],
-            },
-        });
-
-        const loaded = await loadPlan(cwd, "baseline-plan");
-        assertEquals(loaded?.attrs.objectiveChecksBaseline?.results[0].id, "OC1");
-        assertEquals(loaded?.attrs.objectiveChecksBaseline?.head, "0123456789012345678901234567890123456789");
-        const markdown = await Deno.readTextFile(join(cwd, "docs", "plans", "baseline-plan.md"));
-        assertStringIncludes(markdown, "objectiveChecksBaseline:");
-    } finally {
-        await Deno.remove(cwd, { recursive: true });
-    }
 });
 
 Deno.test("injectFrontMatter escapes YAML double-quoted values", () => {
@@ -367,46 +237,123 @@ Deno.test("Plan Work Record metadata round trips with nested YAML", () => {
     assertStringIncludes(withFm, "workRecord:\n  status:");
 });
 
-Deno.test("Objective-Failing Checks front matter round trips as ordered known metadata", () => {
-    const markdown = injectFrontMatter("## Plan\n\nBody", {
-        affectedPaths: ["src/example.ts"],
-        objectiveChecks: [
-            { id: "OC1", command: "test -f src/example.ts", rationale: "file exists" },
-            { id: "OC2", command: "grep -q symbol src/example.ts" },
-        ],
-    });
-
-    const { attrs } = parsePlanFrontMatter(markdown);
-
-    assertEquals(attrs.objectiveChecks, [
-        { id: "OC1", command: "test -f src/example.ts", rationale: "file exists" },
-        { id: "OC2", command: "grep -q symbol src/example.ts" },
-    ]);
-    assertEquals(markdown.indexOf("affectedPaths:") < markdown.indexOf("objectiveChecks:"), true);
-    assertEquals(markdown.indexOf("objectiveChecks:") < markdown.indexOf("createdAt:"), true);
-});
-
-Deno.test("Objective-Failing Checks invalid entries normalize away while legacy Plans load", () => {
-    const legacy = parsePlanFrontMatter("# Legacy Plan");
-    assertEquals(legacy.attrs.objectiveChecks, undefined);
-
-    const duplicated = parsePlanFrontMatter(`---
+Deno.test("obsolete Objective Check front matter is ignored by active Plan parsing", () => {
+    const parsed = parsePlanFrontMatter(`---
 classification: PLANNED_CHANGE
 objectiveChecks:
-    - id: "OC1"
-      command: "true"
-    - id: "OC1"
-      command: "false"
+  - id: OC1
+    command: "false"
+objectiveChecksBaseline:
+  recordedAt: now
+objectiveCheckWaivers: []
+validationObjectiveCheckAttempts: 2
 ---
-# Plan
+# Legacy Plan
 `);
-    assertEquals(duplicated.attrs.objectiveChecks, undefined);
+    assertEquals("objectiveChecks" in parsed.attrs, false);
+    assertEquals("objectiveChecksBaseline" in parsed.attrs, false);
+    assertEquals("objectiveCheckWaivers" in parsed.attrs, false);
+    assertEquals("validationObjectiveCheckAttempts" in parsed.attrs, false);
+});
 
-    const blank = injectFrontMatter("## Plan", {
-        objectiveChecks: /** @type {any} */ ([{ id: " ", command: "true" }]),
-    });
-    assertEquals(parsePlanFrontMatter(blank).attrs.objectiveChecks, undefined);
-    assertEquals(blank.includes("objectiveChecks:"), false);
+testWithFs("Objective Check cleanup removes only retired metadata from active Plans", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await ensurePlansDir(cwd);
+        const path = join(cwd, "docs", "plans", "active.md");
+        const before = `---
+planId: active-plan
+classification: PLANNED_CHANGE
+summary: Keep this exact summary
+status: in_progress
+objectiveChecks:
+  - id: OC1
+    command: "false"
+objectiveChecksBaseline:
+  recordedAt: now
+  results: []
+objectiveCheckWaivers: []
+validationObjectiveCheckAttempts: 2
+---
+# Active Plan
+
+Keep this body byte-for-byte.
+`;
+        await Deno.writeTextFile(path, before);
+        const loaded = await loadPlan(cwd, "active");
+        if (!loaded) throw new Error("fixture Plan did not load");
+        const result = await cleanupObsoleteObjectiveCheckMetadata(cwd, "active", {
+            expectedRevision: loaded.revision,
+        });
+        assertEquals(result, {
+            status: "changed",
+            removed: [
+                "objectiveChecks",
+                "objectiveChecksBaseline",
+                "objectiveCheckWaivers",
+                "validationObjectiveCheckAttempts",
+            ],
+        });
+        const after = await Deno.readTextFile(path);
+        assertStringIncludes(after, "summary: Keep this exact summary");
+        assertStringIncludes(after, "# Active Plan\n\nKeep this body byte-for-byte.\n");
+        for (const key of result.removed) assertEquals(after.includes(`${key}:`), false);
+
+        const clean = await loadPlan(cwd, "active");
+        if (!clean) throw new Error("cleaned Plan did not load");
+        assertEquals(
+            await cleanupObsoleteObjectiveCheckMetadata(cwd, "active", { expectedRevision: clean.revision }),
+            { status: "already_clean", removed: [] },
+        );
+        assertEquals(await Deno.readTextFile(path), after);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("Objective Check cleanup leaves terminal and archived Plans unchanged", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await ensurePlansDir(cwd);
+        const terminalPath = join(cwd, "docs", "plans", "terminal.md");
+        const archivedDir = join(cwd, "docs", "plans", "archived");
+        const archivedPath = join(archivedDir, "sealed.md");
+        const terminal = `---\nplanId: terminal\nstatus: validated\nobjectiveChecks: []\n---\n# Terminal\n`;
+        const archived = `---\nplanId: archived\nstatus: user_verified\nobjectiveCheckWaivers: []\n---\n# Archived\n`;
+        await Deno.mkdir(archivedDir, { recursive: true });
+        await Deno.writeTextFile(terminalPath, terminal);
+        await Deno.writeTextFile(archivedPath, archived);
+
+        const loaded = await loadPlan(cwd, "terminal");
+        if (!loaded) throw new Error("terminal Plan did not load");
+        assertEquals(
+            await cleanupObsoleteObjectiveCheckMetadata(cwd, "terminal", { expectedRevision: loaded.revision }),
+            { status: "skipped_terminal", removed: [] },
+        );
+        await cleanupActivePlanObjectiveCheckMetadata(cwd);
+        assertEquals(await Deno.readTextFile(terminalPath), terminal);
+        assertEquals(await Deno.readTextFile(archivedPath), archived);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("Objective Check cleanup rejects a stale Plan revision", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await ensurePlansDir(cwd);
+        const path = join(cwd, "docs", "plans", "stale.md");
+        await Deno.writeTextFile(path, `---\nstatus: in_progress\nobjectiveChecks: []\n---\n# Stale\n`);
+        const loaded = await loadPlan(cwd, "stale");
+        if (!loaded) throw new Error("stale fixture did not load");
+        await Deno.writeTextFile(path, `---\nstatus: in_progress\nobjectiveChecks: []\n---\n# Concurrent edit\n`);
+        await assertRejects(
+            () => cleanupObsoleteObjectiveCheckMetadata(cwd, "stale", { expectedRevision: loaded.revision }),
+            StalePlanWriteError,
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
 });
 
 Deno.test("frontend verification front matter round trips as legacy source metadata", () => {

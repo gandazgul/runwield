@@ -19,13 +19,12 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
         : id === "human-review:ask-skip"
         ? "skipped"
         : "approved";
-    const objectiveChecks = id === "mechanical:objective:all-pass" ? [{ id: "OC_PASS", command: "true" }] : undefined;
     return {
         name: owner,
         screenText: branch?.evidence.transcriptIncludes.join("\n") || "",
         scrollbackText: [
             `validation branch ${id}`,
-            "Build, tests, and Objective-Failing Checks passed.",
+            "The build and tests passed.",
             "Local Human Code Review approved.",
         ].join("\n"),
         events: ["project:state:captured", "human-review:captured", "runtime:tool:start:review_complete"],
@@ -45,7 +44,6 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
                         validationSemanticRounds: 1,
                         humanReviewMode,
                         humanReviewDecision,
-                        ...(objectiveChecks ? { objectiveChecks } : {}),
                         failureReason: null,
                     },
                 }],
@@ -68,7 +66,7 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
             },
             publication: {
                 remotePlanStatus: "validated",
-                remotePlanAttrs: objectiveChecks ? { objectiveChecks } : {},
+                remotePlanAttrs: {},
                 registryEntries: [],
             },
             localPublication: {

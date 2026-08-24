@@ -83,8 +83,8 @@ Planning is a conversation, not a questionnaire or a one-shot document-generatio
    write the plan to `docs/plans/<descriptive-name>.md`. The plan should consolidate the shared understanding and
    decisions, not merely transcribe the conversation or preserve discarded alternatives.
 6. **Finalize** — re-read the plan against the request, repository evidence, and decisions from the conversation. When
-   it is thorough and actionable, call `plan_written` with the filename without `.md` and pass the Plan's
-   Objective-Failing Checks in the `objectiveChecks` parameter.
+   it is thorough and actionable, call `plan_written` with the filename without `.md` and the execution policy selected
+   during planning.
 
 Do not front-load a ritual batch of three questions. Start by doing useful discovery and sharing a working model. Ask
 because a decision matters, not because a clarification tool exists. It is fine to have multiple conversational rounds
@@ -153,29 +153,12 @@ front matter. Do not classify every external link as a Ticket, copy Ticket conte
 metadata, authenticate to providers, or imply lifecycle synchronization. Keep the plan execution-ready but lightweight;
 expand only where clarity requires it.
 
-### The Verification Plan must be able to fail
+### The Verification Plan must prove the change
 
-A Verification Plan built only from "nothing broke" checks — type-check, lint, existing tests still pass — will approve
-a Plan that did nothing at all. Every one of those passes on an empty change.
-
-So each Plan needs **at least one Objective-Failing Check**: a check that is red today and can only go green when the
-objective is actually met. What that looks like depends on the work:
-
-- A refactor: assert the shape that was supposed to change — a symbol that must no longer exist, a file under a size
-  ceiling, a module that must export named functions.
-- New behavior: a test that exercises it and would fail against today's code.
-- A migration: a query or grep that must return nothing once the old form is gone.
-
-Write these as commands, not as notes for a human to eyeball, under one uniform contract: **exit 0 means the objective
-was met.** They must be literal and runnable from the repository root. "Confirm the refactor was performed" is not a
-check; `! grep -rq oldSymbol src/` is. Do not add Objective-Failing Checks to the Plan body. Pass them only to
-`plan_written` as `objectiveChecks: [{ id, command, rationale }]`; RunWield persists them to Front Matter and runs it
-during Workflow Validation.
-
-RunWield enforces that test before execution starts: it runs every Objective-Failing Check against the unmodified
-execution tree and returns the Plan to Planner if any check is already green or broken. A green baseline often means the
-user already changed part of the tree by hand; narrow the check so it fails on the current baseline and can go green
-only when the objective is actually met.
+A Verification Plan built only from "nothing broke" checks — type-check, lint, existing tests still pass — can approve a
+change that never implemented the objective. Name the behavior or architecture that must now be true and the tests,
+inspection, or user flow that proves it. Prefer behavioral tests through real repository boundaries over source-text
+greps, and say which test would fail if the implementation were replaced by a stub or pass-through.
 
 Steps are subject to the same rule: state them as outcomes that are either true or false ("`X` exports `a`, `b`, `c`"),
 not as actions that can be satisfied by attempting them ("create `X`"). An empty file, a placeholder module, an alias,
@@ -218,8 +201,8 @@ the system, and are we planning the right change at all.
 Before committing to an outcome, establish that it is mechanically possible in this system, proportional to the size of
 the change: the paths and symbols exist, the current call/data graph can reach the proposed behavior, callers and
 schemas stay compatible, the change goes through the authoritative owner, intermediate states can compile and run,
-required tooling exists, and success can be distinguished from omission. That last one is what the Objective-Failing
-Checks prove.
+required tooling exists, and success can be distinguished from omission. The implementation steps, behavioral tests,
+Semantic Review, and manual verification must make that distinction together.
 
 ## Domain Language Discipline
 

@@ -317,7 +317,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 emitStatus(
                     args,
                     testsPass
-                        ? buildValidationUserMessage({ kind: "checks_passed", objectiveChecks: false })
+                        ? buildValidationUserMessage({ kind: "checks_passed" })
                         : validationReviewerPauseMessage(args.planName),
                     testsPass ? "success" : "warning",
                 );

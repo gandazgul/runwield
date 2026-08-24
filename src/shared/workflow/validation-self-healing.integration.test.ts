@@ -209,7 +209,7 @@ Deno.test("approved body-only Plan amendment reloads and starts Mechanical Valid
         const prompts: string[] = [];
         recorder.promptSelect = (prompt: string) => {
             prompts.push(prompt);
-            return Promise.resolve(prompt.includes("Approve this Plan Amendment") ? "approve_amendment" : "stop");
+            return Promise.resolve(prompt.includes("Do you approve this Plan change?") ? "approve_amendment" : "stop");
         };
         const hostedSession = attachRecorder(
             new HostedSession({ id: "validation-body-amendment", cwd: testFixture.projectRoot }),
@@ -249,7 +249,7 @@ Deno.test("approved body-only Plan amendment reloads and starts Mechanical Valid
             },
         });
 
-        const amendmentPrompts = prompts.filter((prompt) => prompt.includes("Approve this Plan Amendment"));
+        const amendmentPrompts = prompts.filter((prompt) => prompt.includes("Do you approve this Plan change?"));
         assertEquals(amendmentPrompts.length, 1);
         assertEquals(ciRuns, 1);
         assertEquals(result.kind, "failed");
@@ -262,182 +262,6 @@ Deno.test("approved body-only Plan amendment reloads and starts Mechanical Valid
         assertEquals(primaryAfter.body, "# Demo\n\nKeep the approved body.\n");
         assertEquals(primaryAfter.attrs.status, "implemented");
         assertStringIncludes(recorder.messages.join("\n"), "The Plan change is saved. The tests will start again.");
-    } finally {
-        await removeFixture(testFixture);
-    }
-});
-
-Deno.test("approved Objective Check command changes retire matching old Engineer reports", async () => {
-    const testFixture = await makeReportedMismatchFixture();
-    try {
-        const oldChecks = [
-            {
-                id: "OC1",
-                command: "deno eval -A 'Deno.exit(1)'",
-                rationale: "The former command used an unsupported flag.",
-            },
-            {
-                id: "OC2",
-                command: "deno eval -A 'throw new Error(\"old\")'",
-                rationale: "The former command used an unsupported flag.",
-            },
-        ];
-        const newChecks = [
-            {
-                id: "OC1",
-                command: "grep -qF 'Implemented change.' README.md",
-                rationale: "The implementation must add the completed marker.",
-            },
-            {
-                id: "OC2",
-                command: "grep -qF 'Implemented' README.md",
-                rationale: "The implementation must update the fixture.",
-            },
-        ];
-        const primary = await loadPlan(testFixture.projectRoot, "demo");
-        const execution = await loadPlan(testFixture.executionCwd, "demo");
-        assertExists(primary);
-        assertExists(execution);
-        await savePlan(
-            testFixture.projectRoot,
-            "demo",
-            primary.markdown,
-            { ...primary.attrs, objectiveChecks: oldChecks },
-            { expectedRevision: primary.revision },
-        );
-        await savePlan(
-            testFixture.executionCwd,
-            "demo",
-            execution.markdown,
-            { ...execution.attrs, objectiveChecks: newChecks },
-            { expectedRevision: execution.revision },
-        );
-
-        const currentPrimary = await loadPlan(testFixture.projectRoot, "demo");
-        assertExists(currentPrimary);
-        const recorder = makeUi();
-        const prompts: string[] = [];
-        recorder.promptSelect = (prompt: string) => {
-            prompts.push(prompt);
-            return Promise.resolve(prompt.includes("Approve this Plan Amendment") ? "approve_amendment" : "stop");
-        };
-        const hostedSession = attachRecorder(
-            new HostedSession({ id: "validation-objective-amendment", cwd: testFixture.projectRoot }),
-            recorder,
-        );
-        hostedSession.setActiveExecutionWorkflow({
-            planName: "demo",
-            triageMeta: currentPrimary.attrs,
-            executionAgent: "engineer",
-            executionStarted: true,
-            executionMode: "worktree",
-            executionCwd: testFixture.executionCwd,
-            worktreeId: "wt-demo",
-            worktreeBranch: testFixture.branch,
-            worktreeBaseBranch: "main",
-            baselineTree: testFixture.baselineTree,
-        });
-        let ciRuns = 0;
-        let semanticRuns = 0;
-        const result = await continueWorkflowValidation({
-            trigger: "task_completion",
-            hostedSession,
-            planName: "demo",
-            planContent: currentPrimary.markdown,
-            triageMeta: currentPrimary.attrs,
-            engineerReportedBrokenObjectiveChecks: oldChecks.map((check) => ({
-                id: check.id,
-                command: check.command,
-                explanation: "The -A flag is not accepted by deno eval.",
-            })),
-            git: createGitPort(),
-            localCI: {
-                run: () => {
-                    ciRuns += 1;
-                    return Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" });
-                },
-            },
-            semanticReviewPort: {
-                runIsolatedAgentSession: () => {
-                    semanticRuns += 1;
-                    return Promise.reject(new Error("stop after fresh Objective Check proof"));
-                },
-            },
-            workRecordMnemosynePort: {
-                run: () => Promise.reject(new Error("publication must not run")),
-            },
-        });
-
-        assertEquals(result.kind, "failed");
-        assertEquals(ciRuns, 1);
-        assertEquals(semanticRuns > 0, true, "passing amended checks must advance to Semantic Review");
-        assertEquals(prompts.filter((prompt) => prompt.includes("Approve this Plan Amendment")).length, 1);
-        assertEquals(prompts.some((prompt) => prompt.includes("report is stale")), false);
-        const shown = recorder.messages.join("\n");
-        assertStringIncludes(shown, "Objective-Failing Checks: 2 met, 0 unmet, 0 broken");
-        assertEquals(shown.includes("did not match the current Plan commands"), false);
-    } finally {
-        await removeFixture(testFixture);
-    }
-});
-
-Deno.test("stale Engineer broken-check reports do not amend the execution Plan", async () => {
-    const testFixture = await makeReportedMismatchFixture();
-    try {
-        const primary = await loadPlan(testFixture.projectRoot, "demo");
-        assertExists(primary);
-
-        const recorder = makeUi();
-        const prompts: string[] = [];
-        recorder.promptSelect = (prompt: string) => {
-            prompts.push(prompt);
-            return Promise.resolve("stop");
-        };
-        const hostedSession = attachRecorder(
-            new HostedSession({ id: "validation-broken-report", cwd: testFixture.projectRoot }),
-            recorder,
-        );
-        hostedSession.setActiveExecutionWorkflow({
-            planName: "demo",
-            triageMeta: primary.attrs,
-            executionAgent: "engineer",
-            executionStarted: true,
-            executionMode: "worktree",
-            executionCwd: testFixture.executionCwd,
-            worktreeId: "wt-demo",
-            worktreeBranch: testFixture.branch,
-            worktreeBaseBranch: "main",
-            baselineTree: testFixture.baselineTree,
-        });
-
-        const result = await continueWorkflowValidation({
-            trigger: "task_completion",
-            hostedSession,
-            planName: "demo",
-            planContent: primary.markdown,
-            triageMeta: primary.attrs,
-            engineerReportedBrokenObjectiveChecks: [{
-                id: "OC_REPORT",
-                command: "not-a-real-runwield-command",
-                explanation: "The command does not exist.",
-            }],
-            git: createGitPort(),
-            localCI: {
-                run: () => Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" }),
-            },
-            semanticReviewPort: {
-                runIsolatedAgentSession: () => Promise.reject(new Error("semantic review must not run")),
-            },
-            workRecordMnemosynePort: {
-                run: () => Promise.reject(new Error("publication must not run")),
-            },
-        });
-
-        assertEquals(result.kind, "failed");
-        assertEquals(prompts.join("\n").includes("Plan Amendment"), false);
-        assertEquals(prompts.join("\n").includes("<removed>"), false);
-        const execution = await loadPlan(testFixture.executionCwd, "demo");
-        assertEquals(execution?.attrs.objectiveChecks, undefined);
     } finally {
         await removeFixture(testFixture);
     }

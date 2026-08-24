@@ -439,9 +439,6 @@ function buildSemanticRepairCiState(options, workflow, handoff) {
     const state = {
         status: typeof triageMeta.status === "string" ? triageMeta.status : "",
         validationCiAttempts: typeof triageMeta.validationCiAttempts === "number" ? triageMeta.validationCiAttempts : 0,
-        validationObjectiveCheckAttempts: typeof triageMeta.validationObjectiveCheckAttempts === "number"
-            ? triageMeta.validationObjectiveCheckAttempts
-            : 0,
         validationSemanticRounds: typeof triageMeta.validationSemanticRounds === "number"
             ? triageMeta.validationSemanticRounds
             : handoff.semanticRound,

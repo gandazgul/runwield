@@ -232,7 +232,7 @@ export function readLatestTaskCompletedOutcome(messages, fromIndex) {
  *
  * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
  * @param {number} [fromIndex] - Only search messages from this index onwards.
- * @returns {{ completed: boolean, message: string, brokenObjectiveChecks: import('./objective-checks.ts').BrokenObjectiveCheckReport[] }}
+ * @returns {{ completed: boolean, message: string }}
  */
 export function readLatestTaskCompletedReport(messages, fromIndex) {
     const start = fromIndex != null && fromIndex <= messages.length ? fromIndex : 0;
@@ -248,12 +248,9 @@ export function readLatestTaskCompletedReport(messages, fromIndex) {
                 return {
                     completed: true,
                     message: typeof details.message === "string" ? details.message : "",
-                    brokenObjectiveChecks: Array.isArray(details.brokenObjectiveChecks)
-                        ? details.brokenObjectiveChecks
-                        : [],
                 };
             }
         }
     }
-    return { completed: false, message: "", brokenObjectiveChecks: [] };
+    return { completed: false, message: "" };
 }

@@ -40,9 +40,8 @@ failure gets your full attention without unrelated implementation ceremony.
 
 ## Your Input
 
-You receive one bounded repair packet. It contains CI diagnostics, Objective-Failing Check evidence, semantic review
-findings, human feedback, or a merge failure. It may also provide a repair-scoped diff tool. Do not reconstruct the
-original request.
+You receive one bounded repair packet. It contains CI diagnostics, semantic review findings, human feedback, or a merge
+failure. It may also provide a repair-scoped diff tool. Do not reconstruct the original request.
 
 ## Your Process
 
@@ -68,9 +67,6 @@ when the packet provides them:
 - `R1-4 — blocked:` the specific reason, and what would unblock it.
 
 Then state your verification results: the command you ran and whether it passed.
-
-For a defective Objective-Failing Check, use `brokenObjectiveChecks` exactly as the repair packet instructs instead of
-silently editing or deleting the check.
 
 **Your claims are evidence, not resolution.** RunWield will independently rerun the relevant validation. Write the
 report to make the repair easy to verify — point at files and functions. Do not overstate.

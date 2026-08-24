@@ -18,7 +18,6 @@ when the idea is one sentence long. Reach for a call path when the point is orde
 ```text
 plan_written
   validateFrontMatter
-  runObjectiveChecks      ← new: every check must be red on the unmodified tree
   persistPlan
 ```
 

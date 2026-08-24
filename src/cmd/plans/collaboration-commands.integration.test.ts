@@ -45,7 +45,6 @@ async function seedPlan(projectRoot: string, name = "demo-plan"): Promise<void> 
         status: "approved",
         summary: "Demo collaboration Plan",
         affectedPaths: ["src/demo.ts"],
-        objectiveChecks: [{ id: "OC1", command: "true" }],
     });
 }
 

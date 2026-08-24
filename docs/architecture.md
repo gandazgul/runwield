@@ -493,11 +493,11 @@ and root-affecting configuration remain active.
 
 `SessionRuntime.cancelSession()` is the sole cancellation authority: TUI Escape, ACP, and every other consumer call it
 and never hold process handles themselves. Process-tree ownership lives one layer down, in
-`src/shared/foreground-process.ts`. Every RunWield-owned foreground shell — local `!`/`!!` commands, configured local
-CI, and Objective-Failing Checks — is spawned through that module as an independently terminable process tree (detached
-process group plus negative-pid group signal on Unix-like systems, `taskkill /F /T` on Windows), bound to a Session
-active-interaction `AbortSignal` and an optional timeout. Cancellation therefore terminates the whole descendant tree,
-not just the wrapper shell, and the spawn/abort race is closed inside the module rather than re-implemented per caller.
+`src/shared/foreground-process.ts`. Every RunWield-owned foreground shell — local `!`/`!!` commands and configured local
+CI — is spawned through that module as an independently terminable process tree (detached process group plus
+negative-pid group signal on Unix-like systems, `taskkill /F /T` on Windows), bound to a Session active-interaction
+`AbortSignal` and an optional timeout. Cancellation therefore terminates the whole descendant tree, not just the wrapper
+shell, and the spawn/abort race is closed inside the module rather than re-implemented per caller.
 
 ### Runtime events and interactions
 
@@ -794,9 +794,9 @@ flowchart TD
 - A Git-backed Plan becomes canonically `validated` before publication. The registry publication record then proves the
   exact commits through integration, target update, verification, and cleanup without rewriting the Plan again.
 - Merge and validation failures preserve worktree/Plan metadata for recovery instead of discarding the execution state.
-- CI, Objective Check, semantic-review, and merge repairs run in independent Agent sessions. Each repair receives a
-  bounded packet with the repair checkout, Plan path, available worktree identity, and current feedback instead of the
-  implementation transcript or an inline Plan copy.
+- CI, semantic-review, and merge repairs run in independent Agent sessions. Each repair receives a bounded packet with
+  the repair checkout, Plan path, available worktree identity, and current feedback instead of the implementation
+  transcript or an inline Plan copy.
 
 ### Worktree ownership
 

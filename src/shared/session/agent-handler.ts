@@ -569,9 +569,6 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     planName: workflow.planName,
                     planContent,
                     triageMeta: validationTriageMeta,
-                    ...(acceptedCompletion.brokenObjectiveChecks?.length
-                        ? { engineerReportedBrokenObjectiveChecks: acceptedCompletion.brokenObjectiveChecks }
-                        : {}),
                     sessionManager,
                     finalAgentName: agentName,
                     git: createGitPort(),

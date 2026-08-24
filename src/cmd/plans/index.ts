@@ -8,6 +8,7 @@ import { getCwd } from "../../constants.js";
 import { countChildPlanProgress, groupPlanHierarchy, listPlans } from "../../plan-store.js";
 import { printCommandHelp } from "../help/index.js";
 import { runPlansArchiveCommand } from "./archive.ts";
+import { runPlansCleanObjectiveChecksCommand } from "./clean-objective-checks.ts";
 import { runPlansDoctorCommand } from "./doctor.ts";
 import { runPlansPullCommand } from "./pull.ts";
 import { runPlansPruneCommand } from "./prune.ts";
@@ -71,6 +72,10 @@ export async function runPlansCommand(argv: string[]): Promise<void> {
     }
     if (subcommand === "archive") {
         await runPlansArchiveCommand(argv.slice(1));
+        return;
+    }
+    if (subcommand === "clean-objective-checks") {
+        await runPlansCleanObjectiveChecksCommand(argv.slice(1));
         return;
     }
     if (subcommand === "doctor") {

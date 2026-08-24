@@ -268,7 +268,7 @@ export const planReviewTransactionContractScenario = {
             thinking: "Submit the Plan for browser review through Runtime interaction.",
             toolCalls: [{
                 name: "plan_written",
-                arguments: { planName: "plan", objectiveChecks: [{ id: "OC1", command: "true" }] },
+                arguments: { planName: "plan" },
             }],
         },
         {
@@ -280,7 +280,7 @@ export const planReviewTransactionContractScenario = {
             thinking: "Resubmit the reviewed Plan for approval through the same interaction seam.",
             toolCalls: [{
                 name: "plan_written",
-                arguments: { planName: "plan", objectiveChecks: [{ id: "OC1", command: "true" }] },
+                arguments: { planName: "plan" },
             }],
         },
     ],

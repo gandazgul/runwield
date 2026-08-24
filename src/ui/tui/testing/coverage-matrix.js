@@ -55,11 +55,11 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         // The Engineer reports success and the check disagrees. Everything after that
         // point — repair rounds, the round limit, the menu — only matters if it reaches
         // a person, so the guarantee is end-to-end or it is nothing.
-        "recovery:objective-check-unmet",
         // CI actually failing, and the loop finding its way back to CI after the repair.
         // Every other scenario commits a CI command that cannot fail, so this path had
         // no end-to-end coverage at all.
         "recovery:ci-repair",
+        "recovery:child-ci-failure",
         "recovery:interrupted-execution",
         "recovery:load-plan-worktree",
         "recovery:malformed-plan-front-matter",

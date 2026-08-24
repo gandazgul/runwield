@@ -71,7 +71,7 @@ export const validationTreeSemanticReviewerIncompletePauseScenario = withValidat
         initialProjectFiles: [{
             path: "docs/plans/semantic-reviewer-incomplete.md",
             text:
-                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic reviewer incomplete\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-reviewer-incomplete-plan\nobjectiveChecks:\n  - id: OC_REVIEWER_INCOMPLETE\n    command: "true"\n---\n# Semantic reviewer incomplete\n\nAlready implemented content.\n',
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic reviewer incomplete\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-reviewer-incomplete-plan\n---\n# Semantic reviewer incomplete\n\nAlready implemented content.\n",
         }],
         script: [1, 2, 3].map((ordinal) => ({
             id: `reviewer-incomplete-attempt-${ordinal}`,
@@ -90,7 +90,7 @@ export const validationTreeSemanticReviewerIncompletePauseScenario = withValidat
                 planName: "semantic-reviewer-incomplete",
                 status: "validated_ci",
                 files: [{ path: "semantic-reviewer-incomplete.txt", text: "implemented\n" }],
-                attrs: { objectiveChecks: [{ id: "OC_REVIEWER_INCOMPLETE", command: "true" }] },
+                attrs: {},
             },
             { type: "type", text: "/load-plan semantic-reviewer-incomplete" },
             { type: "enter" },
@@ -224,7 +224,7 @@ export const validationTreeSemanticNudgeMissingReviewCompleteScenario = withVali
         initialProjectFiles: [{
             path: "docs/plans/semantic-nudge-missing-review-complete.md",
             text:
-                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic nudge missing review_complete\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-nudge-missing-review-complete-plan\nobjectiveChecks:\n  - id: OC_NUDGE_REVIEW_COMPLETE\n    command: "true"\n---\n# Semantic nudge missing review_complete\n\nAlready implemented content.\n',
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic nudge missing review_complete\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-nudge-missing-review-complete-plan\n---\n# Semantic nudge missing review_complete\n\nAlready implemented content.\n",
         }],
         script: [
             {
@@ -268,7 +268,7 @@ export const validationTreeSemanticNudgeMissingReviewCompleteScenario = withVali
                 planName: "semantic-nudge-missing-review-complete",
                 status: "validated_ci",
                 files: [{ path: "semantic-nudge-review-complete-implementation.txt", text: "implemented\n" }],
-                attrs: { objectiveChecks: [{ id: "OC_NUDGE_REVIEW_COMPLETE", command: "true" }] },
+                attrs: {},
             },
             { type: "type", text: "/load-plan semantic-nudge-missing-review-complete" },
             { type: "enter" },
@@ -301,7 +301,7 @@ export const validationTreeSemanticNudgeMissingDiffInspectionScenario = withVali
         initialProjectFiles: [{
             path: "docs/plans/semantic-nudge-missing-diff.md",
             text:
-                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic nudge missing diff\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-nudge-missing-diff-plan\nobjectiveChecks:\n  - id: OC_NUDGE_DIFF\n    command: "true"\n---\n# Semantic nudge missing diff\n\nAlready implemented content.\n',
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic nudge missing diff\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-nudge-missing-diff-plan\n---\n# Semantic nudge missing diff\n\nAlready implemented content.\n",
         }],
         script: [
             {
@@ -349,7 +349,7 @@ export const validationTreeSemanticNudgeMissingDiffInspectionScenario = withVali
                 planName: "semantic-nudge-missing-diff",
                 status: "validated_ci",
                 files: [{ path: "semantic-nudge-implementation.txt", text: "implemented\n" }],
-                attrs: { objectiveChecks: [{ id: "OC_NUDGE_DIFF", command: "true" }] },
+                attrs: {},
             },
             { type: "type", text: "/load-plan semantic-nudge-missing-diff" },
             { type: "enter" },
@@ -382,7 +382,7 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
         initialProjectFiles: [{
             path: "docs/plans/semantic-round-limit-stop.md",
             text:
-                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic round limit stop\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-round-limit-stop-plan\nobjectiveChecks:\n  - id: OC_SEMANTIC_ROUND_LIMIT_STOP\n    command: "true"\n---\n# Semantic round limit stop\n\nAlready implemented content.\n',
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic round limit stop\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-round-limit-stop-plan\n---\n# Semantic round limit stop\n\nAlready implemented content.\n",
         }],
         script: [
             {
@@ -585,7 +585,7 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                 planName: "semantic-round-limit-stop",
                 status: "validated_ci",
                 files: [{ path: "semantic-round-limit-stop.txt", text: "implemented\n" }],
-                attrs: { objectiveChecks: [{ id: "OC_SEMANTIC_ROUND_LIMIT_STOP", command: "true" }] },
+                attrs: {},
             },
             { type: "type", text: "/load-plan semantic-round-limit-stop" },
             { type: "enter" },
@@ -621,7 +621,7 @@ export const validationTreeSemanticRoundLimitStopDirectScenario = withValidation
         initialProjectFiles: [{
             path: "docs/plans/semantic-round-limit-stop-direct.md",
             text:
-                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic round limit stop direct\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-round-limit-stop-direct-plan\nobjectiveChecks:\n  - id: OC_SEMANTIC_ROUND_LIMIT_STOP_DIRECT\n    command: "true"\n---\n# Semantic round limit stop direct\n\nDraft content.\n',
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic round limit stop direct\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-round-limit-stop-direct-plan\n---\n# Semantic round limit stop direct\n\nDraft content.\n",
         }],
         script: [
             {
@@ -674,7 +674,6 @@ export const validationTreeSemanticRoundLimitStopDirectScenario = withValidation
                 status: "validated_ci",
                 attrs: {
                     validationSemanticRounds: 2,
-                    objectiveChecks: [{ id: "OC_SEMANTIC_ROUND_LIMIT_STOP_DIRECT", command: "true" }],
                 },
                 files: [{ path: "semantic-round-limit-stop-direct.txt", text: "implemented\n" }],
             },
@@ -761,7 +760,7 @@ export const validationTreeEmptyDiffSkipScenario = withValidationBranches(
         initialProjectFiles: [{
             path: "docs/plans/empty-diff-skip.md",
             text:
-                '---\nclassification: QUICK_FIX\ncomplexity: LOW\nsummary: Empty diff skip\naffectedPaths: []\nstatus: ready_for_work\nplanId: empty-diff-skip-plan\nobjectiveChecks:\n  - id: OC_EMPTY_DIFF\n    command: "true"\n---\n# Empty diff skip\n\nAlready complete content.\n',
+                "---\nclassification: QUICK_FIX\ncomplexity: LOW\nsummary: Empty diff skip\naffectedPaths: []\nstatus: ready_for_work\nplanId: empty-diff-skip-plan\n---\n# Empty diff skip\n\nAlready complete content.\n",
         }],
         scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" }],
         actions: [
@@ -771,7 +770,6 @@ export const validationTreeEmptyDiffSkipScenario = withValidationBranches(
                 status: "validated_ci",
                 attrs: {
                     classification: "QUICK_FIX",
-                    objectiveChecks: [{ id: "OC_EMPTY_DIFF", command: "true" }],
                 },
             },
             { type: "type", text: "/load-plan empty-diff-skip" },
@@ -800,7 +798,7 @@ export const validationTreeSemanticRoundModeDiscoveryToVerifyScenario = withVali
         initialProjectFiles: [{
             path: "docs/plans/semantic-round-mode-discovery-to-verify.md",
             text:
-                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic round mode discovery to verify\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-round-mode-discovery-to-verify-plan\nobjectiveChecks:\n  - id: OC_SEMANTIC_VERIFY_MODE\n    command: test -f semantic-round-mode-discovery-to-verify.txt\n---\n# Semantic round mode discovery to verify\n\nDraft content.\n",
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic round mode discovery to verify\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-round-mode-discovery-to-verify-plan\n---\n# Semantic round mode discovery to verify\n\nDraft content.\n",
         }],
         script: [
             {
@@ -867,7 +865,7 @@ export const validationTreePlanOnlyDiffFailsScenario = withValidationBranches(
         initialProjectFiles: [{
             path: "docs/plans/plan-only-diff.md",
             text:
-                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Plan only diff\naffectedPaths: []\nstatus: ready_for_work\nplanId: plan-only-diff-plan\nobjectiveChecks:\n  - id: OC_PLAN_ONLY\n    command: "true"\n---\n# Plan only diff\n\nDraft content.\n',
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Plan only diff\naffectedPaths: []\nstatus: ready_for_work\nplanId: plan-only-diff-plan\n---\n# Plan only diff\n\nDraft content.\n",
         }],
         scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" }],
         actions: [

@@ -48,7 +48,6 @@ Deno.test("planning runs the real plan_written machinery with the supplied triag
         setModelMessages([
             fauxAssistantMessage(fauxToolCall("plan_written", {
                 planName: "fixture-plan",
-                objectiveChecks: [{ id: "OC1", command: "false" }],
             })),
         ]);
         const fixture = createAgentSession(projectRoot, [], async (request) => {

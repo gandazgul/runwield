@@ -64,7 +64,6 @@ async function writePlan(
         complexity: "LOW",
         summary: `Fixture ${planName}`,
         affectedPaths: [],
-        objectiveChecks: [{ id: "OC1", command: "true" }],
         ...attrs,
     });
 }
@@ -460,7 +459,6 @@ Deno.test("load-plan runs the real Planner and plan_written machinery against th
             setModelMessages([
                 fauxAssistantMessage(fauxToolCall("plan_written", {
                     planName: "planned",
-                    objectiveChecks: [{ id: "OC1", command: "true" }],
                 })),
             ]);
             const { runtime, sessionId } = await createRuntime(projectRoot);

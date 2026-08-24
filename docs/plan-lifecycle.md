@@ -266,7 +266,6 @@ For worktree-backed plans:
    Completion does not merge into the primary checkout.
 3. Workflow Validation reads `validationCiAttempts` and `validationSemanticRounds` from fresh Plan Front Matter, runs
    exactly one lifecycle phase for the current Plan Status, records at most one Plan Event for that phase, and returns.
-   It uses replacement semantics: removed `objectiveChecks` or `objectiveCheckWaivers` are absent on the next attempt.
    Repeated calls resume from durable status instead of an in-memory validation loop.
 4. The `validated_ci` phase computes the workflow diff and starts semantic review rounds in the execution worktree.
    Review narrows as rounds progress: rounds one and two review the implementation against the whole Plan, and rounds

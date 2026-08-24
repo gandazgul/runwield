@@ -165,23 +165,17 @@ unshare/delete, and Plan body editing are intentionally deferred. See
 
 RunWield can execute saved plan work in a linked git worktree. The primary checkout remains the lifecycle metadata root
 for plan files and worktree registry state. During Workflow Validation, edits to reviewable Plan definition fields in
-the execution worktree are Plan Amendment proposals. RunWield shows the user the exact diff, proves changed
-Objective-Failing Checks are still red against the recorded execution baseline, and uses the edits only after approval.
+the execution worktree are Plan Amendment proposals. RunWield shows the user the exact diff and uses the edits only
+after approval.
 
-CI and Objective-Failing Check repairs run in independent Reviewer-Feedback Engineer sessions. A live repair
-`task_completed` result returns only to the validation invocation that dispatched it. It is not written to the root Task
-Completion journal. The validation owner then reruns Mechanical Validation, so checks, not the Agent report text, decide
-whether the workflow advances.
+CI repairs run in independent Reviewer-Feedback Engineer sessions. A live repair `task_completed` result returns only to
+the validation invocation that dispatched it. It is not written to the root Task Completion journal. The validation
+owner then reruns Mechanical Validation, so checks, not the Agent report text, decide whether the workflow advances.
 
 If the process stops around such a repair, RunWield reclaims the durable validation checkpoint and reruns Mechanical
 Validation against the current worktree. It does not replay the repair Agent turn and does not require a second Task
 Completion. If a repair turn returns without `task_completed`, the checkpoint stays paused; retry starts from the saved
 Plan state and may dispatch a new bounded repair after fresh checks fail.
-
-If an Engineer reports `brokenObjectiveChecks` through a live isolated `task_completed` result, Workflow Validation
-reruns the current checks once and asks the user whether to waive the defective check, send Engineer follow-up, or stop.
-This user-decision cycle does not spend another normal repair attempt. A waiver is recorded as user-approved
-defective-check evidence; it is not a passed check, and all other active checks must still pass.
 
 Workflow validation applies to executable saved plan work: standalone FEATURE plans, child FEATURE plans, and legacy
 non-Epic PROJECT plans. PROJECT Epics do not run an implementation validation loop themselves; their child FEATURE plans

@@ -621,41 +621,32 @@ Deno.test("Work Record generation distills the task completion report into the s
     }
 });
 
-Deno.test("Work Record generation includes accepted Objective Check waivers", async () => {
+Deno.test("Work Record generation includes deterministic Plan record requirements", async () => {
     const cwd = await Deno.makeTempDir();
     try {
-        await savePlan(cwd, "waived", "# Waived\n\n## Plan\n\nBody", {
-            planId: "plan-waived",
+        const required =
+            "Objective-Failing Checks were removed from RunWield, and obsolete Objective Check metadata was cleaned from active Plans; sealed completed Plans and Work Records were not changed.";
+        await savePlan(cwd, "required-note", `# Required note\n\n## Work Record Requirements\n\n${required}\n`, {
+            planId: "plan-required-note",
             classification: "FEATURE",
             complexity: "LOW",
-            summary: "Built waived feature.",
+            summary: "Built the requested feature.",
             affectedPaths: [],
             createdAt: "2026-07-14T00:00:00.000Z",
             status: "verified",
-            objectiveCheckWaivers: [{
-                id: "OC1",
-                command: "missing-tool",
-                source: "mechanical_detection",
-                explanation: "User accepted the check defect.",
-                userNote: "Not relevant on this platform.",
-                waivedAt: "2026-07-15T00:00:00.000Z",
-            }],
         });
         const preview = await previewWorkRecordBackfill(cwd);
         const outcome = await generateWorkRecordForSource(cwd, preview.eligible[0], {
             mnemosynePort: createWorkRecordMnemosyneFixture(),
             idGenerator: () => "88888888-8888-4888-8888-888888888888",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
-            runRecorderPrompt: recorderResponse({ title: "Waived Outcome", summary: "Completed with a waiver." }),
+            runRecorderPrompt: recorderResponse({ title: "Required Outcome", summary: "Completed." }),
         });
 
         assertEquals(outcome.status, "generated");
         const record = await findWorkRecordById(cwd, "88888888-8888-4888-8888-888888888888");
-        assertStringIncludes(record?.sections["Objective Check Waivers"] || "", "OC1");
-        assertStringIncludes(
-            record?.markdown || "",
-            "Plan Front Matter contains accepted Objective-Failing Check waivers.",
-        );
+        assertEquals(record?.sections["Required Record Notes"], required);
+        assertStringIncludes(record?.markdown || "", required);
     } finally {
         await cleanupTempProject(cwd);
     }

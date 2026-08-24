@@ -20,7 +20,6 @@ Deno.test("plan_written rejects the reserved Epic Artifact name before review", 
             "call",
             {
                 planName: "epic/manual-qa",
-                objectiveChecks: [{ id: "OC1", command: "true" }],
             },
             undefined,
             undefined,

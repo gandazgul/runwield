@@ -6,7 +6,6 @@
  * the lifecycle/validation code that acts on it.
  */
 
-import type { BrokenObjectiveCheckReport } from "../workflow/objective-checks.ts";
 import type { HostedSession } from "./hosted-session.js";
 
 export const TASK_COMPLETION_CUSTOM_TYPE = "runwield.task_completion";
@@ -24,7 +23,6 @@ type AcceptedTaskCompletionEvent = {
     owner: "root";
     workflow: ActiveExecutionWorkflow;
     validationGeneration?: string;
-    brokenObjectiveChecks?: BrokenObjectiveCheckReport[];
 };
 
 type ConsumedTaskCompletionEvent = {
@@ -57,7 +55,6 @@ export type PendingTaskCompletionClaim = {
     workflow: ActiveExecutionWorkflow | null;
     durable: boolean;
     validationGeneration?: string;
-    brokenObjectiveChecks?: BrokenObjectiveCheckReport[];
 };
 
 type RecordTaskCompletionArgs = {
@@ -66,7 +63,6 @@ type RecordTaskCompletionArgs = {
     agentName: string;
     report: string;
     timestampMs: number;
-    brokenObjectiveChecks?: BrokenObjectiveCheckReport[];
 };
 
 function getCompletionSessionManager(hostedSession: HostedSession): TaskCompletionSessionManager | null {
@@ -79,23 +75,13 @@ function getEntries(sessionManager: TaskCompletionSessionManager | null): TaskCo
     return Array.isArray(entries) ? entries : [];
 }
 
-function hasValidBrokenObjectiveChecks(event: AcceptedTaskCompletionEvent): boolean {
-    if (event.brokenObjectiveChecks === undefined) return true;
-    return Array.isArray(event.brokenObjectiveChecks) &&
-        event.brokenObjectiveChecks.every((result) =>
-            typeof result.id === "string" && result.id.trim() && typeof result.explanation === "string" &&
-            result.explanation.trim() && (result.command === undefined || typeof result.command === "string")
-        );
-}
-
 function isAcceptedEvent(event: TaskCompletionJournalEvent | null | undefined): event is AcceptedTaskCompletionEvent {
     return event?.version === 1 && event.state === "accepted" && typeof event.completionId === "string" &&
         (event.validationGeneration === undefined || typeof event.validationGeneration === "string") &&
         typeof event.agentName === "string" && typeof event.report === "string" &&
         typeof event.timestampMs === "number" && event.owner === "root" &&
         typeof event.workflow?.planName === "string" &&
-        (event.workflow.executionAgent === "engineer" || event.workflow.executionAgent === "frontend-engineer") &&
-        hasValidBrokenObjectiveChecks(event);
+        (event.workflow.executionAgent === "engineer" || event.workflow.executionAgent === "frontend-engineer");
 }
 
 function isConsumedEvent(event: TaskCompletionJournalEvent | null | undefined): event is ConsumedTaskCompletionEvent {
@@ -159,7 +145,7 @@ function isRootOwnedSession(owningSession: OwningSession, rootSession: OwningSes
  * intentionally excluded from the root-session outbox.
  */
 export function recordAcceptedTaskCompletion(args: RecordTaskCompletionArgs): string | null {
-    const { hostedSession, agentName, report, timestampMs, brokenObjectiveChecks } = args;
+    const { hostedSession, agentName, report, timestampMs } = args;
     const owningSession = hostedSession.getActiveSteeringTargetSession();
     const rootSession = hostedSession.getRootAgentSession();
     const rootOwned = isRootOwnedSession(owningSession, rootSession);
@@ -179,13 +165,12 @@ export function recordAcceptedTaskCompletion(args: RecordTaskCompletionArgs): st
             owner: "root",
             workflow: { ...workflow },
             validationGeneration: workflow.validationGeneration || workflowAttemptKey(workflow),
-            ...(brokenObjectiveChecks?.length ? { brokenObjectiveChecks } : {}),
         });
     }
 
     // Keep the existing in-process fast path and compatibility for sessions that
     // do not have a persisted root SessionManager.
-    hostedSession.recordPendingTaskCompletion(agentName, report, timestampMs, brokenObjectiveChecks);
+    hostedSession.recordPendingTaskCompletion(agentName, report, timestampMs);
     return completionId;
 }
 
@@ -219,9 +204,6 @@ export function claimPendingTaskCompletion(
             workflow: { ...accepted.workflow },
             durable: true,
             validationGeneration: accepted.validationGeneration,
-            ...(accepted.brokenObjectiveChecks?.length
-                ? { brokenObjectiveChecks: accepted.brokenObjectiveChecks }
-                : {}),
         };
     }
 
@@ -236,7 +218,6 @@ export function claimPendingTaskCompletion(
         workflow: activeWorkflow ? { ...activeWorkflow } : null,
         durable: false,
         validationGeneration: activeWorkflow?.validationGeneration,
-        ...(volatile.brokenObjectiveChecks?.length ? { brokenObjectiveChecks: volatile.brokenObjectiveChecks } : {}),
     };
 }
 
@@ -269,6 +250,5 @@ export function listPendingTaskCompletions(hostedSession: HostedSession): Pendin
         workflow: { ...event.workflow },
         durable: true,
         validationGeneration: event.validationGeneration,
-        ...(event.brokenObjectiveChecks?.length ? { brokenObjectiveChecks: event.brokenObjectiveChecks } : {}),
     }));
 }

@@ -298,12 +298,12 @@ Deno.test("ensureExecutionPlanFile materializes the complete latest Plan before 
     const canonicalMarkdown = injectFrontMatter("# Latest Plan", {
         planId: "plan-1",
         status: "ready_for_work",
-        objectiveChecks: [{ id: "OC_NEW", command: "false", rationale: "latest check" }],
+        summary: "latest definition",
     });
     const oldMarkdown = injectFrontMatter("# Old Plan", {
         planId: "plan-1",
         status: "draft",
-        objectiveChecks: [{ id: "OC_OLD", command: "true", rationale: "stale check" }],
+        summary: "stale definition",
     });
     await Deno.writeTextFile(join(projectRoot, "docs", "plans", "demo.md"), canonicalMarkdown);
     await Deno.writeTextFile(join(executionRoot, "docs", "plans", "demo.md"), oldMarkdown);

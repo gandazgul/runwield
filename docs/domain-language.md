@@ -476,9 +476,9 @@ onto the base delegated prompt and declaring an authority ceiling that can reduc
 Omitting it yields the unspecialized `general` role. _Avoid_: Subagent type, delegated persona, Agent subtype
 
 **Verification Adversary**: The read-only Delegated Agent Role (`verification-adversary`) that receives a draft Plan and
-returns the cheapest counterfeit implementation passing every listed check with the objective absent, a verdict of
-`discriminating` or `not-discriminating`, and the check that would catch it. Recommended for structural Plans; never a
-required gate. _Avoid_: Plan reviewer, Reviewer, red team, adversarial validation
+looks for ways an implementation could satisfy its stated verification without achieving the intended behavior.
+Recommended for structural Plans; never a required gate. _Avoid_: Plan reviewer, Reviewer, red team, adversarial
+validation
 
 **Epic**: A PROJECT Plan that contains design and decomposition context for child PLANNED_CHANGE Plans rather than
 executable implementation work. _Avoid_: Initiative, umbrella task, PROJECT subtype
@@ -513,21 +513,14 @@ builds that port over the HostedSession machinery; other runtimes can drive the 
 _Avoid_: Second validation implementation, session-coupled engine
 
 **Mechanical Validation**: RunWield's automated command validation loop. In no-plan QUICK_FIX work it runs local CI only
-without semantic review or Plan status transitions; inside Workflow Validation for executable Plans it runs local CI
-plus that Plan's Objective-Failing Checks before Semantic Review. _Avoid_: Workflow Validation, Reviewer review, agent
-self-check
+without semantic review or Plan status transitions; inside Workflow Validation for executable Plans it runs the
+repository's configured CI before Semantic Review. _Avoid_: Workflow Validation, Reviewer review, agent self-check
 
 **Plan Amendment**: A user-approved change to reviewable Plan definition during active execution or Workflow Validation.
-The execution worktree can propose Plan body, summary, affected path, browser verification, Ticket Reference, or
-Objective-Failing Check edits. RunWield shows the diff, asks the user to approve it, writes the accepted definition to
-the primary Plan, and reconciles the execution copy. Plan Status, worktree metadata, Delivery Evidence, validation
-counters, waivers, and other lifecycle fields remain RunWield-owned. _Avoid_: silent worktree Plan edit, lifecycle edit
-
-**Objective-Failing Check**: A Plan-owned shell command with one contract: exit 0 means the Plan objective is met. It
-must be red before implementation and green after implementation; RunWield stores the executable copy in Plan Front
-Matter as `objectiveChecks`, mechanically verifies the red state before execution starts, and reruns it during Workflow
-Validation's Mechanical Validation phase to verify the green state. _Avoid_: Manual check, verification note,
-lint/type-check only
+The execution worktree can propose Plan body, summary, affected path, browser verification, or Ticket Reference edits.
+RunWield shows the diff, asks the user to approve it, writes the accepted definition to the execution Plan, and
+reconciles its canonical copy. Plan Status, worktree metadata, Delivery Evidence, validation counters, and other
+lifecycle fields remain RunWield-owned. _Avoid_: silent worktree Plan edit, lifecycle edit
 
 **Pair Execution**: A user-steered Plan execution style where Plan Engineer or Frontend Engineer delivers coherent
 observable increments and blocks at intentional feedback checkpoints. It is a collaboration style, not validation

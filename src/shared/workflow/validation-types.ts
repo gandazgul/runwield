@@ -11,7 +11,6 @@
 import type { ReviewLedger } from "./review-ledger.ts";
 import type { ResolvedValidationContext } from "./execution-context.ts";
 import type { ValidationLocalCIPort, ValidationSessionPort, ValidationWorkflowState } from "./validation-ports.ts";
-import type { ObjectiveCheckResult } from "./objective-checks.ts";
 import type { ValidationCheckpoint, ValidationCheckpointPhase } from "./validation-checkpoint.ts";
 import type { ValidationRecoveryResult } from "./validation-recovery.ts";
 
@@ -79,7 +78,6 @@ export type ValidationLoopArgs = {
     localCI: ValidationLocalCIPort;
     workRecordMnemosynePort: WorkRecordMnemosynePort;
     supportsSemanticRepairHandoff?: boolean;
-    engineerReportedBrokenObjectiveChecks?: import("./objective-checks.ts").BrokenObjectiveCheckReport[];
     /** Durable phase claimed by the validation supervisor. */
     continuationPhase?: ValidationCheckpointPhase;
     /** Durable attempt record claimed by the validation supervisor. */
@@ -124,9 +122,7 @@ export type UserActionChoice =
     | "engineer_follow_up"
     | "retry"
     | "stop"
-    | "waive"
-    | "approve_amendment"
-    | "waive_defective_checks";
+    | "approve_amendment";
 
 export type UserActionOption = {
     value: UserActionChoice;
@@ -147,7 +143,6 @@ export type UserActionPause = {
 };
 
 export type ReviewFeedbackImage = { base64: string; mimeType: string };
-export type BrokenObjectiveCheckReport = import("./objective-checks.ts").BrokenObjectiveCheckReport;
 
 export type ReviewFeedbackRepairPacket = {
     diffText: string;
@@ -158,17 +153,8 @@ export type ReviewFeedbackRepairPacket = {
     activeWorkflow?: Partial<ValidationWorkflowState>;
 };
 
-export type ObjectiveCheckPhaseOutcome =
-    | { kind: "passed" }
-    | { kind: "skipped" }
-    | { kind: "canceled" }
-    | { kind: "stale_report"; reason: string; reports: BrokenObjectiveCheckReport[]; results: ObjectiveCheckResult[] }
-    | { kind: "unmet"; reason: string; results: ObjectiveCheckResult[] }
-    | { kind: "broken"; reason: string; results: ObjectiveCheckResult[] };
-
 /** Independent automatic repair budgets. Keep these separate so each can be tuned. */
 export const CI_REPAIR_CYCLES = 3;
-export const OBJECTIVE_CHECK_REPAIR_CYCLES = 3;
 export const SEMANTIC_REVIEW_CYCLES = 3;
 
 /**
