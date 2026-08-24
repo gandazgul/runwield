@@ -9,8 +9,9 @@
  */
 
 import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
-import { loadPlan } from "../../plan-store.js";
+import { loadPlan, withPlanLock } from "../../plan-store.js";
 import { createQaChecklistGeneratedTool } from "../../tools/qa-checklist-generated.ts";
+import { findEpicManualQaSection } from "../epic-artifacts.ts";
 import { checkpointExecutionWorktree } from "../worktree.js";
 import { publishExecutionWorktreeIsolated } from "../isolated-publication.ts";
 import { findById as findWorktreeRegistryEntryById } from "../worktree-registry.js";
@@ -138,6 +139,16 @@ async function prepareEpicChildManualQaArtifact(
     const parent = await loadPlan(cwd, parentPlan).catch(() => null);
     if (parent?.attrs.classification !== "PROJECT") return { kind: "ready" };
 
+    const existing = await findEpicManualQaSection(cwd, parentPlan, args.planName);
+    if (existing.exists) {
+        emitStatus(
+            args,
+            buildValidationUserMessage({ kind: "qa_ready", path: existing.relativePath, existed: true }),
+            "info",
+        );
+        return { kind: "ready" };
+    }
+
     let attempt = 1;
     for (;;) {
         emitStatus(args, buildValidationUserMessage({ kind: "qa_prepare", planName: args.planName }), "info");
@@ -222,6 +233,18 @@ async function prepareEpicChildManualQaArtifact(
 }
 
 export async function runPublicationPhase(
+    args: ValidationLoopArgs,
+    context: PhaseContext,
+    humanReviewMetadata: HumanReviewMetadata,
+): Promise<PublicationOutcome> {
+    return await withPlanLock(
+        context.projectRoot,
+        args.planName,
+        async () => await runLockedPublicationPhase(args, context, humanReviewMetadata),
+    );
+}
+
+async function runLockedPublicationPhase(
     args: ValidationLoopArgs,
     context: PhaseContext,
     humanReviewMetadata: HumanReviewMetadata,
@@ -543,6 +566,8 @@ export async function runPublicationPhase(
                     planName: args.planName,
                     planDescription: args.triageMeta?.summary,
                     mergeTargetRef: publicationAttempt?.targetHeadAtSeal,
+                    publicationAttemptId: publicationAttempt?.attemptId,
+                    publicationPlanPaths: staging.planPaths.length > 0 ? staging.planPaths : [planPath],
                 }));
             publicationAttempt = await advanceStoredPublication(
                 context.projectRoot,

@@ -42,6 +42,28 @@ async function gitAncestor(cwd: string, ancestor: string, descendant: string): P
     return (await git(cwd, ["merge-base", "--is-ancestor", ancestor, descendant])).code === 0;
 }
 
+async function artifactEvidence(attempt: PublicationAttempt): Promise<PublicationPhaseEvidence | null> {
+    const head = await git(attempt.executionCwd, ["rev-parse", `refs/heads/${attempt.executionBranch}`]);
+    if (head.code !== 0 || !head.stdout || head.stdout === attempt.validatedCommit) return null;
+    if (!(await gitAncestor(attempt.executionCwd, attempt.validatedCommit, head.stdout))) return null;
+    const count = await git(attempt.executionCwd, [
+        "rev-list",
+        "--count",
+        `${attempt.validatedCommit}..${head.stdout}`,
+    ]);
+    if (count.code !== 0 || count.stdout !== "1") return null;
+    const message = await git(attempt.executionCwd, ["show", "-s", "--format=%B", head.stdout]);
+    if (message.code !== 0) return null;
+    const attemptMarker = `RunWield-Publication-Attempt: ${attempt.attemptId}`;
+    if (!message.stdout.split("\n").includes(attemptMarker)) return null;
+    const planPaths = message.stdout.split("\n").flatMap((line) => {
+        const prefix = "RunWield-Publication-Plan-Path: ";
+        return line.startsWith(prefix) && line.slice(prefix.length).trim() ? [line.slice(prefix.length).trim()] : [];
+    });
+    if (planPaths.length === 0) return null;
+    return { artifactCommit: head.stdout, planPaths: [...new Set(planPaths)] };
+}
+
 async function resolveRemoteTarget(
     projectRoot: string,
     targetBranch: string,
@@ -94,7 +116,8 @@ async function publishedEvidence(
     const remote = await resolveRemoteTarget(projectRoot, attempt.targetBranch);
     if (!remote) {
         const target = `refs/heads/${attempt.targetBranch}`;
-        if (!(await gitAncestor(projectRoot, integrationCommit, target))) return null;
+        const targetHead = await git(projectRoot, ["rev-parse", target]);
+        if (targetHead.code !== 0 || targetHead.stdout !== integrationCommit) return null;
         return {
             targetBaseCommit,
             integrationCommit,
@@ -220,6 +243,10 @@ export async function reconcileStoredPublication(
     initial: PublicationAttempt,
 ): Promise<PublicationAttempt> {
     let current = initial;
+    if (current.phase === "candidate_sealed") {
+        const evidence = await artifactEvidence(current);
+        if (evidence) current = await advanceStoredPublication(projectRoot, current, "artifacts_committed", evidence);
+    }
     if (current.phase === "artifacts_committed") {
         const evidence = await integratedEvidence(current);
         if (evidence) {
@@ -265,6 +292,25 @@ export async function cleanupStoredPublication(
     }
     if (attempt.phase !== "publication_verified") {
         throw new Error(`Publication cleanup requires verified publication, found ${attempt.phase}.`);
+    }
+    const stillPublished = await publishedEvidence(projectRoot, attempt);
+    if (!stillPublished) {
+        const worktreeKept = await Deno.stat(attempt.executionCwd).then((value) => value.isDirectory).catch(() =>
+            false
+        );
+        const branchKept = (await git(projectRoot, [
+            "show-ref",
+            "--verify",
+            "--quiet",
+            `refs/heads/${attempt.executionBranch}`,
+        ])).code === 0;
+        return {
+            complete: false,
+            attempt,
+            worktreeKept,
+            branchKept,
+            details: [`The target branch no longer points to ${attempt.publishedCommit || "the published commit"}.`],
+        };
     }
     const details: string[] = [];
     let worktreeKept = false;

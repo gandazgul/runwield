@@ -554,9 +554,28 @@ async function publishToLocalTarget(
     const targetHeadBeforeMerge = await runGit(args.projectRoot, ["rev-parse", `refs/heads/${args.targetBranch}`]);
     const gitignorePath = join(args.projectRoot, ".gitignore");
     const trackedGitignore = await runGitResult(args.projectRoot, ["ls-files", "--error-unmatch", ".gitignore"]);
+    const currentGitignore = await Deno.readTextFile(gitignorePath).catch((error) => {
+        if (error instanceof Deno.errors.NotFound) return "";
+        throw error;
+    });
+    const hasOwnedGitignore = currentGitignore === RUNWIELD_GITIGNORE_BLOCK;
     let savedOwnedGitignore: string | undefined;
     const savedAuthoritativePlans = new Map<string, Uint8Array>();
     try {
+        const trackedChanges = (await runGit(args.projectRoot, ["diff", "--name-only", "HEAD", "--"]))
+            .split("\n")
+            .map((path) => path.trim())
+            .filter(Boolean);
+        const allowedPrimaryChanges = new Set(args.allowedPlanPaths);
+        if (hasOwnedGitignore) allowedPrimaryChanges.add(".gitignore");
+        const blockingTrackedChanges = trackedChanges.filter((path) => !allowedPrimaryChanges.has(path));
+        if (blockingTrackedChanges.length > 0) {
+            throw new IsolatedPublicationError(
+                `The checked-out ${args.targetBranch} branch has unsaved tracked changes. ` +
+                    `Commit or discard them before retrying local publication: ${blockingTrackedChanges.join(", ")}.`,
+                { mergeFailureKind: "primary_checkout_dirty" },
+            );
+        }
         for (const relativePath of args.allowedPlanPaths) {
             const staged = await runGitResult(args.projectRoot, ["diff", "--cached", "--quiet", "--", relativePath]);
             if (staged.code !== 0) {
@@ -583,14 +602,23 @@ async function publishToLocalTarget(
                 await Deno.remove(path);
             }
         }
-        if (trackedGitignore.code !== 0) {
-            const current = await Deno.readTextFile(gitignorePath).catch((error) => {
-                if (error instanceof Deno.errors.NotFound) return "";
-                throw error;
-            });
-            if (current === RUNWIELD_GITIGNORE_BLOCK) {
+        if (hasOwnedGitignore) {
+            const staged = await runGitResult(args.projectRoot, ["diff", "--cached", "--quiet", "--", ".gitignore"]);
+            if (staged.code !== 0) {
+                throw new IsolatedPublicationError(
+                    "The project folder has a staged change to .gitignore. Commit or unstage it before retrying.",
+                    { mergeFailureKind: "primary_checkout_dirty" },
+                );
+            }
+            const changed = await runGitResult(args.projectRoot, ["diff", "--quiet", "--", ".gitignore"]);
+            if (trackedGitignore.code !== 0 || changed.code !== 0) {
                 savedOwnedGitignore = await Deno.makeTempFile({ prefix: "runwield-owned-gitignore-" });
-                await Deno.rename(gitignorePath, savedOwnedGitignore);
+                await Deno.writeTextFile(savedOwnedGitignore, currentGitignore);
+                if (trackedGitignore.code === 0) {
+                    await runGit(args.projectRoot, ["restore", "--worktree", "--source=HEAD", "--", ".gitignore"]);
+                } else {
+                    await Deno.remove(gitignorePath);
+                }
             }
         }
         args.onProgress?.("combining_work");
@@ -661,10 +689,10 @@ async function publishToLocalTarget(
             }
         }
         if (savedOwnedGitignore) {
-            const pathExists = await Deno.stat(gitignorePath).then(() => true).catch(() => false);
-            if (!pathExists && !targetMoved) {
+            if (!targetMoved) {
                 try {
-                    await Deno.rename(savedOwnedGitignore, gitignorePath);
+                    await Deno.writeTextFile(gitignorePath, await Deno.readTextFile(savedOwnedGitignore));
+                    await Deno.remove(savedOwnedGitignore);
                 } catch (restoreError) {
                     restorationError = restoreError instanceof Error ? restoreError : new Error(String(restoreError));
                 }

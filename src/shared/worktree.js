@@ -394,7 +394,9 @@ async function isSameFilesystemPath(a, b) {
  * @typedef {Object} WorktreeCommitMessageOptions
  * @property {string} [planName]
  * @property {string} [planDescription]
- * @property {"completion"|"preparation"} [phase]
+ * @property {"completion"|"preparation"|"publication"} [phase]
+ * @property {string} [publicationAttemptId]
+ * @property {string[]} [publicationPlanPaths]
  */
 
 /**
@@ -419,12 +421,24 @@ function formatStagedPaths(stagedPaths) {
  * @param {WorktreeCommitMessageOptions & { branch: string, stagedPaths: string[] }} options
  * @returns {WorktreeCommitMessage}
  */
-function buildWorktreeCommitMessage({ planName, planDescription, phase, branch, stagedPaths }) {
+function buildWorktreeCommitMessage({
+    planName,
+    planDescription,
+    phase,
+    branch,
+    stagedPaths,
+    publicationAttemptId,
+    publicationPlanPaths = [],
+}) {
     const normalizedPlanName = normalizeCommitMessageLine(planName);
     const normalizedDescription = normalizeCommitMessageLine(planDescription);
     const subject = normalizedPlanName
         ? normalizeCommitMessageLine(
-            phase === "preparation" ? `Prepare ${normalizedPlanName} execution` : `Complete ${normalizedPlanName}`,
+            phase === "preparation"
+                ? `Prepare ${normalizedPlanName} execution`
+                : phase === "publication"
+                ? `Finalize validated artifacts for ${normalizedPlanName}`
+                : `Complete ${normalizedPlanName}`,
         )
         : "Commit execution worktree updates";
     const bodyLines = [];
@@ -432,6 +446,10 @@ function buildWorktreeCommitMessage({ planName, planDescription, phase, branch, 
     if (normalizedDescription) bodyLines.push(`- Description: ${normalizedDescription}`);
     bodyLines.push(`- Branch: ${branch}`);
     bodyLines.push(`- Files: ${formatStagedPaths(stagedPaths)}`);
+    if (publicationAttemptId) {
+        bodyLines.push(`RunWield-Publication-Attempt: ${publicationAttemptId}`);
+        for (const path of publicationPlanPaths) bodyLines.push(`RunWield-Publication-Plan-Path: ${path}`);
+    }
     return { subject, body: bodyLines.join("\n") };
 }
 
@@ -581,11 +599,29 @@ export async function assertPreMergeCandidateUnchanged({ worktreePath, sealedExe
 }
 
 /**
- * @param {{ worktreePath: string, branch: string, planName?: string, planDescription?: string, mergeTargetRef?: string }} opts
+ * @param {{ worktreePath: string, branch: string, planName?: string, planDescription?: string, mergeTargetRef?: string, publicationAttemptId?: string, publicationPlanPaths?: string[] }} opts
  * @returns {Promise<{ executionCommit: string }>}
  */
-export async function checkpointExecutionWorktree({ worktreePath, branch, planName, planDescription, mergeTargetRef }) {
-    await commitDirtyWorktreeState(worktreePath, branch, { planName, planDescription }, [], mergeTargetRef);
+export async function checkpointExecutionWorktree({
+    worktreePath,
+    branch,
+    planName,
+    planDescription,
+    mergeTargetRef,
+    publicationAttemptId,
+    publicationPlanPaths,
+}) {
+    await commitDirtyWorktreeState(
+        worktreePath,
+        branch,
+        {
+            planName,
+            planDescription,
+            ...(publicationAttemptId ? { phase: "publication", publicationAttemptId, publicationPlanPaths } : {}),
+        },
+        [],
+        mergeTargetRef,
+    );
     const status = await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
     const remainingDirtyPaths = parseStatusPaths(status).filter((path) => !isRunWieldOwnedRuntimePath(path));
     if (remainingDirtyPaths.length > 0) {
@@ -1448,9 +1484,33 @@ export async function deleteRemotelyPublishedWorktreeBranch({
         }
         const contains = await runGitResult(projectRoot, ["merge-base", "--is-ancestor", branch, proofRef]);
         if (contains.code !== 0) {
+            // Cleanup can be resumed by more than one process after publication.
+            // If another cleanup removed the branch between our existence check
+            // and this proof, the desired effect is already complete.
+            const branchStillExists = await runGitResult(projectRoot, [
+                "show-ref",
+                "--verify",
+                "--quiet",
+                `refs/heads/${branch}`,
+            ]);
+            if (branchStillExists.code !== 0) {
+                return { deleted: true, reason: `${branch} was already deleted.` };
+            }
             return { deleted: false, reason: `The upstream target does not contain ${branch}, so it was kept.` };
         }
-        await runGit(projectRoot, ["branch", "-D", branch]);
+        const deletion = await runGitResult(projectRoot, ["branch", "-D", branch]);
+        if (deletion.code !== 0) {
+            const branchStillExists = await runGitResult(projectRoot, [
+                "show-ref",
+                "--verify",
+                "--quiet",
+                `refs/heads/${branch}`,
+            ]);
+            if (branchStillExists.code !== 0) {
+                return { deleted: true, reason: `${branch} was already deleted.` };
+            }
+            throw new Error(deletion.stderr || deletion.stdout);
+        }
         return { deleted: true, reason: `${branch} is published upstream and was deleted.` };
     } finally {
         await runGitResult(projectRoot, ["update-ref", "-d", proofRef]);

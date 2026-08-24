@@ -41,13 +41,15 @@ counters.
 at Semantic Code Review and must not rerun CI first.
 
 `validated_reviewer`: Semantic Code Review passed for the current implementation. The next Workflow Validation call
-handles durable Local Human Code Review metadata and publication/merge-back; only this status may produce
-`validation_passed` or `worktree_merge_failed`.
+handles durable Local Human Code Review metadata and publication; only this status may produce `validation_passed`.
 
-`verified`: Implementation work passed Workflow Validation and, for worktree-backed executions, the validated worktree
-branch was merged back into the primary checkout. For an Epic PROJECT Plan, `verified` may also mean the user marked the
-Epic "done enough for now"; remaining child FEATURE Plans stay visible and loadable. FEATURE Plans cannot be moved
-directly to `verified` by board movement.
+`validated`: Workflow Validation succeeded. For worktree-backed execution this status is committed to the execution
+branch before publication begins and never changes again. The separate publication attempt record proves whether those
+validated commits reached the target branch and whether cleanup finished.
+
+`verified`: A retained terminal status for non-worktree and older lifecycle outcomes. For an Epic PROJECT Plan,
+`verified` may also mean the user marked the Epic "done enough for now"; remaining child FEATURE Plans stay visible and
+loadable. New worktree-backed Planned Changes finish validation at `validated`.
 
 `closed_without_verification`: A terminal manual closure outcome. The user intentionally ended the Plan without Workflow
 Validation passing. It is distinct from `verified` and does not set `verifiedAt`, human review metadata, or Epic
@@ -65,8 +67,9 @@ Archival is not a Plan Status. Archived Plans keep their last durable lifecycle 
 
 `verified`, `user_verified`, and `closed_without_verification` are terminal outcomes that can be archived without
 `--force`. Other statuses, including `on_hold`, require `--force` because they may represent unfinished or resumable
-work. Even with `--force`, Plans with recoverable worktree states (`active`, `execution_failed`, `validation_failed`, or
-`merge_conflict`) remain blocked until the user resolves or abandons that worktree state through a dedicated flow.
+work. Even with `--force`, Plans with recoverable worktree states (`active`, `completed`, `execution_failed`,
+`validation_failed`, or `validated`) remain blocked until the user resolves or abandons that worktree state through a
+dedicated flow.
 
 Archive metadata (`archivedAt`, `archiveReason`, `archivedFromStatus`, `archivedFromPath`) and restore metadata
 (`restoredAt`, `restoredFromPath`) explain the physical move without changing the status state machine.
@@ -83,8 +86,7 @@ changing the Plan state machine.
 | `completed`         | Implementation finished in the worktree; validation and merge-back have not completed.        |
 | `execution_failed`  | Implementation halted before completion; the worktree remains available for inspection/retry. |
 | `validation_failed` | Implementation finished, but Workflow Validation failed; the worktree remains available.      |
-| `merge_conflict`    | Validation passed, but merge-back into the primary checkout failed or was refused.            |
-| `merged`            | Validation passed and the worktree branch was merged into the primary checkout.               |
+| `validated`         | Validation passed; the nested publication attempt owns integration, publication, and cleanup. |
 | `abandoned`         | The user chose to abandon/delete the execution worktree instead of continuing or merging it.  |
 
 ## Events
@@ -104,8 +106,7 @@ changing the Plan state machine.
 | `semantic_review_feedback`           | `validated_ci`                                                                                  | `implemented`                 | Increments `validationSemanticRounds`, resets CI attempts, dispatches/records semantic repair context, and returns so fresh CI runs next.                                                                                      |
 | `semantic_review_passed`             | `validated_ci`                                                                                  | `validated_reviewer`          | Records the semantic approval boundary; terminal verification and publication cannot bypass it.                                                                                                                                |
 | `validation_failed`                  | `implemented`, `validated_ci`, `validated_reviewer`                                             | `implemented`                 | Records terminal failed validation-attempt metadata, sets `worktreeStatus: "validation_failed"` where applicable, and resets phase counters on implemented re-entry.                                                           |
-| `worktree_merge_failed`              | `validated_reviewer`                                                                            | `implemented`                 | Publication/merge-back failed/refused after reviewer approval; sets `worktreeStatus: "merge_conflict"` and returns to CI because integration may need repair.                                                                  |
-| `validation_passed`                  | `validated_reviewer`                                                                            | `verified`                    | Recorded only after semantic approval, human-review policy, publication proof, and delivery evidence succeed; clears worktree metadata when cleanup is enabled.                                                                |
+| `validation_passed`                  | `validated_reviewer`                                                                            | `validated`                   | Records successful validation and delivery evidence in the authoritative execution Plan before publication starts. Publication progress never rewrites this status.                                                            |
 | `recovery_continue`                  | `in_progress`, `failed`                                                                         | `ready_for_work`              | Records the retry in the authoritative execution Plan before the normal execution-start transition returns it to `in_progress`; the primary-checkout copy is not read or rewritten.                                            |
 | `recovery_reset`                     | `in_progress`, `failed`, `implemented`                                                          | `ready_for_work`              | Records that recovery abandoned the current attempt before retrying.                                                                                                                                                           |
 | `review_reopened`                    | `ready_for_decomposition`, `ready_for_work`, `in_progress`, `failed`, `implemented`, `verified` | `feedback`                    | The user chose to revise the Plan instead of continuing execution.                                                                                                                                                             |
@@ -248,10 +249,10 @@ Workflow Validation applies only to executable Plan work. It advances through du
 `implemented` runs Mechanical Validation, `validated_ci` runs Semantic Code Review, and `validated_reviewer` handles
 Local Human Code Review plus publication. Operational retries, operational pauses, and fatal operational halts do not
 advance or reset Plan Status. They preserve the last valid status so a later run resumes from the same phase. Workflow
-Validation promotes to `verified` only after local validation, semantic review, any configured human code review gate,
-and delivery evidence all succeed. Worktree-backed FEATURE Plans fail closed when the execution mode or worktree
-publication context is unknown; missing volatile Session state is not treated as proof that validation should run in the
-primary checkout.
+Validation promotes worktree-backed Plans to `validated` after local validation, semantic review, any configured human
+code review gate, and delivery evidence succeed. Publication then advances independently through its proof-bearing
+registry record. Worktree-backed FEATURE Plans fail closed when the execution mode or worktree publication context is
+unknown; missing volatile Session state is not treated as proof that validation should run in the primary checkout.
 
 For worktree-backed plans:
 

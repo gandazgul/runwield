@@ -79,6 +79,19 @@ function sectionStartMarker(childPlanName: string): string {
     return `<!-- runwield:manual-qa:start child="${markerChild(childPlanName)}" -->`;
 }
 
+export async function findEpicManualQaSection(
+    projectRoot: string,
+    epicPlanName: string,
+    childPlanName: string,
+): Promise<{ exists: boolean; relativePath: string }> {
+    const path = getEpicArtifactPath(projectRoot, epicPlanName, EPIC_MANUAL_QA_FILE_NAME);
+    const existing = await readTextIfExists(path);
+    return {
+        exists: Boolean(existing?.includes(sectionStartMarker(childPlanName))),
+        relativePath: projectRelativePath(projectRoot, path),
+    };
+}
+
 function sectionEndMarker(childPlanName: string): string {
     return `<!-- runwield:manual-qa:end child="${markerChild(childPlanName)}" -->`;
 }

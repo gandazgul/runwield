@@ -34,9 +34,14 @@ external effect already happened—for example, an integration commit exists in 
 target already equals the recorded integration commit. Otherwise it retries the current phase. It never reruns
 validation or regenerates committed artifacts merely because publication was interrupted.
 
-Publication uses a stable temporary clone and never checks out, rebases, stashes, resets, or writes the user's primary
-checkout. Remote publication pushes the assembled commit with a lease. A project without a remote advances the local
-target ref through the existing isolated local-publication path.
+Remote publication uses a stable temporary clone and never checks out, rebases, stashes, resets, or writes the user's
+primary checkout. It pushes the assembled commit with a lease.
+
+A repository without a remote has no second target authority that a primary checkout can later pull. In that explicit
+local-only mode, RunWield prepares the integration separately, requires the checked-out target to have no unsaved
+tracked changes, and then advances that checkout. Non-overlapping untracked files are preserved. This is the sole
+primary-checkout exception; users who need publication while the checkout contains parallel tracked work must configure
+a remote.
 
 ## Removed authorities
 
