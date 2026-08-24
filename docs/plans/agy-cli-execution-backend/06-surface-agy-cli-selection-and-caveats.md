@@ -25,6 +25,7 @@ parentPlan: "agy-cli-execution-backend"
 order: 6
 dependencies:
     - "05-harden-agy-cli-failures-and-continuations"
+planId: "3f664125-84bc-4f9a-8c13-eb98d2240f28"
 ---
 
 # Surface Agy CLI Selection and Caveats

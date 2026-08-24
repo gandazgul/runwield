@@ -22,6 +22,7 @@ parentPlan: "agy-cli-execution-backend"
 order: 4
 dependencies:
     - "03-add-agy-cli-backend-transcript-tracer-bullet"
+planId: "4438b6ba-99e2-4b49-8848-7593a03a66a1"
 ---
 
 # Bridge Agy Workflow Signals Through MCP

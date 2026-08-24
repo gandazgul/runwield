@@ -184,8 +184,10 @@ the label. Active buttons can use `.active`, `aria-pressed="true"`, or `aria-sel
 its label. Inactive options stay icon-only. Hover changes the icon/button color and the browser tooltip shows the label;
 hover must not expand labels.
 
-Use `.rw-modal-primary-button` for the main action in a modal or composer. Put keyboard help such as `⌘↵` or
-`Ctrl+Enter` beside it with `.rw-modal-submit-hint` when the action has a keyboard shortcut.
+Use the Plan comment modal as the canonical modal composer style. Use `.rw-modal-primary-button` for the main action.
+Put keyboard help such as `⌘↵` or `Ctrl+Enter` to the left of that button with `.rw-modal-submit-hint` when the action
+has a keyboard shortcut. Use `.rw-modal-textarea` for modal/composer textareas that must match the shared comment input
+size, blue border, focus ring, and surface.
 
 Use the **Review action button** pattern for a prominent safe action in Plan Review, Code Review, and read-only review
 surfaces. The CSS hooks are `.rw-review-action` for wrappers around Plannotator buttons and `.rw-review-action-button`

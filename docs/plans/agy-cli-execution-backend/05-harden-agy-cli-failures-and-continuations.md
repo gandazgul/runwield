@@ -20,6 +20,7 @@ parentPlan: "agy-cli-execution-backend"
 order: 5
 dependencies:
     - "04-bridge-agy-workflow-signals-through-mcp"
+planId: "2ca9527d-ed5c-4a04-b0d3-cc667eb7aa12"
 ---
 
 # Harden Agy CLI Failures and Continuations

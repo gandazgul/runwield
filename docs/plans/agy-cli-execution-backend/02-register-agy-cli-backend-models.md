@@ -21,6 +21,7 @@ parentPlan: "agy-cli-execution-backend"
 order: 2
 dependencies:
     - "01-prove-agy-custom-agent-execution-spike"
+planId: "23d6941e-4c8c-49d9-9a29-5bf772926a44"
 ---
 
 # Register Agy CLI Backend Models

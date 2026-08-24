@@ -21,6 +21,7 @@ parentPlan: "agy-cli-execution-backend"
 order: 3
 dependencies:
     - "02-register-agy-cli-backend-models"
+planId: "595d0348-5882-4ee2-b2a4-d0b7a12d0128"
 ---
 
 # Add Agy CLI Backend Transcript Tracer Bullet
