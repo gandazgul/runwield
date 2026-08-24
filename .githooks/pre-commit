@@ -14,4 +14,7 @@ fi
 
 echo "→ Running deno fmt on staged files..."
 echo "$staged" | tr '\n' '\0' | xargs -0 deno fmt --quiet 2>&1
-echo "$staged" | tr '\n' '\0' | xargs -0 git add
+# These paths were already staged intentionally. `-f` matters for tracked files
+# that live below an ignore rule (for example generated Astro declarations):
+# formatting may replace the file, after which a plain `git add` rejects it.
+echo "$staged" | tr '\n' '\0' | xargs -0 git add -f --
