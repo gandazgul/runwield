@@ -1026,7 +1026,6 @@ export const validationTreePublicationPushFailureRetryScenario = {
             }],
             scriptedInteractions: [
                 { type: "select", promptIncludes: "Plan recovery", value: "validate" },
-                { type: "select", promptIncludes: "could not be updated upstream", value: "stop" },
                 { type: "select", promptIncludes: "Plan recovery", value: "validate" },
             ],
             actions: [

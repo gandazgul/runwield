@@ -55,15 +55,25 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T23:55:00-0400"
-updatedAt: "2026-08-23T17:20:49.363Z"
-status: "implemented"
+updatedAt: "2026-08-24T05:00:19.617Z"
+status: "validated_reviewer"
 origin: "user"
 implementedAt: "2026-08-23T17:20:49.363Z"
 userVerifiedAt: null
 executionReport: "- Implemented Init prompt guidance: it now loads `write-tests`, states the product-owned machinery rule, keeps discovery bounded, reports `Possible test-seam risks`, asks for user disposition, and avoids RunWield-private checker/layout names.\n- Added contract coverage in `src/shared/session/subagent-definitions.test.ts`: 2 tests added, 0 tests removed or replaced; coverage now loads the composed Init prompt, checks required advisory guidance, checks internal identifiers stay absent, and covers internal fake, external boundary, and ambiguous-case guidance.\n- Updated docs: `docs/user-facing-features.md` now describes bounded advisory init discovery; `docs/domain-language.md` defines `Possible test-seam risks` as a user-classified advisory section.\n- Repaired a lint failure in `src/ui/workspace/react/PlanReviewSurface.tsx` by returning resolved Promises instead of `async` callbacks with no `await`.\n- Mutation proof passed: adding a private checker mention and adding automatic Plan creation each made the focused contract test fail, then the original prompt was restored and the focused test passed.\n- Verification passed: OC1, OC2, OC3; focused Init prompt tests; `src/cmd/init/index.test.ts`; `deno task check`; `deno task lint`; `deno task doc-links:check`; `deno fmt --check` on changed files.\n- Verification did not pass cleanly: `deno task ci` failed in `src/ui/tui/golden-scenarios/validation-workflow-publication.test.ts` on `validation-tree-publication-push-failure-retry`, consistently timing out after a publication recovery prompt mismatch (`expected \"could not be updated upstream\", got \"Plan recovery (validated):\"`). This is unresolved."
-humanReviewMode: null
-humanReviewDecision: null
-validationCheckpoint: null
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-08-24T03:51:23.304Z"
+validationCheckpoint:
+    version: 1
+    attemptId: "d724cb75"
+    generation: "246e1bc2-13f0-4781-ae86-d4e5f604a7a0"
+    expectedStatus: "validated_reviewer"
+    nextPhase: "delivery"
+    state: "running"
+    ownerPid: 96048
+    ownerHostname: "gandazgul-mbp"
+    updatedAt: "2026-08-24T05:00:19.612Z"
 executionMode: "worktree"
 executionBaselineTree: "8a7bce76d8c79acdc5072d70728db983fa26fd2e"
 worktreeId: "d724cb75"

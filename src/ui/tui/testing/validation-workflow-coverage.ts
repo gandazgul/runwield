@@ -333,7 +333,11 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id.startsWith("human-review:")) return ["Waiting for your code review"];
     if (id === "publication:non-git-success") return ["is done"];
     if (id === "publication:push-failure-preserves") {
-        return ["The commits are ready", "Sending the new commits to main", "could not be updated upstream"];
+        return [
+            "The commits are ready",
+            "Sending the new commits to main",
+            "could not push the completed commits to upstream main",
+        ];
     }
     const successfulPublicationProgress = [
         "The commits are ready",
