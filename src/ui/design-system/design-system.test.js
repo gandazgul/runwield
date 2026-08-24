@@ -17,10 +17,13 @@ Deno.test("design-system Dialog primitive is importable and styled", async () =>
     assertStringIncludes(css, ".rw-dialog-footer");
 });
 
-Deno.test("design-system exposes review action and segmented toggle styling", async () => {
+Deno.test("design-system exposes review action, modal, and segmented toggle styling", async () => {
     const css = await Deno.readTextFile(new URL("./components.css", import.meta.url));
     assertStringIncludes(css, '.rw-review-action [data-slot="button"]');
     assertStringIncludes(css, ".rw-review-action-button");
+    assertStringIncludes(css, ".rw-modal-primary-button");
+    assertStringIncludes(css, ".rw-modal-submit-hint");
+    assertStringIncludes(css, ".rw-modal-textarea");
     assertStringIncludes(css, ".rw-segmented-toggle button svg");
     assertStringIncludes(css, ".rw-segmented-toggle button > div");
     assertStringIncludes(css, "width: 1.75rem !important;");

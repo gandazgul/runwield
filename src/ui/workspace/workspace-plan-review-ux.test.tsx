@@ -151,6 +151,10 @@ Deno.test("Plan and Code review use shared toolbar structure with edge-aligned r
     assertStringIncludes(surface, "z-[90]");
     assertStringIncludes(surface, 'planWidthMode === "wide"');
     assertStringIncludes(surface, "function PanelCollapseIcon({ side })");
+    assertStringIncludes(styles, ".fixed.inset-0.z-50.bg-black\\/50.backdrop-blur-\\[2px\\]");
+    assertStringIncludes(styles, '[data-popout="true"] {');
+    assertStringIncludes(styles, "z-index: 1100 !important;");
+    assertStringIncludes(styles, '[data-popout="true"] diffs-container');
     assertStringIncludes(styles, ".rw-review-toolbar {");
     assertStringIncludes(styles, "grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);");
     assertStringIncludes(styles, "min-height: var(--rw-review-toolbar-h, 4rem);");

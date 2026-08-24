@@ -153,43 +153,77 @@
 }
 
 .rw-modal-primary-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.375rem;
-    flex: none;
-    min-height: 2rem;
-    border: 1px solid color-mix(in srgb, var(--rw-accent, var(--primary)) 55%, transparent);
-    border-radius: 0.45rem;
-    padding: 0.375rem 0.75rem;
-    background: var(--rw-accent, var(--primary));
-    color: var(--rw-accent-contrast, var(--primary-foreground));
-    font-size: 0.78rem;
-    font-weight: 650;
-    line-height: 1.2;
-    transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease, opacity 150ms ease;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.375rem !important;
+    flex: none !important;
+    min-height: 2.25rem !important;
+    border: 1px solid color-mix(in srgb, var(--primary, var(--rw-accent)) 56%, transparent) !important;
+    border-radius: 0.625rem !important;
+    padding: 0.5rem 0.9rem !important;
+    background: color-mix(in srgb, var(--primary, var(--rw-accent)) 84%, var(--rw-surface-raised, transparent))
+        !important;
+    color: var(--primary-foreground, var(--rw-accent-contrast)) !important;
+    box-shadow: none !important;
+    font-size: 0.78rem !important;
+    font-weight: 650 !important;
+    line-height: 1.2 !important;
+    transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease, opacity 150ms ease !important;
 }
 
 .rw-modal-primary-button:hover:not(:disabled),
 .rw-modal-primary-button:focus-visible:not(:disabled) {
-    border-color: color-mix(in srgb, var(--rw-accent-strong, var(--primary)) 70%, transparent);
-    background: var(--rw-accent-strong, var(--primary));
+    border-color: color-mix(in srgb, var(--primary, var(--rw-accent)) 76%, transparent) !important;
+    background: color-mix(in srgb, var(--primary, var(--rw-accent)) 92%, var(--rw-surface-raised, transparent))
+        !important;
 }
 
 .rw-modal-primary-button:focus-visible {
-    outline: 2px solid var(--rw-accent, var(--primary));
-    outline-offset: 2px;
+    outline: 2px solid color-mix(in srgb, var(--primary, var(--rw-accent)) 70%, transparent) !important;
+    outline-offset: 2px !important;
 }
 
 .rw-modal-primary-button:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
+    cursor: not-allowed !important;
+    opacity: 0.5 !important;
 }
 
 .rw-modal-submit-hint {
-    color: var(--rw-text-muted, var(--muted-foreground));
-    font-size: 0.65rem;
-    font-weight: 500;
+    margin-left: auto !important;
+    margin-right: 0.35rem !important;
+    color: var(--rw-text-muted, var(--muted-foreground)) !important;
+    font-size: 0.65rem !important;
+    font-weight: 500 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+}
+
+.rw-modal-submit-hint + .rw-modal-primary-button {
+    margin-left: 0 !important;
+}
+
+.rw-modal-textarea {
+    width: 100% !important;
+    min-height: 4.875rem !important;
+    max-height: calc(var(--pn-viewport-height, 100vh) - 16rem) !important;
+    border: 1px solid color-mix(in srgb, var(--primary, var(--rw-accent)) 82%, transparent) !important;
+    border-radius: 0 !important;
+    padding: 0.5rem 0.5rem !important;
+    background: var(--background, var(--rw-page-bg)) !important;
+    color: var(--foreground, var(--rw-text)) !important;
+    font-size: 0.875rem !important;
+    line-height: 1.5rem !important;
+    resize: vertical !important;
+}
+
+.rw-modal-textarea:focus {
+    outline: none !important;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary, var(--rw-accent)) 72%, transparent) !important;
+}
+
+.rw-modal-textarea::placeholder {
+    color: var(--muted-foreground, var(--rw-text-muted)) !important;
 }
 
 .rw-review-action [data-slot="button"],
