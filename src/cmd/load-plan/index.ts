@@ -79,7 +79,6 @@ import { startInteractiveSession } from "../../ui/tui/chat-session.ts";
 import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 import { RuntimeInteractionOutcomes } from "../../shared/session/session-runtime-interactions.js";
-import { recoverLegacyUnpublishedPlan } from "./legacy-publication-recovery.ts";
 import { resolvePlanWithPrimaryRecovery } from "./primary-plan-recovery.ts";
 import type { CommandContext } from "../registry.js";
 
@@ -266,7 +265,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 "RunWield",
             );
         }
-        let recordedAttempt = await resolveRecoveryWorktree(projectRoot, plan);
+        const recordedAttempt = await resolveRecoveryWorktree(projectRoot, plan);
         if (recordedAttempt?.path) {
             const executionPlan = await loadPlan(recordedAttempt.path, plan.planName).catch(() => null);
             if (executionPlan) {
@@ -286,17 +285,6 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 plan.revision = executionPlan.revision;
                 plan.hasFrontMatter = true;
             }
-        }
-        const legacyPublication = await recoverLegacyUnpublishedPlan(projectRoot, plan, recordedAttempt);
-        if (legacyPublication.recovered) {
-            plan.attrs = legacyPublication.attrs;
-            recordedAttempt = legacyPublication.worktree;
-            uiAPI.appendSystemMessage(
-                "RunWield found validated work from an older publication attempt that never reached its target branch. " +
-                    "The work is safe and ready to publish.",
-                false,
-                "RunWield",
-            );
         }
         // Loading is the deliberate action that adopts a plain markdown file the user
         // wrote into docs/plans/. Reads elsewhere tolerate the missing Front Matter and
@@ -408,7 +396,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             ["in_progress", "failed"].includes(plan.attrs.status) ||
             isInValidation(plan.attrs.status) ||
             isRecoverableWorktreeStatus(plan.attrs.worktreeStatus) ||
-            recordedAttempt?.status === "publication_failed" ||
+            Boolean(recordedAttempt?.publication) ||
             unresolvedLifecycleRecords.length > 0
         ) {
             restoreAgentName = planFlowRestoreAgent;

@@ -184,8 +184,9 @@ Request. _Avoid_: Execution worktree, unvalidated branch, implementation draft
 **Change Request Finalization**: The post-merge RunWield action that proves Forge delivery and records terminal Plan and
 Work Record evidence in the canonical repository. _Avoid_: Forge merge, contributor synchronization, local-only status
 
-**Direct Delivery**: The default delivery mode that merges validated implementation and verified Plan metadata into the
-local target branch without a Forge Change Request. _Avoid_: Local review, unreviewed delivery
+**Direct Delivery**: The default delivery mode that assembles validated commits with the latest target branch outside
+the user's checkout, publishes the exact result to that target, and verifies it without a Forge Change Request. _Avoid_:
+Local review, unreviewed delivery
 
 **Change Request Delivery**: An explicitly selected delivery mode that verifies the canonical Plan only after a proven
 Forge merge of the validated Publication Candidate. _Avoid_: PR mode, remote merge-back, Direct Delivery

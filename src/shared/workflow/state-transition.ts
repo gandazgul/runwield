@@ -1542,68 +1542,6 @@ export async function runPlanAmendmentTransition<T>(
 }
 
 /**
- * Semantic boundary for proof-bearing Direct Delivery publication.
- */
-export async function runDirectDeliveryPublicationTransition<T>(
-    opts: TransitionOptionsBase & {
-        immutablePlan?: boolean;
-        parentPlan?: string;
-        siblingPlanNames?: string[];
-        publicationProof?: Record<string, unknown>;
-        publish: (ctx: RollbackTransitionContext) => Promise<T>;
-    },
-): Promise<TransitionResult> {
-    const resources: TransitionResource[] = opts.immutablePlan
-        ? []
-        : [{ kind: "catalog" }, { kind: "plan", id: opts.planName }];
-    if (!opts.immutablePlan && opts.parentPlan) resources.push({ kind: "plan", id: opts.parentPlan });
-    if (!opts.immutablePlan) {
-        for (const siblingName of opts.siblingPlanNames || []) resources.push({ kind: "plan", id: siblingName });
-    }
-    if (opts.worktreeId) resources.push({ kind: "attempt", id: opts.worktreeId });
-    if (opts.targetRef) resources.push({ kind: "target_ref", id: opts.targetRef });
-    const recoveryActions = [
-        ...planAction(opts.planName),
-        {
-            label: "Reconcile Direct Delivery publication",
-            description:
-                "Inspect the transition journal, Delivery Evidence, worktree branch, and target branch head; if the validated execution commit reached the target branch, retry settlement, otherwise repair or roll back the target branch before retrying validation.",
-        },
-    ];
-    return await runSemanticTransition({
-        projectRoot: opts.projectRoot,
-        planName: opts.planName,
-        operation: "direct_delivery_publication",
-        resources,
-        expectedRevision: opts.immutablePlan ? undefined : opts.expectedRevision,
-        recoveryActions,
-        postconditions: {
-            planState: opts.immutablePlan ? "validated_immutable" : "validation_passed",
-            registryStatus: "merged",
-            cleanup: "post_publication",
-        },
-        expectedEffects: ["direct_delivery_target_ref_moved"],
-        irreversibleEffects: ["direct_delivery_target_ref_moved"],
-        // Retrying a failed publication is the recovery operation for the same
-        // attempt and target. A successful retry retires the older journal.
-        supersedesUnresolved: true,
-        apply: async (ctx) => {
-            const value = await opts.publish(ctx);
-            await ctx.markEffect("direct_delivery_published", opts.publicationProof || {});
-            return {
-                publicationProof: opts.publicationProof || {},
-                postconditions: {
-                    planState: opts.immutablePlan ? "validated_immutable" : "validation_passed",
-                    registryStatus: "merged",
-                    cleanup: "post_publication",
-                },
-                value,
-            };
-        },
-    });
-}
-
-/**
  * Semantic boundary for Epic decomposition finalization.
  */
 export async function runEpicDecompositionFinalizeTransition<T>(

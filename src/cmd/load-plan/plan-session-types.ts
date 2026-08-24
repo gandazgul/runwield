@@ -89,4 +89,5 @@ export interface RecoveryWorktreeContext {
     baseCommit?: string;
     baseTree?: string;
     executionBaselineTree?: string;
+    publication?: import("../../shared/workflow/publication-attempt.ts").PublicationAttempt;
 }

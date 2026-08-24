@@ -8,7 +8,6 @@
  * provable and get on with it, not hand out a diagnosis and stop.
  */
 
-import { join } from "@std/path";
 import { loadPlanStrict } from "../../plan-store.js";
 import { inspectWorktreeRegistry } from "../worktree-registry.js";
 import {
@@ -32,7 +31,6 @@ const COMPLETION_MARKER_EFFECTS = new Set([
     "execution_prepared",
     "implementation_checkpoint_settled",
     "validation_outcome_settled",
-    "direct_delivery_published",
     "decomposition_finalized",
     "review_reopened_settled",
     "archive_archive_settled",
@@ -111,53 +109,6 @@ export function buildEffectProver(
                 reason: `worktree ${path} exists but no registry attempt claims it, so it may hold unsaved work`,
                 destructive: true,
             };
-        }
-
-        if (effect.effect === "direct_delivery_target_ref_moved") {
-            const targetBranch = typeof proof.targetBranch === "string" ? proof.targetBranch : undefined;
-            const executionCommit = typeof proof.sealedExecutionCommit === "string"
-                ? proof.sealedExecutionCommit
-                : undefined;
-            if (!targetBranch || !executionCommit) {
-                return { settled: false, reason: "the record does not name both a target branch and a sealed commit" };
-            }
-            if (await isGitAncestor(projectRoot, executionCommit, targetBranch)) {
-                const metadataCommit = typeof proof.executionMetadataCommit === "string"
-                    ? proof.executionMetadataCommit
-                    : undefined;
-                if (metadataCommit && !(await isGitAncestor(projectRoot, metadataCommit, targetBranch))) {
-                    return {
-                        settled: false,
-                        reason:
-                            `${executionCommit} reached ${targetBranch} but its metadata commit ${metadataCommit} did not, so the Plan metadata may not be published`,
-                    };
-                }
-                return { settled: true, reason: `${executionCommit} is contained in ${targetBranch}` };
-            }
-            return {
-                settled: false,
-                reason:
-                    `the merge ran but ${executionCommit} is not contained in ${targetBranch}, so publication cannot be proven either way`,
-            };
-        }
-
-        if (effect.effect === "direct_delivery_publication_started") {
-            const preserved = Array.isArray(proof.preservedPlanPaths)
-                ? proof.preservedPlanPaths.filter((value): value is string => typeof value === "string")
-                : [];
-            const missing = [];
-            for (const relativePath of preserved) {
-                if (!(await Deno.stat(join(projectRoot, relativePath)).then(() => true).catch(() => false))) {
-                    missing.push(relativePath);
-                }
-            }
-            if (missing.length > 0) {
-                return {
-                    settled: false,
-                    reason: `Plan files staged for publication are missing from the checkout: ${missing.join(", ")}`,
-                };
-            }
-            return { settled: true, reason: "every Plan file staged for publication is present in the checkout" };
         }
 
         if (COMPLETION_MARKER_EFFECTS.has(effect.effect)) {

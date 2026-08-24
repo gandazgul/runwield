@@ -2,10 +2,7 @@
 import { loadPlan } from "../../plan-store.js";
 import { checkpointExecutionWorktree } from "../worktree.js";
 import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
-import {
-    removeEntry as removeWorktreeRegistryEntry,
-    updateEntry as updateWorktreeRegistryEntry,
-} from "../worktree-registry.js";
+import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { isInValidation, recordPlanEvent } from "./plan-lifecycle.js";
 import { restoreExecutionPlanFromBaseline } from "./execution-plan-file.js";
 import { recordWorkflowMetric } from "./metrics.js";
@@ -191,9 +188,5 @@ export async function markActiveWorktreeStatus(status, opts = {}) {
     const workflow = opts.workflow || opts.hostedSession?.getActiveExecutionWorkflow();
     if (!workflow?.worktreeId || !status || status === "none") return;
     if (!workflow.projectRoot) throw new Error("markActiveWorktreeStatus: workflow projectRoot is required");
-    if (status === "merged") {
-        await removeWorktreeRegistryEntry(workflow.projectRoot, workflow.worktreeId);
-        return;
-    }
     await updateWorktreeRegistryEntry(workflow.projectRoot, workflow.worktreeId, { status });
 }

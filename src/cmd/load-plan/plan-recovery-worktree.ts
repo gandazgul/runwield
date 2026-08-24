@@ -192,6 +192,7 @@ export async function resolveRecoveryWorktree(
         baseCommit: entry?.baseCommit,
         baseTree: entry?.baseTree,
         executionBaselineTree: entry?.executionBaselineTree,
+        publication: entry?.publication,
     };
 }
 
@@ -326,11 +327,6 @@ export function hasWorktreeContext(context: RecoveryWorktreeContext | null | und
  * @param {RecoveryWorktreeContext | null} context
  * @returns {boolean}
  */
-export function canManuallyMergeRecoveredWorktree(context: RecoveryWorktreeContext | null | undefined): boolean {
-    return (context?.status === "merge_conflict" || context?.status === "publication_failed") &&
-        Boolean(context.baseBranch);
-}
-
 /**
  * @param {RecoveryWorktreeContext | null} context
  * @returns {string | null}

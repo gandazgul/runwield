@@ -185,8 +185,10 @@ function stage(
 
 function failureMessage(status: string, registry: WorktreeRegistryEntry | null) {
     if (status === "failed") return "Execution failed and needs attention.";
-    if (registry?.status === "publication_failed") return "Delivery failed while publishing the work.";
-    if (registry?.status === "merge_conflict") return "Delivery needs attention because Git could not merge cleanly.";
+    if (registry?.publication?.failure?.kind === "content_conflict") {
+        return "Delivery needs attention because the commits could not be combined cleanly.";
+    }
+    if (registry?.publication?.failure) return "Delivery stopped before the commits reached the target branch.";
     if (registry?.status === "execution_failed") return "Execution failed in the worktree attempt.";
     if (registry?.status === "validation_failed") return "Workflow Validation failed in the worktree attempt.";
     return "Progress needs attention.";
@@ -245,7 +247,7 @@ function deriveStages(evidence: PlanEvidence, registry: WorktreeRegistryEntry | 
             updatedAt,
         );
     }
-    if (status === "verified" || registry?.status === "merged") {
+    if (status === "verified") {
         stages[4] = stage("delivery", "Delivery", "completed", "Delivery is complete.", updatedAt);
         stages[5] = stage("completion", "Completion", "completed", "The Plan is complete.", updatedAt);
     }
@@ -254,7 +256,7 @@ function deriveStages(evidence: PlanEvidence, registry: WorktreeRegistryEntry | 
         stages[4] = stage("delivery", "Delivery", "not_required", "RunWield delivery was not required.", updatedAt);
         stages[5] = stage("completion", "Completion", "completed", "The Plan is closed.", updatedAt);
     }
-    if (registry?.status === "publication_failed" || registry?.status === "merge_conflict") {
+    if (registry?.publication?.failure) {
         stages[4] = stage(
             "delivery",
             "Delivery",

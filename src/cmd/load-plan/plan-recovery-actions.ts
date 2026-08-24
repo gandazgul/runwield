@@ -6,7 +6,11 @@ import {
     runRecoveryTransition,
 } from "../../shared/workflow/state-transition.ts";
 import { healSettledTransitionRecords } from "../../shared/workflow/transition-recovery.ts";
-import { buildPlanRecoveryUserMessage } from "../../shared/workflow/validation-user-messages.ts";
+import {
+    buildPlanRecoveryUserMessage,
+    buildValidationUserMessage,
+} from "../../shared/workflow/validation-user-messages.ts";
+import { cleanupStoredPublication } from "../../shared/workflow/publication-machine.ts";
 import {
     appendRecoveryReport,
     confirmRecoveryWorktreeAvailable,
@@ -67,8 +71,7 @@ export type RecoveryActionName =
     | "review"
     | "reset"
     | "restore_record"
-    | "stop_lost"
-    | "merge";
+    | "stop_lost";
 
 export async function stopLostRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
     const { projectRoot, plan } = context;
@@ -251,6 +254,37 @@ export async function inspectRecoveryPlan(context: RecoveryActionContext): Promi
 
 export async function validateRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
     context.worktreeContext = await context.refreshRecoveryWorktree();
+    const publication = context.worktreeContext?.publication;
+    if (publication?.phase === "publication_verified" || publication?.phase === "cleanup_complete") {
+        const cleanup = await cleanupStoredPublication(context.projectRoot, publication);
+        if (!cleanup.complete) {
+            context.uiAPI.appendSystemMessage(
+                buildValidationUserMessage({
+                    kind: "publication_cleanup_incomplete",
+                    targetBranch: publication.targetBranch,
+                    worktreePath: cleanup.worktreeKept ? publication.executionCwd : undefined,
+                    worktreeBranch: cleanup.branchKept ? publication.executionBranch : undefined,
+                    details: cleanup.details,
+                }),
+                true,
+                "RunWield",
+            );
+            return { kind: "menu" };
+        }
+        context.uiAPI.appendSystemMessage(
+            buildValidationUserMessage({
+                kind: "verified",
+                planName: context.plan.planName,
+                targetBranch: publication.targetBranch,
+            }),
+            false,
+            "RunWield",
+        );
+        await context.recordRecoveryResult("validate", "already_published", {
+            targetBranch: publication.targetBranch,
+        });
+        return { kind: "settled" };
+    }
     if (
         !(await confirmRecoveryWorktreeAvailable(
             context.projectRoot,

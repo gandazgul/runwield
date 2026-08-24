@@ -252,7 +252,6 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {HumanReviewMode} [humanReviewMode] - Human code review mode used for final validation; cleared when execution restarts or review reopens
  * @property {HumanReviewDecision} [humanReviewDecision] - Human code review outcome included in final validation; cleared when execution restarts or review reopens
  * @property {string|null} [humanReviewedAt] - ISO timestamp when human review approved final validation; cleared when execution restarts or review reopens
- * @property {string|null} [validationMergeRepairWorktree] - Detached merge worktree path for status-preserving Direct Delivery repair continuation.
  * @property {import('./shared/workflow/validation-checkpoint.ts').ValidationCheckpoint|null} [validationCheckpoint] - Durable validation continuation facts for the current attempt.
  * @property {number} [validationCiAttempts] - Mechanical Validation attempts spent for the current implementation.
  * @property {number} [validationObjectiveCheckAttempts] - Objective-Failing Check repair cycles spent for the current implementation.
@@ -540,7 +539,6 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewMode, fm.humanReviewMode);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewDecision, fm.humanReviewDecision);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewedAt, fm.humanReviewedAt);
-    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.validationMergeRepairWorktree, fm.validationMergeRepairWorktree);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.validationCheckpoint, fm.validationCheckpoint);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicCompletionMode, fm.epicCompletionMode);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicDoneEnoughAt, fm.epicDoneEnoughAt);
@@ -1257,7 +1255,6 @@ export function injectFrontMatter(markdown, overrides = {}) {
                 : existingFm.humanReviewDecision,
         ),
         humanReviewedAt: optionalFrontMatterValue(overrides, existingFm, "humanReviewedAt"),
-        validationMergeRepairWorktree: optionalFrontMatterValue(overrides, existingFm, "validationMergeRepairWorktree"),
         validationCheckpoint: Object.hasOwn(overrides, "validationCheckpoint")
             ? overrides.validationCheckpoint
             : existingFm.validationCheckpoint,
@@ -1388,11 +1385,6 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             humanReviewMode: normalizeHumanReviewMode(attrs.humanReviewMode),
             humanReviewDecision: normalizeHumanReviewDecision(attrs.humanReviewDecision),
             humanReviewedAt: attrs.humanReviewedAt,
-            validationMergeRepairWorktree: typeof attrs.validationMergeRepairWorktree === "string"
-                ? attrs.validationMergeRepairWorktree
-                : attrs.validationMergeRepairWorktree === null
-                ? null
-                : undefined,
             validationCheckpoint: attrs.validationCheckpoint && typeof attrs.validationCheckpoint === "object"
                 ? attrs.validationCheckpoint
                 : attrs.validationCheckpoint === null

@@ -784,7 +784,7 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean) {
         // sees the whole file at once. Only the legacy shape — a live attempt with no
         // stable id — needs a name-keyed check here, and only that shape is reported,
         // so a conflict is never listed twice.
-        if (!entry.planId && !["merged", "abandoned", "removed"].includes(entry.status)) {
+        if (!entry.planId && entry.status !== "abandoned") {
             const prior = activeByPlan.get(entry.planName);
             if (prior) {
                 issues.push({
@@ -883,14 +883,14 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean) {
             const stat = await Deno.stat(entry.path);
             if (!stat.isDirectory) throw new Error("not a directory");
         } catch {
-            const safelyPrunable = entry.status === "merged" || entry.status === "abandoned";
+            const safelyPrunable = entry.status === "abandoned" || entry.publication?.phase === "cleanup_complete";
             issues.push({
                 kind: "missing_worktree_path",
                 planName: entry.planName,
                 worktreeId: entry.id,
                 repairable: safelyPrunable,
                 message: safelyPrunable
-                    ? `Registry attempt ${entry.id} points at ${entry.path}, which no longer exists. The attempt is already ${entry.status}, so this is leftover bookkeeping.`
+                    ? `Registry attempt ${entry.id} points at ${entry.path}, which no longer exists. Its cleanup is already settled, so this is leftover bookkeeping.`
                     : `Registry attempt ${entry.id} is ${entry.status} but its worktree ${entry.path} is gone, so RunWield cannot reach the work it recorded.`,
                 commands: safelyPrunable ? [`${CLI_BIN} plans doctor --repair`] : [
                     `git log --oneline ${entry.branch} -10`,

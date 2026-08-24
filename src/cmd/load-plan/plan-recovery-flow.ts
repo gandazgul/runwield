@@ -18,7 +18,6 @@ import { healSettledTransitionRecords } from "../../shared/workflow/transition-r
 import { verifyRecordedPublication } from "../../shared/workflow/validation-merge-verification.ts";
 import { isUserVerifiableStatus } from "./plan-hold.ts";
 import {
-    canManuallyMergeRecoveredWorktree,
     hasWorktreeContext,
     persistRecoveredWorktreeMetadata,
     reportInvalidRecoveryPolicy,
@@ -37,7 +36,6 @@ import {
     validateRecoveryPlan,
 } from "./plan-recovery-actions.ts";
 import { resetRecoveryPlan } from "./plan-recovery-reset.ts";
-import { mergeRecoveredWorktree } from "./plan-recovery-merge.ts";
 
 import type { PlanSessionSurface, RecoveryWorktreeContext } from "./plan-session-types.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
@@ -147,12 +145,11 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
     };
     context.recordRecoveryResult = async (action: string, result: string, details: RecoveryMetricDetails = {}) => {
         const hasWorktree = hasWorktreeContext(context.worktreeContext);
-        const canMergeWorktree = canManuallyMergeRecoveredWorktree(context.worktreeContext);
         await opts.ports.recordWorkflowMetric({
             category: "recovery",
             event: "recovery_action_result",
             planName: plan.planName,
-            details: { action, result, currentStatus: plan.attrs.status, hasWorktree, canMergeWorktree, ...details },
+            details: { action, result, currentStatus: plan.attrs.status, hasWorktree, ...details },
         }, projectRoot);
     };
     context.worktreeContext = await context.refreshRecoveryWorktree();
@@ -197,7 +194,6 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
 
     while (true) {
         const hasWorktree = hasWorktreeContext(context.worktreeContext);
-        const canMergeWorktree = canManuallyMergeRecoveredWorktree(context.worktreeContext);
         const gitProbe = await opts.ports.probeGitRepository(projectRoot);
         const hasGitRecoveryMetadata = hasWorktree ||
             (plan.attrs.executionMode !== "non_git_in_place" && Boolean(plan.attrs.executionBaselineTree));
@@ -207,14 +203,13 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
             context,
             gitRecoveryBlocked,
             hasWorktree,
-            canMergeWorktree,
             physicallyLost,
         );
         await opts.ports.recordWorkflowMetric({
             category: "recovery",
             event: "recovery_action_selected",
             planName: plan.planName,
-            details: { action: answer || "cancel", currentStatus: plan.attrs.status, hasWorktree, canMergeWorktree },
+            details: { action: answer || "cancel", currentStatus: plan.attrs.status, hasWorktree },
         }, projectRoot);
         if (!answer || answer === "cancel") {
             await context.recordRecoveryResult("cancel", "handled");
@@ -264,7 +259,6 @@ async function promptRecoveryAction(
     context: RecoveryActionContext,
     gitRecoveryBlocked: boolean,
     hasWorktree: boolean,
-    canMergeWorktree: boolean,
     physicallyLost: boolean,
 ): Promise<RecoveryMenuAnswer | null | undefined> {
     if (physicallyLost) {
@@ -320,16 +314,11 @@ async function promptRecoveryAction(
         ? [
             ...recordOptions,
             ...restoreRecordOptions,
-            ...(gitRecoveryBlocked ? [] : [{ value: "validate" as const, label: "Retry Workflow Validation" }]),
+            ...(gitRecoveryBlocked ? [] : [{
+                value: "validate" as const,
+                label: context.worktreeContext?.publication ? "Resume publication" : "Retry Workflow Validation",
+            }]),
             common[0],
-            ...(canMergeWorktree && !gitRecoveryBlocked
-                ? [{
-                    value: "merge" as const,
-                    label: context.worktreeContext?.status === "publication_failed"
-                        ? "Retry publication"
-                        : "Merge validated worktree changes",
-                }]
-                : []),
             ...common.slice(1),
         ]
         : [
@@ -383,8 +372,6 @@ async function dispatchRecoveryAction(
             return await reviewRecoveryPlan(context);
         case "reset":
             return await resetRecoveryPlan(context, gitRecoveryBlocked, gitState);
-        case "merge":
-            return await mergeRecoveredWorktree(context);
     }
 }
 

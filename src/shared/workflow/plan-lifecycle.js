@@ -82,7 +82,7 @@ function buildStalePlanStatusMessage(planName, currentStatus, canonicalStatus) {
 }
 
 /**
- * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"epic_readiness_passed"|"decomposition_finalized"|"execution_started"|"execution_failed"|"implementation_finished"|"mechanical_validation_failed"|"mechanical_validation_passed"|"semantic_review_feedback"|"semantic_review_passed"|"validation_failed"|"validation_passed"|"worktree_merge_failed"|"recovery_continue"|"recovery_reset"|"review_reopened"|"epic_done_enough"|"manual_status_change"|"manual_closed_without_verification"|"manual_user_verified"|"plan_held"|"hold_resumed"|"hold_reset_to_draft"} PlanEvent
+ * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"epic_readiness_passed"|"decomposition_finalized"|"execution_started"|"execution_failed"|"implementation_finished"|"mechanical_validation_failed"|"mechanical_validation_passed"|"semantic_review_feedback"|"semantic_review_passed"|"validation_failed"|"validation_passed"|"recovery_continue"|"recovery_reset"|"review_reopened"|"epic_done_enough"|"manual_status_change"|"manual_closed_without_verification"|"manual_user_verified"|"plan_held"|"hold_resumed"|"hold_reset_to_draft"} PlanEvent
  */
 
 /**
@@ -223,7 +223,6 @@ const ALLOWED_FROM = {
     semantic_review_passed: ["validated_ci"],
     validation_failed: ["implemented", "validated_ci", "validated_reviewer"],
     validation_passed: ["validated_reviewer"],
-    worktree_merge_failed: ["validated_reviewer"],
     recovery_continue: ["in_progress", "failed"],
     recovery_reset: ["in_progress", "failed", "implemented"],
     review_reopened: [
@@ -261,7 +260,6 @@ const EVENT_STATUS = {
     semantic_review_passed: "validated_reviewer",
     validation_failed: "implemented",
     validation_passed: "validated",
-    worktree_merge_failed: "implemented",
     recovery_continue: "ready_for_work",
     recovery_reset: "ready_for_work",
     review_reopened: "feedback",
@@ -465,13 +463,12 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         status: targetStatus,
         updatedAt: now,
     };
-    const clearsValidationMergeRepairWorktree = event === "validation_passed" || targetStatus === "implemented" ||
+    const clearsValidationCheckpoint = event === "validation_passed" || targetStatus === "implemented" ||
         event === "execution_started" || event === "recovery_reset" || event === "recovery_continue" ||
         event === "review_reopened" || event === "hold_reset_to_draft" || event === "manual_user_verified" ||
         event === "manual_closed_without_verification" || event === "epic_done_enough" ||
         (event === "manual_status_change" && isTerminalPlanStatus(targetStatus));
-    if (clearsValidationMergeRepairWorktree) {
-        updates.validationMergeRepairWorktree = null;
+    if (clearsValidationCheckpoint) {
         updates.validationCheckpoint = null;
     }
 
@@ -717,16 +714,6 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     if (event === "validation_failed") {
         if (!details.nonGitInPlace) updates.worktreeStatus = "validation_failed";
         updates.failureReason = details.failureReason || "Workflow Validation failed.";
-    }
-
-    if (event === "worktree_merge_failed") {
-        updates.worktreeId = details.worktreeId || updates.worktreeId;
-        updates.worktreePath = details.worktreePath || updates.worktreePath;
-        updates.worktreeBranch = details.worktreeBranch || updates.worktreeBranch;
-        updates.worktreeBaseBranch = details.worktreeBaseBranch || updates.worktreeBaseBranch;
-        updates.deliveryEvidence = details.deliveryEvidence || updates.deliveryEvidence;
-        updates.worktreeStatus = "merge_conflict";
-        updates.failureReason = details.failureReason || "Worktree merge failed.";
     }
 
     if (event === "epic_done_enough") {

@@ -11,7 +11,6 @@ const PLAN_RECOVERY_FILES = [
     "src/cmd/load-plan/plan-recovery-flow.ts",
     "src/cmd/load-plan/plan-recovery-actions.ts",
     "src/cmd/load-plan/plan-recovery-reset.ts",
-    "src/cmd/load-plan/plan-recovery-merge.ts",
 ];
 
 const HIGH_LEVEL_FILES = [
@@ -38,7 +37,7 @@ const RAW_LIFECYCLE_PATTERNS: [string, RegExp][] = [
 
 function isInsideSemanticTransitionApply(text: string, index: number): boolean {
     const window = text.slice(Math.max(0, index - 5000), index);
-    return /run(?:Recovery|ValidationOutcome|DirectDeliveryPublication|ExecutionPreparation|ImplementationCheckpoint|Archive|PlanFrontMatter|ReviewReopen|PlanLifecycleEvent|PlanReviewDecision)Transition\s*\([\s\S]*(?:recover|settle|publish|prepare|checkpoint|move|reopen|record|decide|apply)\s*:\s*async/
+    return /run(?:Recovery|ValidationOutcome|ExecutionPreparation|ImplementationCheckpoint|Archive|PlanFrontMatter|ReviewReopen|PlanLifecycleEvent|PlanReviewDecision)Transition\s*\([\s\S]*(?:recover|settle|prepare|checkpoint|move|reopen|record|decide|apply)\s*:\s*async/
         .test(
             window,
         );
@@ -63,23 +62,15 @@ Deno.test("high-level lifecycle callers use Plan Lifecycle APIs instead of raw P
     assertEquals(offenders, []);
 });
 
-Deno.test("Git publication only happens inside a lifecycle transaction", async () => {
-    const offenders: string[] = [];
-    for (const file of PLAN_RECOVERY_FILES) {
-        const text = await Deno.readTextFile(repoPath(file));
-        for (const match of text.matchAll(/\bmergeExecutionWorktree\s*\(/g)) {
-            const index = match.index ?? 0;
-            const window = text.slice(Math.max(0, index - 8000), index);
-            const insidePublication = /runDirectDeliveryPublicationTransition\s*\([\s\S]*publish\s*:\s*async/.test(
-                window,
-            );
-            if (!insidePublication) {
-                const line = text.slice(0, index).split("\n").length;
-                offenders.push(`${file}:${line}: mergeExecutionWorktree outside a publication transaction`);
-            }
-        }
-    }
-    assertEquals(offenders, []);
+Deno.test("Git publication uses the durable publication machine instead of recovery actions", async () => {
+    const publication = await Deno.readTextFile(repoPath("src/shared/workflow/validation-publication.ts"));
+    const recovery = (await Promise.all(PLAN_RECOVERY_FILES.map((file) => Deno.readTextFile(repoPath(file))))).join(
+        "\n",
+    );
+    assertEquals(publication.includes("startPublicationAttempt"), true);
+    assertEquals(publication.includes("advanceStoredPublication"), true);
+    assertEquals(publication.includes("reconcileStoredPublication"), true);
+    assertEquals(recovery.includes("mergeExecutionWorktree("), false);
 });
 
 Deno.test("transition wrappers expose expected revision preconditions for lifecycle writers", async () => {
@@ -91,7 +82,6 @@ Deno.test("transition wrappers expose expected revision preconditions for lifecy
         "runPlanFrontMatterTransition",
         "runExecutionPreparationTransition",
         "runValidationOutcomeTransition",
-        "runDirectDeliveryPublicationTransition",
         "runRecoveryTransition",
         "runArchiveTransition",
     ];

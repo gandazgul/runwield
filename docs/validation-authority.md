@@ -56,10 +56,12 @@ undo the recorded status to run those checks again.
 ## Recovery invariant
 
 After process loss, RunWield reads the execution Plan for every registered live attempt, its validation checkpoint,
-worktree registry, local and remote Git facts, Review Issue state, and unresolved transition journals. Those sources
-must produce one safe next action. If they conflict and no recorded proof establishes the newer state, RunWield
-preserves the candidate and fails closed with concrete recovery actions. It never asks an Agent to edit Front Matter,
-the worktree registry, a Review Issue, a phase counter, Delivery Evidence, or a transition journal.
+worktree registry publication record, local and remote Git facts, Review Issue state, and non-publication lifecycle
+journals. Those sources must produce one safe next action. If they conflict and no recorded proof establishes the newer
+state, RunWield preserves the candidate and fails closed with concrete recovery actions. It never asks an Agent to edit
+Front Matter, the worktree registry, a Review Issue, a phase counter, Delivery Evidence, or a lifecycle journal.
+Publication never uses a lifecycle journal: its one mutable authority is the compare-and-swap publication record,
+reconciled against Git.
 
 ## Relationship to focused validation Plans
 

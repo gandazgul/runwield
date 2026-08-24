@@ -306,21 +306,18 @@ For worktree-backed plans:
 10. RunWield assembles publication in a temporary clone, never in the user's primary checkout. It combines the latest
     configured upstream target with the validated execution branch, then pushes the assembled commit to the Plan's
     recorded target branch using a lease. It verifies the exact remote commit before reporting success.
-11. Until remote verification succeeds, `.wld/worktrees.json` retains the execution attempt as validated but not yet
-    published. Any push failure leaves the implementation, validated Plan, Work Record, worktree, and branch intact for
-    retry. A missing or damaged registry is not treated as proof of success; RunWield must also prove the recorded
-    commit is reachable from the remote target.
+11. Until remote verification succeeds, `.wld/worktrees.json` retains the execution attempt and its monotonic
+    publication record: `candidate_sealed`, `artifacts_committed`, `target_integrated`, `target_published`,
+    `publication_verified`, then `cleanup_complete`. Each phase carries the Git evidence needed to prove it. Any push
+    failure annotates the current phase and leaves the implementation, validated Plan, Work Record, worktree, and branch
+    intact for retry.
 12. After remote verification, RunWield may remove the clean execution checkout and branch and then removes the registry
     entry. Operationally, a validated attempt is published when the remote contains its commit and no pending worktree
     entry remains. The Plan itself stays `validated`; it is not dirtied by a second `published` transition. RunWield
     tells the user to update any local checkout that still points at an older target commit.
 
-RunWield also recognizes the single partial state produced by the retired primary-checkout publication flow: the target
-contains the old validation-metadata commit, while the recorded implementation commit remains only on a retained
-execution branch. When the registry, Delivery Evidence, branch ancestry, and upstream target all prove that exact state,
-loading the Plan converts the execution-worktree Plan from legacy `verified` to `validated` and marks the attempt ready
-for publication retry. This recovery never edits the user's primary checkout. It then uses the same temporary-clone
-publication path described above.
+Publication recovery is defined by [ADR-016](./adr/016-proof-bearing-publication-state-machine.md). RunWield does not
+translate partial states from retired publication flows.
 
 Human code review does not add a new primary Plan Status. While human review is pending, returning feedback, or
 canceled, the Plan remains `implemented`. Final `validation_passed` metadata records whether human review was not

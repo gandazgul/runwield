@@ -1335,23 +1335,6 @@ async function runComposedTuiScenario(scenario, options) {
                     const path = join(Deno.cwd(), typed.path || "");
                     await Deno.remove(path);
                     events.push(`project:delete:${typed.path || ""}`);
-                } else if (typed.type === "repairStoredMergeWorktreeAndKill") {
-                    const planName = String(typed.planName || "");
-                    const filePath = String(typed.path || "");
-                    const { findActiveByPlanName } = await import("../../../shared/worktree-registry.js");
-                    const attempt = await findActiveByPlanName(Deno.cwd(), planName);
-                    const loaded = attempt?.path
-                        ? await loadPlan(attempt.path, planName)
-                        : await loadPlan(Deno.cwd(), planName);
-                    const repairWorktreePath = loaded?.attrs.validationMergeRepairWorktree;
-                    if (typeof repairWorktreePath !== "string" || !repairWorktreePath) {
-                        throw new Error(`Expected ${planName} to have a validationMergeRepairWorktree.`);
-                    }
-                    await Deno.writeTextFile(join(repairWorktreePath, filePath), String(typed.text || ""));
-                    await runGoldenGit(["add", filePath], repairWorktreePath);
-                    await runGoldenGit(["-c", "core.editor=true", "merge", "--continue"], repairWorktreePath);
-                    events.push(`project:merge-repair-complete:${planName}`);
-                    Deno.kill(Deno.pid, "SIGKILL");
                 } else if (typed.type === "assertProjectFile") {
                     const path = join(Deno.cwd(), typed.path || "");
                     const exists = await Deno.stat(path).then(() => true).catch(() => false);

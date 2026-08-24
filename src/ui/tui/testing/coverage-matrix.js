@@ -51,10 +51,6 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         "recovery:tool-failure",
         "recovery:steered-task-completion",
         "recovery:reviewer-rejection",
-        // RunWield pauses rather than halting whenever it needs a person. That
-        // promise is only kept if the menu actually reaches the screen and the
-        // answer actually resumes the run, which only an end-to-end scenario shows.
-        "recovery:user-pause",
         // The Engineer reports success and the check disagrees. Everything after that
         // point — repair rounds, the round limit, the menu — only matters if it reaches
         // a person, so the guarantee is end-to-end or it is nothing.

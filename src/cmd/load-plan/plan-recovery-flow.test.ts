@@ -309,11 +309,6 @@ Deno.test("Plan Recovery menu outcomes re-prompt without fallthrough", async () 
     assertEquals(continueBlocked.result, "handled");
     assertEquals(continueBlocked.ui.prompts.length, 2);
 
-    const mergePreflight = await runRecovery(["merge", null], { status: "implemented" });
-    assertEquals(mergePreflight.result, "handled");
-    assertEquals(mergePreflight.ui.messages.some((message) => message.includes("Manual worktree merge")), true);
-    assertEquals(mergePreflight.ui.prompts.length, 2);
-
     const abandonDecline = await runRecovery(["abandon", "cancel", null], {
         worktreeId: "worktree-1",
     });
@@ -597,37 +592,6 @@ Deno.test("Plan Recovery actions preserve live context", async () => {
         ),
         true,
     );
-
-    const mergeAttemptFailure = await runRealRecovery(["merge"], {
-        status: "implemented",
-        executionMode: "worktree",
-        worktreeStatus: "merge_conflict",
-    }, async (_options, project) => {
-        const worktreePath = await Deno.makeTempDir({ prefix: "runwield-recovery-merge-worktree-" });
-        await Deno.remove(worktreePath);
-        await runGit(project.projectRoot, ["worktree", "add", "-b", "rw/test", worktreePath, "HEAD"]);
-        const attrs = await updatePlanFrontMatter(
-            project.projectRoot,
-            project.plan.planName,
-            {
-                status: "implemented",
-                executionMode: "worktree",
-                worktreeId: "worktree-1",
-                worktreePath,
-                worktreeBranch: "rw/test",
-                worktreeBaseBranch: "main",
-                worktreeStatus: "merge_conflict",
-            },
-            project.plan.attrs,
-            { expectedRevision: project.plan.revision },
-        );
-        project.plan.attrs = attrs;
-        const reloaded = await loadPlan(project.projectRoot, project.plan.planName);
-        if (!reloaded) throw new Error("merge fixture plan disappeared");
-        project.plan.revision = reloaded.revision;
-    });
-    assertEquals(mergeAttemptFailure.result, "handled");
-    assertEquals(mergeAttemptFailure.ui.messages.length > 0, true);
 });
 
 Deno.test("lost worktree recovery offers User Verification for implemented plans", async () => {

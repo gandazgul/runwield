@@ -93,7 +93,6 @@ function executionMetadataOverrides(canonicalAttrs, executionAttrs) {
         "humanReviewMode",
         "humanReviewDecision",
         "humanReviewedAt",
-        "validationMergeRepairWorktree",
         "validationCheckpoint",
         "validationCiAttempts",
         "validationObjectiveCheckAttempts",

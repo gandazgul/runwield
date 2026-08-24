@@ -9,14 +9,11 @@ import {
     runValidationOutcomeTransition,
 } from "../../shared/workflow/state-transition.ts";
 import { runPlansDoctor, runPlansDoctorCommand } from "./doctor.ts";
-import { settlePublishedWorktree } from "../../shared/workflow/validation-publication.ts";
 import { defineGitFixture, git } from "../../shared/git-test-fixture.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
 type WorktreeRegistryEntry = import("../../shared/worktree-registry.js").WorktreeRegistryEntry;
 type WorktreeDeliveryEvidence = import("../../plan-store.js").WorktreeDeliveryEvidence;
-type SettlePublishedWorktreeArgs = Parameters<typeof settlePublishedWorktree>[0];
-type SettlePublishedWorktreeContext = Parameters<typeof settlePublishedWorktree>[1];
 
 interface DoctorCommandFixture {
     projectRoot: string;
@@ -91,7 +88,7 @@ async function seedMissingSettledWorktree(projectRoot: string, worktreeId: strin
         createdAt: "2026-01-01T00:00:00.000Z",
         status: "implemented",
         worktreeId,
-        worktreeStatus: "merged",
+        worktreeStatus: "abandoned",
     });
     await addEntry(projectRoot, {
         id: worktreeId,
@@ -102,7 +99,7 @@ async function seedMissingSettledWorktree(projectRoot: string, worktreeId: strin
         baseCommit: "abc",
         branch: `runwield/worktree/demo-${worktreeId}`,
         path: join(projectRoot, "missing-worktree"),
-        status: "merged",
+        status: "abandoned",
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
     });
@@ -117,52 +114,6 @@ const ancestryRepo = defineGitFixture(async (repo) => {
     await Deno.writeTextFile(join(repo, "file.txt"), "unpublished\n");
     await git(repo, ["commit", "-am", "unpublished"]);
     await git(repo, ["checkout", "main"]);
-});
-
-Deno.test("published worktree settlement keeps registry proof when branch cleanup cannot finish", async () => {
-    const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-settle-" });
-    const branch = "worktree/unpublished-wt";
-    try {
-        await git(cwd, ["branch", branch, "side"]);
-        await savePlan(cwd, "published-cleanup", "# Published cleanup", {
-            planId: "plan-published-cleanup",
-            classification: "FEATURE",
-            status: "verified",
-        });
-        await addEntry(cwd, {
-            id: "unpublished-wt",
-            planName: "published-cleanup",
-            planId: "plan-published-cleanup",
-            baseBranch: "main",
-            baseRef: "HEAD",
-            baseCommit: "abc",
-            branch,
-            path: join(cwd, "already-removed-worktree"),
-            status: "active",
-            createdAt: "2026-01-01T00:00:00.000Z",
-            updatedAt: "2026-01-01T00:00:00.000Z",
-        });
-
-        const cleanup = await settlePublishedWorktree(
-            {} as SettlePublishedWorktreeArgs,
-            {
-                projectRoot: cwd,
-                executionCwd: join(cwd, "already-removed-worktree"),
-                worktreeBranch: branch,
-                worktreeId: "unpublished-wt",
-            } as SettlePublishedWorktreeContext,
-            true,
-        );
-
-        assertEquals(cleanup.finished, false);
-        assertEquals(cleanup.branchKept, true);
-        assertEquals(cleanup.details.some((detail) => detail.includes(branch)), true);
-        assertEquals((await findById(cwd, "unpublished-wt"))?.status, "merged");
-        const report = await runPlansDoctor(cwd, false);
-        assertEquals(report.issues.some((issue) => issue.kind === "orphan_worktree_branch"), false);
-    } finally {
-        await Deno.remove(cwd, { recursive: true }).catch(() => {});
-    }
 });
 
 Deno.test("plans doctor reports missing worktree paths without abandoning attempts automatically", async () => {
@@ -202,7 +153,7 @@ Deno.test("plans doctor repair prunes missing settled worktree registry artifact
             baseCommit: "abc",
             branch: "runwield/worktree/demo-wt-settled",
             path: `${cwd}/missing-merged-worktree`,
-            status: "merged",
+            status: "abandoned",
             createdAt: "2026-01-01T00:00:00.000Z",
             updatedAt: "2026-01-01T00:00:00.000Z",
         });
@@ -313,7 +264,7 @@ Deno.test("plans doctor command --check reports without changing files", async (
         });
 
         assertEquals(await Deno.readTextFile(registryPath), before);
-        assertEquals((await findById(projectRoot, "wt-command-check"))?.status, "merged");
+        assertEquals((await findById(projectRoot, "wt-command-check"))?.status, "abandoned");
         assertEquals(output.includes("Plans doctor diagnosis: 1 issue found"), true);
         assertEquals(output.includes("Worktree registry"), true);
         assertEquals(output.includes("wt-command-check"), true);
@@ -444,7 +395,7 @@ Deno.test("plans doctor does not report an archived Plan's attempt as a dangling
             baseCommit: "abc",
             branch: "runwield/worktree/done",
             path: join(cwd, "wt-archived"),
-            status: "merged",
+            status: "abandoned",
             createdAt: "2026-01-01T00:00:00.000Z",
             updatedAt: "2026-01-01T00:00:00.000Z",
         });
@@ -545,7 +496,7 @@ Deno.test("plans doctor closes a journal whose durable effects the repository pr
             baseCommit: "abc",
             branch: "runwield/worktree/demo",
             path: join(cwd, "wt-1"),
-            status: "merge_conflict",
+            status: "validation_failed",
             createdAt: "2026-01-01T00:00:00.000Z",
             updatedAt: "2026-01-01T00:00:00.000Z",
         });
@@ -557,7 +508,7 @@ Deno.test("plans doctor closes a journal whose durable effects the repository pr
             worktreeId: "wt-1",
             outcome: "merge_failed",
             settle: async ({ markEffect }) => {
-                await markEffect("worktree_registry_updated", { worktreeId: "wt-1", status: "merge_conflict" });
+                await markEffect("worktree_registry_updated", { worktreeId: "wt-1", status: "validation_failed" });
                 throw new Error("interrupted before settling");
             },
         });
@@ -577,7 +528,7 @@ Deno.test("plans doctor closes a journal whose durable effects the repository pr
             "RunWield must be able to close its own bookkeeping",
         );
         assertEquals((await listTransitionRecoveryRecords(cwd)).length, 0);
-        assertEquals((await findById(cwd, "wt-1"))?.status, "merge_conflict", "the attempt is left untouched");
+        assertEquals((await findById(cwd, "wt-1"))?.status, "validation_failed", "the attempt is left untouched");
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }

@@ -64,13 +64,13 @@ type WorktreeEntry = {
     baseCommit: string;
 };
 
-const SETTLED_WORKTREE_STATUSES = new Set(["merged", "abandoned", "none"]);
+const SETTLED_WORKTREE_STATUSES = new Set(["abandoned", "none"]);
 const NONTERMINAL_WORKTREE_STATUSES = new Set([
     "active",
     "completed",
     "execution_failed",
     "validation_failed",
-    "merge_conflict",
+    "validated",
 ]);
 
 type WorktreeEvidenceResult = Awaited<ReturnType<typeof readPlanActionWorktreeEvidence>>;

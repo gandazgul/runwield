@@ -8,7 +8,6 @@ import {
     listTransitionRecoveryRecords,
     reconcileTransitionRecoveryRecords,
     runArchiveTransition,
-    runDirectDeliveryPublicationTransition,
     runExecutionPreparationTransition,
     runImplementationCheckpointTransition,
     runPlanFrontMatterTransition,
@@ -519,61 +518,6 @@ Deno.test("implementation checkpoint failure before any effect leaves no recover
     }
 });
 
-Deno.test("direct delivery publication rollback settles reversible pre-target staging", async () => {
-    const cwd = await makeProject();
-    try {
-        await savePlan(cwd, "demo", "# Demo", { status: "implemented" });
-        let restored = false;
-        const result = await runDirectDeliveryPublicationTransition({
-            projectRoot: cwd,
-            planName: "demo",
-            publish: async ({ markEffect, registerRollback }) => {
-                registerRollback("restore staged Plan snapshots", () => {
-                    restored = true;
-                    return Promise.resolve();
-                });
-                await markEffect("direct_delivery_publication_started", { preservedPlanPaths: ["docs/plans/demo.md"] });
-                throw new Error("merge failed before target ref movement");
-            },
-        });
-        assertEquals(result.status, "rolled_back");
-        assertEquals(restored, true);
-        assertEquals((await listTransitionRecoveryRecords(cwd)).length, 0);
-        assertEquals((await loadPlan(cwd, "demo"))?.attrs.status, "implemented");
-    } finally {
-        await Deno.remove(cwd, { recursive: true }).catch(() => {});
-    }
-});
-
-Deno.test("direct delivery publication leaves reconciliation after target ref movement", async () => {
-    const cwd = await makeProject();
-    try {
-        await savePlan(cwd, "demo", "# Demo", { status: "implemented" });
-        let rollbackRan = false;
-        const result = await runDirectDeliveryPublicationTransition({
-            projectRoot: cwd,
-            planName: "demo",
-            publish: async ({ markEffect, registerRollback }) => {
-                registerRollback("restore staged Plan snapshots", () => {
-                    rollbackRan = true;
-                    return Promise.resolve();
-                });
-                await markEffect("direct_delivery_publication_started", { preservedPlanPaths: ["docs/plans/demo.md"] });
-                await markEffect("direct_delivery_target_ref_moved", { targetBranch: "main", executionCommit: "abc" });
-                throw new Error("metadata ancestry proof failed after target ref movement");
-            },
-        });
-        assertEquals(result.status, "needs_recovery");
-        assertEquals(rollbackRan, true);
-        const records = await listTransitionRecoveryRecords(cwd);
-        assertEquals(records.length, 1);
-        assertEquals(records[0].state, "needs_recovery");
-        assertEquals((await loadPlan(cwd, "demo"))?.attrs.status, "implemented");
-    } finally {
-        await Deno.remove(cwd, { recursive: true }).catch(() => {});
-    }
-});
-
 Deno.test("semantic transition matrix records operation-specific resources, effects, proof, and recovery", async () => {
     /** @type {Array<{ name: string, operation: string, run: (cwd: string) => Promise<any>, expectedResources: string[], expectedEffect: string }>} */
     const cases = [
@@ -606,40 +550,6 @@ Deno.test("semantic transition matrix records operation-specific resources, effe
                 }),
             expectedResources: ["catalog:", "plan:demo", "attempt:wt-1", "target_ref:main"],
             expectedEffect: "validation_outcome_settled",
-        },
-        {
-            name: "direct delivery publication",
-            operation: "direct_delivery_publication",
-            run: (cwd) =>
-                runDirectDeliveryPublicationTransition({
-                    projectRoot: cwd,
-                    planName: "demo",
-                    parentPlan: "epic",
-                    siblingPlanNames: ["epic/01-demo", "epic/02-other"],
-                    worktreeId: "wt-1",
-                    targetRef: "main",
-                    publicationProof: { executionCommit: "b".repeat(40) },
-                    // Mirrors the real publisher: moving the target ref is the effect
-                    // that makes this a publication, and the transition now refuses to
-                    // commit without it.
-                    publish: async ({ markEffect }) => {
-                        await markEffect("direct_delivery_target_ref_moved", {
-                            targetBranch: "main",
-                            sealedExecutionCommit: "b".repeat(40),
-                        });
-                        return { ok: true };
-                    },
-                }),
-            expectedResources: [
-                "catalog:",
-                "plan:demo",
-                "plan:epic",
-                "plan:epic/01-demo",
-                "plan:epic/02-other",
-                "attempt:wt-1",
-                "target_ref:main",
-            ],
-            expectedEffect: "direct_delivery_published",
         },
         {
             name: "recovery reset",

@@ -22,8 +22,24 @@ export interface IsolatedPublicationArgs {
     planDescription?: string;
     sealedExecutionCommit: string;
     allowedPlanPaths: string[];
+    publicationRoot?: string;
     repairedPublicationRoot?: string;
     onProgress?: (progress: IsolatedPublicationProgress) => void;
+    onIntegrated?: (evidence: PublicationIntegrationEvidence) => Promise<void>;
+    onPublished?: (evidence: PublicationPublishedEvidence) => Promise<void>;
+    onVerified?: (evidence: PublicationPublishedEvidence) => Promise<void>;
+}
+
+export interface PublicationIntegrationEvidence {
+    targetBaseCommit: string;
+    integrationCommit: string;
+}
+
+export interface PublicationPublishedEvidence extends PublicationIntegrationEvidence {
+    publicationMode: "local" | "remote";
+    publishedCommit: string;
+    upstreamRemote?: string;
+    upstreamBranch?: string;
 }
 
 export type IsolatedPublicationProgress =
@@ -263,11 +279,15 @@ export async function publishExecutionWorktreeIsolated(
         args.onProgress?.("using_local_target");
         return await publishToLocalTarget(args, checkpoint.executionCommit);
     }
-    const publicationRoot = args.repairedPublicationRoot ||
+    const requestedPublicationRoot = args.repairedPublicationRoot || args.publicationRoot;
+    const requestedRootExists = requestedPublicationRoot
+        ? await Deno.stat(requestedPublicationRoot).then((stat) => stat.isDirectory).catch(() => false)
+        : false;
+    const publicationRoot = requestedPublicationRoot ||
         await Deno.makeTempDir({ prefix: `runwield-publish-${basename(args.projectRoot)}-` });
-    let preserveForRecovery = Boolean(args.repairedPublicationRoot);
+    let preserveForRecovery = Boolean(requestedPublicationRoot);
     try {
-        if (args.repairedPublicationRoot) {
+        if (requestedRootExists) {
             const unfinishedMerge = await runGitResult(publicationRoot, ["rev-parse", "--verify", "MERGE_HEAD"]);
             if (unfinishedMerge.code === 0) {
                 throw new IsolatedPublicationError(
@@ -347,6 +367,10 @@ export async function publishExecutionWorktreeIsolated(
             }
             const deliveryCommit = await runGit(publicationRoot, ["rev-parse", "HEAD"]);
             const publicationCommit = await commitPublicationMetadata(publicationRoot, args.planName);
+            await args.onIntegrated?.({
+                targetBaseCommit: targetHeadBeforeMerge,
+                integrationCommit: publicationCommit,
+            });
             const lease = expectedRemoteHead || "";
             args.onProgress?.("publishing");
             await pushPublication(
@@ -359,6 +383,15 @@ export async function publishExecutionWorktreeIsolated(
                 upstream.branch,
                 publicationRoot,
             );
+            const publishedEvidence: PublicationPublishedEvidence = {
+                targetBaseCommit: targetHeadBeforeMerge,
+                integrationCommit: publicationCommit,
+                publicationMode: "remote",
+                publishedCommit: publicationCommit,
+                upstreamRemote: upstream.remote,
+                upstreamBranch: upstream.branch,
+            };
+            await args.onPublished?.(publishedEvidence);
             args.onProgress?.("verifying");
             const confirmedRemoteHead = await remoteHead(publicationRoot, upstream.url, upstream.branch);
             if (confirmedRemoteHead !== publicationCommit) {
@@ -367,7 +400,7 @@ export async function publishExecutionWorktreeIsolated(
                     { mergeFailureKind: "publication_verification_failed", repairCwd: publicationRoot },
                 );
             }
-            preserveForRecovery = false;
+            await args.onVerified?.(publishedEvidence);
             return {
                 publicationMode: "remote",
                 updatedPrimaryCheckout: false,
@@ -379,6 +412,7 @@ export async function publishExecutionWorktreeIsolated(
                 upstreamBranch: upstream.branch,
             };
         }
+        await Deno.mkdir(dirname(publicationRoot), { recursive: true });
         await runGit(args.projectRoot, ["clone", "--no-hardlinks", args.projectRoot, publicationRoot]);
         await runGit(publicationRoot, ["remote", "rename", "origin", "runwield-source"]);
         await runGit(publicationRoot, ["remote", "add", "publication", upstream.url]);
@@ -463,6 +497,10 @@ export async function publishExecutionWorktreeIsolated(
         }
         const deliveryCommit = await runGit(publicationRoot, ["rev-parse", "HEAD"]);
         const publicationCommit = await commitPublicationMetadata(publicationRoot, args.planName);
+        await args.onIntegrated?.({
+            targetBaseCommit: targetHeadBeforeMerge,
+            integrationCommit: publicationCommit,
+        });
         const lease = expectedRemoteHead || "";
         args.onProgress?.("publishing");
         await pushPublication(publicationRoot, [
@@ -470,6 +508,15 @@ export async function publishExecutionWorktreeIsolated(
             "publication",
             `HEAD:refs/heads/${upstream.branch}`,
         ], upstream.branch);
+        const publishedEvidence: PublicationPublishedEvidence = {
+            targetBaseCommit: targetHeadBeforeMerge,
+            integrationCommit: publicationCommit,
+            publicationMode: "remote",
+            publishedCommit: publicationCommit,
+            upstreamRemote: upstream.remote,
+            upstreamBranch: upstream.branch,
+        };
+        await args.onPublished?.(publishedEvidence);
         args.onProgress?.("verifying");
         const confirmedRemoteHead = await remoteHead(publicationRoot, "publication", upstream.branch);
         if (confirmedRemoteHead !== publicationCommit) {
@@ -478,6 +525,7 @@ export async function publishExecutionWorktreeIsolated(
                 { mergeFailureKind: "publication_verification_failed" },
             );
         }
+        await args.onVerified?.(publishedEvidence);
         return {
             publicationMode: "remote",
             updatedPrimaryCheckout: false,
@@ -559,6 +607,17 @@ async function publishToLocalTarget(
         });
         args.onProgress?.("verifying");
         const publicationCommit = await runGit(args.projectRoot, ["rev-parse", `refs/heads/${args.targetBranch}`]);
+        await args.onIntegrated?.({
+            targetBaseCommit: targetHeadBeforeMerge,
+            integrationCommit: publicationCommit,
+        });
+        const publishedEvidence: PublicationPublishedEvidence = {
+            targetBaseCommit: targetHeadBeforeMerge,
+            integrationCommit: publicationCommit,
+            publicationMode: "local",
+            publishedCommit: publicationCommit,
+        };
+        await args.onPublished?.(publishedEvidence);
         const containsCandidate = await runGitResult(args.projectRoot, [
             "merge-base",
             "--is-ancestor",
@@ -571,6 +630,7 @@ async function publishToLocalTarget(
                 { mergeFailureKind: "publication_verification_failed" },
             );
         }
+        await args.onVerified?.(publishedEvidence);
         if (savedOwnedGitignore) await Deno.remove(savedOwnedGitignore).catch(() => {});
         return {
             publicationMode: "local",

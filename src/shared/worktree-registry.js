@@ -23,10 +23,11 @@ const LOCK_RETRY_MS = 50;
  * @property {string} [executionBaselineTree]
  * @property {string} branch
  * @property {string} path
- * @property {"active"|"completed"|"execution_failed"|"validation_failed"|"validated"|"publication_failed"|"merge_conflict"|"merged"|"abandoned"} status
+ * @property {"active"|"completed"|"execution_failed"|"validation_failed"|"validated"|"abandoned"} status
  * @property {string} createdAt
  * @property {string} updatedAt
  * @property {{ reason: string, recordedAt: string, candidates?: string[] }} [migrationIssue]
+ * @property {import('./workflow/publication-attempt.ts').PublicationAttempt} [publication]
  */
 
 /** @typedef {{ label: string, description: string, command?: string }} RegistryRecoveryAction */
@@ -299,8 +300,6 @@ const NONTERMINAL_STATUSES = new Set([
     "execution_failed",
     "validation_failed",
     "validated",
-    "publication_failed",
-    "merge_conflict",
 ]);
 
 /** @param {WorktreeRegistryEntry} entry */
@@ -554,6 +553,44 @@ export async function updateEntry(projectRoot, id, updates) {
         }
         entries[index] = { ...entries[index], ...updates, updatedAt: updates.updatedAt || new Date().toISOString() };
         assertNoDuplicateNonterminalAttempt(entries.filter((entry) => entry.id !== id), entries[index]);
+        await writeRegistry(projectRoot, entries);
+        return entries[index];
+    });
+}
+
+/**
+ * Compare-and-swap the durable publication authority for one execution attempt.
+ * A stale process cannot overwrite a phase another process has already proven.
+ *
+ * @param {string} projectRoot
+ * @param {string} id
+ * @param {number | null} expectedRevision null creates the first record
+ * @param {import('./workflow/publication-attempt.ts').PublicationAttempt} publication
+ */
+export async function updatePublication(projectRoot, id, expectedRevision, publication) {
+    return await withWorktreeRegistryLock(projectRoot, async () => {
+        const entries = await readRegistry(projectRoot);
+        const index = entries.findIndex((entry) => entry.id === id);
+        if (index === -1) throw new Error(`Worktree registry entry not found: ${id}`);
+        const current = entries[index].publication;
+        const currentRevision = current?.revision ?? null;
+        if (currentRevision !== expectedRevision) {
+            throw new Error(
+                `Publication attempt ${id} changed concurrently: expected revision ${String(expectedRevision)}, ` +
+                    `found ${String(currentRevision)}.`,
+            );
+        }
+        const { assertPublicationAttempt } = await import("./workflow/publication-attempt.ts");
+        assertPublicationAttempt(publication);
+        if (publication.attemptId !== id) {
+            throw new Error(`Publication attempt id ${publication.attemptId} does not match registry entry ${id}.`);
+        }
+        entries[index] = {
+            ...entries[index],
+            status: "validated",
+            publication,
+            updatedAt: publication.updatedAt,
+        };
         await writeRegistry(projectRoot, entries);
         return entries[index];
     });

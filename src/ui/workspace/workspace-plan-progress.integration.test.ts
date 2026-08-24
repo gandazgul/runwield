@@ -2,6 +2,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { savePlan } from "../../plan-store.js";
 import { addEntry, getWorktreeRegistryPath } from "../../shared/worktree-registry.js";
+import { createPublicationAttempt, recordPublicationFailure } from "../../shared/workflow/publication-attempt.ts";
 import { makeValidationCheckpoint } from "../../shared/workflow/validation-checkpoint.ts";
 import { loadOwnerPlanProgress } from "./server/owner-plan-progress.ts";
 
@@ -130,6 +131,26 @@ Deno.test("Workspace progress shows publication states without treating validate
         summary: "Feature B",
         status: "validated",
     });
+    const publication = recordPublicationFailure(
+        createPublicationAttempt({
+            attemptId: "attempt-b",
+            planId: "feature-b-id",
+            planName: "feature-b",
+            targetBranch: "main",
+            executionBranch: "runwield/feature-b",
+            executionCwd: worktreeRoot,
+            publicationRoot: `${dir}/publication`,
+            validatedCommit: "0123456789abcdef0123456789abcdef01234567",
+            targetHeadAtSeal: "fedcba9876543210fedcba9876543210fedcba98",
+            now: "2026-01-01T00:00:00.000Z",
+        }),
+        {
+            kind: "remote_unavailable",
+            message: "Remote unavailable.",
+            recordedAt: "2026-01-01T00:00:01.000Z",
+        },
+        "2026-01-01T00:00:01.000Z",
+    );
     await addEntry(projectRoot, {
         id: "attempt-b",
         planName: "feature-b",
@@ -139,7 +160,8 @@ Deno.test("Workspace progress shows publication states without treating validate
         baseCommit: "0123456789abcdef0123456789abcdef01234567",
         branch: "runwield/feature-b",
         path: worktreeRoot,
-        status: "publication_failed",
+        status: "validated",
+        publication,
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:01.000Z",
     });

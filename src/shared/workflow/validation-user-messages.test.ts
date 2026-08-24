@@ -62,7 +62,6 @@ function recoveryDisplaySources(): string[] {
     const names = [
         "plan-recovery-actions.ts",
         "plan-recovery-flow.ts",
-        "plan-recovery-merge.ts",
         "plan-recovery-reset.ts",
         "plan-recovery-worktree.ts",
     ];
