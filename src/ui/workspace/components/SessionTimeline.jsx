@@ -9,6 +9,7 @@ const MESSAGE_TYPES = new Set([
     "interaction",
     "plan-review",
     "interruption",
+    "system-event",
 ]);
 
 /** @param {unknown} value */
@@ -33,10 +34,26 @@ export function reduceSessionEvents(events, options = {}) {
     const byKey = new Map();
     const source = options.source || "committed";
     const startIndex = options.startIndex || 0;
+    let lastSegmentKey = null;
     const ensure = (/** @type {string} */ key, /** @type {Record<string, any>} */ item) => {
         const existing = byKey.get(key);
         if (existing) return existing;
         byKey.set(key, item);
+        items.push(item);
+        return item;
+    };
+    const appendSystemEvent = (/** @type {Record<string, any>} */ item) => {
+        const previous = items.at(-1);
+        if (
+            previous?.kind === "system-event" && previous.header === item.header && previous.level === item.level &&
+            previous.source === item.source
+        ) {
+            previous.lines = [...(Array.isArray(previous.lines) ? previous.lines : [previous.text]), item.text];
+            previous.text = previous.lines.join("\n");
+            if (item.timestamp) previous.timestamp = item.timestamp;
+            return previous;
+        }
+        item.lines = [item.text];
         items.push(item);
         return item;
     };
@@ -45,6 +62,29 @@ export function reduceSessionEvents(events, options = {}) {
         const type = text(event.type);
         const id = text(event.messageId || event.toolCallId || event.eventId || `${source}:${startIndex + index}`);
         const timestamp = text(event.timestamp);
+        const segmentOrdinal = Number.isInteger(event.segmentOrdinal) ? event.segmentOrdinal : null;
+        const segmentKind = text(event.segmentKind || "session");
+        const segmentKey = segmentOrdinal === null ? null : `${segmentOrdinal}:${segmentKind}`;
+        if (segmentKey && segmentKey !== lastSegmentKey) {
+            lastSegmentKey = segmentKey;
+            const label = segmentKind === "planning"
+                ? `Planning segment ${segmentOrdinal + 1}`
+                : segmentKind === "execution"
+                ? `Execution segment ${segmentOrdinal + 1}`
+                : segmentKind === "semantic_repair"
+                ? `Semantic Repair segment ${segmentOrdinal + 1}`
+                : `Session segment ${segmentOrdinal + 1}`;
+            appendSystemEvent({
+                kind: "system-event",
+                key: `segment:${segmentKey}`,
+                header: "Segment",
+                text: label,
+                level: "info",
+                segmentKind,
+                timestamp,
+                source,
+            });
+        }
         if (type === "user_message") {
             ensure(`user:${id}`, {
                 kind: "message",
@@ -133,9 +173,10 @@ export function reduceSessionEvents(events, options = {}) {
             return;
         }
         if (type === "interaction_resolved" || type === "interaction_canceled") {
-            ensure(`status:${id}:${index}`, {
-                kind: "status",
+            appendSystemEvent({
+                kind: "system-event",
                 key: event.eventId || `interaction-result:${id}:${index}`,
+                header: "Interaction",
                 level: type === "interaction_canceled" ? "warning" : "info",
                 text: text(event.message || `Interaction ${text(event.outcome || "completed")}`),
                 timestamp,
@@ -143,11 +184,17 @@ export function reduceSessionEvents(events, options = {}) {
             });
             return;
         }
-        if (type === "system_status" || type === "terminal_error" || type === "cancellation") {
-            ensure(`status:${id}:${index}`, {
-                kind: "status",
+        if (
+            type === "system_status" || type === "terminal_error" || type === "cancellation" ||
+            type === "recovery_event"
+        ) {
+            const level = type === "terminal_error" ? "error" : text(event.level || "info");
+            const header = type === "recovery_event" ? "Recovery" : type === "cancellation" ? "Cancellation" : "System";
+            appendSystemEvent({
+                kind: "system-event",
                 key: event.eventId || `status:${id}:${index}`,
-                level: type === "terminal_error" ? "error" : text(event.level || "info"),
+                header,
+                level,
                 text: text(event.message || type.replaceAll("_", " ")),
                 timestamp,
                 source,
@@ -242,6 +289,24 @@ export function SessionTimeline({ items, events, emptyMessage = "No committed ti
                                 {item.reviewUrl
                                     ? <a className="rw-plan-review-link" href={item.reviewUrl}>Review Plan</a>
                                     : null}
+                            </article>
+                        )
+                        : item.kind === "system-event"
+                        ? (
+                            <article className={`session-system-event level-${item.level || "info"}`}>
+                                <header>
+                                    <strong>{item.header || "System"}</strong>
+                                    {item.timestamp ? <time>{item.timestamp}</time> : null}
+                                </header>
+                                {Array.isArray(item.lines) && item.lines.length > 1
+                                    ? (
+                                        <ul>
+                                            {item.lines.map((line, lineIndex) => (
+                                                <li key={`${item.key}:line:${lineIndex}`}>{line}</li>
+                                            ))}
+                                        </ul>
+                                    )
+                                    : <p>{item.text}</p>}
                             </article>
                         )
                         : item.kind === "interruption"

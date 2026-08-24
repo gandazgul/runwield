@@ -5,6 +5,7 @@ import { PlanReviewSurface } from "../../../../react/PlanReviewSurface.tsx";
 import { serializeCanonicalPlanError } from "../../../../server/astro-canonical-data.js";
 import {
     getAstroOwnerWorkspaceSessionContinuation,
+    getAstroOwnerWorkspaceStore,
     loadOwnerProjectPlanDetail,
 } from "../../../../server/astro-owner-data.js";
 
@@ -16,6 +17,8 @@ const interactionId = Astro.url.searchParams.get("interaction") || "";
 let liveReview = null;
 let plan = null;
 let error = null;
+let recoveryGeneration = null;
+let recoveryCurrentSegmentId = null;
 try {
     plan = await loadOwnerProjectPlanDetail(projectId, planId);
     if (runwieldSessionId && operationId && interactionId) {
@@ -26,6 +29,9 @@ try {
             operationId,
             interactionId,
         }) || null;
+        const inspected = getAstroOwnerWorkspaceStore()?.inspectSessionActivation?.(runwieldSessionId);
+        recoveryGeneration = inspected?.generation?.generation ?? null;
+        recoveryCurrentSegmentId = inspected?.generation?.currentSegmentId ?? null;
     }
 } catch (caught) {
     error = await serializeCanonicalPlanError(caught);
@@ -50,6 +56,14 @@ const reviewPayload = plan && liveReview
         interactionAnswerUrl: `/api/owner/projects/${encodeURIComponent(projectId)}/session-operations/${
             encodeURIComponent(operationId)
         }/interactions/${encodeURIComponent(interactionId)}/answer`,
+        recoveryUrl: `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+            encodeURIComponent(runwieldSessionId)
+        }/force-recovery`,
+        recoveryExpectedGeneration: recoveryGeneration,
+        recoveryExpectedCurrentSegmentId: recoveryCurrentSegmentId,
+        progressUrl: `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}/progress?session=${
+            encodeURIComponent(runwieldSessionId)
+        }`,
     }
     : null;
 ---

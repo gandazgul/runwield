@@ -284,10 +284,12 @@ function createRunWieldAcpServer(context) {
                 sessionId: persistedSessionId,
                 sessionPath: request.sessionPath,
             });
+            const snapshot = runtime.getSessionSnapshot(result.sessionId);
+            const stablePersistedSessionId = snapshot?.managed?.runwieldSessionId || result.sessionManagerId;
             const record = sessionMap.createRecord({ sessionId: result.sessionId, cwd: result.cwd }, {
                 acpSessionId: request.sessionId,
                 loaded: true,
-                persistedSessionId: result.sessionManagerId,
+                persistedSessionId: stablePersistedSessionId,
                 sessionPath: result.sessionPath,
             });
             const notifications = result.replayEvents
@@ -299,7 +301,7 @@ function createRunWieldAcpServer(context) {
                 _meta: {
                     runwield: {
                         runtimeSessionId: result.sessionId,
-                        persistedSessionId: result.sessionManagerId,
+                        persistedSessionId: stablePersistedSessionId,
                         sessionPath: result.sessionPath,
                         cwd: result.cwd,
                         replayedUpdates: notifications.length,
@@ -387,9 +389,15 @@ function createRunWieldAcpServer(context) {
         };
 
         try {
-            const runtimePrompt = runtime.promptSession(runtimeSessionId, {
+            const snapshot = runtime.getSessionSnapshot(runtimeSessionId);
+            const expectedGeneration = snapshot?.managed?.generation ?? snapshot?.managed?.acknowledgedGeneration ?? 0;
+            const promptMethod = runtime.promptManagedSession
+                ? runtime.promptManagedSession.bind(runtime)
+                : runtime.promptSession.bind(runtime);
+            const runtimePrompt = promptMethod(runtimeSessionId, {
                 initialRequest: promptText,
                 initialImages: [],
+                expectedGeneration,
                 onTurnStarted: ({ turnId }) => {
                     activePrompt = sessionMap.beginPrompt(
                         acpSessionId,
@@ -426,7 +434,11 @@ function createRunWieldAcpServer(context) {
                 return { stopReason: "cancelled" };
             }
             if (result?.stopReason === "cancelled") return result;
-            if (!result.ok) return { stopReason: "refusal" };
+            if (!result.ok) {
+                throw new RequestError(ACP_INVALID_STATE, result.error || "ACP prompt was rejected", {
+                    sessionId: acpSessionId,
+                });
+            }
             return { stopReason: "end_turn" };
         } catch (error) {
             await Promise.allSettled(pendingNotifications);

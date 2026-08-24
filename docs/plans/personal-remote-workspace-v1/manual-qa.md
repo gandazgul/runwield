@@ -46,3 +46,22 @@ Manual verification steps for personal-remote-workspace-v1/16-workspace-plan-rev
       review cannot be answered; send the prepared resubmission message explicitly and confirm a new review appears.
 
 <!-- runwield:manual-qa:end child="personal-remote-workspace-v1/16-workspace-plan-review-and-approve-ui" -->
+
+<!-- runwield:manual-qa:start child="personal-remote-workspace-v1/17-workspace-ux-hardening-pass" -->
+
+## Workspace UX Hardening Pass
+
+Manual verification steps for personal-remote-workspace-v1/17-workspace-ux-hardening-pass
+
+- [ ] On desktop and phone layouts, open a Session and confirm the workflow-state sidebar shows execution, validation,
+      repair, and completion progress.
+- [ ] Paste an image into the Session composer, submit it, then refresh and reconnect; confirm the image remains
+      attached to the message.
+- [ ] Compare the web Session stream with the same session in the TUI; confirm segment and recovery events use the same
+      block types and order, and consecutive same-type events appear in one block.
+- [ ] Scroll up in the Session stream, then receive a new event; confirm the view returns to the latest block near the
+      composer.
+- [ ] Confirm the Session state indicator shows running, blocked, failed, idle, and owned-elsewhere states, and use a
+      browser recovery action with its plain-language confirmation.
+
+<!-- runwield:manual-qa:end child="personal-remote-workspace-v1/17-workspace-ux-hardening-pass" -->

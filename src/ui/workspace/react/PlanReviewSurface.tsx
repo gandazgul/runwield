@@ -79,6 +79,7 @@ export function PlanReviewSurface({ payload }) {
     const [submitting, setSubmitting] = useState(null);
     const [submitted, setSubmitted] = useState(null);
     const [error, setError] = useState("");
+    const [recoveryRequest, setRecoveryRequest] = useState(null);
     const [pendingReviewDraft, setPendingReviewDraft] = useState(null);
     const [reviewDraftReady, setReviewDraftReady] = useState(false);
     const [reviewDraftStorageError, setReviewDraftStorageError] = useState("");
@@ -239,17 +240,21 @@ export function PlanReviewSurface({ payload }) {
     async function submitApprove(approvalAction) {
         setSubmitting("approve");
         try {
-            await submit("decision", {
+            const result = await submit("decision", {
                 approved: true,
                 approvalAction,
                 ...buildApprovalPolicyPayload(),
                 ...buildReviewPayload(),
                 ...buildPlanSavePayload(),
             });
+            if (result?.status === "recovery_required" || result?.result?.kind === "recovery_required") return;
             clearReviewDraft();
             setSubmitted(
                 approvalAction === PLAN_APPROVAL_ACTIONS.LATER ? "approved-later" : `approved-${approvalAction}`,
             );
+            if (approvalAction === PLAN_APPROVAL_ACTIONS.RUN && initialPayload.progressUrl) {
+                globalThis.location.assign(initialPayload.progressUrl);
+            }
         } catch {
             // submit() owns the visible error state.
         } finally {
@@ -260,10 +265,11 @@ export function PlanReviewSurface({ payload }) {
     async function submitFeedback() {
         setSubmitting("feedback");
         try {
-            await submit("deny", {
+            const result = await submit("deny", {
                 ...buildReviewPayload(),
                 ...buildPlanSavePayload(),
             });
+            if (result?.status === "recovery_required" || result?.result?.kind === "recovery_required") return;
             clearReviewDraft();
             setSubmitted("feedback");
         } catch {
@@ -442,6 +448,36 @@ export function PlanReviewSurface({ payload }) {
         };
     }
 
+    async function runRecoveryAction() {
+        if (!recoveryRequest?.url) return;
+        const confirmed = globalThis.confirm?.(
+            "RunWield will recover the Workspace Session control record for this Plan review. Your Plan text is not changed. Continue?",
+        );
+        if (!confirmed) return;
+        setSubmitting("recovery");
+        setError("");
+        try {
+            const headers = { "content-type": "application/json" };
+            if (initialPayload.csrfToken) headers["x-runwield-csrf"] = initialPayload.csrfToken;
+            const response = await fetch(recoveryRequest.url, {
+                method: "POST",
+                headers,
+                body: JSON.stringify({
+                    expectedGeneration: recoveryRequest.expectedGeneration,
+                    expectedCurrentSegmentId: recoveryRequest.expectedCurrentSegmentId || null,
+                }),
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(payload.error || `Recovery failed: ${response.status}`);
+            setRecoveryRequest(null);
+            setError("Recovery finished. Refresh the review, then send the decision again.");
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : String(caught));
+        } finally {
+            setSubmitting(null);
+        }
+    }
+
     // Plannotator supplies behavior; the Workspace bridge owns the active palette.
     return (
         <ThemeProvider
@@ -562,6 +598,26 @@ export function PlanReviewSurface({ payload }) {
                         <p className="rw-review-error" role="alert">{reviewDraftStorageError}</p>
                     )}
                     {error && <p className="rw-review-error" role="alert">{error}</p>}
+                    {recoveryRequest
+                        ? (
+                            <section className="rw-plan-review-notice state-recovery" role="alert">
+                                <strong>Recovery needed</strong>
+                                <p>{recoveryRequest.message}</p>
+                                {recoveryRequest.url
+                                    ? (
+                                        <button
+                                            type="button"
+                                            className="rw-plan-review-recovery-action"
+                                            disabled={submitting !== null}
+                                            onClick={runRecoveryAction}
+                                        >
+                                            {submitting === "recovery" ? "Recovering…" : "Recover in Workspace"}
+                                        </button>
+                                    )
+                                    : null}
+                            </section>
+                        )
+                        : null}
                     <ScrollViewportContext.Provider value={scrollViewport}>
                         <div
                             className="rw-plannotator-plan-layout"
@@ -937,9 +993,10 @@ export function PlanReviewSurface({ payload }) {
 
     async function submit(endpoint, body) {
         setError("");
+        setRecoveryRequest(null);
         if (initialPayload.mode === "dev") {
             console.log("Plan review dev decision", { endpoint, body });
-            return;
+            return { status: "accepted" };
         }
         const targetUrl = initialPayload.interactionAnswerUrl || initialPayload.submitUrl ||
             `/api/review/${endpoint}?token=${encodeURIComponent(initialPayload.token)}`;
@@ -964,11 +1021,25 @@ export function PlanReviewSurface({ payload }) {
                     : body,
             ),
         });
+        const contentType = response.headers.get("content-type") || "";
+        const payload = contentType.includes("application/json") ? await response.json().catch(() => ({})) : null;
+        const result = payload?.result || payload;
+        if (result?.status === "recovery_required" || result?.kind === "recovery_required") {
+            setRecoveryRequest({
+                message: result.message || payload?.error ||
+                    "Plan review recovery is required before this decision can be applied.",
+                url: initialPayload.recoveryUrl,
+                expectedGeneration: initialPayload.recoveryExpectedGeneration,
+                expectedCurrentSegmentId: initialPayload.recoveryExpectedCurrentSegmentId,
+            });
+            return payload;
+        }
         if (!response.ok) {
-            const message = await response.text();
+            const message = payload?.error || `Decision failed: ${response.status}`;
             setError(message || `Decision failed: ${response.status}`);
             throw new Error(message || `Decision failed: ${response.status}`);
         }
+        return payload || { status: "accepted" };
     }
 }
 

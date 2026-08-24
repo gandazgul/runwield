@@ -4,7 +4,7 @@
  * @property {string | null | undefined} [activeSurface]
  * @property {boolean} [bootstrapRequired]
  * @property {number | null | undefined} [generation]
- * @property {{ activeAgent?: string | null, workflowContext?: unknown }} [snapshot]
+ * @property {{ activeAgent?: string | null, workflowContext?: unknown, activeExecutionWorkflow?: unknown }} [snapshot]
  * @property {boolean} [timelineComplete]
  * @property {boolean} [localOperationActive]
  * @property {boolean} [truncated]
@@ -93,6 +93,48 @@ export function deriveSessionAvailability(input) {
         };
     }
     const activeAgent = String(input.snapshot?.activeAgent || "");
+    const workflowContext =
+        input.snapshot?.activeExecutionWorkflow && typeof input.snapshot.activeExecutionWorkflow === "object"
+            ? input.snapshot.activeExecutionWorkflow
+            : input.snapshot?.workflowContext && typeof input.snapshot.workflowContext === "object" &&
+                    ("phase" in input.snapshot.workflowContext || "state" in input.snapshot.workflowContext ||
+                        "kind" in input.snapshot.workflowContext)
+            ? input.snapshot.workflowContext
+            : null;
+    if (workflowContext) {
+        const phase = String(workflowContext.phase || workflowContext.state || workflowContext.kind || "execution");
+        const semantic = phase.includes("semantic") || phase.includes("review");
+        const mechanical = phase.includes("mechanical") || phase.includes("ci");
+        const repair = phase.includes("repair");
+        const delivery = phase.includes("delivery") || phase.includes("publication") || phase.includes("merge");
+        const failed = phase.includes("failed") || phase.includes("failure");
+        const completed = phase.includes("completed") || phase.includes("verified");
+        const label = failed
+            ? "Work needs attention"
+            : completed
+            ? "Work completed"
+            : repair
+            ? "Repair running"
+            : delivery
+            ? "Delivery running"
+            : semantic
+            ? "Semantic Code Review running"
+            : mechanical
+            ? "Mechanical Validation running"
+            : "Execution running";
+        return {
+            key: failed ? "workflow-failed" : completed ? "workflow-completed" : "execution-workflow",
+            label,
+            explanation: completed
+                ? "This Session has completed work and remains read-only for this workflow."
+                : failed
+                ? "This Session has work that needs attention. Use the Plan progress view."
+                : "This Session is running work. Use the Plan progress view for current state.",
+            intent: failed ? "danger" : completed ? "success" : "warning",
+            canPrepare: false,
+            canContinue: false,
+        };
+    }
     if (input.snapshot?.activeExecutionWorkflow) {
         return {
             key: "execution-workflow",

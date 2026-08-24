@@ -300,7 +300,7 @@ export async function classifyRootSessionLocator(options) {
     if (byPath && byPi && byPath.runwieldSessionId !== byPi.runwieldSessionId) {
         return { kind: "blocked", reason: "locator_conflict" };
     }
-    if (byPi && byPi.transcriptPath !== locator.sessionPath) {
+    if (!byPath && byPi && byPi.transcriptPath !== locator.sessionPath) {
         return { kind: "blocked", reason: "locator_conflict" };
     }
     let session = byPath || byPi || null;

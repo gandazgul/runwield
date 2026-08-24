@@ -1326,6 +1326,99 @@
     gap: 1rem;
 }
 
+.session-detail-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem);
+    gap: 1rem;
+    align-items: start;
+}
+
+.session-stream-panel {
+    display: grid;
+    gap: 1rem;
+    min-width: 0;
+}
+
+.session-workflow-sidebar {
+    position: sticky;
+    top: 1rem;
+    display: grid;
+    gap: 0.85rem;
+    padding: 1rem;
+    border: 1px solid var(--rw-border);
+    border-radius: 1rem;
+    background: var(--rw-surface-raised);
+    box-shadow: 0 16px 36px rgb(0 0 0 / 0.18);
+}
+
+.session-workflow-sidebar .kicker,
+.session-workflow-sidebar dl,
+.session-workflow-sidebar dd {
+    margin: 0;
+}
+
+.session-workflow-sidebar dl {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.session-workflow-sidebar dt {
+    color: var(--rw-text-dim);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.session-workflow-sidebar dd {
+    color: var(--rw-text-strong);
+    overflow-wrap: anywhere;
+}
+
+.session-workflow-stage-list {
+    display: grid;
+    gap: 0.65rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.session-workflow-stage-list li {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.75rem;
+    border: 1px solid var(--rw-border-subtle, var(--rw-border));
+    border-radius: 0.75rem;
+    background: var(--rw-surface-muted);
+}
+
+.session-workflow-stage-list li > span {
+    color: var(--rw-text-strong);
+    font-weight: 800;
+}
+
+.session-workflow-stage-list li > strong {
+    color: var(--rw-text-dim);
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.session-workflow-stage-list li > p {
+    margin: 0;
+    color: var(--rw-text-muted);
+    font-size: 0.86rem;
+}
+
+.session-workflow-stage-list li[data-state="running"] {
+    border-color: var(--rw-accent);
+}
+
+.session-workflow-stage-list li[data-state="needs_attention"],
+.session-workflow-stage-list li[data-state="failed"] {
+    border-color: var(--rw-danger);
+}
+
 .session-card-list {
     display: grid;
     gap: 0.85rem;
@@ -1440,6 +1533,34 @@
     gap: 0.75rem;
 }
 
+.session-scroll-offer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    color: var(--rw-text-muted);
+    font-size: 0.9rem;
+}
+
+.session-scroll-offer button,
+.session-image-attachments button {
+    min-height: 2.25rem;
+    border: 1px solid var(--rw-border);
+    border-radius: 999px;
+    background: var(--rw-surface-muted);
+    color: var(--rw-text);
+    padding: 0.35rem 0.65rem;
+    font: inherit;
+    font-weight: 700;
+}
+
+.session-scroll-offer button:hover,
+.session-image-attachments button:hover {
+    border-color: var(--rw-border-strong);
+    background: var(--rw-surface-strong);
+}
+
 .session-timeline {
     list-style: none;
     padding: 0;
@@ -1456,6 +1577,7 @@
 .session-tool,
 .session-thinking,
 .session-status-row,
+.session-system-event,
 .session-live-interaction,
 .session-plan-review-card,
 .session-interruption {
@@ -1469,6 +1591,37 @@
 .session-live-interaction {
     border-color: color-mix(in srgb, var(--rw-warning) 65%, var(--rw-border));
     background: color-mix(in srgb, var(--rw-warning) 10%, var(--rw-surface-raised));
+}
+
+.session-system-event {
+    border-color: color-mix(in srgb, var(--rw-accent) 45%, var(--rw-border));
+    background: color-mix(in srgb, var(--rw-accent) 8%, var(--rw-surface-raised));
+}
+
+.session-system-event.level-warning {
+    border-color: color-mix(in srgb, var(--rw-warning) 55%, var(--rw-border));
+}
+
+.session-system-event.level-error,
+.session-system-event.level-danger {
+    border-color: color-mix(in srgb, var(--rw-error) 55%, var(--rw-border));
+}
+
+.session-system-event header {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    color: var(--rw-text-muted);
+    margin-bottom: 0.35rem;
+}
+
+.session-system-event p,
+.session-system-event ul {
+    margin: 0;
+}
+
+.session-system-event ul {
+    padding-left: 1.2rem;
 }
 
 .session-plan-review-card {
@@ -1533,8 +1686,30 @@
 .session-message p,
 .session-thinking p,
 .session-tool p,
+.session-system-event p,
+.session-system-event li,
 .session-status-row {
     white-space: pre-wrap;
+}
+
+.session-image-attachments {
+    list-style: none;
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+}
+
+.session-image-attachments li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--rw-border);
+    border-radius: 0.85rem;
+    background: var(--rw-surface-muted);
 }
 
 .session-composer {
@@ -1607,6 +1782,17 @@
     align-items: center;
 }
 
+@media (max-width: 900px) {
+    .session-detail-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .session-workflow-sidebar {
+        position: static;
+        order: -1;
+    }
+}
+
 @media (max-width: 640px) {
     .owner-workspace-shell main,
     .workspace-shell main {
@@ -1638,4 +1824,194 @@
         border-radius: 0.85rem;
         width: 100%;
     }
+}
+
+.plan-progress-surface {
+    display: grid;
+    gap: 1rem;
+}
+
+.plan-progress-header-actions,
+.workflow-progress-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.workflow-progress-list,
+.session-segment-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.workflow-progress-list {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.workflow-progress-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.85rem;
+    padding: 1rem;
+    border: 1px solid var(--rw-border);
+    border-radius: 18px;
+    background: var(--rw-surface-raised);
+    box-shadow: 0 16px 36px rgb(0 0 0 / 0.18);
+}
+
+.workflow-progress-index {
+    display: inline-grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 999px;
+    color: var(--rw-text-strong);
+    background: var(--rw-surface-muted);
+    border: 1px solid var(--rw-border-strong);
+    font-weight: 700;
+}
+
+.workflow-progress-item h2,
+.plan-progress-session h2,
+.plan-progress-metadata h2 {
+    margin: 0;
+    color: var(--rw-text-strong);
+}
+
+.workflow-progress-item p {
+    margin: 0.35rem 0;
+    color: var(--rw-text);
+    overflow-wrap: anywhere;
+}
+
+.workflow-progress-item time {
+    color: var(--rw-text-dim);
+    font-size: 0.9rem;
+}
+
+.rw-status-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.75rem;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid var(--rw-border);
+    background: var(--rw-surface-muted);
+    color: var(--rw-text-strong);
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: capitalize;
+}
+
+.rw-status-badge.state-running,
+.rw-status-badge.state-waiting,
+.rw-status-badge.state-delivering,
+.rw-status-badge.state-repairing {
+    border-color: var(--rw-warning);
+    color: var(--rw-warning);
+}
+
+.rw-status-badge.state-passed,
+.rw-status-badge.state-completed {
+    border-color: var(--rw-success);
+    color: var(--rw-success);
+}
+
+.rw-status-badge.state-needs_attention,
+.rw-status-badge.state-failed,
+.rw-status-badge.state-degraded {
+    border-color: var(--rw-error);
+    color: var(--rw-error);
+}
+
+.rw-status-badge.state-paused,
+.rw-status-badge.state-unknown {
+    border-color: var(--rw-accent);
+    color: var(--rw-accent-text);
+}
+
+.plan-progress-warning {
+    border-color: var(--rw-error);
+}
+
+.plan-progress-metadata .metadata-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 0.75rem;
+}
+
+.plan-progress-metadata dt {
+    color: var(--rw-text-dim);
+    font-size: 0.85rem;
+}
+
+.plan-progress-metadata dd {
+    margin: 0.2rem 0 0;
+    color: var(--rw-text-strong);
+    overflow-wrap: anywhere;
+}
+
+.session-segment-list {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.session-segment-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.65rem 0.75rem;
+    border-radius: 14px;
+    border: 1px solid var(--rw-border);
+    background: var(--rw-surface);
+}
+
+.session-segment-list li.current {
+    border-color: var(--rw-accent);
+}
+
+@media (max-width: 520px) {
+    .workflow-progress-item {
+        grid-template-columns: 1fr;
+    }
+
+    .plan-progress-header-actions,
+    .workflow-progress-title-row,
+    .session-segment-list li {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}
+
+.plan-progress-fixture-picker {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    color: var(--rw-text-muted);
+}
+
+.plan-progress-fixture-picker select {
+    min-height: 2.5rem;
+    border: 1px solid var(--rw-border);
+    border-radius: 999px;
+    background: var(--rw-surface-raised);
+    color: var(--rw-text);
+    padding: 0.4rem 0.75rem;
+}
+
+.session-segment-boundary {
+    margin: 0;
+    padding: 0.45rem 0.7rem;
+    border-radius: 999px;
+    border: 1px solid var(--rw-border);
+    background: var(--rw-surface-muted);
+    color: var(--rw-text-muted);
+    font-size: 0.85rem;
+    font-weight: 700;
 }

@@ -941,6 +941,7 @@ export const validationTreePublicationStaleRepairWorktreeScenario = withValidati
             { type: "type", text: "/load-plan publication-stale-repair-worktree" },
             { type: "enter" },
             { type: "enter" },
+            { type: "waitForScreen", text: "The commits are ready", timeoutMs: 30000 },
             { type: "waitForIdle", timeoutMs: 30000 },
             { type: "captureProjectState", planNames: ["publication-stale-repair-worktree"] },
         ],
@@ -992,7 +993,11 @@ export const validationTreePublicationGenericGitFailureScenario = withValidation
             { type: "type", text: "/load-plan publication-generic-git-failure" },
             { type: "enter" },
             { type: "enter" },
-            { type: "sleep", ms: 3000 },
+            {
+                type: "waitForScreen",
+                text: "Git could not save the final validation files",
+                timeoutMs: 30000,
+            },
             {
                 type: "waitForPlanStatus",
                 planName: "publication-generic-git-failure",

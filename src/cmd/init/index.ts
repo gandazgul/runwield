@@ -20,6 +20,7 @@ import { getSettingsManager } from "../../shared/settings.js";
 import { printCommandHelp } from "../help/index.ts";
 import { recordInitDone, recordInitOffered } from "./init-state.ts";
 import { isProjectInitComplete, requireProjectInitArtifact } from "./init-completion.ts";
+import { createInitVerificationCommandOperation } from "../../tools/init-verification-command.ts";
 import type { InteractiveSessionPort } from "../../ui/tui/interactive-session-port.ts";
 
 interface InitCommandBaseOptions {
@@ -120,6 +121,7 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
         : (await sessionRuntime.createInteractiveSession({ cwd: getCwd(), mode: "new" })).sessionId;
 
     await recordInitOffered();
+    const verificationCommandOperation = createInitVerificationCommandOperation({ projectRoot: getCwd() });
 
     // Run the canonical hidden init agent, distinct from user-selectable Agents.
     try {
@@ -127,9 +129,17 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
             agentName: AGENTS.INIT,
             userRequest: "Initialize this project for RunWield. Follow the instructions in your system prompt.",
             subAgentDefinition: { id: SUBAGENTS.INIT },
+            customTools: [verificationCommandOperation.tool],
         });
         if (!Array.isArray(result) && result?.ok === false) {
             throw new Error(`Init agent did not start: ${result.error || "Runtime refused the operation"}`);
+        }
+        const confirmedCommand = verificationCommandOperation.getConfirmedCommand();
+        if (!confirmedCommand) {
+            throw new Error(
+                "Init agent finished without saving a confirmed verification command. " +
+                    "Initialization was not marked complete; run /init to retry.",
+            );
         }
         await requireProjectInitArtifact();
 

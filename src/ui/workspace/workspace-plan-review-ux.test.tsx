@@ -16,6 +16,30 @@ Deno.test("Phone Plan review keeps full editing annotations and actions reachabl
     assertStringIncludes(surface, "Feedback");
 });
 
+Deno.test("Approve and Run opens stable Plan progress without changing other review outcomes", async () => {
+    const route = await Deno.readTextFile(ROUTE_PATH);
+    const surface = await Deno.readTextFile(SURFACE_PATH);
+
+    assertStringIncludes(route, "interactionAnswerUrl");
+    assertStringIncludes(route, "progressUrl");
+    assertStringIncludes(surface, "Approve & Run");
+    assertStringIncludes(surface, "PLAN_APPROVAL_ACTIONS.RUN");
+    assertStringIncludes(surface, "globalThis.location.assign(initialPayload.progressUrl)");
+    assertStringIncludes(surface, "Later");
+    assertStringIncludes(surface, "approved-later");
+});
+
+Deno.test("Plan review exposes Workspace recovery when live Plan evidence requires it", async () => {
+    const route = await Deno.readTextFile(ROUTE_PATH);
+    const surface = await Deno.readTextFile(SURFACE_PATH);
+
+    assertStringIncludes(route, "recoveryUrl");
+    assertStringIncludes(route, "force-recovery");
+    assertStringIncludes(surface, "recovery_required");
+    assertStringIncludes(surface, "Recover in Workspace");
+    assertStringIncludes(surface, "runRecoveryAction");
+});
+
 Deno.test("Plan feedback action sits above the annotation list with theme accent styling", async () => {
     const surface = await Deno.readTextFile(SURFACE_PATH);
     const styles = await Deno.readTextFile("src/ui/workspace/react/plannotator.css");

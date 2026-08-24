@@ -456,3 +456,14 @@ Use the explicit label **User Verified** for `user_verified`. It is a closed/suc
 proof-bearing RunWield Verified. Badges, buttons, and metadata should reuse existing RunWield semantic tokens for
 closed/success states and pair the label with explanatory text such as “verified by the user; Workflow Validation was
 not claimed.” Do not add a separate theme or token for this status.
+
+### Workflow progress
+
+Use the workflow progress pattern when a surface must show an ordered RunWield workflow such as execution, Mechanical
+Validation, Semantic Code Review, repair, delivery, and completion.
+
+- Render stages as an ordered list with text status and color status. Do not rely on color alone.
+- Use `--rw-*` semantic tokens for borders, surfaces, success, warning, error, and accent states.
+- Keep the model read-only. Progress views can link to related Plan and Session pages, but they must not advance the
+  workflow.
+- Long failure text must wrap inside the card and must not create whole-page horizontal overflow.

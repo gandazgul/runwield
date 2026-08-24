@@ -47,7 +47,7 @@ async function captureConsole(run: () => void | Promise<void>): Promise<{ logs: 
 Deno.test("init exercises real project state, assets, settings, and Agent runtime in an isolated home", async (test) => {
     await withRuntimeCommandFixture(
         "init-command-",
-        async ({ alternateRoot, homeDir, projectRoot, settingsPath, setModelMessages, setModelResponse }) => {
+        async ({ alternateRoot, homeDir, projectRoot, settingsPath, setModelMessages }) => {
             const originalSettings = await Deno.readTextFile(settingsPath);
 
             await test.step("help comes from the real command registry before project inspection", async () => {
@@ -110,7 +110,10 @@ Deno.test("init exercises real project state, assets, settings, and Agent runtim
             await test.step("init refuses false success when the Agent writes no artifact", async () => {
                 Deno.chdir(projectRoot);
                 await Deno.writeTextFile(join(projectRoot, "mod.ts"), "export const fixture = true;\n");
-                setModelResponse("Initialization inspection complete.");
+                setModelMessages([
+                    fauxAssistantMessage(fauxToolCall("init_save_verification_command", { command: "deno task ci" })),
+                    fauxAssistantMessage(fauxText("Initialization inspection complete.")),
+                ]);
                 const ui = createUi();
                 const runtime = createSessionRuntime();
                 const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
@@ -132,6 +135,7 @@ Deno.test("init exercises real project state, assets, settings, and Agent runtim
             await test.step("init runs the real isolated Agent, verifies its artifact, and records completion", async () => {
                 Deno.chdir(projectRoot);
                 setModelMessages([
+                    fauxAssistantMessage(fauxToolCall("init_save_verification_command", { command: "deno task ci" })),
                     fauxAssistantMessage(fauxToolCall("write", {
                         path: "docs/domain-language.md",
                         content: "# Domain Language\n\n## Fixture\n\nCurrent fixture terminology.\n",

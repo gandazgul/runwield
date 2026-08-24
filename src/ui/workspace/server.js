@@ -34,6 +34,7 @@ import { PlanBoard } from "./components/Board.jsx";
 import { PlanBoardToolbar } from "./components/PlanBoardToolbar.jsx";
 import { buildPlanBoardSearchIndex } from "./plan-search.js";
 import { PlanDetail } from "./components/PlanDetail.jsx";
+import { PlanProgressSurface } from "./react/PlanProgressSurface.tsx";
 import { loadRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.js";
 import {
@@ -51,6 +52,7 @@ import {
     ownerProjectFileContentApi,
     ownerProjectPlanActionApi,
     ownerProjectPlanDetailApi,
+    ownerProjectPlanProgressApi,
     pairingClaimApi,
     pairingRequestApi,
     pairingStatusApi,
@@ -256,6 +258,13 @@ export function createOwnerWorkspaceApp(options) {
         async (ctx) => ownerHtmlResponse("On-hold Project Plans", await renderOwnerProjectBoard(ctx, "on-hold")),
     );
     app.get(
+        "/projects/:projectId/plans/:planId/progress",
+        async (ctx) => {
+            const body = await renderOwnerPlanProgress(ctx);
+            return body instanceof Response ? body : ownerHtmlResponse("Project Plan Progress", body);
+        },
+    );
+    app.get(
         "/projects/:projectId/plans/:planId",
         async (ctx) => ownerHtmlResponse("Project Plan", await renderOwnerPlanDetail(ctx)),
     );
@@ -269,6 +278,7 @@ export function createOwnerWorkspaceApp(options) {
     app.post("/api/owner/projects/:projectId/action", projectActionApi);
     app.get("/api/owner/projects/:projectId/plans", ownerProjectBoardApi);
     app.get("/api/owner/projects/:projectId/plans/view/:view", ownerProjectBoardApi);
+    app.get("/api/owner/projects/:projectId/plans/:planId/progress", ownerProjectPlanProgressApi);
     app.get("/api/owner/projects/:projectId/plans/:planId", ownerProjectPlanDetailApi);
     app.get("/api/owner/projects/:projectId/files/content", ownerProjectFileContentApi);
     app.post("/api/owner/projects/:projectId/plans/:planId/actions", ownerProjectPlanActionApi);
@@ -701,8 +711,8 @@ function renderOwnerHome(ctx) {
                 escapeHtml(project.projectId)
             }" hidden></pre></article>`
         ).join("")
-        : `<section class="owner-card empty-state"><h2>No registered Projects yet</h2><p>Register trusted local Projects before Workspace can browse Plans or later continue Sessions.</p></section>`;
-    return `<section class="page-header"><h1>Projects</h1><p>Register and repair trusted Project roots. The later Attention Dashboard will become the default home; for now, Project setup is the bootstrap surface.</p></section><section class="owner-card"><form id="project-register" class="owner-form"><label>Project root <input name="root" placeholder="/absolute/path/to/project" required></label><label>Display name <input name="displayName" placeholder="Optional"></label><button class="action-primary" type="submit">Register Project</button></form><p id="project-message" aria-live="polite"></p></section><section class="project-grid">${cards}</section><script>${ownerMutationScript()}document.getElementById('project-register').addEventListener('submit',async(event)=>{event.preventDefault();const form=new FormData(event.currentTarget);const response=await ownerFetch('/api/owner/projects',{method:'POST',body:JSON.stringify({root:form.get('root'),displayName:form.get('displayName')})});if(response.ok) location.reload(); else document.getElementById('project-message').textContent=(await response.json()).error;});document.querySelectorAll('[data-project-action]').forEach((button)=>button.addEventListener('click',async()=>{if(button.dataset.action==='remove'&&!confirm('Remove this Project from Workspace? Repository files are not deleted.'))return;const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(button.dataset.projectAction)+'/action',{method:'POST',body:JSON.stringify({action:button.dataset.action})});const data=await response.json().catch(()=>({}));if(response.ok){if(button.dataset.action==='rescan'){const diagnostics=document.querySelector('[data-project-diagnostics="'+CSS.escape(button.dataset.projectAction)+'"]');if(diagnostics){diagnostics.hidden=false;diagnostics.textContent=(data.diagnostics||[]).length?JSON.stringify(data.diagnostics,null,2):'Full Session catalog rescan completed with no diagnostics.';}return;}location.reload();} else alert(data.error); }));document.querySelectorAll('[data-project-relink]').forEach((relinkForm)=>relinkForm.addEventListener('submit',async(event)=>{event.preventDefault();const formData=new FormData(relinkForm);const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(relinkForm.dataset.projectRelink)+'/action',{method:'POST',body:JSON.stringify({action:'relink',newRoot:formData.get('newRoot')})});if(response.ok) location.reload(); else alert((await response.json()).error);}));</script>`;
+        : `<section class="owner-card empty-state"><h2>No registered Projects yet</h2><p>Register trusted local Projects before Workspace can browse Plans or Sessions.</p></section>`;
+    return `<section class="page-header"><h1>Projects</h1><p>Register and repair trusted Project roots.</p></section><section class="owner-card"><form id="project-register" class="owner-form"><label>Project root <input name="root" placeholder="/absolute/path/to/project" required></label><label>Display name <input name="displayName" placeholder="Optional"></label><button class="action-primary" type="submit">Register Project</button></form><p id="project-message" aria-live="polite"></p></section><section class="project-grid">${cards}</section><script>${ownerMutationScript()}document.getElementById('project-register').addEventListener('submit',async(event)=>{event.preventDefault();const form=new FormData(event.currentTarget);const response=await ownerFetch('/api/owner/projects',{method:'POST',body:JSON.stringify({root:form.get('root'),displayName:form.get('displayName')})});if(response.ok) location.reload(); else document.getElementById('project-message').textContent=(await response.json()).error;});document.querySelectorAll('[data-project-action]').forEach((button)=>button.addEventListener('click',async()=>{if(button.dataset.action==='remove'&&!confirm('Remove this Project from Workspace? Repository files are not deleted.'))return;const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(button.dataset.projectAction)+'/action',{method:'POST',body:JSON.stringify({action:button.dataset.action})});const data=await response.json().catch(()=>({}));if(response.ok){if(button.dataset.action==='rescan'){const diagnostics=document.querySelector('[data-project-diagnostics="'+CSS.escape(button.dataset.projectAction)+'"]');if(diagnostics){diagnostics.hidden=false;diagnostics.textContent=(data.diagnostics||[]).length?JSON.stringify(data.diagnostics,null,2):'Full Session catalog rescan completed with no diagnostics.';}return;}location.reload();} else alert(data.error); }));document.querySelectorAll('[data-project-relink]').forEach((relinkForm)=>relinkForm.addEventListener('submit',async(event)=>{event.preventDefault();const formData=new FormData(relinkForm);const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(relinkForm.dataset.projectRelink)+'/action',{method:'POST',body:JSON.stringify({action:'relink',newRoot:formData.get('newRoot')})});if(response.ok) location.reload(); else alert((await response.json()).error);}));</script>`;
 }
 
 /** @param {any} ctx */
@@ -823,6 +833,27 @@ async function renderOwnerPlanDetail(ctx) {
         staticRender: true,
     });
     return `${detailHtml}<aside class="owner-card owner-read-only-note"><h2>Owner safety</h2><p>Some Plan changes require a live Session with matching Plan evidence before RunWield can apply them.</p></aside>`;
+}
+
+/** @param {any} ctx */
+async function renderOwnerPlanProgress(ctx) {
+    const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+    const response = await renderAstroPage(ctx.req, root);
+    if (response) return response;
+    const session = ctx.url.searchParams.get("session") || "";
+    const apiUrl = ownerPresentationUrl(
+        ctx.url,
+        `/api/owner/projects/${encodeURIComponent(ctx.params.projectId)}/plans/${
+            encodeURIComponent(ctx.params.planId)
+        }/progress${session ? `?session=${encodeURIComponent(session)}` : ""}`,
+    );
+    const progressUrl = ownerPresentationUrl(
+        ctx.url,
+        `/projects/${encodeURIComponent(ctx.params.projectId)}/plans/${encodeURIComponent(ctx.params.planId)}/progress${
+            session ? `?session=${encodeURIComponent(session)}` : ""
+        }`,
+    );
+    return await renderOwnerReactComponent(PlanProgressSurface, { apiUrl, progressUrl, initialProgress: null });
 }
 
 /** @param {any} ctx */

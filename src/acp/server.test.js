@@ -264,7 +264,9 @@ Deno.test("ACP session/load replays a real persisted Session and accepts another
                     message.params?.update?.sessionUpdate === "agent_message_chunk"
                 ),
             );
-            assertEquals(loaded.response.result._meta.runwield.persistedSessionId, created.persistedSessionId);
+            const stablePersistedSessionId = loaded.response.result._meta.runwield.persistedSessionId;
+            assert(typeof stablePersistedSessionId === "string" && stablePersistedSessionId.length > 0);
+            assert(stablePersistedSessionId !== created.persistedSessionId);
 
             await sendMessage(secondHandle, {
                 jsonrpc: "2.0",

@@ -406,6 +406,7 @@ export async function runPublicationPhase(
                 stage: failure.publicationStage || "git_publication",
                 error: failure.reason,
             });
+            emitStatus(args, blockedMessage, "warning");
             return {
                 recorded: false,
                 result: {

@@ -49,8 +49,20 @@ interface PlanReviewDecision {
     codeAnnotations?: ReviewAnnotationInput[];
 }
 
+interface PlanReviewRecoveryRequired {
+    message: string;
+    entryIds: string[];
+}
+
 export interface PlanReviewResult {
-    [key: string]: string | boolean | PlanApprovalAction | PlanFrontMatter | LoadedReviewImage[] | undefined;
+    [key: string]:
+        | string
+        | boolean
+        | PlanApprovalAction
+        | PlanFrontMatter
+        | LoadedReviewImage[]
+        | PlanReviewRecoveryRequired
+        | undefined;
     approved: boolean;
     canceled?: boolean;
     cancellationReason?: string;
@@ -60,6 +72,7 @@ export interface PlanReviewResult {
     revision?: string;
     savedPath?: string;
     images?: LoadedReviewImage[];
+    recoveryRequired?: PlanReviewRecoveryRequired;
 }
 
 interface ReviewServerOutput {

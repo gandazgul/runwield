@@ -37,11 +37,20 @@ function requireReceipt(receipt) {
     return receipt;
 }
 
-/** @param {{ ok: boolean, segments?: unknown[] }} projection */
+/** @param {{ ok: boolean, events?: unknown[], segments?: unknown[] }} projection */
 function browserTimelineProjection(projection) {
     if (!projection.ok) return projection;
-    const { segments: _segments, ...safeProjection } = projection;
-    return safeProjection;
+    return {
+        ...projection,
+        events: Array.isArray(projection.events)
+            ? projection.events.map((event) => {
+                if (!event || typeof event !== "object") return event;
+                const { _meta, ...safeEvent } = /** @type {Record<string, unknown>} */ (event);
+                return safeEvent;
+            })
+            : projection.events,
+        segments: Array.isArray(projection.segments) ? projection.segments : [],
+    };
 }
 
 /** @param {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} request */
@@ -432,7 +441,7 @@ export class WorkspaceSessionContinuationService {
     }
 
     /**
-     * @param {{ deviceId?: string | null, projectId: string, runwieldSessionId: string, requestId: string, expectedGeneration: number, text: string }} options
+     * @param {{ deviceId?: string | null, projectId: string, runwieldSessionId: string, requestId: string, expectedGeneration: number, text: string, images?: Array<{ base64: string, mimeType: string }> }} options
      */
     async startContinuation(options) {
         if (!options.text || typeof options.text !== "string") throw new Error("Continuation text is required.");
@@ -441,6 +450,7 @@ export class WorkspaceSessionContinuationService {
             session: options.runwieldSessionId,
             expectedGeneration: options.expectedGeneration,
             text: options.text,
+            images: options.images || [],
         });
         const existingReceipt = this.store.findOperationReceiptByRequest({
             deviceId: options.deviceId || null,
@@ -472,7 +482,7 @@ export class WorkspaceSessionContinuationService {
             runwieldSessionId: options.runwieldSessionId,
             generation: inspected.generation,
             segments: this.store.listSessionTranscriptSegments(options.runwieldSessionId),
-            limit: 1,
+            limit: 500,
         });
         if (!projection.ok) throw new Error(projection.message);
         const committedFacts = getCommittedTranscriptAuthorityFacts(projection);
@@ -531,7 +541,7 @@ export class WorkspaceSessionContinuationService {
             try {
                 const result = await this.runtime.promptUserTurn(adopted.sessionId, {
                     initialRequest: options.text,
-                    initialImages: [],
+                    initialImages: options.images || [],
                     agentName: decision.agentName,
                 });
                 const generation = result.ok ? options.expectedGeneration + 1 : options.expectedGeneration;
@@ -652,6 +662,18 @@ export class WorkspaceSessionContinuationService {
                     decision:
                         /** @type {import('../../../shared/workflow/plan-review-actions.ts').SharedPlanReviewDecision} */ (decision),
                 });
+                if (actionResult.recoveryRequired) {
+                    const result = {
+                        status: "recovery_required",
+                        message: actionResult.recoveryRequired.message,
+                        entryIds: actionResult.recoveryRequired.entryIds,
+                    };
+                    this.store.updateOperationReceipt(receipt.operationId, {
+                        status: "completed",
+                        resultBody: { result },
+                    });
+                    return result;
+                }
                 if (actionResult.cancellationReason) {
                     const message = actionResult.feedback ||
                         "Plan review evidence is stale. Reload the Plan and review again.";

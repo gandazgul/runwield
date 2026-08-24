@@ -588,6 +588,18 @@ export function PlanDetail({ plan, url, editIntent = false, staticRender = false
                         <a className="detail-close-link" href={closeHref} aria-label="Close plan detail">X</a>
                     </div>
                     <p>{plan.summary || "No summary provided."}</p>
+                    {!isEpic
+                        ? (
+                            <div className="detail-actions" aria-label="Plan progress navigation">
+                                <a
+                                    className="rw-plan-review-link"
+                                    href={`${String(url).replace(/[?#].*$/, "")}/progress`}
+                                >
+                                    View progress
+                                </a>
+                            </div>
+                        )
+                        : null}
                     {isEpic ? <EpicSummary epic={plan} /> : null}
                     {!isEpic && plan.status === "on_hold" ? <p className="notice muted">{holdMetadata(plan)}</p> : null}
                     {plan.hierarchyRole === "orphan-child" || plan.blockedByDependencies

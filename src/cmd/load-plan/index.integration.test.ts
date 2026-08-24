@@ -2,6 +2,8 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { loadArchivedPlan, loadPlan, resolveSiblingChildPlanDependencies, savePlan } from "../../plan-store.js";
 import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
+import { addEntry } from "../../shared/worktree-registry.js";
+import { executePlanAction, loadPlanActionEvidence } from "../../shared/workflow/plan-actions.ts";
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runLoadPlanCommand } from "./index.ts";
@@ -608,6 +610,66 @@ Deno.test("load-plan adopts a plain Markdown file into the real Plan catalogue",
             assertStringIncludes(ui.messages.join("\n"), "Adopted external as a RunWield Plan");
         } finally {
             runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan recovery rejects replaced worktree registry evidence before mutation", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        const worktreePath = `${projectRoot}-failed-worktree`;
+        const worktreeBranch = "worktree/failed-worktree-old";
+        await writePlan(projectRoot, "failed-worktree", {
+            status: "failed",
+            planId: "plan-failed-worktree",
+            executionMode: "worktree",
+            worktreeId: "wt-old",
+            worktreePath,
+            worktreeBranch,
+            worktreeBaseBranch: "main",
+            worktreeStatus: "active",
+            failureReason: "Fixture execution stopped",
+        });
+        await git(projectRoot, ["init", "-b", "main"]);
+        await git(projectRoot, ["config", "user.email", "runwield@example.test"]);
+        await git(projectRoot, ["config", "user.name", "RunWield Test"]);
+        await git(projectRoot, ["add", "docs/plans/failed-worktree.md"]);
+        await git(projectRoot, ["commit", "-m", "seed failed worktree Plan"]);
+        const baseCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
+        await git(projectRoot, ["worktree", "add", "-b", worktreeBranch, worktreePath, "HEAD"]);
+        try {
+            await addEntry(projectRoot, {
+                id: "wt-old",
+                planName: "failed-worktree",
+                planId: "plan-failed-worktree",
+                baseBranch: "main",
+                baseRef: "refs/heads/main",
+                baseCommit,
+                branch: worktreeBranch,
+                path: worktreePath,
+                status: "active",
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+            });
+            const evidence = await loadPlanActionEvidence(projectRoot, "plan-failed-worktree");
+            if (evidence.kind !== "success") throw new Error(evidence.message);
+            const executionPlanPath = `${worktreePath}/docs/plans/failed-worktree.md`;
+            await Deno.writeTextFile(
+                executionPlanPath,
+                (await Deno.readTextFile(executionPlanPath)).replace('worktreeId: "wt-old"', 'worktreeId: "wt-new"'),
+            );
+
+            const result = await executePlanAction(projectRoot, {
+                planId: "plan-failed-worktree",
+                expectedRevision: evidence.evidence.revision,
+                expectedStatus: evidence.evidence.status,
+                expectedWorktree: evidence.evidence.worktree,
+                action: "reset_to_draft",
+            });
+
+            assertEquals(result.kind, "recovery_required");
+            assertEquals((await loadPlan(worktreePath, "failed-worktree"))?.attrs.status, "failed");
+        } finally {
+            await git(projectRoot, ["worktree", "remove", "--force", worktreePath]).catch(() => {});
         }
     });
 });

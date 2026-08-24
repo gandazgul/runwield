@@ -52,6 +52,7 @@ export interface SharedPlanReviewActionResult {
     approvalAction?: PlanApprovalAction;
     planAttrs?: PlanFrontMatter;
     revision?: string;
+    recoveryRequired?: { message: string; entryIds: string[] };
     cancellationReason?: "stale_plan_review";
 }
 
@@ -96,6 +97,13 @@ async function validateReviewEvidence(
 ): Promise<SharedPlanReviewActionResult | null> {
     if (!reviewEvidence) return null;
     const evidence = await loadPlanActionEvidence(cwd, reviewEvidence.planId);
+    if (evidence.kind === "recovery_required") {
+        return {
+            approved: false,
+            feedback: evidence.message,
+            recoveryRequired: { message: evidence.message, entryIds: evidence.entryIds },
+        };
+    }
     if (evidence.kind !== "success") return reviewRejected(evidence.message);
     if (evidence.evidence.planName !== planName || evidence.evidence.planId !== reviewEvidence.planId) {
         return reviewRejected("Live review Plan evidence does not match this Plan. Reload the Plan and review again.");

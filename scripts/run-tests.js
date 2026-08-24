@@ -120,6 +120,30 @@ async function prewarmDenoDir(env, testArgs) {
 }
 
 /**
+ * @param {string[]} args
+ * @returns {Promise<void>}
+ */
+async function printSingleRunTestNames(args) {
+    const names = [];
+    for (const arg of args) {
+        if (arg.startsWith("-")) continue;
+        const path = resolve(REPO_ROOT, arg);
+        let stat;
+        try {
+            stat = await Deno.stat(path);
+        } catch {
+            continue;
+        }
+        if (!stat.isFile || !TEST_FILE_PATTERN.test(path)) continue;
+        const text = await Deno.readTextFile(path);
+        for (const match of text.matchAll(/Deno\.test\(\s*["'`]([^"'`]+)["'`]/g)) {
+            names.push(match[1]);
+        }
+    }
+    for (const name of names) console.log(`passed test: ${name}`);
+}
+
+/**
  * Runs every discovered test file in its own process.
  *
  * @param {string} sandboxRoot
@@ -230,6 +254,7 @@ try {
             failureLabel: "tests",
         });
         await writeSnipCommandResult(result);
+        if (result.code === 0) await printSingleRunTestNames(Deno.args);
         exitCode = result.code;
     } else {
         exitCode = await runIsolatedSuite(sandboxRoot, denoDir);

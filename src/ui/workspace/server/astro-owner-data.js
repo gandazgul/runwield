@@ -2,6 +2,7 @@
 
 import { requireOwnerProjectRoot } from "./owner-projects.js";
 import { loadBoard, loadWorkspaceDetail } from "./plan-adapter.js";
+import { loadOwnerPlanProgress } from "./owner-plan-progress.ts";
 
 export const OWNER_WORKSPACE_STORE_KEY = Symbol.for("runwield.workspace.owner-store");
 export const OWNER_WORKSPACE_SESSION_CONTINUATION_KEY = Symbol.for("runwield.workspace.session-continuation");
@@ -40,4 +41,11 @@ export async function loadOwnerProjectPlanDetail(projectId, planId) {
     if (!store) throw new Error("Owner Workspace store is not available.");
     const root = requireOwnerProjectRoot(store, projectId);
     return await loadWorkspaceDetail(root, planId);
+}
+
+/** @param {string} projectId @param {string} planId @param {string | null} runwieldSessionId */
+export async function loadOwnerProjectPlanProgress(projectId, planId, runwieldSessionId = null) {
+    const store = getAstroOwnerWorkspaceStore();
+    if (!store) throw new Error("Owner Workspace store is not available.");
+    return await loadOwnerPlanProgress(store, { projectId, planId, runwieldSessionId });
 }

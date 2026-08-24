@@ -3183,13 +3183,15 @@ export class SessionRuntime {
      * Adopt a Session as a dormant Runtime shell. This path deliberately
      * does not open a writable Pi Session Manager.
      *
-     * @param {{ session: import('../owner-coordination/sessions.js').CatalogedSession, generation?: number | null, acknowledgedEventId?: string | null, name?: string | null, activeAgent?: string | null, model?: string | null, provider?: string | null, thinkingLevel?: string | null, workflowContext?: import('./workflow-context-session.js').WorkflowContext | null }} options
+     * @param {{ session: import('../owner-coordination/sessions.js').CatalogedSession, generation?: number | null, acknowledgedEventId?: string | null, hostedSessionId?: string | null, name?: string | null, activeAgent?: string | null, model?: string | null, provider?: string | null, thinkingLevel?: string | null, workflowContext?: import('./workflow-context-session.js').WorkflowContext | null }} options
      */
     adoptManagedSession(options) {
         const cataloged = options?.session;
         if (!cataloged) throw new Error("SessionRuntime.adoptManagedSession requires a cataloged Session");
         const hostedSession = this.#sessionHost.createSession({
-            id: crypto.randomUUID(),
+            id: typeof options.hostedSessionId === "string" && options.hostedSessionId
+                ? options.hostedSessionId
+                : crypto.randomUUID(),
             cwd: cataloged.transcriptCwd,
             sessionManager: null,
             managed: {

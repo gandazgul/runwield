@@ -1,0 +1,11 @@
+---
+import WorkspaceLayout from "../../layouts/WorkspaceLayout.astro";
+import { PlanProgressSurface } from "../../react/PlanProgressSurface.tsx";
+
+if (!import.meta.env.DEV) {
+    return new Response("Not found", { status: 404 });
+}
+---
+<WorkspaceLayout title="Plan Progress Dev · RunWield Workspace" selectedTab="projects" url={Astro.url.href}>
+    <PlanProgressSurface client:only="react" />
+</WorkspaceLayout>

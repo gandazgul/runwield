@@ -20,6 +20,19 @@ export function sessionRequestKey(projectId, sessionId) {
     return `runwield:owner:project:${projectId}:session:${sessionId}:request`;
 }
 
+/** @param {string} projectId @param {string} sessionId */
+export function sessionAttachmentsKey(projectId, sessionId) {
+    return `runwield:owner:project:${projectId}:session:${sessionId}:image-attachments`;
+}
+
+/**
+ * @typedef {Object} SessionImageAttachmentDraft
+ * @property {string} id
+ * @property {string} name
+ * @property {string} mimeType
+ * @property {string} base64
+ */
+
 /** @param {unknown} value */
 function asRecord(value) {
     return value && typeof value === "object" ? /** @type {Record<string, any>} */ (value) : {};
@@ -61,6 +74,31 @@ function errorMessage(error) {
     return error instanceof Error ? error.message : String(error);
 }
 
+/** @param {SessionImageAttachmentDraft} image */
+export function serializeSessionImageForRequest(image) {
+    return { base64: image.base64, mimeType: image.mimeType };
+}
+
+/** @param {File} file */
+async function readPastedImage(file) {
+    if (!file.type.startsWith("image/")) throw new Error("Only pasted images can be attached.");
+    const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error || new Error("Image paste failed."));
+        reader.readAsDataURL(file);
+    });
+    const marker = ";base64,";
+    const markerIndex = dataUrl.indexOf(marker);
+    if (markerIndex < 0) throw new Error("Image paste did not include base64 data.");
+    return {
+        id: crypto.randomUUID(),
+        name: file.name || "pasted-image",
+        mimeType: file.type,
+        base64: dataUrl.slice(markerIndex + marker.length),
+    };
+}
+
 /**
  * @param {{ status?: string, responseAccepted?: boolean }} input
  * @returns {"idle" | "retry-same-envelope" | "poll-operation" | "manual-resubmit"}
@@ -86,6 +124,86 @@ export function reduceOperationTransientItems(events) {
  */
 
 /** @param {SessionModelSnapshot | undefined | null} snapshot */
+export function activePlanId(snapshot) {
+    const context = asRecord(snapshot?.workflowContext || snapshot?.activeExecutionWorkflow || {});
+    return typeof context.planId === "string" && context.planId.trim()
+        ? context.planId.trim()
+        : typeof context.planName === "string" && context.planName.trim()
+        ? context.planName.trim()
+        : "";
+}
+
+export function activePlanProgressUrl(projectId, runwieldSessionId, snapshot) {
+    const planId = activePlanId(snapshot);
+    return planId
+        ? `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}/progress?session=${
+            encodeURIComponent(runwieldSessionId)
+        }`
+        : "";
+}
+
+export function activePlanProgressApiUrl(projectId, runwieldSessionId, snapshot) {
+    const planId = activePlanId(snapshot);
+    return planId
+        ? `/api/owner/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}/progress?session=${
+            encodeURIComponent(runwieldSessionId)
+        }`
+        : "";
+}
+
+function highestStageState(stages) {
+    const priority = [
+        "needs_attention",
+        "failed",
+        "paused",
+        "running",
+        "passed",
+        "completed",
+        "not_required",
+        "pending",
+        "unknown",
+    ];
+    return stages.map((item) => item?.state || "unknown").sort((left, right) =>
+        priority.indexOf(left) - priority.indexOf(right)
+    )[0] || "unknown";
+}
+
+export function deriveWorkflowSidebarStages(progress) {
+    const stages = Array.isArray(progress?.stages) ? progress.stages : [];
+    const byId = (id) => stages.find((stage) => stage.id === id) || null;
+    const validationStages = [byId("mechanical"), byId("semantic")].filter(Boolean);
+    const validationState = validationStages.length ? highestStageState(validationStages) : "unknown";
+    const validationDetail = validationStages.map((stage) => `${stage.label}: ${stage.detail}`).join(" ") ||
+        "Validation has no committed stage evidence yet.";
+    const completion = byId("completion") || byId("delivery");
+    return [
+        byId("execution") || {
+            id: "execution",
+            label: "Execution",
+            state: "unknown",
+            detail: "Execution has no committed stage evidence yet.",
+        },
+        {
+            id: "validation",
+            label: "Validation",
+            state: validationState,
+            detail: validationDetail,
+        },
+        byId("repair") || {
+            id: "repair",
+            label: "Repair",
+            state: "unknown",
+            detail: "Repair has no committed stage evidence yet.",
+        },
+        completion || {
+            id: "completion",
+            label: "Completion",
+            state: "unknown",
+            detail: "Completion has no committed stage evidence yet.",
+        },
+    ];
+}
+
 export function deriveSessionModelDisclosure(snapshot) {
     const activeModel = snapshot?.activeModel;
     const rawModel = typeof activeModel?.model === "string" ? activeModel.model : snapshot?.model;
@@ -139,9 +257,12 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [timeline, setTimeline] = useState(/** @type {any} */ (null));
     const [timelineItems, setTimelineItems] = useState(/** @type {Array<Record<string, any>>} */ ([]));
     const [transientItems, setTransientItems] = useState(/** @type {Array<Record<string, any>>} */ ([]));
+    const [workflowProgress, setWorkflowProgress] = useState(/** @type {any} */ (null));
+    const [workflowProgressError, setWorkflowProgressError] = useState("");
     const [detailError, setDetailError] = useState("");
     const [loadingDetail, setLoadingDetail] = useState(mode === "detail");
     const [draft, setDraft] = useState("");
+    const [imageAttachments, setImageAttachments] = useState(/** @type {SessionImageAttachmentDraft[]} */ ([]));
     const [message, setMessage] = useState("");
     const [operation, setOperation] = useState(
         /** @type {{ operationId: string, status: string, observed: number, attempts: number } | null} */ (null),
@@ -151,9 +272,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [interruptedOperation, setInterruptedOperation] = useState(false);
     const operationRef = useRef(operation);
     operationRef.current = operation;
+    const timelineEndRef = useRef(/** @type {HTMLDivElement | null} */ (null));
 
     const draftKey = runwieldSessionId ? sessionDraftKey(projectId, runwieldSessionId) : "";
     const requestKey = runwieldSessionId ? sessionRequestKey(projectId, runwieldSessionId) : "";
+    const attachmentsKey = runwieldSessionId ? sessionAttachmentsKey(projectId, runwieldSessionId) : "";
 
     async function loadList() {
         setLoadingList(true);
@@ -231,6 +354,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         if (!draftKey) return;
         const storedDraft = localStorage.getItem(draftKey) || "";
         setDraft(storedDraft);
+        const storedAttachments = readStored(attachmentsKey);
+        setImageAttachments(Array.isArray(storedAttachments) ? storedAttachments : []);
         const storedRequest = asRecord(readStored(requestKey));
         if (storedRequest.operationId) {
             setOperation({
@@ -243,13 +368,19 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         } else if (storedRequest.requestId && storedRequest.status === "network-error") {
             setMessage("Previous response was lost. Send will retry the exact same request envelope.");
         }
-    }, [draftKey, requestKey]);
+    }, [draftKey, requestKey, attachmentsKey]);
 
     useEffect(() => {
         if (!draftKey) return;
         if (draft) localStorage.setItem(draftKey, draft);
         else localStorage.removeItem(draftKey);
     }, [draft, draftKey]);
+
+    useEffect(() => {
+        if (!attachmentsKey) return;
+        if (imageAttachments.length) localStorage.setItem(attachmentsKey, JSON.stringify(imageAttachments));
+        else localStorage.removeItem(attachmentsKey);
+    }, [attachmentsKey, imageAttachments]);
 
     const availability = useMemo(() =>
         deriveSessionAvailability({
@@ -291,9 +422,29 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }
     }
 
+    async function handleComposerPaste(event) {
+        const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
+        if (!files.length) return;
+        event.preventDefault();
+        try {
+            const images = await Promise.all(files.map(readPastedImage));
+            setImageAttachments((current) => [...current, ...images]);
+            setMessage(`${files.length} image${files.length === 1 ? "" : "s"} attached.`);
+        } catch (error) {
+            setMessage(errorMessage(error));
+        }
+    }
+
+    /** @param {string} id */
+    function removeImageAttachment(id) {
+        setImageAttachments((current) => current.filter((image) => image.id !== id));
+    }
+
     async function sendRequest() {
         const text = draft;
-        if (!text.trim() || !availability.canContinue || submitting || !timeline) return;
+        if ((!text.trim() && imageAttachments.length === 0) || !availability.canContinue || submitting || !timeline) {
+            return;
+        }
         setSubmitting(true);
         setMessage("");
         const existing = asRecord(readStored(requestKey));
@@ -301,6 +452,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             requestId: crypto.randomUUID(),
             expectedGeneration: timeline.generation,
             text,
+            images: imageAttachments.map(serializeSessionImageForRequest),
             status: "pending",
             createdAt: new Date().toISOString(),
         };
@@ -316,10 +468,12 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                         requestId: envelope.requestId,
                         expectedGeneration: envelope.expectedGeneration,
                         text: envelope.text,
+                        images: Array.isArray(envelope.images) ? envelope.images : [],
                     }),
                 },
             );
             setDraft("");
+            setImageAttachments([]);
             const stored = {
                 ...envelope,
                 status: payload.status || "running",
@@ -416,6 +570,40 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         };
     }, [operation?.operationId, requestKey]);
 
+    useEffect(() => {
+        if (mode !== "detail" || !timeline) {
+            setWorkflowProgress(null);
+            setWorkflowProgressError("");
+            return;
+        }
+        const apiUrl = activePlanProgressApiUrl(projectId, runwieldSessionId, timeline.snapshot);
+        if (!apiUrl) {
+            setWorkflowProgress(null);
+            setWorkflowProgressError("");
+            return;
+        }
+        let cancelled = false;
+        setWorkflowProgressError("");
+        ownerFetch(apiUrl, { method: "GET" })
+            .then((payload) => {
+                if (!cancelled) setWorkflowProgress(payload);
+            })
+            .catch((error) => {
+                if (!cancelled) {
+                    setWorkflowProgress(null);
+                    setWorkflowProgressError(errorMessage(error));
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [mode, projectId, runwieldSessionId, timeline]);
+
+    useEffect(() => {
+        if (mode !== "detail") return;
+        timelineEndRef.current?.scrollIntoView({ block: "nearest" });
+    }, [mode, timelineItems.length, transientItems.length, interruptedOperation]);
+
     async function answerInteraction(operationId, interactionId, response) {
         try {
             await ownerFetch(
@@ -463,6 +651,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         ),
         ...(interruptedOperation ? [{ kind: "interruption", key: "interruption:lost-workspace-operation" }] : []),
     ];
+    const workflowContext = asRecord(
+        timeline?.snapshot?.activeExecutionWorkflow || timeline?.snapshot?.workflowContext || {},
+    );
+    const progressUrl = timeline ? activePlanProgressUrl(projectId, runwieldSessionId, timeline.snapshot) : "";
+    const workflowStages = deriveWorkflowSidebarStages(workflowProgress);
     return (
         <section className="session-surface">
             <div className="session-surface-status" aria-live="polite">{message}</div>
@@ -480,56 +673,127 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 : null}
             {timeline
                 ? (
-                    <>
-                        <section className="owner-card session-summary-card">
-                            <p className="kicker">Session</p>
-                            <h2>{timeline.snapshot?.name || runwieldSessionId}</h2>
-                            <p>
-                                Generation {timeline.generation ?? "unavailable"} · Agent{" "}
-                                {timeline.snapshot?.activeAgent || "unknown"}
-                            </p>
-                            <SessionBackendDisclosure snapshot={timeline.snapshot} />
-                            <SessionActivationStatus availability={availability} />
-                        </section>
-                        <SessionTimeline items={allItems} />
-                        <form
-                            className="session-composer"
-                            onSubmit={(event) => {
-                                event.preventDefault();
-                                sendRequest();
-                            }}
-                        >
-                            <label htmlFor="session-request-text">User Request</label>
-                            <textarea
-                                id="session-request-text"
-                                value={draft}
-                                rows={5}
-                                disabled={!availability.canContinue || submitting}
-                                onChange={(event) => setDraft(event.currentTarget.value)}
-                                onKeyDown={(event) => {
-                                    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                                        event.preventDefault();
-                                        sendRequest();
-                                    }
-                                }}
-                                placeholder="Type the exact request to send to the active Agent…"
-                            />
-                            <div className="session-composer-actions">
-                                <RunWieldButton
-                                    type="submit"
-                                    variant="primary"
-                                    disabled={!availability.canContinue || submitting || !draft.trim()}
-                                >
-                                    {submitting ? "Sending…" : "Send"}
-                                </RunWieldButton>
-                                <span>
-                                    {availability.canContinue
-                                        ? "Enter adds a newline. Command/Ctrl+Enter sends."
-                                        : availability.explanation}
-                                </span>
+                    <div className="session-detail-layout">
+                        <main className="session-stream-panel" aria-label="Session stream">
+                            <section className="owner-card session-summary-card">
+                                <p className="kicker">Session</p>
+                                <h2>{timeline.snapshot?.name || runwieldSessionId}</h2>
+                                <p>
+                                    Generation {timeline.generation ?? "unavailable"} · Agent{" "}
+                                    {timeline.snapshot?.activeAgent || "unknown"}
+                                </p>
+                                <SessionBackendDisclosure snapshot={timeline.snapshot} />
+                                {progressUrl
+                                    ? <a className="rw-plan-review-link" href={progressUrl}>View progress</a>
+                                    : null}
+                                <SessionActivationStatus availability={availability} />
+                            </section>
+                            <div className="session-scroll-offer">
+                                <span>Scroll up for earlier blocks. New blocks stay near the input.</span>
+                                <button type="button" onClick={() => timelineEndRef.current?.scrollIntoView()}>
+                                    Latest block
+                                </button>
                             </div>
-                        </form>
-                    </>
+                            <SessionTimeline items={allItems} />
+                            <div ref={timelineEndRef} aria-hidden="true" />
+                            <form
+                                className="session-composer"
+                                onSubmit={(event) => {
+                                    event.preventDefault();
+                                    sendRequest();
+                                }}
+                            >
+                                <label htmlFor="session-request-text">User Request</label>
+                                <textarea
+                                    id="session-request-text"
+                                    value={draft}
+                                    rows={5}
+                                    disabled={!availability.canContinue || submitting}
+                                    onPaste={handleComposerPaste}
+                                    onChange={(event) => setDraft(event.currentTarget.value)}
+                                    onKeyDown={(event) => {
+                                        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                                            event.preventDefault();
+                                            sendRequest();
+                                        }
+                                    }}
+                                    placeholder="Type the exact request to send to the active Agent. Paste images here to attach them."
+                                />
+                                {imageAttachments.length
+                                    ? (
+                                        <ul className="session-image-attachments" aria-label="Attached images">
+                                            {imageAttachments.map((image) => (
+                                                <li key={image.id}>
+                                                    <span>{image.name} · {image.mimeType}</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeImageAttachment(image.id)}
+                                                    >
+                                                        Remove
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )
+                                    : null}
+                                <div className="session-composer-actions">
+                                    <RunWieldButton
+                                        type="submit"
+                                        variant="primary"
+                                        disabled={!availability.canContinue || submitting ||
+                                            (!draft.trim() && !imageAttachments.length)}
+                                    >
+                                        {submitting ? "Sending…" : "Send"}
+                                    </RunWieldButton>
+                                    <span>
+                                        {availability.canContinue
+                                            ? "Enter adds a newline. Command/Ctrl+Enter sends. Paste images to attach them."
+                                            : availability.explanation}
+                                    </span>
+                                </div>
+                            </form>
+                        </main>
+                        <aside className="session-workflow-sidebar" aria-label="Workflow state">
+                            <p className="kicker">Workflow state</p>
+                            <SessionActivationStatus availability={availability} compact />
+                            <dl>
+                                <div>
+                                    <dt>Session</dt>
+                                    <dd>{timeline.state || "unknown"}</dd>
+                                </div>
+                                <div>
+                                    <dt>Plan</dt>
+                                    <dd>{workflowContext.planName || workflowContext.planId || "No active Plan"}</dd>
+                                </div>
+                            </dl>
+                            {workflowProgress
+                                ? (
+                                    <ol
+                                        className="session-workflow-stage-list"
+                                        aria-label="Canonical workflow progress stages"
+                                    >
+                                        {workflowStages.map((stage) => (
+                                            <li key={stage.id} data-state={stage.state}>
+                                                <span>{stage.label}</span>
+                                                <strong>{String(stage.state || "unknown").replaceAll("_", " ")}</strong>
+                                                <p>{stage.detail}</p>
+                                            </li>
+                                        ))}
+                                    </ol>
+                                )
+                                : (
+                                    <p className="notice muted">
+                                        {workflowProgressError ||
+                                            (progressUrl
+                                                ? "Loading canonical workflow progress…"
+                                                : "No active Plan progress is recorded for this Session.")}
+                                    </p>
+                                )}
+                            {progressUrl
+                                ? <a className="rw-plan-review-link" href={progressUrl}>Open progress</a>
+                                : null}
+                        </aside>
+                    </div>
                 )
                 : null}
         </section>

@@ -15,7 +15,13 @@ import {
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
-type ProjectedRuntimeEvent = { type: string; eventId: string; [key: string]: JsonValue | undefined };
+type ProjectedRuntimeEvent = {
+    type: string;
+    eventId: string;
+    segmentOrdinal?: number;
+    segmentKind?: string;
+    [key: string]: JsonValue | undefined;
+};
 
 type TranscriptSegment = {
     segmentId: string;
@@ -53,12 +59,11 @@ type ProjectAggregateTranscriptOptions = {
 };
 
 type VerifiedSegmentMetadata = {
-    segmentId: string;
     ordinal: number;
     kind: string;
+    label: string;
     sealed: boolean;
-    byteLength: number;
-    terminalEntryId: string | null;
+    current: boolean;
 };
 
 type AggregateProjectionFailure = {
@@ -132,6 +137,18 @@ async function verifySealedSegment(segment: TranscriptSegment, sessionDir: strin
     return evidence;
 }
 
+function normalizeSegmentKind(kind: string) {
+    if (kind === "planning" || kind === "execution" || kind === "semantic_repair") return kind;
+    return "session";
+}
+
+function segmentLabel(kind: string, ordinal: number) {
+    if (kind === "planning") return `Planning segment ${ordinal + 1}`;
+    if (kind === "execution") return `Execution segment ${ordinal + 1}`;
+    if (kind === "semantic_repair") return `Semantic Repair segment ${ordinal + 1}`;
+    return `Session segment ${ordinal + 1}`;
+}
+
 async function verifyCurrentSegment(segment: TranscriptSegment, generation: CommittedGeneration, sessionDir: string) {
     const transcriptPath = await verifyPath(segment, sessionDir);
     const evidence = await captureTranscriptEvidence({
@@ -162,18 +179,24 @@ export async function projectAggregateTranscript(
                 ? await verifyCurrentSegment(segment, options.generation, sessionDir)
                 : await verifySealedSegment(segment, sessionDir);
             aggregateEntries.push(...evidence.entries);
-            replayEvents.push(...createReplayEvents(
-                options.runtimeSessionId || options.runwieldSessionId,
-                evidence.entries,
-                { segmentId: segment.segmentId },
-            ));
+            const kind = normalizeSegmentKind(segment.kind);
+            replayEvents.push(
+                ...createReplayEvents(
+                    options.runtimeSessionId || options.runwieldSessionId,
+                    evidence.entries,
+                    { segmentId: segment.segmentId },
+                ).map((event) => ({
+                    ...event,
+                    segmentOrdinal: segment.ordinal,
+                    segmentKind: kind,
+                })),
+            );
             segmentMetadata.push({
-                segmentId: segment.segmentId,
                 ordinal: segment.ordinal,
-                kind: segment.kind,
+                kind,
+                label: segmentLabel(kind, segment.ordinal),
                 sealed: segment.segmentId !== current.segmentId,
-                byteLength: evidence.byteLength,
-                terminalEntryId: evidence.terminalEntryId,
+                current: segment.segmentId === current.segmentId,
             });
         }
         let cursorReset = false;

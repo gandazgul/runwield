@@ -6,6 +6,7 @@ import {
     type PlanActionRequest,
     type PlanActionResult,
 } from "../../shared/workflow/plan-actions.ts";
+import { makeManagedSessionFixture } from "../../testing/managed-session-fixture.ts";
 import { runOwnerPlanAction } from "./server/owner-plan-actions.ts";
 
 type Receipt = {
@@ -196,6 +197,45 @@ Deno.test("revalidates canonical evidence for a new request id", async () => {
     assertEquals(store.acquireCount, 1);
     const current = await loadPlan(root, "demo");
     assertEquals(current?.attrs.status, "draft");
+});
+
+Deno.test("Workspace Plan action rejects changed status and worktree evidence with a real owner store", async () => {
+    const fixture = await makeManagedSessionFixture();
+    try {
+        await savePlan(fixture.projectRoot, "demo", "# Demo\n", {
+            planId: "plan-demo",
+            status: "draft",
+            classification: "FEATURE",
+        });
+        const action = await makeAction(fixture.projectRoot);
+        const before = await loadPlan(fixture.projectRoot, "demo");
+        if (!before?.revision) throw new Error("fixture Plan missing revision");
+        await savePlan(fixture.projectRoot, "demo", "# Demo\n", {
+            planId: "plan-demo",
+            status: "ready_for_work",
+            classification: "FEATURE",
+        }, { expectedRevision: before.revision });
+
+        const result = await runOwnerPlanAction(fixture.store, {
+            projectId: fixture.project.projectId,
+            runwieldSessionId: fixture.session.runwieldSessionId,
+            deviceId: "device-real",
+            requestId: "req-real-store",
+            requestHash: "hash-real-store",
+            expectedGeneration: 0,
+            action,
+        });
+
+        assertEquals(result.status, 409);
+        assertEquals(result.body.result.kind, "refresh_required");
+        assertEquals((await loadPlan(fixture.projectRoot, "demo"))?.attrs.status, "ready_for_work");
+        assertEquals(
+            fixture.store.inspectSessionActivation(fixture.session.runwieldSessionId).generation?.generation,
+            0,
+        );
+    } finally {
+        await fixture.cleanup();
+    }
 });
 
 Deno.test("conflicts when a request id is reused with different input", async () => {

@@ -91,14 +91,20 @@ export const startupInitScenario = {
             agent: "init",
             phase: "init",
             ordinal: 1,
-            requiredTools: ["write"],
-            toolCalls: [{
-                name: "write",
-                arguments: {
-                    path: "docs/domain-language.md",
-                    content: "# Domain Language\n\n## Golden Fixture\n\nCurrent Golden project terminology.\n",
+            requiredTools: ["init_save_verification_command", "write"],
+            toolCalls: [
+                {
+                    name: "init_save_verification_command",
+                    arguments: { command: "deno task ci" },
                 },
-            }],
+                {
+                    name: "write",
+                    arguments: {
+                        path: "docs/domain-language.md",
+                        content: "# Domain Language\n\n## Golden Fixture\n\nCurrent Golden project terminology.\n",
+                    },
+                },
+            ],
         },
         {
             id: "init-confirms-completion",

@@ -98,7 +98,7 @@ async function cleanupFixture(fixture) {
     await Deno.remove(fixture.dir, { recursive: true });
 }
 
-Deno.test("aggregate projection replays ordered segments and namespaces duplicate Pi entry ids", async () => {
+Deno.test("aggregate projection adds safe segment context without exposing segment evidence", async () => {
     const fixture = await createTwoSegmentFixture();
     try {
         const projected = await projectAggregateTranscript({
@@ -114,10 +114,15 @@ Deno.test("aggregate projection replays ordered segments and namespaces duplicat
             `${fixture.secondSegment.segmentId}:duplicate:assistant_text_delta:0`,
         ]);
         assertEquals(projected.snapshot.name, null);
-        assertEquals(projected.segments.map((segment) => segment.segmentId), [
-            fixture.firstSegment.segmentId,
-            fixture.secondSegment.segmentId,
+        assertEquals(projected.events.map((event) => [event.segmentOrdinal, event.segmentKind]), [
+            [0, "planning"],
+            [1, "execution"],
         ]);
+        assertEquals(projected.segments, [
+            { ordinal: 0, kind: "planning", label: "Planning segment 1", sealed: true, current: false },
+            { ordinal: 1, kind: "execution", label: "Execution segment 2", sealed: false, current: true },
+        ]);
+        assertEquals(JSON.stringify(projected.segments).includes(fixture.firstSegment.segmentId), false);
     } finally {
         await cleanupFixture(fixture);
     }

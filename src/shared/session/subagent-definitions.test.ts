@@ -60,14 +60,12 @@ Deno.test("every registered subagent loads from the moved bundled prompt files",
         loadedIds.push(id);
         assertEquals(agentDef.name, definition.agentName);
         assertEquals(prompt.trim().length > 0, true);
-        // Only Slicer negotiates with a person. The rest run context-isolated with no
-        // user to defer to, and several forbid asking questions outright — user
-        // authority there would describe a dialogue that can never happen.
+        const hasInteractiveUserAuthority = id === SUBAGENTS.SLICER || id === SUBAGENTS.INIT;
         assertEquals(
             agentDef.systemPrompt.includes(USER_AUTHORITY_MARKER),
-            id === SUBAGENTS.SLICER,
+            hasInteractiveUserAuthority,
             `${id} has the wrong user-authority state for an ${
-                id === SUBAGENTS.SLICER ? "interactive" : "isolated"
+                hasInteractiveUserAuthority ? "interactive" : "isolated"
             } subagent`,
         );
     }
@@ -158,6 +156,13 @@ Deno.test("full-agent subagents keep shared system-prompt composition and runtim
     assertStringIncludes(slicer.systemPrompt, "## Available tools");
     assertStringIncludes(init.systemPrompt, "## Skills");
     assertStringIncludes(feedbackEngineer.systemPrompt, "## Memory System");
+    assertEquals(init.tools.includes("user_interview"), true);
+    assertEquals(init.tools.includes("init_save_verification_command"), true);
+    assertStringIncludes(init.systemPrompt, "existing project `verification_command` first");
+    assertStringIncludes(init.systemPrompt, "No verification command");
+    assertStringIncludes(init.systemPrompt, "Other");
+    assertStringIncludes(init.systemPrompt, "cancels");
+    assertStringIncludes(init.systemPrompt, 'echo "verification not implemented yet"');
 });
 
 Deno.test("Init prompt teaches seam-risk guidance without leaking RunWield internals", async () => {
