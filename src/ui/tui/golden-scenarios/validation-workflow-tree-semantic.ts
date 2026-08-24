@@ -184,7 +184,6 @@ export const validationTreeSemanticNudgeOmittedPriorFindingScenario = withValida
                 ordinal: 6,
                 text: "Reported the repaired finding after the omitted-finding nudge.",
             },
-            plannedChangeReviewRepairValidationScenario.script[11],
         ],
         actions: [
             {

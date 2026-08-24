@@ -47,7 +47,7 @@ Deno.test("legacy validation drivers are not reachable", async () => {
 
 Deno.test("publication records every irreversible Git boundary in the durable state machine", async () => {
     const source = await Deno.readTextFile(new URL("./validation-publication.ts", import.meta.url));
-    const publication = extractFunctionSource(source, "async function runPublicationPhase");
+    const publication = extractFunctionSource(source, "async function runLockedPublicationPhase");
     assert(publication.includes("startPublicationAttempt"));
     assert(publication.includes('"artifacts_committed"'));
     assert(publication.includes('"target_integrated"'));

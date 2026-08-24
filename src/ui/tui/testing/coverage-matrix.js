@@ -46,6 +46,7 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         "terminal:prompt-focus-restoration",
         "terminal:queueing",
         "terminal:replay-hydration",
+        "terminal:post-publication-input",
     ],
     recovery: [
         "recovery:tool-failure",

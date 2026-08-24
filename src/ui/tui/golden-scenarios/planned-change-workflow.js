@@ -106,6 +106,7 @@ export const plannedChangeReviewRepairValidationScenario = {
         "durable:plan-lifecycle",
         "durable:worktree-publication",
         "durable:registry-cleanup",
+        "terminal:post-publication-input",
         "block:review-result",
         "block:validation-handoff",
     ],
@@ -232,6 +233,7 @@ export const plannedChangeReviewRepairValidationScenario = {
             agent: "engineer",
             phase: "engineer",
             ordinal: 5,
+            optional: false,
             text: "Engineer awaits re-review of the repair.",
         },
         {
@@ -264,14 +266,6 @@ export const plannedChangeReviewRepairValidationScenario = {
             ordinal: 4,
             text: "Reported the approved repair outcome.",
         },
-        {
-            id: "engineer-closes-after-delivery",
-            agent: "engineer",
-            phase: "engineer",
-            ordinal: 6,
-            optional: true,
-            text: "Engineer idle after delivery.",
-        },
     ],
     actions: [
         {
@@ -297,6 +291,15 @@ export const plannedChangeReviewRepairValidationScenario = {
         { type: "waitForWorktreeRegistryStatus", planName: "plan", statuses: ["absent"], timeoutMs: 90000 },
         { type: "waitForIdle", timeoutMs: 90000 },
         { type: "assertWorkflowDurability" },
+        { type: "setNextModelResponse", text: "Post-publication follow-up accepted in the completed workflow." },
+        { type: "type", text: "confirm the completed workflow is still interactive" },
+        { type: "enter" },
+        {
+            type: "waitForScreen",
+            text: "Post-publication follow-up accepted in the completed workflow.",
+            timeoutMs: 60000,
+        },
+        { type: "waitForIdle", timeoutMs: 60000 },
     ],
     assertions: [
         assertsGoldenCoverage("workflow:PLANNED_CHANGE", assertRealPlanReviewRevisionAndApproval),
@@ -339,6 +342,11 @@ export const plannedChangeReviewRepairValidationScenario = {
             assert(durability?.executionCommitPublished === true, "Expected validated commit publication.");
         }),
         assertRuntimeEvent("durable:registry-cleanup", "workflow:durability:registry-clean"),
+        assertsGoldenCoverage("terminal:post-publication-input", (result) => {
+            assertScreenIncludes(result, "confirm the completed workflow is still interactive");
+            assertScreenIncludes(result, "Post-publication follow-up accepted in the completed workflow.");
+            assert(result.state.editorUsable === true, "Expected input to remain ready after the follow-up.");
+        }),
         // The inline verdict block, asserted where it renders. `Reviewer:` is its own
         // header — the pinned panel titles the same report "Reviewer latest Review" —
         // and the verdict line is the body it exists to show.

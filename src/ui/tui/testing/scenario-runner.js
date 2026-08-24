@@ -2481,6 +2481,17 @@ async function runComposedTuiScenario(scenario, options) {
                     events.push(`project:plan-absent:${planName}`);
                 } else if (typed.type === "waitForIdle") {
                     await composition.waitForIdle(typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS);
+                } else if (typed.type === "setNextModelResponse") {
+                    const responseText = String(typed.text || "");
+                    const nextAgent = composition?.runtime.getSessionSnapshot(composition.sessionId)?.activeAgent ||
+                        "guide";
+                    fauxProvider?.setResponses([() =>
+                        createFauxMessageForTurn({
+                            id: "golden-next-model-response",
+                            agent: nextAgent,
+                            phase: "inquiry",
+                            text: responseText,
+                        })]);
                 } else if (typed.type === "waitForScreen") {
                     const expected = String(typed.text || "");
                     const timeoutMs = typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS;
