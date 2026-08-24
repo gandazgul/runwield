@@ -76,7 +76,16 @@ export type ValidationMessageRequest =
         targetBranch: string;
     }
     | { kind: "merge_dispatch" }
-    | { kind: "publication_blocked"; planName: string }
+    | {
+        kind: "publication_blocked";
+        planName: string;
+        stage:
+            | "artifact_preparation"
+            | "candidate_checkpoint"
+            | "lifecycle_staging"
+            | "candidate_sealing"
+            | "git_publication";
+    }
     | {
         kind: "publication_cleanup_incomplete";
         targetBranch: string;
@@ -261,7 +270,22 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
         case "merge_dispatch":
             return "The repair Engineer is fixing the file clashes. The fix will be checked next.";
         case "publication_blocked":
-            return `Publication stopped because the saved copy for ${request.planName} is incomplete. The validated commits are safe. Update RunWield, then load this Plan again.`;
+            switch (request.stage) {
+                case "artifact_preparation":
+                    return `RunWield could not finish the final records for ${request.planName}. The validated commits are safe. Load this Plan and run validation again; completed records will be reused.`;
+                case "candidate_checkpoint":
+                    return `Git could not save the final validation files for ${request.planName}. The validated commits are safe. Fix the Git hook or commit error reported in the console, then load this Plan and run validation again.`;
+                case "lifecycle_staging":
+                    return `RunWield could not record the final validated state for ${request.planName}. The validated commits are safe. Load this Plan and run validation again; RunWield will rebuild this state from the execution copy.`;
+                case "candidate_sealing":
+                    return `Git could not seal the final commits for ${request.planName}. The validated commits are safe. Fix the Git hook or commit error reported in the console, then load this Plan and run validation again.`;
+                case "git_publication":
+                    return `RunWield could not finish adding ${request.planName} to its target branch. The validated commits are safe on the source branch. Load this Plan and run validation again to resume publication.`;
+                default: {
+                    const exhaustiveStage: never = request.stage;
+                    return exhaustiveStage;
+                }
+            }
         case "publication_cleanup_incomplete": {
             const facts = request.details.map((detail) => `- ${detail}`).join("\n");
             const checks = [

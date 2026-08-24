@@ -20,7 +20,15 @@ type AnnotatedPublicationError = Error & {
     mergeWorktreePath?: string;
     mergeFailureKind?: string;
     blockingPaths?: string[];
+    publicationStage?: PublicationStage;
 };
+
+export type PublicationStage =
+    | "artifact_preparation"
+    | "candidate_checkpoint"
+    | "lifecycle_staging"
+    | "candidate_sealing"
+    | "git_publication";
 
 export type PublicationFailure = {
     reason: string;
@@ -28,6 +36,7 @@ export type PublicationFailure = {
     mergeWorktreePath?: string;
     mergeFailureKind?: string;
     blockingPaths: string[];
+    publicationStage?: PublicationStage;
 };
 
 export function normalizePublicationFailure(error: Error): PublicationFailure {
@@ -38,7 +47,14 @@ export function normalizePublicationFailure(error: Error): PublicationFailure {
         mergeWorktreePath: annotated.mergeWorktreePath,
         mergeFailureKind: annotated.mergeFailureKind,
         blockingPaths: annotated.blockingPaths || [],
+        publicationStage: annotated.publicationStage,
     };
+}
+
+export function annotatePublicationStage(error: Error, publicationStage: PublicationStage): Error {
+    const annotated = error as AnnotatedPublicationError;
+    annotated.publicationStage ||= publicationStage;
+    return annotated;
 }
 
 async function runRepairGit(cwd: string, args: string[]): Promise<GitCommandResult> {

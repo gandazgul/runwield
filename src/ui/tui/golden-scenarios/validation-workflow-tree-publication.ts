@@ -661,7 +661,12 @@ export const validationTreePublicationMergeConflictRepairCompletedScenario = wit
                 type: "seedActiveWorktree",
                 planName: "publication-merge-conflict-repair-completed",
                 status: "validated_reviewer",
-                attrs: { humanReviewMode: "none", humanReviewDecision: "not_required" },
+                registryStatus: "completed",
+                rememberedValidationPhase: "delivery",
+                attrs: {
+                    humanReviewMode: "none",
+                    humanReviewDecision: "not_required",
+                },
                 files: [{ path: "publication-merge-conflict.txt", text: "worktree version\n" }],
             },
             {
@@ -669,6 +674,16 @@ export const validationTreePublicationMergeConflictRepairCompletedScenario = wit
                 planName: "publication-merge-conflict-repair-completed",
                 path: "publication-merge-conflict.txt",
                 text: "target version\n",
+            },
+            {
+                type: "appendProjectFile",
+                path: "docs/plans/publication-merge-conflict-repair-completed.md",
+                text: "\nPrimary checkout note added after execution started.\n",
+            },
+            {
+                type: "commitProjectPaths",
+                paths: ["docs/plans/publication-merge-conflict-repair-completed.md"],
+                message: "advance primary Plan independently",
             },
             { type: "capturePublicationBaseline", paths: ["publication-merge-conflict.txt"] },
             { type: "type", text: "/load-plan publication-merge-conflict-repair-completed" },
@@ -926,7 +941,7 @@ export const validationTreePublicationStaleRepairWorktreeScenario = withValidati
             { type: "type", text: "/load-plan publication-stale-repair-worktree" },
             { type: "enter" },
             { type: "enter" },
-            { type: "sleep", ms: 1000 },
+            { type: "waitForIdle", timeoutMs: 30000 },
             { type: "captureProjectState", planNames: ["publication-stale-repair-worktree"] },
         ],
         assertions: [],
@@ -977,7 +992,7 @@ export const validationTreePublicationGenericGitFailureScenario = withValidation
             { type: "type", text: "/load-plan publication-generic-git-failure" },
             { type: "enter" },
             { type: "enter" },
-            { type: "sleep", ms: 1000 },
+            { type: "sleep", ms: 3000 },
             {
                 type: "waitForPlanStatus",
                 planName: "publication-generic-git-failure",
@@ -1026,7 +1041,6 @@ export const validationTreePublicationPushFailureRetryScenario = {
             }],
             scriptedInteractions: [
                 { type: "select", promptIncludes: "Plan recovery", value: "validate" },
-                { type: "select", promptIncludes: "could not be updated upstream", value: "stop" },
                 { type: "select", promptIncludes: "Plan recovery", value: "validate" },
             ],
             actions: [

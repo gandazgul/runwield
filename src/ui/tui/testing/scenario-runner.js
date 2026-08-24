@@ -1694,6 +1694,24 @@ async function runComposedTuiScenario(scenario, options) {
                     );
                     events.push(`project:base-branch-file-committed:${planName}:${baseBranch}:${path}`);
                     await writeHeartbeat();
+                } else if (typed.type === "commitProjectPaths") {
+                    const paths = Array.isArray(typed.paths) ? typed.paths.map(String).filter(Boolean) : [];
+                    if (paths.length === 0) throw new Error("commitProjectPaths needs at least one path");
+                    await runGoldenGit(["add", "--", ...paths], Deno.cwd());
+                    await runGoldenGit(
+                        ["commit", "-m", String(typed.message || "seed primary checkout changes")],
+                        Deno.cwd(),
+                    );
+                    events.push(`project:paths-committed:${paths.join(",")}`);
+                    await writeHeartbeat();
+                } else if (typed.type === "appendProjectFile") {
+                    const path = String(typed.path || "");
+                    if (!path) throw new Error("appendProjectFile needs a path");
+                    const absolutePath = join(Deno.cwd(), path);
+                    const current = await Deno.readTextFile(absolutePath);
+                    await Deno.writeTextFile(absolutePath, `${current}${String(typed.text || "")}`);
+                    events.push(`project:file-appended:${path}`);
+                    await writeHeartbeat();
                 } else if (typed.type === "advancePlanRemoteTarget") {
                     const planName = String(typed.planName || "");
                     const path = String(typed.path || "");

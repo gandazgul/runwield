@@ -39,6 +39,7 @@ import type {
 import type { OpaqueToolDefinition } from "./validation-ports.ts";
 import { MAX_AGENT_MERGE_REPAIRS } from "./validation-types.ts";
 import {
+    annotatePublicationStage,
     describeMergePause,
     dispatchMergeRepair,
     finalizeMergeRepair,
@@ -48,6 +49,7 @@ import {
     persistValidationMergeRepairWorktree,
     type PublicationFailure,
     publicationFailureNeedsUserAction,
+    type PublicationStage,
     resolveStoredValidationMergeRepairWorktree,
 } from "./validation-merge-repair.ts";
 import { recordLifecycleEvent } from "./validation-context.ts";
@@ -387,11 +389,23 @@ export async function runPublicationPhase(
             };
         }
         if (!publicationFailureNeedsUserAction(failure)) {
+            // A transient lock or interrupted transition can disappear immediately.
+            // Retry once in-process; publicationArtifactsPrepared prevents completed
+            // LLM handoffs from running again.
+            if (publicationOperationalAttempt === 1) {
+                publicationOperationalAttempt += 1;
+                continue;
+            }
             const blockedMessage = buildValidationUserMessage({
                 kind: "publication_blocked",
                 planName: args.planName,
+                stage: failure.publicationStage || "git_publication",
             });
-            emitStatus(args, blockedMessage, "error");
+            console.error("[RunWield] publication_resume_failed", {
+                planName: args.planName,
+                stage: failure.publicationStage || "git_publication",
+                error: failure.reason,
+            });
             return {
                 recorded: false,
                 result: {
@@ -436,23 +450,39 @@ export async function runPublicationPhase(
     }
 
     async function publishOnce(): Promise<PublicationOutcome> {
+        const atStage = async <T>(stage: PublicationStage, action: () => Promise<T>): Promise<T> => {
+            try {
+                return await action();
+            } catch (caught) {
+                const error = caught instanceof Error ? caught : new Error(String(caught));
+                throw annotatePublicationStage(error, stage);
+            }
+        };
         if (!repairMergeWorktreePath && !publicationArtifactsPrepared) {
-            const manualQa = await prepareEpicChildManualQaArtifact(args, context.executionCwd, context.projectRoot);
+            const manualQa = await atStage(
+                "artifact_preparation",
+                async () => await prepareEpicChildManualQaArtifact(args, context.executionCwd, context.projectRoot),
+            );
             if (manualQa.kind === "blocked") return manualQa.outcome;
         }
-        await ensureRunWieldOwnedGitignoreBlock(context.executionCwd);
+        await atStage(
+            "candidate_checkpoint",
+            async () => await ensureRunWieldOwnedGitignoreBlock(context.executionCwd),
+        );
         const repairedCandidate = repairMergeWorktreePath
             ? await readRepairedMergeCandidate(repairMergeWorktreePath)
             : null;
         const targetHeadBeforeMerge = repairedCandidate?.targetHeadBeforeMerge ||
             await args.git.branchHead(context.projectRoot, targetBranch);
-        const checkpoint = repairedCandidate || await checkpointExecutionWorktree({
-            worktreePath: context.executionCwd,
-            branch: executionBranch,
-            planName: args.planName,
-            planDescription: args.triageMeta?.summary,
-            mergeTargetRef: targetHeadBeforeMerge,
-        });
+        const checkpoint = repairedCandidate ||
+            await atStage("candidate_checkpoint", async () =>
+                await checkpointExecutionWorktree({
+                    worktreePath: context.executionCwd,
+                    branch: executionBranch,
+                    planName: args.planName,
+                    planDescription: args.triageMeta?.summary,
+                    mergeTargetRef: targetHeadBeforeMerge,
+                }));
         const deliveryEvidence: WorktreeDeliveryEvidence = {
             version: 1,
             mode: "worktree_merge",
@@ -465,33 +495,38 @@ export async function runPublicationPhase(
         // Repair may have happened before the latest lifecycle state was written.
         // Always stage the current validated Plan in the execution worktree; the
         // repaired publication clone imports that later commit before it publishes.
-        const staging = await stageValidationPassedInExecutionWorktree({
-            projectRoot: context.projectRoot,
-            executionCwd: context.executionCwd,
-            planName: args.planName,
-            details: {
-                triageMeta: args.triageMeta,
-                executionMode: "worktree",
-                deliveryEvidence,
-                worktreeStatus: "merged",
-                cleanupMergedWorktrees,
-                ...humanReviewMetadata,
-            },
-        });
+        const staging = await atStage("lifecycle_staging", async () =>
+            await stageValidationPassedInExecutionWorktree({
+                projectRoot: context.projectRoot,
+                executionCwd: context.executionCwd,
+                planName: args.planName,
+                details: {
+                    triageMeta: args.triageMeta,
+                    executionMode: "worktree",
+                    deliveryEvidence,
+                    worktreeStatus: "merged",
+                    cleanupMergedWorktrees,
+                    ...humanReviewMetadata,
+                },
+            }));
         // The validated Plan and Work Record are the final Git-visible lifecycle
         // state. Generate them in the execution worktree before publication so a
         // failed push leaves one complete, retryable branch.
         if (!publicationArtifactsPrepared) {
-            await runPostVerificationHandoffs(args, context.executionCwd);
+            await atStage(
+                "artifact_preparation",
+                async () => await runPostVerificationHandoffs(args, context.executionCwd),
+            );
             publicationArtifactsPrepared = true;
         }
-        const validatedCandidate = await checkpointExecutionWorktree({
-            worktreePath: context.executionCwd,
-            branch: executionBranch,
-            planName: args.planName,
-            planDescription: args.triageMeta?.summary,
-            mergeTargetRef: targetHeadBeforeMerge,
-        });
+        const validatedCandidate = await atStage("candidate_sealing", async () =>
+            await checkpointExecutionWorktree({
+                worktreePath: context.executionCwd,
+                branch: executionBranch,
+                planName: args.planName,
+                planDescription: args.triageMeta?.summary,
+                mergeTargetRef: targetHeadBeforeMerge,
+            }));
         if (context.worktreeId) {
             await updateWorktreeRegistryEntry(context.projectRoot, context.worktreeId, { status: "validated" });
         }
@@ -509,95 +544,99 @@ export async function runPublicationPhase(
                 resolveEpicContinuation({ cwd: context.executionCwd, completedPlanName: args.planName })
             )
             : undefined;
-        const publication = await runDirectDeliveryPublicationTransition({
-            projectRoot: context.projectRoot,
-            planName: args.planName,
-            immutablePlan: true,
-            worktreeId: context.worktreeId,
-            targetRef: worktreeBaseBranch,
-            parentPlan: hierarchy.parentPlan,
-            siblingPlanNames: hierarchy.siblingPlans.map((sibling) => sibling.name),
-            publicationProof: { deliveryEvidence, cleanupMergedWorktrees, phase: "stage_merge_settle" },
-            publish: async ({ markEffect }) => {
-                await markEffect("direct_delivery_publication_started", {
-                    planName: args.planName,
-                    worktreeId: context.worktreeId,
-                    worktreeBranch: executionBranch,
-                    targetBranch: worktreeBaseBranch,
-                    expectedTargetHead: deliveryEvidence.targetHeadBeforeMerge,
-                    sealedExecutionCommit: validatedCandidate.executionCommit,
-                    preservedPlanPaths: staging.planPaths,
-                });
-                const mergeResult = await publishExecutionWorktreeIsolated({
-                    projectRoot: context.projectRoot,
-                    executionCwd: context.executionCwd,
-                    executionBranch,
-                    targetBranch,
-                    planName: args.planName,
-                    planDescription: args.triageMeta?.summary,
-                    sealedExecutionCommit: validatedCandidate.executionCommit,
-                    allowedPlanPaths: staging.planPaths.length > 0 ? staging.planPaths : [planPath],
-                    repairedPublicationRoot: repairMergeWorktreePath || undefined,
-                    onProgress: (phase) => {
-                        const message = buildValidationUserMessage({
-                            kind: "publication_progress",
-                            phase,
-                            targetBranch,
-                        });
-                        if (phase === "preparing") {
-                            emitProgress(
-                                args,
-                                message,
-                                "info",
-                                { outcome: "running", stage: "merge", checks: { merge: "running" } },
-                            );
-                            return;
-                        }
-                        emitStatus(args, message);
-                    },
-                });
-                await markEffect("direct_delivery_target_ref_moved", {
-                    planName: args.planName,
-                    worktreeId: context.worktreeId,
-                    worktreeBranch: executionBranch,
-                    targetBranch: worktreeBaseBranch,
-                    updatedPrimaryCheckout: mergeResult?.updatedPrimaryCheckout,
-                    executionMetadataCommit: mergeResult?.executionMetadataCommit,
-                    sealedExecutionCommit: deliveryEvidence.executionCommit,
-                    expectedTargetHead: mergeResult.targetHeadBeforeMerge,
-                    publicationCommit: mergeResult.publicationCommit,
-                    publicationMode: mergeResult.publicationMode,
-                    ...(mergeResult.publicationMode === "remote"
-                        ? {
-                            upstreamRemote: mergeResult.upstreamRemote,
-                            upstreamBranch: mergeResult.upstreamBranch,
-                        }
-                        : {}),
-                });
-                emitStatus(
-                    args,
-                    buildValidationUserMessage({ kind: "publication_progress", phase: "cleanup", targetBranch }),
-                );
-                const cleanup = await settlePublishedWorktree(args, context, cleanupMergedWorktrees, mergeResult);
-                if (!cleanup.finished) {
+        const publication = await atStage("git_publication", async () =>
+            await runDirectDeliveryPublicationTransition({
+                projectRoot: context.projectRoot,
+                planName: args.planName,
+                immutablePlan: true,
+                worktreeId: context.worktreeId,
+                targetRef: worktreeBaseBranch,
+                parentPlan: hierarchy.parentPlan,
+                siblingPlanNames: hierarchy.siblingPlans.map((sibling) => sibling.name),
+                publicationProof: { deliveryEvidence, cleanupMergedWorktrees, phase: "stage_merge_settle" },
+                publish: async ({ markEffect }) => {
+                    await markEffect("direct_delivery_publication_started", {
+                        planName: args.planName,
+                        worktreeId: context.worktreeId,
+                        worktreeBranch: executionBranch,
+                        targetBranch: worktreeBaseBranch,
+                        expectedTargetHead: deliveryEvidence.targetHeadBeforeMerge,
+                        sealedExecutionCommit: validatedCandidate.executionCommit,
+                        preservedPlanPaths: staging.planPaths,
+                    });
+                    const mergeResult = await publishExecutionWorktreeIsolated({
+                        projectRoot: context.projectRoot,
+                        executionCwd: context.executionCwd,
+                        executionBranch,
+                        targetBranch,
+                        planName: args.planName,
+                        planDescription: args.triageMeta?.summary,
+                        sealedExecutionCommit: validatedCandidate.executionCommit,
+                        allowedPlanPaths: staging.planPaths.length > 0 ? staging.planPaths : [planPath],
+                        repairedPublicationRoot: repairMergeWorktreePath || undefined,
+                        onProgress: (phase) => {
+                            const message = buildValidationUserMessage({
+                                kind: "publication_progress",
+                                phase,
+                                targetBranch,
+                            });
+                            if (phase === "preparing") {
+                                emitProgress(
+                                    args,
+                                    message,
+                                    "info",
+                                    { outcome: "running", stage: "merge", checks: { merge: "running" } },
+                                );
+                                return;
+                            }
+                            emitStatus(args, message);
+                        },
+                    });
+                    await markEffect("direct_delivery_target_ref_moved", {
+                        planName: args.planName,
+                        worktreeId: context.worktreeId,
+                        worktreeBranch: executionBranch,
+                        targetBranch: worktreeBaseBranch,
+                        updatedPrimaryCheckout: mergeResult?.updatedPrimaryCheckout,
+                        executionMetadataCommit: mergeResult?.executionMetadataCommit,
+                        sealedExecutionCommit: deliveryEvidence.executionCommit,
+                        expectedTargetHead: mergeResult.targetHeadBeforeMerge,
+                        publicationCommit: mergeResult.publicationCommit,
+                        publicationMode: mergeResult.publicationMode,
+                        ...(mergeResult.publicationMode === "remote"
+                            ? {
+                                upstreamRemote: mergeResult.upstreamRemote,
+                                upstreamBranch: mergeResult.upstreamBranch,
+                            }
+                            : {}),
+                    });
                     emitStatus(
                         args,
-                        buildValidationUserMessage({
-                            kind: "publication_cleanup_incomplete",
-                            targetBranch,
-                            worktreePath: cleanup.worktreeKept ? context.executionCwd : undefined,
-                            worktreeBranch: cleanup.branchKept ? context.worktreeBranch : undefined,
-                            details: cleanup.details,
-                        }),
-                        "warning",
+                        buildValidationUserMessage({ kind: "publication_progress", phase: "cleanup", targetBranch }),
                     );
-                }
-                if (context.worktreeId) {
-                    await markEffect("worktree_registry_updated", { worktreeId: context.worktreeId, status: "merged" });
-                }
-                return { mergeResult };
-            },
-        });
+                    const cleanup = await settlePublishedWorktree(args, context, cleanupMergedWorktrees, mergeResult);
+                    if (!cleanup.finished) {
+                        emitStatus(
+                            args,
+                            buildValidationUserMessage({
+                                kind: "publication_cleanup_incomplete",
+                                targetBranch,
+                                worktreePath: cleanup.worktreeKept ? context.executionCwd : undefined,
+                                worktreeBranch: cleanup.branchKept ? context.worktreeBranch : undefined,
+                                details: cleanup.details,
+                            }),
+                            "warning",
+                        );
+                    }
+                    if (context.worktreeId) {
+                        await markEffect("worktree_registry_updated", {
+                            worktreeId: context.worktreeId,
+                            status: "merged",
+                        });
+                    }
+                    return { mergeResult };
+                },
+            }));
         if (publication.status !== "committed") {
             if (context.worktreeId) {
                 await updateWorktreeRegistryEntry(context.projectRoot, context.worktreeId, {

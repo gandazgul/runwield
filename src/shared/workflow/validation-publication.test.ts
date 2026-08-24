@@ -2,8 +2,13 @@ import { assertEquals } from "@std/assert";
 
 import { classifyValidationOperationalError, type GitPublicationErrorKind } from "./validation-operational-errors.ts";
 import { decideValidationRecovery, DEFAULT_VALIDATION_RETRY_POLICY } from "./validation-recovery.ts";
-import { normalizePublicationFailure, publicationFailureNeedsUserAction } from "./validation-merge-repair.ts";
+import {
+    annotatePublicationStage,
+    normalizePublicationFailure,
+    publicationFailureNeedsUserAction,
+} from "./validation-merge-repair.ts";
 import { publicationFailureKindFromMergeKind } from "./validation-publication.ts";
+import { buildValidationUserMessage } from "./validation-user-messages.ts";
 
 function decidePublicationFailure(kind: GitPublicationErrorKind) {
     return decideValidationRecovery({
@@ -80,4 +85,22 @@ Deno.test("publication offers Retry only when the user can change the outcome", 
         ),
         true,
     );
+});
+
+Deno.test("publication failures retain the stage that actually failed", () => {
+    const error = annotatePublicationStage(new Error("pre-commit hook failed"), "candidate_checkpoint");
+    const failure = normalizePublicationFailure(error);
+    assertEquals(failure.reason, "pre-commit hook failed");
+    assertEquals(failure.publicationStage, "candidate_checkpoint");
+});
+
+Deno.test("a checkpoint failure does not claim the saved publication copy is incomplete", () => {
+    const message = buildValidationUserMessage({
+        kind: "publication_blocked",
+        planName: "demo",
+        stage: "candidate_checkpoint",
+    });
+    assertEquals(message.includes("saved copy"), false);
+    assertEquals(message.includes("Update RunWield"), false);
+    assertEquals(message.includes("Git could not save the final validation files"), true);
 });
