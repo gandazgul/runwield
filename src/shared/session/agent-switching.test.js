@@ -208,6 +208,17 @@ Deno.test("switchActiveAgent resolves the active preset model when Router dispat
                 )?.model,
                 "runtime-command-fixture/engineer-model",
             );
+            const persistedModelChanges = sessionManager.getBranch().filter((entry) => entry.type === "model_change");
+            assertEquals(
+                {
+                    provider: persistedModelChanges.at(-1)?.provider,
+                    modelId: persistedModelChanges.at(-1)?.modelId,
+                },
+                {
+                    provider: "runtime-command-fixture",
+                    modelId: "engineer-model",
+                },
+            );
 
             const alternateSettings = JSON.parse(await Deno.readTextFile(settingsPath));
             alternateSettings.activeModelPreset = "alternate-agents";

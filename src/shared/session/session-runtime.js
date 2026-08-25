@@ -1667,7 +1667,8 @@ export class SessionRuntime {
                         "",
                         buildDiffInspectionSection(continuation.repair.diffText),
                     ].join("\n"),
-                    completionInstruction: "Report a disposition for every finding, then call task_completed.",
+                    completionInstruction:
+                        "Report a disposition for every finding, then call task_completed. If a finding is still open because something blocked you, stop in plain text instead and name it.",
                 }),
                 cwd: executionCwd,
                 dispatchKind: "validation_repair",

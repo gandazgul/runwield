@@ -5,9 +5,11 @@
 
 import { createAgentHandler } from "./agent-handler.js";
 import {
+    appendDebugLog,
     ensureRootAgentSession,
     getConfiguredAgentModel,
     getRootSessionSwitchState,
+    markRootAgentSwitch,
     runRootTurn,
     shouldReuseExistingRootSession,
 } from "./session.js";
@@ -157,6 +159,26 @@ export async function switchActiveAgent(hostedSession, options) {
     switchMetadata.set(hostedSession, nextMetadata);
     const changed = shouldRebuildRoot || previousAgentName !== agentName || !canReuseHandler;
     if (changed) {
+        appendDebugLog(
+            options.debugLogPath,
+            [
+                "",
+                "========================================",
+                "Event: AGENT SWITCH",
+                `Timestamp: ${new Date().toISOString()}`,
+                `From Agent: ${previousAgentName || "(none)"}`,
+                `To Agent: ${agentName}`,
+                `Root Session: ${shouldRebuildRoot ? "REBUILT" : "REUSED"}`,
+                `Handler: ${canReuseHandler ? "REUSED" : "REPLACED"}`,
+                "The next user turn is the first turn after this switch.",
+                "========================================",
+                "",
+            ].join("\n"),
+        );
+        markRootAgentSwitch(hostedSession, {
+            agentName,
+            debugLogPath: options.debugLogPath,
+        });
         emitHostedSessionRuntimeEvent(hostedSession, {
             type: RuntimeEventTypes.AGENT_CHANGED,
             agentName,

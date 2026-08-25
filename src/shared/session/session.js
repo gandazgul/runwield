@@ -156,7 +156,7 @@ function sanitizeApiErrorMessage(msg) {
  * @param {string | undefined} debugLogPath
  * @param {string} text
  */
-function appendDebugLog(debugLogPath, text) {
+export function appendDebugLog(debugLogPath, text) {
     if (!debugLogPath) return;
     try {
         Deno.mkdirSync(dirname(debugLogPath), { recursive: true });
@@ -3051,6 +3051,27 @@ export function applyAttentionNudge(agentName, userRequest, rootTurnCount) {
 /** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, subAgentDefinition?: { id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, cwd: string, model?: string, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string, steeringTargetId?: string }>} */
 const rootSessionMetadata = new WeakMap();
 
+/** @type {WeakMap<import('./hosted-session.js').HostedSession, { agentName: string, debugLogPath?: string }>} */
+const pendingAgentSwitchLogs = new WeakMap();
+
+/**
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
+ * @param {{ agentName: string, debugLogPath?: string }} state
+ */
+export function markRootAgentSwitch(hostedSession, state) {
+    pendingAgentSwitchLogs.set(hostedSession, state);
+}
+
+/**
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
+ * @returns {{ agentName: string, debugLogPath?: string } | undefined}
+ */
+function consumePendingAgentSwitchLog(hostedSession) {
+    const state = pendingAgentSwitchLogs.get(hostedSession);
+    pendingAgentSwitchLogs.delete(hostedSession);
+    return state;
+}
+
 /**
  * Test-only access to root session metadata.
  * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
@@ -3312,6 +3333,27 @@ export async function runRootTurn({
     }
 
     const priorMessages = getRootExecutionMessages(session);
+    const pendingAgentSwitch = consumePendingAgentSwitchLog(targetHostedSession);
+    if (pendingAgentSwitch) {
+        const activeSessionManager = isExecutionSession(session)
+            ? session.session.sessionManager
+            : session.sessionManager;
+        appendDebugLog(
+            pendingAgentSwitch.debugLogPath,
+            [
+                "",
+                "----------------------------------------",
+                "Event: FIRST TURN AFTER AGENT SWITCH",
+                `Timestamp: ${new Date().toISOString()}`,
+                `Agent: ${pendingAgentSwitch.agentName}`,
+                `Session: ${activeSessionManager.getSessionId()}`,
+                `Dispatch Kind: ${dispatchKind}`,
+                "The user request and current system prompt are logged by AGENT INVOCATION START below.",
+                "----------------------------------------",
+                "",
+            ].join("\n"),
+        );
+    }
     const sessionManager = isExecutionSession(session) ? session.session.sessionManager : session.sessionManager;
     const backend = isExecutionSession(session) ? session.kind : "pi";
     const dispatch = prepareRequestDispatch(sessionManager, { userRequest, dispatchKind, backend });
