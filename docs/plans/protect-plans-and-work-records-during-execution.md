@@ -43,6 +43,7 @@ updatedAt: "2026-08-24T18:17:52.855Z"
 status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
+planId: "9a78e6d6-4bee-4604-b436-02f5396626cd"
 ---
 
 # Protect Plans and Work Records During Execution
