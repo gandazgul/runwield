@@ -908,6 +908,23 @@ Deno.test("SessionRuntime continue opens the explicitly requested saved Session"
     } finally {
         await resumedRuntime.closeAllSessionsWhenIdle();
     }
+
+    const transcriptIdRuntime = createSessionRuntime({ ownerProcessKind: "test" });
+    try {
+        const resumed = await transcriptIdRuntime.createInteractiveSession({
+            cwd,
+            mode: "continue",
+            resumeSessionId: firstPersistedId,
+        });
+
+        assertEquals(transcriptIdRuntime.getSessionSnapshot(resumed.sessionId)?.sessionManagerId, firstPersistedId);
+        assertEquals(
+            transcriptIdRuntime.getSessionSnapshot(resumed.sessionId)?.managed?.runwieldSessionId,
+            firstRunWieldId,
+        );
+    } finally {
+        await transcriptIdRuntime.closeAllSessionsWhenIdle();
+    }
 });
 
 Deno.test("SessionRuntime does not apply dormant local mutations when Session evidence is absent", async () => {

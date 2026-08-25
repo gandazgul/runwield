@@ -3699,6 +3699,23 @@ export class SessionRuntime {
                         cwd: cataloged.transcriptCwd,
                     };
                 }
+                if (!selectedSession) {
+                    const located = await classifyRootSessionLocator({
+                        cwd: options.cwd,
+                        sessionId: options.resumeSessionId,
+                        ownerCoordinationStore,
+                    });
+                    if (
+                        located.kind === "managed" && located.session &&
+                        located.session.projectId === managedProject?.projectId
+                    ) {
+                        selectedSession = {
+                            id: located.session.piSessionId,
+                            path: located.session.transcriptPath,
+                            cwd: located.session.transcriptCwd,
+                        };
+                    }
+                }
             } else {
                 const persistedSessions = classified.kind === "managed"
                     ? (await listCatalogSafeRootSessionLocators(options.cwd)).locators.map((locator) => ({

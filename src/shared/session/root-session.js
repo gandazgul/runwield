@@ -502,8 +502,18 @@ export async function readCatalogSafeRootSessionLocator(options) {
  * Invalid candidates are returned as diagnostics so callers can continue
  * cataloging valid transcripts.
  *
+ * @typedef {Object} CatalogSafeRootSessionCandidate
+ * @property {string} sessionPath
+ * @property {Date | null} modified
+ */
+
+/**
+ * Enumerate catalog-safe metadata for persisted root Session JSONL files.
+ * Invalid candidates are returned as diagnostics so callers can continue
+ * cataloging valid transcripts.
+ *
  * @param {string} cwd
- * @param {{ sessionDir?: string, maxHeaderBytes?: number }} [options]
+ * @param {{ sessionDir?: string, maxHeaderBytes?: number, recentLimit?: number }} [options]
  * @returns {Promise<{ locators: CatalogSafeRootSessionLocator[], diagnostics: CatalogSafeLocatorDiagnostic[] }>}
  */
 export async function listCatalogSafeRootSessionLocators(cwd, options = {}) {
@@ -513,19 +523,22 @@ export async function listCatalogSafeRootSessionLocators(cwd, options = {}) {
     const locators = [];
     /** @type {CatalogSafeLocatorDiagnostic[]} */
     const diagnostics = [];
+    /** @type {CatalogSafeRootSessionCandidate[]} */
+    const candidates = [];
+    const recentLimit = typeof options.recentLimit === "number" && Number.isFinite(options.recentLimit)
+        ? Math.max(0, Math.floor(options.recentLimit))
+        : null;
     try {
         for await (const entry of Deno.readDir(sessionDir)) {
             if (!entry.isFile || !entry.name.endsWith(".jsonl")) continue;
             const sessionPath = join(sessionDir, entry.name);
+            if (recentLimit === null) {
+                candidates.push({ sessionPath, modified: null });
+                continue;
+            }
             try {
-                locators.push(
-                    await readCatalogSafeRootSessionLocator({
-                        cwd,
-                        sessionDir,
-                        sessionPath,
-                        maxHeaderBytes: options.maxHeaderBytes,
-                    }),
-                );
+                const fileInfo = await Deno.stat(sessionPath);
+                candidates.push({ sessionPath, modified: fileInfo.mtime });
             } catch (error) {
                 diagnostics.push({
                     sessionPath,
@@ -537,6 +550,28 @@ export async function listCatalogSafeRootSessionLocators(cwd, options = {}) {
     } catch (error) {
         if (error instanceof Deno.errors.NotFound) return { locators, diagnostics };
         throw error;
+    }
+    const candidatesToRead = recentLimit === null ? candidates : candidates.toSorted((left, right) => {
+        const timeDifference = (right.modified?.getTime() || 0) - (left.modified?.getTime() || 0);
+        return timeDifference || right.sessionPath.localeCompare(left.sessionPath);
+    }).slice(0, recentLimit);
+    for (const candidate of candidatesToRead) {
+        try {
+            locators.push(
+                await readCatalogSafeRootSessionLocator({
+                    cwd,
+                    sessionDir,
+                    sessionPath: candidate.sessionPath,
+                    maxHeaderBytes: options.maxHeaderBytes,
+                }),
+            );
+        } catch (error) {
+            diagnostics.push({
+                sessionPath: candidate.sessionPath,
+                code: "invalid_locator",
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
     }
     locators.sort((a, b) => a.sessionPath.localeCompare(b.sessionPath));
     return { locators, diagnostics };

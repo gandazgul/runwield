@@ -54,7 +54,7 @@ export async function listRecentResumableSessions(
     cwd: string,
     sessionStore: FileSessionStore,
 ): Promise<ResumableSessionSummary[]> {
-    const listed = await listCatalogSafeRootSessionLocators(cwd);
+    const listed = await listCatalogSafeRootSessionLocators(cwd, { recentLimit: RECENT_SESSION_LIMIT });
     const recentLocators = listed.locators.toSorted((left, right) => {
         const timeDifference = modifiedTime(right.modified || right.headerTimestamp || undefined) -
             modifiedTime(left.modified || left.headerTimestamp || undefined);

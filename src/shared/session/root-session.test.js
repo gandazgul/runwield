@@ -263,6 +263,45 @@ Deno.test("catalog-safe root session locator rejects headers that exceed the cat
     });
 });
 
+Deno.test("catalog-safe root session locator list limits header reads to newest candidates", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir();
+        Deno.env.set("HOME", home);
+        try {
+            const cwd = `${home}/repo`;
+            await Deno.mkdir(cwd, { recursive: true });
+            const sessionDir = getRunWieldSessionDir(cwd);
+            await Deno.mkdir(sessionDir, { recursive: true });
+            const oldMalformed = `${sessionDir}/malformed.jsonl`;
+            await Deno.writeTextFile(oldMalformed, "not-json\n");
+            const oldTime = new Date(Date.UTC(2025, 0, 1));
+            await Deno.utime(oldMalformed, oldTime, oldTime);
+            for (let index = 0; index < 31; index++) {
+                const timestamp = new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString();
+                const id = `pi-${String(index).padStart(2, "0")}`;
+                const sessionPath = `${sessionDir}/${timestamp.replace(/[:.]/g, "-")}_${id}.jsonl`;
+                await Deno.writeTextFile(
+                    sessionPath,
+                    JSON.stringify({ type: "session", version: 3, id, timestamp, cwd }) + "\n",
+                );
+                const modified = new Date(Date.UTC(2026, 1, 1, 0, 0, index));
+                await Deno.utime(sessionPath, modified, modified);
+            }
+
+            const listed = await listCatalogSafeRootSessionLocators(cwd, { recentLimit: 30 });
+
+            assertEquals(listed.diagnostics, []);
+            assertEquals(listed.locators.length, 30);
+            assertEquals(listed.locators.some((locator) => locator.sessionPath === oldMalformed), false);
+        } finally {
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await removeTempDirBestEffort(home);
+        }
+    });
+});
+
 Deno.test("catalog-safe root session locator rejects malformed or out-of-directory files", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousHome = Deno.env.get("HOME");
