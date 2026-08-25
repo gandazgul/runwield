@@ -200,7 +200,7 @@ you will synthesize the learnings:
 - A good PRD should concisely define: Objective, Problem Statement, Resolved Assumptions, Technical Approach, and Out of
   Scope. When future work introduces, redefines, or retires domain language, also include a `Proposed Domain Language`
   section that distinguishes the target terminology from the current glossary.
-- **Use local time** (not UTC) for any dates or timestamps in the PRD.
+- **Use local time** (not UTC) for any dates or timestamps in the PRD. Use the system prompt's current local date.
 - Once the synthesis is written, use `memory` with `action: "store"` to save one consolidated memory containing the
   crystallized direction and a pointer to the artifact, then hand the user to `/agent planner` to turn the PRD into an
   executable Plan.

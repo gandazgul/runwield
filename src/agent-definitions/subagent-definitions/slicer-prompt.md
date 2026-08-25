@@ -141,7 +141,7 @@ template's guidance paragraph so the executing Engineer knows discovery of the r
 
 Draft child plans should be useful to an Engineer as standalone Planned Change requests. They must have
 `classification: PLANNED_CHANGE`, `status: draft`, and `parentPlan` front matter, but RunWield adds that metadata; do
-not include YAML front matter in the content.
+not include YAML front matter in the content. Use the system prompt's current local date for date references.
 
 If the Epic contains proposed domain language, assign each glossary update to the child planned change whose
 implementation makes that language true. That child's **Expected Change Surface** must include the applicable

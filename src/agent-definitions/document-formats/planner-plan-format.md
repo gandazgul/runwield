@@ -19,7 +19,7 @@ devServerUrl: null
 devServerHmr: null
 # Optional: target execution branch when explicitly requested by the user.
 # worktreeBaseBranch: "feature/base-branch"
-createdAt: "<ISO-8601 timestamp>"
+createdAt: "<ISO-8601 date or timestamp>"
 status: "draft"
 ---
 

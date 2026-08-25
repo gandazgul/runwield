@@ -12,8 +12,10 @@ updatedAt: "2026-07-31T13:09:56-04:00"
 Introduce a shared active-workflow awareness surface that makes RunWield's multi-step work understandable without hiding
 or crowding the Agent transcript.
 
-The first rendering is a collapsible right-side **Workflow Rail** in the TUI. The same underlying product concept should
-later support a selected-Session rail in Workspace and the Workspace Attention Dashboard's read-only workflow summaries.
+The first rendering is a collapsible right-side **Workflow Rail** in the TUI. The same underlying product concept
+supports a selected-Session rail in Workspace and the Workspace Attention Dashboard's read-only workflow summaries. The
+Workspace Session screen PRD (`docs/prd/runwield-workspace-session-screen.md`) includes the selected-Session browser
+rail as part of its implementation scope.
 
 ## 2. Problem Statement
 
