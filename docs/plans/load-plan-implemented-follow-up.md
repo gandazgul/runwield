@@ -12,22 +12,28 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-25T00:31:01-04:00"
-updatedAt: "2026-08-25T14:07:02.666Z"
-status: "validated_reviewer"
+updatedAt: "2026-08-25T14:07:14.693Z"
+status: "validated"
 origin: "internal"
 implementedAt: "2026-08-25T13:39:52.412Z"
+validatedAt: "2026-08-25T14:07:03.374Z"
 userVerifiedAt: null
 executionReport: "- Added `follow_up` recovery action immediately after `Retry Workflow Validation` for Implemented Plans.\n- Rebinds the existing Active Execution Workflow and worktree; supports Plan Engineer and Frontend Engineer; does not execute or validate.\n- Blocks incomplete/unavailable worktrees without creating replacements and keeps recovery available.\n- Added flow, action, and real runtime next-turn regression tests. No tests were removed.\n- Verification passed: focused load-plan tests and `deno task ci` (356 files, 0 failed)."
+workRecord:
+    status: "generated"
+    recordId: "9c5f843f-0157-4307-853f-db15ac8f4052"
+    path: "docs/work-records/2026-08-25-implemented-plan-follow-up-from-load-plan.md"
+    lastAttemptAt: "2026-08-25T14:07:03.463Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 validationCheckpoint: null
 executionMode: "worktree"
-executionBaselineTree: "d5ca738dfb44c2b6f89b69423530a0f35dd6aaa5"
-worktreeId: "5e3ee42f"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-load-plan-implemented-follow-up-5e3ee42f"
-worktreeBranch: "worktree/load-plan-implemented-follow-up-5e3ee42f"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "c4c4df1ef3631da3f0b0f9bd633ac25daa607e52"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "4ecc048ae2a950736ef3a66984326ad46ce5e25c"
 validationCiAttempts: 0
 validationSemanticRounds: 0
 ---
