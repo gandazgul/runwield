@@ -337,21 +337,19 @@ export async function openFollowUpRecoveryPlan(context: RecoveryActionContext): 
         await context.recordRecoveryResult("follow_up", "blocked", { reason: "worktree_unavailable" });
         return { kind: "menu" };
     }
-    if (
-        !(await rehydrateActiveRecoveryWorkflow(
-            context.projectRoot,
-            context.plan,
-            worktree,
-            context.session,
-            context.uiAPI,
-            "continue",
-        ))
-    ) {
+    const workflow = await rehydrateActiveRecoveryWorkflow(
+        context.projectRoot,
+        context.plan,
+        worktree,
+        context.session,
+        context.uiAPI,
+        "continue",
+    );
+    if (!workflow) {
         await context.recordRecoveryResult("follow_up", "blocked", { reason: "invalid_execution_policy" });
         return { kind: "menu" };
     }
-    const workflow = context.session.getActiveExecutionWorkflow();
-    if (workflow) await context.session.replaceWithExecutionSession?.(workflow);
+    await context.session.replaceWithExecutionSession(workflow);
     await context.recordRecoveryResult("follow_up", "handled", {
         worktreeId: worktree.id,
     });

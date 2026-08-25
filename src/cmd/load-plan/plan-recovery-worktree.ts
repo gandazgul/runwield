@@ -372,7 +372,7 @@ export function reportInvalidRecoveryPolicy(
  * @param {PlanSessionSurface} session
  * @param {import('../../ui/tui/types.js').UiAPI} [uiAPI]
  * @param {string} [action]
- * @returns {Promise<boolean>}
+ * @returns {Promise<RecoveryWorkflowState | null>}
  */
 export async function rehydrateActiveRecoveryWorkflow(
     projectRoot: string,
@@ -381,12 +381,12 @@ export async function rehydrateActiveRecoveryWorkflow(
     session: PlanSessionSurface,
     uiAPI?: UiAPI,
     action: string = "continue",
-): Promise<boolean> {
+): Promise<RecoveryWorkflowState | null> {
     const policy = resolvePlanExecutionPolicy(plan.attrs);
     if (!policy.ok) {
         if (uiAPI) {
             reportInvalidRecoveryPolicy(action, plan.planName, policy.error, uiAPI);
-            return false;
+            return null;
         }
         throw new Error(policy.error);
     }
@@ -413,7 +413,7 @@ export async function rehydrateActiveRecoveryWorkflow(
             if (uiAPI) {
                 console.error("[RunWield] Recovery action blocked", { action, reason: resolution.message });
                 uiAPI.appendSystemMessage(planRecoveryMessage("action_blocked"), false, "RunWield");
-                return false;
+                return null;
             }
             throw new Error(resolution.message);
         }
@@ -445,7 +445,7 @@ export async function rehydrateActiveRecoveryWorkflow(
         workflow.worktreeBaseBranch = resolvedContext.worktreeBaseBranch || undefined;
     }
     await session.setActiveExecutionWorkflow(workflow);
-    return true;
+    return workflow;
 }
 
 /**

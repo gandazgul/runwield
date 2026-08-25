@@ -308,9 +308,9 @@ Deno.test("ValidationHandoffBlock renders full validation state and latest hando
     assertEquals(plain.includes("Workflow Validation paused"), true);
     // Workflow validation counts review rounds; "cycle" would contradict every
     // other message in the loop.
-    assertEquals(plain.includes("round 2/3 (total 5)"), true);
-    assertEquals(plain.includes("stage engineer repair"), true);
-    assertEquals(plain.includes("attempt 1/3"), true);
+    assertEquals(plain.includes("Round 2/3 (total 5)"), true);
+    assertEquals(plain.includes("Stage: engineer repair"), true);
+    assertEquals(plain.includes("Attempt 1/3"), true);
     assertEquals(plain.includes("CI failed, Review pending, Human pending, Merge pending"), true);
     assertEquals(plain.includes("Engineer latest Task Completion"), true);
     assertEquals(plain.includes("Reviewer latest Review — rejected (feedback addressed; rechecking)"), true);
@@ -329,7 +329,7 @@ Deno.test("ValidationHandoffBlock renders mechanical validation with QUICK_FIX w
     const runningPlain = stripAnsi(runningBlock.render(120).join("\n"));
 
     assertEquals(runningPlain.includes("Mechanical Validation running"), true);
-    assertEquals(runningPlain.includes("stage ci"), true);
+    assertEquals(runningPlain.includes("Stage: CI"), true);
     assertEquals(runningPlain.includes("CI running"), true);
     assertEquals(runningPlain.includes("Review skipped"), false);
     assertEquals(runningPlain.includes("Human skipped"), false);

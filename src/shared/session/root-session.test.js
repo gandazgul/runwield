@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import {
+    encodeCwdForSessionDir,
     getRootSessionBranchEntries,
     getRunWieldSessionDir,
     getRunWieldSessionMemoryBackupDir,
@@ -9,6 +10,16 @@ import {
     openPersistedRootSession,
     readCatalogSafeRootSessionLocator,
 } from "./root-session.js";
+
+Deno.test("root-session cwd directory encoding stays inside filename limits for long worktree paths", () => {
+    const longWorktreeCwd = `/tmp/${"deep-directory-name-".repeat(12)}/.wld/worktrees/${
+        "nested-project-path-".repeat(10)
+    }/follow-up-repaint`;
+    const encoded = encodeCwdForSessionDir(longWorktreeCwd);
+    assertEquals(encoded.length < 255, true);
+    assertEquals(encoded.startsWith("--follow-up-repaint-"), true);
+    assertEquals(encoded.endsWith("--"), true);
+});
 
 Deno.test("root-session persisted helpers list open and guard cwd paths", async () => {
     await withProcessGlobalTestLock(async () => {

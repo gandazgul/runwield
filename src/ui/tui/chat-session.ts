@@ -283,6 +283,7 @@ export async function startInteractiveSession(
                 onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
             });
             view.resetForSessionReplacement();
+            tui.requestRender();
         };
         refreshPromptTemplateCommandGroups();
         const initStateClaimedDone = options.skipModelWelcome ? true : await isInitDoneFn();

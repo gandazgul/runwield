@@ -68,7 +68,7 @@ export interface PlanSessionSurface {
     runPlanAction?: (request: PlanActionRequest) => Promise<PlanActionResult>;
     getActiveExecutionWorkflow: () => ActiveExecutionWorkflow | null;
     setActiveExecutionWorkflow: (workflow: ActiveExecutionWorkflow) => Promise<void>;
-    replaceWithExecutionSession?: (workflow: ActiveExecutionWorkflow) => Promise<void>;
+    replaceWithExecutionSession: (workflow: ActiveExecutionWorkflow) => Promise<void>;
     clearActiveExecutionWorkflow: () => Promise<void>;
     reviewPlan: (meta: PlanReviewRequest) => Promise<PlanReviewOutcome>;
     rename: (name: string) => Promise<void>;

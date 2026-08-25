@@ -208,6 +208,7 @@ function makeSession(projectRoot: string): PlanSessionSurface {
         runSlicerAgent: () => Promise.resolve({ kind: "done" }),
         getActiveExecutionWorkflow: () => null,
         setActiveExecutionWorkflow: async () => {},
+        replaceWithExecutionSession: async () => {},
         clearActiveExecutionWorkflow: async () => {},
         reviewPlan: () => Promise.resolve({ canceled: true, approved: false }),
         rename: async () => {},
@@ -415,6 +416,7 @@ Deno.test("implemented recovery places follow-up second and restores the executi
     const frontendProject = await makeRealRecoveryProject({ status: "implemented" });
     const frontendWorktree = await prepareImplementedWorktree(frontendProject, "frontend-engineer");
     const activeWorkflows: import("../../shared/types.js").ActiveExecutionWorkflow[] = [];
+    const replacementWorkflows: import("../../shared/types.js").ActiveExecutionWorkflow[] = [];
     let executeCalls = 0;
     let validationCalls = 0;
     const frontendUi = makeUi([]);
@@ -429,6 +431,8 @@ Deno.test("implemented recovery places follow-up second and restores the executi
     frontendContext.refreshRecoveryWorktree = () => Promise.resolve(frontendContext.worktreeContext);
     frontendContext.session.setActiveExecutionWorkflow = (workflow) =>
         Promise.resolve(activeWorkflows.push(workflow)).then(() => {});
+    frontendContext.session.replaceWithExecutionSession = (workflow) =>
+        Promise.resolve(replacementWorkflows.push(workflow)).then(() => {});
     frontendContext.session.executePlan = () => {
         executeCalls++;
         return Promise.resolve({ result: "complete" });
@@ -445,6 +449,8 @@ Deno.test("implemented recovery places follow-up second and restores the executi
     assertEquals(activeWorkflow.executionAgent, "frontend-engineer");
     assertEquals(activeWorkflow.executionCwd, frontendWorktree.path);
     assertEquals(activeWorkflow.worktreeId, frontendWorktree.id);
+    assertEquals(replacementWorkflows.length, 1);
+    assertEquals(replacementWorkflows[0]?.executionCwd, frontendWorktree.path);
     assertEquals(executeCalls, 0);
     assertEquals(validationCalls, 0);
     assertEquals(frontendProject.plan.attrs.status, "implemented");

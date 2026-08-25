@@ -2,7 +2,7 @@
  * Golden /load-plan workflow scenarios.
  */
 
-import { assert } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import { assertEventIncludes, assertScreenIncludes } from "../testing/scenario-runner.js";
 import { assertsGoldenCoverage } from "../testing/portfolio-assertions.js";
 interface GoldenScenarioResult {
@@ -22,9 +22,15 @@ interface CapturedPlan {
 
 interface CapturedProjectState {
     plans?: CapturedPlan[];
-    registryEntries?: Array<{ status?: string; planName?: string }>;
+    registryEntries?: Array<{ status?: string; planName?: string; path?: string }>;
     nonTerminalRegistryEntries?: Array<{ status?: string; planName?: string }>;
     workRecordNames?: string[];
+}
+
+interface RuntimeSnapshotState {
+    cwd?: string;
+    activeAgent?: string;
+    activeExecutionWorkflow?: { planName?: string; executionCwd?: string } | null;
 }
 
 function projectState(result: GoldenScenarioResult): CapturedProjectState {
@@ -525,6 +531,57 @@ export const loadPlanAbandonProgressScenario = {
     ],
 };
 
+export const loadPlanImplementedFollowUpRepaintsScenario = {
+    name: "load-plan-implemented-follow-up-repaints-execution-session",
+    composedTui: true,
+    initialAgentName: "guide",
+    terminal: { columns: 120, rows: 34 },
+    timeoutMs: 90000,
+    coverage: ["recovery:load-plan-worktree", "durable:session-replaced"],
+    initialProjectFiles: [
+        {
+            path: "docs/plans/follow-up-repaint.md",
+            text:
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Follow up repaint\naffectedPaths: []\nstatus: ready_for_work\nplanId: follow-up-repaint-plan\n---\n# Follow up repaint\n",
+        },
+    ],
+    scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (implemented)", value: "follow_up" }],
+    actions: [
+        {
+            type: "seedActiveWorktree",
+            planName: "follow-up-repaint",
+            status: "implemented",
+            files: [{ path: "follow-up-repaint.txt", text: "implemented\n" }],
+        },
+        { type: "type", text: "/load-plan follow-up-repaint" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForEvent", event: "runtime:session-replaced:execution_follow_up", timeoutMs: 30000 },
+        { type: "waitForScreen", text: "Plan Engineer", timeoutMs: 30000 },
+        { type: "captureProjectState", planNames: ["follow-up-repaint"] },
+    ],
+    assertions: [
+        assertsGoldenCoverage("recovery:load-plan-worktree", (result: GoldenScenarioResult) => {
+            assertEventIncludes(result, "terminal:type:/load-plan follow-up-repaint");
+            assertEventIncludes(result, "runtime:session-replaced:execution_follow_up");
+            assertScreenIncludes(result, "Plan Engineer");
+            assertScreenIncludes(result, "follow-up-repaint");
+        }),
+        assertsGoldenCoverage("durable:session-replaced", (result: GoldenScenarioResult) => {
+            const snapshot = result.state.snapshot as RuntimeSnapshotState | undefined;
+            const entry = projectState(result).registryEntries?.find((candidate) =>
+                candidate.planName === "follow-up-repaint"
+            );
+            assert(entry?.path, "Expected the seeded worktree registry entry to record its path.");
+            assertEquals(snapshot?.cwd, entry.path);
+            assertEquals(snapshot?.activeAgent, "plan-engineer");
+            assertEquals(snapshot?.activeExecutionWorkflow?.planName, "follow-up-repaint");
+            assertEquals(snapshot?.activeExecutionWorkflow?.executionCwd, entry.path);
+            assertEquals(planStatus(result, "follow-up-repaint"), "implemented");
+        }),
+    ],
+};
+
 export const loadPlanContinueUsesExecutionPlanAuthorityScenario = {
     name: "load-plan-continue-uses-execution-plan-authority",
     composedTui: true,
@@ -760,6 +817,7 @@ export const loadPlanWorkflowScenarios = [
     loadPlanInterruptedRecoveryScenario,
     loadPlanWorktreeInspectResetScenario,
     loadPlanAbandonProgressScenario,
+    loadPlanImplementedFollowUpRepaintsScenario,
     loadPlanContinueUsesExecutionPlanAuthorityScenario,
     loadPlanMalformedFrontMatterScenario,
     loadPlanValidateWithoutCustomChecksScenario,
