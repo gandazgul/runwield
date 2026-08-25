@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
 import {
     loadPlanEpicChildMenusScenario,
+    loadPlanEpicDirectReviewScenario,
     loadPlanEpicDoneEnoughArchiveScenario,
     loadPlanEpicMenuOptionsScenario,
     loadPlanEpicSlicerScenario,
@@ -9,6 +10,7 @@ import {
 
 const scenarioExportNames = new Map<object, string>([
     [loadPlanEpicMenuOptionsScenario, "loadPlanEpicMenuOptionsScenario"],
+    [loadPlanEpicDirectReviewScenario, "loadPlanEpicDirectReviewScenario"],
     [loadPlanEpicSlicerScenario, "loadPlanEpicSlicerScenario"],
     [loadPlanEpicChildMenusScenario, "loadPlanEpicChildMenusScenario"],
     [loadPlanEpicDoneEnoughArchiveScenario, "loadPlanEpicDoneEnoughArchiveScenario"],

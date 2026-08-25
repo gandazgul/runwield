@@ -110,6 +110,7 @@ export const loadPlanEpicMenuOptionsScenario = {
     assertions: [
         (result: EpicGoldenResult) => {
             assertExactOptions(selectedInteraction(result, "this Epic", "view"), [
+                "direct_review",
                 "review",
                 "user_verify",
                 "hold",
@@ -123,6 +124,7 @@ export const loadPlanEpicMenuOptionsScenario = {
             assertExactOptions(viewed[1], ["slicer", "user_verify", "hold", "view", "cancel"]);
             assertExactOptions(viewed[2], [
                 "pick_child",
+                "direct_review",
                 "slicer",
                 "done_enough",
                 "user_verify",
@@ -238,6 +240,7 @@ export const loadPlanEpicChildMenusScenario = {
         (result: EpicGoldenResult) => {
             assertExactOptions(selectedInteraction(result, "this Epic", "pick_child"), [
                 "pick_child",
+                "direct_review",
                 "slicer",
                 "done_enough",
                 "user_verify",
@@ -296,8 +299,73 @@ export const loadPlanEpicDoneEnoughArchiveScenario = {
     ],
 };
 
+export const loadPlanEpicDirectReviewScenario = {
+    name: "load-plan-epic-direct-review-approves-and-slices",
+    composedTui: true,
+    initialAgentName: "guide",
+    terminal: { columns: 100, rows: 30 },
+    timeoutMs: 120000,
+    reviewDecisions: [{ approved: true, feedback: "Direct Epic review approved.", approvalAction: "decompose" }],
+    initialProjectFiles: [draftEpic],
+    scriptedInteractions: [
+        { type: "select", promptIncludes: "What would you like to do with this Epic", value: "direct_review" },
+    ],
+    script: [
+        {
+            id: "direct-review-epic-slicer-materializes-child",
+            agent: "slicer",
+            phase: "slicer",
+            ordinal: 1,
+            requiredTools: ["slicer_finalize_decomposition"],
+            toolCalls: [{
+                name: "slicer_finalize_decomposition",
+                arguments: {
+                    confirmation: "User approved direct Epic review and slice.",
+                    children: [{
+                        title: "Direct review child",
+                        order: 1,
+                        summary: "Child created after direct Epic review",
+                        dependencies: [],
+                        affectedPaths: [],
+                        executionAgent: "engineer",
+                        collaborationRecommendation: "autonomous",
+                        content: "# Direct review child\n",
+                    }],
+                },
+            }],
+        },
+    ],
+    actions: [
+        { type: "type", text: "/load-plan draft-epic" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForPlanStatus", planName: "draft-epic", statuses: ["ready_for_work"], timeoutMs: 60000 },
+        { type: "waitForIdle", timeoutMs: 30000 },
+        { type: "captureProjectState", planNames: ["draft-epic", "draft-epic/01-direct-review-child"] },
+    ],
+    assertions: [
+        (result: EpicGoldenResult) => {
+            assertExactOptions(selectedInteraction(result, "this Epic", "direct_review"), [
+                "direct_review",
+                "review",
+                "user_verify",
+                "hold",
+                "view",
+                "cancel",
+            ]);
+            assertEventIncludes(result, "runtime:agent:slicer");
+            assertEventIncludes(result, "runtime:tool:start:slicer_finalize_decomposition");
+            assert(
+                planStatus(result, "draft-epic") === "ready_for_work",
+                "Expected direct reviewed Epic to be decomposed.",
+            );
+        },
+    ],
+};
+
 export const loadPlanEpicWorkflowScenarios = [
     loadPlanEpicMenuOptionsScenario,
+    loadPlanEpicDirectReviewScenario,
     loadPlanEpicSlicerScenario,
     loadPlanEpicChildMenusScenario,
     loadPlanEpicDoneEnoughArchiveScenario,
