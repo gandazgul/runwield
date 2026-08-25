@@ -327,6 +327,17 @@ Deno.test("Runtime event factory validates session replacement events", () => {
     if (event.type !== RuntimeEventTypes.SESSION_REPLACED) throw new Error("unexpected event type");
     assertEquals(event.newSessionId, "new-session");
 
+    const followUpEvent = createSessionRuntimeEvent("old-session", {
+        type: RuntimeEventTypes.SESSION_REPLACED,
+        oldSessionId: "old-session",
+        newSessionId: "follow-up-session",
+        reason: "execution_follow_up",
+        planName: "follow-up",
+    });
+    assertEquals(followUpEvent.type, RuntimeEventTypes.SESSION_REPLACED);
+    if (followUpEvent.type !== RuntimeEventTypes.SESSION_REPLACED) throw new Error("unexpected event type");
+    assertEquals(followUpEvent.newSessionId, "follow-up-session");
+
     assertThrows(
         () =>
             createSessionRuntimeEvent(

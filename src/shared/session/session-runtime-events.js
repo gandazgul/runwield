@@ -54,7 +54,9 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeEventBase & { type: "session_replaced", oldSessionId: string, newSessionId: string, reason: "epic_continuation", parentPlanName: string, completedPlanName: string, childPlanName: string, action: "plan" | "readiness_execute" | "execute" }} RuntimeSessionReplacedEvent
+ * @typedef {RuntimeEventBase & { type: "session_replaced", oldSessionId: string, newSessionId: string, reason: "epic_continuation", parentPlanName: string, completedPlanName: string, childPlanName: string, action: "plan" | "readiness_execute" | "execute" }} RuntimeEpicContinuationSessionReplacedEvent
+ * @typedef {RuntimeEventBase & { type: "session_replaced", oldSessionId: string, newSessionId: string, reason: "execution_follow_up", planName: string }} RuntimeExecutionFollowUpSessionReplacedEvent
+ * @typedef {RuntimeEpicContinuationSessionReplacedEvent | RuntimeExecutionFollowUpSessionReplacedEvent} RuntimeSessionReplacedEvent
  */
 
 /**
@@ -449,17 +451,22 @@ export function assertSessionRuntimeEvent(event) {
     if (MESSAGE_ID_EVENT_TYPES.has(event.type)) requireString("messageId");
     switch (event.type) {
         case RuntimeEventTypes.SESSION_REPLACED:
-            for (
-                const field of ["oldSessionId", "newSessionId", "parentPlanName", "completedPlanName", "childPlanName"]
-            ) {
-                requireString(field);
-            }
-            requireRuntimeEvent(value.reason === "epic_continuation", event.type, "reason is invalid");
+            for (const field of ["oldSessionId", "newSessionId"]) requireString(field);
             requireRuntimeEvent(
-                ["plan", "readiness_execute", "execute"].includes(value.action),
+                ["epic_continuation", "execution_follow_up"].includes(value.reason),
                 event.type,
-                "action is invalid",
+                "reason is invalid",
             );
+            if (value.reason === "epic_continuation") {
+                for (const field of ["parentPlanName", "completedPlanName", "childPlanName"]) requireString(field);
+                requireRuntimeEvent(
+                    ["plan", "readiness_execute", "execute"].includes(value.action),
+                    event.type,
+                    "action is invalid",
+                );
+            } else {
+                requireString("planName");
+            }
             break;
         case RuntimeEventTypes.USER_MESSAGE:
             requireString("text");

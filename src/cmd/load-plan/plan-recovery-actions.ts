@@ -350,6 +350,8 @@ export async function openFollowUpRecoveryPlan(context: RecoveryActionContext): 
         await context.recordRecoveryResult("follow_up", "blocked", { reason: "invalid_execution_policy" });
         return { kind: "menu" };
     }
+    const workflow = context.session.getActiveExecutionWorkflow();
+    if (workflow) await context.session.replaceWithExecutionSession?.(workflow);
     await context.recordRecoveryResult("follow_up", "handled", {
         worktreeId: worktree.id,
     });

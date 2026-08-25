@@ -53,9 +53,12 @@ function makeUi(selections: Array<string | null>, textInputs: Array<string | nul
     return { editor, messages, prompts, uiAPI };
 }
 
-async function createRuntime(projectRoot: string): Promise<{ runtime: SessionRuntime; sessionId: string }> {
+async function createRuntime(
+    projectRoot: string,
+    agentName = "router",
+): Promise<{ runtime: SessionRuntime; sessionId: string }> {
     const runtime = createSessionRuntime();
-    const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
+    const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName });
     return { runtime, sessionId };
 }
 
@@ -88,7 +91,7 @@ async function git(projectRoot: string, args: string[]): Promise<string> {
 async function prepareImplementedFollowUpPlan(
     projectRoot: string,
     executionAgent = "engineer",
-): Promise<{ planName: string; worktreePath: string }> {
+): Promise<{ planName: string; worktreePath: string; worktreeBranch: string }> {
     await git(projectRoot, ["init", "-b", "main"]);
     await git(projectRoot, ["config", "user.email", "tests@example.com"]);
     await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
@@ -136,7 +139,7 @@ async function prepareImplementedFollowUpPlan(
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
     });
-    return { planName: "follow-up", worktreePath };
+    return { planName: "follow-up", worktreePath, worktreeBranch: branch };
 }
 
 async function captureLogs(run: () => Promise<void>): Promise<string[]> {
@@ -161,13 +164,17 @@ async function pathExists(path: string): Promise<boolean> {
     }
 }
 
-Deno.test("load-plan rebinds an implemented Plan follow-up to its execution Agent and worktree", async () => {
+async function assertImplementedFollowUpRebindsFromAgent(initialAgentName: string): Promise<void> {
     await withRuntimeCommandFixture(
-        "runwield-load-plan-follow-up-",
+        `runwield-load-plan-follow-up-${initialAgentName}-`,
         async ({ projectRoot, setModelResponseFactory }) => {
             const fixture = await prepareImplementedFollowUpPlan(projectRoot);
-            const { runtime, sessionId } = await createRuntime(projectRoot);
+            const { runtime, sessionId } = await createRuntime(projectRoot, initialAgentName);
             const ui = makeUi(["follow_up"]);
+            let replacementId = "";
+            const unsubscribe = runtime.subscribeSessionEvents(sessionId, (event) => {
+                if (event.type === "session_replaced") replacementId = event.newSessionId;
+            });
             let modelCalls = 0;
             let systemPrompt = "";
             setModelResponseFactory((context: Context) => {
@@ -183,19 +190,73 @@ Deno.test("load-plan rebinds an implemented Plan follow-up to its execution Agen
                     editor: ui.editor,
                 });
 
-                const rebound = runtime.getSessionSnapshot(sessionId);
+                const rebound = runtime.getSessionSnapshot(replacementId);
+                assertEquals(Boolean(replacementId && replacementId !== sessionId), true);
                 assertEquals(rebound?.activeAgent, "plan-engineer");
                 assertEquals(rebound?.activeExecutionWorkflow?.planName, fixture.planName);
                 assertEquals(rebound?.activeExecutionWorkflow?.executionAgent, "engineer");
                 assertEquals(rebound?.activeExecutionWorkflow?.executionCwd, fixture.worktreePath);
                 assertEquals(modelCalls, 0);
 
-                await runtime.promptSession(sessionId, { initialRequest: "Review the implemented change." });
-                const afterTurn = runtime.getSessionSnapshot(sessionId);
+                await runtime.promptSession(replacementId, { initialRequest: "Review the implemented change." });
+                const afterTurn = runtime.getSessionSnapshot(replacementId);
                 assertEquals(afterTurn?.activeExecutionWorkflow?.executionCwd, fixture.worktreePath);
                 assertEquals(modelCalls, 1);
                 assertStringIncludes(systemPrompt, "You are the Plan Engineer");
             } finally {
+                unsubscribe();
+                runtime.closeAllSessions();
+            }
+        },
+    );
+}
+
+Deno.test("load-plan rebinds an implemented Plan follow-up from Router to its execution Agent and worktree", async () => {
+    await assertImplementedFollowUpRebindsFromAgent("router");
+});
+
+Deno.test("load-plan rebinds an implemented Plan follow-up from Planner to its execution Agent and worktree", async () => {
+    await assertImplementedFollowUpRebindsFromAgent("planner");
+});
+
+Deno.test("load-plan follow-up replaces the TUI Session with one rooted in the execution worktree", async () => {
+    await withRuntimeCommandFixture(
+        "runwield-load-plan-follow-up-replacement-",
+        async ({ projectRoot, setModelResponseFactory }) => {
+            const fixture = await prepareImplementedFollowUpPlan(projectRoot);
+            const { runtime, sessionId } = await createRuntime(projectRoot, "planner");
+            const ui = makeUi(["follow_up"]);
+            let replacementId = "";
+            const unsubscribe = runtime.subscribeSessionEvents(sessionId, (event) => {
+                if (event.type === "session_replaced") replacementId = event.newSessionId;
+            });
+            let systemPrompt = "";
+            setModelResponseFactory((context: Context) => {
+                systemPrompt = context.systemPrompt || "";
+                return fauxAssistantMessage(fauxText("Follow-up response."));
+            });
+            try {
+                await runLoadPlanCommand([fixture.planName], {
+                    sessionRuntime: runtime,
+                    sessionId,
+                    uiAPI: ui.uiAPI,
+                    editor: ui.editor,
+                });
+
+                const replacement = runtime.getSessionSnapshot(replacementId);
+                assertEquals(Boolean(replacementId && replacementId !== sessionId), true);
+                assertEquals(replacement?.cwd, fixture.worktreePath);
+                assertEquals(replacement?.activeAgent, "plan-engineer");
+                assertEquals(replacement?.activeExecutionWorkflow?.executionCwd, fixture.worktreePath);
+                assertEquals(await git(fixture.worktreePath, ["branch", "--show-current"]), fixture.worktreeBranch);
+
+                await runtime.promptSession(replacementId, { initialRequest: "Review the implemented change." });
+                const afterTurn = runtime.getSessionSnapshot(replacementId);
+                assertEquals(afterTurn?.cwd, fixture.worktreePath);
+                assertEquals(afterTurn?.activeExecutionWorkflow?.executionCwd, fixture.worktreePath);
+                assertStringIncludes(systemPrompt, "You are the Plan Engineer");
+            } finally {
+                unsubscribe();
                 runtime.closeAllSessions();
             }
         },

@@ -10,7 +10,7 @@ import type { PlanFrontMatter } from "../../plan-store.js";
 import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.js";
 import type { PlanActionRequest, PlanActionResult } from "../../shared/workflow/plan-actions.ts";
 
-type ActiveExecutionWorkflow = import("../../shared/types.js").ActiveExecutionWorkflow;
+export type ActiveExecutionWorkflow = import("../../shared/types.js").ActiveExecutionWorkflow;
 
 /** An image attached to a review decision. */
 export interface ReviewImage {
@@ -68,6 +68,7 @@ export interface PlanSessionSurface {
     runPlanAction?: (request: PlanActionRequest) => Promise<PlanActionResult>;
     getActiveExecutionWorkflow: () => ActiveExecutionWorkflow | null;
     setActiveExecutionWorkflow: (workflow: ActiveExecutionWorkflow) => Promise<void>;
+    replaceWithExecutionSession?: (workflow: ActiveExecutionWorkflow) => Promise<void>;
     clearActiveExecutionWorkflow: () => Promise<void>;
     reviewPlan: (meta: PlanReviewRequest) => Promise<PlanReviewOutcome>;
     rename: (name: string) => Promise<void>;

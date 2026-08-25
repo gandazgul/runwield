@@ -3890,6 +3890,53 @@ export class SessionRuntime {
     }
 
     /**
+     * Replace a live Session with one rooted at an execution workflow cwd.
+     * UI adapters listen to the runtime replacement event and rebind themselves.
+     *
+     * @param {string} oldSessionId
+     * @param {import('../types.js').ActiveExecutionWorkflow} workflow
+     * @returns {Promise<string>}
+     */
+    async replaceSessionForExecutionFollowUp(oldSessionId, workflow) {
+        const oldSession = this.#sessionHost.getSession(oldSessionId);
+        if (!oldSession) throw new Error("SessionRuntime.replaceSessionForExecutionFollowUp: old session not found");
+        const executionCwd = typeof workflow?.executionCwd === "string" ? workflow.executionCwd : "";
+        if (!executionCwd || !isAbsolute(executionCwd)) {
+            throw new Error("SessionRuntime.replaceSessionForExecutionFollowUp requires an absolute execution cwd");
+        }
+        const executionAgent = resolveActiveWorkflowRuntimeAgent(workflow);
+        if (!executionAgent) {
+            throw new Error("SessionRuntime.replaceSessionForExecutionFollowUp requires an execution Agent");
+        }
+        const created = await this.createInteractiveSession({
+            cwd: executionCwd,
+            mode: "new",
+            deferManagedActivationUntilAgentReady: true,
+        });
+        const newSessionId = created.sessionId;
+        const newSession = this.#sessionHost.getSession(newSessionId);
+        if (!newSession) throw new Error("Execution follow-up replacement session was not retained");
+        try {
+            newSession.setInteractionAdapter(oldSession.getInteractionAdapter());
+            await this.#activateSessionAgent(newSession, { agentName: executionAgent });
+            newSession.setActiveExecutionWorkflow(workflow);
+            if (workflow.planName) await this.renameSession(newSessionId, workflow.planName);
+            this.#emitSessionEvent(oldSession.id, {
+                type: RuntimeEventTypes.SESSION_REPLACED,
+                oldSessionId: oldSession.id,
+                newSessionId,
+                reason: "execution_follow_up",
+                planName: workflow.planName || "Plan follow-up",
+            });
+            await this.closeSession(oldSession.id);
+            return newSessionId;
+        } catch (error) {
+            await this.closeSession(newSessionId);
+            throw error;
+        }
+    }
+
+    /**
      * @param {LoadSessionOptions} options
      * @returns {Promise<{ sessionId: string, cwd: string, replayEvents: import('./session-runtime-events.js').SessionRuntimeEvent[], sessionManagerId: string, sessionPath: string }>}
      */

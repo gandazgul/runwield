@@ -18,7 +18,7 @@ import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import type { UiAPI } from "../../ui/tui/types.js";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.js";
-import type { PlanSessionSurface } from "./plan-session-types.ts";
+import type { ActiveExecutionWorkflow, PlanSessionSurface } from "./plan-session-types.ts";
 
 /**
  * The review payload as it arrives from the runtime: unvalidated, so every
@@ -93,6 +93,9 @@ export function createPlanSessionSurface(
         getActiveExecutionWorkflow: () => runtime.getRuntimeActiveExecutionWorkflow(sessionId),
         setActiveExecutionWorkflow: async (workflow) => {
             await runtime.setActiveExecutionWorkflow(sessionId, workflow);
+        },
+        replaceWithExecutionSession: async (workflow: ActiveExecutionWorkflow) => {
+            await runtime.replaceSessionForExecutionFollowUp(sessionId, workflow);
         },
         clearActiveExecutionWorkflow: async () => {
             await runtime.clearActiveExecutionWorkflow(sessionId);
