@@ -627,7 +627,7 @@ review and repository policy are RunWield capabilities that a team may explicitl
 _Avoid_: system of record for intent, review, or memory; required review gate
 
 These terms remain proposed until their respective Workspace capabilities are implemented. A Plan that makes either term
-true must include the relevant `docs/domain-language.md` under Files to Modify, add an implementation step that
+true must include the relevant `docs/domain-language.md` under Expected Change Surface, add an implementation step that
 publishes the definition and stable relationships, and verify that the glossary update lands with the capability. A Plan
 implementing only Workspace Intelligence Search must not promote Project Evidence Graph prematurely.
 

@@ -24,7 +24,6 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-24T15:21:10-04:00"
-updatedAt: "2026-08-24T23:50:04.598Z"
 status: "user_verified"
 origin: "internal"
 userVerifiedAt: "2026-08-24T23:49:42.715Z"
@@ -35,6 +34,10 @@ workRecord:
     path: "docs/work-records/2026-08-24-objective-failing-checks-removed.md"
     lastAttemptAt: "2026-08-24T23:49:42.780Z"
 validationCheckpoint: null
+updatedAt: "2026-08-25T14:11:26.649Z"
+archivedAt: "2026-08-25T14:11:26.649Z"
+archivedFromStatus: "user_verified"
+archivedFromPath: "docs/plans/remove-objective-failing-checks.md"
 ---
 
 # Remove Objective-Failing Checks

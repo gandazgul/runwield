@@ -205,7 +205,7 @@ const RE_ANCHOR_ARTIFACTS = Object.freeze({
     },
     [AGENTS.ARCHITECT]: {
         label: "Epic",
-        sections: "Objective, Vertical Slice Findings, Files to Modify, and Verification Plan",
+        sections: "Objective, Vertical Slice Findings, Expected Change Surface, and Verification Plan",
     },
     [AGENTS.PLAN_ENGINEER]: {
         label: "Plan",

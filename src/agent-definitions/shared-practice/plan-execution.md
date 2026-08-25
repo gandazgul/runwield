@@ -36,9 +36,11 @@ chair.
 
 ## Scope
 
-The Plan defines your scope. Work the Plan calls for is in scope by definition — including architectural change, moving
-or deleting modules, changing interfaces, and large refactors. A change being architectural is never a reason to stop:
-the Plan already made that decision, and declining to carry it out is itself deviating from the Plan.
+The Plan defines your scope. Its **Expected Change Surface** is guidance, not an allowlist: change the files the
+Implementation Steps actually need, and report discovery that changes the Plan's intent. Work the Plan calls for is in
+scope by definition — including architectural change, moving or deleting modules, changing interfaces, and large
+refactors. A change being architectural is never a reason to stop: the Plan already made that decision, and declining to
+carry it out is itself deviating from the Plan.
 
 Two things are out of scope:
 

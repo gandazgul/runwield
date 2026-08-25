@@ -101,9 +101,9 @@ or create false confidence. The vision is intentionally falsifiable.
 excerpts retained for one Ideator Agent Session. _Avoid_: Claim ledger, Work Record Provenance, project evidence store
 
 This term remains proposed while the capability is unimplemented. When an implementation Plan makes it real, Planner
-must include the relevant `docs/domain-language.md` under Files to Modify, add an implementation step that publishes the
-definition and stable relationships, and verify that the glossary update lands with the capability. If the experiment is
-abandoned before implementation, the term remains in this PRD and out of canonical project language.
+must include the relevant `docs/domain-language.md` under Expected Change Surface, add an implementation step that
+publishes the definition and stable relationships, and verify that the glossary update lands with the capability. If the
+experiment is abandoned before implementation, the term remains in this PRD and out of canonical project language.
 
 ## Proposed Experience
 

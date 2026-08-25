@@ -3,6 +3,8 @@ classification: "PLANNED_CHANGE"
 workKind: "BUG_FIX|FEATURE|REFACTOR|MAINTENANCE|DOCUMENTATION"
 complexity: "LOW|MEDIUM|HIGH"
 summary: "<Brief summary of the planned change>"
+# High-signal paths you have evidence for. RunWield uses these for drift warnings and Plan presentation; they are not
+# an exhaustive list and never limit what the executing Engineer may change.
 affectedPaths:
     - "path/to/file1"
     - "path/to/file2"
@@ -39,7 +41,12 @@ Show it where showing reads faster than describing: the call path the change tra
 new interface or a tricky branch, a small `mermaid` diagram for a flow or a state change, or a before/after pair. Add
 one line for the main option you set aside and what it would have cost. Skip all of it when a sentence is clearer.
 
-## Files to Modify
+## Expected Change Surface
+
+The boundaries this change is expected to touch. This list is guidance, not an allowlist: verify the real footprint
+during implementation and change whatever the Implementation Steps need, including files not named here. Stop and report
+only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
+shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
 
 - `path/to/file` — what changes here and why
 - `path/to/another-file` — what changes here and why

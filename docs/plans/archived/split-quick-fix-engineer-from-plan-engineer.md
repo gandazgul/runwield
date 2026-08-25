@@ -50,7 +50,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-15T13:12:00-0400"
-updatedAt: "2026-08-18T13:27:02.459Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-08-18T04:57:07.267Z"
@@ -76,6 +75,10 @@ deliveryEvidence:
 validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-25T14:11:10.191Z"
+archivedAt: "2026-08-25T14:11:10.191Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/split-quick-fix-engineer-from-plan-engineer.md"
 ---
 
 # Split the Quick Fix Engineer from a Workflow-Only Plan Engineer

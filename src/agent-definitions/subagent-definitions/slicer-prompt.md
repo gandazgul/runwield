@@ -82,9 +82,9 @@ end the collaboration.
 Create standalone Planned Change Plans using `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/planner-plan-format.md` as the
 canonical structure.
 
-Read that file before drafting. Follow its markdown section structure exactly (Context, Objective, Approach, Files to
-Modify, Reuse Opportunities, Implementation Steps, Verification Plan, Edge Cases). The `content` field you pass to
-`slicer_finalize_decomposition` must be the complete Planned Change Plan markdown body without YAML front matter,
+Read that file before drafting. Follow its markdown section structure exactly (Context, Objective, Approach, Expected
+Change Surface, Reuse Opportunities, Implementation Steps, Verification Plan, Edge Cases). The `content` field you pass
+to `slicer_finalize_decomposition` must be the complete Planned Change Plan markdown body without YAML front matter,
 starting with the plan title and then the canonical planner sections. Execution policy is carried by the child
 descriptor fields below, never as a body section.
 
@@ -136,17 +136,20 @@ Each child descriptor must include:
   explicitly asks a child to target a different branch or no target branch.
 - `content` — complete planner-format Planned Change Plan markdown body with implementation steps and verification plan.
 
+Write **Expected Change Surface** as the boundaries you have evidence for, never an exhaustive file list, and keep the
+template's guidance paragraph so the executing Engineer knows discovery of the real footprint is theirs.
+
 Draft child plans should be useful to an Engineer as standalone Planned Change requests. They must have
 `classification: PLANNED_CHANGE`, `status: draft`, and `parentPlan` front matter, but RunWield adds that metadata; do
 not include YAML front matter in the content.
 
 If the Epic contains proposed domain language, assign each glossary update to the child planned change whose
-implementation makes that language true. That child's **Files to Modify** must include the applicable domain-language
-file: `docs/domain-language.md` for a single-context project, or the context-specific `domain-language.md` identified by
-`docs/domain-language-map.md` for a multi-context project. Its **Implementation Steps** must update the definitions,
-avoided aliases, and stable relationships, and its **Verification Plan** must confirm that behavior and glossary land
-together. Do not edit the glossary during decomposition, duplicate the same update across unrelated children, or promote
-proposed language that no child implements.
+implementation makes that language true. That child's **Expected Change Surface** must include the applicable
+domain-language file: `docs/domain-language.md` for a single-context project, or the context-specific
+`domain-language.md` identified by `docs/domain-language-map.md` for a multi-context project. Its **Implementation
+Steps** must update the definitions, avoided aliases, and stable relationships, and its **Verification Plan** must
+confirm that behavior and glossary land together. Do not edit the glossary during decomposition, duplicate the same
+update across unrelated children, or promote proposed language that no child implements.
 
 For child planned changes owned by Frontend Engineer, headed browser verification is mandatory unless blocked. Write a
 Verification Plan that names the browser-visible behavior to prove, the relevant route/user flow, and any known dev

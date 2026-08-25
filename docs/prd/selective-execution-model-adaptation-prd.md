@@ -97,8 +97,8 @@ combination that does not change workflow ownership or lifecycle semantics. _Avo
 local-model mode, Agent Definition
 
 This term remains proposed until an implementation Plan ships selectable profiles. Planner must then include the
-relevant `docs/domain-language.md` under Files to Modify, add an implementation step that publishes the definition and
-stable relationships, and verify that the glossary update lands with the implemented profile behavior.
+relevant `docs/domain-language.md` under Expected Change Surface, add an implementation step that publishes the
+definition and stable relationships, and verify that the glossary update lands with the implemented profile behavior.
 
 ## Product Experience
 

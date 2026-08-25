@@ -153,6 +153,17 @@ front matter. Do not classify every external link as a Ticket, copy Ticket conte
 metadata, authenticate to providers, or imply lifecycle synchronization. Keep the plan execution-ready but lightweight;
 expand only where clarity requires it.
 
+### Expected Change Surface is guidance, not an allowlist
+
+Name the modules, boundaries, tests, and documentation you have evidence for, and say why each one changes. Do not try
+to enumerate every file — the executing Engineer discovers the real footprint, and an incidental import, helper, or
+second test file is theirs to change without asking. Keep the template's guidance paragraph inside the section so the
+Engineer reads that boundary in the Plan itself. `affectedPaths` follows the same rule: high-signal paths for drift
+warnings, not a budget.
+
+What you do owe the reader is why the surface looks like this. A file listed with no reason is noise; a subsystem you
+deliberately left out is worth a sentence.
+
 ### The Verification Plan must prove the change
 
 A Verification Plan built only from "nothing broke" checks — type-check, lint, existing tests still pass — can approve a
@@ -224,7 +235,7 @@ target-state terminology, not vocabulary that is already canonical. Use current 
 and clearly identify proposed terms when describing the intended result.
 
 Do not update domain-language files while planning. If the Plan implements behavior that introduces, redefines, or
-retires domain language, include the applicable domain-language file under **Files to Modify** —
+retires domain language, include the applicable domain-language file under **Expected Change Surface** —
 `docs/domain-language.md` for single-context projects, or the context-specific `domain-language.md` identified by
 `docs/domain-language-map.md` for multi-context projects — and add an explicit **Implementation Step** to update its
 definitions, avoided aliases, and stable relationships in the same implementation change. Carry the proposal from the

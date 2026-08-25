@@ -96,8 +96,8 @@ can show that they improve the target Agent contract without causing unacceptabl
 role contract and reaches the expected workflow outcome. _Avoid_: Generic model benchmark, model leaderboard, unit test
 
 This term remains proposed until an implementation Plan ships the evaluation capability. Planner must then include the
-relevant `docs/domain-language.md` under Files to Modify, add an implementation step that publishes the definition and
-stable relationships, and verify that the glossary update lands with the implemented evaluation behavior.
+relevant `docs/domain-language.md` under Expected Change Surface, add an implementation step that publishes the
+definition and stable relationships, and verify that the glossary update lands with the implemented evaluation behavior.
 
 ## Initial Evaluation Portfolio
 
