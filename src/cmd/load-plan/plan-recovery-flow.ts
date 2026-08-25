@@ -28,6 +28,7 @@ import {
     continueRecoveryPlan,
     holdRecoveryPlan,
     inspectRecoveryPlan,
+    openFollowUpRecoveryPlan,
     restoreRecoveryWorktreeRecord,
     reviewRecoveryPlan,
     settleRecoveryRecords,
@@ -310,6 +311,14 @@ async function promptRecoveryAction(
         { value: "hold", label: "Put on hold" },
         { value: "cancel", label: "Cancel" },
     ];
+    const policy = resolvePlanExecutionPolicy(context.plan.attrs);
+    const followUpAgentLabel = policy.ok && policy.policy.executionAgent === "frontend-engineer"
+        ? "Frontend Engineer"
+        : "Plan Engineer";
+    const followUpOptions: RecoveryMenuOption[] = context.plan.attrs.status === "implemented" && hasWorktree &&
+            !gitRecoveryBlocked
+        ? [{ value: "follow_up", label: `Open ${followUpAgentLabel} for follow-up` }]
+        : [];
     const options = isInValidation(context.plan.attrs.status)
         ? [
             ...recordOptions,
@@ -318,6 +327,7 @@ async function promptRecoveryAction(
                 value: "validate" as const,
                 label: context.worktreeContext?.publication ? "Resume publication" : "Retry Workflow Validation",
             }]),
+            ...followUpOptions,
             common[0],
             ...common.slice(1),
         ]
@@ -340,7 +350,7 @@ async function dispatchRecoveryAction(
     gitRecoveryBlocked: boolean,
     gitState: string,
 ): Promise<RecoveryActionOutcome> {
-    if (gitRecoveryBlocked && ["continue", "validate", "merge"].includes(action)) {
+    if (gitRecoveryBlocked && ["continue", "validate", "follow_up", "merge"].includes(action)) {
         context.uiAPI.appendSystemMessage(
             buildPlanRecoveryUserMessage({ kind: "git_blocked" }),
             true,
@@ -364,6 +374,8 @@ async function dispatchRecoveryAction(
             return await inspectRecoveryPlan(context);
         case "validate":
             return await validateRecoveryPlan(context);
+        case "follow_up":
+            return await openFollowUpRecoveryPlan(context);
         case "continue":
             return await continueRecoveryPlan(context);
         case "abandon":

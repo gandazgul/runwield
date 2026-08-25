@@ -66,6 +66,7 @@ export type RecoveryActionName =
     | "user_verify"
     | "inspect"
     | "validate"
+    | "follow_up"
     | "continue"
     | "abandon"
     | "review"
@@ -310,6 +311,48 @@ export async function validateRecoveryPlan(context: RecoveryActionContext): Prom
         return { kind: "menu" };
     }
     await context.recordRecoveryResult("validate", "handled");
+    return { kind: "handled" };
+}
+
+export async function openFollowUpRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
+    context.worktreeContext = await context.refreshRecoveryWorktree();
+    const worktree = context.worktreeContext;
+    if (!worktree?.id || !worktree.path || !worktree.branch || !worktree.baseBranch) {
+        context.uiAPI.appendSystemMessage(
+            buildPlanRecoveryUserMessage({ kind: "record_incomplete" }),
+            true,
+            "RunWield",
+        );
+        await context.recordRecoveryResult("follow_up", "blocked", { reason: "incomplete_worktree_identity" });
+        return { kind: "menu" };
+    }
+    if (
+        !(await confirmRecoveryWorktreeAvailable(
+            context.projectRoot,
+            context.plan.planName,
+            worktree,
+            context.uiAPI,
+        ))
+    ) {
+        await context.recordRecoveryResult("follow_up", "blocked", { reason: "worktree_unavailable" });
+        return { kind: "menu" };
+    }
+    if (
+        !(await rehydrateActiveRecoveryWorkflow(
+            context.projectRoot,
+            context.plan,
+            worktree,
+            context.session,
+            context.uiAPI,
+            "continue",
+        ))
+    ) {
+        await context.recordRecoveryResult("follow_up", "blocked", { reason: "invalid_execution_policy" });
+        return { kind: "menu" };
+    }
+    await context.recordRecoveryResult("follow_up", "handled", {
+        worktreeId: worktree.id,
+    });
     return { kind: "handled" };
 }
 
