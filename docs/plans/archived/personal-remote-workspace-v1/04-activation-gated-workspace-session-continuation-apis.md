@@ -25,7 +25,6 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-21T23:56:51-04:00"
-updatedAt: "2026-07-23T21:33:43.030Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -37,6 +36,10 @@ verifiedAt: "2026-07-23T21:33:43.030Z"
 executionReport: "- Implemented owner DB v3 activation/generation schema, activation protocol acknowledgement, fenced activation services, committed transcript projection, managed Runtime continuation helpers, owner Workspace continuation service/routes, and rollout-gate CLI wiring.\n- Updated usage docs for `--enable-session-activation`, rollout boundaries, conversation-only scope, and conservative recovery behavior.\n- Added/updated focused activation, transcript projection, Workspace CLI, and Plannotator read-only regression coverage.\n- Verification passed: `deno task ci` completed successfully (1592 tests passed; release check passed)."
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/04-activation-gated-workspace-session-continuation-apis.md"
 ---
 
 # Activation-Gated Workspace Session Continuation APIs

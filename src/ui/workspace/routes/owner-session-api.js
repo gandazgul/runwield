@@ -27,6 +27,14 @@ function requireExpectedGeneration(value) {
     return generation;
 }
 
+/** @param {string | null} value @param {string} field @param {number} fallback @param {number} max */
+function readPageValue(value, field, fallback, max) {
+    if (value === null || value === "") return fallback;
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > max) throw new Error(`${field} is invalid.`);
+    return parsed;
+}
+
 /** @param {unknown} value */
 function readSubmittedImages(value) {
     if (!Array.isArray(value)) return [];
@@ -72,7 +80,9 @@ function safeTimelineResult(result) {
 export async function ownerProjectSessionsApi(ctx) {
     try {
         requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
-        const result = await ctx.state.sessionContinuation.listSessions(ctx.params.projectId);
+        const page = readPageValue(ctx.url.searchParams.get("page"), "page", 0, 10_000);
+        const pageSize = readPageValue(ctx.url.searchParams.get("pageSize"), "pageSize", 30, 100);
+        const result = await ctx.state.sessionContinuation.listSessions(ctx.params.projectId, { page, pageSize });
         return ownerJson({ ...result, diagnostics: (result.diagnostics || []).map(safeDiagnostic) });
     } catch (error) {
         return ownerErrorJson(error, 400);

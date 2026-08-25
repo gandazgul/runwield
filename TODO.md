@@ -30,7 +30,7 @@ I would order the overlapping group like this:
 
 5. classify-validation-operational-errors.md - done
 
-6. flag-test-seam-risks-during-init.md - in progress
+6. flag-test-seam-risks-during-init.md - done
 
 7. Optional before foundation: guided-validation-repair.md
 

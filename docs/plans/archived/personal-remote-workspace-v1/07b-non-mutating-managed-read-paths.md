@@ -90,7 +90,6 @@ objectiveChecksBaseline:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-10T18:33:16-04:00"
-updatedAt: "2026-08-11T05:09:13.312Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -113,6 +112,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "8a66a750d17dc1b2dc7e21ebea68e416ecc4032d"
 validationCiAttempts: 0
 validationSemanticRounds: 2
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/07b-non-mutating-managed-read-paths.md"
 ---
 
 # Non-Mutating Managed Read Paths

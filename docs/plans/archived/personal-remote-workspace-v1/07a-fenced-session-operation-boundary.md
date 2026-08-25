@@ -31,7 +31,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-10T18:33:16-04:00"
-updatedAt: "2026-08-11T02:31:54.303Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -53,6 +52,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "5a1f2eb50b442f8b2a0309f23d694ce8fe49518f"
 validationCiAttempts: 0
 validationSemanticRounds: 2
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/07a-fenced-session-operation-boundary.md"
 ---
 
 # Fenced Session Operation Boundary

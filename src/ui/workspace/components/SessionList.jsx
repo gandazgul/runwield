@@ -1,5 +1,4 @@
-import { RunWieldButton, RunWieldCard } from "../../design-system/components/react/RunWieldPrimitives.jsx";
-import { deriveSessionAvailability, SessionActivationStatus } from "./SessionActivationStatus.jsx";
+import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 /** @param {string} projectId @param {string} sessionId */
 function sessionHref(projectId, sessionId) {
@@ -13,7 +12,7 @@ function safeDiagnosticText(value) {
     return [record.code, record.message].filter((part) => typeof part === "string" && part).join(": ");
 }
 
-/** @param {{ projectId: string, data?: any, loading?: boolean, error?: string, newSessionText?: string, creating?: boolean, onNewSessionTextChange?: (value: string) => void, onCreateSession?: () => void, onRetry?: () => void }} props */
+/** @param {{ projectId: string, data?: any, loading?: boolean, error?: string, newSessionText?: string, creating?: boolean, onNewSessionTextChange?: (value: string) => void, onCreateSession?: () => void, onRetry?: () => void, onPageChange?: (page: number) => void }} props */
 export function SessionList({
     projectId,
     data,
@@ -24,24 +23,14 @@ export function SessionList({
     onNewSessionTextChange,
     onCreateSession,
     onRetry,
+    onPageChange,
 }) {
-    const sessions = Array.isArray(data?.sessions) ? [...data.sessions] : [];
-    sessions.sort((a, b) => {
-        const aa = deriveSessionAvailability({
-            ...a,
-            timelineComplete: true,
-            snapshot: a.snapshot,
-        });
-        const bb = deriveSessionAvailability({
-            ...b,
-            timelineComplete: true,
-            snapshot: b.snapshot,
-        });
-        /** @param {{ canContinue: boolean, canPrepare: boolean }} availability */
-        const score = (availability) => availability.canContinue ? 0 : availability.canPrepare ? 1 : 2;
-        return score(aa) - score(bb) ||
-            String(a.displayName || a.runwieldSessionId).localeCompare(String(b.displayName || b.runwieldSessionId));
-    });
+    const sessions = Array.isArray(data?.sessions) ? data.sessions : [];
+    const page = Number.isInteger(data?.page) ? data.page : 0;
+    const pageSize = Number.isInteger(data?.pageSize) ? data.pageSize : 30;
+    const total = Number.isInteger(data?.total) ? data.total : sessions.length;
+    const hasNext = data?.hasNext === true;
+    const hasPrevious = data?.hasPrevious === true;
     if (loading) {
         return (
             <section className="session-list-state" aria-busy="true">
@@ -110,36 +99,38 @@ export function SessionList({
                 )
                 : null}
             <div className="session-card-list">
-                {sessions.map((session) => {
-                    const availability = deriveSessionAvailability({
-                        ...session,
-                        timelineComplete: true,
-                        snapshot: session.snapshot,
-                    });
-                    const title = session.displayName || session.snapshot?.name || "Untitled Session";
-                    return (
-                        <RunWieldCard key={session.runwieldSessionId} className="session-card">
-                            <div className="card-header">
-                                <div>
-                                    <p className="kicker">Session</p>
-                                    <h2>{title}</h2>
-                                    <p className="session-card-id">{session.runwieldSessionId}</p>
-                                    <p className="session-card-meta">
-                                        Generation {session.generation ?? "not prepared"} · {session.state || "unknown"}
-                                    </p>
-                                </div>
-                                <SessionActivationStatus availability={availability} compact />
-                            </div>
-                            <p>{availability.explanation}</p>
-                            <div className="card-actions">
-                                <a className="action-primary" href={sessionHref(projectId, session.runwieldSessionId)}>
-                                    Open Session
-                                </a>
-                            </div>
-                        </RunWieldCard>
-                    );
-                })}
+                {sessions.map((session) => (
+                    <a
+                        className="session-list-item"
+                        href={sessionHref(projectId, session.runwieldSessionId)}
+                        key={session.runwieldSessionId}
+                    >
+                        <span className="session-list-name">{session.displayName || "Untitled Session"}</span>
+                        <span className="session-list-status">{session.state || "unknown"}</span>
+                    </a>
+                ))}
             </div>
+            <nav className="session-pagination" aria-label="Session pages">
+                <span>
+                    Showing {page * pageSize + 1}–{Math.min(page * pageSize + sessions.length, total)} of {total}
+                </span>
+                <div className="card-actions">
+                    <RunWieldButton
+                        type="button"
+                        disabled={!hasPrevious}
+                        onClick={() => onPageChange?.(page - 1)}
+                    >
+                        Previous
+                    </RunWieldButton>
+                    <RunWieldButton
+                        type="button"
+                        disabled={!hasNext}
+                        onClick={() => onPageChange?.(page + 1)}
+                    >
+                        Next 30
+                    </RunWieldButton>
+                </div>
+            </nav>
         </section>
     );
 }

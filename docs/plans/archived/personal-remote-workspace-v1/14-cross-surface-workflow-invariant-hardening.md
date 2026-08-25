@@ -33,7 +33,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:48:25.378Z"
-updatedAt: "2026-08-13T03:24:34.696Z"
 status: "user_verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -57,6 +56,10 @@ worktreeStatus: "completed"
 planName: "personal-remote-workspace-v1/14-cross-surface-workflow-invariant-hardening"
 validationCiAttempts: 0
 validationSemanticRounds: 3
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "user_verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/14-cross-surface-workflow-invariant-hardening.md"
 ---
 
 # Cross-Surface Workflow Invariant Hardening

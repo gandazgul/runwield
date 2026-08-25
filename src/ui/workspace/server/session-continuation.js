@@ -113,6 +113,26 @@ function acceptedInteractionResponse(response) {
     return { outcome: "unsupported", message: "Plan review response is invalid." };
 }
 
+/** @param {string} transcriptPath */
+async function readSessionName(transcriptPath) {
+    try {
+        const transcript = await Deno.readTextFile(transcriptPath);
+        for (const line of transcript.split("\n")) {
+            if (!line.trim()) continue;
+            const entry = JSON.parse(line);
+            const text = entry.type === "user_message"
+                ? entry.text
+                : entry.type === "message" && entry.message?.role === "user"
+                ? entry.message.content?.find((part) => part?.type === "text")?.text
+                : null;
+            if (typeof text === "string" && text.trim()) return text.trim().replace(/\s+/g, " ").slice(0, 120);
+        }
+    } catch {
+        // A damaged transcript remains identifiable by its Session id.
+    }
+    return "Untitled Session";
+}
+
 /** @param {import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore} store @param {{ transcriptCwd: string }} session @param {string} projectId */
 /**
  * @typedef {Object} WorkspaceOperationRecord
@@ -148,28 +168,24 @@ export class WorkspaceSessionContinuationService {
         this.runtime.closeAllSessionsWhenIdle?.();
     }
 
-    /** @param {string} projectId */
-    async listSessions(projectId) {
-        const { sessions, diagnostics } = await this.store.listProjectSessions(projectId, { catalog: true });
+    /**
+     * @param {string} projectId
+     * @param {{ page?: number, pageSize?: number }} [options]
+     */
+    async listSessions(projectId, options = {}) {
+        // Normal listing reads the incremental catalog. Full transcript discovery remains an explicit rescan path.
+        const result = await this.store.listProjectSessions(projectId, { ...options, catalog: false });
         return {
-            diagnostics,
-            sessions: await Promise.all(sessions.map(async (session) => {
-                let inspected = this.store.inspectSessionActivation(session.runwieldSessionId);
-                if (
-                    !inspected.generation &&
-                    ["uninitialized", "uncertain", "reconcile_required"].includes(inspected.activation?.state || "")
-                ) {
-                    try {
-                        await this.runtime.ensureInitialSessionGeneration(session.runwieldSessionId);
-                        inspected = this.store.inspectSessionActivation(session.runwieldSessionId);
-                    } catch {
-                        // A genuinely damaged transcript stays blocked and visible.
-                    }
-                }
+            ...result,
+            diagnostics: result.diagnostics || [],
+            sessions: await Promise.all(result.sessions.map(async (session) => {
+                const inspected = this.store.inspectSessionActivation(session.runwieldSessionId);
                 return {
                     runwieldSessionId: session.runwieldSessionId,
                     projectId,
-                    displayName: session.displayName,
+                    displayName: session.displayName || await readSessionName(session.transcriptPath),
+                    headerTimestamp: session.headerTimestamp,
+                    lastCatalogedAt: session.lastCatalogedAt,
                     state: inspected.activation?.state || "missing_activation",
                     generation: inspected.generation?.generation ?? null,
                     activeSurface: inspected.activation?.state === "active"
@@ -550,6 +566,7 @@ export class WorkspaceSessionContinuationService {
                     status,
                     resultGeneration: generation,
                     errorCode: result.error || null,
+                    errorMessage: result.error || null,
                 });
                 this.operations.set(receipt.operationId, {
                     ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
@@ -807,7 +824,7 @@ export class WorkspaceSessionContinuationService {
             operationId,
             status: durable.status,
             generation: durable.resultGeneration,
-            error: durable.errorCode,
+            error: durable.errorMessage || durable.errorCode,
             events: live?.events || [],
             liveInteraction: live?.liveInteraction || null,
         };

@@ -43,7 +43,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-10T18:33:16-04:00"
-updatedAt: "2026-08-12T01:25:22.013Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -66,6 +65,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "cb429151569e04325750dc60b43496ceab075505"
 validationCiAttempts: 0
 validationSemanticRounds: 2
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/07c-fenced-session-mutation-families.md"
 ---
 
 # Fenced Session Mutation Families

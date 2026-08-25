@@ -36,7 +36,6 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-26T20:48:25.378Z"
-updatedAt: "2026-08-24T12:28:52.000Z"
 status: "user_verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -62,6 +61,10 @@ deliveryEvidence:
 validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
 validationSemanticRounds: 1
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "user_verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/16-workspace-plan-review-and-approve-ui.md"
 ---
 
 # Workspace Plan Review and Approve UI

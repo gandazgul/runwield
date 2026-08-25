@@ -44,7 +44,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:48:25.344Z"
-updatedAt: "2026-08-12T13:34:01.491Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -66,6 +65,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "4c175965b4197bab194f9b8e707d5223faa8fb6f"
 validationCiAttempts: 0
 validationSemanticRounds: 1
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/09-aggregate-transcript-projection-and-segment-aware-sync.md"
 ---
 
 # Aggregate Transcript Projection and Segment-Aware Sync

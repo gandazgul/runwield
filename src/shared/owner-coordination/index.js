@@ -161,9 +161,15 @@ export function openOwnerCoordinationStore(options = {}) {
         getSessionById: (runwieldSessionId) => sessionStore.getSessionById(runwieldSessionId),
         listProjectSessions: async (projectId, sessionOptions) => {
             const runtimeProject = resolveSessionProject(projectId);
-            return runtimeProject
-                ? await sessionStore.listProjectSessions(runtimeProject.projectId, sessionOptions)
-                : { sessions: [], diagnostics: [] };
+            return runtimeProject ? await sessionStore.listProjectSessions(runtimeProject.projectId, sessionOptions) : {
+                sessions: [],
+                diagnostics: [],
+                page: 0,
+                pageSize: 30,
+                total: 0,
+                hasNext: false,
+                hasPrevious: false,
+            };
         },
         catalogProjectSessions: async (projectId, sessionOptions) => {
             const runtimeProject = resolveSessionProject(projectId);

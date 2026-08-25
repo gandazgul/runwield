@@ -18,7 +18,6 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-08-13T00:24:38-04:00"
-updatedAt: "2026-08-24T12:28:52.000Z"
 status: "user_verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -31,6 +30,10 @@ userVerificationNote: "Recovered, integrated, and accepted by the user with Code
 executionReport: "- Rewrote scope summary to remove cut timeline-filter/dashboard-lite work and reflect the owner-approved scope.\n- Confirmed most Plan 17 work was already implemented: browser recovery/progress surfaces, workflow-state sidebar, image-paste Session attachments, latest-block control, and Session state indicators.\n- Filled the gap in TUI-style system event behavior by merging consecutive system events of the same type into one block and rendering merged lines safely.\n- Removed user-visible dashboard build-state copy from the owner Projects page.\n- Verification passed: focused Workspace/session tests, workspace type check, and full deno task ci.\n- Browser evidence: dev server at http://127.0.0.1:5173; checked /dev/plan-progress in headed Chrome and saved artifacts/plan17-progress-final.png. Auth-gated owner Session fixture at :8788 redirected to /pair, so the existing Session screenshots remain the available visual evidence for the sidebar route."
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "user_verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/17-workspace-ux-hardening-pass.md"
 ---
 
 # Workspace UX Hardening Pass

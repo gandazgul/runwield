@@ -42,7 +42,6 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-26T20:48:25.378Z"
-updatedAt: "2026-08-13T20:36:04.202Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -64,6 +63,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "9063575348b3c14e3a005e6bda0c761ad2cc6c98"
 validationCiAttempts: 0
 validationSemanticRounds: 2
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/15-complete-workspace-session-navigation-and-timeline-ux.md"
 ---
 
 # Complete Workspace Session Navigation and Timeline UX

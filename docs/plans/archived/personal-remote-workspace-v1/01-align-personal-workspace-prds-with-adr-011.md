@@ -10,7 +10,6 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-21T23:56:51.405-04:00"
-updatedAt: "2026-07-22T14:00:14.318Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -22,6 +21,10 @@ verifiedAt: "2026-07-22T14:00:14.318Z"
 executionReport: "- Updated `docs/prd/runwield-workspace-prd.md` to replace central live-host/Session Control language with stable Session identity, fenced Session Activation Leases, Durable Workflow Checkpoints, automatic read synchronization, owner coordination DB boundaries, TLS/Origin/CSRF trust notes, and ADR-011 references.\n- Updated `docs/prd/runwield-core-prd.md` to mark `SessionHost`/`HostedSession`, `SessionRuntime`, ACP, Work Records, and Shared Plan lifecycle as current foundations, and to define the next ADR-011 coordination requirements below sibling adapters.\n- Updated `docs/prd/runwield-acp-session-host-PRD.md` so ACP durable `sessionId` maps to stable RunWield Sessions, load/mutation paths are activation-aware, checkpoint/recovery behavior is idempotent, and Workspace remains a sibling Runtime consumer rather than an ACP child or parent.\n- Verification passed: `deno fmt docs/prd/runwield-workspace-prd.md docs/prd/runwield-core-prd.md docs/prd/runwield-acp-session-host-PRD.md`; `deno fmt --check ...`; `git diff --check -- ...`; `deno task ci`.\n- Text audits passed: no remaining `Session Control` references and no remaining central authoritative Session Host claims in the three PRDs."
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/01-align-personal-workspace-prds-with-adr-011.md"
 ---
 
 # Align Personal Remote Workspace PRDs with ADR-011
@@ -29,7 +32,7 @@ humanReviewDecision: "skipped"
 ## Context
 
 Personal Remote Workspace v1 uses the architecture accepted in
-[`ADR-011`](../../adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md): TUI, Workspace, and ACP
+[`ADR-011`](../../../adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md): TUI, Workspace, and ACP
 remain sibling `SessionRuntime` consumers with independent in-process Runtimes. Cross-surface continuity comes from
 exclusive writable Session activation, Durable Workflow Checkpoints, committed Session generations, automatic read
 synchronization, and a separate Session-owned Plan Workflow Lease—not a central Workspace-owned Runtime proxy.

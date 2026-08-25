@@ -10,7 +10,6 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-21T23:56:51.405-04:00"
-updatedAt: "2026-07-23T02:51:44.503Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -22,6 +21,10 @@ verifiedAt: "2026-07-23T02:51:44.503Z"
 executionReport: "- Implemented owner coordination foundation under `src/shared/owner-coordination/`: SQLite path/opener, schema migrations, Project lifecycle/health/relink APIs, stable Session catalog APIs, and adapter-neutral exports.\n- Added catalog-safe root Session JSONL header discovery to `src/shared/session/root-session.js` without using writable `SessionManager.open()`.\n- Added focused migration, Project lifecycle/health, Session catalog/reconstruction/conflict, and root-session non-mutation tests.\n- Verification passed: `deno test -A src/shared/owner-coordination/*.test.js src/shared/session/root-session.test.js`; `deno test -A src/shared/session/architecture-boundary.test.js`; `deno task ci`."
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/02-owner-coordination-database-and-session-catalog.md"
 ---
 
 # Owner Coordination Database and Session Catalog

@@ -40,7 +40,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:48:25.345Z"
-updatedAt: "2026-08-12T15:20:47.703Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -62,6 +61,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "becea3e9c7bc36442ed18b654b0cf3b637c4d912"
 validationCiAttempts: 0
 validationSemanticRounds: 1
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/10-transactional-segment-rollover-primitives.md"
 ---
 
 # Transactional Segment Rollover Primitives

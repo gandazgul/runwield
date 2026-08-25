@@ -164,6 +164,8 @@ export interface CatalogDiagnostic {
 export interface ListSessionOptions {
     catalog?: boolean;
     fullRescan?: boolean;
+    page?: number;
+    pageSize?: number;
     idFactory?: () => string;
     now?: () => string;
 }
@@ -171,6 +173,11 @@ export interface ListSessionOptions {
 export interface SessionListResult {
     sessions: CatalogedSession[];
     diagnostics: CatalogDiagnostic[];
+    page: number;
+    pageSize: number;
+    total: number;
+    hasNext: boolean;
+    hasPrevious: boolean;
 }
 
 export interface SessionCatalogResult {

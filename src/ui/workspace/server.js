@@ -28,6 +28,7 @@ import {
     reviewFeedbackApi,
 } from "./routes/api/review-handlers.js";
 import { openRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
+import { withAccessLogger } from "./server-access-logger.ts";
 import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../../shared/work-records/mnemosyne-port.ts";
 import { loadBoard, loadWorkspaceDetail } from "./server/plan-adapter.js";
 import { PlanBoard } from "./components/Board.jsx";
@@ -1157,12 +1158,20 @@ export function startWorkspaceServer(options) {
             token: options.token ?? "",
             mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
         });
-    return Deno.serve({
-        hostname: options.host,
-        port: options.port,
-        signal: options.signal,
-        automaticCompression: true,
-    }, app.handler());
+    return Deno.serve(
+        {
+            hostname: options.host,
+            port: options.port,
+            signal: options.signal,
+            automaticCompression: true,
+        },
+        withAccessLogger(app.handler(), {
+            mode: Deno.env.get("RUNWIELD_LOG_MODE")?.toLowerCase() === "prod" ||
+                    Deno.env.get("RUNWIELD_LOG_MODE")?.toLowerCase() === "production"
+                ? "prod"
+                : "dev",
+        }),
+    );
 }
 
 /**

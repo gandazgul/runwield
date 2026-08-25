@@ -18,7 +18,6 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-21T23:56:51.460-04:00"
-updatedAt: "2026-07-23T16:54:27.539Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -28,6 +27,10 @@ dependencies:
 verifiedAt: "2026-07-23T16:54:27.539Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/03-secure-persistent-workspace-bootstrap-and-device-pairing.md"
 ---
 
 # Secure Persistent Workspace Bootstrap and Device Pairing

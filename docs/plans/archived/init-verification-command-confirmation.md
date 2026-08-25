@@ -65,7 +65,10 @@ objectiveChecksBaseline:
           exitCode: 1
           durationMs: 62
           output: "\n"
-updatedAt: "2026-08-24T12:28:52.000Z"
+updatedAt: "2026-08-24T21:23:28.348Z"
+archivedAt: "2026-08-24T21:23:28.348Z"
+archivedFromStatus: "user_verified"
+archivedFromPath: "docs/plans/init-verification-command-confirmation.md"
 ---
 
 # Confirm the Project Verification Command During Init

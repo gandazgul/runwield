@@ -8,6 +8,7 @@ import {
     serializeSessionImageForRequest,
     sessionAttachmentsKey,
     sessionDraftKey,
+    shouldApplyOperationPoll,
 } from "./islands/SessionSurface.jsx";
 import { deriveSessionAvailability } from "./components/SessionActivationStatus.jsx";
 import { reduceSessionEvents } from "./components/SessionTimeline.jsx";
@@ -15,6 +16,18 @@ import { reduceSessionEvents } from "./components/SessionTimeline.jsx";
 Deno.test("Session surface preserves drafts and replaces a lost live wait with one interruption line", () => {
     assertEquals(sessionDraftKey("project-1", "session-1"), "runwield:owner:project:project-1:session:session-1:draft");
     assertEquals(draftRecoveryDecision({ status: "unknown" }), "idle");
+    assertEquals(
+        shouldApplyOperationPoll({ cancelled: false, currentOperationId: "new", polledOperationId: "new" }),
+        true,
+    );
+    assertEquals(
+        shouldApplyOperationPoll({ cancelled: false, currentOperationId: "new", polledOperationId: "old" }),
+        false,
+    );
+    assertEquals(
+        shouldApplyOperationPoll({ cancelled: true, currentOperationId: "new", polledOperationId: "new" }),
+        false,
+    );
     const items = reduceOperationTransientItems([
         { type: "interaction_requested", interactionId: "wait-1", interactionType: "text", prompt: "Answer?" },
     ]);

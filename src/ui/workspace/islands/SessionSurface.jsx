@@ -4,6 +4,7 @@ import { SessionList } from "../components/SessionList.jsx";
 import { deriveSessionAvailability, SessionActivationStatus } from "../components/SessionActivationStatus.jsx";
 import { reduceSessionEvents, SessionTimeline } from "../components/SessionTimeline.jsx";
 
+export const SESSION_PAGE_SIZE = 30;
 const TIMELINE_PAGE_LIMIT = 200;
 export const TIMELINE_MAX_PAGES = 10;
 export const TIMELINE_MAX_EVENTS = 1500;
@@ -108,6 +109,11 @@ export function draftRecoveryDecision(input) {
     if (input.status === "network-error") return "retry-same-envelope";
     if (input.status === "conflict" || input.status === "unavailable") return "manual-resubmit";
     return "idle";
+}
+
+/** @param {{ cancelled: boolean, currentOperationId?: string, polledOperationId: string }} input */
+export function shouldApplyOperationPoll(input) {
+    return !input.cancelled && input.currentOperationId === input.polledOperationId;
 }
 
 /** @param {unknown} events */
@@ -252,6 +258,7 @@ export function SessionBackendDisclosure({ snapshot }) {
 /** @param {{ projectId: string, mode?: "list" | "detail", runwieldSessionId?: string }} props */
 export function SessionSurface({ projectId, mode = "detail", runwieldSessionId = "" }) {
     const [listData, setListData] = useState(/** @type {any} */ (null));
+    const [listPage, setListPage] = useState(0);
     const [listError, setListError] = useState("");
     const [loadingList, setLoadingList] = useState(mode === "list");
     const [timeline, setTimeline] = useState(/** @type {any} */ (null));
@@ -278,13 +285,15 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const requestKey = runwieldSessionId ? sessionRequestKey(projectId, runwieldSessionId) : "";
     const attachmentsKey = runwieldSessionId ? sessionAttachmentsKey(projectId, runwieldSessionId) : "";
 
-    async function loadList() {
+    async function loadList(requestedPage = listPage) {
         setLoadingList(true);
         setListError("");
         try {
-            const payload = await ownerFetch(`/api/owner/projects/${encodeURIComponent(projectId)}/sessions`, {
-                method: "GET",
-            });
+            const query = new URLSearchParams({ page: String(requestedPage), pageSize: String(SESSION_PAGE_SIZE) });
+            const payload = await ownerFetch(
+                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions?${query}`,
+                { method: "GET" },
+            );
             setListData(payload);
         } catch (error) {
             setListError(errorMessage(error));
@@ -346,9 +355,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     }
 
     useEffect(() => {
-        if (mode === "list") loadList();
+        if (mode === "list") loadList(listPage);
         if (mode === "detail") loadTimeline();
-    }, [mode, projectId, runwieldSessionId]);
+    }, [mode, projectId, runwieldSessionId, listPage]);
 
     useEffect(() => {
         if (!draftKey) return;
@@ -515,6 +524,13 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                     `/api/owner/session-operations/${encodeURIComponent(current.operationId)}`,
                     { method: "GET" },
                 );
+                if (
+                    !shouldApplyOperationPoll({
+                        cancelled,
+                        currentOperationId: operationRef.current?.operationId,
+                        polledOperationId: current.operationId,
+                    })
+                ) return;
                 const events = Array.isArray(payload.events) ? payload.events : [];
                 const nextEvents = events.slice(current.observed);
                 let items = reduceOperationTransientItems(events);
@@ -557,6 +573,13 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                     return;
                 }
             } catch (error) {
+                if (
+                    !shouldApplyOperationPoll({
+                        cancelled,
+                        currentOperationId: operationRef.current?.operationId,
+                        polledOperationId: current.operationId,
+                    })
+                ) return;
                 setMessage(
                     `Observation interrupted: ${errorMessage(error)}. The server-owned operation was not canceled.`,
                 );
@@ -629,7 +652,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 creating={submitting}
                 onNewSessionTextChange={setNewSessionText}
                 onCreateSession={createSession}
-                onRetry={loadList}
+                onRetry={() => loadList(listPage)}
+                onPageChange={setListPage}
             />
         );
     }
@@ -655,6 +679,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         timeline?.snapshot?.activeExecutionWorkflow || timeline?.snapshot?.workflowContext || {},
     );
     const progressUrl = timeline ? activePlanProgressUrl(projectId, runwieldSessionId, timeline.snapshot) : "";
+    const hasActivePlan = Boolean(workflowContext.planId || workflowContext.planName || progressUrl);
     const workflowStages = deriveWorkflowSidebarStages(workflowProgress);
     return (
         <section className="session-surface">
@@ -683,7 +708,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                     {timeline.snapshot?.activeAgent || "unknown"}
                                 </p>
                                 <SessionBackendDisclosure snapshot={timeline.snapshot} />
-                                {progressUrl
+                                {hasActivePlan && progressUrl && !workflowProgressError
                                     ? <a className="rw-plan-review-link" href={progressUrl}>View progress</a>
                                     : null}
                                 <SessionActivationStatus availability={availability} />
@@ -753,46 +778,55 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                 </div>
                             </form>
                         </main>
-                        <aside className="session-workflow-sidebar" aria-label="Workflow state">
-                            <p className="kicker">Workflow state</p>
-                            <SessionActivationStatus availability={availability} compact />
-                            <dl>
-                                <div>
-                                    <dt>Session</dt>
-                                    <dd>{timeline.state || "unknown"}</dd>
-                                </div>
-                                <div>
-                                    <dt>Plan</dt>
-                                    <dd>{workflowContext.planName || workflowContext.planId || "No active Plan"}</dd>
-                                </div>
-                            </dl>
-                            {workflowProgress
-                                ? (
-                                    <ol
-                                        className="session-workflow-stage-list"
-                                        aria-label="Canonical workflow progress stages"
-                                    >
-                                        {workflowStages.map((stage) => (
-                                            <li key={stage.id} data-state={stage.state}>
-                                                <span>{stage.label}</span>
-                                                <strong>{String(stage.state || "unknown").replaceAll("_", " ")}</strong>
-                                                <p>{stage.detail}</p>
-                                            </li>
-                                        ))}
-                                    </ol>
-                                )
-                                : (
-                                    <p className="notice muted">
-                                        {workflowProgressError ||
-                                            (progressUrl
-                                                ? "Loading canonical workflow progress…"
-                                                : "No active Plan progress is recorded for this Session.")}
-                                    </p>
-                                )}
-                            {progressUrl
-                                ? <a className="rw-plan-review-link" href={progressUrl}>Open progress</a>
-                                : null}
-                        </aside>
+                        {hasActivePlan
+                            ? (
+                                <aside className="session-workflow-sidebar" aria-label="Workflow state">
+                                    <p className="kicker">Workflow state</p>
+                                    <SessionActivationStatus availability={availability} compact />
+                                    <dl>
+                                        <div>
+                                            <dt>Session</dt>
+                                            <dd>{timeline.state || "unknown"}</dd>
+                                        </div>
+                                        <div>
+                                            <dt>Plan</dt>
+                                            <dd>
+                                                {workflowContext.planName || workflowContext.planId || "No active Plan"}
+                                            </dd>
+                                        </div>
+                                    </dl>
+                                    {workflowProgress
+                                        ? (
+                                            <ol
+                                                className="session-workflow-stage-list"
+                                                aria-label="Canonical workflow progress stages"
+                                            >
+                                                {workflowStages.map((stage) => (
+                                                    <li key={stage.id} data-state={stage.state}>
+                                                        <span>{stage.label}</span>
+                                                        <strong>
+                                                            {String(stage.state || "unknown").replaceAll("_", " ")}
+                                                        </strong>
+                                                        <p>{stage.detail}</p>
+                                                    </li>
+                                                ))}
+                                            </ol>
+                                        )
+                                        : workflowProgressError
+                                        ? null
+                                        : (
+                                            <p className="notice muted">
+                                                {progressUrl
+                                                    ? "Loading canonical workflow progress…"
+                                                    : "No active Plan progress is recorded for this Session."}
+                                            </p>
+                                        )}
+                                    {progressUrl && !workflowProgressError
+                                        ? <a className="rw-plan-review-link" href={progressUrl}>Open progress</a>
+                                        : null}
+                                </aside>
+                            )
+                            : null}
                     </div>
                 )
                 : null}

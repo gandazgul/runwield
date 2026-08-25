@@ -32,7 +32,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:48:25.345Z"
-updatedAt: "2026-08-12T16:28:59.722Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -55,6 +54,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "72377a641a9aad82375dfaeea80a4fc2e9b3d9ae"
 validationCiAttempts: 0
 validationSemanticRounds: 0
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/11-simplify-session-continuity.md"
 ---
 
 # Simplify Session Continuity

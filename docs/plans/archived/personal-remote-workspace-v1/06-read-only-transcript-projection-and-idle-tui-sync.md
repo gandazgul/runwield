@@ -19,7 +19,6 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-21T23:56:51-04:00"
-updatedAt: "2026-07-24T19:51:40.708Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -36,6 +35,10 @@ deliveryEvidence:
     executionCommit: "e25285dcb7e1b32f4ec9361f8e307937aa44fd30"
     targetBranch: "main"
     targetHeadBeforeMerge: "fe1b80ae97af5484f7379f4f800f2fd7a1294814"
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/06-read-only-transcript-projection-and-idle-tui-sync.md"
 ---
 
 # Read-Only Transcript Projection and Idle TUI Sync

@@ -18,11 +18,11 @@ const TIMESTAMP = "2026-01-01T00:00:00.000Z";
  * @property {'planning' | 'execution' | 'semantic_repair'} kind
  */
 
-/** @param {string} sessionDir @param {string} cwd @param {string} id @param {TestLineage | null} [lineage] */
-async function writeTranscript(sessionDir, cwd, id, lineage = null) {
+/** @param {string} sessionDir @param {string} cwd @param {string} id @param {TestLineage | null} [lineage] @param {string} [timestamp] */
+async function writeTranscript(sessionDir, cwd, id, lineage = null, timestamp = TIMESTAMP) {
     await Deno.mkdir(sessionDir, { recursive: true });
-    const path = join(sessionDir, `${TIMESTAMP.replace(/[:.]/g, "-")}_${id}.jsonl`);
-    const entries = [JSON.stringify({ type: "session", version: 3, id, timestamp: TIMESTAMP, cwd })];
+    const path = join(sessionDir, `${timestamp.replace(/[:.]/g, "-")}_${id}.jsonl`);
+    const entries = [JSON.stringify({ type: "session", version: 3, id, timestamp, cwd })];
     if (lineage) {
         entries.push(JSON.stringify({ type: "custom", customType: "runwield.segment_lineage", data: lineage }));
     }
@@ -63,6 +63,37 @@ Deno.test("Core catalogs every local Session without creating a Workspace databa
         const reopened = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
         assertEquals((await reopened.listProjectSessions(project.projectId)).sessions[0].runwieldSessionId, stableId);
         reopened.close();
+    } finally {
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});
+
+Deno.test("Project Session listing returns 30 newest Sessions and paginates by date", async () => {
+    const fixture = await makeFixture();
+    try {
+        const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
+        for (let index = 0; index < 31; index += 1) {
+            const day = String(index + 1).padStart(2, "0");
+            await writeTranscript(
+                fixture.sessionDir,
+                fixture.projectRoot,
+                `session-${index}`,
+                null,
+                `2026-01-${day}T00:00:00.000Z`,
+            );
+        }
+
+        const firstPage = await store.listProjectSessions(project.projectId, { page: 0, pageSize: 30 });
+        const secondPage = await store.listProjectSessions(project.projectId, { page: 1, pageSize: 30 });
+
+        assertEquals(firstPage.sessions.length, 30);
+        assertEquals(secondPage.sessions.length, 1);
+        assertEquals(firstPage.total, 31);
+        assertEquals(firstPage.hasNext, true);
+        assertEquals(secondPage.hasNext, false);
+        assertEquals(firstPage.sessions[0].piSessionId, "session-30");
+        assertEquals(secondPage.sessions[0].piSessionId, "session-0");
     } finally {
         await Deno.remove(fixture.rootDir, { recursive: true });
     }

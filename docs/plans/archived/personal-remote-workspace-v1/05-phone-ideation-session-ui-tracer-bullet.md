@@ -18,7 +18,6 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-21T23:56:51-04:00"
-updatedAt: "2026-07-26T14:21:36.893Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -28,6 +27,10 @@ dependencies:
 humanReviewMode: null
 humanReviewDecision: null
 worktreeStatus: "abandoned"
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/05-phone-ideation-session-ui-tracer-bullet.md"
 ---
 
 # Phone Ideation Session UI Tracer Bullet

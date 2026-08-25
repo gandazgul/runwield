@@ -26,7 +26,6 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T20:48:25.345Z"
-updatedAt: "2026-08-12T19:05:57.160Z"
 status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -48,6 +47,10 @@ deliveryEvidence:
     targetHeadBeforeMerge: "9171b151ec15991f2e3f8d4d3b8adf39878e2936"
 validationCiAttempts: 0
 validationSemanticRounds: 2
+updatedAt: "2026-08-24T21:23:47.295Z"
+archivedAt: "2026-08-24T21:23:47.295Z"
+archivedFromStatus: "verified"
+archivedFromPath: "docs/plans/personal-remote-workspace-v1/12-session-activated-plan-actions.md"
 ---
 
 # Session-Activated Plan Actions
