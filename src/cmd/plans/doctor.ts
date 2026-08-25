@@ -40,6 +40,7 @@ import {
     pruneEntry,
     reconcileEntryIdentity,
 } from "../../shared/worktree-registry.js";
+import { isEpicArtifactPlanName } from "../../shared/epic-artifacts.ts";
 
 /** A registry attempt as stored, before doctor proves anything about it. */
 type RegistryEntry = Awaited<ReturnType<typeof inspectWorktreeRegistry>>["entries"][number];
@@ -349,6 +350,7 @@ async function collectPlanIssues(
                 continue;
             }
             if (!isPlanPath) continue;
+            if (isEpicArtifactPlanName(planName)) continue;
             const result = await loadPlanStrict(projectRoot, planName);
             if (result.kind === "malformed") {
                 issues.push({
@@ -436,6 +438,7 @@ async function collectArchivedPlanParseIssues(
                 }
                 if (!isPlanPath || entry.isSymlink) continue;
                 const planName = [...prefix, entry.name.replace(/\.md$/, "")].join("/");
+                if (isEpicArtifactPlanName(planName)) continue;
                 try {
                     const parsed = parsePlanFrontMatter(await Deno.readTextFile(entryPath));
                     collectPlanAttributeIssues({ name: planName, attrs: parsed.attrs }, issues, planIds, {

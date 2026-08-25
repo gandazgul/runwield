@@ -12,6 +12,12 @@ export const NON_GIT_EXECUTION_CONSENT_KEY = "nonGitExecutionConsent";
  */
 
 /**
+ * @typedef {Object} GitPromptState
+ * @property {string} branch
+ * @property {boolean} dirty
+ */
+
+/**
  * @typedef {"work_tree" | "git_missing" | "not_git" | "bare_or_unsupported" | "error"} GitRepositoryState
  */
 
@@ -94,6 +100,51 @@ export async function probeGitRepository(cwd) {
  */
 export async function isGitRepository(cwd) {
     return (await probeGitRepository(cwd)).ok;
+}
+
+/**
+ * @param {string} cwd
+ * @param {string[]} args
+ * @returns {Promise<string | null>}
+ */
+async function readGitOutput(cwd, args) {
+    try {
+        const command = new Deno.Command("git", { args, cwd, stdout: "piped", stderr: "piped" });
+        const output = await command.output();
+        if (output.code !== 0) return null;
+        return decodeBytes(output.stdout);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * @param {string} cwd
+ * @returns {Promise<GitPromptState | null>}
+ */
+export async function readGitPromptState(cwd) {
+    const probe = await probeGitRepository(cwd);
+    if (!probe.ok) return null;
+
+    const branch = await readGitOutput(cwd, ["branch", "--show-current"]);
+    const head = branch && branch.trim() ? branch.trim() : await readGitOutput(cwd, ["rev-parse", "--short", "HEAD"]);
+    if (!head || !head.trim()) return null;
+
+    const status = await readGitOutput(cwd, ["status", "--porcelain"]);
+    if (status === null) return null;
+
+    return { branch: head.trim(), dirty: status.trim().length > 0 };
+}
+
+/**
+ * @param {GitPromptState} state
+ * @returns {string}
+ */
+export function formatGitPromptState(state) {
+    return [
+        `- Git Branch: ${state.branch}`,
+        `- Git Work tree: ${state.dirty ? "dirty" : "clean"}`,
+    ].join("\n");
 }
 
 /**

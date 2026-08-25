@@ -402,17 +402,17 @@ export class ValidationHandoffBlock {
         // Workflow validation counts semantic review rounds; the underlying event
         // field is still named `cycle`, but the user-facing vocabulary is "round"
         // everywhere else in the loop and the header must not contradict it.
-        const counterLabel = progress.kind === "mechanical" ? "cycle" : "round";
+        const counterLabel = progress.kind === "mechanical" ? "Cycle" : "Round";
         const cycle = progress.cycle && progress.maxCycles
             ? ` • ${counterLabel} ${progress.cycle}/${progress.maxCycles}`
             : "";
         const total = progress.totalCycle && progress.totalCycle !== progress.cycle
             ? ` (total ${progress.totalCycle})`
             : "";
-        const stageLabel = progress.stage.replaceAll("_", " ");
-        const stage = ` • stage ${stageLabel}`;
+        const stageLabel = progress.stage.replaceAll("_", " ").replace(/^ci$/, "CI");
+        const stage = ` • Stage: ${stageLabel}`;
         const repair = progress.repairAttempt && progress.maxRepairAttempts
-            ? ` • attempt ${progress.repairAttempt}/${progress.maxRepairAttempts}`
+            ? ` • Attempt ${progress.repairAttempt}/${progress.maxRepairAttempts}`
             : "";
         const checks = progress.checks
             ? progress.kind === "mechanical"

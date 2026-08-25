@@ -25,6 +25,7 @@ import { getRootExecutionMessages } from "./execution-backend.ts";
 import { HostedSession } from "./hosted-session.js";
 import { getRunWieldSessionDir } from "./root-session.js";
 import { estimateContextTextTokens } from "./session-context-report.js";
+import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
@@ -46,6 +47,8 @@ function sessionPromptTest(testDefinition, fn) {
     );
 }
 
+const promptGitFixture = defineCommittedGitFixture();
+
 sessionPromptTest("assembleFinalSystemPrompt includes project-state context only when provided", async () => {
     const agentDef = {
         name: "test",
@@ -62,6 +65,78 @@ sessionPromptTest("assembleFinalSystemPrompt includes project-state context only
 
     assertEquals(withoutContext.includes("### Project State"), false);
     assertStringIncludes(withContext, "### Project State\n\nGreenfield note.");
+});
+
+sessionPromptTest("assembleFinalSystemPrompt includes Git branch and clean state for Git projects", async () => {
+    const projectRoot = await promptGitFixture.checkout({ prefix: "runwield-prompt-git-clean-" });
+    try {
+        const prompt = await assembleFinalSystemPrompt(
+            {
+                name: "test",
+                displayName: "Test",
+                description: "Test agent",
+                model: "",
+                tools: [],
+                systemPrompt: "{{PROJECT_STATE_CONTEXT}}",
+            },
+            [],
+            [],
+            projectRoot,
+        );
+
+        assertStringIncludes(prompt, "- Git Branch: main\n- Git Work tree: clean");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+sessionPromptTest("assembleFinalSystemPrompt includes Git branch and dirty state for Git projects", async () => {
+    const projectRoot = await promptGitFixture.checkout({ prefix: "runwield-prompt-git-dirty-" });
+    try {
+        await Deno.writeTextFile(join(projectRoot, "dirty.txt"), "changed\n");
+        await git(projectRoot, ["checkout", "-b", "feature/git-prompt-state"]);
+
+        const prompt = await assembleFinalSystemPrompt(
+            {
+                name: "test",
+                displayName: "Test",
+                description: "Test agent",
+                model: "",
+                tools: [],
+                systemPrompt: "{{PROJECT_STATE_CONTEXT}}",
+            },
+            [],
+            [],
+            projectRoot,
+        );
+
+        assertStringIncludes(prompt, "- Git Branch: feature/git-prompt-state\n- Git Work tree: dirty");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+sessionPromptTest("assembleFinalSystemPrompt omits Git state outside Git projects", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-prompt-non-git-" });
+    try {
+        const prompt = await assembleFinalSystemPrompt(
+            {
+                name: "test",
+                displayName: "Test",
+                description: "Test agent",
+                model: "",
+                tools: [],
+                systemPrompt: "{{PROJECT_STATE_CONTEXT}}",
+            },
+            [],
+            [],
+            projectRoot,
+        );
+
+        assertEquals(prompt.includes("### Git State"), false);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
 });
 
 sessionPromptTest("assembleFinalSystemPromptWithContextProjection attributes resident context", async () => {

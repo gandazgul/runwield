@@ -202,6 +202,27 @@ Deno.test("plans doctor is report-only without repair", async () => {
     }
 });
 
+Deno.test("plans doctor ignores Epic manual QA artifacts", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-manual-qa-" });
+    try {
+        await Deno.mkdir(join(cwd, "docs", "plans", "tow-mvp-epic"), { recursive: true });
+        await Deno.writeTextFile(
+            join(cwd, "docs", "plans", "tow-mvp-epic", "manual-qa.md"),
+            "# Manual QA\n",
+        );
+        await Deno.mkdir(join(cwd, "docs", "plans", "archived", "tow-mvp-epic"), { recursive: true });
+        await Deno.writeTextFile(
+            join(cwd, "docs", "plans", "archived", "tow-mvp-epic", "manual-qa.md"),
+            "---\n: bad yaml\n---\n# Archived Manual QA\n",
+        );
+
+        const report = await runPlansDoctor(cwd, false);
+        assertEquals(report.issues, []);
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("plans doctor applies identity and evidence checks to archived Plans", async () => {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-archived-" });
     try {

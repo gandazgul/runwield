@@ -95,6 +95,7 @@ import { describeRuntimeTool } from "./tool-event-title.js";
 import { createSessionContextProjection, estimateContextTextTokens } from "./session-context-report.js";
 import { installEarlySteeringInterruption } from "./early-steering.js";
 import { loadSubAgentDefinition } from "./subagent-definitions.ts";
+import { formatGitPromptState, readGitPromptState } from "../git.js";
 
 /** @returns {string | null} */
 function homePromptsDir() {
@@ -1491,8 +1492,12 @@ export async function assembleFinalSystemPromptWithContextProjection(
     }
     finalSystemPrompt = finalSystemPrompt.replace("{{PROJECT_AGENTSMD}}", projectAgentsMd);
 
-    const projectStateContextSection = hasProjectStatePlaceholder && projectStateContext
-        ? ["### Project State", "", projectStateContext, ""].join("\n")
+    const gitPromptState = hasProjectStatePlaceholder ? await readGitPromptState(cwd) : null;
+    const projectStateSections = [];
+    if (projectStateContext) projectStateSections.push(["### Project State", "", projectStateContext].join("\n"));
+    if (gitPromptState) projectStateSections.push(formatGitPromptState(gitPromptState));
+    const projectStateContextSection = hasProjectStatePlaceholder && projectStateSections.length > 0
+        ? `${projectStateSections.join("\n\n")}\n`
         : "";
     finalSystemPrompt = finalSystemPrompt.replace("{{PROJECT_STATE_CONTEXT}}", projectStateContextSection);
 
