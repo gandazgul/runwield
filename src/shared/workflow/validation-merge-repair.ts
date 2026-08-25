@@ -239,7 +239,7 @@ export async function dispatchMergeRepair(
             authorityNote:
                 "This checkout contains RunWield's in-progress publication merge. Resolve only the files Git marks as conflicted and stage each resolution. Do not commit, merge, rebase, reset, or publish; RunWield owns those steps and will continue automatically.",
             completionInstruction:
-                "After all conflict resolutions are staged and no unmerged paths remain, call task_completed. Do not create a commit.",
+                "After all conflict resolutions are staged and no unmerged paths remain, call task_completed. Do not create a commit. If a conflict cannot be resolved here, leave the rest staged and end your turn in plain text naming the file and what stopped you, rather than calling task_completed.",
         }),
         cwd: repairCwd,
     });

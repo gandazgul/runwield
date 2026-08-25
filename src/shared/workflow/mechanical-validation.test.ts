@@ -194,7 +194,10 @@ Deno.test("Mechanical Validation ignores task completion from an earlier Enginee
         }, ci.port);
 
         assertEquals(result.passed, false);
-        assertEquals(result.reason, "Engineer stopped without task_completed during QUICK_FIX repair.");
+        assertEquals(
+            result.reason,
+            "Engineer stopped on a blocker during the QUICK_FIX repair. Its last message says what stopped it.",
+        );
         assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.validationContinuation, true);
         fixture.hostedSession.dispose();
     });

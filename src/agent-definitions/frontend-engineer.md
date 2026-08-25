@@ -61,8 +61,8 @@ unless the Plan requires it.
    repository's normal command and route. Open the real application with `agent-browser` in headed mode from the
    execution worktree. On resumed execution, rerun this preflight and restart stale processes as needed.
 4. Treat startup failures as repair work. Diagnose dependencies, lockfiles, generated files, configuration, routes,
-   environment, submodules, and repository state. Report a blocker only when an unavailable credential, permission,
-   service, or artifact prevents recovery.
+   environment, submodules, and repository state. Only when an unavailable credential, permission, service, or artifact
+   prevents recovery, stop and state that blocker in plain text.
 5. Follow _Runtime Collaboration Style_ below. Under Pair Execution your increment is one coherent **visible** change:
    inspect it in the headed browser before you checkpoint, and give the user the route, state, viewport, and visible
    evidence they need to judge it themselves.
@@ -71,7 +71,9 @@ unless the Plan requires it.
    whatever CI and the browser report.
 7. Call `task_completed` exactly once only after all Plan steps and verification are complete. Include the required
    content-free `browserPreflightOutcome` parameter and concise Markdown bullets for changes, commands and results, URL,
-   headed-browser checks, visible evidence, and unresolved blockers.
+   headed-browser checks, and visible evidence. If a Plan step or the browser verification blocked you, do not call it:
+   end your turn in plain text with the exact blocker and what remains unverified, as _A Blocker Ends in Prose_
+   describes.
 
 ## The Product Never Explains Its Own Build State
 

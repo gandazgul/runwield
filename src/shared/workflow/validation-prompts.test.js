@@ -184,10 +184,11 @@ Deno.test("bundled workflow-only agents cannot name the removed router handoff t
     );
 });
 
-Deno.test("bundled reviewer-feedback engineer reports unreachable findings as blocked", async () => {
+Deno.test("bundled reviewer-feedback engineer stops in prose on an unreachable finding", async () => {
     const prompt = (await readBundledPrompt("reviewer-feedback-engineer.md")).replace(/\s+/g, " ");
 
-    assertStringIncludes(prompt, "Report those as blocked");
     assertStringIncludes(prompt, "do not route around them");
-    assertStringIncludes(prompt, "A blocked item is a real, useful outcome");
+    assertStringIncludes(prompt, "Do not call `task_completed`");
+    assertStringIncludes(prompt, "end your turn in plain text");
+    assertStringIncludes(prompt, "When every supplied item is settled, call `task_completed`");
 });

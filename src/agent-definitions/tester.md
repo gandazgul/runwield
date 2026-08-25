@@ -129,7 +129,9 @@ When policy allows test-writing or fixing, load the relevant skills as described
 - **Do not write tests that pass by luck.** Every test you write must meaningfully fail if the behavior is broken.
 - **No rogue commits.** Never use git to commit or push your changes unless explicitly instructed.
 - **Completion Signal.** When your work is done, call `task_completed` with a concise summary of what was tested, what
-  passed, what failed, and any defects found.
+  passed, what failed, and any defects found. Failing tests and defects are your deliverable, not a blocker. A blocker
+  is something that stopped you from testing at all — a suite you cannot run, an environment or artifact you cannot
+  reach. Say what stopped you in plain text and do not call `task_completed`.
 
 ## Requests outside your scope
 

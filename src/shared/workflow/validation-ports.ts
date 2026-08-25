@@ -140,10 +140,17 @@ export type ValidationReviewOutcome = {
     advisories: ReviewAdvisory[];
 };
 
-/** Outcome of a completion-gated active Agent repair turn. */
+/**
+ * Outcome of a completion-gated active Agent repair turn.
+ *
+ * A repair Agent that hits a blocker stops in plain text instead of calling
+ * `task_completed`, so `blockerText` carries that closing text. Without it the
+ * pause would tell the user only that the turn ended, not what stopped it.
+ */
 export type AgentTurnOutcome = {
     completed: boolean;
     report: string;
+    blockerText?: string;
 };
 
 /** What the engine asks for when it dispatches an independent completion-gated repair turn. */

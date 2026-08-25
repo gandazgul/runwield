@@ -35,7 +35,7 @@ import {
     resolvePhaseContext,
 } from "./validation-context.ts";
 import { SEMANTIC_REVIEW_CYCLES } from "./validation-types.ts";
-import { clampCycle, emitHalted, emitProgress, emitStatus } from "./validation-emit.ts";
+import { clampCycle, emitHalted, emitProgress, emitStatus, repairBlockedReason } from "./validation-emit.ts";
 import { requestInteraction } from "./validation-interactions.ts";
 import { ValidationInteractionTypes } from "./validation-ports.ts";
 import { persistHumanReviewMetadata, runHumanReviewPhase } from "./validation-human-review.ts";
@@ -144,7 +144,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                     kind: "paused",
                     planName: args.planName,
                     projectRoot: context.projectRoot,
-                    reason: "The Validation Repair Engineer follow-up paused before task_completed.",
+                    reason: repairBlockedReason(args, context.projectRoot, repair?.blockerText),
                 };
             }
             state.lastRepairReport = repair.report;
@@ -368,7 +368,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                             kind: "paused",
                             planName: args.planName,
                             projectRoot: context.projectRoot,
-                            reason: "The Validation Repair Engineer follow-up paused before task_completed.",
+                            reason: repairBlockedReason(args, context.projectRoot, followUp?.blockerText),
                         };
                     }
                     state.lastRepairReport = followUp.report;
@@ -795,7 +795,8 @@ export async function dispatchReviewFeedbackRepair(
                     "",
                     buildDiffInspectionSection(packet.diffText),
                 ].join("\n"),
-                completionInstruction: "Report a disposition for every finding, then call task_completed.",
+                completionInstruction:
+                    "Report a disposition for every finding, then call task_completed. If a finding is still open because something blocked you, stop in plain text instead and name it.",
             }),
             images: packet.images,
             cwd: context.executionCwd,
@@ -809,7 +810,14 @@ export async function dispatchReviewFeedbackRepair(
             ...workflowState,
             lastRepairReport: taskReport.report,
         });
-        return { completed: taskReport.completed, report: taskReport.report };
+        if (!taskReport.completed) {
+            return {
+                completed: false,
+                report: "",
+                reason: repairBlockedReason(args, context.projectRoot, taskReport.blockerText),
+            };
+        }
+        return { completed: true, report: taskReport.report };
     } catch (error) {
         return { completed: false, report: "", reason: error instanceof Error ? error.message : String(error) };
     }

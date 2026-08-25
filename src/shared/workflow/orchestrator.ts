@@ -367,7 +367,7 @@ export async function dispatchPostTriage({
         if (!completed) {
             emitSystemStatus(
                 hostedSession,
-                `${operatorDisplay} stopped without task_completed; OPERATION may be incomplete.`,
+                `${operatorDisplay} stopped before reporting the operation complete. Read its last message for the blocker; the operation is unfinished.`,
                 { header: "RunWield" },
             );
         }
@@ -420,7 +420,7 @@ export async function dispatchPostTriage({
             });
             emitSystemStatus(
                 hostedSession,
-                `${engineerDisplay} stopped without task_completed during QUICK_FIX. Staying with ${engineerDisplay}; Mechanical Validation will resume after task_completed.`,
+                `${engineerDisplay} stopped before reporting the task complete, so Mechanical Validation did not run. Read its last message for the blocker. Staying with ${engineerDisplay}; validation resumes once the work is reported complete.`,
                 { header: "RunWield" },
             );
             return;

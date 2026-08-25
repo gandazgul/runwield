@@ -13,6 +13,21 @@ import type { ValidationCheckResult, ValidationCheckResults, ValidationProgressR
 import type { ValidationLoopArgs } from "./validation-types.ts";
 import { SEMANTIC_REVIEW_CYCLES } from "./validation-types.ts";
 import { readCiAttempts, readSemanticRound } from "./validation-context.ts";
+import { AGENTS } from "../../constants.js";
+import { buildValidationUserMessage } from "./validation-user-messages.ts";
+
+/**
+ * The pause text for a repair turn that stopped on a blocker instead of
+ * reporting completion. The repair Agent's own words are the account of what
+ * stopped it, so they travel with the pause.
+ */
+export function repairBlockedReason(args: ValidationLoopArgs, projectRoot: string, blockerText?: string): string {
+    return buildValidationUserMessage({
+        kind: "repair_blocked",
+        agent: args.session.getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, projectRoot),
+        blockerText,
+    });
+}
 
 /** Fields accepted when building a progress record from scratch. */
 export type ValidationProgressInput =

@@ -15,13 +15,14 @@ import { emitTaskCompletedMessage } from "../shared/session/workflow-messages.js
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 import { resolveActiveWorkflowRuntimeAgent } from "../shared/workflow/execution-agent.ts";
 
-const DEFAULT_MESSAGE_DESCRIPTION = "Concise success, failure, or blocked summary for the completed task.";
+const DEFAULT_MESSAGE_DESCRIPTION = "Concise summary of the task you completed and what you verified.";
 const ENGINEER_MESSAGE_DESCRIPTION =
-    "Concise Markdown bullet-point success, failure, or blocked report. Use one bullet per major outcome, review " +
-    "feedback item or related group, verification result, frontend browser check, or unresolved blocker; directly " +
-    "state each feedback item's disposition when repairing validation/review feedback; do not submit a prose paragraph.";
+    "Concise Markdown bullet-point report of the work you completed. Use one bullet per major outcome, review " +
+    "feedback item or related group, verification result, or frontend browser check; directly " +
+    "state each feedback item's disposition when repairing validation/review feedback; do not submit a prose paragraph. " +
+    "This report is for finished work: if something blocked you, do not call this tool at all.";
 const FRONTEND_ENGINEER_MESSAGE_DESCRIPTION = ENGINEER_MESSAGE_DESCRIPTION +
-    " Include final URL/route, headed-browser checks, relevant viewports/states, diagnostics, visible evidence, and exact blockers; Pair checkpoint acceptance is not verification evidence.";
+    " Include final URL/route, headed-browser checks, relevant viewports/states, diagnostics, and visible evidence; Pair checkpoint acceptance is not verification evidence.";
 
 type BrowserPreflightOutcome = "succeeded" | "failed" | "externally_blocked";
 
@@ -83,17 +84,20 @@ function buildToolParams(agentName: string) {
 }
 
 function buildToolDescription(): string {
-    return "Declare that you have finished your assigned execution task, whether it succeeded, failed, " +
-        "or is blocked. " +
+    return "Declare that you have finished the execution task you were assigned. " +
         "For PLANNED_CHANGE and PROJECT workflows, this signals the orchestrator to begin saved-plan validation. " +
         "For OPERATION work, the Operator must self-verify before calling this tool and no RunWield validation loop runs afterward. " +
         "For QUICK_FIX work, the Engineer must verify before calling this tool; RunWield then runs no-plan Mechanical Validation. " +
-        "For frontend UI/UX work, include the dev server URL, headed browser checks performed, and visible " +
-        "evidence; if browser verification was blocked, state the exact blocker and what remains unverified. " +
-        "Call when your assigned work is complete, and include a concise " +
+        "For frontend UI/UX work, include the dev server URL, headed browser checks performed, and visible evidence. " +
+        "Call when your assigned work is done, and include a concise " +
         "report in the required `message` parameter, following its description for content and format. " +
         "Normally called once per assignment. Calling it again is harmless — nothing is corrupted by a second " +
         "report — so if the workflow or the user asks for another, comply instead of refusing. " +
+        "DO NOT call this tool when you are blocked: a step is impossible, two steps contradict each other, " +
+        "something the work depends on does not exist, a credential, permission, service, or artifact you need is " +
+        "unavailable, or any part of the assignment could not be done. A blocker ends your turn in plain text — " +
+        "say exactly what stopped you and what would unblock it, and stop. Calling this tool while blocked starts " +
+        "validation over work that never happened, or reports the Plan as done when it is not. " +
         "If you need to ask the user a clarifying question before finishing, DO NOT call this tool — " +
         "just output the question in text.";
 }

@@ -490,8 +490,8 @@ FEATURE Plan, subtask, ticket, DAG node
 Artifact is `docs/plans/<epic>/manual-qa.md`. It is ordinary user-owned Markdown, has no Plan Lifecycle, and has no
 verification, dependency, delivery, or Epic completion authority. _Avoid_: QA tracker, child Plan, artifact lifecycle
 
-**Task Completion**: The `task_completed` signal an execution Agent emits when its assigned work is complete. _Avoid_:
-Done message, final response
+**Task Completion**: The `task_completed` signal an execution Agent emits when its assigned work is complete. An Agent
+that is blocked ends its turn in plain text instead, and the workflow pauses. _Avoid_: Done message, final response
 
 **Scope Escalation**: A conversational boundary where the active Agent states a concrete role or tool limit and offers
 the user explicit options, such as a suitable `/agent <name>`, an in-role alternative, or returning to the prior

@@ -16,6 +16,18 @@ description: "Practice rules true of every RunWield engineering persona regardle
 - **On naming:** A function whose name says it reads must not write. Don't leave behind alias functions that only call
   another — remove them and update the call sites.
 
+## A Blocker Ends in Prose
+
+When something stops you from finishing the assigned work — it is impossible as specified, two requirements contradict
+each other, something it depends on does not exist, or a credential, service, or artifact stays out of reach after you
+exhausted the recovery paths — **end your turn in plain text**: what you were doing, the fact that stopped you, what
+would unblock it. **Do not call `task_completed`.** RunWield reads that tool as proof the work is done and starts
+validation on it, so calling it while blocked aims the machinery at work that never happened. Stopping costs nothing:
+the workflow pauses, your edits stay, and the user decides what is next.
+
+A blocker is work you could not do. A failure you did not cause, or a problem you noticed and deliberately left alone,
+is not one — report those in `task_completed`.
+
 ## Debugging Unknown-Cause Failures
 
 When the user reports broken behavior with no known cause — a crash, regression, flaky test, or unexpected failure —
@@ -32,7 +44,8 @@ You must attempt to verify your work, and when errors appear you must act, not n
 - Verification claims require an actual command + its output, not narration.
 - Errors surfacing in files you touched are yours to fix. Fix them.
 - For errors in files you did not touch, fix them if the fix is trivially in scope; otherwise report them explicitly in
-  the `task_completed` summary as unresolved failures the user must address.
+  the `task_completed` summary as unresolved failures the user must address. A failure you did not cause and were not
+  asked to fix is a reported failure, not a blocker: it does not stop you from completing your own work.
 - Do **NOT** dismiss errors as "pre-existing", "external dependency", or "unrelated" without baseline proof (e.g., a
   clean `git stash` + re-run showing the same failure). Phrases like "likely related to external dependencies" or "did
   not introduce new regressions" are forbidden as substitutes for actually fixing or explicitly reporting the failure.

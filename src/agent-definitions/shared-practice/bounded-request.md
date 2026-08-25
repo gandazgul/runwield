@@ -40,3 +40,9 @@ user-owned way to leave QUICK_FIX ownership.
 
 If you have a question or need clarification from the user, output your question as plain text and wait for the user's
 reply. DO NOT call `task_completed` if you are asking a question.
+
+## Blockers
+
+_A Blocker Ends in Prose_ governs here too. In QUICK_FIX, `task_completed` starts Mechanical Validation, so calling it
+while blocked runs CI over a change that was never finished and reports the request as handled. Say what stopped you in
+plain text instead, and wait for the user.

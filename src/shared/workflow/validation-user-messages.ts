@@ -34,6 +34,7 @@ export type ValidationMessageRequest =
     | { kind: "ci_running"; cwd: string }
     | { kind: "checks_passed" }
     | { kind: "repair_waiting"; agent: string }
+    | { kind: "repair_blocked"; agent: string; blockerText?: string }
     | { kind: "engineer_follow_up"; agent: string }
     | { kind: "ci_repair"; agent: string }
     | { kind: "semantic_round"; round: number; maxRounds: number; mode: "discovery" | "verify" }
@@ -157,6 +158,10 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             return "The build and tests passed.";
         case "repair_waiting":
             return `${request.agent} stopped. The repair is not done. The check will start when the work note comes.`;
+        case "repair_blocked":
+            return `${request.agent} stopped on a blocker. The repair is not done.${
+                request.blockerText ? `\n\n${request.blockerText}` : ""
+            }`;
         case "engineer_follow_up":
             return `The check is on hold. Send a note to ${request.agent} when you are ready.`;
         case "ci_repair":

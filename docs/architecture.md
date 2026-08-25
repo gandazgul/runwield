@@ -790,6 +790,8 @@ flowchart TD
 - With Git, execution uses a registered worktree and a captured baseline tree.
 - Without Git, in-place execution requires remembered, scope-specific user consent.
 - Engineer output is not completion. The protected `task_completed` tool is the completion gate.
+- A blocker is not a completion. An execution Agent that cannot finish the work stops in plain text instead of calling
+  `task_completed`, so RunWield pauses with the Agent active rather than validating work that never happened.
 - Workflow Validation begins from `implemented`, not directly from `in_progress`.
 - A Git-backed Plan becomes canonically `validated` before publication. The registry publication record then proves the
   exact commits through integration, target update, verification, and cleanup without rewriting the Plan again.

@@ -780,6 +780,8 @@ export async function runMechanicalValidation({
             userRequest:
                 "The no-plan QUICK_FIX failed Mechanical Validation. Fix the following CI errors, do not expand scope, " +
                 "run appropriate verification, then call task_completed when the repair is complete. " +
+                "If something blocks the repair, do not call task_completed: end your turn in plain text with what " +
+                "you fixed and what stopped you. " +
                 "If the repair involves tests, follow the write-tests skill for sound testing behavior:\n\n" +
                 ciResult.output,
             sessionManager,
@@ -796,7 +798,7 @@ export async function runMechanicalValidation({
         if (!completed) {
             const reason = `${
                 getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
-            } stopped without task_completed during QUICK_FIX repair.`;
+            } stopped on a blocker during the QUICK_FIX repair. Its last message says what stopped it.`;
             progress = updateValidationProgress(progress, {
                 outcome: "paused",
                 message: buildValidationUserMessage({

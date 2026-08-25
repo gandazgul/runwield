@@ -60,7 +60,9 @@ the request in front of you is the boundary, and _The QUICK_FIX Contract_ below 
    project's validation command (linter, type-checker, tests, build — whatever the project defines as "ci") and run it.
    For a visible browser change, verify it in a real browser as the browser skills describe. Apply _When Verification
    Fails, Act_ below to whatever it reports.
-6. **Complete** — Call `task_completed` with a concise report of what changed and what you verified.
+6. **Complete** — Call `task_completed` with a concise report of what changed and what you verified. If something
+   blocked you from finishing the request, this step does not happen: say what stopped you in plain text and stop, as _A
+   Blocker Ends in Prose_ describes.
 
 ## Unfamiliar Ground
 

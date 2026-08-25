@@ -36,9 +36,10 @@ import {
     runFeaturePostVerificationHandoffs,
     usedReviewDiffTool,
 } from "./validation-helpers.ts";
-import { readLatestReviewOutcome, readLatestTaskCompletedReport } from "./workflow.js";
+import { extractAssistantOutput, readLatestReviewOutcome, readLatestTaskCompletedReport } from "./workflow.js";
 import type { RuntimeValidationProgress } from "../session/session-runtime-events.js";
 import type {
+    AgentTurnOutcome,
     IsolatedAgentSessionOutcome,
     IsolatedAgentSessionRequest,
     SessionManagerHandle,
@@ -305,7 +306,7 @@ async function runIsolatedRequest(
         customTools: request.customTools as unknown as ToolDefinition[],
         sessionManager: repairManager,
     });
-    const report = readLatestTaskCompletedReport(messages);
+    const report = readRepairTurnOutcome(messages);
     lastRepairSessions.set(hostedSession, {
         manager: repairManager,
         cwd: request.cwd,
@@ -317,11 +318,21 @@ async function runIsolatedRequest(
     return {
         kind: "feedback_engineer",
         outcome: "completed",
-        taskReport: {
-            completed: report.completed,
-            report: report.message,
-        },
+        taskReport: report,
     };
+}
+
+/**
+ * Read what a repair turn produced.
+ *
+ * A repair Agent that hits a blocker stops in plain text rather than calling
+ * `task_completed`, and that session is isolated from the user, so the closing
+ * text is carried out here or the pause says only that the turn ended.
+ */
+function readRepairTurnOutcome(messages: AgentMessage[]): AgentTurnOutcome {
+    const report = readLatestTaskCompletedReport(messages);
+    if (report.completed) return { completed: true, report: report.message };
+    return { completed: false, report: "", blockerText: extractAssistantOutput(messages) || "" };
 }
 
 export function createValidationSessionPort(
@@ -370,13 +381,10 @@ export function createValidationSessionPort(
                 subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
                 sessionManager: repairManager,
             });
-            const completion = readLatestTaskCompletedReport(messages);
+            const completion = readRepairTurnOutcome(messages);
             lastRepairSessions.set(hostedSession, { manager: repairManager, cwd, agentName });
             if (completion.completed) clearPendingRepairManager(hostedSession, cwd, userRequest);
-            return {
-                completed: completion.completed,
-                report: completion.message,
-            };
+            return completion;
         },
         continueLastRepairTurn: async (userRequest) => {
             const repair = lastRepairSessions.get(hostedSession);
@@ -400,11 +408,7 @@ export function createValidationSessionPort(
                     subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
                     sessionManager: repair!.manager,
                 });
-            const completion = readLatestTaskCompletedReport(messages);
-            return {
-                completed: completion.completed,
-                report: completion.message,
-            };
+            return readRepairTurnOutcome(messages);
         },
         createInMemorySessionManager: (cwd) => SessionManager.inMemory(cwd) as unknown as SessionManagerHandle,
         runIsolatedAgentSession: async <K extends IsolatedAgentSessionRequest["kind"]>(

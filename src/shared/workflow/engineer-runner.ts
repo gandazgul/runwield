@@ -85,7 +85,7 @@ export async function runEngineerWithPlan(
 export function buildEngineerPausedMessage(reason, projectRoot, executionAgent = AGENTS.ENGINEER) {
     const base = `${
         getAgentDisplayName(executionAgent, projectRoot)
-    } stopped without task_completed; execution is paused. Say "continue" to resume with the execution owner.`;
+    } stopped before reporting the task complete, so the work is unfinished and the Plan stays In Progress. Say "continue" to resume with the execution owner.`;
     return reason ? `${base}\nReason: ${reason}` : base;
 }
 

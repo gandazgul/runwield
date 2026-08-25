@@ -80,7 +80,10 @@ Deno.test("PLANNED_CHANGE CI repair parks when Engineer does not call task_compl
     assertEquals(run.prompts.length, 1);
     assertEquals(run.ciRuns, 1);
     assertEquals(run.result.kind, "paused");
-    assertStringIncludes(run.result.reason || "", "without task_completed during CI repair");
+    assertStringIncludes(run.result.reason || "", "stopped on a blocker");
+    // The repair session is isolated from the user, so its closing text is the
+    // only account of what stopped it. The pause has to carry it.
+    assertStringIncludes(run.result.reason || "", "CI repair remains incomplete.");
     assertEquals(run.plan?.attrs.status, "implemented");
     assertEquals(run.plan?.attrs.validationCiAttempts, 1);
     assertEquals(typeof run.plan?.attrs.failureReason, "string");
@@ -131,6 +134,36 @@ Deno.test("validation repair runs independently and returns structured completio
             hostedSession.dispose();
         },
     );
+});
+
+Deno.test("a repair turn that stops on a blocker returns its closing text", async () => {
+    const projectRoot = await makeValidationProjectRoot("p", {
+        classification: "PLANNED_CHANGE",
+        status: "implemented",
+        humanReviewMode: "none",
+    });
+    const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot });
+    const port = createValidationSessionPort(hostedSession, {
+        semanticReviewPort: {
+            runIsolatedAgentSession: () =>
+                Promise.resolve([
+                    fauxAssistantMessage(
+                        fauxText("R1-2 fixed. R1-3 is blocked: the migration service is unreachable."),
+                    ),
+                ]),
+        },
+    });
+
+    const outcome = await port.runIndependentRepairTurn({
+        agentName: "reviewer-feedback-engineer",
+        userRequest: "Repair packet",
+        cwd: projectRoot,
+    });
+
+    assertEquals(outcome.completed, false);
+    assertEquals(outcome.report, "");
+    assertEquals(outcome.blockerText, "R1-2 fixed. R1-3 is blocked: the migration service is unreachable.");
+    hostedSession.dispose();
 });
 
 Deno.test("failed validation repair keeps its private manager for backend continuation", async () => {

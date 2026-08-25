@@ -5,7 +5,7 @@
 
 import { AGENTS } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
-import type { ValidationLocalCIResult } from "./validation-ports.ts";
+import type { AgentTurnOutcome, ValidationLocalCIResult } from "./validation-ports.ts";
 import type { PhaseContext, UserActionPause, ValidationLoopArgs, ValidationPhaseResult } from "./validation-types.ts";
 import {
     getProjectRoot,
@@ -17,7 +17,7 @@ import {
     resolvePhaseContext,
 } from "./validation-context.ts";
 import { CI_REPAIR_CYCLES, type UserActionOption } from "./validation-types.ts";
-import { clampCycle, emitProgress, emitStatus } from "./validation-emit.ts";
+import { clampCycle, emitProgress, emitStatus, repairBlockedReason } from "./validation-emit.ts";
 import { pauseForUserAction, requestInteraction } from "./validation-interactions.ts";
 import { ValidationInteractionTypes } from "./validation-ports.ts";
 import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
@@ -294,16 +294,15 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             { mechanicalFailureKind: "ci", validationCheckpoint: args.validationCheckpoint },
         );
         adoptRecordedPlanState(args, phase.context, attrs);
-        if (!(await dispatchCiRepair(args, phase.context, ciResult))) {
-            const reason = `${
-                args.session.getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, phase.context.projectRoot)
-            } stopped without task_completed during CI repair.`;
+        const repair = await dispatchCiRepair(args, phase.context, ciResult);
+        if (!repair.completed) {
+            const reason = repairBlockedReason(args, phase.context.projectRoot, repair.blockerText);
             emitStatus(
                 args,
                 buildValidationUserMessage({
                     kind: "user_action",
                     whatHappened: reason,
-                    doThis: "Validation will resume after the repair is reported complete.",
+                    doThis: "Clear the blocker, then continue the repair. Validation resumes when it reports complete.",
                 }),
                 "warning",
             );
@@ -348,7 +347,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 return pausedResult(
                     args,
                     phase.context,
-                    "The Validation Repair Engineer follow-up paused before task_completed.",
+                    repairBlockedReason(args, phase.context.projectRoot, followUp?.blockerText),
                 );
             }
             return {
@@ -390,7 +389,7 @@ export async function dispatchCiRepair(
     args: ValidationLoopArgs,
     context: PhaseContext,
     ciResult: ValidationLocalCIResult,
-): Promise<boolean> {
+): Promise<AgentTurnOutcome> {
     args.session.setActiveWorkflow({ ...context.workflowBase });
     emitProgress(
         args,
@@ -415,7 +414,7 @@ export async function dispatchCiRepair(
         }),
         cwd: context.executionCwd,
     });
-    return outcome.completed;
+    return outcome;
 }
 
 export function getCiFailureReason(ciResult: ValidationLocalCIResult): string {

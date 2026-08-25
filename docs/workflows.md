@@ -174,8 +174,10 @@ owner then reruns Mechanical Validation, so checks, not the Agent report text, d
 
 If the process stops around such a repair, RunWield reclaims the durable validation checkpoint and reruns Mechanical
 Validation against the current worktree. It does not replay the repair Agent turn and does not require a second Task
-Completion. If a repair turn returns without `task_completed`, the checkpoint stays paused; retry starts from the saved
-Plan state and may dispatch a new bounded repair after fresh checks fail.
+Completion. A repair Agent that is blocked stops in plain text rather than reporting completion, and that closing text
+becomes the pause message so the user sees what stopped it. If a repair turn returns without `task_completed`, the
+checkpoint stays paused; retry starts from the saved Plan state and may dispatch a new bounded repair after fresh checks
+fail.
 
 Workflow validation applies to executable saved plan work: standalone FEATURE plans, child FEATURE plans, and legacy
 non-Epic PROJECT plans. PROJECT Epics do not run an implementation validation loop themselves; their child FEATURE plans

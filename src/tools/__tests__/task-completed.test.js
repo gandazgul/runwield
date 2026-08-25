@@ -145,11 +145,11 @@ Deno.test("task_completed message schema owns Engineer report format and accepts
 
     assertStringIncludes(
         engineerTool.parameters.properties.message.description,
-        "Concise Markdown bullet-point success, failure, or blocked report",
+        "Concise Markdown bullet-point report of the work you completed",
     );
     assertStringIncludes(
         frontendEngineerTool.parameters.properties.message.description,
-        "Concise Markdown bullet-point success, failure, or blocked report",
+        "Concise Markdown bullet-point report of the work you completed",
     );
     assertStringIncludes(
         engineerTool.parameters.properties.message.description,
@@ -159,6 +159,26 @@ Deno.test("task_completed message schema owns Engineer report format and accepts
     assertEquals(engineerTool.parameters.properties.message.minLength, 1);
     assertEquals(engineerTool.description.includes("Markdown bullet-point"), false);
     assertEquals(operatorTool.parameters.properties.message.description.includes("Markdown bullet-point"), false);
+});
+
+Deno.test("task_completed tells every agent to stop in prose instead of reporting a blocker", () => {
+    const hostedSession = new HostedSession({ id: "task-completed-blocker-contract", cwd: TASK_PROJECT_ROOT });
+
+    for (
+        const agentName of [
+            "Engineer",
+            "plan-engineer",
+            "Frontend Engineer",
+            "operator",
+            "tester",
+            "reviewer-feedback-engineer",
+        ]
+    ) {
+        const tool = createTaskCompletedTool({ hostedSession, agentName });
+        assertStringIncludes(tool.description, "DO NOT call this tool when you are blocked");
+        assertStringIncludes(tool.description, "A blocker ends your turn in plain text");
+        assertEquals(tool.description.includes("or is blocked"), false);
+    }
 });
 
 Deno.test("task_completed requires Frontend Engineer preflight outcome only", () => {

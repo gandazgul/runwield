@@ -173,6 +173,18 @@ export async function runHumanReviewPhase(
                     },
                 };
             }
+            // The repair stopped on a blocker or an operational failure. Its own
+            // text is the reason; the review is not reopened over work that could
+            // not be done.
+            return {
+                kind: "decided",
+                result: {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: context.projectRoot,
+                    reason: repair.reason || "The human-feedback repair did not finish.",
+                },
+            };
         }
 
         return {
