@@ -1,6 +1,12 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { loadArchivedPlan, loadPlan, resolveSiblingChildPlanDependencies, savePlan } from "../../plan-store.js";
+import { type Context, fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import {
+    loadArchivedPlan,
+    loadPlan,
+    resolveSiblingChildPlanDependencies,
+    savePlan,
+    updatePlanFrontMatter,
+} from "../../plan-store.js";
 import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
 import { addEntry } from "../../shared/worktree-registry.js";
 import { executePlanAction, loadPlanActionEvidence } from "../../shared/workflow/plan-actions.ts";
@@ -79,6 +85,60 @@ async function git(projectRoot: string, args: string[]): Promise<string> {
     return new TextDecoder().decode(result.stdout).trim();
 }
 
+async function prepareImplementedFollowUpPlan(
+    projectRoot: string,
+    executionAgent = "engineer",
+): Promise<{ planName: string; worktreePath: string }> {
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+    await writePlan(projectRoot, "follow-up", {
+        status: "implemented",
+        executionAgent,
+        executionMode: "worktree",
+        planId: "follow-up-plan",
+    });
+    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["commit", "-m", "fixture baseline"]);
+    const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+    const baseCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
+    const worktreePath = `${projectRoot}-follow-up-worktree`;
+    const branch = `rw/follow-up-${executionAgent}`;
+    await git(projectRoot, ["worktree", "add", "-b", branch, worktreePath, "HEAD"]);
+    const plan = await loadPlan(projectRoot, "follow-up");
+    if (!plan) throw new Error("follow-up Plan fixture disappeared");
+    await updatePlanFrontMatter(
+        projectRoot,
+        "follow-up",
+        {
+            executionBaselineTree: baselineTree,
+            worktreeId: "follow-up-worktree",
+            worktreePath,
+            worktreeBranch: branch,
+            worktreeBaseBranch: "main",
+            worktreeStatus: "completed",
+        },
+        plan.attrs,
+        { expectedRevision: plan.revision },
+    );
+    await addEntry(projectRoot, {
+        id: "follow-up-worktree",
+        planName: "follow-up",
+        planId: "follow-up-plan",
+        path: worktreePath,
+        branch,
+        baseBranch: "main",
+        baseRef: "main",
+        baseCommit,
+        baseTree: baselineTree,
+        executionBaselineTree: baselineTree,
+        status: "completed",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+    });
+    return { planName: "follow-up", worktreePath };
+}
+
 async function captureLogs(run: () => Promise<void>): Promise<string[]> {
     const originalLog = console.log;
     const logs: string[] = [];
@@ -100,6 +160,47 @@ async function pathExists(path: string): Promise<boolean> {
         throw error;
     }
 }
+
+Deno.test("load-plan rebinds an implemented Plan follow-up to its execution Agent and worktree", async () => {
+    await withRuntimeCommandFixture(
+        "runwield-load-plan-follow-up-",
+        async ({ projectRoot, setModelResponseFactory }) => {
+            const fixture = await prepareImplementedFollowUpPlan(projectRoot);
+            const { runtime, sessionId } = await createRuntime(projectRoot);
+            const ui = makeUi(["follow_up"]);
+            let modelCalls = 0;
+            let systemPrompt = "";
+            setModelResponseFactory((context: Context) => {
+                modelCalls++;
+                systemPrompt = context.systemPrompt || "";
+                return fauxAssistantMessage(fauxText("Follow-up response."));
+            });
+            try {
+                await runLoadPlanCommand([fixture.planName], {
+                    sessionRuntime: runtime,
+                    sessionId,
+                    uiAPI: ui.uiAPI,
+                    editor: ui.editor,
+                });
+
+                const rebound = runtime.getSessionSnapshot(sessionId);
+                assertEquals(rebound?.activeAgent, "plan-engineer");
+                assertEquals(rebound?.activeExecutionWorkflow?.planName, fixture.planName);
+                assertEquals(rebound?.activeExecutionWorkflow?.executionAgent, "engineer");
+                assertEquals(rebound?.activeExecutionWorkflow?.executionCwd, fixture.worktreePath);
+                assertEquals(modelCalls, 0);
+
+                await runtime.promptSession(sessionId, { initialRequest: "Review the implemented change." });
+                const afterTurn = runtime.getSessionSnapshot(sessionId);
+                assertEquals(afterTurn?.activeExecutionWorkflow?.executionCwd, fixture.worktreePath);
+                assertEquals(modelCalls, 1);
+                assertStringIncludes(systemPrompt, "You are the Plan Engineer");
+            } finally {
+                runtime.closeAllSessions();
+            }
+        },
+    );
+});
 
 Deno.test("load-plan prints its real command help", async () => {
     const logs = await captureLogs(() => runLoadPlanCommand(["--help"]));

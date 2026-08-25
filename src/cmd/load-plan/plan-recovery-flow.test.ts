@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { handlePlanRecovery } from "./plan-recovery-flow.ts";
-import { inspectRecoveryPlan, settleRecoveryRecords } from "./plan-recovery-actions.ts";
+import { inspectRecoveryPlan, openFollowUpRecoveryPlan, settleRecoveryRecords } from "./plan-recovery-actions.ts";
 import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { getTransitionJournalDir } from "../../shared/workflow/state-transition.ts";
 import {
@@ -22,6 +22,7 @@ interface PromptOption {
 interface TestUi extends UiAPI {
     prompts: string[];
     messages: string[];
+    optionLabels: string[][];
 }
 
 interface RunRecoveryResult {
@@ -56,11 +57,14 @@ function makePlan(overrides: Partial<PlanFrontMatter> = {}): RecoveryFlowPlan {
 function makeUi(answers: (string | null)[], textAnswers: (string | null)[] = []): TestUi {
     const prompts: string[] = [];
     const messages: string[] = [];
+    const optionLabels: string[][] = [];
     const ui: Partial<TestUi> = {
         prompts,
         messages,
+        optionLabels,
         promptSelect: (prompt: string, options: PromptOption[]) => {
             prompts.push(`${prompt}:${options.map((option) => option.value).join(",")}`);
+            optionLabels.push(options.map((option) => option.label));
             return Promise.resolve(answers.shift() ?? null);
         },
         promptText: (prompt: string) => {
@@ -225,6 +229,53 @@ function makeActionContext(projectRoot: string, plan: RecoveryFlowPlan, uiAPI: U
     };
 }
 
+async function prepareImplementedWorktree(
+    project: RealRecoveryProject,
+    executionAgent: "engineer" | "frontend-engineer" = "engineer",
+): Promise<{ path: string; id: string }> {
+    const path = await Deno.makeTempDir({ prefix: "runwield-recovery-follow-up-worktree-" });
+    await Deno.remove(path);
+    const id = `follow-up-${executionAgent}`;
+    const branch = `rw/follow-up-${executionAgent}`;
+    const baseCommit = await runGit(project.projectRoot, ["rev-parse", "HEAD"]);
+    await runGit(project.projectRoot, ["worktree", "add", "-b", branch, path, "HEAD"]);
+    const currentPlan = await loadPlan(project.projectRoot, project.plan.planName);
+    if (!currentPlan) throw new Error("follow-up fixture Plan disappeared");
+    project.plan.attrs = await updatePlanFrontMatter(
+        project.projectRoot,
+        project.plan.planName,
+        {
+            status: "implemented",
+            executionAgent,
+            executionMode: "worktree",
+            executionBaselineTree: project.baselineTree,
+            worktreeId: id,
+            worktreePath: path,
+            worktreeBranch: branch,
+            worktreeBaseBranch: "main",
+            worktreeStatus: "completed",
+        },
+        currentPlan.attrs,
+        { expectedRevision: currentPlan.revision },
+    );
+    await addWorktreeRegistryEntry(project.projectRoot, {
+        id,
+        planName: project.plan.planName,
+        planId: String(project.plan.attrs.planId),
+        path,
+        branch,
+        baseBranch: "main",
+        baseRef: "main",
+        baseCommit,
+        baseTree: project.baselineTree,
+        executionBaselineTree: project.baselineTree,
+        status: "completed",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+    });
+    return { path, id };
+}
+
 async function runRealRecovery(
     selections: Array<string | null>,
     attrs: Partial<PlanFrontMatter> = {},
@@ -346,6 +397,69 @@ Deno.test("Plan Recovery handled and review outcomes exit once", async () => {
         },
     );
     assertEquals(resetSuccess.result, "handled");
+});
+
+Deno.test("implemented recovery places follow-up second and restores the execution Agent workflow", async () => {
+    const engineer = await runRealRecovery(
+        ["cancel"],
+        { status: "implemented", executionMode: "worktree", executionAgent: "engineer" },
+        async (_options, project) => {
+            await prepareImplementedWorktree(project, "engineer");
+        },
+    );
+    const engineerOptions = engineer.ui.optionLabels[0] || [];
+    const retryIndex = engineerOptions.indexOf("Retry Workflow Validation");
+    assertEquals(retryIndex >= 0, true);
+    assertEquals(engineerOptions[retryIndex + 1], "Open Plan Engineer for follow-up");
+
+    const frontendProject = await makeRealRecoveryProject({ status: "implemented" });
+    const frontendWorktree = await prepareImplementedWorktree(frontendProject, "frontend-engineer");
+    const activeWorkflows: import("../../shared/types.js").ActiveExecutionWorkflow[] = [];
+    let executeCalls = 0;
+    let validationCalls = 0;
+    const frontendUi = makeUi([]);
+    const frontendContext = makeActionContext(frontendProject.projectRoot, frontendProject.plan, frontendUi);
+    frontendContext.worktreeContext = {
+        id: frontendWorktree.id,
+        path: frontendWorktree.path,
+        branch: "rw/follow-up-frontend-engineer",
+        baseBranch: "main",
+        status: "completed",
+    };
+    frontendContext.refreshRecoveryWorktree = () => Promise.resolve(frontendContext.worktreeContext);
+    frontendContext.session.setActiveExecutionWorkflow = (workflow) =>
+        Promise.resolve(activeWorkflows.push(workflow)).then(() => {});
+    frontendContext.session.executePlan = () => {
+        executeCalls++;
+        return Promise.resolve({ result: "complete" });
+    };
+    frontendContext.session.runValidation = () => {
+        validationCalls++;
+        return Promise.resolve({ status: "passed" });
+    };
+
+    assertEquals(await openFollowUpRecoveryPlan(frontendContext), { kind: "handled" });
+    const activeWorkflow = activeWorkflows[0];
+    if (!activeWorkflow) throw new Error("follow-up did not restore an active workflow");
+    assertEquals(activeWorkflow.planName, frontendProject.plan.planName);
+    assertEquals(activeWorkflow.executionAgent, "frontend-engineer");
+    assertEquals(activeWorkflow.executionCwd, frontendWorktree.path);
+    assertEquals(activeWorkflow.worktreeId, frontendWorktree.id);
+    assertEquals(executeCalls, 0);
+    assertEquals(validationCalls, 0);
+    assertEquals(frontendProject.plan.attrs.status, "implemented");
+});
+
+Deno.test("follow-up recovery keeps the menu available when the recorded worktree is incomplete", async () => {
+    const result = await runRecovery(["follow_up", "cancel"], {
+        status: "implemented",
+        executionMode: "worktree",
+        worktreeId: "missing-worktree",
+        worktreePath: "/tmp/missing-worktree",
+    });
+    assertEquals(result.result, "handled");
+    assertEquals(result.ui.prompts.length, 2);
+    assertEquals(result.ui.messages.some((message) => message.includes("worktree facts are missing")), true);
 });
 
 Deno.test("continuing an in-progress worktree keeps its Plan authoritative and rebuilds missing attempt data", async () => {
