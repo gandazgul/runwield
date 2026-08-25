@@ -111,19 +111,33 @@ export function installKeybindings(ctx: KeybindingsContext): (data: string) => v
         if (matchesKey(data, Key.ctrl("v"))) {
             const img = await readClipboardImage();
             if (img) {
-                let attachment: ImageAttachment | null = null;
-                try {
-                    attachment = handleImagePaste ? await handleImagePaste(img) : img;
-                } catch (error) {
-                    const message = error instanceof Error ? error.message : String(error);
-                    uiAPI.appendSystemMessage(`Cannot attach pasted image: ${message}`);
-                    tui.requestRender();
-                    return;
-                }
-                if (attachment) {
-                    pastedImages.push(attachment);
-                    previewImages.addChild(createPastedImagePreview(attachment));
-                    tui.requestRender();
+                pastedImages.push(img);
+                previewImages.addChild(createPastedImagePreview(img));
+                tui.requestRender();
+                if (handleImagePaste) {
+                    handleImagePaste(img).then((attachment) => {
+                        if (!attachment) {
+                            const index = pastedImages.indexOf(img);
+                            if (index >= 0) {
+                                pastedImages.splice(index, 1);
+                                const preview = previewImages.children[index];
+                                if (preview) previewImages.removeChild(preview);
+                            }
+                        } else if (attachment !== img) {
+                            Object.assign(img, attachment);
+                        }
+                        tui.requestRender();
+                    }).catch((error) => {
+                        const index = pastedImages.indexOf(img);
+                        if (index >= 0) {
+                            pastedImages.splice(index, 1);
+                            const preview = previewImages.children[index];
+                            if (preview) previewImages.removeChild(preview);
+                        }
+                        const message = error instanceof Error ? error.message : String(error);
+                        uiAPI.appendSystemMessage(`Cannot attach pasted image: ${message}`);
+                        tui.requestRender();
+                    });
                 }
             }
             return;

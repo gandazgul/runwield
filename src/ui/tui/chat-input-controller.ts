@@ -78,6 +78,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
     const generationStillCurrent = generationGuard.isCurrent;
     const warnedImageRefs = new Set<string>();
     const preflightedImageRefs = new Set<string>();
+    const pendingImagePastes = new WeakMap<ImageAttachment, Promise<ImageAttachment | null>>();
     let isProcessingSubmission = false;
     let shouldDrainQueuedAfterProcessing = false;
     let originalHandleInput: (data: string) => void | Promise<void> = (data: string) => editor.handleInput(data);
@@ -211,30 +212,47 @@ export function createChatInputController(options: ChatInputControllerOptions): 
     async function preflightCurrentImages(images: ImageAttachment[]) {
         return await runtime.preflightSessionImages(options.getSessionId(), images);
     }
-    async function handleImagePaste(image: ImageAttachment): Promise<ImageAttachment | null> {
-        let attachment = image;
-        try {
-            attachment = await runtime.persistSessionImage(options.getSessionId(), image);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            if (!message.includes("no active session is available")) throw error;
-        }
-        const preflight = await preflightCurrentImages([attachment]);
-        if (!preflight.ok) {
-            uiAPI.appendSystemMessage(preflight.message);
-            return null;
-        }
-        preflightedImageRefs.add(imageWarningKey(attachment));
-        const pasteWarning = getPreflightWarning(preflight);
-        if (pasteWarning) {
-            uiAPI.appendSystemMessage(pasteWarning);
-            warnedImageRefs.add(imageWarningKey(attachment));
-        }
-        return attachment;
+    async function awaitPendingImagePastes(images: ImageAttachment[]): Promise<void> {
+        const pending = images.flatMap((image) => {
+            const task = pendingImagePastes.get(image);
+            return task ? [task] : [];
+        });
+        if (pending.length === 0) return;
+        await Promise.allSettled(pending);
+    }
+    function handleImagePaste(image: ImageAttachment): Promise<ImageAttachment | null> {
+        const task = (async (): Promise<ImageAttachment | null> => {
+            let attachment = image;
+            try {
+                attachment = await runtime.persistSessionImage(options.getSessionId(), image);
+                Object.assign(image, attachment);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                if (!message.includes("no active session is available")) throw error;
+            }
+            const preflight = await preflightCurrentImages([image]);
+            if (!preflight.ok) {
+                uiAPI.appendSystemMessage(preflight.message);
+                return null;
+            }
+            preflightedImageRefs.add(imageWarningKey(image));
+            const pasteWarning = getPreflightWarning(preflight);
+            if (pasteWarning) {
+                uiAPI.appendSystemMessage(pasteWarning);
+                warnedImageRefs.add(imageWarningKey(image));
+            }
+            return image;
+        })();
+        pendingImagePastes.set(image, task);
+        task.then(
+            () => pendingImagePastes.delete(image),
+            () => pendingImagePastes.delete(image),
+        );
+        return task;
     }
     editor.onSubmit = async (text: string) => {
         const userRequest = text.trim();
-        const images = [...pastedImages];
+        let images = [...pastedImages];
         uiAPI.hideKeyboardHelp?.();
         if (!userRequest && images.length === 0) return;
         if (
@@ -258,6 +276,9 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             return;
         }
         if (images.length > 0) {
+            await awaitPendingImagePastes(images);
+            images = images.filter((image) => pastedImages.includes(image));
+            if (!userRequest && images.length === 0) return;
             const imagesNeedingPreflight = images.filter((image) => !preflightedImageRefs.has(imageWarningKey(image)));
             if (imagesNeedingPreflight.length > 0) {
                 const preflight = await preflightCurrentImages(imagesNeedingPreflight);

@@ -300,15 +300,21 @@ Deno.test("installKeybindings asks dequeue callback for up-arrow even without su
     assertEquals(ctx.stats.originalInputs, []);
 });
 
-Deno.test("installKeybindings delegates pasted images through handleImagePaste", async () => {
+Deno.test("installKeybindings previews pasted images before paste processing finishes", async () => {
     initRunWieldTheme();
+    let finishPasteProcessing = () => {};
+    const pasteProcessingDone = new Promise((resolve) => {
+        finishPasteProcessing = () => resolve(undefined);
+    });
     /** @type {any[]} */
     const handled = [];
     const ctx = makeContext({
         readClipboardImage: () => Promise.resolve({ base64: "YQ==", mimeType: "image/png" }),
-        handleImagePaste: (/** @type {any} */ image) => {
+        handleImagePaste: async (/** @type {any} */ image) => {
             handled.push(image);
-            return Promise.resolve({ ...image, ref: "attachment:abc" });
+            await pasteProcessingDone;
+            Object.assign(image, { ref: "attachment:abc" });
+            return image;
         },
     });
     installKeybindings(ctx);
@@ -316,24 +322,38 @@ Deno.test("installKeybindings delegates pasted images through handleImagePaste",
     await ctx.editor.handleInput(RAW_KEY.ctrlV);
 
     assertEquals(handled, [{ base64: "YQ==", mimeType: "image/png" }]);
-    assertEquals(ctx.pastedImages, [{ base64: "YQ==", mimeType: "image/png", ref: "attachment:abc" }]);
+    assertEquals(ctx.pastedImages, [{ base64: "YQ==", mimeType: "image/png" }]);
     assertEquals(ctx.previewImages.children.length, 1);
     assertEquals(ctx.previewImages.children[0] instanceof Image, true);
     assertEquals(ctx.stats.renderCount, 1);
+
+    finishPasteProcessing();
+    await pasteProcessingDone;
+    await Promise.resolve();
+    assertEquals(ctx.pastedImages, [{ base64: "YQ==", mimeType: "image/png", ref: "attachment:abc" }]);
 });
 
-Deno.test("installKeybindings does not mutate previews when handleImagePaste blocks", async () => {
+Deno.test("installKeybindings removes previews when handleImagePaste blocks", async () => {
+    let finishPasteProcessing = () => {};
+    const pasteProcessingDone = new Promise((resolve) => {
+        finishPasteProcessing = () => resolve(null);
+    });
     const ctx = makeContext({
         readClipboardImage: () => Promise.resolve({ base64: "YQ==", mimeType: "image/png" }),
-        handleImagePaste: () => Promise.resolve(null),
+        handleImagePaste: () => pasteProcessingDone,
     });
     installKeybindings(ctx);
 
     await ctx.editor.handleInput(RAW_KEY.ctrlV);
+    assertEquals(ctx.pastedImages, [{ base64: "YQ==", mimeType: "image/png" }]);
+    assertEquals(ctx.previewImages.children.length, 1);
 
+    finishPasteProcessing();
+    await pasteProcessingDone;
+    await Promise.resolve();
     assertEquals(ctx.pastedImages, []);
     assertEquals(ctx.previewImages.children, []);
-    assertEquals(ctx.stats.renderCount, 0);
+    assertEquals(ctx.stats.renderCount, 2);
 });
 
 Deno.test("installKeybindings reports pasted image handler failures instead of throwing", async () => {
@@ -344,11 +364,14 @@ Deno.test("installKeybindings reports pasted image handler failures instead of t
     installKeybindings(ctx);
 
     await ctx.editor.handleInput(RAW_KEY.ctrlV);
+    assertEquals(ctx.pastedImages, [{ base64: "YQ==", mimeType: "image/png" }]);
+    assertEquals(ctx.previewImages.children.length, 1);
 
+    await Promise.resolve();
     assertEquals(ctx.pastedImages, []);
     assertEquals(ctx.previewImages.children, []);
     assertEquals(ctx.stats.systemMessages, [
         "Cannot attach pasted image: managed_unsupported",
     ]);
-    assertEquals(ctx.stats.renderCount, 1);
+    assertEquals(ctx.stats.renderCount, 2);
 });
