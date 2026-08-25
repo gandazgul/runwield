@@ -10,6 +10,7 @@ import { AGENTS } from "../../constants.js";
 import { loadAgentDef, normalizeAgentInternalName } from "./agents.js";
 
 export const ACTIVE_AGENT_CUSTOM_TYPE = "runwield.active_agent";
+export const MANUAL_MODEL_CUSTOM_TYPE = "runwield.manual_model";
 
 /**
  * @typedef {Object} PersistedModelState
@@ -23,6 +24,45 @@ export const ACTIVE_AGENT_CUSTOM_TYPE = "runwield.active_agent";
  * @property {string} [provider]
  * @property {string} [modelId]
  */
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} sessionManager
+ * @param {string} provider
+ * @param {string} model
+ */
+export function recordManualModelSelection(sessionManager, provider, model) {
+    if (!sessionManager?.appendCustomEntry || !model?.trim()) return;
+
+    try {
+        sessionManager.appendCustomEntry(MANUAL_MODEL_CUSTOM_TYPE, {
+            provider: provider?.trim() || "",
+            model: model.trim(),
+        });
+    } catch (_e) {
+        // Manual-model persistence should never block model activation.
+    }
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} sessionManager
+ * @returns {PersistedModelState | null}
+ */
+export function readPersistedManualModelState(sessionManager) {
+    const entries = getSessionEntries(sessionManager);
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const entry = entries[i];
+        if (!entry || typeof entry !== "object") continue;
+        const typed =
+            /** @type {{ type?: string, customType?: string, data?: { provider?: unknown, model?: unknown } }} */ (entry);
+        if (typed.type !== "custom" || typed.customType !== MANUAL_MODEL_CUSTOM_TYPE) continue;
+        if (typeof typed.data?.model !== "string" || !typed.data.model.trim()) continue;
+        return {
+            provider: typeof typed.data.provider === "string" ? typed.data.provider.trim() : "",
+            model: typed.data.model.trim(),
+        };
+    }
+    return null;
+}
 
 /**
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} sessionManager

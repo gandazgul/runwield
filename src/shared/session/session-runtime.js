@@ -4,7 +4,12 @@
  */
 
 import { AGENTS, SUBAGENTS } from "../../constants.js";
-import { readPersistedModelState, resolveResumeAgentName } from "./active-agent-session.js";
+import {
+    readPersistedManualModelState,
+    readPersistedModelState,
+    recordManualModelSelection,
+    resolveResumeAgentName,
+} from "./active-agent-session.js";
 import { resolveActiveWorkflowRuntimeAgent, resolvePlanExecutionRuntimeAgent } from "../workflow/execution-agent.ts";
 import { getAgentDisplayName } from "./agents.js";
 import { runActiveAgentTurn, switchActiveAgent } from "./agent-switching.js";
@@ -1195,7 +1200,7 @@ export class SessionRuntime {
             !promptReadySession.getManagedMetadata?.()
         ) {
             promptReadySession.setActiveModelState(model, provider, true);
-            promptReadySession.mergePendingManagedTurnIntent?.({ model, provider });
+            promptReadySession.mergePendingManagedTurnIntent?.({ model, provider, manualModel: true });
             this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.MODEL_CHANGED, model, provider });
             return { ok: true, model, provider };
         }
@@ -1209,11 +1214,19 @@ export class SessionRuntime {
                     await this.#activateSessionAgent(session, {
                         agentName,
                         model: provider ? `${provider}/${model}` : model,
+                        userModelOverride: true,
                         forceRebuild: true,
                         managedOperationCapability: capability,
                     });
                 }
                 session.getRootSessionManager?.()?.appendModelChange?.(provider, model);
+                recordManualModelSelection(
+                    /** @type {import('@earendil-works/pi-coding-agent').SessionManager | undefined} */ (
+                        session.getRootSessionManager?.() || undefined
+                    ),
+                    provider,
+                    model,
+                );
             } catch (error) {
                 if (previousUserOverride) {
                     session.setActiveModelState(previousModelState.model, previousModelState.provider || "", true);
@@ -3455,8 +3468,21 @@ export class SessionRuntime {
                 sessionPath: managed.transcriptPath,
             });
             hostedSession.setRootSessionManager(/** @type {any} */ (sessionManager), capability);
+            const pendingModel = pendingIntent.model || pendingIntent.provider
+                ? pendingIntent.provider && pendingIntent.model
+                    ? `${pendingIntent.provider}/${pendingIntent.model}`
+                    : pendingIntent.model || undefined
+                : undefined;
             if (pendingIntent.model || pendingIntent.provider) {
                 hostedSession.setActiveModelState(pendingIntent.model || "", pendingIntent.provider || "", true);
+            }
+            if (pendingIntent.manualModel && pendingModel) {
+                const parsedPendingModel = parseProviderModel(pendingModel);
+                recordManualModelSelection(
+                    sessionManager,
+                    parsedPendingModel.ok ? parsedPendingModel.provider : "",
+                    parsedPendingModel.ok ? parsedPendingModel.id : pendingModel,
+                );
             }
             if (pendingIntent.thinkingLevel || managed.thinkingLevel) {
                 hostedSession.setThinkingLevel(normalizeThinkingLevel(
@@ -3464,6 +3490,7 @@ export class SessionRuntime {
                 ));
             }
             let agentName = options.agentName || pendingIntent.agentName || null;
+            const persistedManualModel = readPersistedManualModelState(sessionManager);
             const persistedModel = resolvePersistedResumeModel(sessionManager);
             if (descriptor.activateAgent !== false) {
                 agentName ||= await resolveResumeAgentName(sessionManager);
@@ -3472,15 +3499,15 @@ export class SessionRuntime {
                     sessionManager,
                     hostedSession.cwd,
                 );
-                const pendingModel = pendingIntent.model || pendingIntent.provider
-                    ? pendingIntent.provider && pendingIntent.model
-                        ? `${pendingIntent.provider}/${pendingIntent.model}`
-                        : pendingIntent.model || undefined
-                    : undefined;
                 await this.#activateSessionAgent(hostedSession, {
                     ...persistedRootConfiguration,
                     agentName,
-                    model: pendingModel || persistedModel,
+                    model: pendingModel ||
+                        (persistedManualModel
+                            ? persistedManualModel.provider
+                                ? `${persistedManualModel.provider}/${persistedManualModel.model}`
+                                : persistedManualModel.model
+                            : persistedModel),
                     toolNames: options.toolNames,
                     customTools: options.customTools || persistedRootConfiguration.customTools,
                     includeEditFallback: options.includeEditFallback,
@@ -4152,7 +4179,7 @@ export class SessionRuntime {
             if (this.#currentManagedOperations.has(sessionId)) {
                 return { ok: false, error: "managed_operation_in_progress" };
             }
-            return await this.#activateSessionAgent(session, options);
+            return await this.#activateSessionAgent(session, { ...options, persistResolvedModel: true });
         }
         return await this.#runManagedStandaloneMutation(
             sessionId,
@@ -4160,6 +4187,7 @@ export class SessionRuntime {
             async (activeSession, capability) => {
                 return await this.#activateSessionAgent(activeSession, {
                     ...options,
+                    persistResolvedModel: true,
                     managedOperationCapability: capability,
                 });
             },

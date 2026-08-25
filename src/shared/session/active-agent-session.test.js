@@ -3,8 +3,10 @@ import { AGENTS } from "../../constants.js";
 import {
     ACTIVE_AGENT_CUSTOM_TYPE,
     readPersistedActiveAgentName,
+    readPersistedManualModelState,
     readPersistedModelState,
     recordActiveAgent,
+    recordManualModelSelection,
     resolveResumeAgentName,
 } from "./active-agent-session.js";
 
@@ -61,6 +63,30 @@ Deno.test("readPersistedModelState ignores malformed model entries", () => {
     assertEquals(readPersistedModelState(sessionManager), {
         provider: "valid-provider",
         model: "valid-model",
+    });
+});
+
+Deno.test("manual model selection persists and reads the latest explicit choice", () => {
+    const sessionManager = makeSessionManager();
+
+    recordManualModelSelection(sessionManager, "openai-codex", "gpt-5.5");
+    recordManualModelSelection(sessionManager, "openai-codex", "gpt-5.6-luna");
+
+    assertEquals(readPersistedManualModelState(sessionManager), {
+        provider: "openai-codex",
+        model: "gpt-5.6-luna",
+    });
+});
+
+Deno.test("readPersistedManualModelState ignores malformed markers", () => {
+    const sessionManager = makeSessionManager([
+        { type: "custom", customType: "runwield.manual_model", data: { provider: "openai-codex", model: "gpt-5.5" } },
+        { type: "custom", customType: "runwield.manual_model", data: { provider: "openai-codex", model: "" } },
+    ]);
+
+    assertEquals(readPersistedManualModelState(sessionManager), {
+        provider: "openai-codex",
+        model: "gpt-5.5",
     });
 });
 

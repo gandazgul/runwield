@@ -102,6 +102,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {string} [agentName]
  * @property {string} [model]
  * @property {string} [provider]
+ * @property {boolean} [manualModel]
  * @property {ThinkingLevel} [thinkingLevel]
  */
 

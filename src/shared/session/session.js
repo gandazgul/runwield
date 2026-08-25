@@ -1027,7 +1027,6 @@ async function resolveModel(
     // After agent switches, clearUserModelOverride() clears the flag but the
     // activeModel may still hold the previous agent's model — we must skip it.
     const activeModelState = hostedSession?.getActiveModelState?.() || { model: "", provider: "" };
-    console.error("MODEL_PROBE resolve", JSON.stringify({agentName, modelOverride, activeAgent: hostedSession?.getRootAgentName?.(), activeModelState, userOverride: hostedSession?.isUserModelOverride?.()}));
     if (activeModelState.model && hostedSession?.isUserModelOverride?.()) {
         candidateModels.push({
             model: formatProviderModelReference(activeModelState),
@@ -3184,6 +3183,7 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
  * @param {string} [opts.cwd]
  * @param {string} [opts.projectStateContext]
  * @param {boolean} [opts.includeEditFallback]
+ * @param {boolean} [opts.persistResolvedModel]
  * @param {import('./types.js').AgentMessageHandler} [opts.activeHandler]
  * @param {string} [opts.debugLogPath]
  * @param {import('./managed-operation.ts').ManagedOperationCapability} [opts.managedOperationCapability]
@@ -3244,7 +3244,6 @@ export async function ensureRootAgentSession(opts) {
         rootSessionMetadata.delete(existing);
     }
 
-    console.error("MODEL_PROBE ensure", JSON.stringify({agent: opts.agentName, resolved: resolvedModel && `${resolvedModel.provider}/${resolvedModel.id}`, previous: existingMeta?.model}));
     const finalModelForUi = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
     hostedSession.resetAgentInfoStack(
         agentDef.displayName,
@@ -3264,7 +3263,7 @@ export async function ensureRootAgentSession(opts) {
         /** @type {{ sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager }} */ (session)
             .sessionManager
     );
-    if (activeSessionManager && resolvedModel) {
+    if (opts.persistResolvedModel && activeSessionManager && resolvedModel) {
         const persistedModel = readPersistedModelState(activeSessionManager);
         if (
             !persistedModel || persistedModel.provider !== resolvedModel.provider ||
