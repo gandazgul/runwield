@@ -343,14 +343,20 @@ export function openFileSessionStore(options: OpenFileSessionStoreOptions = {}):
                     }
                 }
             }
-            const page = Number.isInteger(sessionOptions.page) && sessionOptions.page >= 0 ? sessionOptions.page : 0;
-            const pageSize = Number.isInteger(sessionOptions.pageSize) && sessionOptions.pageSize > 0
-                ? Math.min(sessionOptions.pageSize, 100)
+            const requestedPage = sessionOptions.page;
+            const page: number =
+                typeof requestedPage === "number" && Number.isInteger(requestedPage) && requestedPage >= 0
+                    ? requestedPage
+                    : 0;
+            const requestedPageSize = sessionOptions.pageSize;
+            const pageSize: number = typeof requestedPageSize === "number" &&
+                    Number.isInteger(requestedPageSize) && requestedPageSize > 0
+                ? Math.min(requestedPageSize, 100)
                 : 30;
             const sessions = listManifests(sessionDir)
                 .map((item) => catalogedSession(item.manifest))
                 .sort((left, right) =>
-                    Date.parse(right.headerTimestamp) - Date.parse(left.headerTimestamp) ||
+                    Date.parse(right.headerTimestamp || "") - Date.parse(left.headerTimestamp || "") ||
                     right.runwieldSessionId.localeCompare(left.runwieldSessionId)
                 );
             const start = page * pageSize;

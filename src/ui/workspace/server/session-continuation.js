@@ -17,6 +17,8 @@ import {
 } from "../../../shared/session/session-transcript-projection.js";
 import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
 
+/** @typedef {{ type?: string, text?: string }} TranscriptContentPart */
+
 /** @param {unknown} value */
 function stableHash(value) {
     return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -123,7 +125,10 @@ async function readSessionName(transcriptPath) {
             const text = entry.type === "user_message"
                 ? entry.text
                 : entry.type === "message" && entry.message?.role === "user"
-                ? entry.message.content?.find((part) => part?.type === "text")?.text
+                ? entry.message.content?.find(
+                    /** @param {TranscriptContentPart} part */
+                    (part) => part?.type === "text",
+                )?.text
                 : null;
             if (typeof text === "string" && text.trim()) return text.trim().replace(/\s+/g, " ").slice(0, 120);
         }
