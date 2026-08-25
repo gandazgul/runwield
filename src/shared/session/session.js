@@ -86,7 +86,7 @@ import {
 } from "./agents.js";
 import { getCustomSetting, getMergedCustomSetting, getSettingsDir, getSettingsManager } from "../settings.js";
 import { modelSupportsImageInput, prepareImagesForModel, resolveVisionFallbackModel } from "./image-attachments.js";
-import { recordActiveAgent } from "./active-agent-session.js";
+import { readPersistedModelState, recordActiveAgent } from "./active-agent-session.js";
 import { extractBundledSkills, getBundledAgentDefsPath } from "./agent-assets.js";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
@@ -1027,6 +1027,7 @@ async function resolveModel(
     // After agent switches, clearUserModelOverride() clears the flag but the
     // activeModel may still hold the previous agent's model — we must skip it.
     const activeModelState = hostedSession?.getActiveModelState?.() || { model: "", provider: "" };
+    console.error("MODEL_PROBE resolve", JSON.stringify({agentName, modelOverride, activeAgent: hostedSession?.getRootAgentName?.(), activeModelState, userOverride: hostedSession?.isUserModelOverride?.()}));
     if (activeModelState.model && hostedSession?.isUserModelOverride?.()) {
         candidateModels.push({
             model: formatProviderModelReference(activeModelState),
@@ -3243,6 +3244,7 @@ export async function ensureRootAgentSession(opts) {
         rootSessionMetadata.delete(existing);
     }
 
+    console.error("MODEL_PROBE ensure", JSON.stringify({agent: opts.agentName, resolved: resolvedModel && `${resolvedModel.provider}/${resolvedModel.id}`, previous: existingMeta?.model}));
     const finalModelForUi = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
     hostedSession.resetAgentInfoStack(
         agentDef.displayName,
@@ -3257,8 +3259,22 @@ export async function ensureRootAgentSession(opts) {
     );
     hostedSession.setRootAgentName(opts.agentName, opts.managedOperationCapability || null);
     if (opts.activeHandler) hostedSession.setActiveOnMessage(opts.activeHandler);
+    const activeSessionManager = /** @type {import('@earendil-works/pi-coding-agent').SessionManager | undefined} */ (
+        opts.sessionManager || hostedSession.getRootSessionManager?.() ||
+        /** @type {{ sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager }} */ (session)
+            .sessionManager
+    );
+    if (activeSessionManager && resolvedModel) {
+        const persistedModel = readPersistedModelState(activeSessionManager);
+        if (
+            !persistedModel || persistedModel.provider !== resolvedModel.provider ||
+            persistedModel.model !== resolvedModel.id
+        ) {
+            activeSessionManager.appendModelChange(resolvedModel.provider, resolvedModel.id);
+        }
+    }
     recordActiveAgent(
-        /** @type {any} */ (opts.sessionManager || hostedSession.getRootSessionManager() || undefined),
+        /** @type {any} */ (activeSessionManager),
         opts.agentName,
     );
     rootSessionMetadata.set(rootSession, {
