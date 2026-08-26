@@ -11,13 +11,13 @@ affectedPaths:
     - "src/shared/workflow/validation-local-ci.test.ts"
     - "src/shared/workflow/validation-loop-repair.test.js"
     - "src/shared/workflow/validation-repair-resume.integration.test.ts"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: "2026-08-26T11:55:53-04:00"
-status: "draft"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
+createdAt: "2026-08-26T11:55:53-04:00"
+status: "ready_for_work"
+origin: "internal"
+userVerifiedAt: null
+planId: "d95497fb-0ec8-41ae-98e5-57f3fa7c0d51"
 ---
 
 # Use Execution-Tree Settings for Plan CI
