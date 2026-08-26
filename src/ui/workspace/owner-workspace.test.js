@@ -92,14 +92,14 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
     await Deno.mkdir(otherProjectRoot);
     await Deno.mkdir(`${projectRoot}/src`);
     await Deno.writeTextFile(`${projectRoot}/src/referenced.ts`, "export const referenced = true;\n");
-    await savePlan(projectRoot, "owner-plan", "# Owner Plan\n\nBody", {
+    await savePlan(projectRoot, "owner-plan", "# Owner Plan\n\n## Context\n\nVisible owner plan", {
         planId: "owner-plan-id",
         classification: "FEATURE",
         complexity: "LOW",
         summary: "Visible owner plan",
         status: "draft",
     });
-    await savePlan(projectRoot, "held-plan", "# Held Plan\n\nBody", {
+    await savePlan(projectRoot, "held-plan", "# Held Plan\n\n## Context\n\nVisible held plan", {
         planId: "held-plan-id",
         classification: "FEATURE",
         complexity: "LOW",

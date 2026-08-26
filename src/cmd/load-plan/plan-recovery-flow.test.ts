@@ -1,8 +1,10 @@
 import { assertEquals } from "@std/assert";
 import { handlePlanRecovery } from "./plan-recovery-flow.ts";
 import { inspectRecoveryPlan, openFollowUpRecoveryPlan, settleRecoveryRecords } from "./plan-recovery-actions.ts";
-import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
+import { getStoredPlanPath, listPlans, loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { getTransitionJournalDir } from "../../shared/workflow/state-transition.ts";
+import { readControllerRecord, writeControllerState } from "../../shared/workflow/controller-registry.ts";
+import { resolvePlanWithPrimaryRecovery } from "./primary-plan-recovery.ts";
 import {
     addEntry as addWorktreeRegistryEntry,
     findById as findWorktreeRegistryEntryById,
@@ -35,6 +37,10 @@ interface RealRecoveryProject {
     projectRoot: string;
     plan: RecoveryFlowPlan;
     baselineTree: string;
+}
+
+interface RecoveryProjectOptions {
+    legacyUnregisteredRecovery?: boolean;
 }
 
 function makePlan(overrides: Partial<PlanFrontMatter> = {}): RecoveryFlowPlan {
@@ -87,7 +93,10 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
     return new TextDecoder().decode(output.stdout).trim();
 }
 
-async function makeRealRecoveryProject(attrs: Partial<PlanFrontMatter> = {}): Promise<RealRecoveryProject> {
+async function makeRealRecoveryProject(
+    attrs: Partial<PlanFrontMatter> = {},
+    options: RecoveryProjectOptions = {},
+): Promise<RealRecoveryProject> {
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-recovery-real-" });
     await runGit(projectRoot, ["init", "-b", "main"]);
     await runGit(projectRoot, ["config", "user.email", "runwield@example.test"]);
@@ -104,6 +113,39 @@ async function makeRealRecoveryProject(attrs: Partial<PlanFrontMatter> = {}): Pr
     await runGit(projectRoot, ["add", "."]);
     await runGit(projectRoot, ["commit", "-m", "initial fixture"]);
     const baselineTree = await runGit(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+    if (attrs.worktreeId && options.legacyUnregisteredRecovery) {
+        await writeControllerState(
+            projectRoot,
+            { planName: "recovery-contract", planId: attrs.planId || "plan-1" },
+            {},
+            {
+                recovery: {
+                    worktreeId: attrs.worktreeId,
+                    worktreePath: attrs.worktreePath,
+                    worktreeBranch: attrs.worktreeBranch,
+                    worktreeBaseBranch: attrs.worktreeBaseBranch,
+                    worktreeStatus: attrs.worktreeStatus || "active",
+                    executionBaselineTree: baselineTree,
+                },
+            },
+        );
+    } else if (attrs.worktreeId) {
+        await addWorktreeRegistryEntry(projectRoot, {
+            id: attrs.worktreeId,
+            planId: attrs.planId || "plan-1",
+            planName: "recovery-contract",
+            path: attrs.worktreePath || `${projectRoot}/gone`,
+            branch: attrs.worktreeBranch || "rw/gone",
+            baseBranch: attrs.targetBranch || attrs.worktreeBaseBranch || "main",
+            baseRef: "main",
+            baseCommit: await runGit(projectRoot, ["rev-parse", "HEAD"]),
+            baseTree: baselineTree,
+            executionBaselineTree: baselineTree,
+            status: "active",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+    }
     const loadedPlan = await loadPlan(projectRoot, "recovery-contract");
     if (!loadedPlan) throw new Error("fixture plan was not saved");
     const plan: RecoveryFlowPlan = { ...loadedPlan, planName: "recovery-contract" };
@@ -391,7 +433,7 @@ Deno.test("Plan Recovery handled and review outcomes exit once", async () => {
 
     const resetSuccess = await runRealRecovery(
         ["reset", "clear"],
-        { executionBaselineTree: "baseline-tree" },
+        { executionMode: "worktree", worktreeId: "lost-before-reset", worktreeBranch: "rw/gone" },
         (options) => {
             options.ports.probeGitRepository = () =>
                 Promise.resolve({ ok: false, state: "not_git", cwd: options.projectRoot });
@@ -603,8 +645,11 @@ Deno.test("validated work already contained in its target branch is complete wit
         currentPlan.attrs,
         { expectedRevision: currentPlan.revision },
     );
-    await runGit(project.projectRoot, ["add", "."]);
-    await runGit(project.projectRoot, ["commit", "-m", "record validated publication"]);
+    assertEquals(
+        await runGit(project.projectRoot, ["status", "--porcelain"]),
+        "",
+        "delivery bookkeeping creates no Plan commit",
+    );
     const publishedPlan = await loadPlan(project.projectRoot, project.plan.planName);
     if (!publishedPlan) throw new Error("published fixture Plan was not saved");
     project.plan = { ...publishedPlan, planName: project.plan.planName };
@@ -651,7 +696,11 @@ Deno.test("Plan Recovery actions preserve live context", async () => {
     assertEquals(inspect.result, "handled");
     assertEquals(inspect.ui.prompts.length, 2);
 
+    let abandonedProjectRoot = "";
+    let primaryBeforeAbandon = "";
     const abandonSuccess = await runRealRecovery(["abandon", "confirm", null], {}, async (_options, project) => {
+        abandonedProjectRoot = project.projectRoot;
+        primaryBeforeAbandon = await Deno.readTextFile(project.plan.path);
         const worktreePath = await Deno.makeTempDir({ prefix: "runwield-recovery-abandon-worktree-" });
         await Deno.remove(worktreePath);
         await runGit(project.projectRoot, ["worktree", "add", "-b", "rw/test", worktreePath, "HEAD"]);
@@ -672,7 +721,13 @@ Deno.test("Plan Recovery actions preserve live context", async () => {
         const attrs = await updatePlanFrontMatter(
             project.projectRoot,
             project.plan.planName,
-            { worktreeId: "worktree-1", worktreePath, worktreeBranch: "rw/test" },
+            {
+                documentWorktreeId: "worktree-1",
+                executionMode: "worktree",
+                worktreeId: "worktree-1",
+                worktreePath,
+                worktreeBranch: "rw/test",
+            },
             project.plan.attrs,
             { expectedRevision: project.plan.revision },
         );
@@ -684,6 +739,18 @@ Deno.test("Plan Recovery actions preserve live context", async () => {
     assertEquals(abandonSuccess.result, "handled");
     assertEquals(Boolean(abandonSuccess.plan.attrs.worktreeId), false);
     assertEquals(abandonSuccess.ui.prompts.filter((prompt) => prompt.startsWith("Plan recovery")).length, 2);
+    const abandonedController = await readControllerRecord(abandonedProjectRoot, {
+        planName: abandonSuccess.plan.planName,
+        planId: abandonSuccess.plan.attrs.planId,
+    });
+    assertEquals(abandonedController?.state.documentWorktreeId, undefined);
+    const primaryPath = getStoredPlanPath(abandonedProjectRoot, abandonSuccess.plan.planName);
+    assertEquals((await listPlans(abandonedProjectRoot)).map((plan) => plan.path), [primaryPath]);
+    assertEquals(
+        (await resolvePlanWithPrimaryRecovery(abandonedProjectRoot, abandonSuccess.plan.planName)).plan.path,
+        primaryPath,
+    );
+    assertEquals(await Deno.readTextFile(primaryPath), primaryBeforeAbandon);
 
     const abandonMissingRegistry = await runRealRecovery(
         ["abandon", "confirm", null],
@@ -691,6 +758,14 @@ Deno.test("Plan Recovery actions preserve live context", async () => {
         async (_options, project) => {
             const worktreePath = await Deno.makeTempDir({ prefix: "runwield-recovery-missing-registry-" });
             await Deno.remove(worktreePath);
+            await writeControllerState(
+                project.projectRoot,
+                { planName: project.plan.planName, planId: project.plan.attrs.planId },
+                {},
+                {
+                    recovery: { worktreeId: "missing-worktree-1", worktreePath, worktreeBranch: "rw/missing-registry" },
+                },
+            );
             const attrs = await updatePlanFrontMatter(
                 project.projectRoot,
                 project.plan.planName,
@@ -714,7 +789,75 @@ Deno.test("Plan Recovery actions preserve live context", async () => {
     );
 });
 
-Deno.test("lost worktree recovery offers User Verification for implemented plans", async () => {
+Deno.test("discarded execution refreshes the surviving Plan before reopening review", async () => {
+    const project = await makeRealRecoveryProject({ status: "ready_for_work" });
+    const primary = await loadPlan(project.projectRoot, project.plan.planName);
+    if (!primary) throw new Error("primary Plan fixture disappeared");
+    const worktreePath = `${project.projectRoot}-discard`;
+    await runGit(project.projectRoot, ["worktree", "add", "-b", "rw/discard-review", worktreePath, "HEAD"]);
+    try {
+        await addWorktreeRegistryEntry(project.projectRoot, {
+            id: "discard-review",
+            planId: "plan-1",
+            planName: project.plan.planName,
+            path: worktreePath,
+            branch: "rw/discard-review",
+            baseBranch: "main",
+            baseRef: "main",
+            baseCommit: await runGit(project.projectRoot, ["rev-parse", "HEAD"]),
+            baseTree: project.baselineTree,
+            status: "execution_failed",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        });
+        const execution = await loadPlan(worktreePath, project.plan.planName);
+        if (!execution) throw new Error("execution Plan fixture disappeared");
+        await updatePlanFrontMatter(
+            worktreePath,
+            project.plan.planName,
+            {
+                status: "failed",
+                documentWorktreeId: "discard-review",
+            },
+            {},
+            { expectedRevision: execution.revision },
+        );
+        await Deno.writeTextFile(execution.path, `${await Deno.readTextFile(execution.path)}\nExecution-only edits.\n`);
+        const ui = makeUi(["abandon", "confirm", "review"]);
+        const select = ui.promptSelect;
+        ui.promptSelect = async (...args) => {
+            if (ui.prompts.length === 2) {
+                assertEquals(
+                    await Deno.readTextFile(primary.path),
+                    primary.markdown,
+                    "discard preserves primary bytes",
+                );
+                assertEquals(project.plan.path, primary.path);
+                assertEquals(project.plan.body, primary.body);
+                assertEquals(project.plan.revision, primary.revision);
+                assertEquals(project.plan.attrs.status, "ready_for_work");
+                assertEquals(project.plan.attrs.documentWorktreeId, undefined);
+            }
+            return await select(...args);
+        };
+        const options = makeOptions(project.plan, ui, project.projectRoot);
+        let clearedExecution = false;
+        options.session.clearActiveExecutionWorkflow = () => {
+            clearedExecution = true;
+            return Promise.resolve();
+        };
+        assertEquals(await handlePlanRecovery(options), "review");
+        assertEquals(clearedExecution, true);
+        assertEquals((await loadPlan(project.projectRoot, project.plan.planName))?.attrs.status, "feedback");
+        assertEquals((await loadPlan(project.projectRoot, project.plan.planName))?.body, primary.body);
+        assertEquals((await findWorktreeRegistryEntryById(project.projectRoot, "discard-review"))?.status, "abandoned");
+    } finally {
+        await runGit(project.projectRoot, ["worktree", "remove", "--force", worktreePath]).catch(() => {});
+        await Deno.remove(project.projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("unregistered legacy recovery offers User Verification for implemented plans with lost worktrees", async () => {
     const project = await makeRealRecoveryProject({
         status: "implemented",
         executionMode: "worktree",
@@ -722,7 +865,8 @@ Deno.test("lost worktree recovery offers User Verification for implemented plans
         worktreePath: `${await Deno.makeTempDir()}/gone`,
         worktreeBranch: "rw/gone",
         worktreeBaseBranch: "main",
-    });
+    }, { legacyUnregisteredRecovery: true });
+    assertEquals(await findWorktreeRegistryEntryById(project.projectRoot, "lost-worktree"), null);
     const ui = makeUi(["user_verify"], ["Accepted from staging check."]);
     const options = makeOptions(project.plan, ui);
     options.projectRoot = project.projectRoot;
@@ -741,14 +885,15 @@ Deno.test("lost worktree recovery offers User Verification for implemented plans
     assertEquals(loadedPlan?.attrs.verifiedAt, undefined);
 });
 
-Deno.test("lost worktree recovery omits User Verification for failed plans", async () => {
+Deno.test("unregistered legacy recovery omits User Verification for failed plans with lost worktrees", async () => {
     const project = await makeRealRecoveryProject({
         executionMode: "worktree",
         worktreeId: "lost-worktree",
         worktreePath: `${await Deno.makeTempDir()}/gone`,
         worktreeBranch: "rw/gone",
         worktreeBaseBranch: "main",
-    });
+    }, { legacyUnregisteredRecovery: true });
+    assertEquals(await findWorktreeRegistryEntryById(project.projectRoot, "lost-worktree"), null);
     const ui = makeUi(["stop_lost"]);
     const options = makeOptions(project.plan, ui);
     options.projectRoot = project.projectRoot;

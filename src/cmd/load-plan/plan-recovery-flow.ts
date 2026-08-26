@@ -3,7 +3,8 @@
  * The Plan Recovery menu coordinator for in-progress, failed, and implemented Plans.
  */
 
-import { loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
+import { resolvePlanExecutionPolicy } from "../../plan-store.js";
+import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
 import { probeGitRepository } from "../../shared/git.js";
 import { createGitPort } from "../../shared/git-port.ts";
 import {
@@ -95,14 +96,7 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
     const { projectRoot, plan, uiAPI } = opts;
     try {
         await runPlansDoctor(projectRoot, true);
-        const primaryPlan = await loadPlan(projectRoot, plan.planName);
-        const recordedAttempt = await resolveRecoveryWorktree(
-            projectRoot,
-            primaryPlan ? { planName: plan.planName, attrs: primaryPlan.attrs, revision: primaryPlan.revision } : plan,
-        );
-        const refreshed = recordedAttempt?.path
-            ? await loadPlan(recordedAttempt.path, plan.planName).catch(() => null) || primaryPlan
-            : primaryPlan;
+        const { plan: refreshed } = await resolveWorkflowPlanLocation(projectRoot, plan.planName);
         if (refreshed) {
             plan.path = refreshed.path;
             plan.markdown = refreshed.markdown;

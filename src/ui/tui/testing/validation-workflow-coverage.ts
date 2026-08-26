@@ -210,7 +210,7 @@ function ownerFor(id: ValidationWorkflowBranchId): string {
 
 function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "lifecycle:missing-plan-fails-closed") return ["Plan not found: missing-plan"];
-    if (id === "lifecycle:malformed-front-matter-fails-closed") return ["Plan not found: broken"];
+    if (id === "lifecycle:malformed-front-matter-fails-closed") return ["Plan Front Matter could not be parsed"];
     if (
         id === "lifecycle:resume-implemented" || id === "lifecycle:resume-validated-ci" ||
         id === "lifecycle:resume-validated-reviewer" || id === "lifecycle:ahead-status-keeps-canonical-progress"
@@ -265,8 +265,7 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     }
     if (id === "publication:primary-plan-restored") {
         return [
-            "Restored docs/plans/validation-tree-publication-primary-plan-restored.md",
-            "implementation files changed",
+            "Plan loaded: validation-tree-publication-primary-plan-restored",
             ...successfulPublicationProgress,
             "is on main",
         ];
@@ -298,23 +297,23 @@ function statePathsFor(id: ValidationWorkflowBranchId): string[] {
         return ["localPublication.planStatus", "localPublication.registryEntries"];
     }
     const paths = ["projectState.plans.0.attrs.status"];
-    if (id.includes(":ci:")) paths.push("projectState.plans.0.attrs.validationCiAttempts");
-    if (id.startsWith("semantic:")) paths.push("projectState.plans.0.attrs.validationSemanticRounds");
-    if (id.startsWith("human-review:")) paths.push("projectState.plans.0.attrs.humanReviewDecision");
+    if (id.includes(":ci:")) paths.push("projectState.plans.0.controllerState.validationCiAttempts");
+    if (id.startsWith("semantic:")) paths.push("projectState.plans.0.controllerState.validationSemanticRounds");
+    if (id.startsWith("human-review:")) paths.push("projectState.plans.0.controllerState.humanReviewDecision");
     return paths;
 }
 
 function stateEqualsFor(id: ValidationWorkflowBranchId): Record<string, ValidationStateValue> {
     if (id === "human-review:none") {
         return {
-            "projectState.plans.0.attrs.humanReviewMode": "none",
-            "projectState.plans.0.attrs.humanReviewDecision": "not_required",
+            "projectState.plans.0.controllerState.humanReviewMode": "none",
+            "projectState.plans.0.controllerState.humanReviewDecision": "not_required",
         };
     }
     if (id === "human-review:ask-skip") {
         return {
-            "projectState.plans.0.attrs.humanReviewMode": "ask",
-            "projectState.plans.0.attrs.humanReviewDecision": "skipped",
+            "projectState.plans.0.controllerState.humanReviewMode": "ask",
+            "projectState.plans.0.controllerState.humanReviewDecision": "skipped",
         };
     }
     return {};

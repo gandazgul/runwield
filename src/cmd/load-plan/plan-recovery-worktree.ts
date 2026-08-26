@@ -25,6 +25,7 @@ import {
 } from "../../shared/worktree-registry.js";
 import { buildPlanSummary } from "./plan-presentation.ts";
 import { transitionFailureError } from "./transition-failure.ts";
+import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
 
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import type { PlanFrontMatter } from "../../plan-store.js";
@@ -173,10 +174,10 @@ export async function resolveRecoveryWorktree(
         const discovered = await discoverAttachedPlanWorktree(projectRoot, plan);
         if (discovered) return discovered;
     }
-    const path = plan.attrs.worktreePath || entry?.path;
-    const branch = plan.attrs.worktreeBranch || entry?.branch;
-    const id = plan.attrs.worktreeId || entry?.id;
-    const recordedBaseBranch = plan.attrs.worktreeBaseBranch || entry?.baseBranch;
+    const path = entry?.path || plan.attrs.worktreePath || undefined;
+    const branch = entry?.branch || plan.attrs.worktreeBranch || undefined;
+    const id = entry?.id || plan.attrs.worktreeId || undefined;
+    const recordedBaseBranch = entry?.baseBranch || plan.attrs.worktreeBaseBranch || undefined;
     const baseBranch = recordedBaseBranch === "HEAD" ? undefined : recordedBaseBranch;
     if (!path && !branch && !id) return null;
     return {
@@ -287,8 +288,9 @@ export async function reopenPlanForReview({
         return;
     }
     const priorWorktreeId = priorWorktree.id;
+    const { documentRoot } = await resolveWorkflowPlanLocation(projectRoot, plan.planName);
     const transition = await runReviewReopenTransition({
-        projectRoot,
+        projectRoot: documentRoot,
         planName: plan.planName,
         worktreeId: priorWorktreeId,
         expectedRevision: plan.revision,
@@ -297,7 +299,7 @@ export async function reopenPlanForReview({
             const updates = buildPlanEventUpdates("review_reopened", currentStatus, { triageMeta: beforePlan.attrs });
             await updateWorktreeRegistryEntry(projectRoot, priorWorktreeId, { status: "abandoned" });
             await markEffect("worktree_registry_abandoned", { worktreeId: priorWorktreeId });
-            const updatedAttrs = await updatePlanFrontMatter(projectRoot, plan.planName, updates, beforePlan.attrs, {
+            const updatedAttrs = await updatePlanFrontMatter(documentRoot, plan.planName, updates, beforePlan.attrs, {
                 expectedRevision: beforePlan.revision,
             });
             await markEffect("plan_event_recorded", { planName: plan.planName, event: "review_reopened" });
@@ -308,7 +310,8 @@ export async function reopenPlanForReview({
         throw transitionFailureError(transition, `Review reopen transition failed for ${plan.planName}.`);
     }
     session.clearActiveExecutionWorkflow();
-    plan.attrs = { ...plan.attrs, ...(transition.value as PlanFrontMatter) };
+    const refreshed = await loadPlan(documentRoot, plan.planName);
+    if (refreshed) Object.assign(plan, refreshed);
 }
 
 /**

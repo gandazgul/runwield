@@ -1,20 +1,37 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { loadPlan, savePlan } from "../../plan-store.js";
+import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
+import { addEntry } from "../worktree-registry.js";
 import { stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
 import { applyValidationPlanAmendment, detectValidationPlanAmendment } from "./validation-plan-amendment.ts";
 
+const amendmentRepo = defineCommittedGitFixture({ ".gitignore": ".wld/\n", "app.ts": "export {};\n" });
+
 Deno.test("approved Plan definition amendment changes only the execution Plan", async () => {
-    const projectRoot = await Deno.makeTempDir();
+    const projectRoot = await amendmentRepo.checkout();
     const executionCwd = await Deno.makeTempDir();
     try {
-        await savePlan(projectRoot, "feature", "# Primary body", {
+        await savePlan(projectRoot, "feature", "# Primary body\n\n## Context\n\nPrimary", {
             planId: "plan-1",
             classification: "PLANNED_CHANGE",
             status: "implemented",
             summary: "Primary",
-            worktreeId: "runwield-owned",
         });
-        await savePlan(executionCwd, "feature", "# Accepted body", {
+        await git(projectRoot, ["worktree", "add", "-b", "worktree/feature", executionCwd]);
+        await addEntry(projectRoot, {
+            id: "runwield-owned",
+            planId: "plan-1",
+            planName: "feature",
+            branch: "worktree/feature",
+            path: executionCwd,
+            baseBranch: "main",
+            baseRef: "refs/heads/main",
+            baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
+            status: "completed",
+            createdAt: "2026-08-25T00:00:00Z",
+            updatedAt: "2026-08-25T00:00:00Z",
+        });
+        await savePlan(executionCwd, "feature", "# Accepted body\n\n## Context\n\nWorktree", {
             planId: "plan-1",
             classification: "PLANNED_CHANGE",
             status: "implemented",
@@ -27,12 +44,12 @@ Deno.test("approved Plan definition amendment changes only the execution Plan", 
         await applyValidationPlanAmendment(projectRoot, executionCwd, "feature", proposal);
         const primary = await loadPlan(projectRoot, "feature");
         const execution = await loadPlan(executionCwd, "feature");
-        assertEquals(primary?.body, "# Primary body");
+        assertEquals(primary?.body, "# Primary body\n\n## Context\n\nPrimary");
         assertEquals(primary?.attrs.summary, "Primary");
         assertEquals(primary?.attrs.worktreeId, "runwield-owned");
-        assertEquals(execution?.body, "# Accepted body");
+        assertEquals(execution?.body, "# Accepted body\n\n## Context\n\nWorktree");
         assertEquals(execution?.attrs.summary, "Worktree");
-        assertEquals(execution?.attrs.worktreeId, "tampered");
+        assertEquals(execution?.attrs.worktreeId, "runwield-owned", "document writes cannot retarget attempts");
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
         await Deno.remove(executionCwd, { recursive: true }).catch(() => undefined);
@@ -96,7 +113,7 @@ Deno.test("publication preserves an accepted execution Plan definition amendment
             status: "validated_reviewer",
             summary: "Old",
         });
-        await savePlan(executionCwd, "feature", "# New", {
+        await savePlan(executionCwd, "feature", "# New\n\n## Context\n\nNew", {
             planId: "plan-1",
             classification: "PLANNED_CHANGE",
             status: "validated_reviewer",
@@ -112,7 +129,7 @@ Deno.test("publication preserves an accepted execution Plan definition amendment
             details: { executionMode: "non_git_in_place", deliveryEvidence: { version: 1, mode: "non_git_in_place" } },
         });
         const staged = await loadPlan(executionCwd, "feature");
-        assertEquals(staged?.body, "# New");
+        assertEquals(staged?.body, "# New\n\n## Context\n\nNew");
         assertEquals(staged?.attrs.summary, "New");
         assertEquals(staged?.attrs.status, "validated");
     } finally {

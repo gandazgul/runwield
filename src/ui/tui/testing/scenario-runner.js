@@ -8,6 +8,9 @@ import { createSessionRuntime } from "../../../shared/session/session-runtime.js
 import { RuntimeEventTypes } from "../../../shared/session/session-runtime-events.js";
 import { openFileSessionStore } from "../../../shared/session/file-session-store.ts";
 import { assert } from "@std/assert";
+import { extractYaml } from "@std/front-matter";
+import { PLAN_RUNTIME_FIELDS } from "../../../shared/workflow/controller-state.ts";
+import { readControllerRecord } from "../../../shared/workflow/controller-registry.ts";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { findPlansByParent, loadPlan, parsePlanFrontMatter } from "../../../plan-store.js";
 import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
@@ -1385,7 +1388,7 @@ async function runComposedTuiScenario(scenario, options) {
                     const projectWorktreeRegistry = await inspectWorktreeRegistry(Deno.cwd());
                     const plan = await loadPlan(Deno.cwd(), "plan");
                     if (!plan) throw new Error("Expected the primary Plan locator for publication proof.");
-                    const targetBranch = String(plan.attrs.worktreeBaseBranch || "main");
+                    const targetBranch = String(plan.attrs.targetBranch || plan.attrs.worktreeBaseBranch || "main");
                     const remote = await runGoldenGit(
                         ["config", "--get", `branch.${targetBranch}.remote`],
                         Deno.cwd(),
@@ -1419,7 +1422,13 @@ async function runComposedTuiScenario(scenario, options) {
                         Deno.cwd(),
                     );
                     const publishedPlan = parsePlanFrontMatter(publishedPlanText);
-                    const publishedDeliveryEvidence = publishedPlan.attrs.deliveryEvidence;
+                    const publishedDeliveryEvidence = plan.attrs.deliveryEvidence;
+                    const publishedFields = extractYaml(publishedPlanText).attrs;
+                    for (const field of PLAN_RUNTIME_FIELDS) {
+                        if (Object.hasOwn(publishedFields, field)) {
+                            throw new Error(`Published Plan contains controller field ${field}`);
+                        }
+                    }
                     const validatedExecutionCommit = String(
                         publishedDeliveryEvidence?.mode === "worktree_merge"
                             ? publishedDeliveryEvidence.executionCommit
@@ -1465,6 +1474,7 @@ async function runComposedTuiScenario(scenario, options) {
                         deliveredHead,
                         validatedExecutionCommit,
                         executionCommitPublished,
+                        publishedPlanFields: publishedFields,
                         editorUsable,
                     };
                     if (!goldenFileExists) {
@@ -1701,7 +1711,7 @@ async function runComposedTuiScenario(scenario, options) {
                     if (!path) throw new Error("advancePlanRemoteTarget needs a path");
                     const loaded = await loadPlan(Deno.cwd(), planName);
                     if (!loaded) throw new Error(`Cannot advance target for missing Plan ${planName}`);
-                    const targetBranch = String(loaded.attrs.worktreeBaseBranch || "main");
+                    const targetBranch = String(loaded.attrs.targetBranch || loaded.attrs.worktreeBaseBranch || "main");
                     const remote = await runGoldenGit(
                         ["config", "--get", `branch.${targetBranch}.remote`],
                         Deno.cwd(),
@@ -2026,7 +2036,10 @@ async function runComposedTuiScenario(scenario, options) {
                             : null;
                         const attrs = executionPlan?.attrs ||
                             (remotePlanText ? parsePlanFrontMatter(remotePlanText).attrs : localPlan?.attrs) || null;
-                        plans.push({ name: planName, attrs });
+                        const controller = attrs
+                            ? await readControllerRecord(getCwd(), { planName, planId: attrs.planId })
+                            : null;
+                        plans.push({ name: planName, attrs, controllerState: controller?.state || null });
                     }
                     const { listWorkRecords } = await import("../../../shared/work-records/store.js");
                     const records = await listWorkRecords(Deno.cwd(), { createDir: false }).catch(() => []);
@@ -2353,7 +2366,9 @@ async function runComposedTuiScenario(scenario, options) {
                     const expectedStatuses = new Set((Array.isArray(typed.statuses) ? typed.statuses : []).map(String));
                     const timeoutMs = typed.timeoutMs || scenario.timeoutMs || 3000;
                     const primaryPlan = await loadPlan(Deno.cwd(), planName);
-                    const targetBranch = String(primaryPlan?.attrs.worktreeBaseBranch || "main");
+                    const targetBranch = String(
+                        primaryPlan?.attrs.targetBranch || primaryPlan?.attrs.worktreeBaseBranch || "main",
+                    );
                     const remote =
                         await runGoldenGit(["config", "--get", `branch.${targetBranch}.remote`], Deno.cwd()) ||
                         "origin";
@@ -2407,12 +2422,14 @@ async function runComposedTuiScenario(scenario, options) {
                     for (const path of Object.keys(baselineFiles)) {
                         currentFiles[path] = await Deno.readTextFile(join(Deno.cwd(), path)).catch(() => null);
                     }
-                    const worktreeBranch = String(primaryPlan?.attrs.worktreeBranch || "");
-                    const branchExists = worktreeBranch
-                        ? await runGoldenGit(["show-ref", "--verify", `refs/heads/${worktreeBranch}`], Deno.cwd())
-                            .then(() => true)
-                            .catch(() => false)
-                        : false;
+                    // Query Git even after the registry entry has been removed. An
+                    // absent pointer is not proof that the branch was deleted.
+                    const branchExists = Boolean(
+                        await runGoldenGit(
+                            ["for-each-ref", "--format=%(refname)", "refs/heads/worktree/"],
+                            getCwd(),
+                        ),
+                    );
                     state.publication = {
                         primaryHead: await runGoldenGit(["rev-parse", "HEAD"], Deno.cwd()),
                         primaryBranch: await runGoldenGit(["branch", "--show-current"], Deno.cwd()),
@@ -2424,6 +2441,10 @@ async function runComposedTuiScenario(scenario, options) {
                         remoteHead,
                         remotePlanStatus: parsePlanFrontMatter(remotePlanText).attrs.status,
                         remotePlanAttrs: parsePlanFrontMatter(remotePlanText).attrs,
+                        remotePlanFields: Object.keys(extractYaml(remotePlanText).attrs),
+                        controllerState:
+                            (await readControllerRecord(getCwd(), { planName, planId: primaryPlan?.attrs.planId }))
+                                ?.state,
                         remoteTree,
                         deliveredText: deliveredPath
                             ? await runGoldenGit(

@@ -2,7 +2,6 @@
 classification: "PLANNED_CHANGE"
 workKind: "BUG_FIX|FEATURE|REFACTOR|MAINTENANCE|DOCUMENTATION"
 complexity: "LOW|MEDIUM|HIGH"
-summary: "<Brief summary of the planned change>"
 # High-signal paths you have evidence for. RunWield uses these for drift warnings and Plan presentation; they are not
 # an exhaustive list and never limit what the executing Engineer may change.
 affectedPaths:
@@ -18,7 +17,7 @@ devServerCommand: null
 devServerUrl: null
 devServerHmr: null
 # Optional: target execution branch when explicitly requested by the user.
-# worktreeBaseBranch: "feature/base-branch"
+# targetBranch: "feature/base-branch"
 createdAt: "<ISO-8601 date or timestamp>"
 status: "draft"
 ---

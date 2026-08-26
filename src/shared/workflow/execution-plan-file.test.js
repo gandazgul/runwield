@@ -5,7 +5,7 @@ import {
     loadCanonicalExecutionPlanSource,
     prepareExecutionPlanFile,
 } from "./execution-plan-file.js";
-import { injectFrontMatter, parsePlanFrontMatter } from "../../plan-store.js";
+import { injectFrontMatter, parsePlanFrontMatter, planDocumentMarkdown } from "../../plan-store.js";
 
 async function makeTempProject() {
     const root = await Deno.makeTempDir();
@@ -27,7 +27,10 @@ Deno.test("prepareExecutionPlanFile restores absent top-level and nested executi
 
     assertEquals(result.kind, "restored");
     assertEquals(result.relativePath, "docs/plans/epic/child.md");
-    assertEquals(await Deno.readTextFile(join(executionRoot, "docs", "plans", "epic", "child.md")), markdown);
+    assertEquals(
+        await Deno.readTextFile(join(executionRoot, "docs", "plans", "epic", "child.md")),
+        planDocumentMarkdown(markdown),
+    );
 });
 
 Deno.test("prepareExecutionPlanFile fills a missing Plan ID from the primary Plan", async () => {
@@ -89,8 +92,7 @@ Deno.test("prepareExecutionPlanFile reconciles stale execution metadata without 
 
     assertEquals(result.kind, "reconciled");
     const reconciledMarkdown = await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md"));
-    assertStringIncludes(reconciledMarkdown, "validationCheckpoint:\n  version: 1");
-    assertEquals(reconciledMarkdown.includes("validationCheckpoint:\n    version: 1"), false);
+    assertEquals(reconciledMarkdown.includes("validationCheckpoint:"), false);
     const formatCheck = await new Deno.Command(Deno.execPath(), {
         args: ["fmt", "--check", join(executionRoot, "docs", "plans", "demo.md")],
         stdout: "piped",
@@ -102,10 +104,10 @@ Deno.test("prepareExecutionPlanFile reconciles stale execution metadata without 
     assertEquals(reconciled.attrs.status, "ready_for_work");
     assertEquals(reconciled.attrs.executionAgent, "engineer");
     assertEquals(reconciled.attrs.collaborationRecommendation, "autonomous");
-    assertEquals(reconciled.attrs.implementedAt, "2026-01-01T00:00:00.000Z");
-    assertEquals(reconciled.attrs.validationCiAttempts, 2);
-    assertEquals(reconciled.attrs.validationCheckpoint?.generation, "generation-1");
-    assertEquals(reconciled.attrs.summary, "keep-me");
+    assertEquals(reconciled.attrs.implementedAt, undefined);
+    assertEquals(reconciled.attrs.validationCiAttempts, undefined);
+    assertEquals(reconciled.attrs.validationCheckpoint, undefined);
+    assertEquals(reconciled.attrs.summary, "");
     assertEquals(reconciled.body, "# Worktree body\n\nPreserve this exact prose.\n");
 });
 
@@ -261,7 +263,10 @@ Deno.test("ensureExecutionPlanFile handles real concurrent publication without o
 
     assertEquals(results.every((result) => result.kind === "restored" || result.kind === "present"), true);
     assertEquals(results.some((result) => result.kind === "restored"), true);
-    assertEquals(await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")), canonicalMarkdown);
+    assertEquals(
+        await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")),
+        planDocumentMarkdown(canonicalMarkdown),
+    );
 });
 
 Deno.test("ensureExecutionPlanFile keeps a concurrent body while fixing owned metadata", async () => {
@@ -318,5 +323,8 @@ Deno.test("ensureExecutionPlanFile materializes the complete latest Plan before 
     });
 
     assertEquals(result.kind, "reconciled");
-    assertEquals(await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")), canonicalMarkdown);
+    assertEquals(
+        await Deno.readTextFile(join(executionRoot, "docs", "plans", "demo.md")),
+        planDocumentMarkdown(canonicalMarkdown),
+    );
 });

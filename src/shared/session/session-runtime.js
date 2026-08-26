@@ -435,6 +435,17 @@ export function shouldEmitProjectedAttention(summary, previousAttentionEventId) 
 }
 
 /**
+ * @param {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']> | null | undefined} previous
+ * @param {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} next
+ * @returns {boolean}
+ */
+function isSameManagedSyncState(previous, next) {
+    return previous?.status === next.status && previous.localGeneration === next.localGeneration &&
+        previous.latestGeneration === next.latestGeneration && previous.owningSurfaceKind === next.owningSurfaceKind &&
+        previous.message === next.message;
+}
+
+/**
  * @param {*} options
  * @param {*} workflow
  * @param {*} handoff
@@ -2956,9 +2967,12 @@ export class SessionRuntime {
         const emitSyncState = (
             /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */ state,
         ) => {
+            const previousState = managed.syncState;
             hostedSession.setManagedMetadata({ ...managed, syncState: state });
             managed = hostedSession.getManagedMetadata?.() || managed;
-            this.#emitSessionEvent(sessionId, state);
+            if (!isSameManagedSyncState(previousState, state)) {
+                this.#emitSessionEvent(sessionId, state);
+            }
         };
         const sanitizedSurface = (/** @type {unknown} */ processKind) => {
             if (processKind === "workspace" || processKind === "tui" || processKind === "acp") return processKind;
@@ -2974,6 +2988,10 @@ export class SessionRuntime {
         }
         const latestGeneration = activationState.generation?.generation ?? null;
         const currentLocalGeneration = managed.acknowledgedGeneration ?? managed.generation ?? null;
+        const managedAlreadyCurrent = !options.replayFromStart && latestGeneration === currentLocalGeneration &&
+            !managed.acknowledgedEventId && !Number.isInteger(managed.acknowledgedEventOrdinal) &&
+            managed.syncState?.status === "current" && managed.syncState.localGeneration === currentLocalGeneration &&
+            managed.syncState.latestGeneration === latestGeneration;
         const activeOwnerKind = activationState.activation?.ownerProcessKind || null;
         const activeOwnerInstanceId = activationState.activation?.ownerInstanceId || null;
         const activeElsewhere = Boolean(
@@ -3010,7 +3028,8 @@ export class SessionRuntime {
         }
         if (
             !options.replayFromStart && latestGeneration === currentLocalGeneration &&
-            (managed.acknowledgedEventId || latestGeneration === null)
+            (managed.acknowledgedEventId || Number.isInteger(managed.acknowledgedEventOrdinal) ||
+                latestGeneration === null)
         ) {
             /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */
             const state = {
@@ -3023,15 +3042,17 @@ export class SessionRuntime {
             emitSyncState(state);
             return { ok: true, events: [], state };
         }
-        emitSyncState(
-            /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */ ({
-                type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
-                status: "syncing",
-                localGeneration: currentLocalGeneration,
-                latestGeneration,
-                ...(owningSurfaceKind ? { owningSurfaceKind } : {}),
-            }),
-        );
+        if (!managedAlreadyCurrent) {
+            emitSyncState(
+                /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */ ({
+                    type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                    status: "syncing",
+                    localGeneration: currentLocalGeneration,
+                    latestGeneration,
+                    ...(owningSurfaceKind ? { owningSurfaceKind } : {}),
+                }),
+            );
+        }
         try {
             /** @type {any[]} */
             const events = [];
@@ -3062,6 +3083,7 @@ export class SessionRuntime {
                     : cursorEventOrdinal;
             } while (!projected.complete);
             const summary = /** @type {any} */ (projected.snapshot || {});
+            const previousSyncState = managed.syncState;
             /** @type {import('./hosted-session.js').ManagedSessionMetadata} */
             const nextMetadata = {
                 ...managed,
@@ -3106,7 +3128,9 @@ export class SessionRuntime {
                     });
                 }
             }
-            if (managed.syncState) this.#emitSessionEvent(sessionId, managed.syncState);
+            if (managed.syncState && !isSameManagedSyncState(previousSyncState, managed.syncState)) {
+                this.#emitSessionEvent(sessionId, managed.syncState);
+            }
             return { ok: true, events, state: managed.syncState || null, snapshot: summary };
         } catch (error) {
             const failure = toProjectionFailure(error);

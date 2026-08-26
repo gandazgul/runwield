@@ -1,4 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
+import { PLAN_RUNTIME_FIELDS } from "../../../shared/workflow/controller-state.ts";
+import { RUNWIELD_GITIGNORE_BLOCK } from "../../../shared/runwield-owned-paths.ts";
 import { withValidationBranches } from "./validation-workflow-tree-shared.ts";
 
 type PublicationState = {
@@ -19,6 +21,7 @@ type PublicationState = {
             remoteHead?: string;
             remotePlanStatus?: string;
             remotePlanAttrs?: { worktreeId?: string };
+            remotePlanFields?: string[];
             remoteTree?: string;
             deliveredText?: string;
             registryEntries?: Array<{ status?: string }>;
@@ -75,6 +78,11 @@ function assertPublishedWithoutPrimaryMutation(result: PublicationState, deliver
     assertEquals(published.primaryFiles, baseline.files);
     assertEquals(published.remotePlanStatus, "validated");
     assertEquals(published.remotePlanAttrs?.worktreeId, undefined);
+    assert(published.remotePlanFields);
+    for (const field of PLAN_RUNTIME_FIELDS) {
+        assert(!published.remotePlanFields.includes(field), `Published Plan contains controller field ${field}`);
+    }
+    assert(!published.remotePlanFields.includes("summary"));
     assertEquals(published.deliveredText, deliveredText);
     assert(String(published.remoteTree || "").includes("docs/work-records/"), "Expected a published Work Record.");
     assertEquals(published.registryEntries, []);
@@ -286,9 +294,10 @@ export const validationTreePublicationPrimaryPlanRestoredScenario = withValidati
                 const publication = result.state.publication;
                 assert(baseline && publication, "Expected restored-primary publication evidence.");
                 assertEquals(baseline.files?.[`docs/plans/${restoredPrimaryPlanName}.md`], null);
-                assert(
-                    typeof publication.primaryFiles?.[`docs/plans/${restoredPrimaryPlanName}.md`] === "string",
-                    "Expected /load-plan to restore the missing primary Plan from the execution worktree.",
+                assertEquals(
+                    publication.primaryFiles?.[`docs/plans/${restoredPrimaryPlanName}.md`],
+                    null,
+                    "Loading the execution Plan must leave the deleted primary file alone.",
                 );
                 assertEquals(publication.primaryHead, baseline.head);
                 assertEquals(publication.remotePlanStatus, "validated");
@@ -333,8 +342,7 @@ export const validationTreePublicationLocalOnlyScenario = withValidationBranches
             {
                 type: "writeProjectFile",
                 path: ".gitignore",
-                text:
-                    "# BEGIN RunWield owned runtime state\n.wld/plan-locks\n.wld/plan-transitions\n.wld/plan-backups\n.wld/plan-staging\n.wld/worktrees\n.wld/debug\n.wld/worktrees.json\n.wld/worktrees.lock\n.wld/worktree-registry-migration-issues.json\n.wld/collaboration-secrets.json\n# END RunWield owned runtime state\n",
+                text: RUNWIELD_GITIGNORE_BLOCK,
             },
             { type: "writeProjectFile", path: "untracked-user-note.txt", text: "preserve local note\n" },
             {

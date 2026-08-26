@@ -6,7 +6,7 @@
  * The browser surface is isolated here so core only requests a review.
  */
 
-import { getPlanRevisionForText, injectFrontMatter, parsePlanFrontMatter } from "../../plan-store.js";
+import { injectFrontMatter, loadPlanFileStrict, planDocumentMarkdown } from "../../plan-store.js";
 import { isAbsolute, resolve } from "node:path";
 import { assertSharedPlanWriteAllowed } from "../../shared/collaboration/lock.js";
 import { mimeTypeForImagePath } from "../../shared/session/image-attachments.js";
@@ -188,11 +188,14 @@ export async function submitPlanForReview({
     browser,
 }: SubmitPlanForReviewOptions): Promise<PlanReviewResult> {
     // 1. Read plan
-    const planContent = await Deno.readTextFile(planPath);
-    const planRevision = await getPlanRevisionForText(planContent);
+    const plan = await loadPlanFileStrict(planPath);
+    if (plan.kind !== "loaded") {
+        if (plan.kind === "malformed") throw plan.error;
+        throw new Error("The Plan could not be opened for review. Your files have not been changed.");
+    }
+    const { attrs, body, revision: planRevision } = plan;
 
-    // 2. Ensure front matter is present and up to date
-    const { attrs, body } = parsePlanFrontMatter(planContent);
+    // 2. Present document fields only; workflow state stays in the controller.
     assertSharedPlanWriteAllowed(attrs);
     const fmOverrides: Partial<PlanFrontMatter> = {
         ...attrs,
@@ -213,7 +216,7 @@ export async function submitPlanForReview({
 
     const trustedClassification = fmOverrides.classification;
     const trustedWorkKind = fmOverrides.workKind;
-    const planWithFm = injectFrontMatter(body, fmOverrides);
+    const planWithFm = planDocumentMarkdown(injectFrontMatter(body, fmOverrides));
 
     // 4. Start the real review surface; only browser opening crosses the port.
     const server = await startPlanReviewSurface<PlanReviewDecision>({

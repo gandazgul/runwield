@@ -145,7 +145,7 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
     devServerHmr: Type.Optional(Type.Boolean({
         description: "Whether the dev server is expected to support hot module reload.",
     })),
-    worktreeBaseBranch: Type.Optional(Type.Union([
+    targetBranch: Type.Optional(Type.Union([
         Type.String({
             description: "Target branch this child planned change should execute from and merge back into.",
         }),
@@ -174,18 +174,16 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
  * @param {string} opts.cwd - Project root.
  * @param {string} opts.epicPlanName - Parent Epic plan name.
  * @param {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} opts.children
- * @param {string} [opts.parentWorktreeBaseBranch]
+ * @param {string} [opts.parentTargetBranch]
  * @param {import('../../plan-store.js').PlanWriteOptions} [opts.writeOptions]
  * @returns {ReturnType<typeof saveChildFeaturePlans>}
  */
 export async function materializeSlicerDraft(
-    { cwd, epicPlanName, children, parentWorktreeBaseBranch, writeOptions },
+    { cwd, epicPlanName, children, parentTargetBranch, writeOptions },
 ) {
-    const inheritedChildren = parentWorktreeBaseBranch
+    const inheritedChildren = parentTargetBranch
         ? children.map((child) =>
-            Object.hasOwn(child, "worktreeBaseBranch")
-                ? child
-                : { ...child, worktreeBaseBranch: parentWorktreeBaseBranch }
+            Object.hasOwn(child, "targetBranch") ? child : { ...child, targetBranch: parentTargetBranch }
         )
         : children;
     return await saveChildFeaturePlans(cwd, epicPlanName, inheritedChildren, writeOptions);
@@ -326,7 +324,7 @@ export function createSlicerFinalizeTool({ planName, cwd }) {
                                     cwd,
                                     epicPlanName: planName,
                                     children: childDescriptors,
-                                    parentWorktreeBaseBranch: epic.attrs.worktreeBaseBranch || undefined,
+                                    parentTargetBranch: epic.attrs.targetBranch || undefined,
                                     writeOptions: {
                                         expectedRevisions,
                                         onChildPlanWritten: captureWrittenChild,

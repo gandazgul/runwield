@@ -3,14 +3,23 @@
  * Transaction boundary helpers for Plan Lifecycle mutations.
  */
 
-import { dirname, join } from "@std/path";
+import { dirname, join, resolve } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { CLI_BIN, getRunWieldRuntimeDir, PLAN_TRANSITIONS_DIR_NAME } from "../../constants.js";
+import { pickControllerState, type WorkflowControllerState, WORKTREE_CONTEXT_FIELDS } from "./controller-state.ts";
+import {
+    controllerStatesEqual,
+    restoreOwnControllerWrite,
+    withControllerWriteTracking,
+    writeControllerState,
+} from "./controller-registry.ts";
 import {
     atomicWriteTextFile,
     getKnownFrontMatterRevision,
+    getPlanDocumentRoot,
     getRecordedPlanWriteFrontMatterRevision,
     getRecordedPlanWriteRevision,
+    loadArchivedPlan,
     loadPlan,
     loadPlanStrict,
     parsePlanFrontMatter,
@@ -23,6 +32,7 @@ import {
 import { SharedPlanLockError } from "../collaboration/lock.js";
 import { findById as findWorktreeRegistryEntryById } from "../worktree-registry.js";
 import { recordWorkflowMetric } from "./metrics.js";
+import { resolveWorkflowPlanLocation } from "./plan-location.ts";
 
 export interface TransitionRecoveryAction {
     label: string;
@@ -52,6 +62,8 @@ export interface TransitionResult {
 export interface TransitionResource {
     kind: "catalog" | "plan" | "attempt" | "target_ref";
     id?: string;
+    /** The directory that owns this lock, when documents span worktrees. */
+    root?: string;
 }
 
 /**
@@ -137,18 +149,25 @@ export async function withOrderedTransitionResources<T>(
     resources: TransitionResource[],
     fn: () => Promise<T>,
 ): Promise<T> {
-    const ordered = [...new Map(resources.map((resource) => [transitionResourceKey(resource), resource])).values()]
-        .sort((a, b) => transitionResourceKey(a).localeCompare(transitionResourceKey(b)));
+    const lockKey = (resource: TransitionResource) =>
+        `${transitionResourceKey(resource)}:${resolve(resource.root || projectRoot)}`;
+    const ordered = [...new Map(resources.map((resource) => [lockKey(resource), resource])).values()]
+        .sort((a, b) => lockKey(a).localeCompare(lockKey(b)));
     const acquireAt = async (index: number): Promise<T> => {
         if (index >= ordered.length) return await fn();
         const resource = ordered[index];
-        if (resource.kind === "catalog") return await withPlanCatalogLock(projectRoot, () => acquireAt(index + 1));
+        const root = resource.root || projectRoot;
+        if (resource.kind === "catalog") return await withPlanCatalogLock(root, () => acquireAt(index + 1));
         const lockName = resource.kind === "plan"
             ? resource.id || "unknown"
             : `__${resource.kind}:${resource.id || "unknown"}`;
-        return await withPlanLock(projectRoot, lockName, () => acquireAt(index + 1));
+        return await withPlanLock(root, lockName, () => acquireAt(index + 1));
     };
-    return await acquireAt(0);
+    return await withControllerWriteTracking(() => acquireAt(0));
+}
+
+function withTrackedPlanLock<T>(projectRoot: string, planName: string, run: () => Promise<T>): Promise<T> {
+    return withControllerWriteTracking(() => withPlanLock(projectRoot, planName, run));
 }
 
 export function getTransitionJournalDir(projectRoot: string): string {
@@ -203,8 +222,15 @@ async function restoreOwnPlanWrite(
     },
 ): Promise<string | null> {
     if (!currentRevision) return null;
+    if (
+        !await restoreOwnControllerWrite(projectRoot, { planName, planId: beforePlan.attrs.planId }, beforePlan.attrs)
+    ) return null;
+    if (currentRevision === beforePlan.revision) return currentRevision;
     const ownsWholeFile = currentRevision === getRecordedPlanWriteRevision(beforePlan.path);
     const current = ownsWholeFile ? null : await loadPlan(projectRoot, planName).catch(() => null);
+    // A controller-only write leaves no authored document revision. After undoing
+    // that write, a user's body-only edit needs no compensating document write.
+    if (current && planEffectsAreSettled(beforePlan, current)) return current.revision;
     let restoredMarkdown = beforePlan.markdown;
     if (!ownsWholeFile) {
         // Not our bytes as a whole. The only remaining provably-safe undo is the
@@ -284,6 +310,7 @@ function classifyPlanPrecondition(expectedRevision: string, beforePlan: PlanSnap
 function planEffectsAreSettled(beforePlan: PlanSnapshot, current: PlanSnapshot): boolean {
     if (!beforePlan) return true;
     if (!current) return false;
+    if (!controllerStatesEqual(beforePlan.attrs, current.attrs)) return false;
     if (current.revision === beforePlan.revision) return true;
     if (
         !current.frontMatterRevision || !beforePlan.frontMatterRevision ||
@@ -589,6 +616,7 @@ async function runSemanticTransition<T>(
                         path: strictBefore.path,
                         markdown: strictBefore.markdown,
                         attrs: strictBefore.attrs,
+                        controllerRevision: strictBefore.controllerRevision,
                         body: strictBefore.body,
                         revision: strictBefore.revision,
                         frontMatterRevision: strictBefore.frontMatterRevision,
@@ -668,7 +696,12 @@ async function runSemanticTransition<T>(
                     preparedAt: new Date().toISOString(),
                     beforeFacts: {
                         plan: beforePlan
-                            ? { path: beforePlan.path, revision: beforePlan.revision, status: beforePlan.attrs.status }
+                            ? {
+                                path: beforePlan.path,
+                                revision: beforePlan.revision,
+                                status: beforePlan.attrs.status,
+                                controllerState: pickControllerState(beforePlan.attrs),
+                            }
                             : { missing: true },
                         ...(attemptBeforeFacts.length > 0 ? { worktreeRegistry: attemptBeforeFacts } : {}),
                     },
@@ -866,7 +899,7 @@ async function runPlanTransition<T>(
         & { operation: string; apply: (ctx: BaseTransitionContext) => Promise<T> },
 ): Promise<TransitionResult> {
     const transitionId = crypto.randomUUID();
-    return await withPlanLock(projectRoot, planName, async () => {
+    return await withTrackedPlanLock(projectRoot, planName, async () => {
         const strictBefore = await loadPlanStrict(projectRoot, planName);
         // Unreadable Plan bytes are a blocked precondition, not partial work. See
         // the matching branch in runSemanticTransition: journaling this would
@@ -892,6 +925,7 @@ async function runPlanTransition<T>(
                 path: strictBefore.path,
                 markdown: strictBefore.markdown,
                 attrs: strictBefore.attrs,
+                controllerRevision: strictBefore.controllerRevision,
                 body: strictBefore.body,
                 revision: strictBefore.revision,
                 frontMatterRevision: strictBefore.frontMatterRevision,
@@ -900,7 +934,9 @@ async function runPlanTransition<T>(
         const activeTransitionIds = activeSemanticTransitions.getStore() || new Set();
         const existingRecoveryRecords = await listTransitionRecoveryRecords(projectRoot);
         const conflictingRecoveryRecord = existingRecoveryRecords.find((record) => {
-            if (record.transitionId === transitionId || activeTransitionIds.has(String(record.transitionId || ""))) {
+            if (
+                record.transitionId === transitionId || activeTransitionIds.has(String(record.transitionId || ""))
+            ) {
                 return false;
             }
             if (record.planName === planName) return true;
@@ -929,7 +965,13 @@ async function runPlanTransition<T>(
                     : `${planName} is missing, so this operation has nothing to update.`;
                 // Stale/precondition mismatches are typed caller outcomes, not partial lifecycle effects.
                 // Do not durably journal them: recovery scans treat any remaining journal as unresolved work.
-                return { status: "blocked", transitionId, operation, message, recoveryActions: planAction(planName) };
+                return {
+                    status: "blocked",
+                    transitionId,
+                    operation,
+                    message,
+                    recoveryActions: planAction(planName),
+                };
             }
         }
         await writeJournal(projectRoot, transitionId, {
@@ -940,7 +982,12 @@ async function runPlanTransition<T>(
             state: "prepared",
             preparedAt: new Date().toISOString(),
             before: beforePlan
-                ? { path: beforePlan.path, revision: beforePlan.revision, status: beforePlan.attrs.status }
+                ? {
+                    path: beforePlan.path,
+                    revision: beforePlan.revision,
+                    status: beforePlan.attrs.status,
+                    controllerState: pickControllerState(beforePlan.attrs),
+                }
                 : { missing: true },
         });
         try {
@@ -950,6 +997,9 @@ async function runPlanTransition<T>(
                 operation,
                 planName,
                 state: "applying",
+                before: beforePlan
+                    ? { revision: beforePlan.revision, controllerState: pickControllerState(beforePlan.attrs) }
+                    : { missing: true },
                 updatedAt: new Date().toISOString(),
             });
             const value = await apply({ transitionId, beforePlan });
@@ -993,7 +1043,12 @@ async function runPlanTransition<T>(
             // and the Plan must stay usable rather than be blocked by a journal.
             const settled = planEffectsAreSettled(beforePlan, currentPlan);
             const restoredRevision = beforePlan && !settled
-                ? await restoreOwnPlanWrite({ projectRoot, planName, beforePlan, currentRevision: currentPlanRevision })
+                ? await restoreOwnPlanWrite({
+                    projectRoot,
+                    planName,
+                    beforePlan,
+                    currentRevision: currentPlanRevision,
+                })
                 : null;
             if (!beforePlan || settled || restoredRevision) {
                 await removeJournal(projectRoot, transitionId);
@@ -1014,7 +1069,9 @@ async function runPlanTransition<T>(
                 state: "needs_recovery",
                 error: message,
                 uncertainty: "plan_bytes_changed",
-                beforeFacts: { plan: { revision: beforePlan.revision } },
+                beforeFacts: {
+                    plan: { revision: beforePlan.revision, controllerState: pickControllerState(beforePlan.attrs) },
+                },
                 currentPlanRevision,
                 recoveryActions: planAction(planName),
                 updatedAt: new Date().toISOString(),
@@ -1166,6 +1223,9 @@ export async function runPlanFrontMatterTransition(
             if (!after) throw new Error(`Plan disappeared during ${operation}: ${planName}`);
             for (const [key, value] of Object.entries(updates)) {
                 if (value === undefined) continue;
+                // These fields are now read-only registry projections, not Plan writes.
+                // The worktree operation verifies its own registry mutation.
+                if (WORKTREE_CONTEXT_FIELDS.some((field) => field === key)) continue;
                 const actual = (after.attrs as unknown as Record<string, unknown>)[key];
                 if (JSON.stringify(actual ?? null) !== JSON.stringify(value ?? null)) {
                     throw new Error(`Plan transition ${operation} did not persist ${key}.`);
@@ -1174,6 +1234,39 @@ export async function runPlanFrontMatterTransition(
             return attrs;
         },
     });
+}
+
+interface PlanDocumentUpdate {
+    projectRoot: string;
+    planName: string;
+    operation: "collaboration_update" | "collaboration_clear";
+    markdown: string;
+    controllerUpdates: WorkflowControllerState;
+    expectedRevision: string;
+    expectedControllerRevision: number;
+}
+
+/** Publish a document and its controller state through one recoverable transition. */
+export async function writePlanDocumentAndController(opts: PlanDocumentUpdate) {
+    const result = await runPlanTransition({
+        projectRoot: opts.projectRoot,
+        planName: opts.planName,
+        operation: opts.operation,
+        expectedRevision: opts.expectedRevision,
+        apply: async ({ beforePlan }) => {
+            if (!beforePlan) throw new Error(`Plan not found: ${opts.planName}`);
+            await writeControllerState(
+                opts.projectRoot,
+                { planName: opts.planName, planId: beforePlan.attrs.planId },
+                opts.controllerUpdates,
+                { expectedRevision: opts.expectedControllerRevision },
+            );
+            await writePlanMarkdownWithRevision(beforePlan.path, opts.markdown, beforePlan.revision);
+        },
+    });
+    if (result.status !== "committed") {
+        throw new Error(result.message || "The Plan update could not finish. Your previous version was preserved.");
+    }
 }
 
 /** Return unresolved transition journal records for diagnostics. */
@@ -1384,9 +1477,10 @@ export async function reconcileTransitionRecoveryRecords(
             continue;
         }
         const beforeFacts = (record.beforeFacts || record.before || {}) as {
-            plan?: { revision?: unknown; missing?: unknown };
+            plan?: { revision?: unknown; missing?: unknown; controllerState?: WorkflowControllerState };
             revision?: unknown;
             missing?: unknown;
+            controllerState?: WorkflowControllerState;
         };
         const journaledPlan = beforeFacts.plan || beforeFacts;
         const journaledRevision = typeof journaledPlan.revision === "string" ? journaledPlan.revision : undefined;
@@ -1412,6 +1506,8 @@ export async function reconcileTransitionRecoveryRecords(
         // outstanding RunWield work even though the file bytes differ.
         const unchanged = journaledPlan.missing === true ? !current : Boolean(
             current &&
+                (!journaledPlan.controllerState ||
+                    controllerStatesEqual(journaledPlan.controllerState, current.attrs)) &&
                 (current.revision === journaledRevision ||
                     (current.frontMatterRevision !== undefined &&
                         current.frontMatterRevision === getKnownFrontMatterRevision(journaledRevision))),
@@ -1599,8 +1695,12 @@ export async function runRecoveryTransition<T>(
 export async function runArchiveTransition<T>(
     opts: TransitionOptionsBase & { action: "archive" | "restore"; move: (ctx: BaseTransitionContext) => Promise<T> },
 ): Promise<TransitionResult> {
+    const source = opts.action === "archive"
+        ? (await resolveWorkflowPlanLocation(opts.projectRoot, opts.planName)).plan
+        : await loadArchivedPlan(opts.projectRoot, opts.planName);
+    const projectRoot = source ? getPlanDocumentRoot(source.path) : opts.projectRoot;
     return await runSemanticTransition({
-        projectRoot: opts.projectRoot,
+        projectRoot,
         planName: opts.planName,
         operation: `plan_${opts.action}`,
         resources: [{ kind: "catalog" }, { kind: "plan", id: opts.planName }],

@@ -1,6 +1,12 @@
 import { assertEquals, assertExists, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { injectFrontMatter, loadPlan, parsePlanFrontMatter, savePlan } from "../../plan-store.js";
+import {
+    injectFrontMatter,
+    loadPlan,
+    parsePlanFrontMatter,
+    savePlan,
+    updatePlanFrontMatter,
+} from "../../plan-store.js";
 import { createGitPort } from "../git-port.ts";
 import { defineGitFixture, git } from "../git-test-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
@@ -24,6 +30,7 @@ async function makeReportedMismatchFixture() {
         classification: "PLANNED_CHANGE",
         workKind: "REFACTOR",
         status: "ready_for_work",
+        targetBranch: "main",
         summary: "Check stale Plan data",
         affectedPaths: ["README.md"],
         executionAgent: "engineer",
@@ -49,6 +56,7 @@ async function makeReportedMismatchFixture() {
         classification: "PLANNED_CHANGE",
         workKind: "REFACTOR",
         status: "implemented",
+        targetBranch: "main",
         summary: "Check stale Plan data",
         affectedPaths: ["README.md"],
         executionAgent: "engineer",
@@ -295,7 +303,11 @@ Deno.test("derived Plan repair keeps an allowed definition proposal", async () =
         );
         assertExists(proposal);
         assertEquals(proposal.diffs.some((diff) => diff.field === "body"), true);
-        assertEquals(proposal.diffs.some((diff) => diff.field === "summary"), true);
+        assertEquals(
+            proposal.diffs.some((diff) => diff.field === "summary"),
+            false,
+            "summary is derived from the body",
+        );
         assertEquals(proposal.diffs.some((diff) => diff.field === "planId"), false);
         assertEquals(proposal.diffs.some((diff) => diff.field === "collaborationRecommendation"), false);
     } finally {
@@ -350,18 +362,23 @@ Deno.test("a durable validation field survives a fresh project read", async () =
     try {
         const first = await loadPlan(projectRoot, "resume-demo");
         assertExists(first);
-        await savePlan(projectRoot, "resume-demo", first.body, {
-            ...first.attrs,
-            validationCheckpoint: {
-                version: 1,
-                attemptId: "in-place",
-                generation: "saved-generation",
-                expectedStatus: "implemented",
-                nextPhase: "mechanical",
-                state: "paused",
-                updatedAt: "2026-08-13T00:00:00.000Z",
+        await updatePlanFrontMatter(
+            projectRoot,
+            "resume-demo",
+            {
+                validationCheckpoint: {
+                    version: 1,
+                    attemptId: "in-place",
+                    generation: "saved-generation",
+                    expectedStatus: "implemented",
+                    nextPhase: "mechanical",
+                    state: "paused",
+                    updatedAt: "2026-08-13T00:00:00.000Z",
+                },
             },
-        }, { expectedRevision: first.revision });
+            {},
+            { expectedRevision: first.revision },
+        );
         const reopened = await loadPlan(projectRoot, "resume-demo");
         assertExists(reopened);
         assertEquals(reopened.attrs.validationCheckpoint?.generation, "saved-generation");

@@ -15,14 +15,19 @@ async function withPlansUiFixture(run: (projectRoot: string) => Promise<void>): 
         const previousCwd = Deno.cwd();
         const projectRoot = await Deno.makeTempDir({ prefix: "runwield-plans-ui-" });
         try {
-            await savePlan(projectRoot, "workspace-fixture", "# Workspace Fixture Plan\n\nReal Plan body.\n", {
-                planId: "workspace-fixture-id",
-                classification: "PLANNED_CHANGE",
-                complexity: "LOW",
-                summary: "Visible through the real Workspace server",
-                affectedPaths: [],
-                status: "draft",
-            });
+            await savePlan(
+                projectRoot,
+                "workspace-fixture",
+                "# Workspace Fixture Plan\n\n## Context\n\nVisible through the real Workspace server\n",
+                {
+                    planId: "workspace-fixture-id",
+                    classification: "PLANNED_CHANGE",
+                    complexity: "LOW",
+                    summary: "Visible through the real Workspace server",
+                    affectedPaths: [],
+                    status: "draft",
+                },
+            );
             Deno.chdir(projectRoot);
             await run(projectRoot);
         } finally {

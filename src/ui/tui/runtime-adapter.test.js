@@ -638,6 +638,27 @@ Deno.test("TUI adapter rerenders when Runtime agent or workflow footer state cha
     assertEquals(renders, 2);
 });
 
+Deno.test("TUI adapter does not repaint for invisible idle managed sync", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("adapter-idle-managed-sync");
+    const { uiAPI } = makeUi();
+    let renders = 0;
+    uiAPI.requestRender = () => {
+        renders++;
+    };
+    uiAPI.setManagedSyncStatus = () => {};
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+        status: "current",
+        localGeneration: 3,
+        latestGeneration: 3,
+    });
+    adapter.dispose();
+
+    assertEquals(renders, 0);
+});
+
 Deno.test("a second TUI adapter for one Runtime session fails instead of duplicating output", () => {
     const { runtime, sessionId } = makeRuntimeHarness("adapter-replacement");
     const { transcript, uiAPI } = makeUi();

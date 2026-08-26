@@ -414,6 +414,7 @@ Deno.test("Workspace Resume Check does not expose absolute worktree paths in blo
             planId: "held-leak-id",
             status: "on_hold",
             heldFromStatus: "ready_for_work",
+            worktreeId: "missing-attempt",
             worktreePath: missingWorktreePath,
             worktreeBranch: "missing-branch",
             classification: "FEATURE",

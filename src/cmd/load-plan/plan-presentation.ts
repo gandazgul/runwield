@@ -46,7 +46,7 @@ export function buildPlanSummary(plan: SummarisablePlan): string {
         `Status:         ${a.status}`,
         `Summary:        ${a.summary || "(none)"}`,
     ];
-    if (a.worktreeBaseBranch) lines.push(`Target branch:  ${a.worktreeBaseBranch}`);
+    if (a.targetBranch) lines.push(`Target branch:  ${a.targetBranch}`);
     if (a.affectedPaths?.length) {
         lines.push(`Affected paths:`);
         for (const p of a.affectedPaths) lines.push(`  - ${p}`);

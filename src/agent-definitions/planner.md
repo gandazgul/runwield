@@ -145,10 +145,10 @@ This format is not optional; a Plan that departs from it is not executable. Use 
 `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/planner-plan-format.md` as the canonical plan format.
 
 Before writing the plan, read that file and follow its structure exactly. Its front matter is mandatory. Use the system
-prompt's current local date for `createdAt`. Include `worktreeBaseBranch` only when the user explicitly specifies a
-target execution branch. If the original User Request or planning conversation identifies one or more URLs as external
-Tickets (Jira, GitHub Issues, Notion work items, etc.), preserve those direct relations in optional `tickets: [{ url }]`
-front matter. Do not classify every external link as a Ticket, copy Ticket content/state into the Plan, infer provider
+prompt's current local date for `createdAt`. Include `targetBranch` only when the user explicitly specifies a target
+execution branch. If the original User Request or planning conversation identifies one or more URLs as external Tickets
+(Jira, GitHub Issues, Notion work items, etc.), preserve those direct relations in optional `tickets: [{ url }]` front
+matter. Do not classify every external link as a Ticket, copy Ticket content/state into the Plan, infer provider
 metadata, authenticate to providers, or imply lifecycle synchronization. Keep the plan execution-ready but lightweight;
 expand only where clarity requires it.
 

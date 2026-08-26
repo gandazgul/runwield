@@ -46,6 +46,8 @@ import { runExecutionPreparationTransition } from "./state-transition.ts";
 import { healSettledTransitionRecords } from "./transition-recovery.ts";
 import { CollaborationStyles, resolveExecutionOwner } from "./execution-collaboration.ts";
 import { ensureRunWieldOwnedGitignoreBlock } from "../runwield-owned-paths.ts";
+import { resolveWorkflowPlanLocation } from "./plan-location.ts";
+import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 
 export function normalizeExecutionTargetBranch(value) {
     if (typeof value !== "string") return undefined;
@@ -223,7 +225,15 @@ export async function startActiveExecutionWorkflow(
     },
 ) {
     if (!hostedSession) throw new Error("startActiveExecutionWorkflow: hostedSession is required");
-    const projectRoot = hostedSession.cwd;
+    const projectRoot = resolvePrimaryCheckoutRoot(hostedSession.cwd);
+    const sourceLocation = await resolveWorkflowPlanLocation(projectRoot, planName);
+    if (sourceLocation.archived) {
+        throw new Error(`This Plan is archived. Run wld plans archive restore ${planName} before executing it.`);
+    }
+    if (sourceLocation.plan) {
+        triageMeta = sourceLocation.plan.attrs;
+        currentStatus = sourceLocation.plan.attrs.status;
+    }
     const findReusable = ports.findReusableWorktree;
     // Worktree policy and the Plan restore are RunWield's own: they stay imported so a
     // test cannot stand in for them. Producing their failure modes takes a real
@@ -249,7 +259,7 @@ export async function startActiveExecutionWorkflow(
     // `triageMeta.planId`; everything else gets the real one.
     const planIdentity = typeof triageMeta.planId === "string" && triageMeta.planId
         ? { id: triageMeta.planId }
-        : await ensurePlanIdentity(projectRoot, planName);
+        : await ensurePlanIdentity(sourceLocation.documentRoot, planName);
     const stablePlanId = "planId" in planIdentity ? planIdentity.planId : planIdentity.id;
     const effectiveTriageMeta = { ...triageMeta, planId: stablePlanId };
     hostedSession.setWorkflowExecutionContext?.({ planName, triageMeta: effectiveTriageMeta });
@@ -336,31 +346,25 @@ export async function startActiveExecutionWorkflow(
         hostedSession.setActiveExecutionWorkflow(activeWorkflow);
         return activeWorkflow;
     }
-    const targetBranch = normalizeExecutionTargetBranch(triageMeta.worktreeBaseBranch);
+    const targetBranch = normalizeExecutionTargetBranch(triageMeta.targetBranch);
     const hasRecordedWorktree = Boolean(
         triageMeta.worktreeId || triageMeta.worktreePath || triageMeta.worktreeBranch ||
             triageMeta.executionBaselineTree,
     );
     const startsFresh = triageMeta.worktreeStatus === "abandoned" && !hasRecordedWorktree;
-    const existing = startsFresh ? null : hostedSession.getActiveExecutionWorkflow();
-    const reusable =
-        existing?.planName === planName && existing.executionCwd && existing.worktreeId && existing.worktreeBranch
-            ? {
-                id: existing.worktreeId,
-                path: existing.executionCwd,
-                branch: existing.worktreeBranch,
-                baseBranch: existing.worktreeBaseBranch,
-                baseCommit: existing.worktreeBaseCommit ||
-                    (await findWorktreeRegistryEntryById(projectRoot, existing.worktreeId))?.baseCommit,
-            }
-            : !startsFresh && (currentStatus === "in_progress" || hasRecordedWorktree)
-            ? await findReusable({
-                projectRoot,
-                planName,
-                planId: stablePlanId,
-                worktreeId: triageMeta.worktreeId || undefined,
-            })
-            : null;
+    const cachedWorkflow = hostedSession.getActiveExecutionWorkflow();
+    const existing = !startsFresh && cachedWorkflow?.planName === planName &&
+            cachedWorkflow.worktreeId === triageMeta.worktreeId
+        ? cachedWorkflow
+        : null;
+    const reusable = !startsFresh && (currentStatus === "in_progress" || hasRecordedWorktree)
+        ? await findReusable({
+            projectRoot,
+            planName,
+            planId: stablePlanId,
+            worktreeId: triageMeta.worktreeId || undefined,
+        })
+        : null;
     if (reusable) {
         const requestedTarget = targetBranch
             ? await resolveTarget(projectRoot, targetBranch)
@@ -368,7 +372,9 @@ export async function startActiveExecutionWorkflow(
         assertReusableWorktreeTargetMatches(reusable.baseBranch, requestedTarget);
     }
     const reusablePlanSource = reusable ? await loadCanonicalPlanSource(reusable.path, planName) : null;
-    const planAuthorityRoot = reusable && reusablePlanSource?.kind === "loaded" ? reusable.path : projectRoot;
+    const planAuthorityRoot = reusable && reusablePlanSource?.kind === "loaded"
+        ? reusable.path
+        : sourceLocation.documentRoot;
     if (reusable && planAuthorityRoot === reusable.path) {
         const healed = await healSettledTransitionRecords(planAuthorityRoot, {
             planName,
@@ -383,7 +389,7 @@ export async function startActiveExecutionWorkflow(
     }
     const preflightCanonicalPlanSource = planAuthorityRoot === reusable?.path
         ? reusablePlanSource
-        : await loadCanonicalPlanSource(projectRoot, planName);
+        : await loadCanonicalPlanSource(planAuthorityRoot, planName);
     const canonicalPlanForRevision = await loadPlan(planAuthorityRoot, planName).catch(() => null);
     if (preflightCanonicalPlanSource.kind !== "loaded") {
         throw new Error(
@@ -414,11 +420,9 @@ export async function startActiveExecutionWorkflow(
     /** @type {Extract<Awaited<ReturnType<typeof loadCanonicalExecutionPlanSource>>, {kind:"loaded"}> | undefined} */
     let lockedCanonicalPlanSource;
     const transition = await runExecutionPreparationTransition({
-        // A new worktree does not exist when this transaction begins. Keep its
-        // recovery journal in the project runtime area; all tracked Plan writes
-        // below still go only to the execution worktree. Reused worktrees can
-        // lock and journal against their already-materialized Plan directly.
-        projectRoot: reusable ? planAuthorityRoot : projectRoot,
+        // Lock the approved source document. A fresh execution directory does
+        // not exist yet; a reopened Plan can still live in its retired directory.
+        projectRoot: planAuthorityRoot,
         planName,
         planId: stablePlanId,
         worktreeId: attemptId,

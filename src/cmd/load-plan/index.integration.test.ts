@@ -3,14 +3,17 @@ import { type Context, fauxAssistantMessage, fauxText, fauxToolCall } from "@ear
 import {
     loadArchivedPlan,
     loadPlan,
+    parsePlanFrontMatter,
     resolveSiblingChildPlanDependencies,
     savePlan,
     updatePlanFrontMatter,
 } from "../../plan-store.js";
 import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
-import { addEntry } from "../../shared/worktree-registry.js";
+import { addEntry, findById, removeEntry } from "../../shared/worktree-registry.js";
 import { executePlanAction, loadPlanActionEvidence } from "../../shared/workflow/plan-actions.ts";
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { writeControllerState } from "../../shared/workflow/controller-registry.ts";
+import { defineCommittedGitFixture } from "../../shared/git-test-fixture.ts";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runLoadPlanCommand } from "./index.ts";
 import type { PlanFrontMatterInput } from "../../plan-store.js";
@@ -22,6 +25,8 @@ interface LoadPlanUiFixture {
     prompts: string[];
     uiAPI: UiAPI;
 }
+
+const recoverableArchiveFixture = defineCommittedGitFixture({ ".gitignore": ".wld/\n" });
 
 function makeUi(selections: Array<string | null>, textInputs: Array<string | null> = []): LoadPlanUiFixture {
     const pendingSelections = [...selections];
@@ -399,10 +404,11 @@ Deno.test("load-plan offers lifecycle actions for a validated Plan already publi
     });
 });
 
-Deno.test("load-plan abandons a lost worktree before archiving a User Verified Plan", async () => {
+Deno.test("load-plan abandons unregistered legacy recovery before archiving a User Verified Plan", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
         const lostPath = `${projectRoot}/lost-worktree`;
         await writePlan(projectRoot, "finished-with-stale-worktree", {
+            planId: "lost-plan",
             status: "user_verified",
             executionMode: "worktree",
             worktreeStatus: "validation_failed",
@@ -411,6 +417,21 @@ Deno.test("load-plan abandons a lost worktree before archiving a User Verified P
             worktreeBranch: "worktree/lost-worktree",
             worktreeBaseBranch: "main",
         });
+        await writeControllerState(
+            projectRoot,
+            { planId: "lost-plan", planName: "finished-with-stale-worktree" },
+            {},
+            {
+                recovery: {
+                    worktreeId: "lost-worktree",
+                    worktreePath: lostPath,
+                    worktreeBranch: "worktree/lost-worktree",
+                    worktreeBaseBranch: "main",
+                    worktreeStatus: "validation_failed",
+                },
+            },
+        );
+        assertEquals(await findById(projectRoot, "lost-worktree"), null);
         const { runtime, sessionId } = await createRuntime(projectRoot);
         const ui = makeUi(["abandon", "confirm", "archive"]);
         try {
@@ -424,8 +445,12 @@ Deno.test("load-plan abandons a lost worktree before archiving a User Verified P
             assertEquals(await loadPlan(projectRoot, "finished-with-stale-worktree"), null);
             const archived = await loadArchivedPlan(projectRoot, "finished-with-stale-worktree");
             assertEquals(archived?.attrs.archivedFromStatus, "user_verified");
-            assertEquals(archived?.attrs.worktreeStatus, "abandoned");
+            assertEquals(archived?.attrs.worktreeStatus, undefined, "unregistered recovery hints remain cleared");
             assertEquals(archived?.attrs.worktreeId, undefined);
+            assertEquals(archived?.attrs.worktreePath, undefined);
+            const archivedDocument = parsePlanFrontMatter(archived?.markdown || "").attrs;
+            assertEquals(archivedDocument.worktreeStatus, undefined, "archives do not contain runtime state");
+            assertEquals(archivedDocument.worktreeId, undefined);
             assertStringIncludes(ui.messages.join("\n"), "Archived finished-with-stale-worktree");
         } finally {
             runtime.closeAllSessions();
@@ -468,12 +493,32 @@ Deno.test("load-plan archives a verified Epic with every child Plan and keeps th
 });
 
 Deno.test("load-plan refuses to archive an Epic whose child has a recoverable worktree", async () => {
-    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async () => {
+        const projectRoot = await recoverableArchiveFixture.checkout();
         await writePlan(projectRoot, "epic", { classification: "PROJECT", status: "verified" });
         await writePlan(projectRoot, "epic/child", {
+            planId: "active-child",
             status: "ready_for_work",
             parentPlan: "epic",
             worktreeStatus: "active",
+        });
+        await git(projectRoot, ["add", "docs"]);
+        await git(projectRoot, ["commit", "-m", "Epic with recoverable child"]);
+        const worktreePath = `${projectRoot}-child`;
+        await git(projectRoot, ["worktree", "add", "-b", "worktree/child", worktreePath]);
+        await addEntry(projectRoot, {
+            id: "child-attempt",
+            planId: "active-child",
+            planName: "epic/child",
+            path: worktreePath,
+            branch: "worktree/child",
+            baseBranch: "main",
+            baseRef: "main",
+            baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
+            baseTree: await git(projectRoot, ["rev-parse", "HEAD^{tree}"]),
+            status: "active",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
         });
         const { runtime, sessionId } = await createRuntime(projectRoot);
         const ui = makeUi(["archive_epic", "cancel"]);
@@ -493,6 +538,8 @@ Deno.test("load-plan refuses to archive an Epic whose child has a recoverable wo
             assertStringIncludes(ui.messages.join("\n"), "active");
         } finally {
             runtime.closeAllSessions();
+            await git(projectRoot, ["worktree", "remove", "--force", worktreePath]).catch(() => {});
+            await Deno.remove(projectRoot, { recursive: true });
         }
     });
 });
@@ -812,11 +859,11 @@ Deno.test("load-plan recovery rejects replaced worktree registry evidence before
             });
             const evidence = await loadPlanActionEvidence(projectRoot, "plan-failed-worktree");
             if (evidence.kind !== "success") throw new Error(evidence.message);
-            const executionPlanPath = `${worktreePath}/docs/plans/failed-worktree.md`;
-            await Deno.writeTextFile(
-                executionPlanPath,
-                (await Deno.readTextFile(executionPlanPath)).replace('worktreeId: "wt-old"', 'worktreeId: "wt-new"'),
-            );
+            // Replace the actual attempt, not a retired Plan front-matter pointer.
+            const old = await findById(projectRoot, "wt-old");
+            if (!old) throw new Error("fixture attempt disappeared");
+            await removeEntry(projectRoot, "wt-old");
+            await addEntry(projectRoot, { ...old, id: "wt-new" });
 
             const result = await executePlanAction(projectRoot, {
                 planId: "plan-failed-worktree",

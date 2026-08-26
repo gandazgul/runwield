@@ -6,11 +6,19 @@ import type { BrowserPort } from "../../shared/browser-port.ts";
 import { submitPlanForReview } from "./plan-review.ts";
 import { createScriptedReviewBrowser, type ReviewDecisionBody } from "./review-test-fixture.ts";
 import { addEntry as addRegistryEntry, findById as findRegistryEntryById } from "../../shared/worktree-registry.js";
+import { defineCommittedGitFixture, git } from "../../shared/git-test-fixture.ts";
 
 interface PlanReviewFixture {
     dir: string;
     planPath: string;
 }
+
+interface ExecutedPlanReviewFixture extends PlanReviewFixture {
+    executionDir: string;
+    primaryMarkdown: string;
+}
+
+const gitFixture = defineCommittedGitFixture({ ".gitignore": ".wld/\nwt-prior/\n" });
 
 async function makePlanFile(): Promise<PlanReviewFixture> {
     const dir = await Deno.makeTempDir({ prefix: "runwield-plan-review-" });
@@ -305,32 +313,39 @@ Deno.test("submitPlanForReview cancellation stops the real review surface withou
  * Build a Plan that already ran, together with the registry entry recording the
  * execution generation it owns.
  */
-async function makeExecutedPlanWithWorktree(status: PlanFrontMatter["status"]): Promise<PlanReviewFixture> {
-    const dir = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-plan-review-executed-" }));
-    await addRegistryEntry(dir, {
-        id: "wt-prior",
-        planName: "plan",
-        planId: "plan-executed-id",
-        baseBranch: "main",
-        baseRef: "HEAD",
-        baseCommit: "recorded",
-        baseTree: "recorded-tree",
-        branch: "runwield/worktree/plan",
-        path: `${dir}/wt-prior`,
-        status: "active",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-    } as never);
+async function makeExecutedPlanWithWorktree(status: PlanFrontMatter["status"]): Promise<ExecutedPlanReviewFixture> {
+    const dir = await gitFixture.checkout();
     await savePlan(dir, "plan", "# Plan\n\nDo the thing.\n", {
         classification: "PLANNED_CHANGE",
         status,
         summary: "Do the thing",
         affectedPaths: [],
         planId: "plan-executed-id",
-        worktreeId: "wt-prior",
-        worktreeStatus: "completed",
     });
-    return { dir, planPath: getStoredPlanPath(dir, "plan") };
+    await git(dir, ["add", "docs"]);
+    await git(dir, ["commit", "-m", "Save review Plan"]);
+    const executionDir = join(dir, "wt-prior");
+    await git(dir, ["worktree", "add", "-b", "worktree/plan", executionDir]);
+    await addRegistryEntry(dir, {
+        id: "wt-prior",
+        planName: "plan",
+        planId: "plan-executed-id",
+        baseBranch: "main",
+        baseRef: "refs/heads/main",
+        baseCommit: await git(dir, ["rev-parse", "HEAD"]),
+        baseTree: await git(dir, ["rev-parse", "HEAD^{tree}"]),
+        branch: "worktree/plan",
+        path: executionDir,
+        status: "active",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    return {
+        dir,
+        executionDir,
+        planPath: getStoredPlanPath(executionDir, "plan"),
+        primaryMarkdown: await Deno.readTextFile(getStoredPlanPath(dir, "plan")),
+    };
 }
 
 Deno.test("submitPlanForReview approval detaches the prior execution generation in one transaction", async () => {
@@ -338,7 +353,7 @@ Deno.test("submitPlanForReview approval detaches the prior execution generation 
     // that worktree abandoned. Both writes commit together: an approval recorded
     // while the entry stayed active is a Plan the next execution would run in a
     // worktree it no longer owns.
-    const { dir, planPath } = await makeExecutedPlanWithWorktree("ready_for_work");
+    const { dir, executionDir, planPath, primaryMarkdown } = await makeExecutedPlanWithWorktree("ready_for_work");
     const scriptedBrowser = createScriptedReviewBrowser("decision", approvedDecision());
     try {
         const result = await submitPlanForReview({
@@ -349,27 +364,33 @@ Deno.test("submitPlanForReview approval detaches the prior execution generation 
         });
 
         assertEquals(result.approved, true);
-        const savedPlan = await loadPlan(dir, "plan");
+        const savedPlan = await loadPlan(executionDir, "plan");
         assertEquals(savedPlan?.attrs.status, "approved");
-        assertEquals(savedPlan?.attrs.worktreeId ?? null, null);
+        assertEquals(
+            savedPlan?.attrs.worktreeId,
+            undefined,
+            "a retired attempt must not be supplied as active execution context",
+        );
         assertEquals(savedPlan?.attrs.worktreeStatus, "abandoned");
         assertEquals((await findRegistryEntryById(dir, "wt-prior"))?.status, "abandoned");
+        assertEquals(await Deno.readTextFile(getStoredPlanPath(dir, "plan")), primaryMarkdown);
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
 });
 
 Deno.test("submitPlanForReview leaves the execution generation alone when no reopen is needed", async () => {
-    const { dir, planPath } = await makeExecutedPlanWithWorktree("draft");
+    const { dir, executionDir, planPath, primaryMarkdown } = await makeExecutedPlanWithWorktree("draft");
     const scriptedBrowser = createScriptedReviewBrowser("decision", approvedDecision());
     try {
         await submitPlanForReview({ cwd: dir, planName: "plan", planPath, browser: scriptedBrowser.browser });
 
         // A draft is reviewable as-is, so there is no generation to detach and the
         // registry entry must be left exactly as it was.
-        assertEquals(await planStatus(dir), "approved");
+        assertEquals(await planStatus(executionDir), "approved");
         assertEquals((await findRegistryEntryById(dir, "wt-prior"))?.status, "active");
-        assertEquals((await loadPlan(dir, "plan"))?.attrs.worktreeId, "wt-prior");
+        assertEquals((await loadPlan(executionDir, "plan"))?.attrs.worktreeId, "wt-prior");
+        assertEquals(await Deno.readTextFile(getStoredPlanPath(dir, "plan")), primaryMarkdown);
     } finally {
         await Deno.remove(dir, { recursive: true });
     }

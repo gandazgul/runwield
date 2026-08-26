@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { savePlan } from "../plan-store.js";
+import { listPlans, savePlan } from "../plan-store.js";
 import {
     addEntry,
     findById,
@@ -244,12 +244,23 @@ Deno.test("worktree registry migration resolves unambiguous legacy plan names", 
         });
         const path = getWorktreeRegistryPath(projectRoot);
         await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
-        await Deno.writeTextFile(path, JSON.stringify({ version: 1, entries: [entry({ planId: undefined })] }));
+        await Deno.writeTextFile(
+            path,
+            JSON.stringify({
+                version: 1,
+                entries: [entry({ planId: undefined, path: join(projectRoot, "missing-attempt") })],
+            }),
+        );
+        const primaryPath = join(projectRoot, "docs/plans/demo-plan.md");
+        const beforePlan = await Deno.readTextFile(primaryPath);
+        await assertRejects(() => listPlans(projectRoot), Error, "execution Plan is missing");
 
         const entries = await listEntries(projectRoot);
         assertEquals(entries[0].planId, "plan-1");
         const stored = JSON.parse(await Deno.readTextFile(path));
         assertEquals(stored.version, 2);
+        assertEquals(await Deno.readTextFile(primaryPath), beforePlan);
+        await assertRejects(() => listPlans(projectRoot), Error, "execution Plan is missing");
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
     }
@@ -284,6 +295,53 @@ Deno.test("worktree registry migration classifies duplicate live legacy attempts
             await Deno.readTextFile(join(projectRoot, ".wld", "worktree-registry-migration-issues.json")),
         );
         assertEquals(issues.issues.map((/** @type {{ id: string }} */ issue) => issue.id), ["legacy-1", "legacy-2"]);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("registry migration keeps distinct execution documents ambiguous", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-registry-evidence-" });
+    try {
+        const firstPath = join(projectRoot, "first");
+        const secondPath = join(projectRoot, "second");
+        for (const root of [projectRoot, firstPath, secondPath]) {
+            await savePlan(root, "demo-plan", "# Same Plan identity\n", {
+                planId: "plan-1",
+                status: "in_progress",
+                classification: "FEATURE",
+            });
+        }
+        const path = getWorktreeRegistryPath(projectRoot);
+        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.writeTextFile(
+            path,
+            JSON.stringify({
+                version: 1,
+                entries: [
+                    entry({ id: "first", planId: undefined, path: firstPath }),
+                    entry({ id: "second", planId: undefined, path: secondPath, branch: "runwield/worktree/second" }),
+                ],
+            }),
+        );
+        const entries = await listEntries(projectRoot);
+        assertEquals(entries.map((attempt) => attempt.planId), [undefined, undefined]);
+        const issues = JSON.parse(
+            await Deno.readTextFile(join(projectRoot, ".wld/worktree-registry-migration-issues.json")),
+        );
+        assertEquals(issues.issues.map((/** @type {{ reason: string }} */ issue) => issue.reason), [
+            "ambiguous_plan_name",
+            "ambiguous_plan_name",
+        ]);
+        for (const root of [firstPath, secondPath]) {
+            const document = join(root, "docs/plans/demo-plan.md");
+            await Deno.writeTextFile(
+                document,
+                (await Deno.readTextFile(document)).replace("---\n", "---\nworktreeId: first\n"),
+            );
+        }
+        const conflictingPointers = await listEntries(projectRoot);
+        assertEquals(conflictingPointers.map((attempt) => attempt.planId), [undefined, undefined]);
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
     }

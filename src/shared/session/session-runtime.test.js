@@ -753,6 +753,60 @@ Deno.test("SessionRuntime synchronization recovers safe append-only output after
     );
 });
 
+Deno.test("SessionRuntime does not emit unchanged current managed sync state on idle polls", async () => {
+    await withRuntimeCommandFixture(
+        "runtime-managed-idle-sync-",
+        async ({ homeDir, projectRoot }) => {
+            const store = openOwnerCoordinationStore({ dbPath: `${homeDir}/owner.sqlite3` });
+            try {
+                const writerRuntime = createSessionRuntime({
+                    sessionStore: store,
+                    ownerProcessKind: "test",
+                    ownerInstanceId: "runtime-idle-sync-writer",
+                });
+                let runwieldSessionId = "";
+                try {
+                    const created = await writerRuntime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+                    await writerRuntime.switchAgent(created.sessionId, { agentName: "Ideator" });
+                    runwieldSessionId = writerRuntime.getSessionSnapshot(created.sessionId)?.managed
+                        ?.runwieldSessionId || "";
+                    assert(runwieldSessionId);
+                } finally {
+                    await writerRuntime.closeAllSessionsWhenIdle?.();
+                }
+
+                const observerRuntime = createSessionRuntime({
+                    sessionStore: store,
+                    ownerProcessKind: "test",
+                    ownerInstanceId: "runtime-idle-sync-observer",
+                });
+                try {
+                    const resumed = await observerRuntime.createInteractiveSession({
+                        cwd: projectRoot,
+                        mode: "continue",
+                        resumeSessionId: runwieldSessionId,
+                    });
+                    await observerRuntime.synchronizeManagedSession(resumed.sessionId);
+                    /** @type {string[]} */
+                    const events = [];
+                    observerRuntime.subscribeSessionEvents(resumed.sessionId, (event) => {
+                        if (event.type === RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED) events.push(event.status);
+                    });
+
+                    await observerRuntime.synchronizeManagedSession(resumed.sessionId);
+                    await observerRuntime.synchronizeManagedSession(resumed.sessionId);
+
+                    assertEquals(events, []);
+                } finally {
+                    await observerRuntime.closeAllSessionsWhenIdle?.();
+                }
+            } finally {
+                store.close();
+            }
+        },
+    );
+});
+
 Deno.test("SessionRuntime hydrates dormant managed Sessions for direct Plan workflow operations", async () => {
     await withRuntimeCommandFixture(
         "runtime-managed-plan-workflow-",

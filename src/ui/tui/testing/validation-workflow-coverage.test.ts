@@ -40,6 +40,8 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
                     name: "plan",
                     attrs: {
                         status: "verified",
+                    },
+                    controllerState: {
                         validationCiAttempts: 0,
                         validationSemanticRounds: 1,
                         humanReviewMode,

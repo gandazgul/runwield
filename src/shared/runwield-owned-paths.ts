@@ -21,6 +21,7 @@ const OWNED_DIRECTORIES = [
     underRunWield(PLAN_STAGING_DIR_NAME),
     underRunWield("worktrees"),
     underRunWield("debug"),
+    underRunWield("controller"),
 ];
 
 const OWNED_FILES = [

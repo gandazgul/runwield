@@ -12,6 +12,7 @@ debug.log
 .wld/debug/
 .wld/worktrees.json
 .wld/worktrees.lock
+.wld/controller/
 .wld/worktree-registry-migration-issues.json
 .wld/collaboration-secrets.json
 .wld/plan-transitions/

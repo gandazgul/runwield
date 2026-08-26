@@ -3,7 +3,8 @@
  * The sole production owner for planned-change validation and resume.
  */
 
-import { loadPlan, StalePlanWriteError, updatePlanFrontMatter } from "../../plan-store.js";
+import { loadPlan, resolvePlanExecutionPolicy, StalePlanWriteError, updatePlanFrontMatter } from "../../plan-store.js";
+import { StaleControllerWriteError } from "./controller-registry.ts";
 import { runPlansDoctor } from "../../cmd/plans/doctor.ts";
 import { getLockHostname, isPidAlive } from "../process-liveness.ts";
 import { findActiveByPlanName as findWorktreeByPlanName } from "../worktree-registry.js";
@@ -24,6 +25,8 @@ import { resumeValidationPlanAmendment } from "./validation-plan-amendment.ts";
 import { getDiffText, resolvePhaseContext } from "./validation-context.ts";
 import { renderOpenItems } from "./review-ledger.ts";
 import { PLAN_STATUSES } from "./plan-lifecycle.js";
+import { resolveWorkflowPlanLocation } from "./plan-location.ts";
+import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 
 export type ValidationTrigger =
     | "execution_completion"
@@ -65,24 +68,17 @@ async function ownerIsAlive(checkpoint: ValidationCheckpoint): Promise<boolean> 
 }
 
 function validationProjectRoot(args: ContinueWorkflowValidationArgs): string {
-    return args.executionContext?.projectRoot || args.hostedSession.cwd;
+    return resolvePrimaryCheckoutRoot(args.executionContext?.projectRoot || args.hostedSession.cwd);
 }
 
 async function validationPlanCwd(args: ContinueWorkflowValidationArgs): Promise<string> {
     const projectRoot = validationProjectRoot(args);
-    const active = args.hostedSession.getActiveExecutionWorkflow();
-    const candidates = [
-        active?.executionMode === "worktree" ? active.executionCwd : undefined,
-        args.executionContext?.executionMode === "worktree" ? args.executionContext.executionCwd : undefined,
-    ];
-    for (const candidate of candidates) {
-        if (candidate && await loadPlan(candidate, args.planName).catch(() => null)) return candidate;
-    }
-    const registryEntry = await findWorktreeByPlanName(projectRoot, args.planName);
-    if (registryEntry && await loadPlan(registryEntry.path, args.planName).catch(() => null)) {
-        return registryEntry.path;
-    }
-    return projectRoot;
+    // Validation's execution-context boundary verifies Git and repairs legacy
+    // Plan IDs. Select its registered directory here without rejecting those
+    // repairable IDs first, and never substitute a cached Session directory.
+    const attempt = await findWorktreeByPlanName(projectRoot, args.planName);
+    if (attempt) return attempt.path;
+    return (await resolveWorkflowPlanLocation(projectRoot, args.planName)).documentRoot;
 }
 
 async function claimValidation(args: ContinueWorkflowValidationArgs): Promise<ClaimResult> {
@@ -131,7 +127,7 @@ async function claimValidation(args: ContinueWorkflowValidationArgs): Promise<Cl
                 args.planName,
                 { validationCheckpoint: checkpoint },
                 plan.attrs,
-                { expectedRevision: plan.revision },
+                { expectedRevision: plan.revision, expectedControllerRevision: plan.controllerRevision },
             );
             return {
                 kind: "claimed",
@@ -142,7 +138,9 @@ async function claimValidation(args: ContinueWorkflowValidationArgs): Promise<Cl
                 triageMeta: plan.attrs as ValidationLoopArgs["triageMeta"],
             };
         } catch (error) {
-            if (!(error instanceof StalePlanWriteError) || attempt === 2) throw error;
+            if (
+                !(error instanceof StalePlanWriteError || error instanceof StaleControllerWriteError) || attempt === 2
+            ) throw error;
         }
     }
     throw new Error("Could not claim validation.");
@@ -180,11 +178,13 @@ async function settleValidation(
                 args.planName,
                 { validationCheckpoint },
                 plan.attrs,
-                { expectedRevision: plan.revision },
+                { expectedRevision: plan.revision, expectedControllerRevision: plan.controllerRevision },
             );
             return;
         } catch (error) {
-            if (!(error instanceof StalePlanWriteError) || attempt === 2) throw error;
+            if (
+                !(error instanceof StalePlanWriteError || error instanceof StaleControllerWriteError) || attempt === 2
+            ) throw error;
         }
     }
 }
@@ -230,11 +230,13 @@ export async function recordValidationRepairCompletion(args: {
                 args.planName,
                 { validationCheckpoint: completed },
                 plan.attrs,
-                { expectedRevision: plan.revision },
+                { expectedRevision: plan.revision, expectedControllerRevision: plan.controllerRevision },
             );
             return;
         } catch (error) {
-            if (!(error instanceof StalePlanWriteError) || attempt === 2) throw error;
+            if (
+                !(error instanceof StalePlanWriteError || error instanceof StaleControllerWriteError) || attempt === 2
+            ) throw error;
         }
     }
 }
@@ -376,19 +378,22 @@ export async function continueWorkflowValidation(
             };
         }
         claim = claimed;
-        const activeWorkflow = args.hostedSession.getActiveExecutionWorkflow();
-        const durableReview = readValidationReviewState(claim.checkpoint);
-        const registryEntry = claim.planCwd !== args.hostedSession.cwd
-            ? await findWorktreeByPlanName(args.hostedSession.cwd, args.planName)
+        const cachedWorkflow = args.hostedSession.getActiveExecutionWorkflow();
+        const activeWorkflow = cachedWorkflow?.planName === args.planName &&
+                cachedWorkflow.worktreeId === claim.triageMeta.worktreeId
+            ? cachedWorkflow
             : null;
+        const durableReview = readValidationReviewState(claim.checkpoint);
+        const registryEntry = await findWorktreeByPlanName(projectRoot, args.planName);
+        const policy = resolvePlanExecutionPolicy(claim.triageMeta);
         args.hostedSession.setActiveExecutionWorkflow({
             ...(activeWorkflow || {}),
             planName: args.planName,
             triageMeta: claim.triageMeta,
-            executionAgent: activeWorkflow?.executionAgent || args.executionContext?.executionAgent || "engineer",
-            ...(claim.planCwd !== args.hostedSession.cwd
+            executionAgent: policy.ok ? policy.policy.executionAgent : "engineer",
+            ...(registryEntry
                 ? {
-                    projectRoot: args.hostedSession.cwd,
+                    projectRoot,
                     executionMode: "worktree",
                     executionCwd: claim.planCwd,
                     baselineTree: registryEntry?.baseTree || claim.triageMeta.executionBaselineTree ||

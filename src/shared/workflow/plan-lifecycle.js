@@ -9,7 +9,7 @@
 
 import { isPlannedChangeClassification } from "../../constants.js";
 import {
-    findPlansByParent,
+    getPlanDocumentRoot,
     isPlanDependencySatisfiedStatus,
     loadPlan,
     normalizeDeliveryEvidence,
@@ -18,6 +18,8 @@ import {
 } from "../../plan-store.js";
 import { SHARED_PLAN_LOCK_REPAIR, SharedPlanLockError } from "../collaboration/lock.js";
 import { runPlanLifecycleEventTransition } from "./state-transition.ts";
+import { resolveWorkflowPlanLocation } from "./plan-location.ts";
+import { findCompletionSiblings } from "./plan-family.ts";
 
 export class PlanLifecycleTransitionError extends Error {
     /**
@@ -656,6 +658,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             updates.worktreeBaseBranch = null;
             updates.worktreeStatus = null;
         } else {
+            updates.targetBranch = details.worktreeBaseBranch;
+            updates.documentWorktreeId = details.worktreeId;
             updates.executionBaselineTree = details.executionBaselineTree;
             updates.worktreeId = details.worktreeId;
             updates.worktreePath = details.worktreePath;
@@ -799,6 +803,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "review_reopened") {
+        updates.documentWorktreeId = details.triageMeta?.worktreeId || details.triageMeta?.documentWorktreeId;
         updates.failureReason = null;
         updates.failedAt = null;
         updates.implementedAt = null;
@@ -853,7 +858,7 @@ async function advanceParentEpicWhenAllChildrenVerified({ cwd, planName, event, 
     if (isPlanDependencySatisfiedStatus(parent.attrs.status)) return;
     if (parent.attrs.status !== "ready_for_work") return;
 
-    const children = await findPlansByParent(cwd, parentPlanName);
+    const children = await findCompletionSiblings(cwd, parentPlanName);
     if (!children.length) return;
     if (
         children.some((child) =>
@@ -888,6 +893,11 @@ async function advanceParentEpicWhenAllChildrenVerified({ cwd, planName, event, 
  * @returns {Promise<import('../../plan-store.js').PlanFrontMatter>}
  */
 export async function recordPlanEvent({ cwd, planName, event, currentStatus, details = {}, expectedRevision }) {
+    // The caller's project root locates the controller, not necessarily the Plan.
+    // Resolve once before the transaction, then keep that document locked even
+    // if the event retires its execution attempt.
+    const location = await resolveWorkflowPlanLocation(cwd, planName);
+    cwd = location.documentRoot;
     /**
      * @param {Awaited<ReturnType<typeof loadPlan>>} beforePlan
      * @returns {Promise<{ attrs: import('../../plan-store.js').PlanFrontMatter, details: Record<string, unknown> }>}
@@ -945,17 +955,17 @@ export async function recordPlanEvent({ cwd, planName, event, currentStatus, det
                     typeof preflightPlan.attrs.parentPlan === "string"
                 ? preflightPlan.attrs.parentPlan
                 : "";
-            const siblingNames = parentPlanName
-                ? (await findPlansByParent(cwd, parentPlanName)).map((child) => child.name).sort()
-                : [];
+            const siblings = parentPlanName ? await findCompletionSiblings(cwd, parentPlanName) : [];
+            const siblingPaths = new Map(siblings.map((child) => [child.name, child.path]));
             /** @type {import('./state-transition.ts').TransitionResource[]} */
             const resources = [
-                { kind: "catalog" },
+                { kind: "catalog", root: location.registryRoot },
                 { kind: "plan", id: planName },
                 ...(parentPlanName ? [{ kind: /** @type {const} */ ("plan"), id: parentPlanName }] : []),
-                ...siblingNames.filter((name) => name !== planName).map((name) => ({
+                ...siblings.filter((child) => child.name !== planName).map((child) => ({
                     kind: /** @type {const} */ ("plan"),
-                    id: name,
+                    id: child.name,
+                    root: getPlanDocumentRoot(child.path),
                 })),
             ];
             const transition = await runPlanLifecycleEventTransition({
@@ -989,19 +999,20 @@ export async function recordPlanEvent({ cwd, planName, event, currentStatus, det
                     /** @type {Record<string, unknown> | null} */
                     let parentUpdates = null;
                     if (parentPlanName && !isEpicPlan(beforePlan.attrs)) {
-                        const lockedSiblingNames = (await findPlansByParent(cwd, parentPlanName)).map((child) =>
-                            child.name
-                        ).sort();
-                        if (lockedSiblingNames.join("\n") !== siblingNames.join("\n")) {
+                        const lockedSiblings = await findCompletionSiblings(cwd, parentPlanName);
+                        if (
+                            lockedSiblings.length !== siblings.length ||
+                            lockedSiblings.some((child) => siblingPaths.get(child.name) !== child.path)
+                        ) {
                             throw new Error(`Child Plan set changed while applying ${event} for ${planName}.`);
                         }
                         lockedParent = await loadPlan(cwd, parentPlanName);
                         childrenBeforeWrite = await Promise.all(
-                            (await findPlansByParent(cwd, parentPlanName)).map(async (child) => {
+                            lockedSiblings.map(async (child) => {
                                 if (child.name === planName) {
                                     return { name: planName, revision: beforePlan.revision, attrs: beforePlan.attrs };
                                 }
-                                const lockedChild = await loadPlan(cwd, child.name);
+                                const lockedChild = await loadPlan(getPlanDocumentRoot(child.path), child.name);
                                 if (!lockedChild) throw new Error(`Child Plan disappeared: ${child.name}`);
                                 return { name: child.name, revision: lockedChild.revision, attrs: lockedChild.attrs };
                             }),

@@ -201,11 +201,11 @@ This format is not optional; an Epic that departs from it is not usable. Use the
 read that file and follow its structure exactly.
 
 Its front matter is mandatory. Always include `classification: PROJECT`; every PROJECT plan is an Epic container. Use
-the system prompt's current local date for `createdAt`. Include `worktreeBaseBranch` only when the user explicitly
-specifies a target branch so it can be preserved through later planning. If the original User Request or architecture
-conversation identifies one or more URLs as external Tickets, preserve those direct Epic relations in optional
-`tickets: [{ url }]` front matter. Do not classify every external link as a Ticket, import Ticket content/state, infer
-provider metadata, authenticate to providers, or imply lifecycle synchronization.
+the system prompt's current local date for `createdAt`. Include `targetBranch` only when the user explicitly specifies a
+target branch so it can be preserved through later planning. If the original User Request or architecture conversation
+identifies one or more URLs as external Tickets, preserve those direct Epic relations in optional `tickets: [{ url }]`
+front matter. Do not classify every external link as a Ticket, import Ticket content/state, infer provider metadata,
+authenticate to providers, or imply lifecycle synchronization.
 
 PROJECT Epics are non-executable containers, so execution policy is not yours to set or to write about. Do not put
 `executionAgent` or `collaborationRecommendation` in Front Matter, do not pass them to `plan_written` — RunWield rejects

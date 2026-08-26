@@ -1,6 +1,6 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
-import { injectFrontMatter, savePlan } from "../../plan-store.js";
+import { injectFrontMatter, listPlans, savePlan } from "../../plan-store.js";
 import { getRunWieldRuntimeDir, PLAN_LOCKS_DIR_NAME } from "../../constants.js";
 import { addEntry, findById, getWorktreeRegistryPath, listEntries } from "../../shared/worktree-registry.js";
 import {
@@ -250,7 +250,11 @@ Deno.test("plans doctor applies identity and evidence checks to archived Plans",
 
         const report = await runPlansDoctor(cwd, false);
         assertEquals(report.issues.some((issue) => issue.kind === "duplicate_plan_id"), true);
-        assertEquals(report.issues.some((issue) => issue.kind === "uncertain_publication"), true);
+        assertEquals(
+            report.issues.some((issue) => issue.kind === "verified_without_evidence"),
+            true,
+            "A duplicate document cannot overwrite the controller's delivery evidence",
+        );
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }
@@ -331,7 +335,9 @@ Deno.test("plans doctor command --repair summarizes remaining problems without r
 });
 
 Deno.test("plans doctor --repair fixes provable registry drift without touching Git artifacts", async () => {
-    const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-repair-" });
+    const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-repair-" });
+    const attemptA = `${cwd}-wt-a`;
+    const attemptB = `${cwd}-wt-b`;
     try {
         await savePlan(cwd, "renamed-plan", "# Renamed\n", {
             planId: "plan-a",
@@ -349,10 +355,23 @@ Deno.test("plans doctor --repair fixes provable registry drift without touching 
             affectedPaths: [],
             worktreeId: "wt-b",
         });
+        // Legacy evidence must really exist on disk: current writers no longer
+        // serialize runtime fields, and joined views are not independent proof.
+        const legacyPath = join(cwd, "docs/plans/legacy-plan.md");
+        await Deno.writeTextFile(
+            legacyPath,
+            (await Deno.readTextFile(legacyPath)).replace("---\n", "---\nworktreeId: wt-b\n"),
+        );
+        await git(cwd, ["add", "docs"]);
+        await git(cwd, ["commit", "-m", "Plan identity evidence"]);
+        await git(cwd, ["worktree", "add", "-b", "runwield/worktree/a", attemptA]);
+        await git(cwd, ["worktree", "add", "-b", "runwield/worktree/b", attemptB]);
+        const beforeGit = await git(cwd, ["worktree", "list", "--porcelain"]);
+        const beforePlan = await Deno.readTextFile(legacyPath);
         const base: Omit<WorktreeRegistryEntry, "id" | "planName" | "branch" | "path"> = {
             baseBranch: "main",
             baseRef: "HEAD",
-            baseCommit: "abc",
+            baseCommit: await git(cwd, ["rev-parse", "HEAD"]),
             status: "active",
             createdAt: "2026-01-01T00:00:00.000Z",
             updatedAt: "2026-01-01T00:00:00.000Z",
@@ -364,7 +383,7 @@ Deno.test("plans doctor --repair fixes provable registry drift without touching 
             planName: "old-name",
             planId: "plan-a",
             branch: "runwield/worktree/a",
-            path: join(cwd, "wt-a"),
+            path: attemptA,
         });
         // Legacy entry with no planId, but the Plan points back at this exact
         // attempt. addEntry refuses to create one, so write it as v1 data would be.
@@ -375,9 +394,11 @@ Deno.test("plans doctor --repair fixes provable registry drift without touching 
             id: "wt-b",
             planName: "stale-legacy-name",
             branch: "runwield/worktree/b",
-            path: join(cwd, "wt-b"),
+            path: attemptB,
         });
         await Deno.writeTextFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+
+        await assertRejects(() => listPlans(cwd), Error, "execution Plan is missing");
 
         const report = await runPlansDoctor(cwd, true);
         assertEquals(report.repaired >= 2, true, `expected both drifts repaired, got ${report.repaired}`);
@@ -388,7 +409,11 @@ Deno.test("plans doctor --repair fixes provable registry drift without touching 
         assertEquals((await findById(cwd, "wt-b"))?.planName, "legacy-plan");
         // Repair is metadata-only: no attempt may be removed.
         assertEquals((await listEntries(cwd)).length, 2);
+        assertEquals(await Deno.readTextFile(legacyPath), beforePlan);
+        assertEquals(await git(cwd, ["worktree", "list", "--porcelain"]), beforeGit);
     } finally {
+        await git(cwd, ["worktree", "remove", "--force", attemptA]).catch(() => {});
+        await git(cwd, ["worktree", "remove", "--force", attemptB]).catch(() => {});
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }
 });

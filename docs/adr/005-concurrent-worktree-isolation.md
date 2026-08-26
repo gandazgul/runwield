@@ -6,175 +6,135 @@ status: accepted
 
 ## Context
 
-RunWield previously executed plan work in the primary working tree (CWD = `Deno.cwd()`). This meant:
+Executing Plans in the user's primary checkout lets concurrent sessions overwrite one another's edits. Keeping a second
+copy of execution bookkeeping in Plan Front Matter also makes continuation depend on which copy was written last. A
+restart, stale checkout, or ordinary Plan edit must not lose the connection to an existing execution.
 
-- Two RunWield instances executing plans concurrently could step on each other's file changes.
-- Failed execution recovery could reset the primary checkout to a baseline snapshot and destroy unrelated user edits.
-- Plan recovery had no isolated place to inspect, merge, continue, or discard a partial execution.
-
-ADR-003 introduced execution baseline trees (git tree objects captured before execution) as a lightweight recovery
-mechanism, but those trees operated on the same working tree. ADR-004 centralized the plan lifecycle, but did not change
-the single-worktree constraint.
-
-We need a mechanism that lets multiple RunWield instances, or multiple sequential plan executions, operate independently
-on the same repository.
+ADR-004 defines Plan lifecycle events. [ADR-016](016-proof-bearing-publication-state-machine.md) defines publication and
+its durable receipts. This decision defines the execution boundary and where each kind of state belongs.
 
 ## Decision
 
-Use **git worktrees** (`git worktree add`) to isolate each saved plan execution into its own linked working tree.
+### One worktree per Planned Change execution attempt
 
-### Isolation Granularity
+Each saved Planned Change executes in its own linked Git worktree and `worktree/` branch. A PROJECT organizes child
+Planned Changes; it does not force independent children to share an execution checkout. Agents working on one attempt
+share its execution directory.
 
-**Plan-level isolation.** Each plan execution gets one worktree. Tasks within a PROJECT plan share that worktree because
-they are already coordinated by the orchestrator and write-scope conflict detection runs against the same tree. This
-avoids per-task worktree complexity while allowing concurrent plan executions to avoid primary-checkout conflicts.
+The Plan's `targetBranch` names an actual branch. Execution resolves that branch before creating the worktree; neither
+the primary checkout's current branch nor a hard-coded `main` overrides an explicit target. Managed worktree directories
+live under RunWield's home-directory worktree area, grouped by project, with a unique attempt identifier.
 
-### Worktree Lifecycle
+### Separate document and controller ownership
 
-1. **Creation** — Before `execution_started`, RunWield creates or reuses a worktree branch with the prefix `worktree/`
-   from the selected base ref. FEATURE plans may set `worktreeBaseBranch` before execution to choose a target branch
-   independent of the primary checkout. RunWield resolves that target to a local branch, creating a local tracking
-   branch from `origin/<branch>` or a new branch from `main` when needed. The worktree path is created adjacent to the
-   primary repo and includes a sanitized plan slug plus a short id, e.g. `../<repo>-<plan-slug>-<id>`.
-2. **Execution** — Implementation runs in the worktree cwd. RunWield records the execution baseline tree from that
-   worktree. Agent sessions and file-writing tools receive the worktree cwd explicitly; RunWield does not mutate the
-   process cwd with `Deno.chdir()`.
-3. **Implementation complete** — Before `implementation_finished`, RunWield commits every tracked and untracked
-   execution-worktree change and requires the checkout to be clean. Only then does it set Plan Status `implemented` and
-   worktree status `completed`; a checkpoint failure leaves the Plan In Progress and the worktree recoverable. This does
-   **not** merge the branch into the primary checkout.
-4. **Validation** — Workflow Validation runs local CI, workflow diff computation, semantic review, and repair sessions
-   in the execution worktree.
-5. **Merge-back** — Only after Workflow Validation passes does RunWield merge the worktree branch into the primary
-   checkout. `validation_passed` and Plan Status `verified` are recorded only after that merge succeeds.
-6. **Recovery/failure** — If execution, validation, or merge-back fails, the worktree is left in place. Recovery can
-   inspect, continue, retry validation, merge, recreate, or abandon the isolated worktree depending on plan state.
+| Data                                                                                                                    | Authority                                  |
+| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Plan definition, identity, human lifecycle status, `targetBranch`, relationships, archive and user-verification history | Plan Markdown                              |
+| Validation checkpoints and counters, review decisions, execution mode, runtime timestamps and delivery evidence         | `<primary-project>/.wld/controller/plans/` |
+| Attempt ID, branch, path, base ref/commit/tree, execution status and publication receipts                               | `<primary-project>/.wld/worktrees.json`    |
+| Commit contents, ancestry, checked-out branches and remote target                                                       | Git                                        |
 
-### CWD Plumbing
+The summary shown in lists is derived from the Plan's Context section. It is not a second stored definition in YAML.
+Runtime fields may appear in an in-memory joined Plan view for consumers, but saving Markdown does not serialize them.
+The joined view does not make Front Matter another owner of registry state.
 
-`CWD` remains the primary project root. It anchors saved plan files, RunWield settings, `.wld/worktrees.json`, and
-`.wld/worktrees.lock`.
+Before execution, the project Plan is the editable document. Once the execution worktree is materialized, its Plan is
+authoritative. The primary copy may remain stale, missing, malformed, or dirty from unrelated user work. RunWield does
+not mirror status or execution metadata into that copy and does not require it to agree with the execution document.
 
-Execution code must pass an explicit execution cwd to every operation that reads or writes implementation files:
+Document operations lock and update the selected document. Registry operations resolve the primary project's shared
+runtime directory even when called from a linked worktree. Callers must distinguish the document directory, execution
+directory, and shared registry directory; one `cwd` cannot stand for all three.
 
-- `runAgentSession()` / agent session creation
-- built-in file tools and custom edit tools
-- PROJECT task sub-sessions
-- local CI
-- workflow diff computation
-- reviewer sessions
-- operator/engineer repair sessions
-- git snapshot helpers that operate on the implementation tree
+Workspace body edits use the same document lock as lifecycle changes. Composite child completion locks and reads each
+sibling with a registered attempt in its own directory; it does not substitute the completing child's copy. Archive and
+restore also select the authoritative document, preserve the primary copy, and keep archived execution documents out of
+active discovery.
 
-Prompt templates, settings, plan metadata updates, and worktree registry updates remain anchored to the primary project
-root unless a caller explicitly needs worktree-local files.
+A registered document that is missing or archived never selects the older primary copy as a fallback. Execution start
+also resolves the live attempt from the registry; Session memory cannot reactivate a retired attempt. Child completion
+discovers the family from the primary project catalog plus registered execution documents, including children that have
+not started and therefore have no worktree yet. Completed siblings whose worktrees were cleaned up may come from the
+completing attempt's recorded target commit, backed by controller delivery evidence and exact committed document bytes.
+An arbitrary status in a copied document cannot override an unstarted sibling in primary.
 
-### Worktree Registry
+Restoring with a different name updates the document's registry address while preserving its Plan ID, attempt ID,
+branch, and directory. Ordinary registry updates still cannot change these addresses. A saved publication binds its
+original Plan path, so renaming during publication is refused with guidance to restore without renaming and finish
+publication first. Stale primary copies with the same Plan ID remain hidden after a rename.
 
-A persistent local JSON file at `<project>/.wld/worktrees.json` tracks active and historical execution worktrees. It is
-runtime state, not source state, and should stay ignored by Git alongside `.wld/worktrees.lock`:
+### Lifecycle
 
-```json
-{
-    "version": 1,
-    "entries": [
-        {
-            "id": "5fe73e21",
-            "planName": "add-dark-mode-toggle",
-            "baseBranch": "main",
-            "baseRef": "HEAD",
-            "baseCommit": "abc123def...",
-            "branch": "worktree/add-dark-mode-toggle-5fe73e21",
-            "path": "/absolute/path/to/repo-add-dark-mode-toggle-5fe73e21",
-            "status": "active",
-            "createdAt": "2026-06-15T12:00:00.000Z",
-            "updatedAt": "2026-06-15T12:00:00.000Z"
-        }
-    ]
-}
-```
+1. **Prepare:** resolve the approved Plan and target branch; create a unique attempt or resume the controller's live
+   attempt. Materialize the Plan and record its baseline in the registry before starting implementation.
+2. **Execute:** agents, editing tools, checks, diffs, and repair sessions use the explicit execution directory. RunWield
+   does not change the process working directory to route an operation.
+3. **Checkpoint:** commit implementation changes, excluding RunWield runtime files. Record `implemented` in the
+   execution Plan and `completed` for the attempt. A failed checkpoint leaves the attempt recoverable.
+4. **Validate:** run CI and review against that execution. Store retry/repair progress in the controller, not Markdown.
+   Successful validation leaves the Plan at `validated`; publication is a separate operation.
+5. **Publish:** follow ADR-016. Commit the final Plan and Work Record, assemble the target integration in a separate
+   publication checkout, push with a lease, verify the target, then clean up. The Plan does not gain a `published`
+   status or get rewritten after publication.
 
-A best-effort advisory lockfile at `<project>/.wld/worktrees.lock` prevents concurrent RunWield instances from racing
-while creating, updating, or deleting registry entries.
+Remote publication never stages, stashes, resets, rebases, merges, or writes the user's primary checkout. The user
+updates that checkout separately after publication. For a repository without a remote, the explicit local-only exception
+in ADR-016 prepares the integration separately and advances the checked-out target only when its tracked files are
+clean; non-overlapping untracked files remain untouched.
 
-### Front Matter Additions
+### Continuation and review
 
-The plan's `PlanFrontMatter` includes optional worktree fields:
+Loading a Plan locates its document through the controller's attempt, then reads workflow state from the controller.
+Hold, resume, review, validation, and approval use that same document selection. A healthy execution Plan must remain
+usable even if the primary copy cannot be parsed.
 
-| Field                | Type                                                                                                                                    | Description                                                          |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `worktreeId`         | `string \| null`                                                                                                                        | Durable registry id for the execution worktree.                      |
-| `worktreePath`       | `string \| null`                                                                                                                        | Filesystem path to the execution worktree.                           |
-| `worktreeBranch`     | `string \| null`                                                                                                                        | Branch checked out in the execution worktree.                        |
-| `worktreeBaseBranch` | `string \| null`                                                                                                                        | Target branch used as the execution base and merge-back destination. |
-| `worktreeStatus`     | `"none" \| "active" \| "completed" \| "execution_failed" \| "validation_failed" \| "merge_conflict" \| "merged" \| "abandoned" \| null` | Lifecycle status of the worktree.                                    |
+Reopening for review retires the previous execution attempt. Its branch and directory remain available for inspection,
+but its ID and branch are not supplied as an active execution context. The reopened document remains discoverable in
+that directory across restarts. A later approval starts a new attempt from the revised definition with a new ID and
+branch; it cannot accidentally reuse the retired branch name.
 
-Before execution, Planner/Architect may write `worktreeBaseBranch` only when the user explicitly requests a target
-branch. During execution and recovery, the same field records the local branch that validated work will merge back into.
+The controller keeps a document-location reference to the registry entry separately from active execution. That
+reference survives hold/resume and moves to the new attempt when execution starts. After that attempt is published and
+removed, an older retired directory cannot become the document authority again.
 
-### Merge Strategy
+Before mutating an attempt, RunWield still checks actual identity, Git location and concurrent writes. These checks
+protect different Plans and competing operations; they must not compare duplicated bookkeeping in Plan Front Matter.
 
-When execution starts, the Plan file in the execution worktree becomes authoritative for that attempt. RunWield does not
-synchronize lifecycle metadata back through the user's primary checkout, and publication never stages, restores, checks
-out, or merges in that checkout.
+### Durability and recovery
 
-After validation succeeds, the execution branch contains the implementation, the immutable `validated` Plan, and its
-Work Record. RunWield clones the repository into a temporary publication checkout, combines the recorded target branch,
-the latest upstream target, and the execution branch there, and pushes the resulting commit to the configured upstream
-with a lease. The target may be any recorded `worktreeBaseBranch`; it is never assumed to be `main`.
+Controller and worktree registry files are ignored runtime state, shared by every linked worktree of a project. Writes
+use locks and atomic replacement; controller updates and publication receipts reject stale revisions. Lifecycle
+transactions record and roll back their own changes without overwriting another operation's newer controller state.
+Collaboration body/revision/hash updates use that same recoverable transaction boundary: a failed document write must
+not leave the controller claiming the new body was saved.
 
-The push is the publication boundary. If assembly, conflict repair, the lease, or remote verification fails, the
-execution worktree, branch, and registry entry remain. Their status records that validation succeeded but publication is
-pending, so retry does not depend on a stale primary Plan. Cleanup happens only after the remote confirms the exact
-publication commit. The user's primary checkout remains untouched and may simply be behind until the user updates it.
+Legacy runtime YAML can seed the controller once. When a live attempt exists, only its execution document may supply
+that import. An unreadable registry or multiple live attempts are not evidence that there is no attempt: document reads
+must not persist guessed state from a stale primary copy. Retired attempts likewise cannot seed a new active identity.
+Imported recovery hints are removed once the registry owns the recovered attempt.
 
-### Recovery Integration
+Execution and validation failures keep the isolated files and branch available. Publication resumes from the last proven
+phase without rerunning validation or regenerating committed artifacts. Cleanup removes the attempt record only after
+Git proves publication and the checkout/branch cleanup has completed. Explicit discard/recreate actions require the
+user's confirmation; normal continuation never resets unrelated primary-checkout files.
 
-The `load-plan` recovery flow resolves worktree context from plan front matter first and the registry second. Inspect
-reports plan status, worktree status, path, branch, base ref/commit, git status, and diff from the execution baseline.
-
-Recovery actions for worktree-backed plans include:
-
-- **Continue execution from current worktree** for `in_progress` and `failed` plans.
-- **Retry Workflow Validation** for `implemented` plans.
-- **Merge worktree changes** for implemented worktrees that need merge-back.
-- **Delete/recreate worktree and start over** without restoring the primary checkout.
-- **Delete/abandon worktree** to discard the isolated checkout and clear plan worktree fields.
-- **Re-open for review** to revise the plan.
-
-Legacy plans with an execution baseline but no worktree metadata keep the older primary-checkout baseline reset path
-with a destructive warning.
-
-### Plan List Visibility
-
-`wld plans` displays concise worktree state when a plan has worktree metadata, for example:
-
-```text
-Worktree: merge_conflict (worktree/add-dark-mode-toggle-5fe73e21)
-```
+Explicit discard clears both the execution reference and the document-location reference. Before offering another
+action, the Session reloads the surviving document in full; it must not keep the deleted document's status or revision.
+When publication is already proven, load-plan can finish interrupted cleanup from its receipt without requiring the
+deleted execution document or consulting an older primary Plan copy.
 
 ## Consequences
 
-### Positive
+- Independent Plans can execute concurrently without writing through the primary checkout.
+- Ordinary Plan editing cannot erase controller checkpoints or change an attempt's identity.
+- Restarts use durable records and Git evidence, not remembered Session metadata.
+- Worktree directories and retired branches consume disk until published cleanup or explicit discard.
+- Truly unreadable or ambiguous controller records can still require recovery; RunWield must preserve the files and
+  describe the specific problem instead of guessing which attempt to mutate.
 
-- Multiple RunWield instances can execute plans concurrently without implementation-file conflicts.
-- The primary working tree is not touched during implementation or validation repair.
-- Workflow Validation checks the isolated execution result before anything is merged back.
-- Plan recovery can inspect, continue, retry validation, merge, recreate, or abandon an isolated checkout.
-- The worktree registry provides durable state for recovery and plan listing.
+## Verification
 
-### Negative
-
-- Worktree creation and deletion add latency to execution start/recovery.
-- Disk usage increases while worktrees remain active.
-- Branch namespace `worktree/*` needs periodic cleanup when worktrees are abandoned.
-- The `.wld/worktrees.json` registry and lockfile must be kept consistent after crashes or interrupted sessions.
-- Merge-back can be blocked by dirty primary-checkout files or conflicts even after validation passes in the worktree.
-
-### Mitigations
-
-- Registry writes use a lockfile plus atomic temp-file-and-rename updates.
-- Recovery detects missing worktree paths and can abandon or recreate isolated worktrees.
-- Worktree pruning compares registry entries with filesystem/git worktree state and removes stale records.
-- Merge failures keep the worktree branch/path intact and leave the plan in `implemented` for recovery.
-- Baseline-tree reset remains available only for legacy no-worktree plans, with the existing destructive warning.
+Real-Git tests cover execution authority with stale/missing/malformed primary Plans, hold and re-open through load-plan,
+review from either checkout, fresh execution after a retired attempt, and refusal to import legacy state from an
+uncertain registry. They assert document preservation and branch/attempt identity, not only displayed messages. The
+composed TUI journey and multi-process publication restart matrix required by ADR-016 remain complementary checks.

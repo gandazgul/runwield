@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { dirname } from "@std/path";
-import { listPlanResources, loadPlan, savePlan } from "../../plan-store.js";
+import { listPlanResources, loadPlan, parsePlanFrontMatter, savePlan } from "../../plan-store.js";
 import { addEntry, findById, getWorktreeRegistryPath } from "../worktree-registry.js";
 import { resolveValidationExecutionContext } from "./execution-context.ts";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
@@ -133,7 +133,7 @@ Deno.test("resolveValidationExecutionContext allows a legacy creation tree to di
         assertEquals(result.kind, "ok");
         if (result.kind === "ok") {
             assertEquals(result.context.executionMode, "worktree");
-            assertEquals(result.persistedLegacyExecutionMode, true);
+            assertEquals(result.persistedLegacyExecutionMode, false);
         }
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
@@ -230,15 +230,17 @@ Deno.test("resolveValidationExecutionContext recovers missing worktree metadata 
                 assertEquals(result.context.worktreeBranch, "runwield/worktree/p-wt");
                 assertEquals(result.context.worktreeBaseBranch, "main");
             }
-            assertEquals(result.persistedLegacyExecutionMode, true);
+            assertEquals(result.persistedLegacyExecutionMode, false);
         }
         const persistedPlan = await loadPlan(projectRoot, "p");
-        assertEquals(persistedPlan?.attrs.worktreeId, undefined);
-        assertEquals(persistedPlan?.attrs.executionMode, undefined);
-        assertEquals(persistedPlan?.attrs.executionBaselineTree, undefined);
-        assertEquals(persistedPlan?.attrs.worktreePath, undefined);
-        assertEquals(persistedPlan?.attrs.worktreeBranch, undefined);
-        assertEquals(persistedPlan?.attrs.worktreeBaseBranch, undefined);
+        assertEquals(persistedPlan?.attrs.worktreeId, "wt-1", "loaded views join the registry");
+        const document = parsePlanFrontMatter(persistedPlan?.markdown || "").attrs;
+        assertEquals(document.worktreeId, undefined);
+        assertEquals(document.executionMode, undefined);
+        assertEquals(document.executionBaselineTree, undefined);
+        assertEquals(document.worktreePath, undefined);
+        assertEquals(document.worktreeBranch, undefined);
+        assertEquals(document.worktreeBaseBranch, undefined);
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(parent, { recursive: true }).catch(() => {});
@@ -316,7 +318,7 @@ Deno.test("resolveValidationExecutionContext ignores stale caller and session co
     }
 });
 
-Deno.test("resolveValidationExecutionContext uses the Plan mode instead of stale caller mode", async () => {
+Deno.test("resolveValidationExecutionContext uses imported controller mode instead of stale caller mode", async () => {
     const cwd = await Deno.makeTempDir();
     try {
         await savePlan(cwd, "p", "# Plan", {
@@ -391,13 +393,14 @@ Deno.test("resolveValidationExecutionContext recovers committed worktree baselin
                 assertEquals(result.context.executionCwd, await Deno.realPath(worktreePath));
                 assertEquals(result.context.baselineTree, baselineTree);
             }
-            assertEquals(result.persistedLegacyExecutionMode, true);
+            assertEquals(result.persistedLegacyExecutionMode, false);
             assertEquals(result.restoredPlanFile, { relativePath: "docs/plans/p.md" });
         }
         assertEquals(await Deno.readTextFile(`${worktreePath}/docs/plans/p.md`), canonicalMarkdownBeforeResolution);
         const persistedPlan = await loadPlan(projectRoot, "p");
-        assertEquals(persistedPlan?.attrs.executionMode, undefined);
-        assertEquals(persistedPlan?.attrs.executionBaselineTree, undefined);
+        assertEquals(persistedPlan?.attrs.executionMode, "worktree");
+        assertEquals(persistedPlan?.attrs.executionBaselineTree, baselineTree);
+        assertEquals(parsePlanFrontMatter(persistedPlan?.markdown || "").attrs.executionMode, undefined);
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(parent, { recursive: true }).catch(() => {});

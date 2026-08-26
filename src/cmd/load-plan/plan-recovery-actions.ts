@@ -1,10 +1,6 @@
 import { AGENTS } from "../../constants.js";
 import { buildPlanEventUpdates } from "../../shared/workflow/plan-lifecycle.js";
-import {
-    closeTransitionRecordByAttestation,
-    runPlanFrontMatterTransition,
-    runRecoveryTransition,
-} from "../../shared/workflow/state-transition.ts";
+import { closeTransitionRecordByAttestation, runRecoveryTransition } from "../../shared/workflow/state-transition.ts";
 import { healSettledTransitionRecords } from "../../shared/workflow/transition-recovery.ts";
 import {
     buildPlanRecoveryUserMessage,
@@ -23,14 +19,17 @@ import { executeReadyPlanWithRepair, validateCompletedExecution } from "./plan-e
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { deleteMergedWorktreeBranch, removeWorktreeGitArtifacts } from "../../shared/worktree.js";
 import {
+    findById as findWorktreeRegistryEntry,
     restoreEntryFromPlanEvidence,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../../shared/worktree-registry.js";
 import { markPlanUserVerified, putPlanOnHold } from "./plan-hold.ts";
 import { isGitRepositoryRequiredError } from "../../shared/git.js";
 import { transitionFailureError } from "./transition-failure.ts";
+import { writeControllerState } from "../../shared/workflow/controller-registry.ts";
+import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
 
-import type { PlanFrontMatter } from "../../plan-store.js";
+import { updatePlanFrontMatter } from "../../plan-store.js";
 import type { UiAPI } from "../../ui/tui/types.js";
 import type { PlanSessionSurface, RecoveryWorktreeContext } from "./plan-session-types.ts";
 import type { RecoveryFlowPlan, UnresolvedTransitionRecord } from "./plan-recovery-flow.ts";
@@ -42,10 +41,6 @@ export type RecoveryActionOutcome =
     | { kind: "settled" };
 export type RecoveryMetricDetailValue = string | number | boolean | null | undefined;
 export type RecoveryMetricDetails = Record<string, RecoveryMetricDetailValue>;
-
-interface RecoveryPlanTransitionValue {
-    value?: PlanFrontMatter;
-}
 
 export interface RecoveryActionContext {
     projectRoot: string;
@@ -79,23 +74,34 @@ export async function stopLostRecoveryPlan(context: RecoveryActionContext): Prom
     const resetUpdates = buildPlanEventUpdates("recovery_reset", plan.attrs.status, {
         triageMeta: plan.attrs,
     });
-    const transition = await runPlanFrontMatterTransition({
+    const transition = await runRecoveryTransition({
         projectRoot,
         planName: plan.planName,
-        operation: "recovery_stop_lost",
+        action: "abandon",
+        worktreeId: context.worktreeContext?.id,
         expectedRevision: plan.revision,
-        updates: {
-            ...resetUpdates,
-            status: "ready_for_work",
-            executionMode: null,
-            executionBaselineTree: null,
-            worktreeId: null,
-            worktreePath: null,
-            worktreeBranch: null,
-            worktreeBaseBranch: null,
-            worktreeStatus: "abandoned",
+        recover: async ({ beforePlan, registerRollback }) => {
+            const id = context.worktreeContext?.id;
+            const entry = id ? await findWorktreeRegistryEntry(projectRoot, id) : null;
+            if (entry) {
+                registerRollback("restore abandoned attempt", async () => {
+                    await updateWorktreeRegistryEntry(projectRoot, entry.id, entry);
+                });
+                await updateWorktreeRegistryEntry(projectRoot, entry.id, { status: "abandoned" });
+            }
+            return await updatePlanFrontMatter(
+                projectRoot,
+                plan.planName,
+                {
+                    ...resetUpdates,
+                    status: "ready_for_work",
+                    executionMode: null,
+                    worktreeId: null,
+                },
+                {},
+                { expectedRevision: beforePlan?.revision },
+            );
         },
-        recoveryAttrs: {},
     });
     if (transition.status !== "committed") {
         throw transitionFailureError(transition, `Could not stop recovery for ${plan.planName}.`);
@@ -465,7 +471,7 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
         planId: plan.attrs.planId,
         worktreeId: context.worktreeContext?.id,
         action: "abandon",
-        recover: async () => {
+        recover: async ({ beforePlan }) => {
             if (context.worktreeContext?.path) {
                 try {
                     await removeWorktreeGitArtifacts({
@@ -507,6 +513,16 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
                     );
                 }
             }
+            // Deleted attempts must not remain the selected document after reload.
+            // Review reopening retains this reference because its directory survives.
+            // Imported recovery hints must not revive this attempt either.
+            // Keep this write inside the transition so rollback owns it too.
+            await writeControllerState(
+                projectRoot,
+                { planName: plan.planName, planId: plan.attrs.planId },
+                { executionMode: null, documentWorktreeId: null },
+                { expectedRevision: beforePlan?.controllerRevision, recovery: null },
+            );
             return {
                 ...plan.attrs,
                 executionMode: null,
@@ -522,14 +538,25 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
     if (transition.status !== "committed") {
         throw transitionFailureError(transition, `Recovery abandon transaction failed for ${plan.planName}.`);
     }
-    const transitionValue = (transition.value || {}) as RecoveryPlanTransitionValue;
-    plan.attrs = transitionValue.value as PlanFrontMatter;
     context.worktreeContext = null;
+    context.loadedWorktreeId = null;
+    await context.session.clearActiveExecutionWorkflow();
     uiAPI.appendSystemMessage(
         buildPlanRecoveryUserMessage({ kind: "abandon_done", removed: removedWorktree }),
         false,
         "RunWield",
     );
+    const location = await resolveWorkflowPlanLocation(projectRoot, plan.planName);
+    if (!location.plan) {
+        uiAPI.appendSystemMessage(
+            buildPlanRecoveryUserMessage({ kind: "abandon_definition_missing" }),
+            true,
+            "RunWield",
+        );
+        await context.recordRecoveryResult("abandon", "missing_plan");
+        return { kind: "handled" };
+    }
+    Object.assign(plan, location.plan);
     await context.recordRecoveryResult("abandon", "abandoned");
     return plan.attrs.status === "validated" || plan.attrs.status === "verified" ||
             plan.attrs.status === "user_verified"

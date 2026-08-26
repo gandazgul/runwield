@@ -29,7 +29,7 @@ Deno.test("buildSlicerRequest includes existing child order and dependencies", (
         epicAttrs: {
             classification: "PROJECT",
             status: "ready_for_work",
-            worktreeBaseBranch: "feature-base",
+            targetBranch: "feature-base",
         },
         children: [
             {

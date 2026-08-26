@@ -106,7 +106,7 @@ Deno.test("applies a valid lifecycle action and returns new evidence", async () 
     assertEquals(current?.attrs.status, "on_hold");
 });
 
-Deno.test("rejects Plan and registry worktree identity mismatches before returning evidence", async () => {
+Deno.test("requires recovery when the registered execution Plan is missing", async () => {
     const { root, revision } = await makeProject();
     await savePlan(root, "demo", "# Demo\n\nBody\n", {
         planId: "plan-demo",
@@ -163,6 +163,7 @@ Deno.test("registry owns mutable worktree facts while Plan validation state owns
             state: "awaiting_repair",
             repairKind: "semantic",
             repairGeneration: "repair-one",
+            updatedAt: "2026-01-01T00:00:00.000Z",
         },
     });
     await writeRegistry(root, [{

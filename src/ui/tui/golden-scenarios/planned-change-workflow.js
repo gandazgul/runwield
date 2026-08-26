@@ -736,7 +736,7 @@ export const plannedChangeValidationFailureRetryScenario = {
             assertScreenIncludes(result, "Running the tests in");
             assertScreenIncludes(result, "will fix it now");
             const publication =
-                /** @type {{ remotePlanAttrs?: Record<string, unknown>, registryEntries?: Array<unknown> }} */ (result
+                /** @type {{ remotePlanAttrs?: Record<string, unknown>, controllerState?: import('../../../shared/workflow/controller-state.ts').WorkflowControllerState, registryEntries?: Array<unknown> }} */ (result
                     .state.publication);
             const attrs = publication.remotePlanAttrs;
             const ciRuns = countVisibleOccurrences(result, "Running the tests in");
@@ -754,8 +754,13 @@ export const plannedChangeValidationFailureRetryScenario = {
             );
             assert(attrs?.planId, "Expected Plan identity to remain populated after validation retry.");
             assert(
-                Number(attrs?.validationCiAttempts || 0) === 0,
-                `Expected CI attempts reset after success; got ${attrs?.validationCiAttempts}`,
+                publication.controllerState?.validationCiAttempts === 0,
+                `Expected controller CI attempts reset after success; got ${publication.controllerState?.validationCiAttempts}`,
+            );
+            assertEquals(
+                attrs?.validationCiAttempts,
+                undefined,
+                "retry counters must not be written into the published Plan",
             );
             assertEquals(publication.registryEntries?.length, 0, "Expected successful publication cleanup.");
         }),

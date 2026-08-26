@@ -233,6 +233,29 @@ Deno.test("createUiApi does not flash a managed sync block for benign syncing", 
     );
 });
 
+Deno.test("createUiApi does not repaint for repeated visible managed sync state", () => {
+    const { tui, messageList, renders } = makeTuiHarness();
+    const inputAccessory = makeContainer();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock(), inputAccessory));
+
+    ui.setManagedSyncStatus({
+        status: "active_elsewhere",
+        localGeneration: 1,
+        latestGeneration: 2,
+        owningSurfaceKind: "workspace",
+    });
+    assertEquals(renders(), 1);
+
+    ui.setManagedSyncStatus({
+        status: "active_elsewhere",
+        localGeneration: 1,
+        latestGeneration: 2,
+        owningSurfaceKind: "workspace",
+    });
+
+    assertEquals(renders(), 1);
+});
+
 Deno.test("createUiApi clearMessages removes input accessory resources", () => {
     const { tui, messageList } = makeTuiHarness();
     const inputAccessory = makeContainer();

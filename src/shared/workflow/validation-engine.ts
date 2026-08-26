@@ -100,7 +100,7 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
     let phaseArgs = args;
     for (let phase = 0; phase < MAX_PHASES_PER_CALL; phase += 1) {
         const planCwd = validationPlanCwd(phaseArgs, projectRoot);
-        const before = (await loadPlan(planCwd, args.planName))?.frontMatterRevision;
+        const before = await loadPlan(planCwd, args.planName);
         result = await runValidationPhase(phaseArgs);
         if (result.kind !== "paused") {
             // Verified/failed finish; a semantic repair handoff pauses outside this activated operation.
@@ -113,11 +113,13 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
         // Plan merely because failure-attempt bookkeeping changed Front Matter.
         if (result.awaitingTaskCompletion) return result;
         if (result.awaitingUserAction) return result;
-        const after = (await loadPlan(validationPlanCwd(phaseArgs, projectRoot), args.planName))?.frontMatterRevision;
-        // Front Matter revision, not status: human review reaches a decision without
-        // changing status, and publication is what runs next. Comparing status alone
-        // parked every Plan at `validated_reviewer` with its review already decided.
-        if (after === before) return result;
+        const after = await loadPlan(validationPlanCwd(phaseArgs, projectRoot), args.planName);
+        // Human review advances controller state without changing the document.
+        // Observe both owners; neither is a mirror of the other.
+        if (
+            after?.frontMatterRevision === before?.frontMatterRevision &&
+            after?.controllerRevision === before?.controllerRevision
+        ) return result;
         // The caller's execution context described the world before validation began.
         // It is worth checking against once — a caller pointing at the wrong worktree
         // must not be humoured — but every phase after the first runs in the workflow

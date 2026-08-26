@@ -15,6 +15,7 @@ description: "Practice rules true of every RunWield engineering persona regardle
   before editing them. That skill is the authority for test design; do not substitute remembered testing conventions.
 - **On naming:** A function whose name says it reads must not write. Don't leave behind alias functions that only call
   another — remove them and update the call sites.
+- **ADRs** read related ADRs in docs/adr/*.md
 
 ## A Blocker Ends in Prose
 

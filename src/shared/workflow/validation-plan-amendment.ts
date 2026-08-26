@@ -76,6 +76,8 @@ async function assertPlanFileSafe(plan: LoadedPlan, label: string): Promise<void
 
 function blockedExecutionShapingChanges(primary: LoadedPlan, execution: LoadedPlan): string[] {
     return PLAN_AMENDMENT_EXECUTION_SHAPING_KEYS.filter((key) =>
+        // Resolving an omitted target at execution start is not a Plan amendment.
+        !(key === "targetBranch" && !primary.attrs.targetBranch) &&
         !sameJson(
             primary.attrs[key as keyof PlanFrontMatter],
             execution.attrs[key as keyof PlanFrontMatter],

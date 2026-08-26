@@ -13,10 +13,10 @@ Deno.test("human review none and ask-skip branches have independent owners and e
 
     assertEquals(none.owner, "validation-tree-human-review-none");
     assertEquals(askSkip.owner, "validation-tree-human-review-ask-skip");
-    assertEquals(none.evidence.stateEquals["projectState.plans.0.attrs.humanReviewMode"], "none");
-    assertEquals(none.evidence.stateEquals["projectState.plans.0.attrs.humanReviewDecision"], "not_required");
+    assertEquals(none.evidence.stateEquals["projectState.plans.0.controllerState.humanReviewMode"], "none");
+    assertEquals(none.evidence.stateEquals["projectState.plans.0.controllerState.humanReviewDecision"], "not_required");
     assert(none.evidence.interactionAbsentValues.includes("skip"));
-    assertEquals(askSkip.evidence.stateEquals["projectState.plans.0.attrs.humanReviewMode"], "ask");
-    assertEquals(askSkip.evidence.stateEquals["projectState.plans.0.attrs.humanReviewDecision"], "skipped");
+    assertEquals(askSkip.evidence.stateEquals["projectState.plans.0.controllerState.humanReviewMode"], "ask");
+    assertEquals(askSkip.evidence.stateEquals["projectState.plans.0.controllerState.humanReviewDecision"], "skipped");
     assert(askSkip.evidence.interactionValues.includes("skip"));
 });

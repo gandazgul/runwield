@@ -209,8 +209,18 @@ export async function resolveValidationExecutionContext({
     const executionPlan = selectedExecutionCwd
         ? await loadPlan(selectedExecutionCwd, planName).catch(() => null)
         : null;
-    const projectPlan = await loadPlan(projectRoot, planName);
-    let plan = executionPlan || projectPlan;
+    let plan;
+    try {
+        // Resolve the controller's directory before opening any primary Plan.
+        // The identity/Git recovery below owns validation's legacy-ID repair.
+        const recorded = await findWorktreeRegistryEntryByPlanName(projectRoot, planName);
+        plan = (recorded ? await loadPlan(recorded.path, planName) : null) || executionPlan ||
+            await loadPlan(projectRoot, planName);
+    } catch (error) {
+        const described = describeRegistryAmbiguity(error);
+        if (!described) throw error;
+        return blocked("worktree_registry_ambiguous", described);
+    }
     let attrs = plan?.attrs || triageMeta || {};
     if (!plan && isPlannedChangeClassification(attrs.classification)) {
         await recordResolutionMetric({

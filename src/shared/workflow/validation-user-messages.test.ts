@@ -155,6 +155,15 @@ Deno.test("all validation recovery and doctor messages stay plain", async () => 
         { kind: "git_delete_skipped" },
         { kind: "record_already_gone" },
         { kind: "abandon_done", removed: true },
+        { kind: "abandon_definition_missing" },
+        { kind: "publication_cleanup_resumed", planName: "demo", targetBranch: "release", complete: true, details: [] },
+        {
+            kind: "publication_cleanup_resumed",
+            planName: "demo",
+            targetBranch: "release",
+            complete: false,
+            details: ["The target branch changed."],
+        },
         { kind: "recovery_report", summary: "This is the Plan named demo.", lastRunStopped: false },
     ];
     const recoveryNotices: ValidationRecoveryNotice[] = [

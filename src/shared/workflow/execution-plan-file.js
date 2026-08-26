@@ -9,6 +9,7 @@ import {
     getStoredPlanPath,
     mergeFrontMatterText,
     parsePlanFrontMatter,
+    planDocumentMarkdown,
     writePlanMarkdownWithRevision,
 } from "../../plan-store.js";
 
@@ -60,69 +61,39 @@ function executionMetadataOverrides(canonicalAttrs, executionAttrs) {
     if (executionAttrs.status !== canonicalAttrs.status) {
         overrides.status = canonicalAttrs.status;
     }
-    // These values are policy and identity facts from the locked primary Plan.
-    // The execution copy is derived storage, so stale or missing values always
-    // move in this direction. User-owned body and definition fields stay intact.
+    // At initial setup the source is the locked primary Plan; on continuation
+    // it is the execution Plan itself. Runtime facts are not document fields.
     if (mustReconcilePlanId(canonicalAttrs.planId, executionAttrs.planId)) {
         overrides.planId = canonicalAttrs.planId;
     }
     /** @type {(keyof import('../../plan-store.js').PlanFrontMatter)[]} */
-    const primaryOwnedKeys = [
+    const documentKeys = [
         "executionAgent",
         "collaborationRecommendation",
+        "targetBranch",
         "origin",
         "parentPlan",
         "order",
         "dependencies",
-        // Plan Lifecycle owns these values. The worktree copy can propose body and
-        // definition edits, but it cannot propose an older review, attempt, or
-        // delivery state back to the primary Plan.
         "createdAt",
-        "updatedAt",
-        "failureReason",
-        "failedAt",
-        "implementedAt",
-        "verifiedAt",
         "userVerifiedAt",
         "userVerificationNote",
         "closedWithoutVerificationReason",
-        "executionReport",
         "workRecord",
-        "humanReviewMode",
-        "humanReviewDecision",
-        "humanReviewedAt",
-        "validationCheckpoint",
-        "validationCiAttempts",
-        "validationSemanticRounds",
         "epicCompletionMode",
         "epicDoneEnoughAt",
         "epicDoneEnoughSummary",
-        "executionMode",
-        "deliveryEvidence",
-        "executionBaselineTree",
-        "worktreeId",
-        "worktreePath",
-        "worktreeBranch",
-        "worktreeBaseBranch",
-        "worktreeStatus",
         "heldFromStatus",
         "heldAt",
         "holdReason",
-        "holdStalenessBaseline",
         "archivedAt",
         "archiveReason",
         "archivedFromStatus",
         "archivedFromPath",
         "restoredAt",
         "restoredFromPath",
-        "collaborationState",
-        "collaborationServerUrl",
-        "collaborationSpaceId",
-        "collaborationRevision",
-        "collaborationBodyHash",
-        "collaborationSyncedAt",
     ];
-    for (const key of primaryOwnedKeys) {
+    for (const key of documentKeys) {
         if (JSON.stringify(canonicalAttrs[key]) !== JSON.stringify(executionAttrs[key])) {
             Object.assign(overrides, { [key]: canonicalAttrs[key] });
         }
@@ -444,7 +415,7 @@ export async function ensureExecutionPlanFile({
                             `Could not materialize the latest execution Plan at ${relativePath}. Existing evidence was preserved.`,
                     };
                 }
-                if (await Deno.readTextFile(targetPath) !== canonicalSource.markdown) {
+                if (await Deno.readTextFile(targetPath) !== planDocumentMarkdown(canonicalSource.markdown)) {
                     return {
                         kind: "restore_failed",
                         path: targetPath,
@@ -459,7 +430,7 @@ export async function ensureExecutionPlanFile({
             }
             const overrides = executionMetadataOverrides(canonicalSource.attrs, attrs);
             if (Object.keys(overrides).length > 0) {
-                const reconciledMarkdown = mergeFrontMatterText(markdown, overrides);
+                const reconciledMarkdown = planDocumentMarkdown(mergeFrontMatterText(markdown, overrides));
                 const expectedRevision = await getPlanRevisionForText(markdown);
                 try {
                     await writePlanMarkdownWithRevision(targetPath, reconciledMarkdown, expectedRevision);
@@ -551,7 +522,7 @@ export async function ensureExecutionPlanFile({
         }
         await Deno.mkdir(targetDir, { recursive: true });
         try {
-            await atomicWriteTextFileIfAbsent(targetPath, canonicalSource.markdown);
+            await atomicWriteTextFileIfAbsent(targetPath, planDocumentMarkdown(canonicalSource.markdown));
         } catch (error) {
             if (error instanceof Deno.errors.AlreadyExists) {
                 const concurrent = await ensureExecutionPlanFile({ executionCwd, planName, canonicalSource });
@@ -560,7 +531,7 @@ export async function ensureExecutionPlanFile({
             throw error;
         }
         const restoredMarkdown = await Deno.readTextFile(targetPath);
-        if (restoredMarkdown !== canonicalSource.markdown) {
+        if (restoredMarkdown !== planDocumentMarkdown(canonicalSource.markdown)) {
             return {
                 kind: "restore_failed",
                 path: targetPath,

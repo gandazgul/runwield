@@ -112,6 +112,17 @@ export function createUiApi(
     let keyboardHelp = null;
     /** @type {{ block: ManagedSyncStatusBlock, spacer: Spacer } | null} */
     let managedSyncStatus = null;
+    /** @type {import('../../shared/session/session-runtime-events.js').RuntimeManagedSyncStateEvent | null} */
+    let visibleManagedSyncState = null;
+
+    /** @param {import('../../shared/session/session-runtime-events.js').RuntimeManagedSyncStateEvent} state */
+    const isSameVisibleManagedSyncState = (state) => {
+        return visibleManagedSyncState?.status === state.status &&
+            visibleManagedSyncState.localGeneration === state.localGeneration &&
+            visibleManagedSyncState.latestGeneration === state.latestGeneration &&
+            visibleManagedSyncState.owningSurfaceKind === state.owningSurfaceKind &&
+            visibleManagedSyncState.message === state.message;
+    };
 
     /** @type {(() => void) | null} */
     let activePromptCancel = null;
@@ -136,6 +147,7 @@ export function createUiApi(
         if (!inputAccessoryContainer) {
             keyboardHelp = null;
             managedSyncStatus = null;
+            visibleManagedSyncState = null;
             return;
         }
         if (keyboardHelp) {
@@ -148,6 +160,7 @@ export function createUiApi(
             inputAccessoryContainer.removeChild(managedSyncStatus.spacer);
             managedSyncStatus = null;
         }
+        visibleManagedSyncState = null;
     };
 
     const renderValidationPanel = () => {
@@ -509,10 +522,12 @@ export function createUiApi(
                     inputAccessoryContainer.removeChild(managedSyncStatus.block);
                     inputAccessoryContainer.removeChild(managedSyncStatus.spacer);
                     managedSyncStatus = null;
+                    visibleManagedSyncState = null;
                     tui.requestRender();
                 }
                 return;
             }
+            if (isSameVisibleManagedSyncState(state)) return;
             if (!managedSyncStatus) {
                 const block = new ManagedSyncStatusBlock(state);
                 const spacer = new Spacer(1);
@@ -522,6 +537,7 @@ export function createUiApi(
             } else {
                 managedSyncStatus.block.setState(state);
             }
+            visibleManagedSyncState = { ...state };
             tui.requestRender();
         },
 

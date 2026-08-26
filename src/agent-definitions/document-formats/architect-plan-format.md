@@ -1,7 +1,6 @@
 ---
 classification: "PROJECT"
 complexity: "LOW|MEDIUM|HIGH"
-summary: "<Brief summary of the project-level change>"
 # High-signal paths you have evidence for. RunWield uses these for drift warnings and Plan presentation; they are not
 # an exhaustive list and never limit what a child Plan may change.
 affectedPaths:
@@ -14,7 +13,7 @@ devServerCommand: null
 devServerUrl: null
 devServerHmr: null
 # Optional: target execution branch for child Plans when explicitly requested by the user.
-# worktreeBaseBranch: "feature/base-branch"
+# targetBranch: "feature/base-branch"
 createdAt: "<ISO-8601 date or timestamp>"
 status: "draft"
 ---

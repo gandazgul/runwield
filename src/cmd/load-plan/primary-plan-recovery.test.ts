@@ -4,7 +4,7 @@ import { createTestWorktreeAttempt, makeRepo } from "../../shared/worktree-test-
 import { removeWorktreeGitArtifacts } from "../../shared/worktree.js";
 import { resolvePlanWithPrimaryRecovery } from "./primary-plan-recovery.ts";
 
-Deno.test("load-plan restores a missing primary Plan from the one proven execution worktree", async () => {
+Deno.test("load-plan reads the execution Plan without recreating a missing primary Plan", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-primary-plan-recovery-" });
     const planName = "restore-me";
@@ -28,11 +28,10 @@ Deno.test("load-plan restores a missing primary Plan from the one proven executi
 
         const result = await resolvePlanWithPrimaryRecovery(projectRoot, planName);
 
-        assertEquals(result.restored?.relativePath, `docs/plans/${planName}.md`);
-        assertEquals(result.restored?.executionBranch, worktree.branch);
+        assertEquals(result.plan.path, `${worktree.path}/docs/plans/${planName}.md`);
         assertEquals(result.plan.attrs.planId, planId);
         assertStringIncludes(result.plan.markdown, "Execution copy wins.");
-        assertEquals((await loadPlan(projectRoot, planName))?.markdown, result.plan.markdown);
+        assertEquals(await loadPlan(projectRoot, planName), null);
     } finally {
         if (worktree) {
             await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
@@ -42,7 +41,7 @@ Deno.test("load-plan restores a missing primary Plan from the one proven executi
     }
 });
 
-Deno.test("load-plan backs up a malformed primary Plan before restoring the execution copy", async () => {
+Deno.test("load-plan leaves a malformed primary Plan untouched and reads the execution Plan", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-primary-plan-malformed-" });
     const planName = "repair-malformed";
@@ -69,9 +68,8 @@ Deno.test("load-plan backs up a malformed primary Plan before restoring the exec
 
         const result = await resolvePlanWithPrimaryRecovery(projectRoot, planName);
 
-        assertStringIncludes(result.restored?.backupRelativePath || "", ".wld/recovery/");
         assertEquals(
-            await Deno.readTextFile(`${projectRoot}/${result.restored?.backupRelativePath}`),
+            await Deno.readTextFile(`${projectRoot}/docs/plans/${planName}.md`),
             malformed,
         );
         assertStringIncludes(result.plan.markdown, "# Recovered");

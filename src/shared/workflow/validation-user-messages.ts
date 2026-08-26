@@ -392,6 +392,14 @@ export type PlanRecoveryMessageRequest =
     | { kind: "git_delete_skipped" }
     | { kind: "record_already_gone" }
     | { kind: "abandon_done"; removed: boolean }
+    | { kind: "abandon_definition_missing" }
+    | {
+        kind: "publication_cleanup_resumed";
+        planName: string;
+        targetBranch: string;
+        complete: boolean;
+        details: string[];
+    }
     | {
         kind: "recovery_report";
         summary: string;
@@ -481,6 +489,14 @@ export function buildPlanRecoveryUserMessage(request: PlanRecoveryMessageRequest
             return request.removed
                 ? "The worktree is gone. The work is stopped."
                 : "The saved worktree details are clear. The files were left in place.";
+        case "abandon_definition_missing":
+            return "The worktree is gone. No saved Plan file is left. Restore the Plan from Git or a backup, then load it again.";
+        case "publication_cleanup_resumed":
+            return request.complete
+                ? `Cleanup is done for ${request.planName}. The commits are on ${request.targetBranch}.`
+                : `Cleanup stopped for ${request.planName}. ${
+                    request.details.join(" ")
+                } Your files are kept. Fix this Git issue, then load the Plan to retry.`;
         case "recovery_report": {
             const parts = [request.summary];
             if (request.lastRunStopped) parts.push("The last run stopped before it was done.");

@@ -714,7 +714,7 @@ export const loadPlanContinueUsesExecutionPlanAuthorityScenario = {
             type: "setPrimaryPlanStatus",
             planName: "continue-authority",
             status: "draft",
-            clearWorktreeEvidence: true,
+            clearPrimaryWorktreeEvidence: true,
         },
         {
             type: "writeProjectFile",
@@ -740,9 +740,10 @@ export const loadPlanContinueUsesExecutionPlanAuthorityScenario = {
             assertEventIncludes(result, "project:primary-plan-status:continue-authority:draft");
             assertEventIncludes(result, "runtime:tool:start:task_completed");
             assert(
-                `${result.scrollbackText || ""}\n${result.screenText}`.includes("Plan text in the main checkout"),
-                "Expected the TUI to explain that it is using the different execution-worktree Plan text.",
+                !`${result.scrollbackText || ""}\n${result.screenText}`.includes("Plan text in the main checkout"),
+                "The primary document is not execution authority and must not produce a mismatch warning.",
             );
+            assert(`${result.scrollbackText || ""}\n${result.screenText}`.includes("Status: in_progress"));
             assert(
                 typeof result.state.primaryPlanAfterExecutionAuthority === "string" &&
                     result.state.primaryPlanAfterExecutionAuthority.includes("Keep this local text."),

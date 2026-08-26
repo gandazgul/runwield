@@ -298,7 +298,6 @@ export function attachTuiRuntimeAdapter({
                     owningSurfaceKind: value.owningSurfaceKind,
                     message: value.message,
                 });
-                uiAPI.requestRender();
                 break;
             case RuntimeEventTypes.SESSION_RENAMED:
                 setTerminalTitleForName(value.name);

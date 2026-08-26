@@ -115,7 +115,7 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
 
     if (attrs.summary) lines.push(`- Summary: ${attrs.summary}`);
     if (attrs.parentPlan) lines.push(`- Parent plan: ${attrs.parentPlan}`);
-    if (attrs.worktreeBaseBranch) lines.push(`- Target branch: ${attrs.worktreeBaseBranch}`);
+    if (attrs.targetBranch) lines.push(`- Target branch: ${attrs.targetBranch}`);
     if (Array.isArray(attrs.tickets) && attrs.tickets.length) {
         lines.push("- Epic Ticket references (context only; do not copy to every child):");
         for (const ticket of attrs.tickets) {

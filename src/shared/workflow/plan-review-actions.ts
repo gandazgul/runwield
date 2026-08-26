@@ -11,7 +11,10 @@ import { buildPlanEventUpdates, isPlanReviewableWithoutReopen, recordPlanEvent }
 import { runPlanReviewDecisionTransition } from "./state-transition.ts";
 import { findById as findWorktreeById, updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { PLAN_APPROVAL_ACTIONS } from "./plan-approval.js";
+import { pickControllerState, stripRuntimeFields } from "./controller-state.ts";
+import { writeControllerState } from "./controller-registry.ts";
 import { loadPlanActionEvidence } from "./plan-actions.ts";
+import { resolveWorkflowPlanLocation } from "./plan-location.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { PlanApprovalAction } from "./plan-approval.js";
 import type { PlanWorktreeExpectation } from "./plan-actions.ts";
@@ -133,6 +136,12 @@ export async function applySharedPlanReviewDecision({
     reviewEvidence,
     decision,
 }: SharedPlanReviewActionOptions): Promise<SharedPlanReviewActionResult> {
+    const location = await resolveWorkflowPlanLocation(cwd, planName);
+    if (location.plan && resolve(location.plan.path) === resolve(planPath)) {
+        cwd = location.documentRoot;
+    } else if (location.plan && resolve(getStoredPlanPath(cwd, planName)) === resolve(planPath)) {
+        return reviewRejected("The execution Plan is now the editable copy. Reload the review to continue.");
+    }
     const approved = decision.approved === true;
     const canonicalClassification = validatedClassification(trustedClassification);
     if (!canonicalClassification) return reviewRejected("Plan review classification is not supported.");
@@ -195,14 +204,14 @@ export async function applySharedPlanReviewDecision({
                     );
                 }
                 let nextMarkdown = reviewedPlan;
-                let nextAttrs = reviewedAttrs;
+                let nextAttrs = { ...beforePlan.attrs, ...stripRuntimeFields(reviewedAttrs) };
                 let status = beforePlan.attrs.status;
                 if (!isPlanReviewableWithoutReopen(status)) {
                     const reopenUpdates = buildPlanEventUpdates("review_reopened", status, {
                         triageMeta: nextAttrs,
                     });
                     nextMarkdown = injectFrontMatter(nextMarkdown, reopenUpdates);
-                    nextAttrs = parsePlanFrontMatter(nextMarkdown).attrs;
+                    nextAttrs = { ...nextAttrs, ...reopenUpdates };
                     status = "feedback";
                     if (reopenWorktreeId) {
                         const before = await findWorktreeById(cwd, reopenWorktreeId);
@@ -223,13 +232,22 @@ export async function applySharedPlanReviewDecision({
                     failureReason: decision.feedback,
                 });
                 nextMarkdown = injectFrontMatter(nextMarkdown, eventUpdates);
-                nextAttrs = parsePlanFrontMatter(nextMarkdown).attrs;
+                nextAttrs = { ...nextAttrs, ...eventUpdates };
+                await writeControllerState(
+                    cwd,
+                    { planName, planId: beforePlan.attrs.planId },
+                    pickControllerState(nextAttrs),
+                    {
+                        expectedRevision: beforePlan.controllerRevision,
+                        ...(reopenWorktreeId ? { recovery: null } : {}),
+                    },
+                );
                 const revision = await writePlanMarkdownWithRevision(
                     beforePlan.path,
                     nextMarkdown,
                     beforePlan.revision,
                 );
-                return { attrs: nextAttrs, revision };
+                return { attrs: (await loadPlan(cwd, planName))?.attrs || nextAttrs, revision };
             },
         });
         if (reviewTransition.status !== "committed") {

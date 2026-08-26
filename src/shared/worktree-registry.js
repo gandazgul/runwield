@@ -6,7 +6,8 @@
 import { dirname, join } from "@std/path";
 import { getLockHostname, isPidAlive } from "./process-liveness.ts";
 import { CLI_BIN, RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE, WORKTREE_REGISTRY_LOCK_FILE } from "../constants.js";
-import { listPlanResources } from "../plan-store.js";
+import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
+import { inspectPlanIdentityDocuments } from "./workflow/plan-diagnostic-evidence.ts";
 
 const LOCK_TIMEOUT_MS = 30_000;
 const LOCK_RETRY_MS = 50;
@@ -153,12 +154,12 @@ async function runGit(cwd, args) {
 
 /** @param {string} projectRoot */
 export function getWorktreeRegistryPath(projectRoot) {
-    return join(projectRoot, RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE);
+    return join(resolvePrimaryCheckoutRoot(projectRoot), RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE);
 }
 
 /** @param {string} projectRoot */
 export function getWorktreeRegistryLockPath(projectRoot) {
-    return join(projectRoot, RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_LOCK_FILE);
+    return join(resolvePrimaryCheckoutRoot(projectRoot), RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_LOCK_FILE);
 }
 
 /**
@@ -169,11 +170,15 @@ export function getWorktreeRegistryLockPath(projectRoot) {
  */
 async function migrateLegacyRegistryEntries(projectRoot, entries, resources) {
     let changed = false;
-    const byExactAttempt = new Map(
-        resources
-            .filter((plan) => typeof plan.attrs.planId === "string" && typeof plan.attrs.worktreeId === "string")
-            .map((plan) => [`${plan.name}\0${plan.attrs.worktreeId}`, plan]),
-    );
+    /** @type {Map<string, typeof resources>} */
+    const byExactAttempt = new Map();
+    for (const plan of resources) {
+        if (typeof plan.attrs.planId !== "string" || typeof plan.attrs.worktreeId !== "string") continue;
+        const key = `${plan.name}\0${plan.attrs.worktreeId}`;
+        const matches = byExactAttempt.get(key) || [];
+        matches.push(plan);
+        byExactAttempt.set(key, matches);
+    }
     /** @type {Map<string, Array<{ name: string, attrs: { planId?: string } }>>} */
     const byName = new Map();
     for (const plan of resources) {
@@ -189,7 +194,8 @@ async function migrateLegacyRegistryEntries(projectRoot, entries, resources) {
     // the order entries happen to sit in the file.
     for (const entry of entries) {
         if (entry.planId || !entry.planName) continue;
-        const exactPlan = byExactAttempt.get(`${entry.planName}\0${entry.id}`);
+        const exactMatches = byExactAttempt.get(`${entry.planName}\0${entry.id}`) || [];
+        const exactPlan = exactMatches.length === 1 ? exactMatches[0] : null;
         if (!exactPlan?.attrs.planId) continue;
         entry.planId = exactPlan.attrs.planId;
         delete entry.migrationIssue;
@@ -497,7 +503,13 @@ export async function inspectWorktreeRegistry(projectRoot) {
 
 /** @param {string} projectRoot @param {{ migrate?: boolean }} [options] */
 export async function listEntries(projectRoot, options = {}) {
-    const planResources = options.migrate === false ? undefined : await listPlanResources(projectRoot).catch(() => []);
+    const inspection = options.migrate === false ? null : await inspectWorktreeRegistry(projectRoot);
+    const needsIdentityMigration = inspection?.entries.some((entry) => !entry.planId);
+    const planResources = inspection && needsIdentityMigration
+        ? await inspectPlanIdentityDocuments(resolvePrimaryCheckoutRoot(projectRoot), inspection.entries).catch(
+            () => [],
+        )
+        : undefined;
     return await withWorktreeRegistryLock(projectRoot, () => readRegistry(projectRoot, { ...options, planResources }));
 }
 
@@ -555,6 +567,46 @@ export async function updateEntry(projectRoot, id, updates) {
         assertNoDuplicateNonterminalAttempt(entries.filter((entry) => entry.id !== id), entries[index]);
         await writeRegistry(projectRoot, entries);
         return entries[index];
+    });
+}
+
+/**
+ * Rename a restored document without changing its stable Plan or attempt identity.
+ * Ordinary registry updates cannot rename an attempt. Only the archive transaction,
+ * holding the document/catalog locks, may move this address. Publication receipts
+ * bind the original path and must never be renamed underneath a pending publication.
+ * @param {string} projectRoot
+ * @param {string} id
+ * @param {string} expectedName
+ * @param {string} nextName
+ */
+export async function renameRestoredPlanEntry(projectRoot, id, expectedName, nextName) {
+    return await withWorktreeRegistryLock(projectRoot, async () => {
+        const entries = await readRegistry(projectRoot);
+        const entry = entries.find((candidate) => candidate.id === id);
+        if (!entry || entry.planName !== expectedName) {
+            throw new Error(
+                "The Plan location changed while restoring it. Its archived copy has been preserved; retry the restore.",
+            );
+        }
+        if (entry.publication) {
+            throw new Error(
+                `Restore this Plan without --to first. Its saved publication uses ${expectedName}; finish publishing before renaming it.`,
+            );
+        }
+        if (
+            entries.some((candidate) =>
+                candidate.id !== id && candidate.planName === nextName && NONTERMINAL_STATUSES.has(candidate.status)
+            )
+        ) {
+            throw new Error(
+                `Another execution already uses the Plan name ${nextName}. Choose a different restore name.`,
+            );
+        }
+        entry.planName = nextName;
+        entry.updatedAt = new Date().toISOString();
+        await writeRegistry(projectRoot, entries);
+        return entry;
     });
 }
 
@@ -900,10 +952,9 @@ export async function findByPlanId(projectRoot, planId) {
  *
  * @param {string} projectRoot
  * @param {string} planId
- * @param {{ expectedWorktreeId?: string | null }} [options]
  * @returns {Promise<{ kind: "ok", live: WorktreeRegistryEntry | null, entries: WorktreeRegistryEntry[] } | { kind: "ambiguous" | "unreadable", message: string, entryIds: string[] }>}
  */
-export async function readPlanActionWorktreeEvidence(projectRoot, planId, options = {}) {
+export async function readPlanActionWorktreeEvidence(projectRoot, planId) {
     const inspected = await inspectWorktreeRegistry(projectRoot);
     if (inspected.readError) {
         return { kind: "unreadable", message: inspected.readError.message, entryIds: [] };
@@ -911,20 +962,6 @@ export async function readPlanActionWorktreeEvidence(projectRoot, planId, option
     const integrityIssue = inspected.integrityIssues[0];
     if (integrityIssue) {
         return { kind: "ambiguous", message: integrityIssue.message, entryIds: integrityIssue.ids };
-    }
-    const expectedWorktreeId = typeof options.expectedWorktreeId === "string" && options.expectedWorktreeId.trim()
-        ? options.expectedWorktreeId.trim()
-        : null;
-    if (expectedWorktreeId) {
-        const expectedIdEntries = inspected.entries.filter((entry) => entry.id === expectedWorktreeId);
-        const identityConflict = expectedIdEntries.find((entry) => entry.planId !== planId);
-        if (identityConflict) {
-            return {
-                kind: "ambiguous",
-                message: "Plan worktree identity does not match the worktree registry entry.",
-                entryIds: [identityConflict.id],
-            };
-        }
     }
     const entries = inspected.entries.filter((entry) => entry.planId === planId);
     const live = entries.filter((entry) => NONTERMINAL_STATUSES.has(entry.status));
@@ -941,10 +978,8 @@ export async function readPlanActionWorktreeEvidence(projectRoot, planId, option
 /**
  * Look up one registry entry by attempt id.
  *
- * Pass `{ migrate: false }` from any caller that must not disturb Plan files —
- * the migrating read backfills missing planIds, which is a Front Matter write.
- * A caller holding a Plan snapshot it later compares against (a transaction
- * gathering before-facts) would otherwise invalidate its own precondition.
+ * Pass `{ migrate: false }` when the registry itself must remain untouched.
+ * Migrating reads inspect raw Plan identity evidence without changing Plan files.
  *
  * @param {string} projectRoot
  * @param {string} id

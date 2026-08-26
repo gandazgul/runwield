@@ -1,6 +1,9 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { loadArchivedPlan, loadPlan, savePlan } from "../../plan-store.js";
 import { runPlansCommand } from "./index.ts";
+import { addEntry } from "../../shared/worktree-registry.js";
+import { defineCommittedGitFixture, git } from "../../shared/git-test-fixture.ts";
+import { getCwd } from "../../constants.js";
 import { type PlanCommandFixture, withPlanCommandFixture } from "./plans-command-test-fixture.ts";
 
 type PlanSeedAttrs = NonNullable<Parameters<typeof savePlan>[3]>;
@@ -16,7 +19,12 @@ function plansTest(name: string, run: (fixture: PlanCommandFixture) => Promise<v
 
 async function seedPlans(projectRoot: string, seeds: PlanSeed[]): Promise<void> {
     for (const seed of seeds) {
-        await savePlan(projectRoot, seed.name, `# ${seed.name}\n\nFixture body.\n`, seed.attrs);
+        await savePlan(
+            projectRoot,
+            seed.name,
+            `# ${seed.name}\n\n## Context\n\n${seed.attrs.summary || "Fixture body."}\n`,
+            seed.attrs,
+        );
     }
 }
 
@@ -97,51 +105,75 @@ plansTest("plans lists a standalone Planned Change from the fixture store", asyn
     assertStringIncludes(output.join("\n"), "standalone-feature");
 });
 
-plansTest("plans renders real Epic child progress and worktree metadata", async ({ projectRoot }) => {
-    await seedPlans(projectRoot, [
-        {
-            name: "big-project",
-            attrs: {
-                status: "ready_for_work",
-                classification: "PROJECT",
-                complexity: "HIGH",
-                summary: "Large project",
-                affectedPaths: [],
+plansTest("plans renders real Epic child progress and worktree metadata", async () => {
+    const projectRoot = await defineCommittedGitFixture({ ".gitignore": ".wld/\ndelivered-tree/\n" }).checkout();
+    const previousCwd = getCwd();
+    Deno.chdir(projectRoot);
+    try {
+        await seedPlans(projectRoot, [
+            {
+                name: "big-project",
+                attrs: {
+                    status: "ready_for_work",
+                    classification: "PROJECT",
+                    complexity: "HIGH",
+                    summary: "Large project",
+                    affectedPaths: [],
+                },
             },
-        },
-        {
-            name: "big-project/01-first",
-            attrs: {
-                status: "verified",
-                classification: "PLANNED_CHANGE",
-                complexity: "MEDIUM",
-                summary: "First child",
-                affectedPaths: [],
-                parentPlan: "big-project",
-                order: 1,
-                worktreeStatus: "merged",
-                worktreeBranch: "feature/first",
+            {
+                name: "big-project/01-first",
+                attrs: {
+                    planId: "first-child",
+                    status: "verified",
+                    classification: "PLANNED_CHANGE",
+                    complexity: "MEDIUM",
+                    summary: "First child",
+                    affectedPaths: [],
+                    parentPlan: "big-project",
+                    order: 1,
+                },
             },
-        },
-        {
-            name: "big-project/02-second",
-            attrs: {
-                status: "implemented",
-                classification: "PLANNED_CHANGE",
-                complexity: "LOW",
-                summary: "Second child",
-                affectedPaths: [],
-                parentPlan: "big-project",
-                order: 2,
+            {
+                name: "big-project/02-second",
+                attrs: {
+                    status: "implemented",
+                    classification: "PLANNED_CHANGE",
+                    complexity: "LOW",
+                    summary: "Second child",
+                    affectedPaths: [],
+                    parentPlan: "big-project",
+                    order: 2,
+                },
             },
-        },
-    ]);
+        ]);
 
-    const output = (await captureOutput(() => runPlansCommand([]))).join("\n");
-    assertStringIncludes(output, "Epics:");
-    assertStringIncludes(output, "Progress: 1/2 Planned Changes verified");
-    assertStringIncludes(output, "- big-project/01-first");
-    assertStringIncludes(output, "Worktree: merged (feature/first)");
+        await git(projectRoot, ["add", "docs"]);
+        await git(projectRoot, ["commit", "-m", "Epic and children"]);
+        await git(projectRoot, ["worktree", "add", "-b", "feature/first", `${projectRoot}/delivered-tree`]);
+        await addEntry(projectRoot, {
+            id: "first-attempt",
+            planId: "first-child",
+            planName: "big-project/01-first",
+            path: `${projectRoot}/delivered-tree`,
+            branch: "feature/first",
+            baseBranch: "main",
+            baseRef: "refs/heads/main",
+            baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
+            status: "completed",
+            createdAt: "2026-08-25T00:00:00Z",
+            updatedAt: "2026-08-25T00:00:00Z",
+        });
+
+        const output = (await captureOutput(() => runPlansCommand([]))).join("\n");
+        assertStringIncludes(output, "Epics:");
+        assertStringIncludes(output, "Progress: 1/2 Planned Changes verified");
+        assertStringIncludes(output, "- big-project/01-first");
+        assertStringIncludes(output, "Worktree: completed (feature/first)");
+    } finally {
+        Deno.chdir(previousCwd);
+        await Deno.remove(projectRoot, { recursive: true });
+    }
 });
 
 plansTest("plans keeps done-enough and orphaned fixture state visible", async ({ projectRoot }) => {

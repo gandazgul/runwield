@@ -70,7 +70,7 @@ async function saveEpic(projectRoot: string, status: PlanStatus = "approved"): P
         summary: "Epic A",
         affectedPaths: ["src/epic.ts"],
         status,
-        worktreeBaseBranch: "feature-base",
+        targetBranch: "feature-base",
         planId: `epic-${crypto.randomUUID()}`,
     });
 }
@@ -213,7 +213,7 @@ Deno.test("Slicer finalize commits child Plans and the Epic lifecycle transition
         const child = await loadPlan(projectRoot, "epic-a/01-child");
         assertEquals(epic?.attrs.status, "ready_for_work");
         assertEquals(child?.attrs.parentPlan, "epic-a");
-        assertEquals(child?.attrs.worktreeBaseBranch, "feature-base");
+        assertEquals(child?.attrs.targetBranch, "feature-base");
         assertEquals(child?.attrs.workKind, "DOCUMENTATION");
         assertEquals(child?.attrs.tickets, [{ url: "https://tracker.example/TICKET-2" }]);
     });

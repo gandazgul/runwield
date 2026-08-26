@@ -9,6 +9,7 @@ import {
     savePlan,
 } from "../../plan-store.js";
 import { addEntry as addRegistryEntry, findById as findRegistryEntryById } from "../worktree-registry.js";
+import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 import { applySharedPlanReviewDecision } from "./plan-review-actions.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
 
@@ -20,8 +21,10 @@ interface PlanReviewFixture {
     revision: string;
 }
 
+const gitFixture = defineCommittedGitFixture({ ".gitignore": ".wld/\nwt-prior/\n" });
+
 async function makePlanFile(attrs: Partial<PlanFrontMatter> = {}): Promise<PlanReviewFixture> {
-    const dir = await Deno.realPath(await Deno.makeTempDir({ prefix: "runwield-shared-plan-review-" }));
+    const dir = await gitFixture.checkout();
     await savePlan(dir, "plan", "# Plan\n\nDo the thing.\n", {
         classification: "PLANNED_CHANGE",
         status: "draft",
@@ -40,21 +43,26 @@ async function makePlanFile(attrs: Partial<PlanFrontMatter> = {}): Promise<PlanR
     };
 }
 
-async function addActiveWorktree(dir: string): Promise<void> {
+async function addActiveWorktree(dir: string): Promise<string> {
+    await git(dir, ["add", "docs"]);
+    await git(dir, ["commit", "-m", "Save review Plan"]);
+    const path = join(dir, "wt-prior");
+    await git(dir, ["worktree", "add", "-b", "worktree/plan", path]);
     await addRegistryEntry(dir, {
         id: "wt-prior",
         planName: "plan",
         planId: "plan-id",
         baseBranch: "main",
-        baseRef: "HEAD",
-        baseCommit: "recorded",
-        baseTree: "recorded-tree",
-        branch: "runwield/worktree/plan",
-        path: join(dir, "wt-prior"),
+        baseRef: "refs/heads/main",
+        baseCommit: await git(dir, ["rev-parse", "HEAD"]),
+        baseTree: await git(dir, ["rev-parse", "HEAD^{tree}"]),
+        branch: "worktree/plan",
+        path,
         status: "active",
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
-    } as never);
+    });
+    return path;
 }
 
 Deno.test("shared Plan review rejects stale revision status and worktree before mutation", async () => {
@@ -64,15 +72,16 @@ Deno.test("shared Plan review rejects stale revision status and worktree before 
         worktreeId: "wt-prior",
         worktreeStatus: "completed",
     });
-    await addActiveWorktree(fixture.dir);
+    const executionDir = await addActiveWorktree(fixture.dir);
+    const executionPlanPath = getStoredPlanPath(executionDir, "plan");
     try {
         const currentPlan = injectFrontMatter(fixture.markdown, { status: "feedback", worktreeId: "other" });
-        await Deno.writeTextFile(fixture.planPath, currentPlan);
+        await Deno.writeTextFile(executionPlanPath, currentPlan);
 
         const result = await applySharedPlanReviewDecision({
             cwd: fixture.dir,
             planName: "plan",
-            planPath: fixture.planPath,
+            planPath: executionPlanPath,
             planWithFrontMatter: fixture.markdown,
             planRevision: fixture.revision,
             originalAttrs: fixture.attrs,
@@ -87,8 +96,10 @@ Deno.test("shared Plan review rejects stale revision status and worktree before 
         });
 
         assertEquals(result.cancellationReason, "stale_plan_review");
-        assertEquals((await loadPlan(fixture.dir, "plan"))?.attrs.status, "feedback");
-        assertEquals((await loadPlan(fixture.dir, "plan"))?.attrs.worktreeId, "other");
+        assertEquals((await loadPlan(executionDir, "plan"))?.attrs.status, "feedback");
+        assertEquals((await loadPlan(executionDir, "plan"))?.attrs.worktreeId, "wt-prior");
+        assertEquals(await Deno.readTextFile(executionPlanPath), currentPlan);
+        assertEquals(await Deno.readTextFile(fixture.planPath), fixture.markdown);
         assertEquals((await findRegistryEntryById(fixture.dir, "wt-prior"))?.status, "active");
     } finally {
         await Deno.remove(fixture.dir, { recursive: true });

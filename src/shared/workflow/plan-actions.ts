@@ -114,68 +114,32 @@ function currentStatus(attrs: PlanFrontMatter): PlanStatus {
     return (String(attrs.status || "draft") as PlanStatus);
 }
 
-function recordedWorktreeId(attrs: PlanFrontMatter): string | null {
-    return typeof attrs.worktreeId === "string" && attrs.worktreeId.trim() ? attrs.worktreeId.trim() : null;
-}
-
-function expectedRegistryOptions(attrs: PlanFrontMatter): { expectedWorktreeId?: string | null } {
-    return { expectedWorktreeId: recordedWorktreeId(attrs) };
-}
-
-function validatePlanRegistryIdentity(
-    attrs: PlanFrontMatter,
-    registry: WorktreeEvidenceOk,
-): { message: string; entryIds: string[] } | null {
-    const planWorktreeId = recordedWorktreeId(attrs);
-    const recordedEntry = planWorktreeId ? registry.entries.find((entry) => entry.id === planWorktreeId) : null;
-
-    if (planWorktreeId && !recordedEntry) {
-        return {
-            message:
-                "The Plan records a worktree attempt that is missing from the registry. Review recovery before mutating the Plan.",
-            entryIds: [planWorktreeId],
-        };
-    }
-    // The Plan stores the attempt id so an execution copy can find its registry
-    // record. The registry owns every mutable attempt fact: status, branch, path,
-    // and base. Older Plans duplicated those values in front matter. They can be
-    // stale after a perfectly valid execution or validation transition, so they
-    // are migration hints only and must never veto current registry evidence.
-    if (registry.live) {
-        if (!planWorktreeId) {
-            return {
-                message:
-                    "The registry records a live worktree attempt that the Plan does not record. Review recovery before mutating the Plan.",
-                entryIds: [registry.live.id],
-            };
-        }
-        if (registry.live.id !== planWorktreeId) {
-            return {
-                message:
-                    "The Plan live worktree identity does not match the registry. Review recovery before mutating the Plan.",
-                entryIds: [registry.live.id, planWorktreeId],
-            };
-        }
-    }
-    return null;
-}
-
 async function resolvePlanActionAuthority(
     projectRoot: string,
     planId: string,
 ): Promise<PlanActionAuthorityResult> {
     try {
-        const primaryPlan = await findPlanEvidenceById(projectRoot, planId);
         const registry = await readPlanActionWorktreeEvidence(
             projectRoot,
-            primaryPlan.planId,
-            expectedRegistryOptions(primaryPlan.attrs),
+            planId,
         );
         if (registry.kind !== "ok") {
             return {
                 kind: "recovery_required",
                 message: sanitizeMessage(registry.message),
                 entryIds: registry.entryIds,
+            };
+        }
+        const primaryPlan = await findPlanEvidenceById(projectRoot, planId).catch((error) => {
+            if (registry.live) return null;
+            throw error;
+        });
+        if (!primaryPlan) {
+            return {
+                kind: "recovery_required",
+                message:
+                    "The execution Plan could not be read. Restore its file from Git history or a backup, then try again. Your files are unchanged.",
+                entryIds: registry.live ? [registry.live.id] : [],
             };
         }
         const executionPlan = registry.live?.path
@@ -205,8 +169,6 @@ async function resolvePlanActionAuthority(
                 markdown: primaryPlan.markdown,
                 revision: primaryPlan.revision,
             };
-        const identityIssue = validatePlanRegistryIdentity(plan.attrs, registry);
-        if (identityIssue) return { kind: "recovery_required", ...identityIssue };
         return { kind: "ok", plan, registry };
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

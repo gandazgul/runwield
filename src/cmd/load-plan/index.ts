@@ -79,12 +79,27 @@ import { startInteractiveSession } from "../../ui/tui/chat-session.ts";
 import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 import { RuntimeInteractionOutcomes } from "../../shared/session/session-runtime-interactions.js";
-import { resolvePlanWithPrimaryRecovery } from "./primary-plan-recovery.ts";
+import { resolvePlanWithPrimaryRecovery, resumePlanPublicationCleanup } from "./primary-plan-recovery.ts";
+import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
 import type { CommandContext } from "../registry.js";
+import type { UiAPI } from "../../ui/tui/types.js";
+import { buildPlanRecoveryUserMessage } from "../../shared/workflow/validation-user-messages.ts";
 
 export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
 
 type TransitionRecoveryRecord = Awaited<ReturnType<typeof healSettledTransitionRecords>>["remaining"][number];
+
+async function finishSavedPublicationCleanup(projectRoot: string, uiAPI: UiAPI, planArg?: string): Promise<boolean> {
+    const notices = await resumePlanPublicationCleanup(projectRoot, planArg);
+    for (const notice of notices) {
+        uiAPI.appendSystemMessage(
+            buildPlanRecoveryUserMessage({ kind: "publication_cleanup_resumed", ...notice }),
+            !notice.complete,
+            "RunWield",
+        );
+    }
+    return notices.length > 0;
+}
 
 /**
  * Handle `load-plan` command.
@@ -115,6 +130,11 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             }
             const activeSnapshot = sessionRuntime.getSessionSnapshot(runtimeSessionId);
             if (!activeSnapshot) throw new Error("runLoadPlanCommand runtime session is missing");
+            if (await finishSavedPublicationCleanup(activeSnapshot.cwd, options.uiAPI)) {
+                options.editor.setText("");
+                options.editor.disableSubmit = false;
+                return;
+            }
             const plans = await listPlans(activeSnapshot.cwd);
             if (plans.length === 0) {
                 options.uiAPI.appendSystemMessage(
@@ -203,19 +223,9 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
     let unresolvedLifecycleRecords: TransitionRecoveryRecord[] = [];
 
     try {
+        if (await finishSavedPublicationCleanup(projectRoot, uiAPI, planArg)) return;
         const resolved = await resolvePlanWithPrimaryRecovery(projectRoot, planArg);
         const plan = resolved.plan;
-        if (resolved.restored) {
-            const backup = resolved.restored.backupRelativePath
-                ? ` The unreadable file was preserved at ${resolved.restored.backupRelativePath}.`
-                : "";
-            uiAPI.appendSystemMessage(
-                `Restored ${resolved.restored.relativePath} from execution branch ${resolved.restored.executionBranch}.` +
-                    ` No implementation files changed.${backup}`,
-                false,
-                "RunWield",
-            );
-        }
         loadedPlanName = plan.planName;
         const rawStatus = getPlanContentStatus(plan.markdown);
         if (rawStatus !== undefined && !PLAN_STATUSES.some((status) => status === rawStatus)) {
@@ -269,15 +279,6 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
         if (recordedAttempt?.path) {
             const executionPlan = await loadPlan(recordedAttempt.path, plan.planName).catch(() => null);
             if (executionPlan) {
-                if (executionPlan.body !== plan.body) {
-                    uiAPI.appendSystemMessage(
-                        `The Plan text in the main checkout differs from the execution copy at ${recordedAttempt.path}. ` +
-                            "RunWield left the main-checkout file unchanged and will continue from the execution copy. " +
-                            "If the main-checkout edits should change this work, stop here and copy or merge them into the execution worktree before continuing.",
-                        true,
-                        "RunWield",
-                    );
-                }
                 plan.path = executionPlan.path;
                 plan.attrs = executionPlan.attrs;
                 plan.markdown = executionPlan.markdown;
@@ -292,7 +293,8 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
         // Plan with a durable identity, so the rest of this flow has something to
         // record lifecycle state on.
         if (plan.hasFrontMatter === false) {
-            const adopted = await onboardExternalPlan(projectRoot, plan.planName);
+            const location = await resolveWorkflowPlanLocation(projectRoot, plan.planName);
+            const adopted = await onboardExternalPlan(location.documentRoot, plan.planName);
             if (adopted.onboarded) {
                 plan.attrs = adopted.resource.attrs;
                 plan.markdown = adopted.resource.markdown;
@@ -307,7 +309,8 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             }
         }
         if (!plan.attrs.planId) {
-            const identified = await ensurePlanIdentity(projectRoot, plan.planName);
+            const location = await resolveWorkflowPlanLocation(projectRoot, plan.planName);
+            const identified = await ensurePlanIdentity(location.documentRoot, plan.planName);
             plan.attrs = identified.attrs;
             plan.markdown = identified.markdown;
             plan.body = identified.body;
@@ -636,8 +639,10 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                     if (reviewResult.approved) {
                         let reloadedAfterReview = false;
                         try {
-                            const latestPlan = await loadPlan(projectRoot, plan.planName);
+                            const { plan: latestPlan } = await resolveWorkflowPlanLocation(projectRoot, plan.planName);
                             if (latestPlan) {
+                                plan.path = latestPlan.path;
+                                plan.revision = latestPlan.revision;
                                 plan.attrs = reviewResult.planAttrs
                                     ? { ...latestPlan.attrs, ...reviewResult.planAttrs }
                                     : latestPlan.attrs;

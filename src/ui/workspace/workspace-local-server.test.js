@@ -16,7 +16,7 @@ import { createWorkRecordMnemosyneFixture } from "../../shared/work-records/test
 Deno.test("Workspace wrapper protects page routes and serves public assets without token", async () => {
     const cwd = await Deno.makeTempDir();
     try {
-        await savePlan(cwd, "workspace-card", "# Workspace Card\n\nBody", {
+        await savePlan(cwd, "workspace-card", "# Workspace Card\n\n## Context\n\nSSR card", {
             planId: "workspace-card-id",
             status: "draft",
             classification: "FEATURE",
@@ -58,7 +58,7 @@ Deno.test("Workspace wrapper protects page routes and serves public assets witho
 Deno.test("PlanBoard SSR renders status column board cards", async () => {
     const cwd = await Deno.makeTempDir();
     try {
-        await savePlan(cwd, "workspace-card", "# Workspace Card\n\nBody", {
+        await savePlan(cwd, "workspace-card", "# Workspace Card\n\n## Context\n\nSSR card\n\nBody", {
             planId: "workspace-card-id",
             status: "draft",
             classification: "FEATURE",
@@ -402,7 +402,7 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
         await savePlan(
             cwd,
             "epic",
-            "# Epic\n\nEpic body",
+            "# Epic\n\n## Context\n\nEpic summary\n\nEpic body",
             /** @type {any} */ ({
                 planId: "epic-id",
                 status: "draft",
@@ -414,14 +414,14 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
                 customRisk: false,
             }),
         );
-        await savePlan(cwd, "epic/done", "# Done", {
+        await savePlan(cwd, "epic/done", "# Done\n\n## Context\n\nDone summary", {
             planId: "done-id",
             status: "verified",
             classification: "FEATURE",
             parentPlan: "epic",
             summary: "Done summary",
         });
-        await savePlan(cwd, "epic/child", "# Child\n\nChild body", {
+        await savePlan(cwd, "epic/child", "# Child\n\n## Context\n\nChild summary\n\nChild body", {
             planId: "child-id",
             status: "in_progress",
             classification: "FEATURE",
@@ -429,7 +429,7 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
             summary: "Child summary",
             dependencies: ["done", "missing-child"],
         });
-        await savePlan(cwd, "epic/held", "# Held", {
+        await savePlan(cwd, "epic/held", "# Held\n\n## Context\n\nHeld summary", {
             planId: "held-id",
             status: "on_hold",
             classification: "FEATURE",
@@ -439,21 +439,21 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
             heldAt: "2026-01-04T00:00:00.000Z",
             holdReason: "child capacity pause",
         });
-        await savePlan(cwd, "epic/failed", "# Failed", {
+        await savePlan(cwd, "epic/failed", "# Failed\n\n## Context\n\nFailed summary", {
             planId: "failed-id",
             status: "failed",
             classification: "FEATURE",
             parentPlan: "epic",
             summary: "Failed summary",
         });
-        await savePlan(cwd, "missing/orphan", "# Orphan", {
+        await savePlan(cwd, "missing/orphan", "# Orphan\n\n## Context\n\nOrphan summary", {
             planId: "orphan-id",
             status: "draft",
             classification: "FEATURE",
             parentPlan: "missing",
             summary: "Orphan summary",
         });
-        await savePlan(cwd, "held-epic", "# Held Epic", {
+        await savePlan(cwd, "held-epic", "# Held Epic\n\n## Context\n\nHeld Epic summary", {
             planId: "held-epic-id",
             status: "on_hold",
             classification: "PROJECT",
