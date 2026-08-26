@@ -3,7 +3,6 @@ planId: "5169e4f7-fbc7-4c1b-9d7d-c394581c64c3"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
-summary: "Let load-plan open direct Plan Review for eligible draft, feedback, and ready_for_work Plans and route every review decision through the normal workflow."
 affectedPaths:
     - "src/cmd/load-plan/index.ts"
     - "src/cmd/load-plan/plan-epic-flow.ts"
@@ -14,24 +13,10 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-20T21:30:12-04:00"
-updatedAt: "2026-08-25T18:24:31.646Z"
-status: "implemented"
+status: "validated_reviewer"
 origin: "internal"
-implementedAt: "2026-08-25T18:24:31.646Z"
 userVerifiedAt: null
-executionReport: "- Implemented direct load-plan Plan Review eligibility and coordinator in `src/cmd/load-plan/plan-review-flow.ts`, including managed-worktree refusal, recoverable review, retry/cancel/remote handling, canonical reload, feedback handoff, readiness, execution, validation, and Slicer routing.\n- Updated non-Epic `load-plan` menus so eligible draft, feedback, and ready_for_work Plans show **Review plan** separately from **Resume planning**, while incomplete or invalid PLANNED_CHANGE drafts omit it.\n- Updated PROJECT Epic menus so **Review plan** is separate from **Review with Architect**, and direct approval routes Later to ready-for-decomposition and Run to Slicer.\n- Added test coverage: 5 new integration tests and 2 new golden scenario exports; removed 0 tests.\n- Verification passed: `deno task seams:check`; `deno run -A scripts/run-tests.js src/cmd/load-plan/index.integration.test.ts`; `deno run -A scripts/run-tests.js src/ui/tui/golden-scenarios/load-plan-workflow.ts src/ui/tui/golden-scenarios/load-plan-epic-workflow.ts`; `deno task ci`."
-humanReviewMode: null
-humanReviewDecision: null
-validationCheckpoint: null
-executionMode: "worktree"
-executionBaselineTree: "b261765cfcadd7fd4d11b8da2248f6f77c5ad7a7"
-worktreeId: "e546fc45"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-direct-load-plan-review-e546fc45"
-worktreeBranch: "worktree/direct-load-plan-review-e546fc45"
-worktreeBaseBranch: "main"
-worktreeStatus: "completed"
-validationCiAttempts: 0
-validationSemanticRounds: 0
+targetBranch: "main"
 ---
 
 # Direct Plan Review from load-plan

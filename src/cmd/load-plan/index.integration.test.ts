@@ -466,6 +466,64 @@ Deno.test("direct review from draft approves for later without a planning turn",
     });
 });
 
+Deno.test("direct review from draft can approve and start execution", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot, setModelMessages }) => {
+        await writePlan(projectRoot, "direct-run", {
+            status: "draft",
+            objectiveChecks: [{ id: "OC1", command: "false" }],
+        });
+        setModelMessages([fauxAssistantMessage(fauxToolCall("task_completed", { message: "- direct run complete" }))]);
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        runtime.setInteractionAdapter(sessionId, {
+            requestInteraction: async (request) => {
+                if (
+                    request.type === "select" && request.options?.some((option) => option.value === "proceed") === true
+                ) {
+                    return { outcome: "selected", value: "proceed" };
+                }
+                const beforeReview = await loadPlan(projectRoot, "direct-run");
+                if (!beforeReview) throw new Error("Fixture Plan disappeared before direct review");
+                await recordPlanEvent({
+                    cwd: projectRoot,
+                    planName: "direct-run",
+                    event: "review_approved",
+                    currentStatus: beforeReview.attrs.status,
+                    expectedRevision: beforeReview.revision,
+                    details: { triageMeta: beforeReview.attrs },
+                });
+                const approved = await loadPlan(projectRoot, "direct-run");
+                return {
+                    outcome: "accepted",
+                    _meta: {
+                        approved: true,
+                        approvalAction: "run",
+                        revision: approved?.revision,
+                        planAttrs: approved?.attrs,
+                    },
+                };
+            },
+        });
+        const ui = makeUi(["review", "proceed"]);
+        try {
+            await runLoadPlanCommand(["direct-run"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals((await loadPlan(projectRoot, "direct-run"))?.attrs.executionMode, "non_git_in_place");
+            assertEquals((await loadPlan(projectRoot, "direct-run"))?.attrs.status === "draft", false);
+            assertEquals(
+                ui.promptOptions[0].some((option) => option.value === "review" && option.label === "Review plan"),
+                true,
+            );
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
 Deno.test("direct review from feedback can send feedback back through Planner", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot, setModelMessages }) => {
         await writePlan(projectRoot, "direct-feedback", { status: "feedback" });
@@ -603,6 +661,46 @@ Deno.test("direct review menu is omitted when a draft lacks Objective-Failing Ch
         const ui = makeUi(["cancel"]);
         try {
             await runLoadPlanCommand(["incomplete-draft"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals(ui.promptOptions[0].some((option) => option.value === "review"), false);
+            assertEquals(ui.promptOptions[0].some((option) => option.value === "resume"), true);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("direct review menu is omitted when a draft has an invalid execution policy", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(
+            `${projectRoot}/docs/plans/invalid-policy-draft.md`,
+            [
+                "---",
+                "classification: PLANNED_CHANGE",
+                "complexity: LOW",
+                "summary: Invalid policy draft",
+                "affectedPaths: []",
+                "objectiveChecks:",
+                "  - id: OC1",
+                '    command: "true"',
+                "status: draft",
+                "executionAgent: architect",
+                "collaborationRecommendation: autonomous",
+                "---",
+                "# Invalid policy draft",
+                "",
+            ].join("\n"),
+        );
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["cancel"]);
+        try {
+            await runLoadPlanCommand(["invalid-policy-draft"], {
                 sessionRuntime: runtime,
                 sessionId,
                 uiAPI: ui.uiAPI,
