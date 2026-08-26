@@ -143,6 +143,11 @@ Type: string.
 Names the active entry in `modelPresets`. If unset, missing, or unknown, RunWield uses the base `agents` overrides. If a
 session has a manual `/model` override, the manual override wins until the active agent changes.
 
+The choice survives follow-up messages and resuming that Agent's session. Both `/agent` and automatic workflow handoffs
+resolve the destination Agent's configured model afresh; switching back does not revive an earlier manual override. Each
+successful Agent activation or preset reload saves the Agent and its resolved model together, so the next message and
+resume use the same pair. A failed handoff leaves the previous Agent and model unchanged.
+
 ### `modelPresets`
 
 Type: object.
