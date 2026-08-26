@@ -1,5 +1,6 @@
 // @ts-nocheck: extracted from checked JSDoc workflow.js; tightening types is out of scope for this structural split.
 import { CLI_BIN } from "../../constants.js";
+import { isAbsolute, join } from "@std/path";
 import {
     ensurePlanIdentity,
     findPlansByParent,
@@ -43,11 +44,39 @@ import {
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import { runExecutionPreparationTransition } from "./state-transition.ts";
+import { getCustomSetting, getExactProjectCustomSetting, setExactProjectCustomSetting } from "../settings.js";
 import { healSettledTransitionRecords } from "./transition-recovery.ts";
 import { CollaborationStyles, resolveExecutionOwner } from "./execution-collaboration.ts";
 import { ensureRunWieldOwnedGitignoreBlock } from "../runwield-owned-paths.ts";
 import { resolveWorkflowPlanLocation } from "./plan-location.ts";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
+
+async function excludeLocalExecutionSettingsFile(executionCwd) {
+    const output = await new Deno.Command("git", {
+        args: ["rev-parse", "--git-path", "info/exclude"],
+        cwd: executionCwd,
+        stdout: "piped",
+        stderr: "null",
+    }).output();
+    if (output.code !== 0) return;
+    const rawExcludePath = new TextDecoder().decode(output.stdout).trim();
+    if (!rawExcludePath) return;
+    const excludePath = isAbsolute(rawExcludePath) ? rawExcludePath : join(executionCwd, rawExcludePath);
+    const existing = await Deno.readTextFile(excludePath).catch(() => "");
+    if (existing.split(/\r?\n/).includes(".wld/settings.json")) return;
+    const prefix = existing && !existing.endsWith("\n") ? "\n" : "";
+    await Deno.writeTextFile(excludePath, `${existing}${prefix}.wld/settings.json\n`);
+}
+
+async function seedExecutionWorktreeValidationCommand(projectRoot, executionCwd) {
+    const executionCommand = getExactProjectCustomSetting("verification_command", executionCwd);
+    if (typeof executionCommand === "string" && executionCommand.trim()) return;
+
+    const command = getCustomSetting("verification_command", "project", projectRoot);
+    if (typeof command !== "string" || !command.trim()) return;
+    await excludeLocalExecutionSettingsFile(executionCwd);
+    setExactProjectCustomSetting("verification_command", command, executionCwd);
+}
 
 export function normalizeExecutionTargetBranch(value) {
     if (typeof value !== "string") return undefined;
@@ -495,6 +524,7 @@ export async function startActiveExecutionWorkflow(
                 await addRunWieldOwnedGitignoreBlock(projectRoot);
                 const worktreeArtifacts = await createWorktreeGitArtifacts(worktreeOptions);
                 await addRunWieldOwnedGitignoreBlock(worktreeArtifacts.path);
+                await seedExecutionWorktreeValidationCommand(projectRoot, worktreeArtifacts.path);
                 emitCreatedExecutionWorktree(hostedSession, {
                     worktreeBranch: worktreeArtifacts.branch,
                     baseBranch: worktreeArtifacts.baseBranch || worktreeArtifacts.baseRef,

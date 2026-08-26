@@ -5,6 +5,7 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { git } from "../git-test-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
+import { setCustomSetting } from "../settings.js";
 import type { RuntimeInteractionRequest, RuntimeInteractionResponse } from "../session/session-runtime-interactions.js";
 import { listEntries as listWorktreeRegistryEntries } from "../worktree-registry.js";
 import { executePlan } from "./plan-executor.ts";
@@ -160,6 +161,42 @@ Deno.test("executePlan runs preparation, Engineer, checkpoint, lifecycle, and re
             const registryEntries = await listWorktreeRegistryEntries(projectRoot);
             assertEquals(registryEntries.length, 1);
             assertEquals(registryEntries[0].status, "completed");
+        } finally {
+            fixture.hostedSession.dispose();
+        }
+    });
+});
+
+Deno.test("executePlan seeds the execution worktree with the project validation command", async () => {
+    await withRuntimeCommandFixture("plan-executor-ci-settings-", async ({ projectRoot, setModelMessages }) => {
+        await initializeGitProject(projectRoot);
+        await setCustomSetting("verification_command", "printf seeded", "project", projectRoot);
+        await saveExecutablePlan(projectRoot, "ci-settings");
+        setModelMessages([
+            fauxAssistantMessage(fauxToolCall("write", {
+                path: "implemented.txt",
+                content: "implemented\n",
+            })),
+            fauxAssistantMessage(fauxToolCall("task_completed", {
+                message: "- Implemented the fixture.\n- Verified setup.",
+            })),
+        ]);
+        const fixture = createSessionFixture(projectRoot);
+
+        try {
+            const result = await executePlan({
+                planName: "ci-settings",
+                triageMeta: { classification: "PLANNED_CHANGE" },
+                sessionManager: fixture.sessionManager,
+                hostedSession: fixture.hostedSession,
+            });
+
+            assert(result.executionContext?.executionCwd, JSON.stringify(result));
+            assertEquals(
+                JSON.parse(await Deno.readTextFile(`${result.executionContext.executionCwd}/.wld/settings.json`))
+                    .verification_command,
+                "printf seeded",
+            );
         } finally {
             fixture.hostedSession.dispose();
         }

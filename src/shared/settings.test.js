@@ -9,6 +9,7 @@ import {
     getCodeReviewMode,
     getCustomSetting,
     getDefaultPlanServerUrl,
+    getExactProjectCustomSetting,
     getGuidedReviewMode,
     getPlanArchiveRetentionPolicy,
     getResolvedVisionFallbackModelSetting,
@@ -21,6 +22,7 @@ import {
     setCompactionReserveTokens,
     setCustomSetting,
     setDefaultPlanServerUrl,
+    setExactProjectCustomSetting,
     shouldAutoGenerateWorkRecordsOnPlanCompletion,
     shouldCleanupMergedWorktrees,
 } from "./settings.js";
@@ -101,6 +103,46 @@ settingsTest({
             assertEquals(primarySettings.verification_command, "true");
             assertEquals(await getCustomSetting("verification_command", "project", worktreePath), "true");
             await assertRejects(() => Deno.stat(join(worktreePath, ".wld", "settings.json")), Deno.errors.NotFound);
+        } finally {
+            __resetSettingsForTests();
+            await git(cwd, ["worktree", "remove", "--force", worktreePath]).catch(() => {});
+            await Deno.remove(cwd, { recursive: true }).catch(() => {});
+        }
+    },
+});
+
+settingsTest({
+    name: "exact project settings stay in a linked worktree and reload from disk",
+    async fn() {
+        __resetSettingsForTests();
+        const cwd = await linkedWorktreeSettingsRepo.checkout();
+        const worktreePath = `${cwd}-exact-settings-worktree`;
+        const worktreeSettingsPath = join(worktreePath, ".wld", "settings.json");
+        try {
+            await Deno.mkdir(join(cwd, ".wld"), { recursive: true });
+            await Deno.writeTextFile(
+                join(cwd, ".wld", "settings.json"),
+                JSON.stringify({ verification_command: "primary-command" }, null, 4),
+            );
+            await git(cwd, ["worktree", "add", "-b", "exact-settings-side", worktreePath, "main"]);
+
+            await setExactProjectCustomSetting("verification_command", "worktree-command", worktreePath);
+
+            assertEquals(await getCustomSetting("verification_command", "project", worktreePath), "primary-command");
+            assertEquals(getExactProjectCustomSetting("verification_command", worktreePath), "worktree-command");
+            assertEquals(
+                JSON.parse(await Deno.readTextFile(worktreeSettingsPath)).verification_command,
+                "worktree-command",
+            );
+
+            await Deno.writeTextFile(
+                worktreeSettingsPath,
+                `{
+                    // JSONC stays readable on each exact read.
+                    "verification_command": "changed-command",
+                }`,
+            );
+            assertEquals(getExactProjectCustomSetting("verification_command", worktreePath), "changed-command");
         } finally {
             __resetSettingsForTests();
             await git(cwd, ["worktree", "remove", "--force", worktreePath]).catch(() => {});

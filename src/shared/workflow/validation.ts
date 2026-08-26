@@ -123,7 +123,8 @@ export function createEngineValidationArgs(args: ValidationLoopArgs): EngineVali
         executionContext: args.executionContext,
         git: args.git,
         localCI: {
-            run: ({ cwd }) => args.localCI.run({ hostedSession: args.hostedSession, cwd }),
+            run: ({ cwd }) =>
+                args.localCI.run({ hostedSession: args.hostedSession, cwd, settingsPolicy: "exact-project" }),
         },
         workRecordMnemosynePort: args.workRecordMnemosynePort,
         supportsSemanticRepairHandoff: args.supportsSemanticRepairHandoff,

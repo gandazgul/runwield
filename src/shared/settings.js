@@ -51,6 +51,25 @@ export function getSettingsDir(scope, projectRoot = Deno.cwd()) {
 }
 
 /**
+ * Get the project settings directory exactly under the supplied root.
+ * This bypasses primary-checkout resolution for validation worktrees.
+ *
+ * @param {string} projectRoot
+ * @returns {string}
+ */
+function getExactProjectSettingsDir(projectRoot) {
+    return join(projectRoot, ".wld");
+}
+
+/**
+ * @param {string} projectRoot
+ * @returns {string}
+ */
+function getExactProjectSettingsPath(projectRoot) {
+    return join(getExactProjectSettingsDir(projectRoot), "settings.json");
+}
+
+/**
  * RunWield custom storage for SettingsManager.
  *
  * Implementation Details:
@@ -72,6 +91,78 @@ function fileExists(path) {
     } catch {
         return false;
     }
+}
+
+/**
+ * Acquire a sync lock with retry on ELOCKED, mirroring upstream
+ * FileSettingsStorage behavior.
+ *
+ * @param {string} path
+ * @returns {() => void}
+ */
+function acquireSettingsLockSyncWithRetry(path) {
+    const maxAttempts = 10;
+    const delayMs = 20;
+    let lastError;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            return lockfile.lockSync(path, { realpath: false });
+        } catch (error) {
+            const code = (error && typeof error === "object" && "code" in error) ? String(error.code) : undefined;
+            if (code !== "ELOCKED" || attempt === maxAttempts) {
+                throw error;
+            }
+            lastError = error;
+            const start = Date.now();
+            while (Date.now() - start < delayMs) { /* busy-wait */ }
+        }
+    }
+
+    throw lastError ?? new Error("Failed to acquire settings lock");
+}
+
+/**
+ * Ensure a settings file exists before acquiring a proper-lockfile lock.
+ *
+ * @param {string} path
+ */
+function ensureSettingsFileForLock(path) {
+    try {
+        Deno.statSync(path);
+    } catch (_e) {
+        const parentDir = dirname(path);
+        try {
+            Deno.mkdirSync(parentDir, { recursive: true });
+        } catch (_e2) { /* ignore */ }
+        Deno.writeTextFileSync(path, "{}");
+    }
+}
+
+/**
+ * @param {string} path
+ * @returns {string | undefined}
+ */
+function readSettingsContent(path) {
+    try {
+        const raw = Deno.readTextFileSync(path);
+        return stripJsoncComments(raw);
+    } catch (_e) {
+        return undefined;
+    }
+}
+
+/**
+ * @param {string} path
+ * @param {string} content
+ */
+function writeSettingsContent(path, content) {
+    const parentDir = dirname(path);
+    try {
+        Deno.mkdirSync(parentDir, { recursive: true });
+    } catch (_e) { /* ignore */ }
+
+    Deno.writeTextFileSync(path, content);
 }
 
 /**
@@ -125,12 +216,7 @@ class RunWieldSettingsStorage {
         if (scope === "global") {
             migratePiSettingsOnce({ runwieldPath: path });
         }
-        try {
-            const raw = Deno.readTextFileSync(path);
-            return stripJsoncComments(raw);
-        } catch (_e) {
-            return undefined;
-        }
+        return readSettingsContent(path);
     }
 
     /**
@@ -141,41 +227,7 @@ class RunWieldSettingsStorage {
     #writeSettings(scope, content) {
         const path = this.#resolvePath(scope);
 
-        // ensure directory exists
-        const parentDir = dirname(path);
-        try {
-            Deno.mkdirSync(parentDir, { recursive: true });
-        } catch (_e) { /* ignore */ }
-
-        Deno.writeTextFileSync(path, content);
-    }
-
-    /**
-     * Acquire a sync lock with retry on ELOCKED, mirroring upstream
-     * FileSettingsStorage behavior.
-     * @param {string} path
-     * @returns {() => void}
-     */
-    #acquireLockSyncWithRetry(path) {
-        const maxAttempts = 10;
-        const delayMs = 20;
-        let lastError;
-
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            try {
-                return lockfile.lockSync(path, { realpath: false });
-            } catch (error) {
-                const code = (error && typeof error === "object" && "code" in error) ? String(error.code) : undefined;
-                if (code !== "ELOCKED" || attempt === maxAttempts) {
-                    throw error;
-                }
-                lastError = error;
-                const start = Date.now();
-                while (Date.now() - start < delayMs) { /* busy-wait */ }
-            }
-        }
-
-        throw lastError ?? new Error("Failed to acquire settings lock");
+        writeSettingsContent(path, content);
     }
 
     /**
@@ -195,17 +247,9 @@ class RunWieldSettingsStorage {
         if (newContent !== undefined && newContent !== content) {
             // Ensure the file exists before locking; proper-lockfile requires the
             // target to exist.
-            try {
-                Deno.statSync(path);
-            } catch (_e) {
-                const parentDir = dirname(path);
-                try {
-                    Deno.mkdirSync(parentDir, { recursive: true });
-                } catch (_e2) { /* ignore */ }
-                Deno.writeTextFileSync(path, "{}");
-            }
+            ensureSettingsFileForLock(path);
 
-            const release = this.#acquireLockSyncWithRetry(path);
+            const release = acquireSettingsLockSyncWithRetry(path);
             try {
                 this.#writeSettings(scope, newContent);
             } finally {
@@ -379,6 +423,55 @@ export async function setCustomSetting(key, value, scope = "project", projectRoo
     // Force Pi's manager to reload from disk so it doesn't accidentally
     // overwrite our custom key during its next flush() operation.
     await getSettingsManager(projectRoot).reload();
+}
+
+/**
+ * Safely reads a custom key from exactly `<projectRoot>/.wld/settings.json`.
+ * This bypasses primary-checkout resolution and parses the on-disk file each time.
+ *
+ * @param {string} key
+ * @param {string} projectRoot
+ * @returns {unknown}
+ */
+export function getExactProjectCustomSetting(key, projectRoot) {
+    const content = readSettingsContent(getExactProjectSettingsPath(projectRoot));
+    if (!content) return undefined;
+
+    try {
+        const parsed = /** @type {Record<string, unknown>} */ (parseJsonc(content));
+        return parsed[key];
+    } catch (_e) {
+        return undefined;
+    }
+}
+
+/**
+ * Safely writes a custom key to exactly `<projectRoot>/.wld/settings.json`.
+ * Output is always normalized JSON (no comments), matching ordinary custom writes.
+ *
+ * @param {string} key
+ * @param {unknown} value
+ * @param {string} projectRoot
+ */
+export function setExactProjectCustomSetting(key, value, projectRoot) {
+    const path = getExactProjectSettingsPath(projectRoot);
+    ensureSettingsFileForLock(path);
+
+    const release = acquireSettingsLockSyncWithRetry(path);
+    try {
+        const content = readSettingsContent(path);
+        let parsed = /** @type {Record<string, unknown>} */ ({});
+        if (content) {
+            try {
+                parsed = /** @type {Record<string, unknown>} */ (parseJsonc(content));
+            } catch (_e) { /* ignore */ }
+        }
+        parsed[key] = value;
+        const nextContent = preserveRunWieldCustomSettingsForWrite(content, JSON.stringify(parsed, null, 2));
+        writeSettingsContent(path, nextContent);
+    } finally {
+        release();
+    }
 }
 
 /**

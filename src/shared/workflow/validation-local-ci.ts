@@ -9,7 +9,12 @@
  * reader is never shown a partial log as if it were complete.
  */
 
-import { getCustomSetting, setCustomSetting } from "../settings.js";
+import {
+    getCustomSetting,
+    getExactProjectCustomSetting,
+    setCustomSetting,
+    setExactProjectCustomSetting,
+} from "../settings.js";
 import { spawnForegroundShell } from "../foreground-process.ts";
 import {
     captureProcessStreamTail,
@@ -29,19 +34,25 @@ import { classifyValidationOperationalError } from "./validation-operational-err
 
 const VALIDATION_STREAM_OUTPUT_LIMIT_BYTES = PROCESS_STREAM_OUTPUT_LIMIT_BYTES;
 
+export type ValidationCommandSettingsPolicy = "ordinary-project" | "exact-project";
+
 /**
  * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  * @param {string} projectRoot
+ * @param {ValidationCommandSettingsPolicy} settingsPolicy
  *
  * @returns {Promise<string>}
  */
 async function getOrAskForValidationCommand(
     hostedSession: import("../session/hosted-session.js").HostedSession,
     projectRoot: string,
+    settingsPolicy: ValidationCommandSettingsPolicy,
 ) {
-    const existingCommand = getCustomSetting("verification_command", "project", projectRoot);
-    if (existingCommand) {
-        return (existingCommand as string);
+    const existingCommand = settingsPolicy === "exact-project"
+        ? getExactProjectCustomSetting("verification_command", projectRoot)
+        : getCustomSetting("verification_command", "project", projectRoot);
+    if (typeof existingCommand === "string" && existingCommand.trim()) {
+        return existingCommand;
     }
 
     emitSystemStatus(hostedSession, buildValidationUserMessage({ kind: "validation_command_missing" }));
@@ -62,7 +73,11 @@ async function getOrAskForValidationCommand(
     }
 
     const newCommand = userInput.trim();
-    await setCustomSetting("verification_command", newCommand, "project", projectRoot);
+    if (settingsPolicy === "exact-project") {
+        setExactProjectCustomSetting("verification_command", newCommand, projectRoot);
+    } else {
+        await setCustomSetting("verification_command", newCommand, "project", projectRoot);
+    }
 
     emitSystemStatus(
         hostedSession,
@@ -85,18 +100,20 @@ export interface LocalCIPort {
     run(args: {
         hostedSession: import("../session/hosted-session.js").HostedSession;
         cwd: string;
+        settingsPolicy?: ValidationCommandSettingsPolicy;
     }): Promise<LocalCIResult>;
 }
 
 export async function runLocalCI(
-    { hostedSession, cwd }: {
+    { hostedSession, cwd, settingsPolicy = "ordinary-project" }: {
         hostedSession: import("../session/hosted-session.js").HostedSession;
         cwd: string;
+        settingsPolicy?: ValidationCommandSettingsPolicy;
     },
 ): Promise<LocalCIResult> {
     if (!cwd) throw new Error("runLocalCI: cwd is required");
     if (!hostedSession) throw new Error("runLocalCI: hostedSession is required");
-    const cmdArgs = await getOrAskForValidationCommand(hostedSession, cwd);
+    const cmdArgs = await getOrAskForValidationCommand(hostedSession, cwd, settingsPolicy);
 
     if (!cmdArgs) {
         const output =

@@ -1,10 +1,18 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { join } from "@std/path";
 
 import { HostedSession } from "../session/hosted-session.js";
-import { setCustomSetting } from "../settings.js";
+import { setCustomSetting, setExactProjectCustomSetting } from "../settings.js";
+import { defineGitFixture, git } from "../git-test-fixture.ts";
 import { runLocalCI } from "./validation-local-ci.ts";
 
 const IS_WINDOWS = Deno.build.os === "windows";
+
+const linkedWorktreeCiRepo = defineGitFixture(async (repoPath) => {
+    await Deno.writeTextFile(join(repoPath, "README.md"), "base\n");
+    await git(repoPath, ["add", "."]);
+    await git(repoPath, ["commit", "-m", "base"]);
+});
 
 function processAlive(pid: number): boolean {
     try {
@@ -60,6 +68,74 @@ Deno.test("runLocalCI returns an operational failure when no validation command 
         assertEquals(result.failure.recoveryClass, "missing_information");
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("runLocalCI exact-project mode reloads the settings file before each run", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-local-ci-exact-reload-" });
+    const settingsPath = join(cwd, ".wld", "settings.json");
+    const hostedSession = new HostedSession({ id: "local-ci-exact-reload-test", cwd });
+    try {
+        setExactProjectCustomSetting("verification_command", "printf cache-a", cwd);
+        const first = await runLocalCI({ hostedSession, cwd, settingsPolicy: "exact-project" });
+        assertEquals(first.kind, "completed");
+        if (first.kind !== "completed") throw new Error("CI should complete.");
+        assertStringIncludes(first.output, "cache-a");
+
+        const previousStat = await Deno.stat(settingsPath);
+        await Deno.writeTextFile(
+            settingsPath,
+            JSON.stringify({ verification_command: "printf cache-b" }, null, 2),
+        );
+        await Deno.utime(
+            settingsPath,
+            previousStat.atime ?? new Date(0),
+            previousStat.mtime ?? new Date(0),
+        );
+
+        const second = await runLocalCI({ hostedSession, cwd, settingsPolicy: "exact-project" });
+        assertEquals(second.kind, "completed");
+        if (second.kind !== "completed") throw new Error("CI should complete.");
+        assertStringIncludes(second.output, "cache-b");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("runLocalCI exact-project mode uses the linked worktree command and cwd", async () => {
+    const primaryRoot = await linkedWorktreeCiRepo.checkout({ prefix: "runwield-local-ci-primary-" });
+    const worktreePath = `${primaryRoot}-ci-worktree`;
+    const primaryMarker = join(primaryRoot, "primary-marker.txt");
+    const worktreeMarker = join(worktreePath, "worktree-marker.txt");
+    const cwdMarker = join(worktreePath, "cwd-marker.txt");
+    try {
+        await git(primaryRoot, ["worktree", "add", "-b", "local-ci-side", worktreePath, "main"]);
+        await setCustomSetting(
+            "verification_command",
+            `printf primary > ${JSON.stringify(primaryMarker)}`,
+            "project",
+            primaryRoot,
+        );
+        setExactProjectCustomSetting(
+            "verification_command",
+            `printf worktree > ${JSON.stringify(worktreeMarker)}; pwd > ${JSON.stringify(cwdMarker)}`,
+            worktreePath,
+        );
+        const hostedSession = new HostedSession({ id: "local-ci-exact-worktree-test", cwd: worktreePath });
+
+        const result = await runLocalCI({ hostedSession, cwd: worktreePath, settingsPolicy: "exact-project" });
+
+        assertEquals(result.kind, "completed");
+        if (result.kind !== "completed") throw new Error("CI should complete.");
+        assertEquals(await Deno.readTextFile(worktreeMarker), "worktree");
+        assertEquals(
+            await Deno.realPath((await Deno.readTextFile(cwdMarker)).trim()),
+            await Deno.realPath(worktreePath),
+        );
+        assertEquals(await Deno.readTextFile(primaryMarker).catch(() => "absent"), "absent");
+    } finally {
+        await git(primaryRoot, ["worktree", "remove", "--force", worktreePath]).catch(() => {});
+        await Deno.remove(primaryRoot, { recursive: true }).catch(() => {});
     }
 });
 

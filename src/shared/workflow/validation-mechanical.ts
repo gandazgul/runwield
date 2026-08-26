@@ -409,7 +409,11 @@ export async function dispatchCiRepair(
             worktreeBranch: context.worktreeBranch,
             worktreeBaseBranch: context.worktreeBaseBranch,
             repairsNeeded:
-                "The project failed CI validation. Fix the build errors below. If the repair involves tests, follow the write-tests skill for sound testing behavior.\n\n" +
+                "The project failed CI validation. The failing command is configured in this repair checkout's `.wld/settings.json` as `verification_command`. " +
+                "On a new project, that command can be the thing that is broken. Inspect `.wld/settings.json`; correct the command or implementation as needed. " +
+                "Run the configured command successfully in this repair checkout before you call `task_completed`. " +
+                "RunWield will independently reload `.wld/settings.json` and run the command again after Task Completion. " +
+                "If the repair involves tests, follow the write-tests skill for sound testing behavior.\n\n" +
                 getCiFailureReason(ciResult),
         }),
         cwd: context.executionCwd,
