@@ -435,8 +435,10 @@ export async function resolveValidationExecutionContext({
         );
     }
     if (!baselineTree) baselineTree = asString(registryEntry.executionBaselineTree) || asString(registryEntry.baseTree);
-    const candidateBaseCommit = asString(candidate.worktreeBaseCommit) || asString(candidate.baseCommit);
-    const candidateBaseRef = asString(candidate.worktreeBaseRef) || asString(candidate.baseRef);
+    const candidateBaseCommit = asString(registryEntry.baseCommit) || asString(candidate.worktreeBaseCommit) ||
+        asString(candidate.baseCommit);
+    const candidateBaseRef = asString(registryEntry.baseRef) || asString(candidate.worktreeBaseRef) ||
+        asString(candidate.baseRef);
     if (!baselineTree) {
         const baselineRef = candidateBaseCommit || asString(registryEntry.baseCommit) || candidateBaseRef ||
             asString(registryEntry.baseRef);

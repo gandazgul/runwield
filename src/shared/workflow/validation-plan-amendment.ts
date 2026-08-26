@@ -4,6 +4,7 @@
  */
 
 import {
+    canonicalizeStoredPlanName,
     getPlanRevisionForText,
     loadPlan,
     loadPlanStrict,
@@ -36,6 +37,36 @@ export type PlanAmendmentProposal = {
 
 type PlanFrontMatter = import("../../plan-store.js").PlanFrontMatter;
 type LoadedPlan = NonNullable<Awaited<ReturnType<typeof loadPlan>>>;
+
+async function readPlanFromGit(
+    executionCwd: string,
+    revision: string,
+    relativePath: string,
+): Promise<string | null> {
+    const output = await new Deno.Command("git", {
+        cwd: executionCwd,
+        args: ["show", `${revision}:${relativePath}`],
+        stdout: "piped",
+        stderr: "piped",
+    }).output();
+    return output.code === 0 ? new TextDecoder().decode(output.stdout) : null;
+}
+
+async function recoverMaterializedPlanBaseline(
+    executionCwd: string,
+    baseCommit: string,
+    relativePath: string,
+): Promise<string | null> {
+    const history = await new Deno.Command("git", {
+        cwd: executionCwd,
+        args: ["log", "--reverse", "--diff-filter=A", "--format=%H", `${baseCommit}..HEAD`, "--", relativePath],
+        stdout: "piped",
+        stderr: "piped",
+    }).output();
+    if (history.code !== 0) return null;
+    const firstCommit = new TextDecoder().decode(history.stdout).trim().split("\n").find(Boolean);
+    return firstCommit ? await readPlanFromGit(executionCwd, firstCommit, relativePath) : null;
+}
 
 function stringify(value: PlanFrontMatter[keyof PlanFrontMatter] | string): string {
     if (typeof value === "string") return value;
@@ -103,23 +134,21 @@ export async function detectValidationPlanAmendment(
     executionCwd: string,
     planName: string,
     baselineCommit?: string,
+    executionBaseCommit?: string,
 ): Promise<PlanAmendmentProposal | null> {
     if (projectRoot === executionCwd) return null;
     const execution = await loadPlanForAmendment(executionCwd, planName, "Execution-worktree");
     await assertPlanFileSafe(execution, "Execution-worktree");
     let primary: LoadedPlan;
     if (baselineCommit) {
-        const relativePath = `docs/plans/${planName}.md`;
-        const output = await new Deno.Command("git", {
-            cwd: executionCwd,
-            args: ["show", `${baselineCommit}:${relativePath}`],
-            stdout: "piped",
-            stderr: "piped",
-        }).output();
-        if (output.code !== 0) {
+        const relativePath = `docs/plans/${canonicalizeStoredPlanName(planName).name}.md`;
+        const markdown = await readPlanFromGit(executionCwd, baselineCommit, relativePath) ||
+            (executionBaseCommit
+                ? await recoverMaterializedPlanBaseline(executionCwd, executionBaseCommit, relativePath)
+                : null);
+        if (!markdown) {
             throw new Error(`The execution Plan baseline is unavailable for ${planName}.`);
         }
-        const markdown = new TextDecoder().decode(output.stdout);
         const parsed = parsePlanFrontMatter(markdown);
         primary = {
             ...execution,
