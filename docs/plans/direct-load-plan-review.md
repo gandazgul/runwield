@@ -13,9 +13,14 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-20T21:30:12-04:00"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "9cdf7a0e-0078-45a9-a932-eaeacd7cd5b9"
+    path: "docs/work-records/2026-08-26-direct-plan-review-from-load-plan.md"
+    lastAttemptAt: "2026-08-26T23:50:00.661Z"
 targetBranch: "main"
 ---
 
