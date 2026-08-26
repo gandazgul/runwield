@@ -2,55 +2,54 @@
  * @module shared/session/__tests__/agent-model-override
  * Tests for per-agent model override logic in session.js.
  *
- * Note: getConfiguredAgentModel() reads from the global settings singleton,
- * so full integration tests require a real settings.json. These tests verify
- * the resolution logic via direct mock patterns.
+ * Every assertion reads real settings through the production resolver.
+ * The fixture isolates HOME and restores process-global state after each read.
  */
 
 import { assertEquals } from "@std/assert";
+import { withRuntimeCommandFixture } from "../../../cmd/testing/runtime-command-fixture.ts";
+import { getConfiguredAgentModel } from "../session.js";
+
+/** @typedef {{ model?: string }} AgentModelSetting */
+/** @typedef {{ agents?: Record<string, AgentModelSetting> }} ModelPresetSetting */
 
 /**
- * Simulate getConfiguredAgentModel's logic (extracted for testability).
- *
  * @param {string} agentName
- * @param {Record<string, { model?: string }> | undefined} agents
+ * @param {Record<string, AgentModelSetting> | undefined} agents
  * @param {string | undefined} activeModelPreset
- * @param {Record<string, { agents?: Record<string, { model?: string }> }> | undefined} modelPresets
- * @returns {string | undefined}
+ * @param {Record<string, ModelPresetSetting> | undefined} modelPresets
+ * @returns {Promise<string | undefined>}
  */
-function simulateConfiguredAgentModel(agentName, agents, activeModelPreset, modelPresets) {
-    if (activeModelPreset) {
-        const preset = modelPresets?.[activeModelPreset];
-        const presetModel = preset?.agents?.[agentName]?.model;
-        if (presetModel) return presetModel;
-    }
-
-    return agents?.[agentName]?.model;
+async function readConfiguredAgentModel(agentName, agents, activeModelPreset, modelPresets) {
+    return await withRuntimeCommandFixture("agent-model-settings-", async ({ projectRoot, settingsPath }) => {
+        await Deno.writeTextFile(settingsPath, JSON.stringify({ agents, activeModelPreset, modelPresets }));
+        return getConfiguredAgentModel(agentName, projectRoot);
+    });
 }
 
-Deno.test("getConfiguredAgentModel returns undefined when no agents config", () => {
-    const result = simulateConfiguredAgentModel("router", undefined, undefined, undefined);
+Deno.test("getConfiguredAgentModel returns undefined when no agents config", async () => {
+    const result = await readConfiguredAgentModel("router", undefined, undefined, undefined);
     assertEquals(result, undefined);
 });
 
-Deno.test("getConfiguredAgentModel returns agent model from base config", () => {
+Deno.test("getConfiguredAgentModel returns agent model from base config", async () => {
     const agents = {
         router: { model: "openai/gpt-4" },
         operator: { model: "anthropic/claude-3" },
     };
-    const result = simulateConfiguredAgentModel("router", agents, undefined, undefined);
+    const result = await readConfiguredAgentModel("router", agents, undefined, undefined);
     assertEquals(result, "openai/gpt-4");
 });
 
-Deno.test("getConfiguredAgentModel returns undefined for unknown agent", () => {
+Deno.test("getConfiguredAgentModel returns undefined for unknown agent", async () => {
     const agents = {
         router: { model: "openai/gpt-4" },
     };
-    const result = simulateConfiguredAgentModel("nonexistent", agents, undefined, undefined);
+    const result = await readConfiguredAgentModel("nonexistent", agents, undefined, undefined);
     assertEquals(result, undefined);
 });
 
-Deno.test("getConfiguredAgentModel returns preset model when active preset is set", () => {
+Deno.test("getConfiguredAgentModel returns preset model when active preset is set", async () => {
     const agents = {
         router: { model: "openai/gpt-4" },
         operator: { model: "anthropic/claude-3" },
@@ -70,19 +69,19 @@ Deno.test("getConfiguredAgentModel returns preset model when active preset is se
     };
 
     // Active preset 'fast' overrides base
-    const result = simulateConfiguredAgentModel("router", agents, "fast", modelPresets);
+    const result = await readConfiguredAgentModel("router", agents, "fast", modelPresets);
     assertEquals(result, "openai/gpt-4o-mini");
 
     // Active preset 'quality' overrides base for router
-    const resultQuality = simulateConfiguredAgentModel("router", agents, "quality", modelPresets);
+    const resultQuality = await readConfiguredAgentModel("router", agents, "quality", modelPresets);
     assertEquals(resultQuality, "openai/gpt-4o");
 
     // Preset doesn't have operator -> falls back to base config
-    const resultOperator = simulateConfiguredAgentModel("operator", agents, "quality", modelPresets);
+    const resultOperator = await readConfiguredAgentModel("operator", agents, "quality", modelPresets);
     assertEquals(resultOperator, "anthropic/claude-3");
 });
 
-Deno.test("getConfiguredAgentModel returns preset model without base agents config", () => {
+Deno.test("getConfiguredAgentModel returns preset model without base agents config", async () => {
     const modelPresets = {
         codex: {
             agents: {
@@ -91,11 +90,11 @@ Deno.test("getConfiguredAgentModel returns preset model without base agents conf
         },
     };
 
-    const result = simulateConfiguredAgentModel("operator", undefined, "codex", modelPresets);
+    const result = await readConfiguredAgentModel("operator", undefined, "codex", modelPresets);
     assertEquals(result, "crofai/deepseek-v4-pro");
 });
 
-Deno.test("getConfiguredAgentModel ignores missing preset gracefully", () => {
+Deno.test("getConfiguredAgentModel ignores missing preset gracefully", async () => {
     const agents = {
         router: { model: "openai/gpt-4" },
     };
@@ -108,11 +107,11 @@ Deno.test("getConfiguredAgentModel ignores missing preset gracefully", () => {
     };
 
     // Unknown preset name -> fall back to base config
-    const result = simulateConfiguredAgentModel("router", agents, "nonexistent", modelPresets);
+    const result = await readConfiguredAgentModel("router", agents, "nonexistent", modelPresets);
     assertEquals(result, "openai/gpt-4");
 });
 
-Deno.test("getConfiguredAgentModel ignores preset with no agents field", () => {
+Deno.test("getConfiguredAgentModel ignores preset with no agents field", async () => {
     const agents = {
         router: { model: "openai/gpt-4" },
     };
@@ -120,20 +119,20 @@ Deno.test("getConfiguredAgentModel ignores preset with no agents field", () => {
         empty: {},
     };
 
-    const result = simulateConfiguredAgentModel("router", agents, "empty", modelPresets);
+    const result = await readConfiguredAgentModel("router", agents, "empty", modelPresets);
     assertEquals(result, "openai/gpt-4");
 });
 
-Deno.test("getConfiguredAgentModel - agent without model field in base config", () => {
+Deno.test("getConfiguredAgentModel - agent without model field in base config", async () => {
     const agents = {
         router: { model: "openai/gpt-4" },
         operator: {}, // no model field
     };
-    const result = simulateConfiguredAgentModel("operator", agents, undefined, undefined);
+    const result = await readConfiguredAgentModel("operator", agents, undefined, undefined);
     assertEquals(result, undefined);
 });
 
-Deno.test("getConfiguredAgentModel - preset partial override merges correctly", () => {
+Deno.test("getConfiguredAgentModel - preset partial override merges correctly", async () => {
     const agents = {
         router: { model: "openai/gpt-4" },
         planner: { model: "anthropic/claude-3-opus" },
@@ -149,9 +148,9 @@ Deno.test("getConfiguredAgentModel - preset partial override merges correctly", 
     };
 
     // Router overridden by preset
-    assertEquals(simulateConfiguredAgentModel("router", agents, "fast", modelPresets), "openai/gpt-4o-mini");
+    assertEquals(await readConfiguredAgentModel("router", agents, "fast", modelPresets), "openai/gpt-4o-mini");
     // Planner NOT in preset -> falls through to base
-    assertEquals(simulateConfiguredAgentModel("planner", agents, "fast", modelPresets), "anthropic/claude-3-opus");
+    assertEquals(await readConfiguredAgentModel("planner", agents, "fast", modelPresets), "anthropic/claude-3-opus");
     // Operator NOT in preset -> falls through to base
-    assertEquals(simulateConfiguredAgentModel("operator", agents, "fast", modelPresets), "openai/gpt-4o");
+    assertEquals(await readConfiguredAgentModel("operator", agents, "fast", modelPresets), "openai/gpt-4o");
 });

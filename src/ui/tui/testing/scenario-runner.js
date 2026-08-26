@@ -587,13 +587,6 @@ async function seedGoldenPriorSession(priorSession, fauxProvider) {
         ]);
         const created = await runtime.createInteractiveSession({ cwd: Deno.cwd(), mode: "new" });
         if (priorSession.agentName) await runtime.switchAgent(created.sessionId, { agentName: priorSession.agentName });
-        if (priorSession.model) {
-            await runtime.reconfigureSessionModel(
-                created.sessionId,
-                priorSession.model,
-                priorSession.provider || GOLDEN_FAUX_PROVIDER,
-            );
-        }
         await runtime.promptSession(created.sessionId, { initialRequest: priorSession.userText });
         if (priorSession.planName) {
             await runtime.runPlanningAgent(created.sessionId, {
@@ -608,6 +601,16 @@ async function seedGoldenPriorSession(priorSession, fauxProvider) {
             if (priorSession.agentName) {
                 await runtime.switchAgent(created.sessionId, { agentName: priorSession.agentName });
             }
+        }
+        // The fixture's model describes the saved final Agent. Plan-context
+        // setup can switch Agents, so select it after those transitions just
+        // as the user would before closing the Session.
+        if (priorSession.model) {
+            await runtime.reconfigureSessionModel(
+                created.sessionId,
+                priorSession.model,
+                priorSession.provider || GOLDEN_FAUX_PROVIDER,
+            );
         }
         let interrupted = false;
         if (priorSession.interrupted) {

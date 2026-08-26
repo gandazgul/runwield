@@ -12,6 +12,8 @@ import { loadAgentDef, normalizeAgentInternalName } from "./agents.js";
 export const ACTIVE_AGENT_CUSTOM_TYPE = "runwield.active_agent";
 export const MANUAL_MODEL_CUSTOM_TYPE = "runwield.manual_model";
 
+/** @typedef {Pick<import('./hosted-session.js').MinimalSessionManagerLike, 'getBranch' | 'getEntries'>} SessionEntryReader */
+
 /**
  * @typedef {Object} PersistedModelState
  * @property {string} provider
@@ -44,24 +46,37 @@ export function recordManualModelSelection(sessionManager, provider, model) {
 }
 
 /**
- * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} sessionManager
+ * @param {SessionEntryReader | undefined} sessionManager
+ * @param {string} [agentName] Only return a choice owned by this active Agent.
  * @returns {PersistedModelState | null}
  */
-export function readPersistedManualModelState(sessionManager) {
+export function readPersistedManualModelState(sessionManager, agentName) {
     const entries = getSessionEntries(sessionManager);
-    for (let i = entries.length - 1; i >= 0; i--) {
-        const entry = entries[i];
+    let activeAgent = "";
+    /** @type {PersistedModelState | null} */
+    let selection = null;
+    for (const entry of entries) {
+        const recordedAgent = readAgentNameFromEntry(entry);
+        if (recordedAgent) {
+            const nextAgent = normalizeAgentInternalName(recordedAgent);
+            // A manual choice belongs to one activation, not to the whole
+            // transcript. Switching away and back must not resurrect it.
+            if (activeAgent && nextAgent !== activeAgent) selection = null;
+            activeAgent = nextAgent;
+            continue;
+        }
         if (!entry || typeof entry !== "object") continue;
         const typed =
             /** @type {{ type?: string, customType?: string, data?: { provider?: unknown, model?: unknown } }} */ (entry);
         if (typed.type !== "custom" || typed.customType !== MANUAL_MODEL_CUSTOM_TYPE) continue;
         if (typeof typed.data?.model !== "string" || !typed.data.model.trim()) continue;
-        return {
+        selection = {
             provider: typeof typed.data.provider === "string" ? typed.data.provider.trim() : "",
             model: typed.data.model.trim(),
         };
     }
-    return null;
+    if (agentName && activeAgent && normalizeAgentInternalName(agentName) !== activeAgent) return null;
+    return selection;
 }
 
 /**
@@ -82,7 +97,7 @@ export function recordActiveAgent(sessionManager, agentName) {
 }
 
 /**
- * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} sessionManager
+ * @param {SessionEntryReader | undefined} sessionManager
  * @returns {string | null}
  */
 export function readPersistedActiveAgentName(sessionManager) {
@@ -146,7 +161,7 @@ export async function resolveResumeAgentName(sessionManager) {
 }
 
 /**
- * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} sessionManager
+ * @param {SessionEntryReader | undefined} sessionManager
  * @returns {unknown[]}
  */
 function getSessionEntries(sessionManager) {

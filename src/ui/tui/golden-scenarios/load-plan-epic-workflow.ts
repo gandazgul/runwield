@@ -246,6 +246,7 @@ export const loadPlanEpicChildMenusScenario = {
         { type: "type", text: "/load-plan ready-epic" },
         { type: "enter" },
         { type: "enter" },
+        { type: "waitForScreen", text: "Plan loaded: ready-epic/02-next", timeoutMs: 30000 },
         { type: "waitForIdle", timeoutMs: 30000 },
     ],
     assertions: [

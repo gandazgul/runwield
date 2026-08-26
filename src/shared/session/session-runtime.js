@@ -1225,7 +1225,6 @@ export class SessionRuntime {
                     await this.#activateSessionAgent(session, {
                         agentName,
                         model: provider ? `${provider}/${model}` : model,
-                        userModelOverride: true,
                         forceRebuild: true,
                         managedOperationCapability: capability,
                     });
@@ -3514,10 +3513,13 @@ export class SessionRuntime {
                 ));
             }
             let agentName = options.agentName || pendingIntent.agentName || null;
-            const persistedManualModel = readPersistedManualModelState(sessionManager);
-            const persistedModel = resolvePersistedResumeModel(sessionManager);
             if (descriptor.activateAgent !== false) {
-                agentName ||= await resolveResumeAgentName(sessionManager);
+                const resumeAgent = await resolveResumeAgentName(sessionManager);
+                agentName ||= resumeAgent;
+                const persistedManualModel = readPersistedManualModelState(sessionManager, agentName);
+                const persistedModel = agentName === resumeAgent
+                    ? resolvePersistedResumeModel(sessionManager)
+                    : undefined;
                 const persistedRootConfiguration = await resolvePersistedRootConfiguration(
                     agentName,
                     sessionManager,
@@ -4267,7 +4269,7 @@ export class SessionRuntime {
             if (this.#currentManagedOperations.has(sessionId)) {
                 return { ok: false, error: "managed_operation_in_progress" };
             }
-            return await this.#activateSessionAgent(session, { ...options, persistResolvedModel: true });
+            return await this.#activateSessionAgent(session, options);
         }
         return await this.#runManagedStandaloneMutation(
             sessionId,
@@ -4275,7 +4277,6 @@ export class SessionRuntime {
             async (activeSession, capability) => {
                 return await this.#activateSessionAgent(activeSession, {
                     ...options,
-                    persistResolvedModel: true,
                     managedOperationCapability: capability,
                 });
             },

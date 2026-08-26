@@ -155,6 +155,212 @@ export const slashAgentScenario = {
     ],
 };
 
+export const agentModelsAfterSavedTurnsScenario = {
+    name: "agent-models-after-saved-turns",
+    composedTui: true,
+    initialAgentName: "router",
+    terminal: { columns: 100, rows: 30 },
+    models: goldenModels,
+    globalSettings: {
+        ...configuredSettings(),
+        modelPresets: {
+            "golden-preset": {
+                agents: {
+                    router: { model: `${GOLDEN_PROVIDER}/${DEFAULT_MODEL}` },
+                    guide: { model: `${GOLDEN_PROVIDER}/${BASE_AGENT_MODEL}` },
+                    planner: { model: `${GOLDEN_PROVIDER}/${PRESET_MODEL}` },
+                },
+            },
+        },
+    },
+    captureModelTurns: true,
+    script: [
+        {
+            id: "saved-router-route",
+            agent: "router",
+            phase: "triage",
+            requiredTools: ["triage_report"],
+            toolCalls: [{
+                name: "triage_report",
+                arguments: {
+                    routingIntent: "INQUIRY",
+                    complexity: "LOW",
+                    summary: "Explain model selection.",
+                    sessionName: "model selection",
+                },
+            }],
+        },
+        { id: "saved-guide-first", agent: "guide", phase: "inquiry", ordinal: 1, text: "Guide first answer." },
+        { id: "saved-guide-next", agent: "guide", phase: "inquiry", ordinal: 2, text: "Guide next answer." },
+        ...plannerScript("saved-planner-first"),
+        {
+            id: "saved-planner-next",
+            agent: "planner",
+            phase: "plan_review",
+            ordinal: 2,
+            text: "Planner next answer.",
+        },
+    ],
+    actions: [
+        { type: "type", text: "Explain model selection." },
+        { type: "enter" },
+        { type: "waitForScreen", text: "Guide first answer." },
+        { type: "waitForIdle" },
+        { type: "type", text: "Explain a little more." },
+        { type: "enter" },
+        { type: "waitForScreen", text: "Guide next answer." },
+        { type: "waitForIdle" },
+        ...switchToPlannerAndSend("Plan a change."),
+        { type: "type", text: "Continue planning." },
+        { type: "enter" },
+        { type: "waitForScreen", text: "Planner next answer." },
+        { type: "waitForIdle" },
+    ],
+    assertions: [
+        (result: ConfigurationScenarioResult) => {
+            assertEquals(
+                result.state.modelTurns?.map(({ agent, provider, model }) => ({ agent, provider, model })),
+                [
+                    { agent: "router", provider: GOLDEN_PROVIDER, model: DEFAULT_MODEL },
+                    { agent: "guide", provider: GOLDEN_PROVIDER, model: BASE_AGENT_MODEL },
+                    { agent: "guide", provider: GOLDEN_PROVIDER, model: BASE_AGENT_MODEL },
+                    { agent: "planner", provider: GOLDEN_PROVIDER, model: PRESET_MODEL },
+                    { agent: "planner", provider: GOLDEN_PROVIDER, model: PRESET_MODEL },
+                ],
+            );
+            assertFooter(result, "Planner", PRESET_MODEL);
+        },
+    ],
+};
+
+export const routerManualModelHandoffScenario = {
+    ...agentModelsAfterSavedTurnsScenario,
+    name: "router-manual-model-does-not-pin-workflow-agents",
+    actions: [
+        { type: "type", text: `/model ${GOLDEN_PROVIDER}/${MANUAL_MODEL}` },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForScreen", text: `Switched model to ${GOLDEN_PROVIDER}/${MANUAL_MODEL}` },
+        { type: "waitForIdle" },
+        ...agentModelsAfterSavedTurnsScenario.actions,
+    ],
+    assertions: [(result: ConfigurationScenarioResult) => {
+        assertEquals(
+            result.state.modelTurns?.map(({ agent, provider, model }) => ({ agent, provider, model })),
+            [
+                { agent: "router", provider: GOLDEN_PROVIDER, model: MANUAL_MODEL },
+                { agent: "guide", provider: GOLDEN_PROVIDER, model: BASE_AGENT_MODEL },
+                { agent: "guide", provider: GOLDEN_PROVIDER, model: BASE_AGENT_MODEL },
+                { agent: "planner", provider: GOLDEN_PROVIDER, model: PRESET_MODEL },
+                { agent: "planner", provider: GOLDEN_PROVIDER, model: PRESET_MODEL },
+            ],
+        );
+        assertFooter(result, "Planner", PRESET_MODEL);
+    }],
+};
+
+export const agentModelsAfterRestartScenario = {
+    ...agentModelsAfterSavedTurnsScenario,
+    name: "agent-models-after-restart-and-resume",
+    actions: [
+        ...agentModelsAfterSavedTurnsScenario.actions.slice(0, 4),
+        { type: "restartTui", sessionStartMode: "continue" },
+        { type: "waitForIdle" },
+        ...agentModelsAfterSavedTurnsScenario.actions.slice(4),
+    ],
+};
+
+export const agentModelsAfterPresetReloadScenario = {
+    ...agentModelsAfterSavedTurnsScenario,
+    name: "agent-models-after-preset-reload",
+    globalSettings: {
+        ...agentModelsAfterSavedTurnsScenario.globalSettings,
+        modelPresets: {
+            ...agentModelsAfterSavedTurnsScenario.globalSettings.modelPresets,
+            alternate: {
+                agents: {
+                    guide: { model: `${GOLDEN_PROVIDER}/${MANUAL_MODEL}` },
+                    planner: { model: `${GOLDEN_PROVIDER}/${PRESET_MODEL}` },
+                },
+            },
+        },
+    },
+    scriptedInteractions: [
+        { type: "select", promptIncludes: "Settings", value: "model-presets" },
+        { type: "select", promptIncludes: "Model Presets", value: "preset:alternate" },
+        { type: "select", promptIncludes: "Model Presets", value: "back" },
+        { type: "select", promptIncludes: "Settings", value: "done" },
+    ],
+    actions: [
+        ...agentModelsAfterSavedTurnsScenario.actions.slice(0, 4),
+        { type: "type", text: "/settings" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForScreen", text: "Active model preset set to alternate." },
+        { type: "waitForIdle" },
+        ...agentModelsAfterSavedTurnsScenario.actions.slice(4),
+    ],
+    assertions: [(result: ConfigurationScenarioResult) => {
+        assertEquals(
+            result.state.modelTurns?.map(({ agent, provider, model }) => ({ agent, provider, model })),
+            [
+                { agent: "router", provider: GOLDEN_PROVIDER, model: DEFAULT_MODEL },
+                { agent: "guide", provider: GOLDEN_PROVIDER, model: BASE_AGENT_MODEL },
+                { agent: "guide", provider: GOLDEN_PROVIDER, model: MANUAL_MODEL },
+                { agent: "planner", provider: GOLDEN_PROVIDER, model: PRESET_MODEL },
+                { agent: "planner", provider: GOLDEN_PROVIDER, model: PRESET_MODEL },
+            ],
+        );
+        assertFooter(result, "Planner", PRESET_MODEL);
+    }],
+};
+
+export const namedAgentModelsAfterSavedTurnsScenario = {
+    ...agentModelsAfterSavedTurnsScenario,
+    name: "named-agent-models-after-saved-turns",
+    initialAgentName: "guide",
+    script: agentModelsAfterSavedTurnsScenario.script.slice(1),
+    assertions: [(result: ConfigurationScenarioResult) => {
+        assertEquals(
+            result.state.modelTurns?.map(({ agent, provider, model }) => ({ agent, provider, model })),
+            [
+                { agent: "guide", provider: GOLDEN_PROVIDER, model: BASE_AGENT_MODEL },
+                { agent: "guide", provider: GOLDEN_PROVIDER, model: BASE_AGENT_MODEL },
+                { agent: "planner", provider: GOLDEN_PROVIDER, model: PRESET_MODEL },
+                { agent: "planner", provider: GOLDEN_PROVIDER, model: PRESET_MODEL },
+            ],
+        );
+        assertFooter(result, "Planner", PRESET_MODEL);
+    }],
+};
+
+export const agentModelsAfterManualSelectionScenario = {
+    ...agentModelsAfterSavedTurnsScenario,
+    name: "agent-models-after-manual-selection-in-saved-session",
+    actions: [
+        ...agentModelsAfterSavedTurnsScenario.actions.slice(0, 4),
+        { type: "type", text: `/model ${GOLDEN_PROVIDER}/${MANUAL_MODEL}` },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForScreen", text: `Switched model to ${GOLDEN_PROVIDER}/${MANUAL_MODEL}` },
+        { type: "waitForIdle" },
+        ...agentModelsAfterSavedTurnsScenario.actions.slice(4),
+    ],
+    assertions: [(result: ConfigurationScenarioResult) => {
+        assertEquals(
+            result.state.modelTurns?.map(({ agent, provider, model }) => ({ agent, provider, model })),
+            [
+                { agent: "router", provider: GOLDEN_PROVIDER, model: DEFAULT_MODEL },
+                { agent: "guide", provider: GOLDEN_PROVIDER, model: BASE_AGENT_MODEL },
+                { agent: "guide", provider: GOLDEN_PROVIDER, model: MANUAL_MODEL },
+                { agent: "planner", provider: GOLDEN_PROVIDER, model: PRESET_MODEL },
+                { agent: "planner", provider: GOLDEN_PROVIDER, model: PRESET_MODEL },
+            ],
+        );
+        assertFooter(result, "Planner", PRESET_MODEL);
+    }],
+};
+
 export const slashAgentUnavailablePresetRecoveryScenario = {
     name: "slash-command-agent-unavailable-preset-model-recovery",
     composedTui: true,
@@ -266,7 +472,7 @@ export const slashAgentFrontmatterModelScenario = {
 };
 
 export const slashModelScenario = {
-    name: "slash-command-model-manual-override-survives-agent-switch",
+    name: "slash-command-model-manual-override-is-scoped-to-active-agent",
     slashCommands: ["model"],
     composedTui: true,
     initialAgentName: "guide",
@@ -284,6 +490,13 @@ export const slashModelScenario = {
             ordinal: 1,
             text: "Manual model handled the Guide turn.",
         },
+        {
+            id: "manual-model-guide-follow-up",
+            agent: "guide",
+            phase: "inquiry",
+            ordinal: 2,
+            text: "Manual model handled the Guide follow-up.",
+        },
         ...plannerScript("manual-model-planner-turn"),
     ],
     actions: [
@@ -296,12 +509,18 @@ export const slashModelScenario = {
         { type: "enter" },
         { type: "waitForEvent", event: "model:faux-provider:guide:inquiry" },
         { type: "waitForIdle" },
-        ...switchToPlannerAndSend("Keep the manual model after switching Agents."),
+        { type: "restartTui", sessionStartMode: "continue" },
+        { type: "waitForIdle" },
+        { type: "type", text: "Keep my model for the follow-up." },
+        { type: "enter" },
+        { type: "waitForScreen", text: "Manual model handled the Guide follow-up." },
+        { type: "waitForIdle" },
+        ...switchToPlannerAndSend("Use Planner's configured model after switching Agents."),
     ],
     assertions: [
         (result: ConfigurationScenarioResult) =>
             assertEventIncludes(result, `terminal:type:/model ${GOLDEN_PROVIDER}/${MANUAL_MODEL}`),
-        (result: ConfigurationScenarioResult) => assertEquals(result.state.modelTurns?.length, 2),
+        (result: ConfigurationScenarioResult) => assertEquals(result.state.modelTurns?.length, 3),
         (result: ConfigurationScenarioResult) =>
             assertTurn(result, 0, {
                 agent: "guide",
@@ -310,14 +529,20 @@ export const slashModelScenario = {
             }),
         (result: ConfigurationScenarioResult) =>
             assertTurn(result, 1, {
-                agent: "planner",
+                agent: "guide",
                 model: MANUAL_MODEL,
+                promptIncludes: ["You are the Guide — the read-mostly answer and orientation specialist in RunWield."],
+            }),
+        (result: ConfigurationScenarioResult) =>
+            assertTurn(result, 2, {
+                agent: "planner",
+                model: PRESET_MODEL,
                 promptIncludes: [
                     "You are the Planner — the Planned Change planning specialist in the RunWield system.",
                     PLANNER_PROMPT_MARKER,
                 ],
             }),
-        (result: ConfigurationScenarioResult) => assertFooter(result, "Planner", MANUAL_MODEL),
+        (result: ConfigurationScenarioResult) => assertFooter(result, "Planner", PRESET_MODEL),
         (result: ConfigurationScenarioResult) => {
             assertEquals(result.state.globalSettings?.defaultProvider, GOLDEN_PROVIDER);
             assertEquals(result.state.globalSettings?.defaultModel, MANUAL_MODEL);
@@ -355,7 +580,7 @@ export const slashModelUnavailableOverrideRecoveryScenario = {
         { type: "enter" },
         { type: "waitForScreen", text: `Switched model to ${GOLDEN_PROVIDER}/${MANUAL_MODEL}` },
         { type: "waitForIdle" },
-        ...switchToPlannerAndSend("Recover with the manual model override."),
+        ...switchToPlannerAndSend("Recover with Planner's configured model."),
     ],
     assertions: [
         (result: ConfigurationScenarioResult) => assertSystemError(result, `${GOLDEN_PROVIDER}/missing-manual`),
@@ -365,13 +590,13 @@ export const slashModelUnavailableOverrideRecoveryScenario = {
         (result: ConfigurationScenarioResult) =>
             assertTurn(result, 0, {
                 agent: "planner",
-                model: MANUAL_MODEL,
+                model: PRESET_MODEL,
                 promptIncludes: [
                     "You are the Planner — the Planned Change planning specialist in the RunWield system.",
                     PLANNER_PROMPT_MARKER,
                 ],
             }),
-        (result: ConfigurationScenarioResult) => assertFooter(result, "Planner", MANUAL_MODEL),
+        (result: ConfigurationScenarioResult) => assertFooter(result, "Planner", PRESET_MODEL),
         (result: ConfigurationScenarioResult) => {
             assertEquals(result.state.globalSettings?.defaultProvider, GOLDEN_PROVIDER);
             assertEquals(result.state.globalSettings?.defaultModel, MANUAL_MODEL);

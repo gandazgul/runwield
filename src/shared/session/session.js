@@ -81,12 +81,13 @@ import {
     _AGENT_ATTENTION_NUDGES,
     ATTENTION_NUDGE_TURN_INTERVAL,
     loadAgentDef,
+    normalizeAgentInternalName,
     resolveAgentDefsDir as _resolveAgentDefsDir,
     resolveSessionToolNames,
 } from "./agents.js";
 import { getCustomSetting, getMergedCustomSetting, getSettingsDir, getSettingsManager } from "../settings.js";
 import { modelSupportsImageInput, prepareImagesForModel, resolveVisionFallbackModel } from "./image-attachments.js";
-import { readPersistedModelState, recordActiveAgent } from "./active-agent-session.js";
+import { readPersistedActiveAgentName, readPersistedModelState, recordActiveAgent } from "./active-agent-session.js";
 import { extractBundledSkills, getBundledAgentDefsPath } from "./agent-assets.js";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
@@ -1024,11 +1025,15 @@ async function resolveModel(
     /** @type {Array<{ model: string, source: string, strict: boolean }>} */
     const candidateModels = [];
 
-    // Only use the active model if the user explicitly selected it via /model.
-    // After agent switches, clearUserModelOverride() clears the flag but the
-    // activeModel may still hold the previous agent's model — we must skip it.
+    // A manual choice is scoped to the current Agent. Build a replacement
+    // without borrowing that choice, while retaining it if construction fails.
     const activeModelState = hostedSession?.getActiveModelState?.() || { model: "", provider: "" };
-    if (activeModelState.model && hostedSession?.isUserModelOverride?.()) {
+    const activeAgentName = hostedSession?.getRootAgentName?.() ||
+        readPersistedActiveAgentName(hostedSession?.getRootSessionManager?.() || undefined) ||
+        hostedSession?.getActiveAgentInfo?.()?.agentName;
+    const sameAgent = !activeAgentName || !agentName ||
+        normalizeAgentInternalName(activeAgentName) === normalizeAgentInternalName(agentName);
+    if (activeModelState.model && hostedSession?.isUserModelOverride?.() && sameAgent) {
         candidateModels.push({
             model: formatProviderModelReference(activeModelState),
             source: "manual /model override",
@@ -3188,7 +3193,6 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
  * @param {string} [opts.cwd]
  * @param {string} [opts.projectStateContext]
  * @param {boolean} [opts.includeEditFallback]
- * @param {boolean} [opts.persistResolvedModel]
  * @param {import('./types.js').AgentMessageHandler} [opts.activeHandler]
  * @param {string} [opts.debugLogPath]
  * @param {import('./managed-operation.ts').ManagedOperationCapability} [opts.managedOperationCapability]
@@ -3268,7 +3272,11 @@ export async function ensureRootAgentSession(opts) {
         /** @type {{ sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager }} */ (session)
             .sessionManager
     );
-    if (opts.persistResolvedModel && activeSessionManager && resolvedModel) {
+    // Pi writes the initial model, but does not write model changes when a
+    // replacement root shares an existing transcript. Always save the selected
+    // model, including preset reloads of the same Agent. Hydration selects the
+    // saved model, so rebuilding an unchanged root adds no duplicate entry.
+    if (activeSessionManager && resolvedModel) {
         const persistedModel = readPersistedModelState(activeSessionManager);
         if (
             !persistedModel || persistedModel.provider !== resolvedModel.provider ||

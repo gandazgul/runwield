@@ -4,7 +4,8 @@
  */
 
 import { createAgentHandler } from "./agent-handler.js";
-import { readPersistedManualModelState } from "./active-agent-session.js";
+import { readPersistedActiveAgentName, readPersistedManualModelState } from "./active-agent-session.js";
+import { normalizeAgentInternalName } from "./agents.js";
 import {
     appendDebugLog,
     ensureRootAgentSession,
@@ -16,7 +17,7 @@ import {
 } from "./session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
 
-/** @type {WeakMap<import('./hosted-session.js').HostedSession, { agentName: string, model?: string, cwd?: string, manualModel?: string }>} */
+/** @type {WeakMap<import('./hosted-session.js').HostedSession, { agentName: string, model?: string, cwd?: string }>} */
 const switchMetadata = new WeakMap();
 
 /** @type {WeakMap<Function, { agentName: string }>} */
@@ -26,8 +27,6 @@ const handlerMetadata = new WeakMap();
  * @typedef {Object} AgentSwitchOptions
  * @property {string} agentName
  * @property {string} [model]
- * @property {boolean} [userModelOverride]
- * @property {boolean} [persistResolvedModel]
  * @property {string} [cwd]
  * @property {boolean} [forceRebuild]
  * @property {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
@@ -86,17 +85,21 @@ export async function switchActiveAgent(hostedSession, options) {
     const rootSwitchState = getRootSessionSwitchState(hostedSession);
     const previousSwitch = switchMetadata.get(hostedSession);
     const effectiveModel = rootSwitchState?.model ?? previousSwitch?.model ?? activeModelState.model;
-    const inheritedManualModel = previousSwitch?.manualModel || (() => {
-        const persisted = readPersistedManualModelState(
-            /** @type {import('@earendil-works/pi-coding-agent').SessionManager | undefined} */ (
-                options.sessionManager || hostedSession.getRootSessionManager?.()
-            ),
-        );
+    const sessionManager = options.sessionManager || hostedSession.getRootSessionManager?.() || undefined;
+    const selectionAgent = previousAgentName || readPersistedActiveAgentName(sessionManager) ||
+        hostedSession.getActiveAgentInfo?.()?.agentName;
+    const changesAgent = !!selectionAgent &&
+        normalizeAgentInternalName(selectionAgent) !== normalizeAgentInternalName(agentName);
+    const inheritedManualModel = (() => {
+        if (!changesAgent && hostedSession.isUserModelOverride?.()) {
+            return activeModelState.provider && !activeModelState.model.startsWith(`${activeModelState.provider}/`)
+                ? `${activeModelState.provider}/${activeModelState.model}`
+                : activeModelState.model;
+        }
+        const persisted = readPersistedManualModelState(sessionManager, agentName);
         if (!persisted) return undefined;
         return persisted.provider ? `${persisted.provider}/${persisted.model}` : persisted.model;
     })();
-    const isManualModelOverride = options.userModelOverride === true ||
-        (options.model !== undefined && hostedSession.isUserModelOverride?.() === true);
     const modelOverride = options.model ?? inheritedManualModel;
     const configuredModel = modelOverride === undefined
         ? getConfiguredAgentModel(agentName, hostedSession.cwd)
@@ -123,7 +126,6 @@ export async function switchActiveAgent(hostedSession, options) {
         projectStateContext: options.projectStateContext,
         includeEditFallback: options.includeEditFallback,
         debugLogPath: options.debugLogPath,
-        persistResolvedModel: options.persistResolvedModel,
         managedOperationCapability,
     };
     const canReuseRoot = previousRootSession && !options.forceRebuild && !modelChanged &&
@@ -134,9 +136,6 @@ export async function switchActiveAgent(hostedSession, options) {
         agentName,
         model: requestedModel ?? effectiveModel,
         cwd: cwdProvided ? options.cwd : effectiveCwd,
-        ...((isManualModelOverride ? options.model : inheritedManualModel) !== undefined
-            ? { manualModel: isManualModelOverride ? options.model : inheritedManualModel }
-            : {}),
     };
     const previousHandlerMetadata = typeof previousHandler === "function" ? handlerMetadata.get(previousHandler) : null;
     const canReuseHandler = Boolean(
@@ -174,6 +173,14 @@ export async function switchActiveAgent(hostedSession, options) {
         hostedSession.setActiveOnMessage(handler);
     }
     hostedSession.assertActive();
+    // Clear only after a successful switch; a failed build must preserve the
+    // previous Agent and its manual model selection.
+    if (changesAgent) {
+        hostedSession.clearUserModelOverride();
+        if (hostedSession.getPendingManagedTurnIntent().manualModel) {
+            hostedSession.mergePendingManagedTurnIntent({ model: "", provider: "", manualModel: false });
+        }
+    }
     switchMetadata.set(hostedSession, nextMetadata);
     const changed = shouldRebuildRoot || previousAgentName !== agentName || !canReuseHandler;
     if (changed) {

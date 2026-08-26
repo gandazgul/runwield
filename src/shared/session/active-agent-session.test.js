@@ -1,4 +1,5 @@
 import { assertEquals } from "@std/assert";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { AGENTS } from "../../constants.js";
 import {
     ACTIVE_AGENT_CUSTOM_TYPE,
@@ -88,6 +89,34 @@ Deno.test("readPersistedManualModelState ignores malformed markers", () => {
         provider: "openai-codex",
         model: "gpt-5.5",
     });
+});
+
+Deno.test("manual model belongs to the active Agent and does not return after switching away and back", () => {
+    const sessionManager = SessionManager.inMemory("/tmp");
+    recordActiveAgent(sessionManager, "router");
+    recordManualModelSelection(sessionManager, "test-provider", "manual");
+    assertEquals(readPersistedManualModelState(sessionManager, "router"), {
+        provider: "test-provider",
+        model: "manual",
+    });
+    assertEquals(readPersistedManualModelState(sessionManager, "planner"), null);
+    recordActiveAgent(sessionManager, "Router");
+    assertEquals(readPersistedManualModelState(sessionManager)?.model, "manual");
+    recordActiveAgent(sessionManager, "planner");
+    assertEquals(readPersistedManualModelState(sessionManager), null);
+    recordActiveAgent(sessionManager, "router");
+    assertEquals(readPersistedManualModelState(sessionManager), null);
+    recordManualModelSelection(sessionManager, "test-provider", "new-choice");
+    assertEquals(readPersistedManualModelState(sessionManager)?.model, "new-choice");
+});
+
+Deno.test("manual model selected before the first Agent marker survives initial activation only", () => {
+    const sessionManager = SessionManager.inMemory("/tmp");
+    recordManualModelSelection(sessionManager, "test-provider", "manual");
+    recordActiveAgent(sessionManager, "router");
+    assertEquals(readPersistedManualModelState(sessionManager)?.model, "manual");
+    recordActiveAgent(sessionManager, "guide");
+    assertEquals(readPersistedManualModelState(sessionManager), null);
 });
 
 Deno.test("resolveResumeAgentName returns persisted valid agent", async () => {
