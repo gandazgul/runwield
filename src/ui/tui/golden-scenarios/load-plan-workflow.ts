@@ -536,13 +536,56 @@ export const loadPlanImplementedFollowUpRepaintsScenario = {
     composedTui: true,
     initialAgentName: "guide",
     terminal: { columns: 120, rows: 34 },
-    timeoutMs: 90000,
-    coverage: ["recovery:load-plan-worktree", "durable:session-replaced"],
-    initialProjectFiles: [
+    timeoutMs: 150000,
+    coverage: ["recovery:load-plan-worktree", "durable:session-replaced", "workflow:follow-up-validation"],
+    committedProjectFiles: [
+        { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
         {
             path: "docs/plans/follow-up-repaint.md",
             text:
-                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Follow up repaint\naffectedPaths: []\nstatus: ready_for_work\nplanId: follow-up-repaint-plan\n---\n# Follow up repaint\n",
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Follow up repaint\naffectedPaths: []\nstatus: ready_for_work\nplanId: follow-up-repaint-plan\nhumanReviewMode: none\nhumanReviewDecision: not_required\n---\n# Follow up repaint\n",
+        },
+    ],
+    script: [
+        {
+            id: "engineer-completes-follow-up-repaint",
+            agent: "engineer",
+            phase: "engineer",
+            planName: "follow-up-repaint",
+            ordinal: 1,
+            requiredTools: ["bash", "task_completed"],
+            toolCalls: [
+                { name: "bash", arguments: { command: "printf follow-up > follow-up-repaint-validation.txt" } },
+                { name: "task_completed", arguments: { message: "- Completed follow-up validation trigger." } },
+            ],
+        },
+        {
+            id: "engineer-closes-follow-up-repaint",
+            agent: "engineer",
+            phase: "engineer",
+            planName: "follow-up-repaint",
+            ordinal: 2,
+            text: "Follow-up completed.",
+        },
+        {
+            id: "reviewer-approves-follow-up-repaint",
+            agent: "reviewer",
+            phase: "semantic_review",
+            planName: "follow-up-repaint",
+            ordinal: 1,
+            requiredTools: ["review_diff", "review_complete"],
+            toolCalls: [
+                { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_complete", arguments: { approved: true, feedback: "Follow-up approved." } },
+            ],
+        },
+        {
+            id: "reviewer-closes-follow-up-repaint",
+            agent: "reviewer",
+            phase: "semantic_review",
+            planName: "follow-up-repaint",
+            ordinal: 2,
+            text: "Follow-up validation approved.",
         },
     ],
     scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (implemented)", value: "follow_up" }],
@@ -551,6 +594,11 @@ export const loadPlanImplementedFollowUpRepaintsScenario = {
             type: "seedActiveWorktree",
             planName: "follow-up-repaint",
             status: "implemented",
+            attrs: {
+                executionMode: "worktree",
+                humanReviewMode: "none",
+                humanReviewDecision: "not_required",
+            },
             files: [{ path: "follow-up-repaint.txt", text: "implemented\n" }],
         },
         { type: "type", text: "/load-plan follow-up-repaint" },
@@ -558,26 +606,37 @@ export const loadPlanImplementedFollowUpRepaintsScenario = {
         { type: "enter" },
         { type: "waitForEvent", event: "runtime:session-replaced:execution_follow_up", timeoutMs: 30000 },
         { type: "waitForScreen", text: "Plan Engineer", timeoutMs: 30000 },
+        { type: "captureProjectState", planNames: ["follow-up-repaint"], key: "afterFollowUpReplacement" },
+        { type: "type", text: "Please finish the follow-up." },
+        { type: "enter" },
+        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
+        { type: "waitForRemotePlanStatus", planName: "follow-up-repaint", statuses: ["validated"], timeoutMs: 90000 },
+        { type: "waitForIdle", timeoutMs: 90000 },
         { type: "captureProjectState", planNames: ["follow-up-repaint"] },
     ],
     assertions: [
         assertsGoldenCoverage("recovery:load-plan-worktree", (result: GoldenScenarioResult) => {
             assertEventIncludes(result, "terminal:type:/load-plan follow-up-repaint");
             assertEventIncludes(result, "runtime:session-replaced:execution_follow_up");
+            assertEventIncludes(result, "runtime:tool:start:task_completed");
             assertScreenIncludes(result, "Plan Engineer");
             assertScreenIncludes(result, "follow-up-repaint");
         }),
         assertsGoldenCoverage("durable:session-replaced", (result: GoldenScenarioResult) => {
             const snapshot = result.state.snapshot as RuntimeSnapshotState | undefined;
-            const entry = projectState(result).registryEntries?.find((candidate) =>
+            const replacementState = result.state.afterFollowUpReplacement as CapturedProjectState | undefined;
+            const entry = replacementState?.registryEntries?.find((candidate) =>
                 candidate.planName === "follow-up-repaint"
             );
             assert(entry?.path, "Expected the seeded worktree registry entry to record its path.");
             assertEquals(snapshot?.cwd, entry.path);
             assertEquals(snapshot?.activeAgent, "plan-engineer");
-            assertEquals(snapshot?.activeExecutionWorkflow?.planName, "follow-up-repaint");
-            assertEquals(snapshot?.activeExecutionWorkflow?.executionCwd, entry.path);
-            assertEquals(planStatus(result, "follow-up-repaint"), "implemented");
+            assertEquals(planStatus(result, "follow-up-repaint"), "validated");
+        }),
+        assertsGoldenCoverage("workflow:follow-up-validation", (result: GoldenScenarioResult) => {
+            assertEventIncludes(result, "runtime:tool:start:task_completed");
+            assertEventIncludes(result, "publication:remote-plan-status:follow-up-repaint:validated");
+            assertEquals(planStatus(result, "follow-up-repaint"), "validated");
         }),
     ],
 };

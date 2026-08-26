@@ -136,6 +136,67 @@ Deno.test("rejects Plan and registry worktree identity mismatches before returni
     assertEquals(evidence.kind, "recovery_required");
 });
 
+Deno.test("registry owns mutable worktree facts while Plan validation state owns lifecycle", async () => {
+    const { root, revision } = await makeProject();
+    const executionRoot = await Deno.makeTempDir({ prefix: "runwield-plan-action-validation-repair-" });
+    await savePlan(root, "demo", "# Demo\n\nPrimary copy\n", {
+        planId: "plan-demo",
+        status: "ready_for_work",
+        classification: "FEATURE",
+    }, { expectedRevision: revision });
+    await savePlan(executionRoot, "demo", "# Demo\n\nImplemented\n", {
+        planId: "plan-demo",
+        status: "implemented",
+        classification: "FEATURE",
+        executionMode: "worktree",
+        worktreeId: "attempt-one",
+        worktreePath: "/stale/path",
+        worktreeBranch: "stale/branch",
+        worktreeBaseBranch: "stale-base",
+        worktreeStatus: "validation_failed",
+        validationCheckpoint: {
+            version: 1,
+            attemptId: "attempt-one",
+            generation: "generation-one",
+            expectedStatus: "implemented",
+            nextPhase: "mechanical",
+            state: "awaiting_repair",
+            repairKind: "semantic",
+            repairGeneration: "repair-one",
+        },
+    });
+    await writeRegistry(root, [{
+        id: "attempt-one",
+        planName: "demo",
+        planId: "plan-demo",
+        baseBranch: "main",
+        baseRef: "refs/heads/main",
+        baseCommit: "111",
+        branch: "rw/demo-1",
+        path: executionRoot,
+        status: "completed",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+    }]);
+
+    const evidence = await loadPlanActionEvidence(root, "plan-demo");
+
+    assertEquals(evidence.kind, "success");
+    if (evidence.kind === "success") {
+        assertEquals(evidence.evidence.status, "implemented");
+        assertEquals(evidence.evidence.worktree, {
+            kind: "attempt",
+            id: "attempt-one",
+            planId: "plan-demo",
+            status: "completed",
+            branch: "rw/demo-1",
+            baseBranch: "main",
+            baseRef: "refs/heads/main",
+            baseCommit: "111",
+        });
+    }
+});
+
 Deno.test("live execution Plan owns action evidence when the primary copy is stale", async () => {
     const { root } = await makeProject();
     const executionRoot = await Deno.makeTempDir({ prefix: "runwield-plan-action-execution-" });

@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { listAgentDefNames, loadAgentDef } from "./agents.js";
+import { _AGENT_ATTENTION_NUDGES, listAgentDefNames, loadAgentDef } from "./agents.js";
 
 const BUNDLED_AGENT_DEFS = join("src", "agent-definitions");
 const SHARED_PRACTICE_DIR = join(BUNDLED_AGENT_DEFS, "shared-practice");
@@ -48,6 +48,8 @@ const PLANNING_PRACTICE_CONSUMERS: ReadonlyArray<[string, readonly string[]]> = 
 const WORK_RECORD_CONSUMERS: readonly string[] = ["guide", "planner", "architect", "ideator"];
 
 const USER_AUTHORITY_MARKER = "After one concern, the discussion is complete. The user decides. Continue the work.";
+const PLAN_EDIT_DEFAULT_MARKER = "Never initiate or make an unrequested Plan edit";
+const PLAN_EDIT_USER_OVERRIDE_MARKER = "If the user explicitly asks you to revise the active Plan";
 const SHOW_THE_WORK_MARKER = "Explain the work the way you would at a whiteboard with a coworker";
 const WORKING_TREE_MARKER = "`git stash` is the last resort when you genuinely cannot proceed";
 const WORK_RECORD_MARKER = "do not call it ritualistically on every turn";
@@ -205,6 +207,36 @@ Deno.test("every bundled top-level agent receives the user-authority policy", as
     for (const agentName of await listAgentDefNames()) {
         const def = await loadAgentDef(agentName);
         assertStringIncludes(def.systemPrompt, USER_AUTHORITY_MARKER, `${agentName} is missing user authority`);
+    }
+});
+
+Deno.test("Plan executors keep a strict no-self-edit boundary while explicit user authority wins", async () => {
+    for (const agentName of PLAN_EXECUTION_PERSONAS) {
+        const { systemPrompt } = await loadAgentDef(agentName);
+        const normalizedPrompt = systemPrompt.replaceAll(/\s+/g, " ");
+        const defaultIndex = normalizedPrompt.indexOf(PLAN_EDIT_DEFAULT_MARKER);
+        const overrideIndex = normalizedPrompt.indexOf(PLAN_EDIT_USER_OVERRIDE_MARKER);
+
+        assertEquals(defaultIndex >= 0, true, `${agentName} lost the strict unrequested Plan-edit boundary`);
+        assertEquals(
+            overrideIndex > defaultIndex,
+            true,
+            `${agentName} does not resolve the boundary for user authority`,
+        );
+        assertStringIncludes(
+            normalizedPrompt,
+            "Do not send the user to Planner, repeat the boundary, or call the request a blocker",
+        );
+        assertStringIncludes(
+            normalizedPrompt,
+            "call `task_completed` only when its revised requirements are actually complete",
+        );
+    }
+
+    for (const agentName of PLAN_EXECUTION_PERSONAS) {
+        const nudge = _AGENT_ATTENTION_NUDGES[agentName];
+        assertStringIncludes(nudge, "never edit the Plan on your own or to match what you built");
+        assertStringIncludes(nudge, "raise at most one concern, then make the exact edit and continue");
     }
 });
 

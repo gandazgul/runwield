@@ -161,7 +161,7 @@ Deno.test("buildPlanEventUpdates keeps implemented status when validation fails"
     });
 
     assertEquals(updates.status, "implemented");
-    assertEquals(updates.worktreeStatus, "validation_failed");
+    assertEquals(updates.worktreeStatus, undefined);
     assertEquals(updates.failureReason, "CI failed");
 });
 

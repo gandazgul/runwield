@@ -65,14 +65,6 @@ type WorktreeEntry = {
 };
 
 const SETTLED_WORKTREE_STATUSES = new Set(["abandoned", "none"]);
-const NONTERMINAL_WORKTREE_STATUSES = new Set([
-    "active",
-    "completed",
-    "execution_failed",
-    "validation_failed",
-    "validated",
-]);
-
 type WorktreeEvidenceResult = Awaited<ReturnType<typeof readPlanActionWorktreeEvidence>>;
 type WorktreeEvidenceOk = Extract<WorktreeEvidenceResult, { kind: "ok" }>;
 
@@ -135,11 +127,6 @@ function validatePlanRegistryIdentity(
     registry: WorktreeEvidenceOk,
 ): { message: string; entryIds: string[] } | null {
     const planWorktreeId = recordedWorktreeId(attrs);
-    const planWorktreeStatus = typeof attrs.worktreeStatus === "string" && attrs.worktreeStatus.trim()
-        ? attrs.worktreeStatus.trim()
-        : "none";
-    const planWorktreeBranch = typeof attrs.worktreeBranch === "string" ? attrs.worktreeBranch : null;
-    const planWorktreeBaseBranch = typeof attrs.worktreeBaseBranch === "string" ? attrs.worktreeBaseBranch : null;
     const recordedEntry = planWorktreeId ? registry.entries.find((entry) => entry.id === planWorktreeId) : null;
 
     if (planWorktreeId && !recordedEntry) {
@@ -149,29 +136,11 @@ function validatePlanRegistryIdentity(
             entryIds: [planWorktreeId],
         };
     }
-    if (recordedEntry) {
-        if (recordedEntry.status !== planWorktreeStatus) {
-            return {
-                message:
-                    "The Plan worktree status does not match the registry. Review recovery before mutating the Plan.",
-                entryIds: [recordedEntry.id],
-            };
-        }
-        if (planWorktreeBranch !== null && recordedEntry.branch !== planWorktreeBranch) {
-            return {
-                message:
-                    "The Plan worktree branch does not match the registry. Review recovery before mutating the Plan.",
-                entryIds: [recordedEntry.id],
-            };
-        }
-        if (planWorktreeBaseBranch !== null && recordedEntry.baseBranch !== planWorktreeBaseBranch) {
-            return {
-                message:
-                    "The Plan worktree base branch does not match the registry. Review recovery before mutating the Plan.",
-                entryIds: [recordedEntry.id],
-            };
-        }
-    }
+    // The Plan stores the attempt id so an execution copy can find its registry
+    // record. The registry owns every mutable attempt fact: status, branch, path,
+    // and base. Older Plans duplicated those values in front matter. They can be
+    // stale after a perfectly valid execution or validation transition, so they
+    // are migration hints only and must never veto current registry evidence.
     if (registry.live) {
         if (!planWorktreeId) {
             return {
@@ -180,20 +149,13 @@ function validatePlanRegistryIdentity(
                 entryIds: [registry.live.id],
             };
         }
-        if (registry.live.id !== planWorktreeId || !NONTERMINAL_WORKTREE_STATUSES.has(planWorktreeStatus)) {
+        if (registry.live.id !== planWorktreeId) {
             return {
                 message:
                     "The Plan live worktree identity does not match the registry. Review recovery before mutating the Plan.",
                 entryIds: [registry.live.id, planWorktreeId],
             };
         }
-    }
-    if (!registry.live && NONTERMINAL_WORKTREE_STATUSES.has(planWorktreeStatus)) {
-        return {
-            message:
-                "The Plan records a live worktree attempt that is not live in the registry. Review recovery before mutating the Plan.",
-            entryIds: planWorktreeId ? [planWorktreeId] : [],
-        };
     }
     return null;
 }

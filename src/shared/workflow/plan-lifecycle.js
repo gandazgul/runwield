@@ -700,7 +700,10 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "validation_failed") {
-        if (!details.nonGitInPlace) updates.worktreeStatus = "validation_failed";
+        // Validation state belongs to the Plan status/checkpoint. The worktree
+        // registry separately owns attempt state and remains `completed` while a
+        // finished implementation is repaired and revalidated. Do not duplicate
+        // that mutable state in Plan front matter.
         updates.failureReason = details.failureReason || "Workflow Validation failed.";
     }
 

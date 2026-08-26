@@ -19,6 +19,7 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         "workflow:PLANNED_CHANGE",
         "workflow:PROJECT",
         "workflow:load-plan",
+        "workflow:follow-up-validation",
         "workflow:concurrent-plans",
     ],
     presentation: [
