@@ -3,7 +3,6 @@ planId: "32c6af85-eb16-4a4a-b0ae-c4dd261a8162"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
-summary: "Let load-plan open an Implemented Plan's existing execution Agent in its worktree for follow-up conversation"
 affectedPaths:
     - "src/cmd/load-plan/plan-recovery-flow.ts"
     - "src/cmd/load-plan/plan-recovery-actions.ts"
@@ -12,30 +11,17 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-25T00:31:01-04:00"
-updatedAt: "2026-08-25T14:07:14.693Z"
 status: "validated"
 origin: "internal"
-implementedAt: "2026-08-25T13:39:52.412Z"
-validatedAt: "2026-08-25T14:07:03.374Z"
 userVerifiedAt: null
-executionReport: "- Added `follow_up` recovery action immediately after `Retry Workflow Validation` for Implemented Plans.\n- Rebinds the existing Active Execution Workflow and worktree; supports Plan Engineer and Frontend Engineer; does not execute or validate.\n- Blocks incomplete/unavailable worktrees without creating replacements and keeps recovery available.\n- Added flow, action, and real runtime next-turn regression tests. No tests were removed.\n- Verification passed: focused load-plan tests and `deno task ci` (356 files, 0 failed)."
 workRecord:
     status: "generated"
     recordId: "9c5f843f-0157-4307-853f-db15ac8f4052"
     path: "docs/work-records/2026-08-25-implemented-plan-follow-up-from-load-plan.md"
     lastAttemptAt: "2026-08-25T14:07:03.463Z"
-humanReviewMode: "ask"
-humanReviewDecision: "skipped"
-validationCheckpoint: null
-executionMode: "worktree"
-deliveryEvidence:
-    version: 1
-    mode: "worktree_merge"
-    executionCommit: "c4c4df1ef3631da3f0b0f9bd633ac25daa607e52"
-    targetBranch: "main"
-    targetHeadBeforeMerge: "4ecc048ae2a950736ef3a66984326ad46ce5e25c"
-validationCiAttempts: 0
-validationSemanticRounds: 0
+archivedAt: "2026-08-26T23:50:37.426Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/load-plan-implemented-follow-up.md"
 ---
 
 # Open Implemented Plan Follow-Up from `load-plan`
