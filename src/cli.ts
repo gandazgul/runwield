@@ -25,7 +25,6 @@ if (Deno.build.standalone) {
     });
 }
 import { runVersionCommand } from "./cmd/version/index.js";
-import { formatDomainLanguageMigrationMessages, migrateDomainLanguageArtifacts } from "./shared/domain-language.ts";
 
 function stripLeadingGlobalFlags(argv: string[]): string[] {
     const stripped: string[] = [];
@@ -69,11 +68,6 @@ function resolveHelpRequest(
     return commandName ? { requested: true, commandName } : { requested: true };
 }
 
-async function reportDomainLanguageMigration(): Promise<void> {
-    const result = await migrateDomainLanguageArtifacts(getCwd());
-    for (const message of formatDomainLanguageMigrationMessages(result)) console.error(message);
-}
-
 async function main(): Promise<void> {
     const args = Deno.args;
 
@@ -110,8 +104,6 @@ async function main(): Promise<void> {
         }
         return;
     }
-
-    await reportDomainLanguageMigration();
 
     if (parsed.mode === "acp") {
         const { runAcpCommand } = await import("./cmd/acp/index.js");
