@@ -3,6 +3,7 @@
 bin/
 dist/
 node_modules/
+artifacts/
 
 .history/
 .pi/
