@@ -50,27 +50,32 @@ export function SessionList({
     const createForm = onCreateSession
         ? (
             <form
-                className="owner-card session-create-card"
+                className="session-create-card session-create-panel"
                 onSubmit={(event) => {
                     event.preventDefault();
                     onCreateSession();
                 }}
             >
-                <p className="kicker">New Session</p>
-                <h2>Start with Router</h2>
-                <label htmlFor="new-session-request">First User Request</label>
-                <textarea
-                    id="new-session-request"
-                    rows={4}
-                    value={newSessionText}
-                    onChange={(event) => onNewSessionTextChange?.(event.currentTarget.value)}
-                    placeholder="Ask RunWield what you want to do next…"
-                    disabled={creating}
-                />
-                <div className="card-actions">
-                    <RunWieldButton type="submit" variant="primary" disabled={creating || !newSessionText.trim()}>
-                        {creating ? "Starting…" : "Start Session"}
-                    </RunWieldButton>
+                <div className="session-create-copy">
+                    <p className="kicker">New Session</p>
+                    <h2>Start with Router</h2>
+                    <p>Describe the outcome. Router will choose the first workflow step.</p>
+                </div>
+                <div className="session-create-fields">
+                    <label htmlFor="new-session-request">First User Request</label>
+                    <textarea
+                        id="new-session-request"
+                        rows={3}
+                        value={newSessionText}
+                        onChange={(event) => onNewSessionTextChange?.(event.currentTarget.value)}
+                        placeholder="Ask RunWield what you want to do next…"
+                        disabled={creating}
+                    />
+                    <div className="card-actions">
+                        <RunWieldButton type="submit" variant="primary" disabled={creating || !newSessionText.trim()}>
+                            {creating ? "Starting…" : "Start Session"}
+                        </RunWieldButton>
+                    </div>
                 </div>
             </form>
         )
@@ -79,7 +84,7 @@ export function SessionList({
         return (
             <section className="session-list-surface" aria-label="Project Sessions">
                 {createForm}
-                <section className="owner-card empty-state session-list-state">
+                <section className="empty-state session-list-state session-empty-panel">
                     <h2>No Sessions cataloged</h2>
                     <p>Start a new Router-led Session or run a full Session rescan from the Project card.</p>
                 </section>
@@ -98,18 +103,27 @@ export function SessionList({
                     </details>
                 )
                 : null}
-            <div className="session-card-list">
-                {sessions.map((session) => (
-                    <a
-                        className="session-list-item"
-                        href={sessionHref(projectId, session.runwieldSessionId)}
-                        key={session.runwieldSessionId}
-                    >
-                        <span className="session-list-name">{session.displayName || "Untitled Session"}</span>
-                        <span className="session-list-status">{session.state || "unknown"}</span>
-                    </a>
-                ))}
-            </div>
+            <section className="session-catalog" aria-label="Existing Sessions">
+                <header className="session-catalog-header">
+                    <div>
+                        <p className="kicker">History</p>
+                        <h2>Sessions</h2>
+                    </div>
+                    <span>{total} total</span>
+                </header>
+                <div className="session-card-list">
+                    {sessions.map((session) => (
+                        <a
+                            className="session-list-item"
+                            href={sessionHref(projectId, session.runwieldSessionId)}
+                            key={session.runwieldSessionId}
+                        >
+                            <span className="session-list-name">{session.displayName || "Untitled Session"}</span>
+                            <span className="session-list-status">{session.state || "unknown"}</span>
+                        </a>
+                    ))}
+                </div>
+            </section>
             <nav className="session-pagination" aria-label="Session pages">
                 <span>
                     Showing {page * pageSize + 1}–{Math.min(page * pageSize + sessions.length, total)} of {total}

@@ -32,7 +32,7 @@
 
 .disabled-action {
     border: 1px solid var(--rw-accent);
-    border-radius: 999px;
+    border-radius: var(--rw-radius-control);
     color: var(--rw-text-muted);
     padding: 0.45rem 0.75rem;
     background: var(--rw-surface-raised);
@@ -44,7 +44,8 @@
     gap: 0.4rem;
     flex: none;
     border: 1px solid color-mix(in srgb, var(--rw-border) 75%, transparent);
-    border-radius: 0.45rem;
+    min-height: var(--rw-control-height-compact);
+    border-radius: var(--rw-radius-control);
     padding: 0.35rem 0.55rem;
     background: color-mix(in srgb, var(--rw-surface) 88%, var(--rw-surface-raised));
     color: var(--rw-text);
@@ -67,7 +68,7 @@
     display: inline-flex;
     gap: 0.25rem;
     border: 1px solid color-mix(in srgb, var(--rw-border) 75%, transparent);
-    border-radius: 0.5rem;
+    border-radius: var(--rw-radius-card);
     padding: 0.18rem;
     background: color-mix(in srgb, var(--rw-surface) 88%, var(--rw-surface-raised));
 }
@@ -76,14 +77,14 @@
     display: inline-flex;
     width: 1.75rem !important;
     min-width: 0;
-    height: 1.75rem;
-    min-height: 1.75rem;
+    height: var(--rw-control-height-compact);
+    min-height: var(--rw-control-height-compact);
     align-items: center;
     justify-content: center;
     gap: 0;
     overflow: hidden;
     border: 1px solid transparent;
-    border-radius: 0.375rem;
+    border-radius: var(--rw-radius-control);
     padding: 0;
     color: var(--rw-text-muted);
     font-size: 0.7rem;
@@ -235,7 +236,7 @@
     width: 100%;
     min-height: 2.25rem;
     border: 1px solid color-mix(in srgb, var(--rw-accent) 78%, var(--rw-border));
-    border-radius: 0.45rem;
+    border-radius: var(--rw-radius-control);
     padding: 0.45rem 0.8rem;
     background: color-mix(in srgb, var(--rw-accent) 88%, var(--rw-surface-raised));
     color: var(--rw-page-bg);
@@ -280,8 +281,8 @@
     color: var(--rw-accent-text);
     text-decoration: none;
     border: 1px solid var(--rw-border);
-    border-radius: 999px;
-    padding: 0.55rem 0.9rem;
+    border-radius: var(--rw-radius-control);
+    padding: var(--rw-space-control-y) var(--rw-space-control-x);
 }
 
 .card-actions a:hover {
@@ -294,9 +295,9 @@
 .repair-lane {
     background: var(--rw-surface-raised);
     border: 1px solid var(--rw-border);
-    border-radius: 16px;
-    padding: 16px;
-    box-shadow: 0 18px 50px #0004;
+    border-radius: var(--rw-radius-panel);
+    padding: var(--rw-space-panel);
+    box-shadow: 0 12px 32px #0004;
 }
 
 .detail {
@@ -316,6 +317,10 @@
 .plan-card.compact {
     background: var(--rw-surface);
     box-shadow: none;
+}
+
+.plan-card {
+    padding: var(--rw-space-card);
 }
 
 .plan-card p {
@@ -365,7 +370,7 @@
     align-items: center;
     background: var(--rw-surface-muted);
     border: 1px solid var(--rw-border);
-    border-radius: 999px;
+    border-radius: var(--rw-radius-pill);
     color: var(--rw-accent-text);
     display: inline-flex;
     font-size: 0.8rem;
@@ -442,7 +447,7 @@
 
 .notice {
     border: 1px solid var(--rw-border);
-    border-radius: 12px;
+    border-radius: var(--rw-radius-card);
     margin-top: 12px;
     padding: 10px 12px;
 }
@@ -462,7 +467,7 @@
 .health-list {
     background: var(--rw-surface);
     border: 1px solid var(--rw-border);
-    border-radius: 12px;
+    border-radius: var(--rw-radius-card);
     color: var(--rw-text-muted);
     display: grid;
     gap: 8px;
@@ -494,7 +499,7 @@
 .progress-meter span {
     background: var(--rw-surface);
     border: 1px solid var(--rw-border);
-    border-radius: 10px;
+    border-radius: var(--rw-radius-control);
     color: var(--rw-text-muted);
     padding: 0.35rem 0.55rem;
 }
@@ -535,7 +540,7 @@
 
 .compact-empty {
     border: 1px dashed var(--rw-border);
-    border-radius: 12px;
+    border-radius: var(--rw-radius-card);
     padding: 12px;
 }
 
@@ -544,16 +549,20 @@ button.primary-action,
 .secondary-action,
 button.secondary-action,
 .danger-action,
-button.danger-action {
+button.danger-action,
+.action-primary,
+.action-secondary,
+.action-danger {
     align-items: center;
-    border-radius: 999px;
+    min-height: var(--rw-control-height);
+    border-radius: var(--rw-radius-control);
     cursor: pointer;
     display: inline-flex;
     font: inherit;
     font-weight: 700;
     justify-content: center;
     line-height: 1.2;
-    padding: 0.45rem 0.8rem;
+    padding: var(--rw-space-control-y) var(--rw-space-control-x);
     text-decoration: none;
     transition:
         background-color 0.15s ease,
@@ -565,28 +574,33 @@ button.danger-action {
 
 .primary-action,
 button.primary-action,
-.card-actions a.primary-action {
+.card-actions a.primary-action,
+.action-primary,
+.card-actions a.action-primary {
     background: var(--rw-accent);
     border: 1px solid var(--rw-accent);
     color: #fff;
 }
 
 .secondary-action,
-button.secondary-action {
+button.secondary-action,
+.action-secondary {
     background: var(--rw-surface);
     border: 1px solid var(--rw-border);
     color: var(--rw-accent-text);
 }
 
 .danger-action,
-button.danger-action {
+button.danger-action,
+.action-danger {
     background: color-mix(in srgb, var(--rw-error) 42%, var(--rw-surface-raised));
     border: 1px solid var(--rw-error);
     color: color-mix(in srgb, var(--rw-error) 20%, var(--rw-text-strong));
 }
 
 .primary-action:hover,
-button.primary-action:hover {
+button.primary-action:hover,
+.action-primary:hover {
     background: color-mix(in srgb, var(--rw-accent) 82%, var(--rw-text-strong));
     border-color: var(--rw-accent-strong);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 22%, transparent);
@@ -594,7 +608,8 @@ button.primary-action:hover {
 }
 
 .secondary-action:hover,
-button.secondary-action:hover {
+button.secondary-action:hover,
+.action-secondary:hover {
     background: var(--rw-surface-strong);
     border-color: var(--rw-accent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 20%, transparent);
@@ -603,7 +618,8 @@ button.secondary-action:hover {
 }
 
 .danger-action:hover,
-button.danger-action:hover {
+button.danger-action:hover,
+.action-danger:hover {
     background: color-mix(in srgb, var(--rw-error) 56%, var(--rw-surface-raised));
     border-color: color-mix(in srgb, var(--rw-error) 72%, var(--rw-text-strong));
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-error) 25%, transparent);
@@ -614,11 +630,11 @@ button.danger-action:hover {
 .markdown-view {
     background: color-mix(in srgb, var(--rw-page-bg) 72%, black);
     border: 1px solid var(--rw-border);
-    border-radius: 12px;
+    border-radius: var(--rw-radius-card);
     line-height: 1.65;
     min-width: 0;
     overflow-wrap: anywhere;
-    padding: 18px;
+    padding: var(--rw-space-panel);
 }
 
 .markdown-view h1,
@@ -644,7 +660,7 @@ button.danger-action:hover {
 .markdown-view pre {
     background: var(--rw-surface);
     border: 1px solid var(--rw-border);
-    border-radius: 10px;
+    border-radius: var(--rw-radius-control);
     overflow: auto;
     padding: 12px;
 }
@@ -715,7 +731,7 @@ button.danger-action:disabled {
 .codemirror-shell {
     overflow: hidden;
     border: 1px solid var(--rw-border);
-    border-radius: 16px;
+    border-radius: var(--rw-radius-panel);
     background: color-mix(in srgb, var(--rw-page-bg) 72%, black);
     box-shadow: inset 0 1px 0 color-mix(in srgb, var(--rw-text) 7%, transparent);
 }
@@ -820,7 +836,7 @@ button.danger-action:disabled {
     align-items: center;
     background: var(--rw-surface-muted);
     border: 1px solid var(--rw-border);
-    border-radius: 999px;
+    border-radius: var(--rw-radius-pill);
     color: var(--rw-accent-text);
     display: inline-flex;
     font-size: 1rem;
@@ -864,7 +880,7 @@ button.danger-action:disabled {
 .rw-dialog-panel {
     background: var(--rw-surface-raised);
     border: 1px solid var(--rw-border);
-    border-radius: 16px;
+    border-radius: var(--rw-radius-panel);
     box-shadow: 0 24px 70px #0008;
     color: var(--rw-text);
     display: grid;
@@ -873,7 +889,7 @@ button.danger-action:disabled {
     max-width: min(100%, 42rem);
     min-width: min(100%, 20rem);
     overflow: auto;
-    padding: 18px;
+    padding: var(--rw-space-panel);
 }
 
 .rw-dialog-header {

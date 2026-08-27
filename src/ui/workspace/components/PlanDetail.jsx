@@ -576,60 +576,71 @@ export function PlanDetail({ plan, url, editIntent = false, staticRender = false
     const canEditBody = plan.capabilities?.bodyEditing !== false && !isEpic;
     const closeHref = boardHrefForPlanStatus(plan.status, url);
     return (
-        <article className="detail" data-plan-id={plan.planId} data-selected-tab={tabForPlanStatus(plan.status)}>
-            <header className="page-header detail-header split-header">
-                <div>
-                    <div className="detail-title-row">
-                        <a className="detail-back-link" href={closeHref}>{"< Back"}</a>
-                        <div className="detail-title-group">
-                            <h2>{plan.planName}</h2>
-                            <span className={`status status-${plan.status}`}>{plan.status}</span>
+        <article
+            className="detail rw-plan-detail-surface"
+            data-plan-id={plan.planId}
+            data-selected-tab={tabForPlanStatus(plan.status)}
+        >
+            <header className="detail-header rw-plan-detail-toolbar">
+                <div className="detail-title-row">
+                    <a className="detail-back-link" href={closeHref}>{"< Back"}</a>
+                    <img className="rw-plan-detail-logo" src="/logo.svg" alt="" aria-hidden="true" />
+                    <div className="detail-title-group">
+                        <div className="rw-plan-detail-title-copy">
+                            <span className="kicker">{isEpic ? "Project Plan" : "Plan detail"}</span>
+                            <h1>{plan.planName}</h1>
                         </div>
-                        <a className="detail-close-link" href={closeHref} aria-label="Close plan detail">X</a>
+                        <span className={`status status-${plan.status}`}>{plan.status}</span>
                     </div>
-                    <p>{plan.summary || "No summary provided."}</p>
-                    {!isEpic
-                        ? (
-                            <div className="detail-actions" aria-label="Plan progress navigation">
+                    <div className="rw-plan-detail-toolbar-actions">
+                        {!isEpic
+                            ? (
                                 <a
-                                    className="rw-plan-review-link"
+                                    className="rw-toolbar-button"
                                     href={`${String(url).replace(/[?#].*$/, "")}/progress`}
                                 >
                                     View progress
                                 </a>
-                            </div>
-                        )
-                        : null}
-                    {isEpic ? <EpicSummary epic={plan} /> : null}
-                    {!isEpic && plan.status === "on_hold" ? <p className="notice muted">{holdMetadata(plan)}</p> : null}
-                    {plan.hierarchyRole === "orphan-child" || plan.blockedByDependencies
-                        ? (
-                            <div className="detail-actions" aria-label="Plan warnings">
-                                {plan.hierarchyRole === "orphan-child"
-                                    ? <span className="badge warning">Missing parent Epic</span>
-                                    : null}
-                                {plan.blockedByDependencies
-                                    ? <span className="badge warning">Dependency blocked</span>
-                                    : null}
-                            </div>
-                        )
-                        : null}
+                            )
+                            : null}
+                        <a className="detail-close-link" href={closeHref} aria-label="Close plan detail">X</a>
+                    </div>
                 </div>
             </header>
-            <section className="detail-grid">
-                <div>
-                    {staticRender
-                        ? <StaticPlanBody plan={plan} />
-                        : <PlanBodyEditor plan={plan} initialEdit={canEditBody && editIntent} />}
-                    {isEpic ? <EpicDetailSections epic={plan} url={url} /> : null}
-                </div>
-                <aside className="detail-sidebar">
+            <div className="rw-plan-detail-context">
+                <p>{plan.summary || "No summary provided."}</p>
+                {isEpic ? <EpicSummary epic={plan} /> : null}
+                {!isEpic && plan.status === "on_hold" ? <p className="notice muted">{holdMetadata(plan)}</p> : null}
+                {plan.hierarchyRole === "orphan-child" || plan.blockedByDependencies
+                    ? (
+                        <div className="detail-actions" aria-label="Plan warnings">
+                            {plan.hierarchyRole === "orphan-child"
+                                ? <span className="badge warning">Missing parent Epic</span>
+                                : null}
+                            {plan.blockedByDependencies
+                                ? <span className="badge warning">Dependency blocked</span>
+                                : null}
+                        </div>
+                    )
+                    : null}
+            </div>
+            <section className="detail-grid rw-plan-detail-layout">
+                <main className="rw-plan-detail-document-pane">
+                    <div className="rw-plan-detail-document">
+                        {staticRender
+                            ? <StaticPlanBody plan={plan} />
+                            : <PlanBodyEditor plan={plan} initialEdit={canEditBody && editIntent} />}
+                        {isEpic ? <EpicDetailSections epic={plan} url={url} /> : null}
+                    </div>
+                </main>
+                <aside className="detail-sidebar rw-plan-detail-sidebar">
                     <div className="detail-sidebar-actions" aria-label="Plan detail actions">
                         {staticRender
                             ? <StaticLifecycleActions plan={plan} />
                             : <PlanLifecycleActions plan={plan} compact epic={isEpic} />}
                     </div>
-                    <h3>Metadata</h3>
+                    <p className="kicker">Plan controls</p>
+                    <h2>Metadata</h2>
                     <DetailMetadata plan={plan} />
                 </aside>
             </section>

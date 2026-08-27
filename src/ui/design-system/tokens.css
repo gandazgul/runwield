@@ -17,6 +17,16 @@
     --rw-error: #ef4444;
     --rw-warning: #f59e0b;
     --rw-code: #85cbbf;
+    --rw-radius-control: 0.375rem;
+    --rw-radius-card: 0.375rem;
+    --rw-radius-panel: 0.5rem;
+    --rw-radius-pill: 999px;
+    --rw-control-height: 2rem;
+    --rw-control-height-compact: 1.75rem;
+    --rw-space-control-x: 0.65rem;
+    --rw-space-control-y: 0.4rem;
+    --rw-space-card: 0.75rem;
+    --rw-space-panel: 1rem;
     color-scheme: light dark;
     font-family: Inter, ui-sans-serif, system-ui, sans-serif;
     background: var(--rw-page-bg);
@@ -27,4 +37,10 @@ body {
     background: var(--rw-page-bg);
     color: var(--rw-text);
     margin: 0;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
 }
