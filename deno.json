@@ -119,7 +119,7 @@
         "@astrojs/check": "npm:@astrojs/check@^0.9.9",
         "astro": "npm:astro@^7.1.3",
         "typescript": "npm:typescript@^5.9.3",
-        "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^6.0.3",
+        "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^6.0.5",
         "react/jsx-runtime": "npm:react@^19.2.7/jsx-runtime",
         "react/jsx-dev-runtime": "npm:react@^19.2.7/jsx-dev-runtime",
         "@xterm/headless": "npm:@xterm/headless@5.5.0"
