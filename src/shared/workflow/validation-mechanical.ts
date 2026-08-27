@@ -143,6 +143,7 @@ async function resolveValidationPlanAmendment(
         context.executionCwd,
         args.planName,
         context.executionContext.executionMode === "worktree" ? context.baselineTree : undefined,
+        context.executionContext.executionMode === "worktree" ? context.executionContext.worktreeBaseCommit : undefined,
     );
     if (!proposal) return { kind: "none" };
     emitStatus(args, buildValidationUserMessage({ kind: "amendment_decision", summary: proposal.summary }), "warning");

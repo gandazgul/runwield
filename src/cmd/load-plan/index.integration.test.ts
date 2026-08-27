@@ -22,6 +22,7 @@ import type { EditorAPI, SelectOption, UiAPI } from "../../ui/tui/types.js";
 interface LoadPlanUiFixture {
     editor: EditorAPI;
     messages: string[];
+    promptOptions: SelectOption[][];
     prompts: string[];
     uiAPI: UiAPI;
 }
@@ -32,6 +33,7 @@ function makeUi(selections: Array<string | null>, textInputs: Array<string | nul
     const pendingSelections = [...selections];
     const pendingTextInputs = [...textInputs];
     const messages: string[] = [];
+    const promptOptions: SelectOption[][] = [];
     const prompts: string[] = [];
     const editor: EditorAPI = {
         disableSubmit: true,
@@ -46,6 +48,7 @@ function makeUi(selections: Array<string | null>, textInputs: Array<string | nul
         requestRender: () => {},
         promptSelect: (title: string, options: SelectOption[]) => {
             prompts.push(title);
+            promptOptions.push(options);
             const selection = pendingSelections.shift() ?? null;
             if (selection && !options.some((option) => option.value === selection)) {
                 throw new Error(`Fixture selection was not offered for "${title}": ${selection}`);
@@ -55,7 +58,7 @@ function makeUi(selections: Array<string | null>, textInputs: Array<string | nul
         promptText: () => Promise.resolve(pendingTextInputs.shift() ?? null),
         showModelSelector: () => {},
     };
-    return { editor, messages, prompts, uiAPI };
+    return { editor, messages, promptOptions, prompts, uiAPI };
 }
 
 async function createRuntime(
@@ -654,6 +657,341 @@ Deno.test("Approve for Later creates no execution segment", async () => {
             );
             assertEquals(runtime.getRuntimeActiveExecutionWorkflow(sessionId), null);
             assertStringIncludes(ui.messages.join("\n"), "Plan saved. Resume later");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("direct review from draft approves for later without a planning turn", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "direct-draft", { status: "draft" });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        runtime.setInteractionAdapter(sessionId, {
+            requestInteraction: async () => {
+                const beforeReview = await loadPlan(projectRoot, "direct-draft");
+                if (!beforeReview) throw new Error("Fixture Plan disappeared before direct review");
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.workflowContext?.planName, undefined);
+                await recordPlanEvent({
+                    cwd: projectRoot,
+                    planName: "direct-draft",
+                    event: "review_approved",
+                    currentStatus: beforeReview.attrs.status,
+                    expectedRevision: beforeReview.revision,
+                    details: { triageMeta: beforeReview.attrs },
+                });
+                const approved = await loadPlan(projectRoot, "direct-draft");
+                return {
+                    outcome: "accepted",
+                    _meta: {
+                        approved: true,
+                        approvalAction: "later",
+                        revision: approved?.revision,
+                        planAttrs: approved?.attrs,
+                    },
+                };
+            },
+        });
+        const ui = makeUi(["review"]);
+        try {
+            await runLoadPlanCommand(["direct-draft"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals((await loadPlan(projectRoot, "direct-draft"))?.attrs.status, "ready_for_work");
+            assertEquals(runtime.getRuntimeActiveExecutionWorkflow(sessionId), null);
+            assertEquals(
+                ui.promptOptions[0].some((option) => option.value === "review" && option.label === "Review plan"),
+                true,
+            );
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("direct review from draft can approve and start execution", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot, setModelMessages }) => {
+        await writePlan(projectRoot, "direct-run", {
+            status: "draft",
+            objectiveChecks: [{ id: "OC1", command: "false" }],
+        });
+        setModelMessages([fauxAssistantMessage(fauxToolCall("task_completed", { message: "- direct run complete" }))]);
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        runtime.setInteractionAdapter(sessionId, {
+            requestInteraction: async (request) => {
+                if (
+                    request.type === "select" && request.options?.some((option) => option.value === "proceed") === true
+                ) {
+                    return { outcome: "selected", value: "proceed" };
+                }
+                const beforeReview = await loadPlan(projectRoot, "direct-run");
+                if (!beforeReview) throw new Error("Fixture Plan disappeared before direct review");
+                await recordPlanEvent({
+                    cwd: projectRoot,
+                    planName: "direct-run",
+                    event: "review_approved",
+                    currentStatus: beforeReview.attrs.status,
+                    expectedRevision: beforeReview.revision,
+                    details: { triageMeta: beforeReview.attrs },
+                });
+                const approved = await loadPlan(projectRoot, "direct-run");
+                return {
+                    outcome: "accepted",
+                    _meta: {
+                        approved: true,
+                        approvalAction: "run",
+                        revision: approved?.revision,
+                        planAttrs: approved?.attrs,
+                    },
+                };
+            },
+        });
+        const ui = makeUi(["review", "proceed"]);
+        try {
+            await runLoadPlanCommand(["direct-run"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals((await loadPlan(projectRoot, "direct-run"))?.attrs.executionMode, "non_git_in_place");
+            assertEquals((await loadPlan(projectRoot, "direct-run"))?.attrs.status === "draft", false);
+            assertEquals(
+                ui.promptOptions[0].some((option) => option.value === "review" && option.label === "Review plan"),
+                true,
+            );
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("direct review from feedback can send feedback back through Planner", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot, setModelMessages }) => {
+        await writePlan(projectRoot, "direct-feedback", { status: "feedback" });
+        setModelMessages([
+            fauxAssistantMessage(fauxToolCall("plan_written", {
+                planName: "direct-feedback",
+                objectiveChecks: [{ id: "OC1", command: "true" }],
+            })),
+        ]);
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        let reviewCount = 0;
+        runtime.setInteractionAdapter(sessionId, {
+            requestInteraction: async () => {
+                reviewCount += 1;
+                const plan = await loadPlan(projectRoot, "direct-feedback");
+                if (!plan) throw new Error("Fixture Plan disappeared before review");
+                if (reviewCount === 1) {
+                    await recordPlanEvent({
+                        cwd: projectRoot,
+                        planName: "direct-feedback",
+                        event: "review_feedback",
+                        currentStatus: plan.attrs.status,
+                        expectedRevision: plan.revision,
+                        details: { triageMeta: plan.attrs },
+                    });
+                    return {
+                        outcome: "accepted",
+                        _meta: {
+                            approved: false,
+                            feedback: "Revise the Plan directly.",
+                            images: [{ base64: "aW1hZ2U=", mimeType: "image/png" }],
+                        },
+                    };
+                }
+                await recordPlanEvent({
+                    cwd: projectRoot,
+                    planName: "direct-feedback",
+                    event: "review_approved",
+                    currentStatus: plan.attrs.status,
+                    expectedRevision: plan.revision,
+                    details: { triageMeta: plan.attrs },
+                });
+                const approved = await loadPlan(projectRoot, "direct-feedback");
+                return {
+                    outcome: "accepted",
+                    _meta: {
+                        approved: true,
+                        approvalAction: "later",
+                        revision: approved?.revision,
+                        planAttrs: approved?.attrs,
+                    },
+                };
+            },
+        });
+        const ui = makeUi(["review"]);
+        try {
+            await runLoadPlanCommand(["direct-feedback"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals(reviewCount, 2);
+            assertEquals((await loadPlan(projectRoot, "direct-feedback"))?.attrs.status, "ready_for_work");
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.workflowContext?.planName, "direct-feedback");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("direct review from ready_for_work reopens review and approves for later", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "direct-ready", { status: "ready_for_work" });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        runtime.setInteractionAdapter(sessionId, {
+            requestInteraction: async () => {
+                const readyPlan = await loadPlan(projectRoot, "direct-ready");
+                if (!readyPlan) throw new Error("Fixture Plan disappeared before review");
+                await recordPlanEvent({
+                    cwd: projectRoot,
+                    planName: "direct-ready",
+                    event: "review_reopened",
+                    currentStatus: readyPlan.attrs.status,
+                    expectedRevision: readyPlan.revision,
+                    details: { triageMeta: readyPlan.attrs },
+                });
+                const reopenedPlan = await loadPlan(projectRoot, "direct-ready");
+                if (!reopenedPlan) throw new Error("Fixture Plan disappeared after reopen");
+                await recordPlanEvent({
+                    cwd: projectRoot,
+                    planName: "direct-ready",
+                    event: "review_approved",
+                    currentStatus: reopenedPlan.attrs.status,
+                    expectedRevision: reopenedPlan.revision,
+                    details: { triageMeta: reopenedPlan.attrs },
+                });
+                const approved = await loadPlan(projectRoot, "direct-ready");
+                return {
+                    outcome: "accepted",
+                    _meta: {
+                        approved: true,
+                        approvalAction: "later",
+                        revision: approved?.revision,
+                        planAttrs: approved?.attrs,
+                    },
+                };
+            },
+        });
+        const ui = makeUi(["review"]);
+        try {
+            await runLoadPlanCommand(["direct-ready"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals((await loadPlan(projectRoot, "direct-ready"))?.attrs.status, "ready_for_work");
+            assertEquals(
+                ui.promptOptions[0].some((option) => option.value === "review" && option.label === "Review plan"),
+                true,
+            );
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("direct review menu is omitted when a draft has an invalid execution policy", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(
+            `${projectRoot}/docs/plans/invalid-policy-draft.md`,
+            [
+                "---",
+                "classification: PLANNED_CHANGE",
+                "complexity: LOW",
+                "summary: Invalid policy draft",
+                "affectedPaths: []",
+                "objectiveChecks:",
+                "  - id: OC1",
+                '    command: "true"',
+                "status: draft",
+                "executionAgent: architect",
+                "collaborationRecommendation: autonomous",
+                "---",
+                "# Invalid policy draft",
+                "",
+            ].join("\n"),
+        );
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["cancel"]);
+        try {
+            await runLoadPlanCommand(["invalid-policy-draft"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals(ui.promptOptions[0].some((option) => option.value === "review"), false);
+            assertEquals(ui.promptOptions[0].some((option) => option.value === "resume"), true);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("direct review on a PROJECT Epic approves and slices", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot, setModelMessages }) => {
+        await writePlan(projectRoot, "direct-epic", { classification: "PROJECT", status: "draft" });
+        setModelMessages([fauxAssistantMessage(fauxToolCall("task_completed", { message: "- sliced" }))]);
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        runtime.setInteractionAdapter(sessionId, {
+            requestInteraction: async () => {
+                const beforeReview = await loadPlan(projectRoot, "direct-epic");
+                if (!beforeReview) throw new Error("Fixture Epic disappeared before direct review");
+                await recordPlanEvent({
+                    cwd: projectRoot,
+                    planName: "direct-epic",
+                    event: "review_approved",
+                    currentStatus: beforeReview.attrs.status,
+                    expectedRevision: beforeReview.revision,
+                    details: { triageMeta: beforeReview.attrs },
+                });
+                const approved = await loadPlan(projectRoot, "direct-epic");
+                return {
+                    outcome: "accepted",
+                    _meta: {
+                        approved: true,
+                        approvalAction: "decompose",
+                        revision: approved?.revision,
+                        planAttrs: approved?.attrs,
+                    },
+                };
+            },
+        });
+        const ui = makeUi(["direct_review"]);
+        try {
+            await runLoadPlanCommand(["direct-epic"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals((await loadPlan(projectRoot, "direct-epic"))?.attrs.status, "ready_for_decomposition");
+            assertEquals(
+                ui.promptOptions[0].some((option) =>
+                    option.value === "direct_review" && option.label === "Review plan"
+                ),
+                true,
+            );
+            assertEquals(
+                ui.promptOptions[0].some((option) =>
+                    option.value === "review" && option.label === "Review with Architect"
+                ),
+                true,
+            );
         } finally {
             runtime.closeAllSessions();
         }

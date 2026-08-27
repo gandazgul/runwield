@@ -2,25 +2,28 @@
 import WorkspaceLayout from "../layouts/WorkspaceLayout.astro";
 ---
 <WorkspaceLayout title="Pair RunWield Workspace" selectedTab="projects" url={Astro.url.href}>
-    <section class="owner-card pairing-card">
-        <p class="kicker">Device pairing</p>
-        <h1>Pair this browser with owner Workspace</h1>
-        <p>
-            Private networking is not authorization. Request a short-lived code, then approve it locally with{" "}
-            <code>wld workspace pair &lt;code&gt;</code>.
-        </p>
-        <form class="owner-form">
-            <label>Device label <input id="device-label" name="deviceLabel" value="Browser device" maxlength="80" /></label>
-        </form>
-        <div class="owner-pairing-result" aria-live="polite">
-            <div class="pairing-actions-row">
+    <section class="pairing-card pairing-surface">
+        <header class="pairing-header">
+            <p class="kicker">Device pairing</p>
+            <h1>Authorize this browser</h1>
+            <p>Approve one short-lived code from the machine running RunWield.</p>
+        </header>
+        <div class="pairing-panel">
+            <form class="owner-form pairing-device-form">
+                <label>Device label <input id="device-label" name="deviceLabel" value="Browser device" maxlength="80" /></label>
+            </form>
+            <div class="owner-pairing-result" aria-live="polite">
+                <p class="pairing-step-label">1 · Copy this code</p>
                 <div class="pairing-code" id="pairing-code" aria-label="Example pairing code">------</div>
-                <div class="pairing-command-box">
-                    <p>Run <code id="pairing-command">wld workspace pair ------</code>.</p>
-                    <button class="copy-command-button" id="copy-pairing-command" type="button">Copy command</button>
-                </div>
+                <p class="pairing-timer" id="dev-pairing-timer">This code expires in 5:00. A new code appears automatically when it expires.</p>
             </div>
-            <p class="pairing-timer" id="dev-pairing-timer">This code expires in 5:00. A new code appears automatically when it expires.</p>
+            <div class="pairing-command-box">
+                <div>
+                    <p class="pairing-step-label">2 · Run locally</p>
+                    <code id="pairing-command">wld workspace pair ------</code>
+                </div>
+                <button class="copy-command-button" id="copy-pairing-command" type="button">Copy command</button>
+            </div>
         </div>
     </section>
     <script>

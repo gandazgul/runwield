@@ -870,8 +870,110 @@ export const loadPlanValidateWithoutCustomChecksScenario = {
     ],
 };
 
+export const loadPlanDirectReviewScenario = {
+    name: "load-plan-direct-review-from-draft",
+    composedTui: true,
+    initialAgentName: "guide",
+    terminal: { columns: 100, rows: 30 },
+    timeoutMs: 90000,
+    coverage: ["workflow:load-plan", "durable:plan-lifecycle"],
+    reviewDecisions: [{ approved: true, feedback: "Direct review approved for later.", approvalAction: "later" }],
+    initialProjectFiles: [
+        {
+            path: "docs/plans/direct-review.md",
+            text:
+                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Direct review\naffectedPaths: []\nobjectiveChecks:\n  - id: OC1\n    command: "true"\nstatus: draft\n---\n# Direct review\n',
+        },
+    ],
+    scriptedInteractions: [
+        { type: "select", promptIncludes: "What would you like to do", value: "review" },
+    ],
+    actions: [
+        { type: "type", text: "/load-plan direct-review" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForPlanStatus", planName: "direct-review", statuses: ["ready_for_work"], timeoutMs: 60000 },
+        { type: "waitForIdle", timeoutMs: 30000 },
+        { type: "captureProjectState", planNames: ["direct-review"] },
+    ],
+    assertions: [
+        assertsGoldenCoverage("workflow:load-plan", (result: GoldenScenarioResult) => {
+            assertEventIncludes(result, "terminal:type:/load-plan direct-review");
+            assertScreenIncludes(result, "Plan saved. Resume later with: wld load-plan direct-review");
+            assert(
+                !result.events.some((event) => event.includes("runtime:tool:start:plan_written")),
+                "Direct review must not start Planner and plan_written before opening review.",
+            );
+        }),
+        assertsGoldenCoverage("durable:plan-lifecycle", (result: GoldenScenarioResult) => {
+            assert(
+                planStatus(result, "direct-review") === "ready_for_work",
+                `Expected direct review to leave ready_for_work; got ${planStatus(result, "direct-review")}`,
+            );
+        }),
+    ],
+};
+
+export const loadPlanDirectReviewRunScenario = {
+    name: "load-plan-direct-review-approves-and-runs",
+    composedTui: true,
+    initialAgentName: "guide",
+    terminal: { columns: 100, rows: 30 },
+    timeoutMs: 120000,
+    coverage: ["workflow:load-plan", "durable:plan-lifecycle"],
+    reviewDecisions: [{ approved: true, feedback: "Direct review approved to run.", approvalAction: "run" }],
+    initialProjectFiles: [
+        {
+            path: "docs/plans/direct-review-run.md",
+            text:
+                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Direct review run\naffectedPaths: []\nobjectiveChecks:\n  - id: OC1\n    command: "false"\nstatus: draft\n---\n# Direct review run\n',
+        },
+    ],
+    scriptedInteractions: [
+        { type: "select", promptIncludes: "What would you like to do", value: "review" },
+    ],
+    script: [
+        {
+            id: "direct-review-run-engineer-completes",
+            agent: "engineer",
+            phase: "engineer",
+            ordinal: 1,
+            requiredTools: ["task_completed"],
+            toolCalls: [{ name: "task_completed", arguments: { message: "- direct run complete" } }],
+        },
+    ],
+    actions: [
+        { type: "type", text: "/load-plan direct-review-run" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForEvent", event: "runtime:agent:plan-engineer", timeoutMs: 60000 },
+        { type: "waitForIdle", timeoutMs: 30000 },
+        { type: "captureProjectState", planNames: ["direct-review-run"] },
+    ],
+    assertions: [
+        assertsGoldenCoverage("workflow:load-plan", (result: GoldenScenarioResult) => {
+            assertEventIncludes(result, "terminal:type:/load-plan direct-review-run");
+            assertEventIncludes(result, "runtime:agent:plan-engineer");
+            assertEventIncludes(result, "runtime:tool:start:task_completed");
+            assertScreenIncludes(result, "launching Plan Engineer to execute");
+            assert(
+                !result.events.some((event) => event.includes("runtime:tool:start:plan_written")),
+                "Direct review Approve & Run must not start Planner before execution.",
+            );
+        }),
+        assertsGoldenCoverage("durable:plan-lifecycle", (result: GoldenScenarioResult) => {
+            assert(
+                planStatus(result, "direct-review-run") !== "draft",
+                `Expected direct review run to move out of draft; got ${planStatus(result, "direct-review-run")}`,
+            );
+        }),
+    ],
+};
+
 export const loadPlanWorkflowScenarios = [
     loadPlanActionsScenario,
+    loadPlanDirectReviewScenario,
+    loadPlanDirectReviewRunScenario,
     loadPlanResetReviewArchiveScenario,
     loadPlanCanceledExecutionThenPlannerReviewScenario,
     loadPlanInterruptedRecoveryScenario,

@@ -1,6 +1,6 @@
 ---
-import WorkspaceLayout from "../../layouts/WorkspaceLayout.astro";
-import { PlanDetail, tabForPlanStatus } from "../../components/PlanDetail.jsx";
+import ReviewLayout from "../../layouts/ReviewLayout.astro";
+import { PlanDetail } from "../../components/PlanDetail.jsx";
 import { loadCanonicalWorkspaceDetail, serializeCanonicalPlanError } from "../../server/astro-canonical-data.js";
 
 const runtime = globalThis as any;
@@ -16,11 +16,7 @@ try {
     Astro.response.status = error.error.includes("not found") || error.error.includes("Plan not found") ? 404 : 409;
 }
 ---
-<WorkspaceLayout
-    title={plan ? `${plan.planName} · RunWield Workspace` : "Plan Detail · RunWield Workspace"}
-    selectedTab={plan ? tabForPlanStatus(plan.status) : "active"}
-    url={Astro.url.href}
->
+<ReviewLayout title={plan ? `${plan.planName} · RunWield Workspace` : "Plan Detail · RunWield Workspace"}>
     {error ? (
         <section class="error-panel">
             <h2>Plan lookup failed</h2>
@@ -30,4 +26,4 @@ try {
     ) : (
         <PlanDetail plan={plan} url={Astro.url.href} editIntent={editIntent} client:load />
     )}
-</WorkspaceLayout>
+</ReviewLayout>

@@ -1,26 +1,28 @@
 # RunWield Design System
 
-The RunWield Design System is the shared browser UI language for Workspace, Plannotator, and future RunWield web
-surfaces. Its v1 goal is to codify the current Workspace look and feel, not redesign it.
-
-Workspace is the source of truth. New browser UI should look like it belongs beside `src/ui/workspace/` unless there is
-a deliberate, documented reason to diverge.
+The RunWield Design System is the shared browser UI language for Workspace, Plan Review, Code Review, and future
+RunWield web surfaces. Plan Review and Code Review are the visual blueprint. Their compact, tool-like density should
+carry through the rest of Workspace.
 
 ## Principles
 
-### Preserve the current Workspace aesthetic
+### Use the review surfaces as the blueprint
 
-The current visual direction is dark, focused, local-first, and workflow-oriented. Keep that baseline:
+The visual direction is dark, focused, compact, and workflow-oriented. Keep the strongest parts of Plan Review and Code
+Review as the baseline:
 
 - dark page background with layered slate surfaces;
 - blue accent for navigational emphasis and primary intent;
-- pill-shaped actions, badges, and status labels;
-- rounded cards and panels with subtle borders and shadows;
-- dense but readable information layout;
+- compact rectangular controls with 6px corners;
+- squared-off cards and panels with 6–8px corners, subtle borders, and restrained shadows;
+- 28px compact toolbar controls and 32px standard controls on desktop;
+- 12–14px utility text with larger type reserved for document content and page headings;
+- pill geometry only for statuses, counts, and short metadata badges;
+- dense but readable spacing that keeps related controls and information in one view;
 - direct language that names RunWield workflow concepts rather than generic product metaphors.
 
-Do not use the design system as an excuse for a visual redesign. Refine inconsistencies, but preserve the recognizable
-Workspace feel.
+Do not copy the old Workspace habit of making every action a pill or every container a large soft card. Rounded corners
+communicate containment; they are not decoration. When unsure, copy the density and shape of the review toolbars.
 
 ### Prefer semantic UI language
 
@@ -42,7 +44,14 @@ correct choice obvious:
 
 ## Source of truth
 
-The current reference implementation is the Workspace UI:
+Use the current review interfaces as the primary visual reference:
+
+- Plan Review: `src/ui/workspace/react/PlanReviewSurface.tsx` and the `/dev/plan-review` fixture;
+- Code Review: `src/ui/workspace/react/CodeReviewSurface.tsx` and the `/dev/code-review` fixture;
+- review layout and overrides: `src/ui/workspace/react/plannotator.css`;
+- compact shared controls: `.rw-toolbar-button` and `.rw-segmented-toggle` in `src/ui/design-system/components.css`.
+
+The rest of Workspace should reuse that language through these implementation layers:
 
 - CSS baseline: `src/ui/design-system/tokens.css`, `src/ui/design-system/components.css`, and
   `src/ui/workspace/static/workspace.css`
@@ -52,8 +61,22 @@ The current reference implementation is the Workspace UI:
 - detail patterns: `src/ui/workspace/components/PlanDetail.jsx`
 - editor and action islands: `src/ui/workspace/islands/`
 
-When documentation and implementation disagree, inspect Workspace first, then update the documentation or implementation
-so they agree again.
+When documentation and implementation disagree, inspect Plan Review and Code Review first, then update the shared system
+and Workspace so they agree again.
+
+### Canonical density examples
+
+| Pattern                          | Reference                               | Desktop rule                                           |
+| -------------------------------- | --------------------------------------- | ------------------------------------------------------ |
+| Compact icon or segmented option | Review toolbar                          | 28px high, 6px radius, 11–12px label                   |
+| Standard button, input, or tab   | Workspace navigation and review actions | 32px high, 6px radius, 12–14px label                   |
+| Touch-critical control           | Session composer on narrow screens      | 44px minimum height; do not apply this desktop-wide    |
+| Card                             | Plan Card                               | 12px padding, 6px radius                               |
+| Panel or board column            | Review sidebars and Workspace columns   | 8px radius, 10–16px padding                            |
+| Status, count, or short metadata | Review state labels                     | pill radius; never use this shape for ordinary actions |
+
+These values are defaults, not a reason to add `!important`. A specialized interaction may differ when its content or
+accessibility behavior requires it.
 
 ## Component architecture
 
@@ -68,8 +91,8 @@ Workspace surfaces must use RunWield semantic tokens for color, radius, spacing,
 and framework primitives are implementation tools; they should not introduce a competing visual language or bypass
 `--rw-*` tokens.
 
-RunWield components should preserve the current Workspace aesthetic. React primitives may be added under explicit React
-paths such as `src/ui/design-system/components/react/`, but RunWield still owns the shell, workflow vocabulary,
+RunWield components should preserve the compact review-surface aesthetic. React primitives may be added under explicit
+React paths such as `src/ui/design-system/components/react/`, but RunWield still owns the shell, workflow vocabulary,
 variants, and token bridge around them.
 
 Primitive visual components such as buttons, cards, badges, notices, tabs, inputs, and textareas should be
@@ -81,6 +104,11 @@ ARIA behavior.
 Session detail surfaces use one ordered timeline for committed history. Live Workspace-owned waits appear as temporary
 items and must look different from committed transcript entries. If the server process loses that wait, show the plain
 interruption line: “The agent was interrupted. Ask it to continue.” Do not style it as transcript history.
+
+Treat the Session as one continuous work surface. Use dividers, subtle intent rails, and background shifts to
+distinguish timeline entries instead of wrapping every message, tool event, workflow stage, and status in a separate
+card. The Session summary, stream, composer, and workflow rail should read as adjacent panes. The Session list follows
+the same rule: one catalog with compact rows, not a grid of raised Session cards.
 
 Mobile Session composers stay in the normal surface stack, use a visible label, preserve drafts, and keep the primary
 button touch-sized. The **Take control** action is a high-risk confirmation. Show it only after the heartbeat deadline,
@@ -119,6 +147,23 @@ Use existing tokens before adding new ones.
 | `--rw-complexity-medium` | MEDIUM Complexity label.                                     |
 | `--rw-complexity-high`   | HIGH Complexity label.                                       |
 
+### Shape, control, and spacing tokens
+
+| Token                                           | Purpose                                                  |
+| ----------------------------------------------- | -------------------------------------------------------- |
+| `--rw-radius-control`                           | Buttons, inputs, tabs, and other ordinary controls.      |
+| `--rw-radius-card`                              | Cards and nested content blocks.                         |
+| `--rw-radius-panel`                             | Board columns, sidebars, dialogs, and larger containers. |
+| `--rw-radius-pill`                              | Statuses, counts, and short metadata only.               |
+| `--rw-control-height-compact`                   | Review-style compact toolbar controls.                   |
+| `--rw-control-height`                           | Standard desktop controls.                               |
+| `--rw-space-control-x` / `--rw-space-control-y` | Standard control padding.                                |
+| `--rw-space-card`                               | Card padding.                                            |
+| `--rw-space-panel`                              | Page-edge and panel padding.                             |
+
+Shared CSS owns a border-box reset so declared control heights include borders and padding. Without it, a nominal 32px
+control can render much taller. Do not override this reset locally.
+
 The browser design system must share the active theme with the TUI. The shared design-system module owns the browser
 theme bridge at `src/ui/design-system/theme-bridge.js`, which maps the active RunWield TUI theme into these variables.
 New browser surfaces should consume the generated variables; they should not read theme JSON directly.
@@ -149,8 +194,8 @@ Avoid component-specific tokens until a component genuinely needs stable customi
 
 Use the shell pattern for full-page browser surfaces:
 
-- centered max-width container;
-- generous page padding;
+- centered wide container that lets workflow boards use the viewport;
+- 16px desktop page padding, reduced only when a full-bleed review surface owns the viewport;
 - top-left RunWield brand link;
 - tabbed or action-based navigation below the header;
 - main content below navigation.
@@ -164,7 +209,8 @@ Use tabs for peer workspace views, such as active, closed, and on-hold Plan grou
 
 Tab rules:
 
-- use pill-like rounded rectangles inside a bordered tab bar;
+- use compact 32px rounded rectangles inside a thin bordered tab bar;
+- use the control radius, never the pill radius;
 - active tabs use `--rw-surface-muted`, strong text, and an inset accent marker;
 - hover states use `--rw-surface-strong` and stronger borders;
 - tabs may include a trailing utility slot, such as search, when it filters the current view.
@@ -221,10 +267,11 @@ A card should include:
 - a short summary or fallback text;
 - badges for important health or dependency states;
 - whole-card click affordance when the card opens detail;
-- optional drag grip only when drag is allowed.
+- optional drag grip only when drag is allowed;
+- 12px default padding and the card radius.
 
-Use the raised surface, rounded corners, border, and shadow from Workspace. Hover may lift the card slightly and accent
-the border. Do not create flat, borderless workflow cards.
+Use the raised surface, small corners, border, and restrained shadow from Workspace. Hover may accent the border; avoid
+large lifts or shadows that make dense boards visually unstable. Do not create flat, borderless workflow cards.
 
 ### Epic cards
 
@@ -267,19 +314,19 @@ Dialog should be flexible rather than confirmation-only:
 
 ### Pairing code panels
 
-Owner Workspace pairing uses a compact card that keeps the device label, short code, copyable CLI command, and countdown
-in one visible decision area. Place the large code and command/copy box side by side on desktop and stack them on narrow
-screens. The timer text belongs below both so expiration and automatic replacement are understood as applying to the
-whole pairing request.
+Owner Workspace pairing uses one compact, flat authorization panel. Present it as a two-step sequence: identify the
+device and copy the short code, then run the copyable CLI command. Use horizontal dividers and aligned rows rather than
+nested cards. The timer belongs directly under the code so its expiration scope is unambiguous.
 
-Use the existing card, form, primary/secondary action, and status text patterns. The copy command should look like a
-real action button, not a plain text link. Never style a pairing code as a long-lived secret; the surrounding copy
-should make clear that it is short-lived and replaced automatically.
+Use the existing form, primary/secondary action, and status text patterns. The copy command should look like a real
+action button, not a plain text link. Never style a pairing code as a long-lived secret; the surrounding copy should
+make clear that it is short-lived and replaced automatically.
 
 ### Markdown and editor surfaces
 
-Markdown and editor content should sit on darker nested surfaces with borders and rounded corners. Markdown headings use
-accent text. Code and editor affordances should follow Workspace editor styling rather than browser defaults.
+Markdown and editor content should sit on the shared document canvas. In a workbench, the canvas may use one quiet
+document boundary, but do not place additional rounded containers around each section. Markdown headings use accent
+text. Code and editor affordances should follow Workspace editor styling rather than browser defaults.
 
 ## Action patterns
 
@@ -310,7 +357,8 @@ text that explains why the action is unavailable.
 ### Status pills and badges
 
 Use pill-shaped labels for statuses, health markers, and compact metadata. Status labels and badges should use the same
-shape language.
+shape language. Pills are a deliberate exception to the rectangular control language. Do not apply pill geometry to
+buttons, links styled as actions, inputs, tabs, search fields, cards, or panels.
 
 Status color intent:
 
@@ -331,8 +379,9 @@ but the message should explain the consequence in plain language.
 
 ## Forms and inputs
 
-Inputs should use dark nested backgrounds, rounded borders, and explicit focus rings derived from `--rw-accent`. Search
-fields may use pill geometry when placed inside navigation or filtering controls.
+Inputs should use dark nested backgrounds, the 6px control radius, 32px desktop height, and explicit focus rings derived
+from `--rw-accent`. Search fields use the same geometry as other controls; being inside navigation does not make a field
+a pill.
 
 Form labels and helper text should be visible. Do not rely on placeholder text as the only label.
 
@@ -353,10 +402,15 @@ one semantic link per safe `http`/`https` URL, use `target="_blank"` with `rel="
 focus with `--rw-accent`, and allow long unbroken URLs to wrap inside the sidebar. Unsafe or non-HTTP values may be
 shown as muted text but must not become clickable.
 
-## Plannotator port guidance
+## Review-surface guidance
 
-The future RunWield-owned Plannotator should conform to this design system rather than preserving the external
-Plannotator visual language.
+RunWield's Plan Review and Code Review surfaces are now the design reference. Preserve their compact toolbar, segmented
+controls, thin dividers, full-height working layout, and clear three-pane hierarchy while replacing remaining imported
+details with RunWield-owned components over time.
+
+Plan Detail, Plan Review, and read-only Plan are modes of the same Plan workbench. They must share the full-height
+review shell, compact title toolbar, document canvas, and pane boundaries. Change the available controls and side-rail
+content for each mode; do not give one mode a separate dashboard-detail layout.
 
 Plannotator-specific mapping:
 
@@ -370,8 +424,8 @@ Plannotator-specific mapping:
 - code review diffs: use markdown/editor surface rules with strong file and hunk hierarchy;
 - review outcome messages: use notices with clear workflow consequences.
 
-Plannotator should share tokens with Workspace. If a Plannotator interaction requires a new pattern, add the pattern
-here first or in the same change.
+Review surfaces share tokens with Workspace. If a review interaction requires a new pattern, add the pattern here first
+or in the same change, then consider whether Workspace should reuse it.
 
 ## Accessibility and interaction rules
 
@@ -387,18 +441,19 @@ here first or in the same change.
 
 Before adding or changing browser UI, check:
 
-1. Does an existing Workspace pattern already cover this?
+1. Does Plan Review, Code Review, or an existing shared pattern already cover this?
 2. Are all colors expressed through `--rw-*` tokens?
-3. Is the pattern named in RunWield domain language?
-4. Does the UI preserve the current Workspace look and feel?
-5. Are statuses and workflow consequences visible in text, not just color?
-6. Would a future agent know which pattern to copy from this document?
-7. If this is for Plannotator, does it conform to Workspace rather than external Plannotator styling?
+3. Are radius, control height, and padding expressed through the shared density tokens?
+4. Is pill geometry limited to statuses, counts, or short metadata?
+5. Is the pattern named in RunWield domain language?
+6. Does the UI preserve the compact review-surface look and feel?
+7. Are statuses and workflow consequences visible in text, not just color?
+8. Would a future agent know which pattern to copy from this document?
 
 ## Non-goals for v1
 
-- No visual redesign of Workspace.
 - No marketing-site design language.
+- No large-radius, oversized SaaS-dashboard component language.
 - No requirement to extract a full component library immediately.
 - No replacement of RunWield theme files with a separate design-token build system.
 - No commitment to W3C Design Tokens file format until a real integration needs it.

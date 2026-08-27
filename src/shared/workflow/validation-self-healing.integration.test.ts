@@ -98,7 +98,7 @@ async function makeReportedMismatchFixture() {
         updatedAt: "2026-08-13T00:00:00.000Z",
     });
 
-    return { projectRoot, executionCwd, executionPath, worktreeParent, branch, baselineTree };
+    return { projectRoot, executionCwd, executionPath, worktreeParent, branch, baseCommit, baselineTree };
 }
 
 async function removeFixture(fixturePaths: { projectRoot: string; worktreeParent: string }) {
@@ -310,6 +310,75 @@ Deno.test("derived Plan repair keeps an allowed definition proposal", async () =
         );
         assertEquals(proposal.diffs.some((diff) => diff.field === "planId"), false);
         assertEquals(proposal.diffs.some((diff) => diff.field === "collaborationRecommendation"), false);
+    } finally {
+        await removeFixture(testFixture);
+    }
+});
+
+Deno.test("legacy validation recovers a Plan materialized after its baseline", async () => {
+    const projectRoot = await fixture.checkout({ prefix: "runwield-validation-materialized-plan-" });
+    const baseCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
+    const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+    const worktreeParent = await Deno.makeTempDir({ prefix: "runwield-validation-materialized-worktrees-" });
+    const executionCwd = join(worktreeParent, "demo");
+    const branch = "runwield/worktree/materialized-plan";
+    try {
+        await git(projectRoot, ["worktree", "add", "-b", branch, executionCwd, "HEAD"]);
+        await savePlan(executionCwd, "demo", "# Demo\n\nKeep the approved body.\n", {
+            planId: "plan-materialized",
+            classification: "PLANNED_CHANGE",
+            workKind: "REFACTOR",
+            status: "implemented",
+            targetBranch: "main",
+            affectedPaths: ["README.md"],
+            executionAgent: "engineer",
+            collaborationRecommendation: "autonomous",
+        });
+        await git(executionCwd, ["add", "docs/plans/demo.md"]);
+        await git(executionCwd, ["commit", "-m", "materialize execution Plan"]);
+
+        const unchanged = await detectValidationPlanAmendment(
+            projectRoot,
+            executionCwd,
+            "demo",
+            baselineTree,
+            baseCommit,
+        );
+        assertEquals(unchanged, null);
+
+        const execution = await loadPlan(executionCwd, "demo");
+        assertExists(execution);
+        await savePlan(executionCwd, "demo", "# Demo\n\nClarified during execution.\n", execution.attrs, {
+            expectedRevision: execution.revision,
+        });
+        const proposal = await detectValidationPlanAmendment(
+            projectRoot,
+            executionCwd,
+            "demo",
+            baselineTree,
+            baseCommit,
+        );
+        assertExists(proposal);
+        assertEquals(proposal.diffs.some((diff) => diff.field === "body"), true);
+    } finally {
+        await git(projectRoot, ["worktree", "remove", "--force", executionCwd]).catch(() => {});
+        await Deno.remove(worktreeParent, { recursive: true }).catch(() => {});
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("durable registry recovery returns the worktree base commit", async () => {
+    const testFixture = await makeReportedMismatchFixture();
+    try {
+        const resolution = await resolveValidationExecutionContext({
+            projectRoot: testFixture.projectRoot,
+            planName: "demo",
+            triageMeta: { classification: "PLANNED_CHANGE", status: "implemented" },
+        });
+        assertEquals(resolution.kind, "ok");
+        if (resolution.kind === "ok" && resolution.context.executionMode === "worktree") {
+            assertEquals(resolution.context.worktreeBaseCommit, testFixture.baseCommit);
+        }
     } finally {
         await removeFixture(testFixture);
     }

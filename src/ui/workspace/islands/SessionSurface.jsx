@@ -700,18 +700,22 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 ? (
                     <div className="session-detail-layout">
                         <main className="session-stream-panel" aria-label="Session stream">
-                            <section className="owner-card session-summary-card">
-                                <p className="kicker">Session</p>
-                                <h2>{timeline.snapshot?.name || runwieldSessionId}</h2>
-                                <p>
-                                    Generation {timeline.generation ?? "unavailable"} · Agent{" "}
-                                    {timeline.snapshot?.activeAgent || "unknown"}
-                                </p>
+                            <section className="session-summary-card">
+                                <div className="session-summary-heading">
+                                    <div>
+                                        <p className="kicker">Session</p>
+                                        <h2>{timeline.snapshot?.name || runwieldSessionId}</h2>
+                                        <p>
+                                            Generation {timeline.generation ?? "unavailable"} · Agent{" "}
+                                            {timeline.snapshot?.activeAgent || "unknown"}
+                                        </p>
+                                    </div>
+                                    <SessionActivationStatus availability={availability} />
+                                </div>
                                 <SessionBackendDisclosure snapshot={timeline.snapshot} />
                                 {hasActivePlan && progressUrl && !workflowProgressError
                                     ? <a className="rw-plan-review-link" href={progressUrl}>View progress</a>
                                     : null}
-                                <SessionActivationStatus availability={availability} />
                             </section>
                             <div className="session-scroll-offer">
                                 <span>Scroll up for earlier blocks. New blocks stay near the input.</span>

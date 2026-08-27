@@ -64,7 +64,7 @@ export interface HandleEpicPlanOptions {
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
  * @param {PlanSessionSurface["runSlicerAgent"]} opts.runSlicerAgent
  * @param {(childPlanName: string) => Promise<void>} opts.loadChildPlan
- * @returns {Promise<"handled" | "continue" | "review">}
+ * @returns {Promise<"handled" | "continue" | "review" | "direct_review">}
  */
 export async function handleEpicPlan({
     projectRoot,
@@ -72,7 +72,7 @@ export async function handleEpicPlan({
     uiAPI,
     runSlicerAgent,
     loadChildPlan,
-}: HandleEpicPlanOptions): Promise<"handled" | "continue" | "review"> {
+}: HandleEpicPlanOptions): Promise<"handled" | "continue" | "review" | "direct_review"> {
     if (!isEpicPlan(plan.attrs)) return "continue";
 
     const children = (await findPlansByParent(projectRoot, plan.planName)).filter((child) =>
@@ -120,6 +120,8 @@ export async function handleEpicPlan({
 
     const canReviewWithArchitect = plan.attrs.status === "draft" || plan.attrs.status === "feedback" ||
         plan.attrs.status === "approved";
+    const canDirectReview = plan.attrs.status === "draft" || plan.attrs.status === "feedback" ||
+        plan.attrs.status === "approved" || plan.attrs.status === "ready_for_work";
     const canOpenSlicer = isApprovedEpic || hasLegacyExecutableEpicStatus ||
         plan.attrs.status === "ready_for_decomposition" || plan.attrs.status === "ready_for_work";
 
@@ -140,6 +142,7 @@ export async function handleEpicPlan({
         /** @type {Array<{ value: string, label: string }>} */
         const epicOptions = [
             ...(canPickChild ? [{ value: "pick_child", label: "Pick a child Planned Change plan" }] : []),
+            ...(canDirectReview ? [{ value: "direct_review", label: "Review plan" }] : []),
             ...(canReviewWithArchitect ? [{ value: "review", label: "Review with Architect" }] : []),
             ...(canOpenSlicer ? [{ value: "slicer", label: "Open or resume Slicer decomposition" }] : []),
             ...(hasChildren && plan.attrs.status === "ready_for_work"
@@ -185,6 +188,10 @@ export async function handleEpicPlan({
             const archived = await archiveEpicWithChildren({ projectRoot, plan, uiAPI });
             if (archived) return "handled";
             continue;
+        }
+
+        if (answer === "direct_review") {
+            return "direct_review";
         }
 
         if (answer === "review") {

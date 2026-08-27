@@ -4,6 +4,8 @@ import {
     loadPlanActionsScenario,
     loadPlanCanceledExecutionThenPlannerReviewScenario,
     loadPlanContinueUsesExecutionPlanAuthorityScenario,
+    loadPlanDirectReviewRunScenario,
+    loadPlanDirectReviewScenario,
     loadPlanImplementedFollowUpRepaintsScenario,
     loadPlanInterruptedRecoveryScenario,
     loadPlanMalformedFrontMatterScenario,
@@ -15,6 +17,8 @@ import {
 
 const scenarioExportNames = new Map<object, string>([
     [loadPlanActionsScenario, "loadPlanActionsScenario"],
+    [loadPlanDirectReviewScenario, "loadPlanDirectReviewScenario"],
+    [loadPlanDirectReviewRunScenario, "loadPlanDirectReviewRunScenario"],
     [loadPlanCanceledExecutionThenPlannerReviewScenario, "loadPlanCanceledExecutionThenPlannerReviewScenario"],
     [loadPlanImplementedFollowUpRepaintsScenario, "loadPlanImplementedFollowUpRepaintsScenario"],
     [loadPlanResetReviewArchiveScenario, "loadPlanResetReviewArchiveScenario"],
