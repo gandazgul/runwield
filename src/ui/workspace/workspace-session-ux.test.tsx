@@ -4,14 +4,20 @@ import {
     activePlanProgressApiUrl,
     deriveWorkflowSidebarStages,
     draftRecoveryDecision,
+    isAtLiveScrollEdge,
     reduceOperationTransientItems,
     serializeSessionImageForRequest,
     sessionAttachmentsKey,
     sessionDraftKey,
     shouldApplyOperationPoll,
+    shouldRefreshSessionAvailability,
 } from "./islands/SessionSurface.jsx";
 import { deriveSessionAvailability } from "./components/SessionActivationStatus.jsx";
-import { reduceSessionEvents } from "./components/SessionTimeline.jsx";
+import {
+    reduceSessionEvents,
+    sessionInteractionChoiceResponse,
+    sessionInteractionTypedResponse,
+} from "./components/SessionTimeline.jsx";
 
 Deno.test("Session surface preserves drafts and replaces a lost live wait with one interruption line", () => {
     assertEquals(sessionDraftKey("project-1", "session-1"), "runwield:owner:project:project-1:session:session-1:draft");
@@ -107,8 +113,89 @@ Deno.test("Session timeline renders safe segment and recovery events as system b
     assertEquals(items.some((item) => String(item.text || "").includes("segment-id")), false);
 });
 
+Deno.test("Session interaction answers preserve Runtime outcome identity", () => {
+    assertEquals(
+        sessionInteractionChoiceResponse("select", {
+            type: "select",
+            options: [{ value: "router", label: "Router" }],
+        }, { value: "router", label: "Router" }),
+        { outcome: "selected", value: "router", valueLabel: "Router" },
+    );
+    assertEquals(
+        sessionInteractionChoiceResponse("approval", {
+            type: "approval",
+            options: [{ value: "approve", label: "Approve", _meta: { accepted: true } }],
+        }, { value: "approve", label: "Approve" }),
+        { outcome: "accepted", value: "approve", valueLabel: "Approve" },
+    );
+    assertEquals(sessionInteractionTypedResponse("select", "custom answer", true), {
+        outcome: "selected",
+        value: "custom answer",
+        valueLabel: "Other",
+    });
+    assertEquals(sessionInteractionTypedResponse("text", "typed answer", false), {
+        outcome: "text",
+        value: "typed answer",
+    });
+});
+
+Deno.test("Session availability refreshes only while another surface is active", () => {
+    assertEquals(shouldRefreshSessionAvailability({ mode: "detail", state: "active" }), true);
+    assertEquals(
+        shouldRefreshSessionAvailability({ mode: "detail", state: "active", localOperationActive: true }),
+        false,
+    );
+    assertEquals(shouldRefreshSessionAvailability({ mode: "detail", state: "idle" }), false);
+    assertEquals(shouldRefreshSessionAvailability({ mode: "new", state: "active" }), false);
+});
+
+Deno.test("Session timeline groups completed technical activity after agent content resumes", () => {
+    const items = reduceSessionEvents([
+        { type: "user_message", eventId: "u1", messageId: "u1", text: "Do it" },
+        { type: "tool_start", eventId: "t1s", toolCallId: "t1", toolName: "read", title: "Read file" },
+        { type: "tool_end", eventId: "t1e", toolCallId: "t1", toolName: "read", output: "src/app.js", isError: false },
+        { type: "assistant_thinking_delta", eventId: "th1", messageId: "think-1", delta: "Checking" },
+        { type: "assistant_thinking_end", eventId: "th2", messageId: "think-1" },
+        { type: "assistant_text_delta", eventId: "a1", messageId: "a1", delta: "Done." },
+    ]);
+    assertEquals(items.map((item) => item.kind), ["message", "activity", "message"]);
+    assertEquals(items[1]?.title, "Activity");
+    assertEquals(items[1]?.count, 2);
+    assertEquals(items[1]?.items?.map((item) => item.kind), ["tool", "thinking"]);
+    assertEquals(items[1]?.items?.[0]?.output, "src/app.js");
+});
+
+Deno.test("Session timeline keeps trailing or running technical activity visible", () => {
+    const trailing = reduceSessionEvents([
+        { type: "tool_start", eventId: "t1s", toolCallId: "t1", toolName: "bash", title: "Run command" },
+        { type: "tool_end", eventId: "t1e", toolCallId: "t1", toolName: "bash", output: "still latest" },
+    ]);
+    assertEquals(trailing.map((item) => item.kind), ["tool"]);
+
+    const running = reduceSessionEvents([
+        { type: "tool_start", eventId: "t2s", toolCallId: "t2", toolName: "bash", title: "Run command" },
+        { type: "assistant_text_delta", eventId: "a1", messageId: "a1", delta: "Working." },
+    ]);
+    assertEquals(running.map((item) => item.kind), ["tool", "message"]);
+    assertEquals(running[0]?.status, "running");
+});
+
+Deno.test("Session scroll follows only while the reader stays near the live edge", () => {
+    assertEquals(isAtLiveScrollEdge({ scrollHeight: 1000, scrollTop: 553, clientHeight: 400 }), true);
+    assertEquals(isAtLiveScrollEdge({ scrollHeight: 1000, scrollTop: 300, clientHeight: 400 }), false);
+});
+
+Deno.test("Existing Session route lets the shared chat shell own the page heading", async () => {
+    const route = await Deno.readTextFile(
+        new URL("./pages/projects/[projectId]/sessions/[runwieldSessionId].astro", import.meta.url),
+    );
+    assertEquals(route.includes("Session Continuation"), false);
+    assertEquals(route.includes("Committed transcript history"), false);
+    assertEquals(route.includes("SessionSurface"), true);
+});
+
 Deno.test("Session workflow sidebar uses canonical progress stages", async () => {
-    const surface = await Deno.readTextFile("src/ui/workspace/islands/SessionSurface.jsx");
+    const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
     assertEquals(
         activePlanProgressApiUrl("project-1", "session-1", {
             activeExecutionWorkflow: { planId: "plan-demo" },

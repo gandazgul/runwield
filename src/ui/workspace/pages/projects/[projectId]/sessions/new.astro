@@ -1,0 +1,9 @@
+---
+import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import SessionSurface from "../../../../islands/SessionSurface.jsx";
+
+const projectId = Astro.params.projectId ?? "";
+---
+<WorkspaceLayout title="New Project Session" selectedTab="projects" url={Astro.url.href}>
+    <SessionSurface projectId={projectId} mode="new" client:only="react" />
+</WorkspaceLayout>

@@ -12,6 +12,7 @@ import { PlanDetail } from "./components/PlanDetail.jsx";
 
 import { createWorkspaceApp } from "./server.js";
 import { createWorkRecordMnemosyneFixture } from "../../shared/work-records/test-fixtures/mnemosyne-port.ts";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
 Deno.test("Workspace wrapper protects page routes and serves public assets without token", async () => {
     const cwd = await Deno.makeTempDir();
@@ -140,127 +141,128 @@ Deno.test("Workspace page routes require Astro handler instead of static React f
     }
 });
 
-Deno.test("Workspace API and detail route return readable editable Plan body metadata", async () => {
-    const cwd = await Deno.makeTempDir();
-    try {
-        await savePlan(
-            cwd,
-            "detail",
-            "# Detail\n\nReadable body with [RunWield](https://runwield.dev)",
-            /** @type {any} */ ({
-                planId: "detail-id",
-                status: "implemented",
-                classification: "FEATURE",
-                complexity: "HIGH",
-                summary: "Detail summary",
-                affectedPaths: ["src/ui/workspace/components/PlanDetail.jsx"],
-                tickets: [
-                    { url: "https://example.com/tickets/DETAIL-123" },
-                    { url: "javascript:alert(1)" },
-                ],
-                dependencies: ["sibling-plan"],
-                implementedAt: "2026-06-30T10:00:00.000Z",
-                executionBaselineTree: "tree-detail",
-                worktreeId: "wt-detail",
-                worktreePath: "/tmp/secret-worktree-path",
-                worktreeBranch: "runwield/worktree/detail",
-                worktreeStatus: "active",
-                humanReviewMode: "ask",
-                humanReviewDecision: "approved",
-                humanReviewedAt: "2026-06-30T11:00:00.000Z",
-                customPriority: "urgent",
-            }),
-        );
-        const board = await loadBoard(cwd);
-        assertEquals(board.plans.length, 1);
+Deno.test("Workspace API and detail route return readable editable Plan body metadata", async () =>
+    await withProcessGlobalTestLock(async () => {
+        const cwd = await Deno.makeTempDir();
+        try {
+            await savePlan(
+                cwd,
+                "detail",
+                "# Detail\n\nReadable body with [RunWield](https://runwield.dev)",
+                /** @type {any} */ ({
+                    planId: "detail-id",
+                    status: "implemented",
+                    classification: "FEATURE",
+                    complexity: "HIGH",
+                    summary: "Detail summary",
+                    affectedPaths: ["src/ui/workspace/components/PlanDetail.jsx"],
+                    tickets: [
+                        { url: "https://example.com/tickets/DETAIL-123" },
+                        { url: "javascript:alert(1)" },
+                    ],
+                    dependencies: ["sibling-plan"],
+                    implementedAt: "2026-06-30T10:00:00.000Z",
+                    executionBaselineTree: "tree-detail",
+                    worktreeId: "wt-detail",
+                    worktreePath: "/tmp/secret-worktree-path",
+                    worktreeBranch: "runwield/worktree/detail",
+                    worktreeStatus: "active",
+                    humanReviewMode: "ask",
+                    humanReviewDecision: "approved",
+                    humanReviewedAt: "2026-06-30T11:00:00.000Z",
+                    customPriority: "urgent",
+                }),
+            );
+            const board = await loadBoard(cwd);
+            assertEquals(board.plans.length, 1);
 
-        const app = createWorkspaceApp({
-            cwd,
-            token: "secret",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
-        }).handler();
-        const api = await app(
-            new Request("http://localhost/api/plans/detail-id", {
-                headers: { [PLAN_UI_TOKEN_HEADER]: "secret" },
-            }),
-        );
-        assertEquals(api.status, 200);
-        const apiBody = await api.json();
-        assertEquals(apiBody.plan.readOnly, true);
-        assertEquals(typeof apiBody.plan.bodyHash, "string");
-        assertEquals(apiBody.plan.capabilities.bodyEditing, true);
-        assertEquals(Object.hasOwn(apiBody.plan, "path"), false);
-        assertEquals(Object.hasOwn(apiBody.plan.frontMatter, "worktreePath"), false);
-        assertEquals(Object.hasOwn(apiBody.plan.attrs, "worktreePath"), false);
-        assertEquals(apiBody.plan.frontMatter.tickets, [
-            { url: "https://example.com/tickets/DETAIL-123" },
-            { url: "javascript:alert(1)" },
-        ]);
+            const app = createWorkspaceApp({
+                cwd,
+                token: "secret",
+                mnemosynePort: createWorkRecordMnemosyneFixture(),
+            }).handler();
+            const api = await app(
+                new Request("http://localhost/api/plans/detail-id", {
+                    headers: { [PLAN_UI_TOKEN_HEADER]: "secret" },
+                }),
+            );
+            assertEquals(api.status, 200);
+            const apiBody = await api.json();
+            assertEquals(apiBody.plan.readOnly, true);
+            assertEquals(typeof apiBody.plan.bodyHash, "string");
+            assertEquals(apiBody.plan.capabilities.bodyEditing, true);
+            assertEquals(Object.hasOwn(apiBody.plan, "path"), false);
+            assertEquals(Object.hasOwn(apiBody.plan.frontMatter, "worktreePath"), false);
+            assertEquals(Object.hasOwn(apiBody.plan.attrs, "worktreePath"), false);
+            assertEquals(apiBody.plan.frontMatter.tickets, [
+                { url: "https://example.com/tickets/DETAIL-123" },
+                { url: "javascript:alert(1)" },
+            ]);
 
-        const plan = await loadWorkspaceDetail(cwd, "detail-id");
-        const html = renderToStaticMarkup(
-            React.createElement(PlanDetail, {
-                plan,
-                url: "http://localhost/plans/detail-id?token=secret",
-                staticRender: true,
-            }),
-        );
-        assertStringIncludes(html, "Readable body");
-        assertStringIncludes(html, "data-plannotator-plan-body");
-        assertStringIncludes(html, "data-plannotator-plan-body-json");
-        assertStringIncludes(html, "data-plannotator-plan-body-root");
-        assertStringIncludes(html, "Readable body");
-        assertStringIncludes(html, 'data-plan-id="detail-id"');
-        assertStringIncludes(html, 'data-plannotator-renderer="ssr-fallback"');
-        assertStringIncludes(html, 'class="markdown-view"');
-        assertStringIncludes(html, 'class="complexity-label complexity-high"');
-        assertStringIncludes(html, 'href="https://runwield.dev"');
-        assertStringIncludes(html, ">RunWield</a>");
-        assertStringIncludes(html, ">Put on hold</button>");
-        assertStringIncludes(html, ">Mark as User Verified</button>");
-        assertStringIncludes(html, 'class="danger-action lifecycle-action"');
-        assertStringIncludes(html, ">Close without verification</button>");
-        assertStringIncludes(html, 'class="detail-title-row"');
-        assertStringIncludes(html, "&lt; Back</a>");
-        assertStringIncludes(html, 'class="detail-close-link"');
-        assertStringIncludes(html, 'aria-label="Close plan detail"');
-        assertStringIncludes(html, ">X</a>");
-        assertEquals(html.includes(">Close</a>"), false);
-        assertEquals(html.includes("Front matter summary"), false);
-        assertStringIncludes(html, "Identity");
-        assertStringIncludes(html, "Planning");
-        assertStringIncludes(html, "Ticket references");
-        assertStringIncludes(html, 'href="https://example.com/tickets/DETAIL-123"');
-        assertStringIncludes(html, 'target="_blank"');
-        assertStringIncludes(html, 'rel="noreferrer noopener"');
-        assertEquals(html.includes('href="javascript:alert(1)"'), false);
-        assertEquals(html.includes("{&quot;url&quot;"), false);
-        assertStringIncludes(html, "Hierarchy &amp; dependencies");
-        assertStringIncludes(html, "Lifecycle");
-        assertStringIncludes(html, "Execution worktree");
-        assertStringIncludes(html, "Review");
-        assertStringIncludes(html, "Additional metadata");
-        assertStringIncludes(html, "Plan ID");
-        assertStringIncludes(html, "detail-id");
-        assertStringIncludes(html, "Affected paths");
-        assertStringIncludes(html, "src/ui/workspace/components/PlanDetail.jsx");
-        assertStringIncludes(html, "Depends on");
-        assertStringIncludes(html, "sibling-plan");
-        assertStringIncludes(html, "Implemented at");
-        assertStringIncludes(html, "2026-06-30T10:00:00.000Z");
-        assertStringIncludes(html, "Execution baseline tree");
-        assertStringIncludes(html, "tree-detail");
-        assertStringIncludes(html, "Worktree branch");
-        assertStringIncludes(html, "runwield/worktree/detail");
-        assertStringIncludes(html, "Human review decision");
-        assertStringIncludes(html, "approved");
-        assertStringIncludes(html, "Custom Priority");
-        assertStringIncludes(html, "urgent");
-        assertEquals(html.includes("/tmp/secret-worktree-path"), false);
-    } finally {
-        await Deno.remove(cwd, { recursive: true });
-    }
-});
+            const plan = await loadWorkspaceDetail(cwd, "detail-id");
+            const html = renderToStaticMarkup(
+                React.createElement(PlanDetail, {
+                    plan,
+                    url: "http://localhost/plans/detail-id?token=secret",
+                    staticRender: true,
+                }),
+            );
+            assertStringIncludes(html, "Readable body");
+            assertStringIncludes(html, "data-plannotator-plan-body");
+            assertStringIncludes(html, "data-plannotator-plan-body-json");
+            assertStringIncludes(html, "data-plannotator-plan-body-root");
+            assertStringIncludes(html, "Readable body");
+            assertStringIncludes(html, 'data-plan-id="detail-id"');
+            assertStringIncludes(html, 'data-plannotator-renderer="ssr-fallback"');
+            assertStringIncludes(html, 'class="markdown-view"');
+            assertStringIncludes(html, 'class="complexity-label complexity-high"');
+            assertStringIncludes(html, 'href="https://runwield.dev"');
+            assertStringIncludes(html, ">RunWield</a>");
+            assertStringIncludes(html, ">Put on hold</button>");
+            assertStringIncludes(html, ">Mark as User Verified</button>");
+            assertStringIncludes(html, 'class="danger-action lifecycle-action"');
+            assertStringIncludes(html, ">Close without verification</button>");
+            assertStringIncludes(html, 'class="detail-title-row"');
+            assertStringIncludes(html, "&lt; Back</a>");
+            assertStringIncludes(html, 'class="detail-close-link"');
+            assertStringIncludes(html, 'aria-label="Close plan detail"');
+            assertStringIncludes(html, ">X</a>");
+            assertEquals(html.includes(">Close</a>"), false);
+            assertEquals(html.includes("Front matter summary"), false);
+            assertStringIncludes(html, "Identity");
+            assertStringIncludes(html, "Planning");
+            assertStringIncludes(html, "Ticket references");
+            assertStringIncludes(html, 'href="https://example.com/tickets/DETAIL-123"');
+            assertStringIncludes(html, 'target="_blank"');
+            assertStringIncludes(html, 'rel="noreferrer noopener"');
+            assertEquals(html.includes('href="javascript:alert(1)"'), false);
+            assertEquals(html.includes("{&quot;url&quot;"), false);
+            assertStringIncludes(html, "Hierarchy &amp; dependencies");
+            assertStringIncludes(html, "Lifecycle");
+            assertStringIncludes(html, "Execution worktree");
+            assertStringIncludes(html, "Review");
+            assertStringIncludes(html, "Additional metadata");
+            assertStringIncludes(html, "Plan ID");
+            assertStringIncludes(html, "detail-id");
+            assertStringIncludes(html, "Affected paths");
+            assertStringIncludes(html, "src/ui/workspace/components/PlanDetail.jsx");
+            assertStringIncludes(html, "Depends on");
+            assertStringIncludes(html, "sibling-plan");
+            assertStringIncludes(html, "Implemented at");
+            assertStringIncludes(html, "2026-06-30T10:00:00.000Z");
+            assertStringIncludes(html, "Execution baseline tree");
+            assertStringIncludes(html, "tree-detail");
+            assertStringIncludes(html, "Worktree branch");
+            assertStringIncludes(html, "runwield/worktree/detail");
+            assertStringIncludes(html, "Human review decision");
+            assertStringIncludes(html, "approved");
+            assertStringIncludes(html, "Custom Priority");
+            assertStringIncludes(html, "urgent");
+            assertEquals(html.includes("/tmp/secret-worktree-path"), false);
+        } finally {
+            await Deno.remove(cwd, { recursive: true });
+        }
+    }));
 
 Deno.test("PlanDetail derives Epic UI from classification rather than legacy subtype metadata", () => {
     const html = renderToStaticMarkup(

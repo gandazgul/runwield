@@ -5,6 +5,11 @@ function sessionHref(projectId, sessionId) {
     return `/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}`;
 }
 
+/** @param {string} projectId */
+function newSessionHref(projectId) {
+    return `/projects/${encodeURIComponent(projectId)}/sessions/new`;
+}
+
 /** @param {unknown} value */
 function safeDiagnosticText(value) {
     if (!value || typeof value !== "object") return String(value || "");
@@ -12,16 +17,12 @@ function safeDiagnosticText(value) {
     return [record.code, record.message].filter((part) => typeof part === "string" && part).join(": ");
 }
 
-/** @param {{ projectId: string, data?: any, loading?: boolean, error?: string, newSessionText?: string, creating?: boolean, onNewSessionTextChange?: (value: string) => void, onCreateSession?: () => void, onRetry?: () => void, onPageChange?: (page: number) => void }} props */
+/** @param {{ projectId: string, data?: any, loading?: boolean, error?: string, onRetry?: () => void, onPageChange?: (page: number) => void }} props */
 export function SessionList({
     projectId,
     data,
     loading = false,
     error = "",
-    newSessionText = "",
-    creating = false,
-    onNewSessionTextChange,
-    onCreateSession,
     onRetry,
     onPageChange,
 }) {
@@ -47,54 +48,31 @@ export function SessionList({
             </section>
         );
     }
-    const createForm = onCreateSession
-        ? (
-            <form
-                className="session-create-card session-create-panel"
-                onSubmit={(event) => {
-                    event.preventDefault();
-                    onCreateSession();
-                }}
-            >
-                <div className="session-create-copy">
-                    <p className="kicker">New Session</p>
-                    <h2>Start with Router</h2>
-                    <p>Describe the outcome. Router will choose the first workflow step.</p>
-                </div>
-                <div className="session-create-fields">
-                    <label htmlFor="new-session-request">First User Request</label>
-                    <textarea
-                        id="new-session-request"
-                        rows={3}
-                        value={newSessionText}
-                        onChange={(event) => onNewSessionTextChange?.(event.currentTarget.value)}
-                        placeholder="Ask RunWield what you want to do next…"
-                        disabled={creating}
-                    />
-                    <div className="card-actions">
-                        <RunWieldButton type="submit" variant="primary" disabled={creating || !newSessionText.trim()}>
-                            {creating ? "Starting…" : "Start Session"}
-                        </RunWieldButton>
-                    </div>
-                </div>
-            </form>
-        )
-        : null;
+    const diagnostics = Array.isArray(data?.diagnostics) ? /** @type {unknown[]} */ (data.diagnostics) : [];
+    const newSessionAction = (
+        <section className="session-create-panel" aria-labelledby="session-list-new-heading">
+            <div className="session-create-copy">
+                <p className="kicker">New Session</p>
+                <h2 id="session-list-new-heading">Start a browser Session</h2>
+                <p>Open the chat surface, choose Session settings, and send the first User Request there.</p>
+            </div>
+            <a className="rw-toolbar-button" href={newSessionHref(projectId)}>New Session</a>
+        </section>
+    );
     if (!sessions.length) {
         return (
             <section className="session-list-surface" aria-label="Project Sessions">
-                {createForm}
+                {newSessionAction}
                 <section className="empty-state session-list-state session-empty-panel">
                     <h2>No Sessions cataloged</h2>
-                    <p>Start a new Router-led Session or run a full Session rescan from the Project card.</p>
+                    <p>Start a new browser Session or run a full Session rescan from the Project card.</p>
                 </section>
             </section>
         );
     }
-    const diagnostics = Array.isArray(data?.diagnostics) ? /** @type {unknown[]} */ (data.diagnostics) : [];
     return (
         <section className="session-list-surface" aria-label="Project Sessions">
-            {createForm}
+            {newSessionAction}
             {diagnostics.length
                 ? (
                     <details className="notice warning session-diagnostics">

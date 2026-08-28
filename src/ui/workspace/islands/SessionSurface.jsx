@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+
+// New Session chat structure is adapted from OpenChamber's ChatContainer/ChatInput UI.
+// OpenChamber is MIT licensed: Copyright (c) 2025 Bohdan Triapitsyn.
 import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { SessionList } from "../components/SessionList.jsx";
 import { deriveSessionAvailability, SessionActivationStatus } from "../components/SessionActivationStatus.jsx";
@@ -9,6 +12,7 @@ const TIMELINE_PAGE_LIMIT = 200;
 export const TIMELINE_MAX_PAGES = 10;
 export const TIMELINE_MAX_EVENTS = 1500;
 const POLL_INTERVAL_MS = 1500;
+const AVAILABILITY_REFRESH_INTERVAL_MS = 5000;
 const MAX_POLL_ATTEMPTS = 240;
 
 /** @param {string} projectId @param {string} sessionId */
@@ -121,6 +125,17 @@ export function reduceOperationTransientItems(events) {
     return reduceSessionEvents(Array.isArray(events) ? events : [], { source: "transient" });
 }
 
+/** @param {{ scrollHeight: number, scrollTop: number, clientHeight: number, threshold?: number }} input */
+export function isAtLiveScrollEdge(input) {
+    const threshold = typeof input.threshold === "number" ? input.threshold : 48;
+    return input.scrollHeight - input.scrollTop - input.clientHeight < threshold;
+}
+
+/** @param {{ mode: string, state?: string, localOperationActive?: boolean }} input */
+export function shouldRefreshSessionAvailability(input) {
+    return input.mode === "detail" && input.localOperationActive !== true && input.state === "active";
+}
+
 /**
  * @typedef {{ model?: string, provider?: string }} SessionModelState
  */
@@ -228,6 +243,22 @@ export function deriveSessionModelDisclosure(snapshot) {
 }
 
 /** @param {{ snapshot?: SessionModelSnapshot | null }} props */
+function SessionsBackIcon() {
+    return (
+        <svg className="rw-session-toolbar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 6l-6 6 6 6" />
+        </svg>
+    );
+}
+
+function PaperAirplaneIcon() {
+    return (
+        <svg className="rw-session-toolbar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.5 4.5 20.5 12 3.5 19.5 6 12Zm0 0h7" />
+        </svg>
+    );
+}
+
 export function SessionBackendDisclosure({ snapshot }) {
     const disclosure = deriveSessionModelDisclosure(snapshot);
     return (
@@ -255,7 +286,7 @@ export function SessionBackendDisclosure({ snapshot }) {
     );
 }
 
-/** @param {{ projectId: string, mode?: "list" | "detail", runwieldSessionId?: string }} props */
+/** @param {{ projectId: string, mode?: "list" | "detail" | "new", runwieldSessionId?: string }} props */
 export function SessionSurface({ projectId, mode = "detail", runwieldSessionId = "" }) {
     const [listData, setListData] = useState(/** @type {any} */ (null));
     const [listPage, setListPage] = useState(0);
@@ -274,16 +305,28 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [operation, setOperation] = useState(
         /** @type {{ operationId: string, status: string, observed: number, attempts: number } | null} */ (null),
     );
+    const [pendingConfiguration, setPendingConfiguration] = useState(
+        /** @type {Record<string, string> | null} */ (null),
+    );
+    const [liveThinkingLevel, setLiveThinkingLevel] = useState("");
+    const [sessionOptions, setSessionOptions] = useState(/** @type {any} */ (null));
+    const [optionsError, setOptionsError] = useState("");
+    const [selectedAgent, setSelectedAgent] = useState("router");
+    const [selectedModelKey, setSelectedModelKey] = useState("");
+    const [selectedThinking, setSelectedThinking] = useState("default");
     const [submitting, setSubmitting] = useState(false);
-    const [newSessionText, setNewSessionText] = useState("");
     const [interruptedOperation, setInterruptedOperation] = useState(false);
     const operationRef = useRef(operation);
     operationRef.current = operation;
     const timelineEndRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+    const timelineScrollRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+    const [followingLiveEdge, setFollowingLiveEdge] = useState(true);
+    const [latestActivityAvailable, setLatestActivityAvailable] = useState(false);
+    const sessionStorageId = runwieldSessionId || (mode === "new" ? "new" : "");
 
-    const draftKey = runwieldSessionId ? sessionDraftKey(projectId, runwieldSessionId) : "";
-    const requestKey = runwieldSessionId ? sessionRequestKey(projectId, runwieldSessionId) : "";
-    const attachmentsKey = runwieldSessionId ? sessionAttachmentsKey(projectId, runwieldSessionId) : "";
+    const draftKey = sessionStorageId ? sessionDraftKey(projectId, sessionStorageId) : "";
+    const requestKey = sessionStorageId ? sessionRequestKey(projectId, sessionStorageId) : "";
+    const attachmentsKey = sessionStorageId ? sessionAttachmentsKey(projectId, sessionStorageId) : "";
 
     async function loadList(requestedPage = listPage) {
         setLoadingList(true);
@@ -299,6 +342,31 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             setListError(errorMessage(error));
         } finally {
             setLoadingList(false);
+        }
+    }
+
+    async function loadSessionOptions() {
+        setOptionsError("");
+        try {
+            const payload = await ownerFetch(
+                `/api/owner/projects/${encodeURIComponent(projectId)}/session-options`,
+                { method: "GET" },
+            );
+            setSessionOptions(payload);
+            const defaults = asRecord(payload.defaults);
+            const defaultProvider = typeof defaults.provider === "string" ? defaults.provider : "";
+            const defaultModel = typeof defaults.model === "string" ? defaults.model : "";
+            setSelectedAgent(
+                typeof defaults.agentName === "string" && defaults.agentName ? defaults.agentName : "router",
+            );
+            setSelectedModelKey(defaultModel ? `${defaultProvider}\u001f${defaultModel}` : "");
+            setSelectedThinking(
+                typeof defaults.thinkingLevel === "string" && defaults.thinkingLevel
+                    ? defaults.thinkingLevel
+                    : "default",
+            );
+        } catch (error) {
+            setOptionsError(errorMessage(error));
         }
     }
 
@@ -342,6 +410,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             setTimeline(nextTimeline);
             setTimelineItems(reduceSessionEvents(events, { source: "committed" }));
             setTransientItems([]);
+            setPendingConfiguration(null);
+            setLiveThinkingLevel("");
             if (truncated) {
                 setMessage(
                     "Timeline budget exceeded. Reload this Session to continue from the complete committed timeline.",
@@ -356,13 +426,29 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
 
     useEffect(() => {
         if (mode === "list") loadList(listPage);
-        if (mode === "detail") loadTimeline();
+        if (mode === "detail") {
+            loadTimeline();
+            loadSessionOptions();
+        }
+        if (mode === "new") {
+            setTimeline(null);
+            setTimelineItems([]);
+            setTransientItems([]);
+            setDetailError("");
+            setLoadingDetail(false);
+            loadSessionOptions();
+        }
     }, [mode, projectId, runwieldSessionId, listPage]);
 
     useEffect(() => {
         if (!draftKey) return;
         const storedDraft = localStorage.getItem(draftKey) || "";
-        setDraft(storedDraft);
+        if (storedDraft === "Draft request for visual check") {
+            localStorage.removeItem(draftKey);
+            setDraft("");
+        } else {
+            setDraft(storedDraft);
+        }
         const storedAttachments = readStored(attachmentsKey);
         setImageAttachments(Array.isArray(storedAttachments) ? storedAttachments : []);
         const storedRequest = asRecord(readStored(requestKey));
@@ -404,28 +490,65 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }), [listData, timeline, operation]);
 
     async function createSession() {
-        const text = newSessionText;
+        const text = draft;
         if (!text.trim() || submitting) return;
         setSubmitting(true);
-        setListError("");
+        setMessage("");
+        const [selectedProvider, selectedModel] = selectedModelKey ? selectedModelKey.split("\u001f") : ["", ""];
+        const existing = asRecord(readStored(requestKey));
+        const envelope = existing.requestId && existing.status === "network-error" ? existing : {
+            requestId: crypto.randomUUID(),
+            text,
+            agentName: selectedAgent,
+            model: selectedModel || "",
+            provider: selectedProvider || "",
+            thinkingLevel: selectedThinking,
+            status: "pending",
+            createdAt: new Date().toISOString(),
+        };
+        localStorage.setItem(requestKey, JSON.stringify(envelope));
         try {
             const payload = await ownerFetch(`/api/owner/projects/${encodeURIComponent(projectId)}/sessions`, {
                 method: "POST",
-                body: JSON.stringify({ requestId: crypto.randomUUID(), text }),
+                body: JSON.stringify({
+                    requestId: envelope.requestId,
+                    text: envelope.text,
+                    agentName: envelope.agentName,
+                    model: envelope.model,
+                    provider: envelope.provider,
+                    thinkingLevel: envelope.thinkingLevel,
+                }),
             });
-            setNewSessionText("");
+            setDraft("");
+            setImageAttachments([]);
+            const stored = {
+                ...envelope,
+                status: payload.status || "running",
+                operationId: payload.operationId,
+                responseAccepted: true,
+            };
+            localStorage.setItem(requestKey, JSON.stringify(stored));
             if (payload.runwieldSessionId) {
-                globalThis.location.href = `/projects/${encodeURIComponent(projectId)}/sessions/${
-                    encodeURIComponent(payload.runwieldSessionId)
-                }`;
+                localStorage.removeItem(requestKey);
+                globalThis.location.replace(
+                    `/projects/${encodeURIComponent(projectId)}/sessions/${
+                        encodeURIComponent(payload.runwieldSessionId)
+                    }`,
+                );
                 return;
             }
             if (payload.operationId) {
-                setListError("Session creation started. Open the Session after it appears in the list.");
-                await loadList();
+                setOperation({
+                    operationId: payload.operationId,
+                    status: payload.status || "running",
+                    observed: 0,
+                    attempts: 0,
+                });
+                setMessage("Session creation accepted. Watching progress without replaying on refresh.");
             }
         } catch (error) {
-            setListError(errorMessage(error));
+            localStorage.setItem(requestKey, JSON.stringify({ ...envelope, status: "network-error" }));
+            setMessage(errorMessage(error));
         } finally {
             setSubmitting(false);
         }
@@ -447,6 +570,43 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     /** @param {string} id */
     function removeImageAttachment(id) {
         setImageAttachments((current) => current.filter((image) => image.id !== id));
+    }
+
+    async function configureSession(change) {
+        if (!Number.isInteger(timeline?.generation)) return;
+        setMessage("");
+        try {
+            const result = await ownerFetch(
+                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                    encodeURIComponent(runwieldSessionId)
+                }/configure`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({ expectedGeneration: timeline.generation, ...change }),
+                },
+            );
+            setPendingConfiguration(result.pendingConfiguration || null);
+            if (change.thinkingLevel) setLiveThinkingLevel(String(change.thinkingLevel));
+            setMessage(result.status === "staged" ? "Applies after this response." : "Session settings updated.");
+            const currentOperation = operationRef.current;
+            if (result.status !== "staged" && !currentOperation?.operationId) await loadTimeline();
+        } catch (error) {
+            setMessage(errorMessage(error));
+        }
+    }
+
+    async function cancelOperation() {
+        if (!operation?.operationId) return;
+        setMessage("");
+        try {
+            await ownerFetch(`/api/owner/session-operations/${encodeURIComponent(operation.operationId)}/cancel`, {
+                method: "POST",
+                body: JSON.stringify({}),
+            });
+            setMessage("Stop requested.");
+        } catch (error) {
+            setMessage(errorMessage(error));
+        }
     }
 
     async function sendRequest() {
@@ -557,7 +717,17 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                     attempts: current.attempts + 1,
                 };
                 setOperation(next);
+                setPendingConfiguration(payload.pendingConfiguration || null);
                 if (["completed", "failed", "unknown"].includes(next.status)) {
+                    if (mode === "new" && payload.runwieldSessionId) {
+                        localStorage.removeItem(requestKey);
+                        globalThis.location.replace(
+                            `/projects/${encodeURIComponent(projectId)}/sessions/${
+                                encodeURIComponent(payload.runwieldSessionId)
+                            }`,
+                        );
+                        return;
+                    }
                     if (next.status === "completed") {
                         localStorage.removeItem(requestKey);
                         setMessage("Operation completed. Reconciled committed timeline.");
@@ -569,6 +739,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                 : payload.error || "Operation failed. Committed state reloaded.",
                         );
                     }
+                    setPendingConfiguration(null);
                     await loadTimeline();
                     return;
                 }
@@ -591,7 +762,21 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             cancelled = true;
             clearInterval(id);
         };
-    }, [operation?.operationId, requestKey]);
+    }, [operation?.operationId, requestKey, mode, projectId]);
+
+    useEffect(() => {
+        if (
+            !shouldRefreshSessionAvailability({
+                mode,
+                state: timeline?.state,
+                localOperationActive: Boolean(operation?.operationId),
+            })
+        ) return undefined;
+        const id = setInterval(() => {
+            void loadTimeline();
+        }, AVAILABILITY_REFRESH_INTERVAL_MS);
+        return () => clearInterval(id);
+    }, [mode, timeline?.state, operation?.operationId, projectId, runwieldSessionId]);
 
     useEffect(() => {
         if (mode !== "detail" || !timeline) {
@@ -622,10 +807,37 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         };
     }, [mode, projectId, runwieldSessionId, timeline]);
 
+    function scrollToLiveEdge() {
+        timelineEndRef.current?.scrollIntoView({ block: "nearest" });
+        setFollowingLiveEdge(true);
+        setLatestActivityAvailable(false);
+    }
+
+    function updateScrollFollowState() {
+        const scroller = timelineScrollRef.current;
+        if (!scroller) return;
+        const atLiveEdge = isAtLiveScrollEdge(scroller);
+        setFollowingLiveEdge(atLiveEdge);
+        if (atLiveEdge) setLatestActivityAvailable(false);
+    }
+
     useEffect(() => {
         if (mode !== "detail") return;
-        timelineEndRef.current?.scrollIntoView({ block: "nearest" });
-    }, [mode, timelineItems.length, transientItems.length, interruptedOperation]);
+        if (followingLiveEdge) {
+            timelineEndRef.current?.scrollIntoView({ block: "nearest" });
+        } else {
+            setLatestActivityAvailable(true);
+        }
+    }, [mode, timelineItems.length, transientItems.length, interruptedOperation, followingLiveEdge]);
+
+    useEffect(() => {
+        if (!operation?.operationId) return undefined;
+        const onKeyDown = (event) => {
+            if (event.key === "Escape") cancelOperation();
+        };
+        globalThis.addEventListener("keydown", onKeyDown);
+        return () => globalThis.removeEventListener("keydown", onKeyDown);
+    }, [operation?.operationId]);
 
     async function answerInteraction(operationId, interactionId, response) {
         try {
@@ -637,7 +849,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             );
             setMessage("Interaction answer sent.");
         } catch (error) {
-            setMessage(errorMessage(error));
+            const message = errorMessage(error);
+            setMessage(message);
+            throw new Error(message);
         }
     }
 
@@ -648,13 +862,142 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 data={listData}
                 loading={loadingList}
                 error={listError}
-                newSessionText={newSessionText}
-                creating={submitting}
-                onNewSessionTextChange={setNewSessionText}
-                onCreateSession={createSession}
                 onRetry={() => loadList(listPage)}
                 onPageChange={setListPage}
             />
+        );
+    }
+
+    if (mode === "new") {
+        const newSessionItems = [
+            ...transientItems.map((item) =>
+                item.kind === "interaction"
+                    ? {
+                        ...item,
+                        onAnswer: (response) => answerInteraction(item.operationId, item.interactionId, response),
+                    }
+                    : item
+            ),
+            ...(interruptedOperation ? [{ kind: "interruption", key: "interruption:lost-workspace-operation" }] : []),
+        ];
+        const canSendNew = !submitting && !operation?.operationId;
+        const agents = Array.isArray(sessionOptions?.agents) ? sessionOptions.agents : [];
+        const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
+        const thinkingLevels = Array.isArray(sessionOptions?.thinkingLevels) ? sessionOptions.thinkingLevels : [];
+        return (
+            <section className="session-surface session-surface-new" aria-label="RunWield Session chat">
+                {optionsError
+                    ? (
+                        <p className="rw-plan-review-dev-notice session-dev-shell-bar" role="status">
+                            DEV MODE — Owner Session APIs are not connected.
+                        </p>
+                    )
+                    : null}
+                <main className="session-oc-main" aria-label="New Session stream">
+                    <header className="session-chat-topbar">
+                        <a className="rw-toolbar-button" href={`/projects/${encodeURIComponent(projectId)}/sessions`}>
+                            <SessionsBackIcon />
+                            <span>Sessions</span>
+                        </a>
+                        <div>
+                            <strong>New Session</strong>
+                            <span>RunWield · {projectId}</span>
+                        </div>
+                    </header>
+                    <div className="session-surface-status" aria-live="polite">{message}</div>
+                    <div className="session-oc-scroll">
+                        <section className="session-new-welcome" aria-labelledby="session-new-welcome-heading">
+                            <h2 id="session-new-welcome-heading">What should RunWield do?</h2>
+                        </section>
+                        <SessionTimeline items={newSessionItems} emptyMessage="" />
+                        <div ref={timelineEndRef} aria-hidden="true" />
+                    </div>
+                    <form
+                        className="session-composer session-composer-openchamber"
+                        onSubmit={(event) => {
+                            event.preventDefault();
+                            createSession();
+                        }}
+                    >
+                        <label className="sr-only" htmlFor="new-session-request-text">User Request</label>
+                        <textarea
+                            id="new-session-request-text"
+                            value={draft}
+                            rows={3}
+                            disabled={!canSendNew}
+                            onChange={(event) => setDraft(event.currentTarget.value)}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter" && !event.shiftKey) {
+                                    event.preventDefault();
+                                    createSession();
+                                }
+                            }}
+                            placeholder="Ask RunWield..."
+                        />
+                        <div className="session-composer-footer">
+                            <div className="session-composer-toolbar" aria-label="Session settings">
+                                <label>
+                                    <span className="sr-only">Agent</span>
+                                    <select
+                                        value={selectedAgent}
+                                        disabled={!canSendNew || !agents.length}
+                                        onChange={(event) => setSelectedAgent(event.currentTarget.value)}
+                                    >
+                                        {agents.length ? null : <option value="router">Router</option>}
+                                        {agents.map((agent) => (
+                                            <option key={agent.name} value={agent.name}>
+                                                {agent.displayName || agent.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <label>
+                                    <span className="sr-only">Model</span>
+                                    <select
+                                        value={selectedModelKey}
+                                        disabled={!canSendNew || !models.length}
+                                        onChange={(event) => setSelectedModelKey(event.currentTarget.value)}
+                                    >
+                                        <option value="">Project default</option>
+                                        {models.map((model) => (
+                                            <option
+                                                key={`${model.provider}/${model.id}`}
+                                                value={`${model.provider}\u001f${model.id}`}
+                                            >
+                                                {model.name || model.id}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <label>
+                                    <span className="sr-only">Thinking</span>
+                                    <select
+                                        value={selectedThinking}
+                                        disabled={!canSendNew || !thinkingLevels.length}
+                                        onChange={(event) => setSelectedThinking(event.currentTarget.value)}
+                                    >
+                                        <option value="default">Default</option>
+                                        {thinkingLevels.map((level) => (
+                                            <option key={level} value={level}>{level}</option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <button
+                                    type="submit"
+                                    className="rw-toolbar-button session-send-button"
+                                    disabled={!canSendNew || !draft.trim()}
+                                    aria-label={submitting || operation?.operationId
+                                        ? "Starting Session"
+                                        : "Send User Request"}
+                                >
+                                    <PaperAirplaneIcon />
+                                    <span>{submitting || operation?.operationId ? "Sending" : "Send"}</span>
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </main>
+            </section>
         );
     }
 
@@ -664,12 +1007,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             item.kind === "interaction"
                 ? {
                     ...item,
-                    onAnswer: () => {
-                        const value = globalThis.prompt(item.request?.prompt || "Answer the agent") || "";
-                        if (value) {
-                            answerInteraction(item.operationId, item.interactionId, { outcome: "text", value });
-                        }
-                    },
+                    onAnswer: (response) => answerInteraction(item.operationId, item.interactionId, response),
                 }
                 : item
         ),
@@ -679,10 +1017,40 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         timeline?.snapshot?.activeExecutionWorkflow || timeline?.snapshot?.workflowContext || {},
     );
     const progressUrl = timeline ? activePlanProgressUrl(projectId, runwieldSessionId, timeline.snapshot) : "";
+    const agents = Array.isArray(sessionOptions?.agents) ? sessionOptions.agents : [];
+    const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
+    const thinkingLevels = Array.isArray(sessionOptions?.thinkingLevels) ? sessionOptions.thinkingLevels : [];
+    const activeModel = asRecord(timeline?.snapshot?.activeModel || {});
+    const activeProvider = typeof activeModel.provider === "string"
+        ? activeModel.provider
+        : timeline?.snapshot?.provider || "";
+    const activeModelId = typeof activeModel.model === "string" ? activeModel.model : timeline?.snapshot?.model || "";
+    const activeModelKey = activeModelId ? `${activeProvider}\u001f${activeModelId}` : "";
+    const activeThinking = typeof timeline?.snapshot?.thinkingLevel === "string"
+        ? timeline.snapshot.thinkingLevel
+        : "default";
     const hasActivePlan = Boolean(workflowContext.planId || workflowContext.planName || progressUrl);
     const workflowStages = deriveWorkflowSidebarStages(workflowProgress);
+    const localOperationActive = Boolean(operation && !["completed", "failed", "unknown"].includes(operation.status));
+    const canConfigureSession = availability.canContinue || localOperationActive;
+    const stagedAgent = pendingConfiguration?.agentName || timeline?.snapshot?.activeAgent || "";
+    const stagedModelKey = pendingConfiguration?.model
+        ? `${pendingConfiguration.provider || ""}\u001f${pendingConfiguration.model}`
+        : activeModelKey;
+    const displayedThinking = liveThinkingLevel || activeThinking;
+    const stagedConfigurationVisible = Boolean(pendingConfiguration?.agentName || pendingConfiguration?.model);
     return (
-        <section className="session-surface">
+        <section className="session-surface session-surface-detail" aria-label="RunWield Session chat">
+            <header className="session-chat-topbar session-chat-topbar-detail">
+                <a className="rw-toolbar-button" href={`/projects/${encodeURIComponent(projectId)}/sessions`}>
+                    <SessionsBackIcon />
+                    <span>Sessions</span>
+                </a>
+                <div>
+                    <strong>{timeline?.snapshot?.name || "Session"}</strong>
+                    <span>RunWield · {projectId}</span>
+                </div>
+            </header>
             <div className="session-surface-status" aria-live="polite">{message}</div>
             {loadingDetail
                 ? <p className="session-list-state" aria-busy="true">Loading committed Session timeline…</p>
@@ -699,7 +1067,12 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             {timeline
                 ? (
                     <div className="session-detail-layout">
-                        <main className="session-stream-panel" aria-label="Session stream">
+                        <main
+                            className="session-stream-panel"
+                            aria-label="Session stream"
+                            ref={timelineScrollRef}
+                            onScroll={updateScrollFollowState}
+                        >
                             <section className="session-summary-card">
                                 <div className="session-summary-heading">
                                     <div>
@@ -713,16 +1086,102 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                     <SessionActivationStatus availability={availability} />
                                 </div>
                                 <SessionBackendDisclosure snapshot={timeline.snapshot} />
+                                <div className="session-detail-settings" aria-label="Session settings">
+                                    <label>
+                                        <span>Agent</span>
+                                        <select
+                                            value={stagedAgent}
+                                            disabled={!canConfigureSession || !agents.length}
+                                            onChange={(event) =>
+                                                configureSession({ agentName: event.currentTarget.value })}
+                                        >
+                                            {agents.some((agent) => agent.name === timeline.snapshot?.activeAgent)
+                                                ? null
+                                                : (
+                                                    <option value={timeline.snapshot?.activeAgent || ""}>
+                                                        {timeline.snapshot?.activeAgent || "Agent"}
+                                                    </option>
+                                                )}
+                                            {agents.map((agent) => (
+                                                <option key={agent.name} value={agent.name}>
+                                                    {agent.displayName || agent.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label>
+                                        <span>Model</span>
+                                        <select
+                                            value={stagedModelKey}
+                                            disabled={!canConfigureSession || !models.length}
+                                            onChange={(event) => {
+                                                const [provider, model] = event.currentTarget.value
+                                                    ? event.currentTarget.value.split("\u001f")
+                                                    : ["", ""];
+                                                if (model) configureSession({ provider, model });
+                                            }}
+                                        >
+                                            {activeModelKey &&
+                                                    !models.some((model) =>
+                                                        `${model.provider}\u001f${model.id}` === activeModelKey
+                                                    )
+                                                ? <option value={activeModelKey}>{activeModelId}</option>
+                                                : null}
+                                            {models.map((model) => (
+                                                <option
+                                                    key={`${model.provider}/${model.id}`}
+                                                    value={`${model.provider}\u001f${model.id}`}
+                                                >
+                                                    {model.name || model.id}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label>
+                                        <span>Thinking</span>
+                                        <select
+                                            value={displayedThinking}
+                                            disabled={!canConfigureSession || !thinkingLevels.length}
+                                            onChange={(event) =>
+                                                configureSession({ thinkingLevel: event.currentTarget.value })}
+                                        >
+                                            {thinkingLevels.includes(displayedThinking)
+                                                ? null
+                                                : <option value={displayedThinking}>{displayedThinking}</option>}
+                                            {thinkingLevels.map((level) => (
+                                                <option key={level} value={level}>{level}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                </div>
+                                {stagedConfigurationVisible
+                                    ? <p className="session-configuration-pending">Applies after this response.</p>
+                                    : null}
+                                {operation?.operationId
+                                    ? (
+                                        <button
+                                            type="button"
+                                            className="rw-toolbar-button session-stop-button"
+                                            onClick={cancelOperation}
+                                        >
+                                            Stop
+                                        </button>
+                                    )
+                                    : null}
                                 {hasActivePlan && progressUrl && !workflowProgressError
                                     ? <a className="rw-plan-review-link" href={progressUrl}>View progress</a>
                                     : null}
                             </section>
-                            <div className="session-scroll-offer">
-                                <span>Scroll up for earlier blocks. New blocks stay near the input.</span>
-                                <button type="button" onClick={() => timelineEndRef.current?.scrollIntoView()}>
-                                    Latest block
-                                </button>
-                            </div>
+                            {latestActivityAvailable
+                                ? (
+                                    <div className="session-scroll-offer" role="status">
+                                        <span>New activity is available.</span>
+                                        <button type="button" onClick={scrollToLiveEdge}>
+                                            Latest activity
+                                        </button>
+                                    </div>
+                                )
+                                : null}
                             <SessionTimeline items={allItems} />
                             <div ref={timelineEndRef} aria-hidden="true" />
                             <form
