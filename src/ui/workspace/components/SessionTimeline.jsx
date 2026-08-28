@@ -1,3 +1,9 @@
+import { useState } from "react";
+import {
+    isApprovalAcceptedValue,
+    RuntimeInteractionOutcomes,
+    RuntimeInteractionTypes,
+} from "../../../shared/session/session-runtime-interactions.js";
 import { MarkdownView } from "./MarkdownView.jsx";
 
 const MESSAGE_TYPES = new Set([
@@ -6,6 +12,7 @@ const MESSAGE_TYPES = new Set([
     "tool",
     "status",
     "usage",
+    "activity",
     "interaction",
     "plan-review",
     "interruption",
@@ -57,6 +64,45 @@ export function reduceSessionEvents(events, options = {}) {
         items.push(item);
         return item;
     };
+    const compactCompletedActivity = (/** @type {Array<Record<string, any>>} */ rawItems) => {
+        /** @type {Array<Record<string, any>>} */
+        const compacted = [];
+        /** @type {Array<Record<string, any>>} */
+        let activity = [];
+        const isCompletedActivity = (/** @type {Record<string, any>} */ item) =>
+            item.kind === "usage" ||
+            (item.kind === "tool" && ["completed", "failed"].includes(text(item.status))) ||
+            (item.kind === "thinking" && item.done === true);
+        const flushActivity = () => {
+            if (!activity.length) return;
+            if (activity.length === 1) {
+                compacted.push(activity[0]);
+            } else {
+                compacted.push({
+                    kind: "activity",
+                    key: `activity:${activity[0]?.key || compacted.length}:${activity.length}`,
+                    title: "Activity",
+                    count: activity.length,
+                    source: activity.some((item) => item.source === "transient") ? "transient" : source,
+                    timestamp: activity.at(-1)?.timestamp || activity[0]?.timestamp || "",
+                    items: activity,
+                });
+            }
+            activity = [];
+        };
+        for (const item of rawItems) {
+            if (isCompletedActivity(item)) {
+                activity.push(item);
+                continue;
+            }
+            if (item.kind === "message" && item.role === "assistant") flushActivity();
+            else if (activity.length && item.kind !== "message") flushActivity();
+            compacted.push(item);
+        }
+        compacted.push(...activity);
+        return compacted;
+    };
+
     events.forEach((raw, index) => {
         const event = asRecord(raw);
         const type = text(event.type);
@@ -213,7 +259,152 @@ export function reduceSessionEvents(events, options = {}) {
             });
         }
     });
-    return items.filter((item) => MESSAGE_TYPES.has(item.kind));
+    return compactCompletedActivity(items.filter((item) => MESSAGE_TYPES.has(item.kind)));
+}
+
+/**
+ * @param {string} requestType
+ * @param {Record<string, any>} request
+ * @param {Record<string, any>|string} choice
+ */
+export function sessionInteractionChoiceResponse(requestType, request, choice) {
+    const choiceRecord = typeof choice === "string" ? { value: choice, label: choice } : choice;
+    const choiceLabel = text(choiceRecord.label || choiceRecord.value);
+    const choiceValue = text(choiceRecord.value || choiceLabel);
+    if (requestType === RuntimeInteractionTypes.APPROVAL) {
+        const accepted = isApprovalAcceptedValue(
+            /** @type {import("../../../shared/session/session-runtime-interactions.js").RuntimeInteractionRequest} */
+            (request),
+            choiceValue,
+        );
+        return {
+            outcome: accepted ? RuntimeInteractionOutcomes.ACCEPTED : RuntimeInteractionOutcomes.CANCELED,
+            value: choiceValue,
+            valueLabel: choiceLabel,
+        };
+    }
+    return {
+        outcome: RuntimeInteractionOutcomes.SELECTED,
+        value: choiceValue,
+        valueLabel: choiceLabel,
+    };
+}
+
+/**
+ * @param {string} requestType
+ * @param {string} value
+ * @param {boolean} hasChoices
+ */
+export function sessionInteractionTypedResponse(requestType, value, hasChoices) {
+    if (hasChoices && requestType === RuntimeInteractionTypes.SELECT) {
+        return { outcome: RuntimeInteractionOutcomes.SELECTED, value, valueLabel: "Other" };
+    }
+    return { outcome: RuntimeInteractionOutcomes.TEXT, value };
+}
+
+function SessionInteractionCard({ item }) {
+    const [value, setValue] = useState(text(item.request?.defaultValue));
+    const [error, setError] = useState("");
+    const [submitting, setSubmitting] = useState(false);
+    const requestType = text(item.request?.type || RuntimeInteractionTypes.TEXT);
+    const choices = Array.isArray(item.request?.options) ? item.request.options : [];
+    const answer = item.onAnswer;
+    const sendAnswer = async (/** @type {Record<string, any>} */ response) => {
+        if (!answer || submitting) return;
+        setSubmitting(true);
+        setError("");
+        try {
+            await answer(response);
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : String(caught || "Could not send answer."));
+        } finally {
+            setSubmitting(false);
+        }
+    };
+    return (
+        <article className="session-live-interaction">
+            <strong>{requestType === "approval" ? "Approval needed" : "Agent needs input"}</strong>
+            <p>{item.request?.prompt || "The agent is waiting for your answer."}</p>
+            {choices.length
+                ? (
+                    <div className="session-interaction-choice-row">
+                        {choices.map((choice) => {
+                            const choiceRecord = typeof choice === "string" ? { value: choice, label: choice } : choice;
+                            const choiceLabel = text(choiceRecord.label || choiceRecord.value);
+                            const choiceValue = text(choiceRecord.value || choiceLabel);
+                            return (
+                                <button
+                                    key={String(choiceValue)}
+                                    type="button"
+                                    disabled={submitting}
+                                    onClick={() =>
+                                        sendAnswer(
+                                            sessionInteractionChoiceResponse(
+                                                requestType,
+                                                asRecord(item.request),
+                                                choice,
+                                            ),
+                                        )}
+                                >
+                                    {choiceLabel}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )
+                : null}
+            {answer && requestType === RuntimeInteractionTypes.APPROVAL && !choices.length
+                ? (
+                    <div className="session-interaction-choice-row">
+                        <button
+                            type="button"
+                            disabled={submitting}
+                            onClick={() => sendAnswer({ outcome: RuntimeInteractionOutcomes.ACCEPTED, value: true })}
+                        >
+                            Approve
+                        </button>
+                        <button
+                            type="button"
+                            disabled={submitting}
+                            onClick={() => sendAnswer({ outcome: RuntimeInteractionOutcomes.CANCELED, value: false })}
+                        >
+                            Decline
+                        </button>
+                    </div>
+                )
+                : null}
+            {answer && requestType !== RuntimeInteractionTypes.APPROVAL
+                ? (
+                    <form
+                        className="session-interaction-answer-form"
+                        onSubmit={(event) => {
+                            event.preventDefault();
+                            const nextValue = item.request?.allowEmpty ? value : value.trim();
+                            if (nextValue || item.request?.allowEmpty) {
+                                sendAnswer(sessionInteractionTypedResponse(requestType, nextValue, choices.length > 0));
+                            }
+                        }}
+                    >
+                        <label>
+                            <span className="sr-only">
+                                {choices.length ? "Other answer" : "Answer"}
+                            </span>
+                            <input
+                                value={value}
+                                onChange={(event) => setValue(event.currentTarget.value)}
+                                placeholder={item.request?.placeholder || (choices.length ? "Other…" : "Answer…")}
+                                disabled={submitting}
+                            />
+                        </label>
+                        <button type="submit" disabled={submitting || (!value.trim() && !item.request?.allowEmpty)}>
+                            {submitting ? "Sending…" : choices.length ? "Send other" : "Send"}
+                        </button>
+                    </form>
+                )
+                : null}
+            {error ? <p className="session-interaction-error" role="alert">{error}</p> : null}
+        </article>
+    );
 }
 
 /** @param {{ items?: Array<Record<string, any>>, events?: Array<Record<string, any>>, emptyMessage?: string }} props */
@@ -258,23 +449,42 @@ export function SessionTimeline({ items, events, emptyMessage = "No committed ti
                                 <p>{item.status}{item.output ? ` · ${item.output}` : ""}</p>
                             </article>
                         )
-                        : item.kind === "interaction"
+                        : item.kind === "activity"
                         ? (
-                            <article className="session-live-interaction">
-                                <strong>Agent needs input</strong>
-                                <p>{item.request?.prompt || "The agent is waiting for your answer."}</p>
-                                {item.onAnswer
-                                    ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => item.onAnswer(item)}
-                                        >
-                                            Answer interaction
-                                        </button>
-                                    )
-                                    : null}
-                            </article>
+                            <details className="session-activity-group">
+                                <summary>
+                                    <strong>{item.title || "Activity"}</strong>
+                                    <span>{item.count || item.items?.length || 0} technical events</span>
+                                </summary>
+                                <ol>
+                                    {(Array.isArray(item.items) ? item.items : []).map((
+                                        activityItem,
+                                        activityIndex,
+                                    ) => (
+                                        <li key={activityItem.key || `activity:${activityIndex}`}>
+                                            <strong>
+                                                {activityItem.kind === "tool"
+                                                    ? activityItem.toolName || activityItem.title || "Tool"
+                                                    : activityItem.kind === "thinking"
+                                                    ? "Thinking"
+                                                    : "Usage"}
+                                            </strong>
+                                            <p>
+                                                {activityItem.kind === "tool"
+                                                    ? `${activityItem.status || "completed"}${
+                                                        activityItem.output ? ` · ${activityItem.output}` : ""
+                                                    }`
+                                                    : activityItem.kind === "thinking"
+                                                    ? activityItem.text || "Thinking complete."
+                                                    : activityItem.text || "Usage recorded"}
+                                            </p>
+                                        </li>
+                                    ))}
+                                </ol>
+                            </details>
                         )
+                        : item.kind === "interaction"
+                        ? <SessionInteractionCard item={item} />
                         : item.kind === "plan-review"
                         ? (
                             <article className="session-plan-review-card" aria-label="Plan ready for review">

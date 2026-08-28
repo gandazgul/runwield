@@ -3,6 +3,9 @@
 import { createHash } from "node:crypto";
 import { AGENTS } from "../../../constants.js";
 import { findPlanEvidenceById } from "../../../plan-store.js";
+import { getModelRegistry } from "../../../shared/models/model-registry.ts";
+import { getSettingsManager } from "../../../shared/settings.js";
+import { listAvailableAgents } from "../../../shared/session/agents.js";
 import { applySharedPlanReviewDecision } from "../../../shared/workflow/plan-review-actions.ts";
 import {
     createSessionRuntime,
@@ -18,6 +21,7 @@ import {
 import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
 
 /** @typedef {{ type?: string, text?: string }} TranscriptContentPart */
+/** @typedef {"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"} WorkspaceThinkingLevel */
 
 /** @param {unknown} value */
 function stableHash(value) {
@@ -147,6 +151,9 @@ async function readSessionName(transcriptPath) {
  * @property {string} [error]
  * @property {number | null} [generation]
  * @property {string | null} [runwieldSessionId]
+ * @property {string} [runtimeSessionId]
+ * @property {number} [expectedGeneration]
+ * @property {{ agentName?: string, model?: string, provider?: string }} [pendingConfiguration]
  * @property {{ interactionId: string, request: Record<string, unknown> }} [liveInteraction]
  * @property {{ resolve: (value: unknown) => void, reject: (error: Error) => void } | null} [answer]
  */
@@ -171,6 +178,45 @@ export class WorkspaceSessionContinuationService {
 
     close() {
         this.runtime.closeAllSessionsWhenIdle?.();
+    }
+
+    /**
+     * @param {string} projectId
+     */
+    async listSessionOptions(projectId) {
+        const projectRoot = requireOwnerProjectRoot(this.store, projectId);
+        const settings = getSettingsManager(projectRoot);
+        const agents = await listAvailableAgents(projectRoot);
+        const registry = getModelRegistry();
+        const models = registry.getSelectable();
+        const defaultProvider = settings.getDefaultProvider?.() || "";
+        const defaultModel = settings.getDefaultModel?.() || "";
+        const defaultThinkingLevel = settings.getDefaultThinkingLevel?.() || "default";
+        return {
+            defaults: {
+                agentName: AGENTS.ROUTER,
+                model: defaultModel,
+                provider: defaultProvider,
+                thinkingLevel: defaultThinkingLevel,
+            },
+            agents: [
+                { name: AGENTS.ROUTER, displayName: "Router", description: "Choose the first RunWield step." },
+                ...agents.map((agent) => ({
+                    name: agent.name,
+                    displayName: agent.displayName || agent.name,
+                    description: agent.description || "",
+                })).filter((agent) => agent.name !== AGENTS.ROUTER),
+            ],
+            models: models.map((model) => ({
+                id: model.id,
+                name: model.name || model.id,
+                provider: model.provider || "",
+                providerName: registry.getProviderDisplayName(model.provider || ""),
+                executionBackend: model.executionBackend || "pi",
+                reasoning: model.reasoning === true,
+            })),
+            thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+        };
     }
 
     /**
@@ -203,6 +249,43 @@ export class WorkspaceSessionContinuationService {
                 };
             })),
         };
+    }
+
+    /**
+     * @param {string} runwieldSessionId
+     * @param {number} expectedGeneration
+     */
+    async adoptIdleManagedSession(runwieldSessionId, expectedGeneration) {
+        const session = this.store.getSessionById(runwieldSessionId);
+        if (!session) throw new Error("Session not found.");
+        const inspected = this.store.inspectSessionActivation(runwieldSessionId);
+        if (inspected.activation?.state !== "idle") {
+            throw new Error("This Session is still busy. Wait for it to finish, then try again.");
+        }
+        if (!inspected.generation || inspected.generation.generation !== expectedGeneration) {
+            throw new Error("Configuration requires the exact committed generation.");
+        }
+        const projection = await projectAggregateTranscript({
+            cwd: session.transcriptCwd,
+            sessionDir: getRunWieldSessionDir(session.transcriptCwd),
+            runwieldSessionId,
+            generation: inspected.generation,
+            segments: this.store.listSessionTranscriptSegments(runwieldSessionId),
+            limit: 500,
+        });
+        if (!projection.ok) throw new Error(projection.message);
+        const committedFacts = getCommittedTranscriptAuthorityFacts(projection);
+        return this.runtime.adoptManagedSession({
+            session,
+            generation: expectedGeneration,
+            activeAgent: committedFacts.activeAgent,
+            model: committedFacts.model,
+            provider: committedFacts.provider,
+            thinkingLevel: committedFacts.thinkingLevel,
+            workflowContext:
+                /** @type {import('../../../shared/session/workflow-context-session.js').WorkflowContext | null} */ (committedFacts
+                    .workflowContext || null),
+        });
     }
 
     /**
@@ -253,6 +336,164 @@ export class WorkspaceSessionContinuationService {
             bootstrapRequired: false,
             ...browserTimelineProjection(projection),
         };
+    }
+
+    /**
+     * @param {string | undefined} agentName
+     * @param {{ agents: Array<{ name: string }> }} sessionOptions
+     */
+    validateAgentSelection(agentName, sessionOptions) {
+        if (typeof agentName !== "string" || !agentName) return;
+        const agentAllowed = sessionOptions.agents.some((agent) => agent.name === agentName);
+        if (!agentAllowed) throw new Error("Selected Agent is not available for this Project.");
+    }
+
+    /**
+     * @param {string | undefined} model
+     * @param {string | undefined} provider
+     * @param {{ models: Array<{ id: string, provider?: string }> }} sessionOptions
+     */
+    validateModelSelection(model, provider, sessionOptions) {
+        if (typeof model !== "string" || !model) return;
+        const selectedProvider = provider || "";
+        const modelAllowed = sessionOptions.models.some((item) =>
+            item.id === model && (item.provider || "") === selectedProvider
+        );
+        if (!modelAllowed) throw new Error("Selected model is not available.");
+    }
+
+    /**
+     * @param {string | undefined} thinkingLevel
+     * @param {{ thinkingLevels: string[] }} sessionOptions
+     */
+    validateThinkingSelection(thinkingLevel, sessionOptions) {
+        if (typeof thinkingLevel !== "string" || !thinkingLevel) return;
+        if (!sessionOptions.thinkingLevels.includes(thinkingLevel)) {
+            throw new Error("Selected thinking level is not supported.");
+        }
+    }
+
+    /**
+     * @param {string} runwieldSessionId
+     * @param {number} expectedGeneration
+     * @returns {{ operationId: string, record: WorkspaceOperationRecord } | null}
+     */
+    findActiveWorkspaceOperation(runwieldSessionId, expectedGeneration) {
+        for (const [operationId, record] of this.operations.entries()) {
+            if (
+                record.runwieldSessionId === runwieldSessionId && record.expectedGeneration === expectedGeneration &&
+                record.runtimeSessionId && (record.status === "running" || record.status === "accepted")
+            ) {
+                return { operationId, record };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @param {string} runtimeSessionId
+     * @param {{ agentName?: string, model?: string, provider?: string }} pendingConfiguration
+     */
+    async applyPendingConfiguration(runtimeSessionId, pendingConfiguration) {
+        if (pendingConfiguration.agentName) {
+            const result = await this.runtime.switchAgent(runtimeSessionId, {
+                agentName: pendingConfiguration.agentName,
+                releaseActiveWorkflow: true,
+            });
+            if (!result?.ok) throw new Error(result?.error || "Selected Agent could not be applied.");
+        }
+        if (pendingConfiguration.model) {
+            const result = await this.runtime.reconfigureSessionModel(
+                runtimeSessionId,
+                pendingConfiguration.model,
+                pendingConfiguration.provider || "",
+            );
+            if (!result?.ok) throw new Error(result?.error || "Selected model could not be applied.");
+        }
+    }
+
+    /**
+     * @param {{ projectId: string, runwieldSessionId: string, expectedGeneration: number, agentName?: string, model?: string, provider?: string, thinkingLevel?: string }} options
+     */
+    async configureSession(options) {
+        const session = this.store.getSessionById(options.runwieldSessionId);
+        if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {
+            throw new Error("Session not found.");
+        }
+        const sessionOptions = await this.listSessionOptions(options.projectId);
+        this.validateAgentSelection(options.agentName, sessionOptions);
+        this.validateModelSelection(options.model, options.provider, sessionOptions);
+        this.validateThinkingSelection(options.thinkingLevel, sessionOptions);
+        const activeOperation = this.findActiveWorkspaceOperation(
+            options.runwieldSessionId,
+            options.expectedGeneration,
+        );
+        if (activeOperation) {
+            const pendingConfiguration = {
+                ...(activeOperation.record.pendingConfiguration || {}),
+                ...(options.agentName ? { agentName: options.agentName } : {}),
+                ...(options.model ? { model: options.model, provider: options.provider || "" } : {}),
+            };
+            if (options.thinkingLevel) {
+                const runtimeSessionId = activeOperation.record.runtimeSessionId;
+                if (!runtimeSessionId) throw new Error("Active Runtime Session is not available.");
+                const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (options.thinkingLevel);
+                const result = this.runtime.setSessionThinkingLevel(runtimeSessionId, thinkingLevel);
+                if (!result?.ok) throw new Error(result?.error || "Selected thinking level could not be applied.");
+            }
+            const hasPendingConfiguration = Object.keys(pendingConfiguration).length > 0;
+            this.operations.set(activeOperation.operationId, {
+                ...activeOperation.record,
+                pendingConfiguration: hasPendingConfiguration ? pendingConfiguration : undefined,
+            });
+            return {
+                ok: true,
+                status: hasPendingConfiguration ? "staged" : "applied",
+                operationId: activeOperation.operationId,
+                pendingConfiguration: hasPendingConfiguration ? pendingConfiguration : null,
+                generation: options.expectedGeneration,
+            };
+        }
+        const adopted = await this.adoptIdleManagedSession(options.runwieldSessionId, options.expectedGeneration);
+        try {
+            if (typeof options.agentName === "string" && options.agentName) {
+                const result = await this.runtime.switchAgent(adopted.sessionId, {
+                    agentName: options.agentName,
+                    releaseActiveWorkflow: true,
+                });
+                if (!result?.ok) throw new Error(result?.error || "Selected Agent could not be applied.");
+            }
+            if (typeof options.model === "string" && options.model) {
+                const result = await this.runtime.reconfigureSessionModel(
+                    adopted.sessionId,
+                    options.model,
+                    options.provider || "",
+                );
+                if (!result?.ok) throw new Error(result?.error || "Selected model could not be applied.");
+            }
+            if (typeof options.thinkingLevel === "string" && options.thinkingLevel) {
+                const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (options.thinkingLevel);
+                const result = await this.runtime.setSessionThinkingLevel(adopted.sessionId, thinkingLevel);
+                if (!result?.ok) throw new Error(result?.error || "Selected thinking level could not be applied.");
+            }
+            const snapshot = this.runtime.getSessionSnapshot(adopted.sessionId);
+            return {
+                ok: true,
+                status: "applied",
+                generation: snapshot?.managed?.generation ?? options.expectedGeneration,
+            };
+        } finally {
+            this.runtime.closeSession(adopted.sessionId);
+        }
+    }
+
+    /**
+     * @param {{ operationId: string }} options
+     */
+    cancelOperation(options) {
+        const operation = this.operations.get(options.operationId);
+        if (!operation?.runtimeSessionId) throw new Error("No active Workspace operation to stop.");
+        return this.runtime.cancelSession(operation.runtimeSessionId);
     }
 
     /**
@@ -387,14 +628,32 @@ export class WorkspaceSessionContinuationService {
     }
 
     /**
-     * @param {{ deviceId?: string | null, projectId: string, requestId: string, text: string }} options
+     * @param {{ deviceId?: string | null, projectId: string, requestId: string, text: string, agentName?: string, model?: string, provider?: string, thinkingLevel?: string }} options
      */
     async createSession(options) {
         if (!options.text || typeof options.text !== "string") throw new Error("User Request is required.");
         await Promise.resolve();
         const project = this.store.getProjectById(options.projectId);
         if (!project || project.lifecycle !== "enabled") throw new Error("Project not found.");
-        const requestHash = stableHash({ kind: "create", projectId: options.projectId, text: options.text });
+        const launch = {
+            agentName: options.agentName || AGENTS.ROUTER,
+            model: options.model || "",
+            provider: options.provider || "",
+            thinkingLevel: options.thinkingLevel || "default",
+        };
+        const sessionOptions = await this.listSessionOptions(options.projectId);
+        const agentAllowed = sessionOptions.agents.some((agent) => agent.name === launch.agentName);
+        if (!agentAllowed) throw new Error("Selected Agent is not available for this Project.");
+        if (launch.model) {
+            const modelAllowed = sessionOptions.models.some((model) =>
+                model.id === launch.model && (model.provider || "") === launch.provider
+            );
+            if (!modelAllowed) throw new Error("Selected model is not available.");
+        }
+        if (launch.thinkingLevel !== "default" && !sessionOptions.thinkingLevels.includes(launch.thinkingLevel)) {
+            throw new Error("Selected thinking level is not supported.");
+        }
+        const requestHash = stableHash({ kind: "create", projectId: options.projectId, text: options.text, launch });
         const createKey = `${options.deviceId || ""}:${options.projectId}:${options.requestId}`;
         const existing = this.createRequests.get(createKey);
         if (existing) {
@@ -427,15 +686,33 @@ export class WorkspaceSessionContinuationService {
                     deferManagedActivationUntilAgentReady: true,
                 });
                 sessionId = created.sessionId;
+                this.operations.set(operationId, {
+                    ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
+                    status: "running",
+                    runtimeSessionId: sessionId,
+                });
                 this.runtime.setInteractionAdapter(sessionId, this.createInteractionAdapter({ operationId }));
                 unsubscribe = this.runtime.subscribeSessionEvents(sessionId, (event) => {
                     const record = this.operations.get(operationId);
                     if (record && record.events.length < 500) record.events.push(event);
                 });
+                if (launch.model) {
+                    const modelResult = await this.runtime.reconfigureSessionModel(
+                        sessionId,
+                        launch.model,
+                        launch.provider,
+                    );
+                    if (!modelResult?.ok) throw new Error("Selected model could not be applied.");
+                }
+                if (launch.thinkingLevel !== "default") {
+                    const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (launch.thinkingLevel);
+                    const thinkingResult = this.runtime.setSessionThinkingLevel(sessionId, thinkingLevel);
+                    if (!thinkingResult?.ok) throw new Error("Selected thinking level could not be applied.");
+                }
                 const result = await this.runtime.promptUserTurn(sessionId, {
                     initialRequest: options.text,
                     initialImages: [],
-                    agentName: AGENTS.ROUTER,
+                    agentName: launch.agentName,
                 });
                 const snapshot = this.runtime.getSessionSnapshot(sessionId);
                 const runwieldSessionId = snapshot?.managed?.runwieldSessionId || null;
@@ -538,6 +815,7 @@ export class WorkspaceSessionContinuationService {
             projectId: options.projectId,
             events: [],
             runwieldSessionId: options.runwieldSessionId,
+            expectedGeneration: options.expectedGeneration,
         });
         const adopted = this.runtime.adoptManagedSession({
             session,
@@ -549,6 +827,11 @@ export class WorkspaceSessionContinuationService {
             workflowContext:
                 /** @type {import('../../../shared/session/workflow-context-session.js').WorkflowContext | null} */ (committedFacts
                     .workflowContext || null),
+        });
+        this.operations.set(receipt.operationId, {
+            ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
+            status: "running",
+            runtimeSessionId: adopted.sessionId,
         });
         this.runtime.setInteractionAdapter(
             adopted.sessionId,
@@ -565,19 +848,35 @@ export class WorkspaceSessionContinuationService {
                     initialImages: options.images || [],
                     agentName: decision.agentName,
                 });
-                const generation = result.ok ? options.expectedGeneration + 1 : options.expectedGeneration;
-                const status = result.ok ? "completed" : "failed";
+                let generation = result.ok ? options.expectedGeneration + 1 : options.expectedGeneration;
+                /** @type {"completed" | "failed"} */
+                let status = result.ok ? "completed" : "failed";
+                let error = result.error;
+                const pendingConfiguration = this.operations.get(receipt.operationId)?.pendingConfiguration || null;
+                if (result.ok && pendingConfiguration && Object.keys(pendingConfiguration).length) {
+                    try {
+                        await this.applyPendingConfiguration(adopted.sessionId, pendingConfiguration);
+                        const snapshot = this.runtime.getSessionSnapshot(adopted.sessionId);
+                        generation = snapshot?.managed?.generation ?? generation;
+                    } catch (configurationError) {
+                        status = "failed";
+                        error = configurationError instanceof Error
+                            ? configurationError.message
+                            : String(configurationError || "Configuration change failed.");
+                    }
+                }
                 this.store.updateOperationReceipt(receipt.operationId, {
                     status,
                     resultGeneration: generation,
-                    errorCode: result.error || null,
-                    errorMessage: result.error || null,
+                    errorCode: error || null,
+                    errorMessage: error || null,
                 });
                 this.operations.set(receipt.operationId, {
                     ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
                     status,
                     generation,
-                    error: result.error,
+                    error,
+                    pendingConfiguration: status === "completed" ? undefined : pendingConfiguration || undefined,
                 });
             } catch (error) {
                 const errorCode = codeFromError(error);
@@ -832,6 +1131,7 @@ export class WorkspaceSessionContinuationService {
             error: durable.errorMessage || durable.errorCode,
             events: live?.events || [],
             liveInteraction: live?.liveInteraction || null,
+            pendingConfiguration: live?.pendingConfiguration || null,
         };
     }
 }

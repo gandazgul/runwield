@@ -1,0 +1,3 @@
+[92728.51] GET http://127.0.0.1:5173/logo.svg (Fetch) 200
+[92728.59] GET http://127.0.0.1:5173/api/owner/projects/test/session-options (Fetch) 503
+[92728.60] GET http://127.0.0.1:5173/logo.svg (Fetch) 200
