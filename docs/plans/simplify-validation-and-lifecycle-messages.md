@@ -3,10 +3,8 @@ planId: "4695664f-ee36-4be9-860b-f8f58b6e66ab"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
-summary: "Replace validation and Plan-lifecycle jargon with one plain, actionable presentation layer that tells the owner what happened, whether work is safe, who owns the next step, and what actions are available."
 affectedPaths:
     - "src/shared/workflow/"
-    - "src/shared/session/"
     - "src/ui/tui/"
     - "src/ui/workspace/"
     - "src/cmd/load-plan/"
@@ -16,11 +14,13 @@ affectedPaths:
     - "docs/design-system.md"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
+devServerCommand: "deno task workspace:dev"
+devServerUrl: "http://127.0.0.1:5173"
+devServerHmr: true
 createdAt: "2026-08-14T00:11:43-04:00"
-status: "draft"
+status: "ready_for_work"
+origin: "internal"
+userVerifiedAt: null
 ---
 
 # Simplify Validation and Lifecycle Messages
@@ -38,77 +38,128 @@ papering over ambiguous state.
 
 ## Objective
 
-Give every validation, repair, review, interruption, recovery, and publication state one plain owner presentation that
-answers:
+Make validation and blocked lifecycle messages plain and actionable. Each changed message must answer the questions that
+matter for its context:
 
 1. What happened?
-2. Is the work safe?
+2. Is saved work safe, when Git evidence can prove it?
 3. Who owns the next step?
 4. What can the owner do now?
 
-Internal identifiers and proofs remain available under optional technical details, logs, and diagnostic commands, but
-they do not dominate ordinary status copy. TUI and Workspace consume the same semantic presentation so they cannot
-invent competing explanations.
+Use the same validation terms in TUI and Workspace: **tests/CI**, **AI code review**, and **human review**. Keep
+internal status values and repair bookkeeping in technical details, logs, and diagnostic output instead of primary copy.
+Do not create a new presentation state machine or change lifecycle behavior.
 
 ## Approach
 
-Introduce a pure presentation model derived from typed canonical workflow state:
+Keep the current message architecture and improve the high-value display boundaries:
 
 ```text
-canonical lifecycle + validation + worktree + recovery facts
-  -> owner status presenter
-  -> heading, explanation, safety, owner, actions, optional details
-  -> TUI / Workspace / command renderers
+validation workflow
+  -> validation-user-messages.ts for event copy
+  -> RuntimeValidationProgress transport
+  -> small shared validation-label helper
+       -> TUI validation panel
+       -> Workspace validation stages
+
+load-plan / Plans Doctor
+  -> existing local diagnosis and action logic
+  -> revised blocked messages
 ```
 
-Define a small scenario catalog before rewriting strings. Each scenario has canonical input facts, one expected
-plain-language model, allowed actions, and an explicit list of internal terms that must stay out of the primary copy.
-Renderers control layout only.
+`validation-user-messages.ts` remains the main copy catalog. Add only a small pure helper for live validation headings,
+stage labels, and check labels. It can translate existing progress values such as `ci`, `semantic_review`, and
+`human_review` into **Tests and CI**, **AI code review**, and **Human review**. It must not model Plan Lifecycle,
+publication recovery, action legality, or damaged state.
 
-The option set aside is editing messages where they appear. That is faster initially but guarantees future drift and
-lets UI text become another source of workflow policy.
+Session events remain transport. Workspace keeps its current authoritative Plan/controller/worktree derivation and uses
+the helper only for validation wording. `load-plan` and Plans Doctor keep their separate recovery logic because they
+must explain inconsistent state that the normal validation view cannot model.
 
-## Files to Modify
+Exact Git terms such as branch, commit, worktree, merge conflict, push, and target branch remain visible when they help
+the user understand or fix a problem. Safety claims stay local to code that has the evidence to support them.
 
-- `src/shared/workflow/` — expose typed owner presentation inputs and one shared status/action presenter.
-- `src/shared/session/` — emit semantic workflow status without encoding adapter-specific prose as authority.
-- `src/ui/tui/` — render the shared presentation in panels, notifications, and checkpoints.
-- `src/ui/workspace/` — render the same headings, explanations, actions, and optional details in browser surfaces.
-- `src/cmd/load-plan/` and `src/cmd/plans/` — use shared recovery and lifecycle presentation in command output.
-- `docs/domain-language.md` and `docs/plan-lifecycle.md` — distinguish canonical internal terms from preferred owner
-  language.
-- `docs/design-system.md` — document reusable status, safety, action, and technical-details presentation patterns.
+The option set aside is a universal lifecycle presenter. It could remove more duplication, but it would couple normal
+progress, damaged-state diagnosis, transport, and action policy for a copy improvement. Revisit it only if focused work
+leaves repeated user-visible inconsistencies.
+
+## Expected Change Surface
+
+The boundaries this change is expected to touch. This list is guidance, not an allowlist: verify the real footprint
+during implementation and change whatever the Implementation Steps need, including files not named here. Stop and report
+only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
+shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
+
+- `src/shared/workflow/validation-user-messages.ts` — remain the main catalog and revise validation, review, repair,
+  publication, and completion copy to use the approved terms and specific next actions.
+- `src/shared/workflow/validation-progress-presentation.ts` (new, name may follow local convention) — provide a small,
+  pure mapping from existing live progress/check values to shared owner labels and headings. It does not derive
+  lifecycle state or actions.
+- `src/shared/workflow/validation-progress.ts` and `execution-preparation-progress.ts` — supply accurate context to the
+  existing message and progress paths; remove raw status wording such as `in_progress` from primary copy.
+- `src/ui/tui/blocks.js` — use the shared helper for validation headings and check labels instead of direct underscore
+  replacement and internal cycle/attempt language. `runtime-adapter.js` changes only if needed to pass existing progress
+  through unchanged.
+- `src/ui/workspace/server/owner-plan-progress.ts` and `src/ui/workspace/react/PlanProgressSurface.tsx` — keep current
+  progress derivation, but use the shared validation terms and move raw Plan status and transcript segment kinds out of
+  the main hierarchy into technical details.
+- `src/cmd/load-plan/` — audit blocked and interrupted-operation messages. Name the affected Plan, branch, worktree, or
+  operation and give the existing recovery action or command without exposing lifecycle-record terms in primary copy.
+- `src/cmd/plans/doctor.ts` and `src/cmd/plans/doctor-messages.ts` — revise owner summaries and next steps while keeping
+  exact internal evidence available in detailed `--check` output when diagnosis requires it.
+- Focused tests under `src/shared/workflow/`, `src/ui/tui/`, `src/ui/workspace/`, `src/cmd/load-plan/`, and
+  `src/cmd/plans/` — protect changed wording, context, and safety claims.
+- `docs/domain-language.md` and `docs/plan-lifecycle.md` — define **AI code review** and **human review** as
+  owner-facing labels while preserving **Semantic Code Review** and Plan Status as internal architecture terms.
+- `docs/design-system.md` — document the compact status-message order only if implementation needs to change the
+  existing Workspace details/notice pattern. No new component or visual language is expected.
+
+The change does not alter Session event contracts, Plan Lifecycle transitions, Workspace state derivation, controller
+ownership, Git publication rules, or which actions are legal.
 
 ## Reuse Opportunities
 
-- Typed lifecycle and recovery results from `src/shared/workflow/plan-lifecycle.js`, `validation-context.ts`, and
-  `state-transition.ts`.
-- Existing TUI validation panel and Workspace status/notice primitives.
-- Existing domain-language avoided-alias guidance.
-- Golden TUI scenarios and Workspace server-rendered component tests for stable owner-visible copy.
+- `src/shared/workflow/validation-user-messages.ts` — keep its typed request union and current message builders. Improve
+  them in place instead of introducing another catalog.
+- `src/shared/workflow/validation-progress.ts` and `src/shared/session/session-runtime-events.js` — keep the existing
+  structured progress and Session transport unchanged.
+- `src/shared/workflow/validation-merge-repair.ts` — preserve its useful `whatHappened` / `doThis` split and exact Git
+  recovery guidance.
+- `src/ui/tui/ValidationHandoffBlock`, Workspace `owner-card`, `rw-status-badge`, notice patterns, and semantic `--rw-*`
+  tokens — keep current rendering and accessibility conventions.
+- `src/shared/workflow/validation-user-messages.test.ts`, `src/ui/tui/blocks.test.js`, Golden TUI scenarios,
+  `src/ui/workspace/workspace-plan-progress.integration.test.ts`, `src/cmd/load-plan/*.test.ts`, and
+  `src/cmd/plans/doctor-messages.test.ts` — extend existing focused behavior coverage.
 
 ## Implementation Steps
 
-- [ ] A finite owner-status model represents heading, concise explanation, safety statement, current owner, primary and
-      secondary actions, severity, and optional technical details without embedding renderer markup.
-- [ ] A scenario catalog covers implementation completion, validation running, validation repair, semantic review,
-      review repair, process interruption, safe resume, blocked recovery, merge conflict, publication, completion, and
-      user action required.
-- [ ] Every primary message states what happened and the next useful action; states that preserve a worktree or
-      candidate say plainly that the work is safe.
-- [ ] Primary owner copy contains no raw Plan Status values, lifecycle event identifiers, validation phase identifiers,
-      generation, fence, attempt, worktree ID, semantic round, or transition-journal terminology.
-- [ ] Technical details remain inspectable without being required to understand or operate the workflow.
-- [ ] TUI, Workspace, and commands render the same scenario model and cannot independently decide which recovery action
-      is legal.
-- [ ] Actions are concrete verbs such as **Retry checks**, **Review problems**, **Continue repair**, **Open candidate**,
-      and **Return to planning**, not generic **Recover** or **Continue** labels without an object.
-- [ ] Error messages distinguish user-correctable input, implementation failure, Plan defect, environmental blockage,
-      uncertain external effect, and RunWield internal failure.
-- [ ] Accessibility and responsive treatment preserve the heading, explanation, safety, and primary action hierarchy in
-      TUI, desktop, and narrow Workspace layouts.
-- [ ] Domain and design-system documentation name the shared presentation boundary and keep internal lifecycle language
-      available for diagnostics.
+- [ ] `validation-user-messages.ts` uses **tests/CI**, **AI code review**, and **human review** for their defined roles.
+      **Validation** refers only to the combined gate. Messages for a failure or pause state what happened and give the
+      next existing action; they do not replace useful Git terms with vague reassurance.
+- [ ] A small shared validation-progress helper maps the existing `kind`, `stage`, `outcome`, and check-result values to
+      owner headings and labels. It has no Plan/controller/worktree inputs, no action policy, no renderer markup, and no
+      dependency-injection seam.
+- [ ] TUI `ValidationHandoffBlock` uses the helper and no longer shows **Mechanical Validation**, **Semantic review**,
+      raw stage names, total rounds, or repair-attempt counters in its primary heading. Engineer and Reviewer reports
+      remain visible and are labeled by their user role.
+- [ ] Workspace keeps `loadOwnerPlanProgress` as the owner of progress derivation, but its validation stages and details
+      use the same helper terms as TUI. The primary progress hierarchy does not show raw Plan status or transcript
+      segment kinds; those facts remain available in a technical-details region where useful.
+- [ ] Execution-preparation copy does not show stored Plan status values. Validation and publication copy names the
+      exact operation that is running: tests, AI code review, human review, combining commits, pushing, verification, or
+      Git cleanup.
+- [ ] Blocked `load-plan` messages name the affected Plan/Git operation and the existing recovery action or command.
+      Primary copy does not ask the user to understand an unfinished lifecycle record, transition, registry ID,
+      checkpoint, generation, or settlement.
+- [ ] Plans Doctor summaries and guidance use plain diagnosis and specific next steps. Detailed `--check` output may
+      name Front Matter, registry files, transition records, paths, IDs, and Git commands when those details are
+      necessary to repair damaged state.
+- [ ] Safety wording is evidence-based: messages say a branch, commit, or worktree is safe only where the caller already
+      has proof. Unknown or ambiguous state says what RunWield cannot determine and directs the user to inspect it.
+- [ ] `docs/domain-language.md` and `docs/plan-lifecycle.md` define **AI code review** and **human review** as
+      owner-facing labels and keep **Semantic Code Review** as the internal state-machine term. Update
+      `docs/design-system.md` only if the Workspace implementation changes the existing status/details presentation
+      pattern.
 
 ## Approval Confirmation
 
@@ -116,22 +167,49 @@ No Work Record is proposed for supersession.
 
 ## Verification Plan
 
-- Automated: pure presenter tests cover every scenario and action set from canonical typed inputs.
-- Automated: Golden TUI and Workspace rendering tests assert the same semantic content at key lifecycle states.
-- Automated: a forbidden-term check prevents raw internal identifiers from returning to primary owner copy while
-  allowing them in marked technical details and developer logs.
-- Automated: run focused workflow/UI suites through `scripts/run-tests.js`, then `deno task ci`.
-- Manual: walk one successful Plan and one validation-repair Plan in TUI and Workspace; at every pause, state what
-  happened, whether work is safe, and the next action using only the visible copy.
-- Expected result: an owner can operate the workflow without learning RunWield's internal lifecycle vocabulary.
+- Automated: table tests for the small validation-progress helper cover tests/CI, AI code review, human review, repair,
+  merge, paused, failed, and complete values. They assert the approved labels and prove raw stage values and counters
+  are not returned as headings.
+- Automated: `src/shared/workflow/validation-user-messages.test.ts` covers running, failure, repair, pause, review,
+  publication, cleanup, and completion copy. Negative safety fixtures confirm uncertain state does not claim that work
+  is safe.
+- Automated: `src/ui/tui/blocks.test.js`, `src/ui/tui/runtime-adapter.test.js`, and focused Golden TUI scenarios prove
+  the existing progress event renders **Tests and CI**, **AI code review**, and **Human review** in the correct context
+  and omits raw stage names and counters.
+- Automated: `src/ui/workspace/workspace-plan-progress.integration.test.ts` and current component/UX tests exercise AI
+  review, repair, publication failure, degraded evidence, and completion. They assert the shared validation labels,
+  existing stage derivation, and raw Plan status only in technical details.
+- Automated: focused `load-plan` and Plans Doctor tests cover unknown status, interrupted operation, missing worktree,
+  merge conflict, and ambiguous attempt. Each blocked message names the affected developer fact and an existing next
+  action. Existing automatic repair and refusal behavior must remain unchanged.
+- Automated: run
+  `deno run -A scripts/run-tests.js src/shared/workflow/validation-user-messages.test.ts src/ui/tui/blocks.test.js src/ui/tui/runtime-adapter.test.js src/ui/workspace/workspace-plan-progress.integration.test.ts src/cmd/load-plan src/cmd/plans/doctor-messages.test.ts src/cmd/plans/doctor.test.ts`,
+  then `deno task test:golden-tui`, `deno task workspace:check`, and `deno task ci`.
+- Manual TUI: inspect one successful path and one tests-fail/repair/resume path. Confirm the panel identifies tests, AI
+  code review, and human review correctly; blocked text gives the next action; and internal values do not dominate.
+- Manual Workspace: run `deno task workspace:dev` and inspect the Plan progress fixtures at `http://127.0.0.1:5173` in a
+  headed browser at desktop and narrow widths. Confirm TUI/Workspace validation terms agree, technical facts remain
+  available, and the current live-region and disclosure behavior stays accessible.
+- Expected: a pass-through that changes underscores to spaces or keeps **Mechanical Validation** / **Semantic Code
+  Review** as primary labels fails the helper, TUI, and Workspace tests. Blocked recovery copy is actionable without a
+  universal lifecycle presenter.
 
 ## Edge Cases & Considerations
 
-- Copy cannot promise safety or completion unless canonical evidence proves it.
-- Some internal terms such as Plan, Session, Validator, and Reviewer are product language; the forbidden-term policy
-  should target implementation mechanics, not erase useful concepts.
-- Localization is not in scope, but structured messages should avoid concatenated grammar that makes it harder later.
-- Message stability matters to Golden tests, but tests should assert meaning and actions rather than incidental
-  punctuation.
-- The later lifecycle redesign will add `validating`, `reviewing`, `validated`, and `defective`; the presenter should be
-  extensible without pre-implementing those statuses here.
+- A safety sentence is an evidence claim. If the branch, commit, or worktree cannot be proven, say what RunWield cannot
+  determine and direct the user to inspect it; do not say “your work is safe.”
+- **Tests**, **CI**, **AI code review**, **human review**, **Plan**, **Session**, branch, commit, worktree, and merge
+  conflict are allowed product/developer terms. The rule targets misplaced terms and implementation bookkeeping, not
+  technical detail in general.
+- AI review feedback and human review feedback have different owners and resume paths. Copy must not collapse them into
+  one generic review state.
+- A failed push, a merge conflict, and incomplete cleanup happen after different facts are safe. Keep their existing
+  specialized Git guidance instead of forcing them through the live-progress helper.
+- Non-Git and local-only projects must not receive remote, branch, commit, or worktree promises.
+- Existing state names, Session events, lifecycle behavior, and external adapter contracts remain compatible. This Plan
+  changes presentation, not persistence or migration behavior.
+- Plans Doctor detailed output is intentionally more technical than normal status copy. It must stay precise enough to
+  repair inconsistent data.
+- Tests should assert approved role labels, safety meaning, and next actions rather than incidental punctuation.
+- The existing working tree has unrelated changes in `TODO.md`, `deno.lock`, and archived Plan moves. They do not
+  overlap this Plan file or the expected implementation surface and must not be changed or reverted during execution.

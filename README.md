@@ -1,4 +1,4 @@
-<p align="center"><img src="logo.svg" width="120" /></p>
+<p align="center"><img src="brand/logo.svg" width="120" /></p>
 
 # RunWield
 
@@ -11,6 +11,8 @@ call the work done until CI and a separate reviewer agree it matches the plan yo
 ```text
 ideate -> plan -> execute -> record -> use records to plan better
 ```
+
+<p align="center"><img src="brand/runwield-tui.png" alt="RunWield terminal interface" /></p>
 
 [Website](https://runwield.dev) · [Install](#install-in-30-seconds) · [How it works](#the-problem) ·
 [Documentation](docs/index.md)

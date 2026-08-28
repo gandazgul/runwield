@@ -3,7 +3,6 @@ planId: "0eaac4ba-cad8-41c2-83be-60f7ef1fbd52"
 classification: "PLANNED_CHANGE"
 workKind: "REFACTOR"
 complexity: "MEDIUM"
-summary: "Declare and test execution-Agent context contracts, and prove the correct context survives workflow recovery."
 affectedPaths:
     - "src/agent-definitions/engineer.md"
     - "src/agent-definitions/plan-engineer.md"
@@ -29,32 +28,18 @@ objectiveChecks:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-19T22:32:06-04:00"
-updatedAt: "2026-08-22T23:51:25.372Z"
 status: "validated"
 origin: "internal"
-implementedAt: "2026-08-22T15:02:21.592Z"
-validatedAt: "2026-08-22T23:51:13.301Z"
 userVerifiedAt: null
-executionReport: "- Added `contextContract` declarations for Engineer, Plan Engineer, Frontend Engineer, and Validation Repair Engineer; `loadAgentDef` now exposes the validated metadata without using it for runtime dispatch.\n- Rewrote `agent-contracts.test.ts` into the table-driven contract matrix; previous prompt-shape tests were rewritten into the matrix, including shared-practice, required/forbidden language, discoverability, workflow-only, domain-skill, and override behavior checks. Test count in that file changed from 11 to 3 because related checks are grouped by contract.\n- Extended Golden TUI coverage: session resume now proves Quick Fix resumes under Engineer, planned-change workflows assert actual Plan Engineer and Frontend Engineer system prompts, and the harness captures `runtimeAgent` for model turns.\n- Kept validation repair focused through contract and existing validation prompt/repair suites.\n- Recorded static prompt baselines in test output as comparison data only; no prompt-composition layer was added.\n- Verification passed: `deno run -A scripts/run-tests.js src/shared/session/agent-contracts.test.ts`; session-resume golden suite; planned-change golden suite; validation prompt/repair suites; and final `deno task ci` (`341 files passed`).\n- Manual inspection was covered through Golden TUI evidence for Quick Fix resume, Plan Engineer execution, Frontend Engineer execution, and resumed execution identity; no separate live TUI manual session was run."
 workRecord:
     status: "generated"
     recordId: "1a30facb-3349-43a9-94e8-5936e4d13bdb"
     path: "docs/work-records/2026-08-22-execution-agent-context-contracts-hardened.md"
     lastAttemptAt: "2026-08-22T23:51:13.485Z"
-humanReviewMode: "ask"
-humanReviewDecision: "approved"
-humanReviewedAt: "2026-08-22T23:51:12.326Z"
-validationCheckpoint: null
-executionMode: "worktree"
-deliveryEvidence:
-    version: 1
-    mode: "worktree_merge"
-    executionCommit: "adda9b79916fe903f1219c3eb71e69b566537552"
-    targetBranch: "main"
-    targetHeadBeforeMerge: "89ef79fd86a2479ce1943f84a7034db9324d661f"
-validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
-validationSemanticRounds: 0
+archivedAt: "2026-08-28T15:10:13.868Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/execution-agent-context-boundaries.md"
 ---
 
 # Harden Execution-Agent Context Boundaries

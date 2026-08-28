@@ -32,12 +32,30 @@ I would order the overlapping group like this:
 
 6. flag-test-seam-risks-during-init.md - done
 
-7. Optional before foundation: guided-validation-repair.md
+7. Optional before foundation: guided-validation-repair.md - done
 
-8. simplify-validation-and-lifecycle-messages.md Better after the error/repair model is stable.
+8. simplify-validation-and-lifecycle-messages.md Better after the error/repair model is stable. - in progress
 
 9. plan-packages-and-independent-validation.md
 
 10. plan-package-frontend-experience-planning.md
 
 11. epic-branch-publication-workflow.md
+
+## In this screen we should offer an option to see the diff
+
+RunWield Plan amendment: pick what to do.
+
+The Engineer offered a Plan amendment for workspace-session-screen-mvp:
+
+- body: changed
+
+The Engineer offered a Plan amendment for workspace-session-screen-mvp:
+
+- body: changed
+
+Do you approve this Plan change?
+
+→ Approve Plan changes Engineer follow-up Stop
+
+Type to search, arrows to navigate, Enter to select, Esc to cancel

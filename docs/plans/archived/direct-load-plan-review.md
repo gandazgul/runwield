@@ -21,6 +21,9 @@ workRecord:
     recordId: "9cdf7a0e-0078-45a9-a932-eaeacd7cd5b9"
     path: "docs/work-records/2026-08-26-direct-plan-review-from-load-plan.md"
     lastAttemptAt: "2026-08-26T23:50:00.661Z"
+archivedAt: "2026-08-28T15:10:27.755Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/direct-load-plan-review.md"
 targetBranch: "main"
 ---
 

@@ -1,10 +1,10 @@
 # RunWield Brand Identity
 
 This file defines the practical RunWield brand direction for product UI, marketing images, and brand-system mockups. It
-extends `design-system.md`; it does not replace it. For browser UI, the current Plan Review and Code Review surfaces
-remain the source of truth.
+extends [`docs/design-system.md`](../docs/design-system.md); it does not replace it. For browser UI, the current Plan
+Review and Code Review surfaces remain the source of truth.
 
-Use brandboard.png at the root as inspiration.
+Use [`brandboard.png`](brandboard.png) in this folder as inspiration.
 
 ## Brand position
 
@@ -37,8 +37,8 @@ Use the existing RunWield logo asset. Do not redraw it as a generic `W`.
 
 Source asset:
 
-- `../logo.svg`
-- `../logo.png`
+- [`logo.svg`](logo.svg)
+- [`logo.png`](logo.png)
 
 Frozen logo description:
 

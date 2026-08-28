@@ -3,7 +3,6 @@ planId: "482d1525-3be2-417e-bd9c-9b59bda1d71b"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
-summary: "Classify Workflow Validation operational errors and apply retry, Agent correction, deterministic recovery, user action, or immediate halt without treating infrastructure failures as implementation failures."
 affectedPaths:
     - "src/shared/workflow/validation-operational-errors.ts"
     - "src/shared/workflow/validation-recovery.ts"
@@ -57,38 +56,16 @@ objectiveCheckWaivers:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-12T00:47:42-04:00"
-updatedAt: "2026-08-20T01:14:00.374Z"
 status: "validated"
 origin: "internal"
-implementedAt: "2026-08-19T01:26:34.635Z"
-validatedAt: "2026-08-20T00:41:26.240Z"
 userVerifiedAt: null
-executionReport: "- Added typed Workflow Validation operational errors and recovery decisions, including recovery classes, stable codes, bounded Retry-After parsing, capped full-jitter retry delay calculation, correction limits, and operational metrics.\n- Updated Local CI and isolated Agent outcome types to discriminated results; Local CI process-start and missing-command failures now use operational recovery before repair counters or lifecycle failure events.\n- Integrated semantic reviewer protocol corrections, transient operational handling, and publication routing so only proven merge conflicts dispatch merge repair and target-reference races retry.\n- Added `retry.validation.maxDelayMs` schema/docs and Plan Lifecycle docs that operational retries/pauses/halts do not advance or reset Plan Status.\n- Updated tests and fixtures for the new CI result contract; test delta: +9 automated tests, 0 tests removed. Golden publication scripts were reduced only where Agent repair is no longer expected for non-conflict operational failures.\n- Verification passed: focused operational/local-CI/review/repair/publication/resume tests, `deno task seams:check`, `deno task check`, and full `deno task ci` (336 files passed, 0 failed).\n- Note: the Plan listed `src/shared/workflow/validation-publication.test.ts`, but this checkout has `validation-publication-pause.test.js`; I ran the existing publication test file instead."
-humanReviewMode: "ask"
-humanReviewDecision: "skipped"
 validationMergeRepairWorktree: "/var/folders/hw/zrm0bqr90xz63nflnb2g_qqr0000gn/T/runwield-publish-runwield-5bf560853db07c63"
-validationCheckpoint:
-    version: 1
-    attemptId: "in-place"
-    generation: "f4411078-409b-4682-90e7-f5c2364dd0a0"
-    expectedStatus: "validated"
-    nextPhase: "delivery"
-    state: "running"
-    ownerPid: 53263
-    ownerHostname: "gandazgul-mbp"
-    updatedAt: "2026-08-20T01:14:00.369Z"
-executionMode: "worktree"
-deliveryEvidence:
-    version: 1
-    mode: "worktree_merge"
-    executionCommit: "79fb4ee1f78114a43d787e903500899eb53f3475"
-    targetBranch: "main"
-    targetHeadBeforeMerge: "1651f7ec36e281fc8afc144bbac03dc9383214d0"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "validation error recovery"
-validationCiAttempts: 0
 validationObjectiveCheckAttempts: 0
-validationSemanticRounds: 0
+archivedAt: "2026-08-28T15:13:00.074Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/classify-validation-operational-errors.md"
 ---
 
 # Classify Workflow Validation Operational Errors
