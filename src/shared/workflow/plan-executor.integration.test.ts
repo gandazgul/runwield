@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
@@ -167,10 +167,10 @@ Deno.test("executePlan runs preparation, Engineer, checkpoint, lifecycle, and re
     });
 });
 
-Deno.test("executePlan seeds the execution worktree with the project validation command", async () => {
+Deno.test("executePlan does not seed or hide execution worktree validation settings", async () => {
     await withRuntimeCommandFixture("plan-executor-ci-settings-", async ({ projectRoot, setModelMessages }) => {
         await initializeGitProject(projectRoot);
-        await setCustomSetting("verification_command", "printf seeded", "project", projectRoot);
+        await setCustomSetting("verification_command", "printf primary", "project", projectRoot);
         await saveExecutablePlan(projectRoot, "ci-settings");
         setModelMessages([
             fauxAssistantMessage(fauxToolCall("write", {
@@ -191,12 +191,23 @@ Deno.test("executePlan seeds the execution worktree with the project validation 
                 hostedSession: fixture.hostedSession,
             });
 
-            assert(result.executionContext?.executionCwd, JSON.stringify(result));
-            assertEquals(
-                JSON.parse(await Deno.readTextFile(`${result.executionContext.executionCwd}/.wld/settings.json`))
-                    .verification_command,
-                "printf seeded",
+            const executionCwd = result.executionContext?.executionCwd;
+            assert(executionCwd, JSON.stringify(result));
+            await assertRejects(
+                () => Deno.stat(`${executionCwd}/.wld/settings.json`),
+                Deno.errors.NotFound,
             );
+            const exclude = await new Deno.Command("git", {
+                args: ["rev-parse", "--git-path", "info/exclude"],
+                cwd: executionCwd,
+                stdout: "piped",
+                stderr: "piped",
+            }).output();
+            assertEquals(exclude.code, 0);
+            const rawExcludePath = new TextDecoder().decode(exclude.stdout).trim();
+            const excludePath = rawExcludePath.startsWith("/") ? rawExcludePath : `${executionCwd}/${rawExcludePath}`;
+            const excludeText = await Deno.readTextFile(excludePath);
+            assertEquals(excludeText.split(/\r?\n/).includes(".wld/settings.json"), false);
         } finally {
             fixture.hostedSession.dispose();
         }
