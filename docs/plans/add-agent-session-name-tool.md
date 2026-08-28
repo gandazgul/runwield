@@ -15,9 +15,14 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-28T12:56:14-0400"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "f5406f11-f10b-4653-89a3-b68dce63053f"
+    path: "docs/work-records/2026-08-28-agent-sessions-can-name-themselves.md"
+    lastAttemptAt: "2026-08-28T21:06:17.548Z"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "agent session naming"
 targetBranch: "main"
