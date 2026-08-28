@@ -72,7 +72,7 @@
     "npm:@types/react-dom@^19.2.3": "19.2.3_@types+react@19.2.18",
     "npm:@types/react@^19.2.18": "19.2.18",
     "npm:@vitejs/plugin-react@^6.0.5": "6.1.0_vite@8.2.0__esbuild@0.28.2",
-    "npm:@viz-js/viz@^3.28.0": "3.28.0",
+    "npm:@viz-js/viz@^3.29.0": "3.29.0",
     "npm:@xterm/headless@5.5.0": "5.5.0",
     "npm:@zag-js/dialog@^1.42.0": "1.42.0",
     "npm:@zag-js/preact@^1.43.0": "1.43.3_preact@10.29.8",
@@ -84,6 +84,7 @@
     "npm:class-variance-authority@~0.7.1": "0.7.1",
     "npm:clsx@^2.1.1": "2.1.1",
     "npm:codemirror@^6.0.2": "6.0.2",
+    "npm:diff@8.0.4": "8.0.4",
     "npm:diff@9": "9.0.0",
     "npm:dockview-react@^7.0.2": "7.0.4_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:dompurify@*": "3.4.11",
@@ -3702,8 +3703,8 @@
         "vite@8.2.0_esbuild@0.28.2"
       ]
     },
-    "@viz-js/viz@3.28.0": {
-      "integrity": "sha512-nPt+jbGHGgd7lUQLBT79/4lChIzeW44I+hFrscx18AnpNyX9vdRFVNwVbKz9eq+ACeKSm4bFQns17WhCW11eWQ=="
+    "@viz-js/viz@3.29.0": {
+      "integrity": "sha512-iq4MTqNCr8pinP4C73JRFx/h2w4QbtHvXINNiPeBv3/C5tSamXwakst6ODlR/l6uh3/SGr7IAGIfSk2qMekiNw=="
     },
     "@volar/kit@2.4.28_typescript@5.9.3": {
       "integrity": "sha512-cKX4vK9dtZvDRaAzeoUdaAJEew6IdxHNCRrdp5Kvcl6zZOqb6jTOfk3kXkIkG3T7oTFXguEMt5+9ptyqYR84Pg==",
@@ -6879,7 +6880,7 @@
       "npm:@types/react-dom@^19.2.3",
       "npm:@types/react@^19.2.18",
       "npm:@vitejs/plugin-react@^6.0.5",
-      "npm:@viz-js/viz@^3.28.0",
+      "npm:@viz-js/viz@^3.29.0",
       "npm:@xterm/headless@5.5.0",
       "npm:@zag-js/dialog@^1.42.0",
       "npm:@zag-js/preact@^1.43.0",
@@ -6912,6 +6913,11 @@
       "npm:typescript@^5.9.3",
       "npm:unique-username-generator@^1.5.1",
       "npm:vite@^8.1.5"
-    ]
+    ],
+    "packageJson": {
+      "dependencies": [
+        "npm:diff@8.0.4"
+      ]
+    }
   }
 }
