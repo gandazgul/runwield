@@ -12,7 +12,8 @@ call the work done until CI and a separate reviewer agree it matches the plan yo
 ideate -> plan -> execute -> record -> use records to plan better
 ```
 
-[Install](#install-in-30-seconds) · [How it works](#the-problem) · [Documentation](docs/index.md)
+[Website](https://runwield.dev) · [Install](#install-in-30-seconds) · [How it works](#the-problem) ·
+[Documentation](docs/index.md)
 
 ---
 
@@ -42,7 +43,7 @@ For full setup: model provider auth, runtime helpers, running from source, etc c
 
 > **I'm looking for five developers to try RunWield on one real, non-trivial change.** I'll personally help you get
 > running, fix anything that blocks you within a day, and give you a direct say in the roadmap.
-> [Try it with me →](https://github.com/gandazgul/runwield/issues)
+> [Try it with me →](https://runwield.dev/#beta)
 
 ---
 
