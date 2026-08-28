@@ -24,9 +24,14 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-08-26"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "45854a6d-ab07-4fd5-9efc-fa2be4b9f31e"
+    path: "docs/work-records/2026-08-28-workspace-session-chat-mvp-verified.md"
+    lastAttemptAt: "2026-08-28T20:50:30.479Z"
 targetBranch: "main"
 ---
 
