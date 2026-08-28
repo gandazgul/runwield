@@ -1,11 +1,12 @@
 // @ts-nocheck: Workspace service is JavaScript and returns projected event records.
 import { assertEquals, assertRejects } from "@std/assert";
+import { AGENTS } from "../../constants.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { makeManagedSessionFixture } from "../../testing/managed-session-fixture.ts";
 import { WorkspaceSessionContinuationService } from "./server/session-continuation.js";
 
 async function waitForOperation(service, operationId) {
-    for (let index = 0; index < 80; index++) {
+    for (let index = 0; index < 400; index++) {
         const operation = service.getOperation(operationId);
         if (operation.status !== "running" && operation.status !== "accepted") return operation;
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -135,6 +136,71 @@ Deno.test("Workspace continuation publishes once and a TUI observer resumes from
                 service.close();
                 workspaceStore.close();
                 tuiObserver.close();
+                await fixture.cleanup();
+            }
+        },
+    );
+});
+
+Deno.test("Workspace configuration stages Agent changes during a local active operation", async () => {
+    await withRuntimeCommandFixture(
+        "workspace-active-config-",
+        async ({ homeDir, projectRoot, setModelResponseFactory }) => {
+            const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+            const workspaceStore = fixture.openStore();
+            const service = new WorkspaceSessionContinuationService({ store: workspaceStore });
+            let releaseTurn = () => {};
+            const turnReleased = new Promise((resolve) => {
+                releaseTurn = resolve;
+            });
+            try {
+                setModelResponseFactory(async (context) => {
+                    fixture.recordFixtureModelRequest({ messages: JSON.stringify(context.messages) });
+                    await turnReleased;
+                    return fixture.recordedModelResponse("Workspace turn after staged config.")(context);
+                });
+                const started = await service.startContinuation({
+                    runwieldSessionId: fixture.session.runwieldSessionId,
+                    projectId: fixture.project.projectId,
+                    expectedGeneration: 0,
+                    requestId: "stage-agent-during-turn",
+                    deviceId: "workspace-device",
+                    text: "Continue while settings change.",
+                });
+                const staged = await service.configureSession({
+                    runwieldSessionId: fixture.session.runwieldSessionId,
+                    projectId: fixture.project.projectId,
+                    expectedGeneration: 0,
+                    agentName: AGENTS.ROUTER,
+                });
+                assertEquals(staged.status, "staged");
+                assertEquals(staged.pendingConfiguration?.agentName, AGENTS.ROUTER);
+                assertEquals(service.getOperation(started.operationId).pendingConfiguration?.agentName, AGENTS.ROUTER);
+
+                const thinkingChanged = await service.configureSession({
+                    runwieldSessionId: fixture.session.runwieldSessionId,
+                    projectId: fixture.project.projectId,
+                    expectedGeneration: 0,
+                    thinkingLevel: "low",
+                });
+                assertEquals(thinkingChanged.status, "staged");
+                assertEquals(thinkingChanged.pendingConfiguration?.agentName, AGENTS.ROUTER);
+
+                releaseTurn();
+                const completed = await waitForOperation(service, started.operationId);
+                assertEquals(completed.status, "completed");
+                assertEquals(completed.pendingConfiguration, null);
+                const timeline = await service.timeline(fixture.session.runwieldSessionId, {
+                    projectId: fixture.project.projectId,
+                    limit: 20,
+                });
+                assertEquals(timeline.snapshot.activeAgent, AGENTS.ROUTER);
+                assertEquals(timeline.snapshot.thinkingLevel, "low");
+                assertEquals(timeline.generation > 1, true);
+            } finally {
+                releaseTurn();
+                service.close();
+                workspaceStore.close();
                 await fixture.cleanup();
             }
         },

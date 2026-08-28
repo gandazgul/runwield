@@ -8,9 +8,10 @@
  */
 
 import { AGENTS, CLI_BIN } from "../../constants.js";
-import { loadPlan, type PlanFrontMatter, resolvePlanExecutionPolicy } from "../../plan-store.js";
+import { type PlanFrontMatter, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { decidePostExecution, decidePostPlanning } from "../../shared/workflow/decisions.js";
 import { isEpicPlan, isPlanReviewableWithoutReopen, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../../shared/workflow/plan-approval.js";
 import {
     appendSessionCompleteGuidance,
@@ -53,7 +54,7 @@ interface DirectReviewOptions {
 
 export interface DirectPlanReviewEligibility {
     eligible: boolean;
-    reason?: "unsupported_status" | "invalid_execution_policy";
+    reason?: "unsupported_status" | "invalid_execution_policy" | "missing_objective_failing_check";
     message?: string;
 }
 
@@ -63,11 +64,56 @@ export interface DirectPlanReviewResult {
 
 const DIRECT_REVIEW_STATUSES = new Set(["draft", "feedback", "approved", "ready_for_work"]);
 
-export function getDirectPlanReviewEligibility(plan: { attrs: PlanFrontMatter }): DirectPlanReviewEligibility {
+function fieldHasValue(line: string, fieldName: string): boolean {
+    const match = new RegExp(`\\b${fieldName}:\\s*(.*)$`).exec(line);
+    return Boolean(match?.[1]?.trim());
+}
+
+function hasValidObjectiveFailingCheck(plan: { markdown?: string; body?: string }): boolean {
+    const markdown = plan.markdown || "";
+    const frontMatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(markdown)?.[1];
+    if (!frontMatter) return false;
+
+    let inObjectiveChecks = false;
+    let currentCheckHasId = false;
+    let currentCheckHasCommand = false;
+    const checkComplete = () => currentCheckHasId && currentCheckHasCommand;
+
+    for (const line of frontMatter.split(/\r?\n/)) {
+        if (!inObjectiveChecks) {
+            const start = /^objectiveChecks:\s*(.*)$/.exec(line);
+            if (!start) continue;
+            inObjectiveChecks = true;
+            if (start[1].trim() && start[1].trim() !== "[]") {
+                return /\bid:\s*[^,}\]]+/.test(start[1]) && /\bcommand:\s*[^,}\]]+/.test(start[1]);
+            }
+            continue;
+        }
+
+        if (/^[A-Za-z][A-Za-z0-9_-]*:\s*/.test(line)) break;
+        if (/^\s*-\s*/.test(line)) {
+            if (checkComplete()) return true;
+            currentCheckHasId = false;
+            currentCheckHasCommand = false;
+        }
+        currentCheckHasId = currentCheckHasId || fieldHasValue(line, "id");
+        currentCheckHasCommand = currentCheckHasCommand || fieldHasValue(line, "command");
+    }
+
+    return checkComplete();
+}
+
+export function getDirectPlanReviewEligibility(
+    plan: { attrs: PlanFrontMatter; markdown?: string; body?: string },
+): DirectPlanReviewEligibility {
     if (!DIRECT_REVIEW_STATUSES.has(plan.attrs.status || "")) {
         return { eligible: false, reason: "unsupported_status" };
     }
     if (isEpicPlan(plan.attrs)) return { eligible: true };
+
+    if (!hasValidObjectiveFailingCheck(plan)) {
+        return { eligible: false, reason: "missing_objective_failing_check" };
+    }
 
     const policy = resolvePlanExecutionPolicy(plan.attrs);
     if (!policy.ok) {
@@ -146,13 +192,14 @@ export async function reviewLoadedPlanDirectly({
     if (reviewResult.approved) {
         let reloadedAfterReview = false;
         try {
-            const latestPlan = await loadPlan(projectRoot, plan.planName);
+            const { plan: latestPlan } = await resolveWorkflowPlanLocation(projectRoot, plan.planName);
             if (latestPlan) {
                 plan.attrs = reviewResult.planAttrs
                     ? { ...latestPlan.attrs, ...reviewResult.planAttrs }
                     : latestPlan.attrs;
                 plan.body = latestPlan.body;
                 plan.markdown = latestPlan.markdown || latestPlan.body || plan.markdown;
+                plan.path = latestPlan.path;
                 reloadedAfterReview = true;
             }
         } catch {
