@@ -5,6 +5,7 @@ import {
     deriveWorkflowSidebarStages,
     draftRecoveryDecision,
     isAtLiveScrollEdge,
+    newSessionDraftInstanceStorageKey,
     reduceOperationTransientItems,
     serializeSessionImageForRequest,
     sessionAttachmentsKey,
@@ -21,6 +22,10 @@ import {
 
 Deno.test("Session surface preserves drafts and replaces a lost live wait with one interruption line", () => {
     assertEquals(sessionDraftKey("project-1", "session-1"), "runwield:owner:project:project-1:session:session-1:draft");
+    assertEquals(
+        newSessionDraftInstanceStorageKey("project-1"),
+        "runwield:owner:project:project-1:session:new:draft-instance",
+    );
     assertEquals(draftRecoveryDecision({ status: "unknown" }), "idle");
     assertEquals(
         shouldApplyOperationPoll({ cancelled: false, currentOperationId: "new", polledOperationId: "new" }),

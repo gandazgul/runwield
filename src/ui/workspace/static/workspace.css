@@ -2036,7 +2036,7 @@
 }
 
 .session-card-meta,
-.session-composer-actions span,
+.session-composer-help,
 .session-surface-status {
     color: var(--rw-text-muted);
     font-size: 0.92rem;

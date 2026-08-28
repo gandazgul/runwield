@@ -30,6 +30,22 @@ export function sessionAttachmentsKey(projectId, sessionId) {
     return `runwield:owner:project:${projectId}:session:${sessionId}:image-attachments`;
 }
 
+/** @param {string} projectId */
+export function newSessionDraftInstanceStorageKey(projectId) {
+    return `runwield:owner:project:${projectId}:session:new:draft-instance`;
+}
+
+/** @param {string} projectId */
+function getNewSessionDraftInstanceId(projectId) {
+    if (typeof sessionStorage === "undefined") return "";
+    const key = newSessionDraftInstanceStorageKey(projectId);
+    const stored = sessionStorage.getItem(key);
+    if (stored) return stored;
+    const next = `new:${crypto.randomUUID()}`;
+    sessionStorage.setItem(key, next);
+    return next;
+}
+
 /**
  * @typedef {Object} SessionImageAttachmentDraft
  * @property {string} id
@@ -322,7 +338,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const timelineScrollRef = useRef(/** @type {HTMLDivElement | null} */ (null));
     const [followingLiveEdge, setFollowingLiveEdge] = useState(true);
     const [latestActivityAvailable, setLatestActivityAvailable] = useState(false);
-    const sessionStorageId = runwieldSessionId || (mode === "new" ? "new" : "");
+    const [newSessionStorageId] = useState(() => mode === "new" ? getNewSessionDraftInstanceId(projectId) : "");
+    const sessionStorageId = runwieldSessionId || newSessionStorageId;
 
     const draftKey = sessionStorageId ? sessionDraftKey(projectId, sessionStorageId) : "";
     const requestKey = sessionStorageId ? sessionRequestKey(projectId, sessionStorageId) : "";
@@ -1086,77 +1103,6 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                     <SessionActivationStatus availability={availability} />
                                 </div>
                                 <SessionBackendDisclosure snapshot={timeline.snapshot} />
-                                <div className="session-detail-settings" aria-label="Session settings">
-                                    <label>
-                                        <span>Agent</span>
-                                        <select
-                                            value={stagedAgent}
-                                            disabled={!canConfigureSession || !agents.length}
-                                            onChange={(event) =>
-                                                configureSession({ agentName: event.currentTarget.value })}
-                                        >
-                                            {agents.some((agent) => agent.name === timeline.snapshot?.activeAgent)
-                                                ? null
-                                                : (
-                                                    <option value={timeline.snapshot?.activeAgent || ""}>
-                                                        {timeline.snapshot?.activeAgent || "Agent"}
-                                                    </option>
-                                                )}
-                                            {agents.map((agent) => (
-                                                <option key={agent.name} value={agent.name}>
-                                                    {agent.displayName || agent.name}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </label>
-                                    <label>
-                                        <span>Model</span>
-                                        <select
-                                            value={stagedModelKey}
-                                            disabled={!canConfigureSession || !models.length}
-                                            onChange={(event) => {
-                                                const [provider, model] = event.currentTarget.value
-                                                    ? event.currentTarget.value.split("\u001f")
-                                                    : ["", ""];
-                                                if (model) configureSession({ provider, model });
-                                            }}
-                                        >
-                                            {activeModelKey &&
-                                                    !models.some((model) =>
-                                                        `${model.provider}\u001f${model.id}` === activeModelKey
-                                                    )
-                                                ? <option value={activeModelKey}>{activeModelId}</option>
-                                                : null}
-                                            {models.map((model) => (
-                                                <option
-                                                    key={`${model.provider}/${model.id}`}
-                                                    value={`${model.provider}\u001f${model.id}`}
-                                                >
-                                                    {model.name || model.id}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </label>
-                                    <label>
-                                        <span>Thinking</span>
-                                        <select
-                                            value={displayedThinking}
-                                            disabled={!canConfigureSession || !thinkingLevels.length}
-                                            onChange={(event) =>
-                                                configureSession({ thinkingLevel: event.currentTarget.value })}
-                                        >
-                                            {thinkingLevels.includes(displayedThinking)
-                                                ? null
-                                                : <option value={displayedThinking}>{displayedThinking}</option>}
-                                            {thinkingLevels.map((level) => (
-                                                <option key={level} value={level}>{level}</option>
-                                            ))}
-                                        </select>
-                                    </label>
-                                </div>
-                                {stagedConfigurationVisible
-                                    ? <p className="session-configuration-pending">Applies after this response.</p>
-                                    : null}
                                 {operation?.operationId
                                     ? (
                                         <button
@@ -1225,6 +1171,74 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                     )
                                     : null}
                                 <div className="session-composer-actions">
+                                    <div className="session-detail-settings" aria-label="Session settings">
+                                        <label>
+                                            <span>Agent</span>
+                                            <select
+                                                value={stagedAgent}
+                                                disabled={!canConfigureSession || !agents.length}
+                                                onChange={(event) =>
+                                                    configureSession({ agentName: event.currentTarget.value })}
+                                            >
+                                                {agents.some((agent) => agent.name === timeline.snapshot?.activeAgent)
+                                                    ? null
+                                                    : (
+                                                        <option value={timeline.snapshot?.activeAgent || ""}>
+                                                            {timeline.snapshot?.activeAgent || "Agent"}
+                                                        </option>
+                                                    )}
+                                                {agents.map((agent) => (
+                                                    <option key={agent.name} value={agent.name}>
+                                                        {agent.displayName || agent.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </label>
+                                        <label>
+                                            <span>Model</span>
+                                            <select
+                                                value={stagedModelKey}
+                                                disabled={!canConfigureSession || !models.length}
+                                                onChange={(event) => {
+                                                    const [provider, model] = event.currentTarget.value
+                                                        ? event.currentTarget.value.split("\u001f")
+                                                        : ["", ""];
+                                                    if (model) configureSession({ provider, model });
+                                                }}
+                                            >
+                                                {activeModelKey &&
+                                                        !models.some((model) =>
+                                                            `${model.provider}\u001f${model.id}` === activeModelKey
+                                                        )
+                                                    ? <option value={activeModelKey}>{activeModelId}</option>
+                                                    : null}
+                                                {models.map((model) => (
+                                                    <option
+                                                        key={`${model.provider}/${model.id}`}
+                                                        value={`${model.provider}\u001f${model.id}`}
+                                                    >
+                                                        {model.name || model.id}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </label>
+                                        <label>
+                                            <span>Thinking</span>
+                                            <select
+                                                value={displayedThinking}
+                                                disabled={!canConfigureSession || !thinkingLevels.length}
+                                                onChange={(event) =>
+                                                    configureSession({ thinkingLevel: event.currentTarget.value })}
+                                            >
+                                                {thinkingLevels.includes(displayedThinking)
+                                                    ? null
+                                                    : <option value={displayedThinking}>{displayedThinking}</option>}
+                                                {thinkingLevels.map((level) => (
+                                                    <option key={level} value={level}>{level}</option>
+                                                ))}
+                                            </select>
+                                        </label>
+                                    </div>
                                     <RunWieldButton
                                         type="submit"
                                         variant="primary"
@@ -1233,9 +1247,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                     >
                                         {submitting ? "Sending…" : "Send"}
                                     </RunWieldButton>
-                                    <span>
+                                    <span className="session-composer-help">
                                         {availability.canContinue
-                                            ? "Enter adds a newline. Command/Ctrl+Enter sends. Paste images to attach them."
+                                            ? (stagedConfigurationVisible
+                                                ? "Agent settings apply after this response. Enter adds a newline. Command/Ctrl+Enter sends."
+                                                : "Enter adds a newline. Command/Ctrl+Enter sends. Paste images to attach them.")
                                             : availability.explanation}
                                     </span>
                                 </div>

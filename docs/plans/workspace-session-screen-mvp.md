@@ -24,7 +24,7 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-08-26"
-status: "implemented"
+status: "validated_reviewer"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
@@ -293,6 +293,18 @@ consumer-neutral capability is missing; do not add a Workspace-specific seam to 
 
 No Work Record is superseded by this Plan. The Plan builds on the verified SessionRuntime sibling-adapter and atomic
 Agent-switching boundaries without replacing their planning guidance.
+
+### Semantic Review Scope Clarification
+
+Objective-Failing Checks were removed from RunWield before this Plan entered execution. They are not part of this Plan's
+readiness, implementation, or verification contract and must not be reintroduced. The current verification contract is
+repository validation, Semantic Review approval, and delivery proof.
+
+The execution worktree merged newer `main` changes after its execution baseline was recorded. Consequently, a diff
+against that older baseline can contain unrelated upstream changes, including `direct-load-plan-review` Plan and source
+files. Those files are outside this Plan's Expected Change Surface and are not requirements or implementation evidence
+for this Plan. Semantic Review must evaluate this Plan and its Workspace Session changes only; findings about direct
+Plan review belong to separate triage.
 
 ## Verification Plan
 
