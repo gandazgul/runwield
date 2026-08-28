@@ -1,11 +1,12 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { fromFileUrl, join } from "@std/path";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
 import { AGENTS, SUBAGENTS } from "../../../constants.js";
 import { __resetSettingsForTests } from "../../settings.js";
 import { loadAgentDef, resolveSessionToolNames } from "../agents.js";
 import { HostedSession } from "../hosted-session.js";
-import { REVIEWER_SUBAGENT_TOOLS } from "../subagent-definitions.ts";
+import { loadSubAgentDefinition, REVIEWER_SUBAGENT_TOOLS } from "../subagent-definitions.ts";
 import { buildAgentSession, resolveEffectiveSessionToolNames } from "../session.js";
 import { createReviewDiffTool } from "../../workflow/review-diff-tool.js";
 
@@ -74,7 +75,7 @@ Deno.test("loadAgentDef preserves per-agent protected tools when override narrow
             "triage_report",
         ];
 
-        assertEquals(def.tools, ["read", ...expectedProtected]);
+        assertEquals(def.tools, ["read", ...expectedProtected, "set_session_name"]);
         assert(!def.tools.includes("bash"), "non-protected bundled tool should be removable by override");
     } finally {
         await removeTempDir(projectRoot);
@@ -102,6 +103,7 @@ Deno.test("loadAgentDef keeps filename identity separate from frontmatter displa
 
         assertEquals(definition.name, "case-contract");
         assertEquals(definition.displayName, "Arbitrary Frontmatter Display Name");
+        assert(definition.tools.includes("set_session_name"));
     } finally {
         await removeTempDir(projectRoot);
     }
@@ -213,6 +215,50 @@ Deno.test("bundled Agent definitions omit the removed router handoff tool", asyn
             false,
             `${agentName} effective tools must not expose removed handoff tool`,
         );
+    }
+});
+
+Deno.test("all user-facing bundled Agents receive set_session_name", async () => {
+    const agentNames = [
+        AGENTS.OPERATOR,
+        AGENTS.GUIDE,
+        AGENTS.IDEATOR,
+        AGENTS.PLANNER,
+        AGENTS.ARCHITECT,
+        AGENTS.ENGINEER,
+        AGENTS.FRONTEND_ENGINEER,
+        AGENTS.ROUTER,
+        AGENTS.RECORDER,
+    ];
+
+    for (const agentName of agentNames) {
+        const def = await loadAgentDef(agentName, REPO_ROOT);
+        assert(def.tools.includes("set_session_name"), `${agentName} should include set_session_name`);
+    }
+});
+
+Deno.test("set_session_name survives a narrowed runtime tool list", async () => {
+    const def = await loadAgentDef(AGENTS.GUIDE, REPO_ROOT);
+
+    const resolved = resolveEffectiveSessionToolNames(def.tools, ["read"], []);
+
+    assertEquals(resolved.includes("read"), true);
+    assertEquals(resolved.includes("set_session_name"), true);
+});
+
+Deno.test("isolated Subagent definitions do not receive set_session_name", async () => {
+    const subagents = [
+        SUBAGENTS.REVIEWER,
+        SUBAGENTS.DELEGATED,
+        SUBAGENTS.INIT,
+        SUBAGENTS.SLICER,
+        SUBAGENTS.MANUAL_QA,
+        SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER,
+    ];
+
+    for (const subagent of subagents) {
+        const def = await loadSubAgentDefinition(subagent);
+        assertEquals(def.tools.includes("set_session_name"), false, `${subagent} must not include set_session_name`);
     }
 });
 
@@ -334,6 +380,48 @@ Deno.test("buildAgentSession wires task_completed with an event-only HostedSessi
             __resetSettingsForTests();
             await removeTempDir(tempHome);
             await Deno.remove(debugLogPath);
+        }
+    });
+});
+
+Deno.test("buildAgentSession auto-wires set_session_name for user-facing Agents", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-set-session-name-wiring-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
+        let session;
+        try {
+            Deno.env.set("HOME", tempHome);
+            __resetSettingsForTests();
+            await writeVisionModelConfig(tempHome);
+            const sessionManager = SessionManager.inMemory(tempHome);
+            const hostedSession = new HostedSession({
+                id: "set-session-name-policy",
+                cwd: tempHome,
+                sessionManager: /** @type {never} */ (sessionManager),
+            });
+
+            const built = await buildAgentSession({
+                hostedSession,
+                agentName: AGENTS.GUIDE,
+                modelOverride: "test/text",
+                toolNames: ["read"],
+            });
+            session = built.session;
+
+            assertEquals(built.tools.includes("set_session_name"), true);
+            const tool = built.finalCustomTools.find((candidate) => candidate.name === "set_session_name");
+            assert(tool, "expected set_session_name to be auto-wired");
+            const result = await /** @type {any} */ (tool.execute)("tool-call-1", { name: "guide session" });
+            assertEquals(result.details, { name: "guide session" });
+            assertEquals(sessionManager.getSessionName(), "guide session");
+        } finally {
+            session?.dispose();
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            __resetSettingsForTests();
+            await removeTempDir(tempHome);
         }
     });
 });

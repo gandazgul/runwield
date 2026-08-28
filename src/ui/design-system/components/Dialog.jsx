@@ -83,7 +83,7 @@ export function Dialog({
     children,
 }) {
     const generatedId = useId();
-    const service = useMachine(dialog.machine, {
+    const service = useMachine(/** @type {never} */ (dialog.machine), {
         id: id || generatedId,
         open,
         defaultOpen,
@@ -93,7 +93,7 @@ export function Dialog({
         /** @param {{ open: boolean }} details */
         onOpenChange: (details) => onOpenChange?.(details.open),
     });
-    const api = dialog.connect(service, normalizeProps);
+    const api = dialog.connect(/** @type {never} */ (service), normalizeProps);
     const actions = Array.isArray(footer) ? footer : footer ? [footer] : [];
     const triggerProps = /** @type {any} */ (api.getTriggerProps());
     const backdropProps = /** @type {any} */ (api.getBackdropProps());
