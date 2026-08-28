@@ -1,13 +1,16 @@
 import { assertEquals, assertExists, assertStringIncludes } from "@std/assert";
+import { join } from "@std/path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { TASK_COMPLETION_CUSTOM_TYPE } from "../session/task-completion-session.ts";
+import { setExactProjectCustomSetting } from "../settings.js";
 import { makeValidationCheckpoint } from "./validation-checkpoint.ts";
 import type { SemanticReviewPort } from "./validation-session-adapter.ts";
 import { continueWorkflowValidation } from "./validation-supervisor.ts";
+import { runLocalCI } from "./validation-local-ci.ts";
 import { attachRecorder, makeStubGitPort, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
 
 type HostedSessionManager = NonNullable<ConstructorParameters<typeof HostedSession>[0]["sessionManager"]>;
@@ -72,7 +75,21 @@ async function runValidation(args: {
     hostedSession: HostedSession;
     projectRoot: string;
     triageMeta?: Record<string, unknown>;
-    localCI: { run: () => Promise<{ kind: "completed"; exitCode: number; output: string }> };
+    localCI: {
+        run: (args: {
+            hostedSession: HostedSession;
+            cwd: string;
+            settingsPolicy?: "ordinary-project" | "exact-project";
+        }) => Promise<
+            | { kind: "completed"; exitCode: number; output: string }
+            | { kind: "canceled"; output: string }
+            | {
+                kind: "operational_failure";
+                failure: import("./validation-operational-errors.ts").ValidationOperationalFailure;
+                output: string;
+            }
+        >;
+    };
     semanticReviewPort?: SemanticReviewPort;
 }) {
     return await continueWorkflowValidation({
@@ -191,6 +208,45 @@ Deno.test("mechanical failure state is durable before CI repair dispatch", async
     assertEquals(plan.attrs.failureReason, "type error");
     assertEquals(plan.attrs.validationCheckpoint?.state, "paused");
     assertEquals(plan.attrs.validationCheckpoint?.nextPhase, "mechanical");
+});
+
+Deno.test("CI repair completion reloads the execution-tree settings command before validation advances", async () => {
+    const projectRoot = await makeImplementedPlan();
+    const settingsPath = join(projectRoot, ".wld", "settings.json");
+    setExactProjectCustomSetting("verification_command", "printf first; exit 1", projectRoot);
+    const ui = makeUi();
+    const hostedSession = attachRecorder(new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot }), ui);
+    attachWorkflow(hostedSession, projectRoot);
+    const beforeRepairStat = await Deno.stat(settingsPath);
+    const repairCounter = { runs: 0 };
+
+    const result = await runValidation({
+        hostedSession,
+        projectRoot,
+        localCI: {
+            run: (args) => runLocalCI(args),
+        },
+        semanticReviewPort: makeRepairPort({
+            completed: true,
+            onRun: async () => {
+                setExactProjectCustomSetting("verification_command", "printf fixed; exit 0", projectRoot);
+                await Deno.utime(
+                    settingsPath,
+                    beforeRepairStat.atime ?? new Date(0),
+                    beforeRepairStat.mtime ?? new Date(0),
+                );
+            },
+        }, repairCounter),
+    });
+
+    const plan = await loadPlan(projectRoot, "p");
+    assertExists(plan);
+    assertEquals(repairCounter.runs, 1, "repair must run exactly once after the failing command");
+    assertEquals(ui.toolResults.length, 2, "validation must rerun CI after Task Completion");
+    assertStringIncludes(ui.toolResults[0].result, "first");
+    assertStringIncludes(ui.toolResults[1].result, "fixed");
+    assertEquals(result.kind, "verified");
+    assertEquals(plan.attrs.status, "validated");
 });
 
 Deno.test("process loss before CI repair dispatch reclaims the checkpoint and reruns Mechanical Validation", async () => {

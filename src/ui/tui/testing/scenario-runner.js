@@ -735,6 +735,7 @@ async function runComposedTuiScenario(scenario, options) {
             }
             await runGoldenGit(["add", "-A"], Deno.cwd());
             await runGoldenGit(["commit", "-m", "Golden fixture baseline"], Deno.cwd());
+            await runGoldenGit(["push", "origin", "main"], Deno.cwd());
         }
         if (scenario.nonGitProject) {
             await Deno.remove(join(Deno.cwd(), ".git"), { recursive: true }).catch(() => {});

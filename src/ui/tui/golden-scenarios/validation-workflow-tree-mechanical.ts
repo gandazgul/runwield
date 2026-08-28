@@ -192,6 +192,8 @@ export const validationTreeCiCancelRetryScenario = withValidationBranches(
             promptIncludes: "tests for",
             value: "retry",
             userFixesFirst: {
+                target: "execution",
+                planName: "ci-cancel-retry",
                 path: ".wld/settings.json",
                 text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n`,
             },
@@ -270,6 +272,8 @@ export const validationTreeValidationExhaustedRetryScenario = withValidationBran
             promptIncludes: "tests for",
             value: "retry",
             userFixesFirst: {
+                target: "execution",
+                planName: "validation-exhausted",
                 path: ".wld/settings.json",
                 text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n`,
             },

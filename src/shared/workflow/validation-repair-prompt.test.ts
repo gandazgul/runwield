@@ -46,4 +46,6 @@ Deno.test("focused validation repair packet never adds general implementation ce
     assertEquals(prompt.includes("Plan"), false);
     assertEquals(prompt.includes("original implementation conversation"), false);
     assertEquals(prompt.includes("implement the requested change"), false);
+    assertEquals(prompt.includes(".wld/settings.json"), false);
+    assertEquals(prompt.includes("verification_command"), false);
 });

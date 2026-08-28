@@ -1,4 +1,5 @@
 ---
+planId: "d95497fb-0ec8-41ae-98e5-57f3fa7c0d51"
 classification: "PLANNED_CHANGE"
 workKind: "BUG_FIX"
 complexity: "HIGH"
@@ -14,10 +15,15 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-26T11:55:53-04:00"
-status: "ready_for_work"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
-planId: "d95497fb-0ec8-41ae-98e5-57f3fa7c0d51"
+workRecord:
+    status: "generated"
+    recordId: "e1581360-ea46-40c3-a9c8-8d9ad70b437f"
+    path: "docs/work-records/2026-08-28-plan-ci-now-uses-execution-tree-settings.md"
+    lastAttemptAt: "2026-08-28T19:58:18.685Z"
+targetBranch: "main"
 ---
 
 # Use Execution-Tree Settings for Plan CI

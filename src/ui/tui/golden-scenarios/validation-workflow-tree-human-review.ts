@@ -1,15 +1,20 @@
 import { plannedChangeReviewRepairValidationScenario } from "./planned-change-workflow.js";
 import { withValidationBranches } from "./validation-workflow-tree-shared.ts";
 
+function humanReviewSettings(codereview: "none" | "ask" | "always"): string {
+    return `${JSON.stringify({ codereview, verification_command: "true" }, null, 4)}\n`;
+}
+
 export const validationTreeHumanReviewNoneScenario = withValidationBranches(
     {
         ...plannedChangeReviewRepairValidationScenario,
         committedProjectFiles: [
             {
                 path: ".wld/settings.json",
-                text: `${JSON.stringify({ codereview: "none" }, null, 4)}\n`,
+                text: humanReviewSettings("none"),
             },
         ],
+        scriptedInteractions: [],
         actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
             action.type !== "assertWorkflowDurability"
         ),
@@ -26,11 +31,10 @@ export const validationTreeHumanReviewAskSkipScenario = withValidationBranches(
         committedProjectFiles: [
             {
                 path: ".wld/settings.json",
-                text: `${JSON.stringify({ codereview: "ask" }, null, 4)}\n`,
+                text: humanReviewSettings("ask"),
             },
         ],
         scriptedInteractions: [
-            ...(plannedChangeReviewRepairValidationScenario.scriptedInteractions || []),
             { type: "select", promptIncludes: "read the changes before the merge", value: "skip" },
         ],
         actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
@@ -49,11 +53,10 @@ export const validationTreeHumanReviewAskOpenApproveScenario = withValidationBra
         committedProjectFiles: [
             {
                 path: ".wld/settings.json",
-                text: `${JSON.stringify({ codereview: "ask" }, null, 4)}\n`,
+                text: humanReviewSettings("ask"),
             },
         ],
         scriptedInteractions: [
-            ...(plannedChangeReviewRepairValidationScenario.scriptedInteractions || []),
             { type: "select", promptIncludes: "read the changes before the merge", value: "open" },
         ],
         humanReviewDecisions: [{ approved: true, feedback: "Human approves the Golden implementation." }],
@@ -73,10 +76,11 @@ export const validationTreeHumanReviewAlwaysApproveScenario = withValidationBran
         committedProjectFiles: [
             {
                 path: ".wld/settings.json",
-                text: `${JSON.stringify({ codereview: "always" }, null, 4)}\n`,
+                text: humanReviewSettings("always"),
             },
         ],
         humanReviewDecisions: [{ approved: true, feedback: "Human always-review approves the Golden implementation." }],
+        scriptedInteractions: [],
         actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
             action.type !== "assertWorkflowDurability"
         ),
@@ -93,7 +97,7 @@ export const validationTreeHumanReviewNoAnswerRetryScenario = withValidationBran
         committedProjectFiles: [
             {
                 path: ".wld/settings.json",
-                text: `${JSON.stringify({ codereview: "always" }, null, 4)}\n`,
+                text: humanReviewSettings("always"),
             },
         ],
         humanReviewDecisions: [
@@ -101,7 +105,6 @@ export const validationTreeHumanReviewNoAnswerRetryScenario = withValidationBran
             { approved: true, feedback: "Human approves after reopening the review." },
         ],
         scriptedInteractions: [
-            ...(plannedChangeReviewRepairValidationScenario.scriptedInteractions || []),
             { type: "select", promptIncludes: "Pick Retry to open it again", value: "retry" },
         ],
         actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
@@ -120,7 +123,7 @@ export const validationTreeHumanReviewNoAnswerStopScenario = withValidationBranc
         committedProjectFiles: [
             {
                 path: ".wld/settings.json",
-                text: `${JSON.stringify({ codereview: "always" }, null, 4)}\n`,
+                text: humanReviewSettings("always"),
             },
         ],
         humanReviewDecisions: [{ canceled: true }],
@@ -128,7 +131,6 @@ export const validationTreeHumanReviewNoAnswerStopScenario = withValidationBranc
             turn.id === "engineer-post-repair-turn-before-re-review" ? { ...turn, optional: true } : turn
         ),
         scriptedInteractions: [
-            ...(plannedChangeReviewRepairValidationScenario.scriptedInteractions || []),
             { type: "select", promptIncludes: "Pick Retry to open it again", value: "stop" },
         ],
         actions: [
@@ -150,7 +152,7 @@ export const validationTreeHumanReviewFeedbackRepairApproveScenario = withValida
         committedProjectFiles: [
             {
                 path: ".wld/settings.json",
-                text: `${JSON.stringify({ codereview: "always" }, null, 4)}\n`,
+                text: humanReviewSettings("always"),
             },
         ],
         humanReviewDecisions: [
@@ -192,6 +194,7 @@ export const validationTreeHumanReviewFeedbackRepairApproveScenario = withValida
                 text: "Human feedback repair is ready for approval.",
             },
         ]),
+        scriptedInteractions: [],
         actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
             action.type !== "assertWorkflowDurability"
         ),

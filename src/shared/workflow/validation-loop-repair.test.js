@@ -4,6 +4,7 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { loadPlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { ensureRootAgentSession } from "../session/session.js";
+import { dispatchCiRepair } from "./validation-mechanical.ts";
 import { attachRecorder, makeUi, makeValidationProjectRoot, runValidationLoop } from "./validation-test-helpers.js";
 
 /**
@@ -72,4 +73,45 @@ Deno.test("CI repair reruns CI and continues after task completion", async () =>
     assertEquals(run.ciRuns, 2);
     assertEquals(run.result.kind, "verified");
     assertEquals(run.plan?.attrs.status, "validated");
+});
+
+Deno.test("CI repair prompt tells the Engineer to fix and verify the settings command", async () => {
+    let capturedRequest = "";
+    const context = {
+        executionCwd: "/repair-checkout",
+        projectRoot: "/primary-project",
+        worktreeId: "wt-ci",
+        worktreeBranch: "worktree/ci",
+        worktreeBaseBranch: "main",
+        workflowBase: { planName: "p" },
+    };
+    const args = {
+        session: {
+            setActiveWorkflow: () => {},
+            getAgentDisplayName: () => "Validation Repair Engineer",
+            getCurrentProgress: () => null,
+            emitStatus: () => {},
+            runIndependentRepairTurn: (/** @type {{ userRequest: string }} */ request) => {
+                capturedRequest = request.userRequest;
+                return Promise.resolve({ completed: true });
+            },
+        },
+        planName: "p",
+        triageMeta: { classification: "PLANNED_CHANGE", status: "implemented" },
+    };
+
+    await dispatchCiRepair(
+        /** @type {any} */ (args),
+        /** @type {any} */ (context),
+        { kind: "completed", exitCode: 1, output: "broken command" },
+    );
+
+    assertStringIncludes(capturedRequest, "Repair checkout: `/repair-checkout`");
+    assertStringIncludes(capturedRequest, ".wld/settings.json");
+    assertStringIncludes(capturedRequest, "verification_command");
+    assertStringIncludes(capturedRequest, "command can be the thing that is broken");
+    assertStringIncludes(capturedRequest, "Run the configured command successfully in this repair checkout");
+    assertStringIncludes(capturedRequest, "before you call `task_completed`");
+    assertStringIncludes(capturedRequest, "RunWield will independently reload `.wld/settings.json`");
+    assertStringIncludes(capturedRequest, "broken command");
 });
