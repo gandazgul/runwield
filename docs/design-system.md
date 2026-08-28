@@ -110,9 +110,22 @@ distinguish timeline entries instead of wrapping every message, tool event, work
 card. The Session summary, stream, composer, and workflow rail should read as adjacent panes. The Session list follows
 the same rule: one catalog with compact rows, not a grid of raised Session cards.
 
-Mobile Session composers stay in the normal surface stack, use a visible label, preserve drafts, and keep the primary
-button touch-sized. The **Take control** action is a high-risk confirmation. Show it only after the heartbeat deadline,
-and state that an old command or process can still finish.
+Mobile Session composers stay in the normal surface stack, preserve drafts, and keep the primary button touch-sized. The
+New Session composer uses a visible screen heading and an empty text field; do not add helper copy or dev/API messages
+inside the composer. Dev-only notices belong in a separate shell row above the Session surface.
+
+Busy Sessions stay read-only until the owning surface releases Session Control. Do not show a **Take control** action in
+the normal Session shell. Refresh availability and enable the composer automatically when committed state becomes idle.
+When the current Workspace owns the running operation, Agent and model controls can accept one pending change and must
+show **Applies after this response** until the server commits or clears it. Thinking changes can show immediately when
+the Runtime accepts them.
+
+Completed contiguous technical entries can collapse into one chronological **Activity** group after the next Agent
+message starts. Expansion must show the original tool names, thinking text, output, and errors. Running or trailing
+technical entries stay visible as normal timeline rows.
+
+Session scrolling follows new live content only while the reader is near the live edge. If the reader scrolls away, keep
+the viewport stable and show a **Latest activity** action that returns to the live edge.
 
 ## Token model
 

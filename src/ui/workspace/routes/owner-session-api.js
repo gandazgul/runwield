@@ -76,6 +76,24 @@ function safeTimelineResult(result) {
     return safe;
 }
 
+/** @param {Record<string, unknown>} body @param {string} field @param {number} maxLength */
+function readOptionalBoundedString(body, field, maxLength) {
+    return typeof body[field] === "string" && body[field]
+        ? requireBoundedString(body[field], field, maxLength)
+        : undefined;
+}
+
+/** @param {any} ctx */
+export async function ownerSessionOptionsApi(ctx) {
+    try {
+        requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+        const result = await ctx.state.sessionContinuation.listSessionOptions(ctx.params.projectId);
+        return ownerJson(result);
+    } catch (error) {
+        return ownerErrorJson(error, 400);
+    }
+}
+
 /** @param {any} ctx */
 export async function ownerProjectSessionsApi(ctx) {
     try {
@@ -137,6 +155,18 @@ export async function ownerSessionCreateApi(ctx) {
             projectId: ctx.params.projectId,
             requestId: requireBoundedString(body.requestId, "requestId", 128),
             text: requireBoundedString(body.text, "text", 32_000),
+            agentName: typeof body.agentName === "string"
+                ? requireBoundedString(body.agentName, "agentName", 128)
+                : undefined,
+            model: typeof body.model === "string" && body.model
+                ? requireBoundedString(body.model, "model", 300)
+                : undefined,
+            provider: typeof body.provider === "string" && body.provider
+                ? requireBoundedString(body.provider, "provider", 128)
+                : undefined,
+            thinkingLevel: typeof body.thinkingLevel === "string" && body.thinkingLevel
+                ? requireBoundedString(body.thinkingLevel, "thinkingLevel", 32)
+                : undefined,
         });
         return ownerJson(result, 202);
     } catch (error) {
@@ -165,6 +195,27 @@ export async function ownerSessionContinuationStartApi(ctx) {
     } catch (error) {
         const message = sanitizeOwnerError(error);
         return ownerJson({ error: message }, /not enabled|epoch|uncertain|reconcile/.test(message) ? 503 : 409);
+    }
+}
+
+/** @param {any} ctx */
+export async function ownerSessionConfigureApi(ctx) {
+    try {
+        const body = await readJson(ctx.req);
+        requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+        const result = await ctx.state.sessionContinuation.configureSession({
+            projectId: ctx.params.projectId,
+            runwieldSessionId: ctx.params.runwieldSessionId,
+            expectedGeneration: requireExpectedGeneration(body.expectedGeneration),
+            agentName: readOptionalBoundedString(body, "agentName", 128),
+            model: readOptionalBoundedString(body, "model", 300),
+            provider: readOptionalBoundedString(body, "provider", 128),
+            thinkingLevel: readOptionalBoundedString(body, "thinkingLevel", 32),
+        });
+        return ownerJson(result, 202);
+    } catch (error) {
+        const message = sanitizeOwnerError(error);
+        return ownerJson({ error: message }, /busy|generation|not available|not supported/.test(message) ? 409 : 503);
     }
 }
 
@@ -205,6 +256,16 @@ export async function ownerSessionInteractionAnswerApi(ctx) {
             response: body.response,
         });
         return ownerJson(result, result?.status === "recovery_required" ? 409 : 202);
+    } catch (error) {
+        return ownerErrorJson(error, 409);
+    }
+}
+
+/** @param {any} ctx */
+export function ownerSessionOperationCancelApi(ctx) {
+    try {
+        const result = ctx.state.sessionContinuation.cancelOperation({ operationId: ctx.params.operationId });
+        return ownerJson(result, 202);
     } catch (error) {
         return ownerErrorJson(error, 409);
     }
