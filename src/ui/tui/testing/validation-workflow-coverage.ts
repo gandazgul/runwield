@@ -214,33 +214,33 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (
         id === "lifecycle:resume-implemented" || id === "lifecycle:resume-validated-ci" ||
         id === "lifecycle:resume-validated-reviewer" || id === "lifecycle:ahead-status-keeps-canonical-progress"
-    ) return ["Workflow Validation verified"];
+    ) return ["Validation passed"];
     if (id === "lifecycle:missing-execution-context-fails-closed") {
         return ["Validation blocked: RunWield cannot tell where"];
     }
     if (id === "lifecycle:registry-authority-ignores-stale-worktree-metadata") {
-        return ["Workflow Validation verified"];
+        return ["Validation passed"];
     }
     if (id === "lifecycle:unsupported-status-fails-closed") return ["Plan has unknown status: sideways"];
     if (id.includes("plan-amendment")) return ["Plan amendment"];
     if (id.includes(":ci:")) return ["CI"];
     if (id.startsWith("semantic:round-limit:")) return ["Look once more, read it, or stop."];
-    if (id.startsWith("semantic:nudge:")) return ["The reviewer needs more time"];
-    if (id === "semantic:entry:non-git-skip") return ["Review skipped"];
-    if (id === "semantic:entry:empty-diff-skip") return ["Review skipped"];
+    if (id.startsWith("semantic:nudge:")) return ["AI code review needs more time"];
+    if (id === "semantic:entry:non-git-skip") return ["AI code review skipped"];
+    if (id === "semantic:entry:empty-diff-skip") return ["AI code review skipped"];
     if (id === "semantic:entry:plan-only-diff-fails") return ["No implementation changes detected"];
-    if (id.startsWith("semantic:")) return ["Code review"];
-    if (id === "human-review:none") return ["Workflow Validation verified"];
-    if (id === "human-review:ask-skip") return ["Workflow Validation verified"];
+    if (id.startsWith("semantic:")) return ["AI code review"];
+    if (id === "human-review:none") return ["Validation passed"];
+    if (id === "human-review:ask-skip") return ["Validation passed"];
     if (id === "human-review:no-answer-retry" || id === "human-review:no-answer-stop") {
         return ["Pick Retry to open it again"];
     }
-    if (id.startsWith("human-review:")) return ["Waiting for your code review"];
+    if (id.startsWith("human-review:")) return ["Need your human review"];
     if (id === "publication:non-git-success") return ["is done"];
     const successfulPublicationProgress = [
         "The commits are ready",
         "Checking main for new commits",
-        "Adding the commits to main",
+        "Merging work into main",
         "Sending the new commits to main",
         "Checking the new commits on main",
         "Cleaning up the worktree",
@@ -329,7 +329,7 @@ function interactionValuesFor(id: ValidationWorkflowBranchId): string[] {
 }
 
 function transcriptExcludesFor(id: ValidationWorkflowBranchId): string[] {
-    if (id === "human-review:none") return ["read the changes before the merge"];
+    if (id === "human-review:none") return ["human review before merge"];
     return [];
 }
 

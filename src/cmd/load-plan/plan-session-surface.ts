@@ -63,8 +63,8 @@ export function isManagedUnsupportedError(error: unknown): boolean {
 export function buildManagedUnsupportedLoadPlanMessage(planName: string | null): string {
     const command = planName ? `${CLI_BIN} load-plan ${planName}` : `${CLI_BIN} load-plan <plan-name>`;
     return [
-        "Cannot continue this Plan because the managed session could not be activated (managed_unsupported).",
-        "The Plan was loaded for viewing, but RunWield could not attach the underlying agent session needed for Plan lifecycle actions such as resume planning, execution, validation, or workflow state updates.",
+        "Cannot continue this Plan because RunWield could not attach the working Session.",
+        "The Plan is open for reading, but actions such as planning, execution, validation, and status updates are not available in this Session.",
         `Try again from a fresh RunWield TUI or Workspace session with: ${command}`,
     ].join("\n");
 }

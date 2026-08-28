@@ -290,9 +290,7 @@ async function promptRecoveryAction(
         ? [{
             value: "settle_records",
             label: `Close ${
-                context.unresolvedRecords.length === 1
-                    ? "the unfinished lifecycle record"
-                    : "unfinished lifecycle records"
+                context.unresolvedRecords.length === 1 ? "the unfinished Plan update" : "unfinished Plan updates"
             } (you confirm the state)`,
         }]
         : [];

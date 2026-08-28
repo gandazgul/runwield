@@ -9,6 +9,7 @@ import {
 import { getRunWieldSessionDir } from "../../../shared/session/root-session.js";
 import { projectAggregateTranscript } from "../../../shared/session/session-transcript-manifest.ts";
 import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
+import { validationStageLabel } from "../../../shared/workflow/validation-progress-presentation.ts";
 
 export type ProgressOverallState =
     | "waiting"
@@ -162,7 +163,7 @@ function normalizeSegmentKind(kind: string) {
 function segmentLabel(kind: string, ordinal: number) {
     if (kind === "planning") return `Planning segment ${ordinal + 1}`;
     if (kind === "execution") return `Execution segment ${ordinal + 1}`;
-    if (kind === "semantic_repair") return `Semantic Repair segment ${ordinal + 1}`;
+    if (kind === "semantic_repair") return `AI review repair segment ${ordinal + 1}`;
     return `Session segment ${ordinal + 1}`;
 }
 
@@ -202,13 +203,15 @@ function deriveStages(evidence: PlanEvidence, registry: WorktreeRegistryEntry | 
         ? validationCheckpointCanResume(checkpoint, registry.id, status)
         : false;
     const reviewState = readValidationReviewState(checkpointActive ? checkpoint : null);
+    const testsAndCiLabel = validationStageLabel("ci");
+    const aiReviewLabel = validationStageLabel("semantic_review");
     const stages: ProgressStage[] = [
         stage("execution", "Execution", "pending", "Waiting for an execution agent.", updatedAt),
-        stage("mechanical", "Mechanical Validation", "pending", "Waiting for implementation to finish.", updatedAt),
-        stage("semantic", "Semantic Code Review", "pending", "Waiting for Mechanical Validation.", updatedAt),
+        stage("mechanical", testsAndCiLabel, "pending", "Waiting for implementation to finish.", updatedAt),
+        stage("semantic", aiReviewLabel, "pending", "Waiting for tests and CI.", updatedAt),
         stage("repair", "Repair", "not_required", "No repair is active.", updatedAt),
-        stage("delivery", "Delivery", "pending", "Waiting for Semantic Code Review.", updatedAt),
-        stage("completion", "Completion", "pending", "Waiting for delivery evidence.", updatedAt),
+        stage("delivery", "Delivery", "pending", "Waiting for AI code review.", updatedAt),
+        stage("completion", "Completion", "pending", "Waiting for delivery to finish.", updatedAt),
     ];
 
     if (status === "ready_for_work") {
@@ -221,21 +224,21 @@ function deriveStages(evidence: PlanEvidence, registry: WorktreeRegistryEntry | 
         stages[0] = stage("execution", "Execution", "failed", failureMessage(status, registry), updatedAt);
     }
     if (statusAtLeast(status, "implemented")) {
-        stages[0] = stage("execution", "Execution", "passed", "Implementation reached Workflow Validation.", updatedAt);
+        stages[0] = stage("execution", "Execution", "passed", "Implementation is ready for validation.", updatedAt);
         stages[1] = stage(
             "mechanical",
-            "Mechanical Validation",
+            testsAndCiLabel,
             "running",
-            "Mechanical Validation is active.",
+            "Tests and CI are running.",
             updatedAt,
         );
     }
     if (statusAtLeast(status, "validated_ci")) {
-        stages[1] = stage("mechanical", "Mechanical Validation", "passed", "Mechanical checks passed.", updatedAt);
-        stages[2] = stage("semantic", "Semantic Code Review", "running", "Semantic Code Review is active.", updatedAt);
+        stages[1] = stage("mechanical", testsAndCiLabel, "passed", "Tests and CI passed.", updatedAt);
+        stages[2] = stage("semantic", aiReviewLabel, "running", "AI code review is running.", updatedAt);
     }
     if (statusAtLeast(status, "validated_reviewer")) {
-        stages[2] = stage("semantic", "Semantic Code Review", "passed", "Semantic Code Review passed.", updatedAt);
+        stages[2] = stage("semantic", aiReviewLabel, "passed", "AI code review passed.", updatedAt);
         stages[4] = stage("delivery", "Delivery", "running", "Delivery is active.", updatedAt);
     }
     if (statusAtLeast(status, "validated")) {
@@ -285,20 +288,20 @@ function deriveStages(evidence: PlanEvidence, registry: WorktreeRegistryEntry | 
         if (next === "mechanical") {
             stages[1] = stage(
                 "mechanical",
-                "Mechanical Validation",
+                testsAndCiLabel,
                 state,
-                "Mechanical Validation can continue.",
+                "Tests and CI can continue.",
                 activeCheckpoint.updatedAt,
             );
         }
         if (next === "semantic") {
             stages[2] = stage(
                 "semantic",
-                "Semantic Code Review",
+                aiReviewLabel,
                 state,
                 reviewState
-                    ? `Review round ${reviewState.semanticRound} needs attention.`
-                    : "Semantic Code Review can continue.",
+                    ? `AI code review round ${reviewState.semanticRound} needs attention.`
+                    : "AI code review can continue.",
                 activeCheckpoint.updatedAt,
             );
             if (activeCheckpoint.state === "awaiting_repair" || activeCheckpoint.repairKind === "semantic") {
@@ -306,7 +309,7 @@ function deriveStages(evidence: PlanEvidence, registry: WorktreeRegistryEntry | 
                     "repair",
                     "Repair",
                     state === "paused" ? "paused" : "running",
-                    "Semantic repair is active.",
+                    "AI code review repair is active.",
                     activeCheckpoint.updatedAt,
                 );
             }

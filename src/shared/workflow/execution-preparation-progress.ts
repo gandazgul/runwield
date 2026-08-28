@@ -16,11 +16,11 @@ function emitExecutionPreparationStatus(hostedSession: HostedSession | undefined
 }
 
 export function emitPreparingExecutionTarget(hostedSession: HostedSession | undefined): boolean {
-    return emitExecutionPreparationStatus(hostedSession, "preparing execution target...");
+    return emitExecutionPreparationStatus(hostedSession, "Preparing the implementation target...");
 }
 
 export function emitPreparingInPlaceExecution(hostedSession: HostedSession | undefined): boolean {
-    return emitExecutionPreparationStatus(hostedSession, "preparing in-place execution because Git is unavailable...");
+    return emitExecutionPreparationStatus(hostedSession, "Preparing in-place work because Git is unavailable...");
 }
 
 export function emitCreatingExecutionWorktree(
@@ -29,7 +29,7 @@ export function emitCreatingExecutionWorktree(
 ): boolean {
     return emitExecutionPreparationStatus(
         hostedSession,
-        `creating execution worktree from base branch ${baseBranchLabel(baseBranch)}...`,
+        `Creating the worktree from base branch ${baseBranchLabel(baseBranch)}...`,
     );
 }
 
@@ -39,7 +39,7 @@ export function emitCreatedExecutionWorktree(
 ): boolean {
     return emitExecutionPreparationStatus(
         hostedSession,
-        `created worktree ${details.worktreeBranch} from base branch ${baseBranchLabel(details.baseBranch)}.`,
+        `Created worktree ${details.worktreeBranch} from base branch ${baseBranchLabel(details.baseBranch)}.`,
     );
 }
 
@@ -49,12 +49,12 @@ export function emitReusingExecutionWorktree(
 ): boolean {
     return emitExecutionPreparationStatus(
         hostedSession,
-        `reusing worktree ${details.worktreeBranch} from base branch ${baseBranchLabel(details.baseBranch)}.`,
+        `Reusing worktree ${details.worktreeBranch} from base branch ${baseBranchLabel(details.baseBranch)}.`,
     );
 }
 
 export function emitIndexingExecutionWorktree(hostedSession: HostedSession | undefined): boolean {
-    return emitExecutionPreparationStatus(hostedSession, "indexing execution worktree for code search...");
+    return emitExecutionPreparationStatus(hostedSession, "Indexing the worktree for code search...");
 }
 
 export function emitExecutionWorktreeIndexWarning(
@@ -68,24 +68,24 @@ export function emitExecutionWorktreeIndexWarning(
 }
 
 export function emitMaterializingPlanInExecutionWorktree(hostedSession: HostedSession | undefined): boolean {
-    return emitExecutionPreparationStatus(hostedSession, "materializing Plan in execution worktree...");
+    return emitExecutionPreparationStatus(hostedSession, "Copying the Plan into the worktree...");
 }
 
 export function emitRestoredPlanInExecutionWorktree(hostedSession: HostedSession | undefined): boolean {
-    return emitExecutionPreparationStatus(hostedSession, "restored missing Plan file in execution worktree.");
+    return emitExecutionPreparationStatus(hostedSession, "Restored the missing Plan file in the worktree.");
 }
 
 export function emitReconciledPlanInExecutionWorktree(hostedSession: HostedSession | undefined): boolean {
-    return emitExecutionPreparationStatus(hostedSession, "reconciled Plan file in execution worktree.");
+    return emitExecutionPreparationStatus(hostedSession, "Updated the Plan file in the worktree.");
 }
 
 export function emitUpdatingPlanStatusToInProgress(hostedSession: HostedSession | undefined): boolean {
-    return emitExecutionPreparationStatus(hostedSession, "updating Plan status to in_progress...");
+    return emitExecutionPreparationStatus(hostedSession, "Marking the Plan as in progress...");
 }
 
 export function emitLaunchingExecutionAgent(
     hostedSession: HostedSession | undefined,
     agentDisplayName: string,
 ): boolean {
-    return emitExecutionPreparationStatus(hostedSession, `launching ${agentDisplayName} to execute...`);
+    return emitExecutionPreparationStatus(hostedSession, `Starting ${agentDisplayName}...`);
 }

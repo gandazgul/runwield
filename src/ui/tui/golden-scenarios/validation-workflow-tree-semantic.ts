@@ -95,7 +95,7 @@ export const validationTreeSemanticReviewerIncompletePauseScenario = withValidat
             { type: "type", text: "/load-plan semantic-reviewer-incomplete" },
             { type: "enter" },
             { type: "enter" },
-            { type: "waitForScreen", text: "Code review", timeoutMs: 90000 },
+            { type: "waitForScreen", text: "AI code review", timeoutMs: 90000 },
             { type: "waitForIdle", timeoutMs: 90000 },
             { type: "captureProjectState", planNames: ["semantic-reviewer-incomplete"] },
         ],

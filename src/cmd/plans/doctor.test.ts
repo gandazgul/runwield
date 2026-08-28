@@ -326,7 +326,7 @@ Deno.test("plans doctor command --repair summarizes remaining problems without r
 
         assertEquals(output.includes("Fixed 1 safe problem"), true);
         assertEquals(output.includes("1 problem needs your attention"), true);
-        assertEquals(output.includes("run wld plans doctor --check to see them"), true);
+        assertEquals(output.includes("Run wld plans doctor --check to see next steps"), true);
         assertEquals(output.includes("broken"), false);
         assertEquals(output.includes("Plan files"), false);
         assertEquals(output.includes("Diagnosis:"), false);

@@ -101,18 +101,17 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
                 nextSteps: [
                     "Only the YAML between the leading --- markers has to be valid. Your body text below it is yours and is never parsed, so nothing there can cause this.",
                     "RunWield left the file byte-for-byte as it found it, so a git diff shows exactly what changed.",
-                    `Lifecycle commands for this Plan stay blocked until it parses; re-run ${CLI_BIN} plans doctor to confirm the fix.`,
+                    `Plan actions stay blocked until it parses; re-run ${CLI_BIN} plans doctor to confirm the fix.`,
                 ],
             };
         case "duplicate_plan_id":
             return {
                 category: "Plan identity",
                 severity: "Critical",
-                diagnosis:
-                    "Two Plans claim the same stable identity, so lifecycle state can be attached to the wrong Plan.",
+                diagnosis: "Two Plans claim the same stable identity, so RunWield can attach work to the wrong Plan.",
                 nextSteps: [
                     "Inspect both Plans and decide which one owns the planId.",
-                    "Do not hand-edit lifecycle metadata unless you are intentionally repairing identity state; prefer restoring from the correct Plan source.",
+                    "Do not hand-edit Plan metadata unless you are intentionally repairing identity state; prefer restoring from the correct Plan source.",
                 ],
             };
         case "verified_without_evidence":
@@ -130,19 +129,19 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
         case "unresolved_transition":
         case "unresolved_transition_in_worktree":
             return {
-                category: "Lifecycle transitions",
+                category: "Plan updates",
                 severity: "Critical",
                 diagnosis:
-                    "A lifecycle operation was interrupted and RunWield cannot yet prove how it ended, so it is holding further changes to that Plan rather than stacking onto uncertain state.",
+                    "A Plan update stopped before RunWield could prove how it ended, so RunWield is holding further changes to that Plan.",
                 nextSteps: [
                     "The detail line names the exact effect involved; that is the only thing worth checking.",
-                    "Nothing here is lost work: the Plan, its worktree, and its branch are all untouched while the record stands.",
-                    "Plan Recovery supersedes these records, so a successful recovery action clears them for you.",
+                    "Nothing here is lost work: the Plan, its worktree, and its branch are untouched while this is open.",
+                    "Plan Recovery clears these records after a successful recovery action.",
                 ],
             };
         case "stale_plan_lock":
             return {
-                category: "Lifecycle transitions",
+                category: "Plan updates",
                 severity: "Cleanup",
                 diagnosis:
                     "A lock file outlived the process that created it. RunWield reclaims these on its own, but only after making the next command wait.",
@@ -188,7 +187,7 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
             return {
                 category: "Git branches",
                 severity: "Cleanup",
-                diagnosis: "A RunWield worktree branch exists without a matching active registry entry.",
+                diagnosis: "A RunWield worktree branch exists without a matching saved attempt.",
                 nextSteps: [
                     "Inspect the branch for unmerged work before deleting it.",
                     "Delete the branch only after confirming it is stale or already published.",
@@ -202,9 +201,9 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
             return {
                 category: "Worktree registry",
                 severity: "Critical",
-                diagnosis: "The registry does not agree with Plan identity or active-attempt invariants.",
+                diagnosis: "Saved worktree records do not agree with Plan identity or active attempts.",
                 nextSteps: [
-                    "Do not start another attempt for this Plan until the registry entry is understood.",
+                    "Do not start another attempt for this Plan until the saved worktree record is understood.",
                     "Use load-plan or the relevant recovery flow to re-bind the attempt; recreate only if the worktree is disposable.",
                 ],
             };
@@ -213,12 +212,12 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
                 category: "Worktree registry",
                 severity: issue.repairable ? "Cleanup" : "Critical",
                 diagnosis: issue.repairable
-                    ? "A settled registry entry points at a worktree path that no longer exists."
+                    ? "A completed saved attempt points at a worktree path that no longer exists."
                     : "An active or recoverable attempt points at a missing worktree path.",
                 nextSteps: issue.repairable
                     ? [
-                        "Run plans doctor --repair to prune this stale settled registry entry.",
-                        "No source work should be lost because the attempt is already settled.",
+                        "Run plans doctor --repair to remove this stale saved attempt.",
+                        "No source work should be lost because the attempt is already complete.",
                     ]
                     : [
                         "Find whether the worktree was moved, deleted, or never created.",
@@ -239,9 +238,9 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
             return {
                 category: "Other drift",
                 severity: "Needs attention",
-                diagnosis: "RunWield found Plan or worktree state that does not match its expected lifecycle model.",
+                diagnosis: "RunWield found Plan or worktree state that does not match the expected state.",
                 nextSteps: [
-                    "Read the raw detail above and inspect the named Plan/worktree before making lifecycle changes.",
+                    "Read the detail above and inspect the named Plan or worktree before making changes.",
                     "Run plans doctor again after repairing the underlying state.",
                 ],
             };
@@ -518,11 +517,9 @@ function describeUnresolvedTransition(reconciliation: TransitionReconciliation):
         kind: "unresolved_transition",
         planName: reconciliation.planName,
         repairable: reconciliation.resolvable,
-        message: `${reconciliation.operation || "A lifecycle operation"} on ${
+        message: `${reconciliation.operation || "A Plan update"} on ${
             reconciliation.planName || "an unnamed Plan"
-        } stopped at "${
-            reconciliation.state || "needs_recovery"
-        }" before RunWield could confirm the outcome. ${detail}`,
+        } stopped before RunWield could confirm the outcome. ${detail}`,
         commands: [...new Set(commands)],
         repairSummary: reconciliation.resolvable
             ? "--repair closes this record; the repository already proves it is finished."

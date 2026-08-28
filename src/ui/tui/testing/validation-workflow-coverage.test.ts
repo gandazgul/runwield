@@ -24,7 +24,7 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
         screenText: branch?.evidence.transcriptIncludes.join("\n") || "",
         scrollbackText: [
             `validation branch ${id}`,
-            "The build and tests passed.",
+            "Tests and CI passed.",
             "Local Human Code Review approved.",
         ].join("\n"),
         events: ["project:state:captured", "human-review:captured", "runtime:tool:start:review_complete"],

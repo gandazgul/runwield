@@ -83,6 +83,7 @@ export function Dialog({
     children,
 }) {
     const generatedId = useId();
+    // @ts-expect-error Zag's Preact generic type is wider than the dialog machine type.
     const service = useMachine(dialog.machine, {
         id: id || generatedId,
         open,
@@ -93,6 +94,7 @@ export function Dialog({
         /** @param {{ open: boolean }} details */
         onOpenChange: (details) => onOpenChange?.(details.open),
     });
+    // @ts-expect-error The service is the dialog machine service created above.
     const api = dialog.connect(service, normalizeProps);
     const actions = Array.isArray(footer) ? footer : footer ? [footer] : [];
     const triggerProps = /** @type {any} */ (api.getTriggerProps());
