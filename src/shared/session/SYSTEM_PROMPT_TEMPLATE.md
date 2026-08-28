@@ -4,7 +4,7 @@
 
 {{AVAILABLE_TOOLS}}
 
-The tools listed above are the tools available in this session.
+The tools listed above are the tools available in this session. {{SESSION_NAME_REMINDER}}
 
 {{IMAGE_ATTACHMENTS_SECTION}}
 

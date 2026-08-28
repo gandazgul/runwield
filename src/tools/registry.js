@@ -4,6 +4,16 @@
  */
 
 /**
+ * Tools present for every user-facing Agent and protected from runtime narrowing.
+ * Isolated Subagent definitions do not receive this list.
+ *
+ * @type {readonly string[]}
+ */
+export const UNIVERSAL_AGENT_TOOL_NAMES = Object.freeze([
+    "set_session_name",
+]);
+
+/**
  * Tools protected from removal when they are present in an agent's bundled frontmatter.
  *
  * @type {readonly string[]}

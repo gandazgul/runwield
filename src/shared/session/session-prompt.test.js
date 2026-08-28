@@ -3,6 +3,7 @@ import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { join } from "@std/path";
 import { AGENTS } from "../../constants.js";
+import { loadAgentDef } from "./agents.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import {
     __getRootSessionMetadataForTests,
@@ -65,6 +66,65 @@ sessionPromptTest("assembleFinalSystemPrompt includes project-state context only
 
     assertEquals(withoutContext.includes("### Project State"), false);
     assertStringIncludes(withContext, "### Project State\n\nGreenfield note.");
+});
+
+sessionPromptTest("assembleFinalSystemPrompt includes the Session naming reminder only while unnamed", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-prompt-session-name-" });
+    try {
+        const reminder = "If this Session is unnamed, call `set_session_name` early with a short descriptive name.";
+        const agentDef = await loadAgentDef(AGENTS.GUIDE, projectRoot);
+        const sessionManager = SessionManager.inMemory(projectRoot);
+
+        const unnamed = await assembleFinalSystemPrompt(
+            agentDef,
+            agentDef.tools,
+            [],
+            projectRoot,
+            "",
+            { sessionManager },
+        );
+
+        sessionManager.appendSessionInfo("router supplied name");
+        const named = await assembleFinalSystemPrompt(
+            agentDef,
+            agentDef.tools,
+            [],
+            projectRoot,
+            "",
+            { sessionManager },
+        );
+
+        assertStringIncludes(unnamed, reminder);
+        assertStringIncludes(unnamed, "set_session_name");
+        assertEquals(named.includes(reminder), false);
+        assertEquals(named.includes("{{SESSION_NAME_REMINDER}}"), false);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+sessionPromptTest("assembleFinalSystemPrompt suppresses the Session naming reminder for sanitized names", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-prompt-sanitized-session-name-" });
+    try {
+        const reminder = "If this Session is unnamed, call `set_session_name` early with a short descriptive name.";
+        const agentDef = await loadAgentDef(AGENTS.GUIDE, projectRoot);
+        const sessionManager = SessionManager.inMemory(projectRoot);
+        sessionManager.appendSessionInfo("  router\n\tsupplied name  ");
+
+        const prompt = await assembleFinalSystemPrompt(
+            agentDef,
+            agentDef.tools,
+            [],
+            projectRoot,
+            "",
+            { sessionManager },
+        );
+
+        assertEquals(prompt.includes(reminder), false);
+        assertEquals(prompt.includes("{{SESSION_NAME_REMINDER}}"), false);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
 });
 
 sessionPromptTest("assembleFinalSystemPrompt includes Git branch and clean state for Git projects", async () => {

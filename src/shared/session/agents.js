@@ -7,7 +7,7 @@ import { basename, dirname, fromFileUrl, join } from "@std/path";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { AGENT_DEFS_DIR, AGENTS, getHomeDir, SYSTEM_PROMPT_TEMPLATE_PATH } from "../../constants.js";
 import { directoryExists, fileExists } from "../helpers.js";
-import { PROTECTED_TOOL_NAMES } from "../../tools/registry.js";
+import { PROTECTED_TOOL_NAMES, UNIVERSAL_AGENT_TOOL_NAMES } from "../../tools/registry.js";
 
 /** @returns {string | null} */
 function homeAgentDefsDir() {
@@ -303,11 +303,17 @@ export function resolveSessionToolNames(agentTools, toolNames, customToolNames) 
     const selectedToolNames = normalizeToolNames(toolNames || normalizedAgentTools);
     const normalizedCustomToolNames = normalizeToolNames(customToolNames);
     const allowedToolNames = new Set(normalizedAgentTools);
+    const universalAgentToolNames = normalizedAgentTools.filter((toolName) =>
+        UNIVERSAL_AGENT_TOOL_NAMES.includes(toolName)
+    );
 
     /** @type {string[]} */
     const tools = [];
     for (const toolName of selectedToolNames) {
         if (!allowedToolNames.has(toolName)) continue;
+        if (!tools.includes(toolName)) tools.push(toolName);
+    }
+    for (const toolName of universalAgentToolNames) {
         if (!tools.includes(toolName)) tools.push(toolName);
     }
     for (const toolName of normalizedCustomToolNames) {
@@ -578,6 +584,18 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
 }
 
 /**
+ * @param {import('./types.js').AgentDefinition} agentDef
+ * @returns {import('./types.js').AgentDefinition}
+ */
+function addUniversalAgentTools(agentDef) {
+    const tools = [...agentDef.tools];
+    for (const toolName of UNIVERSAL_AGENT_TOOL_NAMES) {
+        if (!tools.includes(toolName)) tools.push(toolName);
+    }
+    return { ...agentDef, tools };
+}
+
+/**
  * Load and merge an agent definition by name from layered files:
  * 1) bundled: `src/agent-definitions/<name>.md`
  * 2) home override: `~/.wld/agents/<name>.md`
@@ -587,14 +605,14 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
  * @param {string} [projectRoot]
  * @returns {Promise<import('./types.js').AgentDefinition>}
  */
-export function loadAgentDef(agentName, projectRoot) {
+export async function loadAgentDef(agentName, projectRoot) {
     const canonicalName = normalizeAgentInternalName(agentName);
     const filePaths = getAgentDefLayerDirs(projectRoot).map((dir) => join(dir, `${canonicalName}.md`));
     if (canonicalName === AGENTS.REVIEWER_FEEDBACK_ENGINEER) {
         filePaths.splice(1, 0, join(AGENT_DEFS_DIR, "subagent-definitions", `${canonicalName}.md`));
     }
 
-    return loadAgentDefFromPaths(canonicalName, filePaths, projectRoot);
+    return addUniversalAgentTools(await loadAgentDefFromPaths(canonicalName, filePaths, projectRoot));
 }
 
 /**

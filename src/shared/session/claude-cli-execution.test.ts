@@ -21,6 +21,7 @@ import { readLatestTriageOutcome } from "../workflow/orchestrator.ts";
 interface ToolResultDetails {
     outcome?: string;
     message?: string;
+    name?: string;
     reason?: string;
     provenance?: string;
 }
@@ -180,6 +181,40 @@ Deno.test("Claude CLI root turn advertises RunWield skills and project tool perm
     });
 });
 
+Deno.test("Claude CLI root turn can set the Session Name through MCP", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd, logPath) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        const events: Array<{ type?: string; name?: string }> = [];
+        hostedSession.setEventSink((event: { type?: string; name?: string }) => events.push(event));
+        const callsPath = join(cwd, "mcp-calls-session-name.json");
+        await Deno.writeTextFile(
+            callsPath,
+            JSON.stringify([{ name: "set_session_name", arguments: { name: "  claude\n\tsession  " } }]),
+        );
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", callsPath);
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_TEXT", "named session");
+
+        await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE });
+        const messages = await runRootTurn({ hostedSession, agentName: AGENTS.GUIDE, userRequest: "name this" });
+
+        const lines = (await Deno.readTextFile(logPath)).trim().split("\n").map((line) => JSON.parse(line));
+        assertEquals(lines[0].args.includes("set_session_name"), true);
+        assertEquals(lines[0].args.includes("mcp__runwield__set_session_name"), true);
+        const toolsLine = lines.find((line) => line.mcp?.tools);
+        assertEquals(toolsLine.mcp.tools.includes("set_session_name"), true);
+        const callsLine = lines.find((line) => line.mcp?.calls);
+        assertEquals(callsLine.mcp.calls[0].isError, false);
+        assertEquals(manager.getSessionName(), "claude session");
+        assertEquals(events.some((event) => event.type === "session_renamed" && event.name === "claude session"), true);
+        const toolResult = messages.find((message) =>
+            message.role === "toolResult" && message.toolName === "set_session_name"
+        ) as ToolResultMessage | undefined;
+        assertEquals(toolResult?.details?.name, "claude session");
+        assertEquals(toolResult?.details?.provenance, CLAUDE_CLI_MCP_PROVENANCE);
+    });
+});
+
 Deno.test("Claude CLI root keeps agent tool names available for provider reload", async () => {
     await withClaudeExecutionFixture(async (_home, cwd) => {
         const manager = SessionManager.inMemory(cwd);
@@ -190,6 +225,7 @@ Deno.test("Claude CLI root keeps agent tool names available for provider reload"
 
         assertEquals(rebuildOptions.toolNames?.includes("read"), true);
         assertEquals(rebuildOptions.toolNames?.includes("bash"), true);
+        assertEquals(rebuildOptions.toolNames?.includes("set_session_name"), true);
     });
 });
 

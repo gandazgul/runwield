@@ -97,6 +97,7 @@ import { createSessionContextProjection, estimateContextTextTokens } from "./ses
 import { installEarlySteeringInterruption } from "./early-steering.js";
 import { loadSubAgentDefinition } from "./subagent-definitions.ts";
 import { formatGitPromptState, readGitPromptState } from "../git.js";
+import { sanitizeSessionName } from "./session-name.js";
 
 /** @returns {string | null} */
 function homePromptsDir() {
@@ -1282,6 +1283,34 @@ function removePromptPlaceholders(text) {
 }
 
 /**
+ * @param {SystemPromptContextProjectionOptions} options
+ * @returns {string}
+ */
+function resolvePromptSessionName(options) {
+    const names = [
+        options.sessionName,
+        options.hostedSession?.getRootSessionManager?.()?.getSessionName?.(),
+        options.sessionManager?.getSessionName?.(),
+    ];
+    for (const value of names) {
+        const name = sanitizeSessionName(value || "");
+        if (name) return name;
+    }
+    return "";
+}
+
+/**
+ * @param {string[]} tools
+ * @param {SystemPromptContextProjectionOptions} options
+ * @returns {string}
+ */
+function buildSessionNameReminder(tools, options) {
+    if (!tools.includes("set_session_name")) return "";
+    if (resolvePromptSessionName(options)) return "";
+    return "If this Session is unnamed, call `set_session_name` early with a short descriptive name.";
+}
+
+/**
  * @param {string} label
  * @param {string} text
  * @param {Partial<import('./session-context-report.js').ContextProjectionItem>} [extra]
@@ -1391,6 +1420,9 @@ async function readGlobalInstructionFile(homeDir) {
 /**
  * @typedef {Object} SystemPromptContextProjectionOptions
  * @property {string} [homeDir]
+ * @property {import('./hosted-session.js').HostedSession} [hostedSession]
+ * @property {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
+ * @property {string} [sessionName]
  */
 
 /**
@@ -1450,6 +1482,11 @@ export async function assembleFinalSystemPromptWithContextProjection(
     const hasSkillsPlaceholder = finalSystemPrompt.includes("{{SKILLS}}");
     const hasImageAttachmentsPlaceholder = finalSystemPrompt.includes("{{IMAGE_ATTACHMENTS_SECTION}}");
     const hasBundledAgentDefsPlaceholder = finalSystemPrompt.includes("{{BUNDLED_AGENT_DEFS_DIR}}");
+
+    finalSystemPrompt = finalSystemPrompt.replace(
+        "{{SESSION_NAME_REMINDER}}",
+        buildSessionNameReminder(tools, options),
+    );
 
     const effectiveToolMap = mapToolDefinitionsByName([...piTools, ...extensionTools, ...finalCustomTools]);
     const customToolMap = new Map();
@@ -1784,6 +1821,11 @@ export async function buildAgentSession({
         finalCustomTools.push(createTriageReportTool({ hostedSession: targetHostedSession || undefined }));
     }
 
+    if (tools.includes("set_session_name") && !finalCustomTools.find((t) => t.name === "set_session_name")) {
+        const { createSetSessionNameTool } = await import("../../tools/set-session-name.ts");
+        finalCustomTools.push(createSetSessionNameTool({ hostedSession: targetHostedSession || undefined }));
+    }
+
     if (tools.includes("user_interview") && !finalCustomTools.find((t) => t.name === "user_interview")) {
         finalCustomTools.push(createUserInterviewTool({ hostedSession: targetHostedSession || undefined }));
     }
@@ -1881,6 +1923,10 @@ export async function buildAgentSession({
             finalCustomTools,
             sessionCwd,
             projectStateContext,
+            {
+                hostedSession: targetHostedSession || undefined,
+                sessionManager: effectiveSessionManager,
+            },
         );
     const promptState = { text: finalSystemPrompt };
     const packagePromptResources = await resolveInstalledPackagePromptResources({ cwd: sessionCwd }).catch(() => []);
@@ -2090,6 +2136,10 @@ export async function composeClaudeCliBridgedTools({
         const { createTriageReportTool } = await import("../../tools/triage-report.ts");
         finalCustomTools.push(createTriageReportTool({ hostedSession }));
     }
+    if (declared.has("set_session_name") && !hasTool("set_session_name")) {
+        const { createSetSessionNameTool } = await import("../../tools/set-session-name.ts");
+        finalCustomTools.push(createSetSessionNameTool({ hostedSession }));
+    }
     if (declared.has("user_interview") && hostedSession && !hasTool("user_interview")) {
         finalCustomTools.push(createUserInterviewTool({ hostedSession }));
     }
@@ -2189,6 +2239,10 @@ export async function buildExecutionSession(opts) {
             finalCustomTools,
             sessionCwd,
             opts.projectStateContext,
+            {
+                hostedSession: targetHostedSession || undefined,
+                sessionManager: effectiveSessionManager,
+            },
         );
     const promptState = { text: finalSystemPrompt };
     const session = new ClaudeCliExecutionSession({
