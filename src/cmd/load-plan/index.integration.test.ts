@@ -624,7 +624,24 @@ Deno.test("load-plan marks an Epic done enough only after the real lifecycle wri
 
 Deno.test("Approve for Later creates no execution segment", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
-        await writePlan(projectRoot, "reviewed", { status: "approved" });
+        await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(
+            `${projectRoot}/docs/plans/reviewed.md`,
+            [
+                "---",
+                "classification: PLANNED_CHANGE",
+                "complexity: LOW",
+                "summary: Reviewed",
+                "affectedPaths: []",
+                "objectiveChecks:",
+                "  - id: OC1",
+                '    command: "false"',
+                "status: approved",
+                "---",
+                "# reviewed",
+                "",
+            ].join("\n"),
+        );
         const { runtime, sessionId } = await createRuntime(projectRoot);
         runtime.setInteractionAdapter(sessionId, {
             requestInteraction: async (request) => {
@@ -665,7 +682,24 @@ Deno.test("Approve for Later creates no execution segment", async () => {
 
 Deno.test("direct review from draft approves for later without a planning turn", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
-        await writePlan(projectRoot, "direct-draft", { status: "draft" });
+        await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(
+            `${projectRoot}/docs/plans/direct-draft.md`,
+            [
+                "---",
+                "classification: PLANNED_CHANGE",
+                "complexity: LOW",
+                "summary: Direct draft",
+                "affectedPaths: []",
+                "objectiveChecks:",
+                "  - id: OC1",
+                '    command: "false"',
+                "status: draft",
+                "---",
+                "# direct-draft",
+                "",
+            ].join("\n"),
+        );
         const { runtime, sessionId } = await createRuntime(projectRoot);
         runtime.setInteractionAdapter(sessionId, {
             requestInteraction: async () => {
@@ -713,12 +747,68 @@ Deno.test("direct review from draft approves for later without a planning turn",
     });
 });
 
+Deno.test("direct review menu is omitted when a draft has no Objective-Failing Check", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "incomplete-draft", { status: "draft" });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["cancel"]);
+        try {
+            await runLoadPlanCommand(["incomplete-draft"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals(ui.promptOptions[0].some((option) => option.value === "review"), false);
+            assertEquals(ui.promptOptions[0].some((option) => option.value === "resume"), true);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("direct review menu is omitted when a ready Plan has no Objective-Failing Check", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "incomplete-ready", { status: "ready_for_work" });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["cancel"]);
+        try {
+            await runLoadPlanCommand(["incomplete-ready"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+
+            assertEquals(ui.promptOptions[0].some((option) => option.value === "review"), false);
+            assertEquals(ui.promptOptions[0].some((option) => option.value === "proceed"), true);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
 Deno.test("direct review from draft can approve and start execution", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot, setModelMessages }) => {
-        await writePlan(projectRoot, "direct-run", {
-            status: "draft",
-            objectiveChecks: [{ id: "OC1", command: "false" }],
-        });
+        await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(
+            `${projectRoot}/docs/plans/direct-run.md`,
+            [
+                "---",
+                "classification: PLANNED_CHANGE",
+                "complexity: LOW",
+                "summary: Direct run",
+                "affectedPaths: []",
+                "objectiveChecks:",
+                "  - id: OC1",
+                '    command: "false"',
+                "status: draft",
+                "---",
+                "# direct-run",
+                "",
+            ].join("\n"),
+        );
         setModelMessages([fauxAssistantMessage(fauxToolCall("task_completed", { message: "- direct run complete" }))]);
         const { runtime, sessionId } = await createRuntime(projectRoot);
         runtime.setInteractionAdapter(sessionId, {
@@ -773,7 +863,24 @@ Deno.test("direct review from draft can approve and start execution", async () =
 
 Deno.test("direct review from feedback can send feedback back through Planner", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot, setModelMessages }) => {
-        await writePlan(projectRoot, "direct-feedback", { status: "feedback" });
+        await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(
+            `${projectRoot}/docs/plans/direct-feedback.md`,
+            [
+                "---",
+                "classification: PLANNED_CHANGE",
+                "complexity: LOW",
+                "summary: Direct feedback",
+                "affectedPaths: []",
+                "objectiveChecks:",
+                "  - id: OC1",
+                '    command: "false"',
+                "status: feedback",
+                "---",
+                "# direct-feedback",
+                "",
+            ].join("\n"),
+        );
         setModelMessages([
             fauxAssistantMessage(fauxToolCall("plan_written", {
                 planName: "direct-feedback",
@@ -845,7 +952,24 @@ Deno.test("direct review from feedback can send feedback back through Planner", 
 
 Deno.test("direct review from ready_for_work reopens review and approves for later", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
-        await writePlan(projectRoot, "direct-ready", { status: "ready_for_work" });
+        await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(
+            `${projectRoot}/docs/plans/direct-ready.md`,
+            [
+                "---",
+                "classification: PLANNED_CHANGE",
+                "complexity: LOW",
+                "summary: Direct ready",
+                "affectedPaths: []",
+                "objectiveChecks:",
+                "  - id: OC1",
+                '    command: "false"',
+                "status: ready_for_work",
+                "---",
+                "# direct-ready",
+                "",
+            ].join("\n"),
+        );
         const { runtime, sessionId } = await createRuntime(projectRoot);
         runtime.setInteractionAdapter(sessionId, {
             requestInteraction: async () => {

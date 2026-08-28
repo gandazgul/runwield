@@ -1,0 +1,21 @@
+- link "RunWield Planning Workspace home" [ref=e2]
+- navigation "Workspace views" [ref=e1]
+  - link "Projects" [ref=e3]
+  - link "Devices" [ref=e4]
+- region "RunWield Session chat" [ref=e9]
+  - main "New Session stream" [ref=e10]
+    - link "Sessions" [ref=e12]
+    - region "What should RunWield do?" [ref=e11]
+      - heading "What should RunWield do?" [level=2, ref=e13]
+    - textbox "USER REQUEST" [ref=e14]
+    - combobox "AGENT" [expanded=false, disabled, ref=e16]: Router
+      - option "Router" [disabled, ref=e19]
+    - combobox "MODEL" [expanded=false, disabled, ref=e17]: Project default
+      - option "Project default" [disabled, ref=e20]
+    - combobox "THINKING" [expanded=false, disabled, ref=e18]: Default
+      - option "Default" [disabled, ref=e21]
+    - button "Send User Request" [disabled, ref=e15]
+- button "Menu" [ref=e5]
+- button "Inspect" [ref=e6]
+- button "Audit" [ref=e7]
+- button "Settings" [ref=e8]

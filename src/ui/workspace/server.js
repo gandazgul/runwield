@@ -67,11 +67,14 @@ import { createWorkspaceSessionContinuationService } from "./server/session-cont
 import {
     ownerProjectSessionsApi,
     ownerSessionBootstrapApi,
+    ownerSessionConfigureApi,
     ownerSessionContinuationStartApi,
     ownerSessionCreateApi,
     ownerSessionForceRecoverApi,
     ownerSessionInteractionAnswerApi,
+    ownerSessionOperationCancelApi,
     ownerSessionOperationStatusApi,
+    ownerSessionOptionsApi,
     ownerSessionTimelineApi,
 } from "./routes/owner-session-api.js";
 import {
@@ -270,6 +273,7 @@ export function createOwnerWorkspaceApp(options) {
         async (ctx) => ownerHtmlResponse("Project Plan", await renderOwnerPlanDetail(ctx)),
     );
     app.get("/projects/:projectId/sessions", renderOwnerProjectSessionsPage);
+    app.get("/projects/:projectId/sessions/new", renderOwnerProjectSessionNewPage);
     app.get("/projects/:projectId/sessions/:runwieldSessionId", renderOwnerProjectSessionDetailPage);
     app.post("/api/owner/pairing/request", pairingRequestApi);
     app.get("/api/owner/pairing/status", pairingStatusApi);
@@ -283,16 +287,19 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects/:projectId/plans/:planId", ownerProjectPlanDetailApi);
     app.get("/api/owner/projects/:projectId/files/content", ownerProjectFileContentApi);
     app.post("/api/owner/projects/:projectId/plans/:planId/actions", ownerProjectPlanActionApi);
+    app.get("/api/owner/projects/:projectId/session-options", ownerSessionOptionsApi);
     app.get("/api/owner/projects/:projectId/sessions", ownerProjectSessionsApi);
     app.post("/api/owner/projects/:projectId/sessions", ownerSessionCreateApi);
     app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/timeline", ownerSessionTimelineApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/bootstrap", ownerSessionBootstrapApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/continue", ownerSessionContinuationStartApi);
+    app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/configure", ownerSessionConfigureApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/force-recovery", ownerSessionForceRecoverApi);
     app.post(
         "/api/owner/projects/:projectId/session-operations/:operationId/interactions/:interactionId/answer",
         ownerSessionInteractionAnswerApi,
     );
+    app.post("/api/owner/session-operations/:operationId/cancel", ownerSessionOperationCancelApi);
     app.get("/api/owner/session-operations/:operationId", ownerSessionOperationStatusApi);
     app.get("/api/owner/devices", devicesApi);
     app.post("/api/owner/devices/:deviceId/revoke", revokeDeviceApi);
@@ -865,6 +872,20 @@ async function renderOwnerProjectSessionsPage(ctx) {
     return ownerHtmlResponse(
         "Project Sessions",
         `<section class="page-header"><a class="detail-back-link" href="/">← Projects</a><h1>Project Sessions</h1><p>Build the Workspace frontend to enable the interactive phone Session list.</p></section><section class="owner-card empty-state"><h2>Workspace build unavailable</h2><p>Run <code>deno task workspace:build</code>, then reopen Sessions.</p></section>`,
+        503,
+    );
+}
+
+/** @param {any} ctx */
+async function renderOwnerProjectSessionNewPage(ctx) {
+    const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+    const response = await renderAstroPage(ctx.req, root);
+    if (response) return response;
+    return ownerHtmlResponse(
+        "New Project Session",
+        `<section class="page-header"><a class="detail-back-link" href="/projects/${
+            encodeURIComponent(ctx.params.projectId)
+        }/sessions">← Sessions</a><h1>New Session</h1></section><section class="owner-card empty-state"><h2>Workspace build unavailable</h2><p>Run <code>deno task workspace:build</code>, then reopen New Session.</p></section>`,
         503,
     );
 }
