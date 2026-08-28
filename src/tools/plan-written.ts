@@ -199,7 +199,7 @@ function buildPlanWrittenToolOutput(
     const lines = [
         `Plan name: ${planDisplayPath}`,
     ];
-    if (reviewUrl) lines.push(`To review open a browser to: ${reviewUrl}`);
+    if (reviewUrl) lines.push(`Review Plan: \x1b]8;;${reviewUrl}\x07${reviewUrl}\x1b]8;;\x07`);
     lines.push(
         `Status: ${status}`,
     );
@@ -463,10 +463,12 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 requestRetry: (details) =>
                     requestPlanReviewRetryConfirmation(hostedSession, requestHostedSessionInteraction, details),
                 onUnanswered: ({ reason }) => {
+                    reviewUrl = "";
                     updateToolBlock(`Plan review ended without an answer (${reason}). Asking whether to review again.`);
                 },
             });
             if (recoverableReview.kind === "complete") {
+                reviewUrl = "";
                 updateToolBlock("Plan review ended without an answer and was not reopened.");
                 emitSystemStatus(hostedSession, SESSION_COMPLETE_GUIDANCE, { header: "RunWield" });
                 await recordWorkflowMetricFn({
@@ -487,6 +489,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 );
             }
             const reviewResponse = recoverableReview.response;
+            reviewUrl = "";
             updateToolBlock("Plan review decision received.");
             const reviewMeta = parsePlanReviewMeta(reviewResponse._meta);
             const reviewResult = {

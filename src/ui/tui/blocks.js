@@ -102,6 +102,26 @@ function normalizeToolHeaderText(text) {
 }
 
 /**
+ * @param {string} text
+ * @returns {string}
+ */
+function stripAnsiPreservingOsc8(text) {
+    /** @type {string[]} */
+    const links = [];
+    // deno-lint-ignore no-control-regex
+    const protectedText = text.replace(/\x1b\]8;;[^\x07]*(?:\x07|\x1b\\).*?\x1b\]8;;(?:\x07|\x1b\\)/g, (link) => {
+        const marker = `\u0000RUNWIELD_OSC8_${links.length}\u0000`;
+        links.push(link);
+        return marker;
+    });
+    let stripped = stripAnsi(protectedText);
+    links.forEach((link, index) => {
+        stripped = stripped.replace(`\u0000RUNWIELD_OSC8_${index}\u0000`, link);
+    });
+    return stripped;
+}
+
+/**
  * Wrap plain text to terminal-width lines. Existing newlines are handled by the
  * caller; this preserves words where possible and hard-wraps words longer than
  * the viewport.
@@ -682,7 +702,7 @@ export class ToolExecutionBlock {
             ? lines.slice(0, this.previewLineLimit)
             : lines;
         const renderedText = shown.map((line) => {
-            if (!this.isError && line.startsWith("To review open a browser to:")) {
+            if (!this.isError && line.startsWith("Review Plan:")) {
                 return theme.fg("success", theme.bold(line));
             }
             return this.isError ? theme.fg("text", line) : theme.fg("toolOutput", line);
@@ -699,16 +719,18 @@ export class ToolExecutionBlock {
     /** @param {string} text */
     setOutput(text) {
         // Strip ANSI codes from tool output to prevent embedded resets (\x1b[0m)
-        // from breaking the block's background coloring.
-        this.bodyText = stripAnsi(text);
+        // from breaking the block's background coloring. Preserve OSC 8 links so
+        // live review URLs stay clickable.
+        this.bodyText = stripAnsiPreservingOsc8(text);
         this.updateBodyText();
     }
 
     /** @param {string} text */
     appendOutput(text) {
         // Strip ANSI codes from tool output to prevent embedded resets (\x1b[0m)
-        // from breaking the block's background coloring.
-        this.bodyText += stripAnsi(text);
+        // from breaking the block's background coloring. Preserve OSC 8 links so
+        // live review URLs stay clickable.
+        this.bodyText += stripAnsiPreservingOsc8(text);
         this.updateBodyText();
     }
 

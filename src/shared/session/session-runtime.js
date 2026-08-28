@@ -62,7 +62,7 @@ import {
 } from "./session-transcript-projection.js";
 import { projectAggregateTranscript } from "./session-transcript-manifest.ts";
 import { rollSessionTranscriptSegment } from "./segment-rollover.ts";
-import { requestHostedSessionInteraction } from "./session-runtime-interactions.js";
+import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "./session-runtime-interactions.js";
 import {
     modelSupportsImageInput,
     persistImageAttachment,
@@ -4289,6 +4289,11 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, aborted: false, error: "not_found" };
         const currentOperation = this.#currentManagedOperations.get(session.id) || null;
+        const activeInteractions = session.getActiveInteractions?.() || new Map();
+        const onlyPlanReviewInteraction = activeInteractions.size > 0 &&
+            [...activeInteractions.values()].every((record) =>
+                record.request?.type === RuntimeInteractionTypes.PLAN_REVIEW
+            );
         if (currentOperation) {
             let aborted = false;
             let operationCanceled = false;
@@ -4302,8 +4307,10 @@ export class SessionRuntime {
                     operationCanceled = true;
                 }
                 this.#clearQueuedMessages(session, "session_cancel");
-                agentCanceled = abortActiveSessionFn(session);
-                if (agentCanceled || turnActive) session.suppressNextAgentStoppedAttention();
+                if (!onlyPlanReviewInteraction) {
+                    agentCanceled = abortActiveSessionFn(session);
+                    if (agentCanceled || turnActive) session.suppressNextAgentStoppedAttention();
+                }
                 aborted = operationCanceled || agentCanceled;
             } finally {
                 this.#emitSessionEvent(session.id, {
@@ -4340,8 +4347,10 @@ export class SessionRuntime {
                 operationCanceled = true;
             }
             this.#clearQueuedMessages(session, "session_cancel");
-            agentCanceled = abortActiveSessionFn(session);
-            if (agentCanceled || turnActive) session.suppressNextAgentStoppedAttention();
+            if (!onlyPlanReviewInteraction) {
+                agentCanceled = abortActiveSessionFn(session);
+                if (agentCanceled || turnActive) session.suppressNextAgentStoppedAttention();
+            }
             aborted = operationCanceled || agentCanceled;
         } finally {
             this.#emitSessionEvent(session.id, {

@@ -492,21 +492,23 @@ Deno.test("ToolExecutionBlock strips ANSI from tool output", () => {
     assertBlockBackground(lines, w, "ToolExecutionBlock(colored output)");
 });
 
-Deno.test("ToolExecutionBlock highlights the plan review browser URL instruction", () => {
+Deno.test("ToolExecutionBlock highlights the clickable plan review URL instruction", () => {
     const w = 120;
+    const url = "http://127.0.0.1:4567/review/plan?token=test";
     const block = new ToolExecutionBlock("plan_written", "plan_written runtime-boundary");
     block.setOutput(
         "Plan name: docs/plans/runtime-boundary.md\n" +
-            "To review open a browser to: http://127.0.0.1:4567/review/plan?token=test\n" +
+            `Review Plan: \x1b]8;;${url}\x07${url}\x1b]8;;\x07\n` +
             "Status: Waiting for plan review decision.\n",
     );
 
     const rendered = block.render(w).join("\n");
     const plain = stripAnsi(rendered);
 
-    assertEquals(plain.includes("To review open a browser to: http://127.0.0.1:4567/review/plan?token=test"), true);
-    assertEquals(rendered.includes("\x1b[1mTo review open a browser to:"), true);
-    assertEquals(rendered.includes("\x1b[2mTo review open a browser to:"), false);
+    assertEquals(plain.includes(`Review Plan: ${url}`), true);
+    assertEquals(rendered.includes(`\x1b]8;;${url}\x07${url}\x1b]8;;\x07`), true);
+    assertEquals(rendered.includes("\x1b[1m"), true);
+    assertEquals(rendered.includes("\x1b[2mReview Plan:"), false);
 });
 
 Deno.test("ToolExecutionBlock expansion and truncation logic", () => {

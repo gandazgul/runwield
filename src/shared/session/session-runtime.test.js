@@ -8,6 +8,7 @@ import { __resetSettingsForTests } from "../settings.js";
 import { SessionHost } from "./session-host.js";
 import { switchActiveAgent } from "./agent-switching.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
+import { RuntimeInteractionTypes } from "./session-runtime-interactions.js";
 import {
     createSessionRuntime,
     SessionRuntime,
@@ -2398,6 +2399,30 @@ Deno.test("SessionRuntime marks aborted agent turns to suppress agent-stopped at
     assertEquals(runtime.cancelSession(sessionId), { ok: true, aborted: true });
     assertEquals(canceledSession?.consumeSuppressedAgentStoppedAttention(), true);
     assertEquals(canceledSession?.consumeSuppressedAgentStoppedAttention(), false);
+});
+
+Deno.test("SessionRuntime Escape cancels active Plan review without aborting the recovery turn", async () => {
+    const sessionHost = new SessionHost();
+    const agentSession = makeSteeringAgentSession();
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, agentSession);
+    const hostedSession = sessionHost.requireSession(sessionId);
+    runtime.setInteractionAdapter(sessionId, {
+        requestInteraction: () => new Promise(() => {}),
+    });
+
+    const review = runtime.requestInteraction(sessionId, {
+        type: RuntimeInteractionTypes.PLAN_REVIEW,
+        prompt: "Review plan",
+    });
+    for (let attempt = 0; attempt < 20 && hostedSession.getActiveInteractions().size === 0; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+
+    assertEquals(hostedSession.getActiveInteractions().size, 1);
+    assertEquals(runtime.cancelSession(sessionId), { ok: true, aborted: true });
+    assertEquals(agentSession.isStreaming, true);
+    assertEquals((await review).outcome, "canceled");
 });
 
 Deno.test("SessionRuntime suppresses attention when Esc races with turn completion", async () => {

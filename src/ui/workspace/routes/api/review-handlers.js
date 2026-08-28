@@ -4,8 +4,7 @@ import { normalizePlanClassification } from "../../../../constants.js";
 import { readPlanApprovalAction } from "../../../../shared/workflow/plan-approval.js";
 import { normalizeCollaborationMode, normalizeExecutionAgent } from "../../../../plan-store.js";
 
-const REVIEW_TIMEOUT_MS = 30 * 60 * 1000;
-/** @type {Map<string, { resolve: (value: any) => void, promise: Promise<any>, timeoutId: ReturnType<typeof setTimeout> }>} */
+/** @type {Map<string, { resolve: (value: any) => void, promise: Promise<any> }>} */
 const reviewDecisions = new Map();
 
 /**
@@ -19,10 +18,7 @@ export function registerReviewDecisionPromise(token) {
     const promise = new Promise((resolve) => {
         resolveDecision = resolve;
     });
-    const timeoutId = setTimeout(() => {
-        resolveReviewDecision(token, { approved: false, feedback: "", annotations: [], canceled: true });
-    }, REVIEW_TIMEOUT_MS);
-    reviewDecisions.set(token, { resolve: resolveDecision, promise, timeoutId });
+    reviewDecisions.set(token, { resolve: resolveDecision, promise });
     return { resolve: resolveDecision, promise };
 }
 
@@ -34,7 +30,6 @@ export function registerReviewDecisionPromise(token) {
 export function resolveReviewDecision(token, decision) {
     const entry = reviewDecisions.get(token);
     if (!entry) return false;
-    clearTimeout(entry.timeoutId);
     reviewDecisions.delete(token);
     entry.resolve(decision);
     return true;
@@ -44,7 +39,6 @@ export function resolveReviewDecision(token, decision) {
 export function unregisterReviewDecision(token) {
     const entry = reviewDecisions.get(token);
     if (!entry) return;
-    clearTimeout(entry.timeoutId);
     reviewDecisions.delete(token);
 }
 

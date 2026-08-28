@@ -164,11 +164,15 @@ Deno.test("plan_written streams declared plan details into the active tool block
     assertMatch(firstText, /Plan name: docs\/plans\/runtime-boundary\.md/);
     assertMatch(firstText, /Status: Opening browser review UI\./);
     const readyText = updates[1].content[0].text;
-    assertMatch(
+    assertStringIncludes(readyText, "Plan name: docs/plans/runtime-boundary.md");
+    assertStringIncludes(
         readyText,
-        /Plan name: docs\/plans\/runtime-boundary\.md\nTo review open a browser to: http:\/\/127\.0\.0\.1:4567\/review\/plan\?token=test/,
+        "Review Plan: \x1b]8;;http://127.0.0.1:4567/review/plan?token=test\x07http://127.0.0.1:4567/review/plan?token=test\x1b]8;;\x07",
     );
     assertEquals(updates[1].details.reviewUrl, "http://127.0.0.1:4567/review/plan?token=test");
+    const finalUpdateText = updates.at(-1).content[0].text;
+    assertEquals(finalUpdateText.includes("\x1b]8;;"), false);
+    assertEquals(finalUpdateText.includes("Review Plan:"), false);
     assertEquals(updates[0].details.planName, "runtime-boundary");
     assertEquals(updates[0].details.planFileUrl.startsWith("file://"), true);
     assertEquals(
