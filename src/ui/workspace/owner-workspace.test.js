@@ -288,6 +288,75 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         assertEquals(sessionsText.includes(projectRoot), false);
         assertEquals(sessionsText.includes("sessionPath"), false);
 
+        const optionsApi = await app(
+            new Request(`http://127.0.0.1:8787/api/owner/projects/${project.projectId}/session-options`, {
+                headers: { cookie: cookiePair(claimed.credential) },
+            }),
+        );
+        assertEquals(optionsApi.status, 200);
+        const optionsText = JSON.stringify(await optionsApi.json());
+        assertStringIncludes(optionsText, "Router");
+        assertStringIncludes(optionsText, "thinkingLevels");
+        assertEquals(optionsText.includes(projectRoot), false);
+        assertEquals(optionsText.includes("apiKey"), false);
+
+        let configurePayload = null;
+        appObject.sessionContinuation.configureSession = (payload) => {
+            configurePayload = payload;
+            return Promise.resolve({ ok: true, generation: payload.expectedGeneration + 1 });
+        };
+        const configureApi = await app(
+            new Request(
+                `http://127.0.0.1:8787/api/owner/projects/${project.projectId}/sessions/session-owned/configure`,
+                {
+                    method: "POST",
+                    headers: {
+                        origin: "http://127.0.0.1:8787",
+                        cookie: cookiePair(claimed.credential),
+                        "x-runwield-csrf": "csrf-secret",
+                        "content-type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        expectedGeneration: 3,
+                        agentName: "engineer",
+                        model: "model-a",
+                        provider: "provider-a",
+                        thinkingLevel: "medium",
+                    }),
+                },
+            ),
+        );
+        assertEquals(configureApi.status, 202);
+        assertEquals(configurePayload, {
+            projectId: project.projectId,
+            runwieldSessionId: "session-owned",
+            expectedGeneration: 3,
+            agentName: "engineer",
+            model: "model-a",
+            provider: "provider-a",
+            thinkingLevel: "medium",
+        });
+
+        let cancelledOperationId = "";
+        appObject.sessionContinuation.cancelOperation = ({ operationId }) => {
+            cancelledOperationId = operationId;
+            return { ok: true, aborted: true };
+        };
+        const cancelApi = await app(
+            new Request("http://127.0.0.1:8787/api/owner/session-operations/operation-owned/cancel", {
+                method: "POST",
+                headers: {
+                    origin: "http://127.0.0.1:8787",
+                    cookie: cookiePair(claimed.credential),
+                    "x-runwield-csrf": "csrf-secret",
+                    "content-type": "application/json",
+                },
+                body: JSON.stringify({}),
+            }),
+        );
+        assertEquals(cancelApi.status, 202);
+        assertEquals(cancelledOperationId, "operation-owned");
+
         appObject.sessionContinuation.timeline = () =>
             Promise.resolve({
                 ok: true,
@@ -365,6 +434,14 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         );
         assertEquals([200, 503].includes(sessionsPage.status), true);
         assertStringIncludes(await sessionsPage.text(), "Project Sessions");
+
+        const newSessionPage = await app(
+            new Request(`http://127.0.0.1:8787/projects/${project.projectId}/sessions/new`, {
+                headers: { cookie: cookiePair(claimed.credential) },
+            }),
+        );
+        assertEquals(newSessionPage.status === 404, false);
+        assertStringIncludes(await newSessionPage.text(), "New Project Session");
 
         /** @type {any} */ (store).getSessionById = (runwieldSessionId) =>
             runwieldSessionId === "session-owned"
