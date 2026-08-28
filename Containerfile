@@ -5,7 +5,7 @@ COPY deno.json deno.lock runtime-root.js ./
 COPY scripts ./scripts
 COPY src ./src
 COPY third_party ./third_party
-COPY logo.svg ./logo.svg
+COPY brand/logo.svg ./brand/logo.svg
 
 RUN deno task workspace:remote:build
 

@@ -584,7 +584,7 @@ export function PlanDetail({ plan, url, editIntent = false, staticRender = false
             <header className="detail-header rw-plan-detail-toolbar">
                 <div className="detail-title-row">
                     <a className="detail-back-link" href={closeHref}>{"< Back"}</a>
-                    <img className="rw-plan-detail-logo" src="/logo.svg" alt="" aria-hidden="true" />
+                    <img className="rw-plan-detail-logo" src="/brand/logo.svg" alt="" aria-hidden="true" />
                     <div className="detail-title-group">
                         <div className="rw-plan-detail-title-copy">
                             <span className="kicker">{isEpic ? "Project Plan" : "Plan detail"}</span>

@@ -18,7 +18,7 @@ Deno.test("assertPlanServerImageFileList accepts minimal generated runtime image
 
 Deno.test("assertPlanServerImageFileList rejects repository source state and secret artifacts", () => {
     const result = assertPlanServerImageFileList([
-        ...REQUIRED_IMAGE_FILES.filter((file) => file !== "/app/logo.svg"),
+        ...REQUIRED_IMAGE_FILES.filter((file) => file !== "/app/brand/logo.svg"),
         "/app/src/ui/workspace/server.js",
         "/app/src/ui/workspace/workspace.test.js",
         "/app/docs/plans/example.md",
@@ -29,7 +29,7 @@ Deno.test("assertPlanServerImageFileList rejects repository source state and sec
         "/app/deno.json",
     ], []);
 
-    assertEquals(result.missingRequired, ["/app/logo.svg"]);
+    assertEquals(result.missingRequired, ["/app/brand/logo.svg"]);
     assertEquals(result.missingRequiredDirectories, ["/data"]);
     assertEquals(result.prohibited, [
         "/app/.git/config",

@@ -17,7 +17,11 @@ import {
     runConfiguredGuideCommand,
 } from "./routes/api/review-agent-handlers.js";
 
-import { registerReviewDecisionPromise, unregisterReviewDecision } from "./routes/api/review-handlers.js";
+import {
+    registerReviewDecisionPromise,
+    resolveReviewDecision,
+    unregisterReviewDecision,
+} from "./routes/api/review-handlers.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { makeToolProjectFixture, withWorkflowMetricsFixture } from "../../testing/workflow-metrics-fixture.ts";
 
@@ -40,7 +44,7 @@ Deno.test("workspace token accepts query or header and rejects missing tokens", 
 
 Deno.test("workspace static assets bypass token checks for tokenized pages", async () => {
     const app = createWorkspaceApp({ cwd: Deno.cwd(), token: "secret" }).handler();
-    for (const path of ["/tokens.css", "/components.css", "/workspace.css", "/theme.css", "/logo.svg"]) {
+    for (const path of ["/tokens.css", "/components.css", "/workspace.css", "/theme.css", "/brand/logo.svg"]) {
         const response = await app(new Request(`http://localhost${path}`));
         assertEquals(response.status, 200);
     }
@@ -516,6 +520,23 @@ Deno.test("review guide failure metrics redact provider error details", async ()
         assertEquals(JSON.stringify(details).includes("/Users/example/secret.js"), false);
         await state.widgets.cleanup();
     });
+});
+
+Deno.test("review decisions wait until a user decision or explicit cancellation", async () => {
+    const token = "review-no-timeout-secret";
+    const { promise } = registerReviewDecisionPromise(token);
+    try {
+        const earlyResult = await Promise.race([
+            promise.then(() => "resolved"),
+            new Promise((resolve) => setTimeout(() => resolve("pending"), 20)),
+        ]);
+
+        assertEquals(earlyResult, "pending");
+        assertEquals(resolveReviewDecision(token, { approved: false, feedback: "done" }), true);
+        assertEquals(await promise, { approved: false, feedback: "done" });
+    } finally {
+        unregisterReviewDecision(token);
+    }
 });
 
 Deno.test("review API accepts review token header before workspace app token gate", async () => {

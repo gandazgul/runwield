@@ -1,4 +1,4 @@
-const LOGO_URL = new URL("../../../../logo.svg", import.meta.url);
+const LOGO_URL = new URL("../../../../../brand/logo.svg", import.meta.url);
 
 /** @type {import("astro").APIRoute} */
 export const GET = async () => {

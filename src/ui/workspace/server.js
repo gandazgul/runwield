@@ -91,7 +91,7 @@ const STYLES_PATH = join(WORKSPACE_DIR, "static", "styles.css");
 const TOKENS_CSS_PATH = join(DESIGN_SYSTEM_DIR, "tokens.css");
 const COMPONENTS_CSS_PATH = join(DESIGN_SYSTEM_DIR, "components.css");
 const WORKSPACE_CSS_PATH = join(WORKSPACE_DIR, "static", "workspace.css");
-const LOGO_PATH = join(ROOT_DIR, "logo.svg");
+const LOGO_PATH = join(ROOT_DIR, "brand", "logo.svg");
 const ASTRO_SOURCE_DIST_DIR = join(ROOT_DIR, "dist", "workspace");
 const ASTRO_RUNTIME_DIR = join(ROOT_DIR, "dist", "workspace-runtime");
 const ASTRO_SOURCE_ENTRY_PATH = join(ASTRO_SOURCE_DIST_DIR, "server", "entry.mjs");
@@ -574,7 +574,7 @@ function renderStaticReviewFallback(reviewType, payload) {
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>${escapeHtml(title)}</title>
-        <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+        <link rel="icon" href="/brand/logo.svg" type="image/svg+xml" />
         <link rel="stylesheet" href="/tokens.css" />
         <link rel="stylesheet" href="/components.css" />
         <link rel="stylesheet" href="/workspace.css" />
@@ -639,7 +639,7 @@ function ownerHtmlResponse(title, body, status = 200) {
     const html =
         `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${
             escapeHtml(title)
-        }</title><link rel="icon" href="/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/components.css"><link rel="stylesheet" href="/workspace.css"><link rel="stylesheet" href="/theme.css"></head><body class="theme-runwield"><div class="workspace-shell owner-workspace-shell"><header class="topbar"><a class="brand" href="/" aria-label="RunWield Workspace home"><img class="brand-logo" src="/logo.svg" alt="" aria-hidden="true"><span>RunWield Workspace</span></a></header><nav class="tabs" aria-label="Workspace views"><a data-tab="projects" href="/" class="active">Projects</a><a data-tab="devices" href="/devices">Devices</a></nav><main>${body}</main></div></body></html>`;
+        }</title><link rel="icon" href="/brand/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/components.css"><link rel="stylesheet" href="/workspace.css"><link rel="stylesheet" href="/theme.css"></head><body class="theme-runwield"><div class="workspace-shell owner-workspace-shell"><header class="topbar"><a class="brand" href="/" aria-label="RunWield Workspace home"><img class="brand-logo" src="/brand/logo.svg" alt="" aria-hidden="true"><span>RunWield Workspace</span></a></header><nav class="tabs" aria-label="Workspace views"><a data-tab="projects" href="/" class="active">Projects</a><a data-tab="devices" href="/devices">Devices</a></nav><main>${body}</main></div></body></html>`;
     return withOwnerSecurityHeaders(
         new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8" } }),
     );
@@ -981,7 +981,7 @@ function registerStaticRoutes(app) {
     app.get("/components.css", async () => await handleStaticRoute("/components.css"));
     app.get("/workspace.css", async () => await handleStaticRoute("/workspace.css"));
     app.get("/theme.css", async () => await handleStaticRoute("/theme.css"));
-    app.get("/logo.svg", async () => await handleStaticRoute("/logo.svg"));
+    app.get("/brand/logo.svg", async () => await handleStaticRoute("/brand/logo.svg"));
     app.get("/_astro/:asset", async (ctx) => await handleStaticRoute(ctx.url.pathname));
 }
 
@@ -1000,7 +1000,7 @@ async function handleStaticRoute(pathname) {
             },
         });
     }
-    if (pathname === "/logo.svg") return await textFileResponse(LOGO_PATH, "image/svg+xml; charset=utf-8");
+    if (pathname === "/brand/logo.svg") return await textFileResponse(LOGO_PATH, "image/svg+xml; charset=utf-8");
     if (pathname.startsWith("/_astro/")) return await handleAstroAsset(pathname);
     return new Response("Not found", { status: 404 });
 }
@@ -1081,7 +1081,7 @@ function isPublicWorkspaceAsset(pathname) {
         pathname === "/components.css" ||
         pathname === "/workspace.css" ||
         pathname === "/theme.css" ||
-        pathname === "/logo.svg" ||
+        pathname === "/brand/logo.svg" ||
         pathname.startsWith("/_astro/");
 }
 

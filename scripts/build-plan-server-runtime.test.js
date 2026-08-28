@@ -40,7 +40,7 @@ async function writeRuntimeInputs(root) {
     await writeFile(join(root, "src/ui/workspace/remote-server.ts"), "console.log('remote');\n");
     await writeFile(join(root, "dist/workspace-runtime/server.mjs"), "export default {};\n");
     await writeFile(join(root, "dist/workspace-runtime/client/_astro/app.js.asset"), "browser");
-    await writeFile(join(root, "logo.svg"), "<svg></svg>\n");
+    await writeFile(join(root, "brand/logo.svg"), "<svg></svg>\n");
     for (const asset of AGENT_DEFINITION_ASSETS) await writeFile(join(root, asset), "---\nname: test\n---\n");
     await writeFile(join(root, "src/ui/workspace/static/styles.css"), "body{}\n");
     await writeFile(join(root, "src/ui/workspace/static/workspace.css"), ".workspace{}\n");
@@ -51,7 +51,7 @@ async function writeRuntimeInputs(root) {
 
 Deno.test("listRuntimeAssetDestinations returns the passive asset allowlist", () => {
     assertEquals(listRuntimeAssetDestinations(), [
-        "logo.svg",
+        "brand/logo.svg",
         ...AGENT_DEFINITION_ASSETS,
         "src/ui/design-system/components.css",
         "src/ui/design-system/tokens.css",
@@ -95,9 +95,9 @@ Deno.test("buildPlanServerRuntime creates a minimal runtime root", async () => {
         }]);
 
         assertEquals(await listRuntimeFiles(join(root, "dist/plan-server")), [
+            "brand/logo.svg",
             "dist/workspace-runtime/client/_astro/app.js.asset",
             "dist/workspace-runtime/server.mjs",
-            "logo.svg",
             "remote-server.js",
             ...AGENT_DEFINITION_ASSETS,
             "src/ui/design-system/components.css",

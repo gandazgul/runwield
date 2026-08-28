@@ -98,7 +98,7 @@ export function ArtifactReadSurface({ payload }) {
                 <div className="rw-plannotator-host rw-plan-review rw-artifact-read" data-artifact-kind={artifactKind}>
                     <header className="rw-plannotator-toolbar">
                         <div className="rw-plan-review-heading rw-artifact-read-heading">
-                            <img src="/logo.svg" alt="" aria-hidden="true" />
+                            <img src="/brand/logo.svg" alt="" aria-hidden="true" />
                             <div className="rw-artifact-read-title-block">
                                 <p className="rw-artifact-kicker">Read-only {artifactLabel}</p>
                                 <h1>{title}</h1>

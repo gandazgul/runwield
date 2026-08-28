@@ -10,7 +10,7 @@ const STATIC_INCLUDE_PATHS = [
     "src/ui/workspace/static/",
     "src/ui/design-system/tokens.css",
     "src/ui/design-system/components.css",
-    "logo.svg",
+    "brand/logo.svg",
     "dist/workspace-runtime/server.mjs",
     "dist/workspace-runtime/client/",
     "src/ui/workspace/server/plan-adapter.js",

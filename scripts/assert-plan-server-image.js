@@ -9,7 +9,7 @@ const DEFAULT_IMAGE = "runwield-plan-server:local";
 export const REQUIRED_IMAGE_FILES = Object.freeze([
     "/app/remote-server.js",
     "/app/dist/workspace-runtime/server.mjs",
-    "/app/logo.svg",
+    "/app/brand/logo.svg",
     "/app/src/agent-definitions/router.md",
     "/app/src/ui/workspace/static/styles.css",
     "/app/src/ui/workspace/static/workspace.css",

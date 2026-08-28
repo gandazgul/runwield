@@ -570,7 +570,7 @@ export function CodeReviewSurface({ payload }) {
                                 onToggleAnnotations={() => setAnnotationsOpen((open) => !open)}
                                 onToggleFileTree={() => setFileTreeOpen((open) => !open)}
                             />
-                            <img src="/logo.svg" alt="" aria-hidden="true" />
+                            <img src="/brand/logo.svg" alt="" aria-hidden="true" />
                             <h1>Code Review</h1>
                             {initialPayload.mode === "dev" && (
                                 <p className="rw-plan-review-dev-notice" role="status">

@@ -39,7 +39,7 @@ export const REQUIRED_WORKSPACE_RUNTIME_FILES = Object.freeze([
 
 /** @type {RuntimeAssetCopy[]} */
 export const DEFAULT_PLAN_SERVER_RUNTIME_ASSETS = [
-    { source: "logo.svg", destination: "logo.svg" },
+    { source: "brand/logo.svg", destination: "brand/logo.svg" },
     { source: "src/agent-definitions/architect.md", destination: "src/agent-definitions/architect.md" },
     { source: "src/agent-definitions/engineer.md", destination: "src/agent-definitions/engineer.md" },
     { source: "src/agent-definitions/guide.md", destination: "src/agent-definitions/guide.md" },

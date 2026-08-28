@@ -171,7 +171,7 @@
     "src/ui/workspace/pages/api/spaces/index.js",
     "src/ui/workspace/pages/api/upload.js",
     "src/ui/workspace/pages/components.css.js",
-    "src/ui/workspace/pages/logo.svg.js",
+    "src/ui/workspace/pages/brand/logo.svg.js",
     "src/ui/workspace/pages/theme.css.js",
     "src/ui/workspace/pages/tokens.css.js",
     "src/ui/workspace/plan-search.js",

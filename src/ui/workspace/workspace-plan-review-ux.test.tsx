@@ -75,7 +75,7 @@ Deno.test("Code Review options menu matches Plan Review header placement", async
     const surface = await Deno.readTextFile(CODE_SURFACE_PATH);
     const headingIndex = surface.indexOf('className="rw-plan-review-heading"');
     const optionsIndex = surface.indexOf("<CodeReviewOptionsMenu", headingIndex);
-    const logoIndex = surface.indexOf('<img src="/logo.svg"', headingIndex);
+    const logoIndex = surface.indexOf('<img src="/brand/logo.svg"', headingIndex);
     const actionsIndex = surface.indexOf('className="rw-plannotator-actions"');
     const approveIndex = surface.indexOf("<ApproveButton", actionsIndex);
     const misplacedOptionsIndex = surface.indexOf("<CodeReviewOptionsMenu", actionsIndex);
