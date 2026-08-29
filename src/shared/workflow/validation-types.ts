@@ -121,8 +121,7 @@ export type PublicationOutcome = {
 export type UserActionChoice =
     | "engineer_follow_up"
     | "retry"
-    | "stop"
-    | "approve_amendment";
+    | "stop";
 
 export type UserActionOption = {
     value: UserActionChoice;

@@ -137,6 +137,51 @@ Deno.test("task_completed rejects a paused Pair turn without terminal side effec
     assertEquals(events, []);
 });
 
+Deno.test("task_completed uses final Pair checkpoint revision feedback before accepting completion", async () => {
+    const events = /** @type {any[]} */ ([]);
+    const hostedSession = new HostedSession({
+        id: "task-completed-final-pair-revise",
+        cwd: TASK_PROJECT_ROOT,
+        interactionAdapter: {
+            supportsInteraction: (type) => type === "pair_checkpoint",
+            requestInteraction: () => ({
+                outcome: "selected",
+                value: "revise",
+                _meta: { feedback: "Try the finished workflow in the browser again." },
+            }),
+        },
+    });
+    hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "frontend-engineer",
+        executionStarted: true,
+        collaborationStyle: "pair",
+        pairCheckpointCount: 1,
+    });
+    const tool = createTaskCompletedTool({ hostedSession, agentName: "Frontend Engineer" });
+
+    const result = await /** @type {any} */ (tool.execute)("call", {
+        message: "- Final page is ready.",
+        browserPreflightOutcome: "succeeded",
+    });
+
+    assertEquals(result.terminate, false);
+    assertEquals(result.details, {
+        outcome: "pair_completion_checkpoint",
+        decision: "revise",
+        feedback: "Try the finished workflow in the browser again.",
+    });
+    assertStringIncludes(/** @type {{ text: string }} */ (result.content[0]).text, "Revise the final result");
+    assertEquals(hostedSession.consumePendingTaskCompletion(null), null);
+    assertEquals(events.map((event) => event.type), [
+        RuntimeEventTypes.INTERACTION_REQUESTED,
+        RuntimeEventTypes.INTERACTION_RESOLVED,
+    ]);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairCheckpointCount, 2);
+});
+
 Deno.test("task_completed message schema owns Engineer report format and accepts runtime display name", () => {
     const hostedSession = new HostedSession({ id: "task-completed-schema", cwd: TASK_PROJECT_ROOT });
     const engineerTool = createTaskCompletedTool({ hostedSession, agentName: "Engineer" });
@@ -207,7 +252,18 @@ Deno.test("task_completed requires Frontend Engineer preflight outcome only", ()
 for (const outcome of /** @type {const} */ (["succeeded", "failed", "externally_blocked"])) {
     Deno.test(`task_completed records Frontend Engineer completion preflight outcome ${outcome}`, async () => {
         await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
-            const hostedSession = new HostedSession({ id: `task-completed-${outcome}`, cwd: projectRoot });
+            const checkpointRequests = /** @type {any[]} */ ([]);
+            const hostedSession = new HostedSession({
+                id: `task-completed-${outcome}`,
+                cwd: projectRoot,
+                interactionAdapter: {
+                    supportsInteraction: (type) => type === "pair_checkpoint",
+                    requestInteraction: (request) => {
+                        checkpointRequests.push(request);
+                        return { outcome: "selected", value: "continue" };
+                    },
+                },
+            });
             hostedSession.setActiveExecutionWorkflow({
                 planName: "visual-plan",
                 triageMeta: { classification: "FEATURE" },
@@ -232,6 +288,8 @@ for (const outcome of /** @type {const} */ (["succeeded", "failed", "externally_
 
             assertEquals(result.terminate, true);
             assertEquals(result.details.browserPreflightOutcome, outcome);
+            assertEquals(checkpointRequests.length, 1);
+            assertEquals(checkpointRequests[0]._meta.finalCompletion, true);
             const metrics = await readMetrics();
             assertEquals(
                 metrics.map((metric) => ({
@@ -240,6 +298,14 @@ for (const outcome of /** @type {const} */ (["succeeded", "failed", "externally_
                     details: metric.details,
                 })),
                 [
+                    {
+                        event: "pair_checkpoint_decided",
+                        agentName: undefined,
+                        details: {
+                            checkpointNumber: 3,
+                            decision: "continue",
+                        },
+                    },
                     {
                         event: "task_completed",
                         agentName: "Frontend Engineer",
@@ -251,7 +317,7 @@ for (const outcome of /** @type {const} */ (["succeeded", "failed", "externally_
                         details: {
                             phase: "implementation",
                             runtimeStyle: "pair",
-                            checkpointCount: 2,
+                            checkpointCount: 3,
                             switchedToAutonomous: true,
                             capabilityLost: false,
                             browserPreflightOutcome: outcome,

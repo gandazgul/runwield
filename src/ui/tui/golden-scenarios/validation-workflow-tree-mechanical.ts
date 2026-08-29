@@ -19,104 +19,6 @@ export const validationTreeCiRetrySuccessScenario = withValidationBranches(
     ["semantic:approval:first-round"],
 );
 
-function planAmendmentScenario(
-    choice: "approve_amendment" | "engineer_follow_up" | "stop",
-    options: { suffix?: string; amendedCommand?: string; promptIncludes?: string } = {},
-) {
-    const suffix = options.suffix ||
-        (choice === "approve_amendment" ? "approve" : choice === "engineer_follow_up" ? "follow-up" : "stop");
-    const planName = `plan-amendment-${suffix}`;
-    const amendedCommand = options.amendedCommand || "test -f amendment-ready";
-    return {
-        ...plannedChangeValidationFailureRetryScenario,
-        committedProjectFiles: [
-            { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
-        ],
-        // Keep the Plan file that plan_written reviewed so the Engineer can
-        // propose a body change from the execution worktree.
-        reviewedPlan: undefined,
-        scriptedInteractions: [{
-            type: "select",
-            promptIncludes: options.promptIncludes || "Approve this Plan Amendment",
-            value: choice,
-        }],
-        script: [
-            {
-                id: `planner-submits-${planName}`,
-                agent: "planner",
-                phase: "plan_review",
-                ordinal: 1,
-                requiredTools: ["plan_written"],
-                toolCalls: [{
-                    name: "plan_written",
-                    arguments: { planName },
-                }],
-            },
-            {
-                id: `engineer-implements-${planName}`,
-                agent: "engineer",
-                phase: "engineer",
-                planName,
-                ordinal: 1,
-                requiredTools: ["bash"],
-                toolCalls: [{
-                    name: "bash",
-                    arguments: {
-                        command:
-                            `printf '\nEngineer amendment: ${amendedCommand}.\n' >> docs/plans/${planName}.md && printf implemented > amendment-ready`,
-                    },
-                }],
-            },
-            {
-                id: `engineer-reports-${planName}-complete`,
-                agent: "engineer",
-                phase: "engineer",
-                planName,
-                ordinal: 2,
-                requiredTools: ["task_completed"],
-                toolCalls: [{
-                    name: "task_completed",
-                    arguments: { message: "- Implemented and amended the Plan definition." },
-                }],
-            },
-        ],
-        actions: [
-            {
-                type: "writeProjectFile",
-                path: `docs/plans/${planName}.md`,
-                text:
-                    `---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Plan amendment\naffectedPaths: []\nstatus: draft\n---\n# Plan amendment\n\nDraft content.\n`,
-            },
-            { type: "type", text: `submit ${planName} plan for review` },
-            { type: "enter" },
-            { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
-            { type: "waitForEventCount", event: "runtime:interaction_resolved", count: 2, timeoutMs: 90000 },
-        ],
-        assertions: [],
-    };
-}
-
-export const validationTreePlanAmendmentApproveScenario = withValidationBranches(
-    planAmendmentScenario("approve_amendment"),
-    "validation-tree-plan-amendment-approve",
-    ["plan-amendment-approve"],
-    ["mechanical:plan-amendment:approve"],
-);
-
-export const validationTreePlanAmendmentFollowUpScenario = withValidationBranches(
-    planAmendmentScenario("engineer_follow_up"),
-    "validation-tree-plan-amendment-follow-up",
-    ["plan-amendment-follow-up"],
-    ["mechanical:plan-amendment:follow-up"],
-);
-
-export const validationTreePlanAmendmentStopScenario = withValidationBranches(
-    planAmendmentScenario("stop"),
-    "validation-tree-plan-amendment-stop",
-    ["plan-amendment-stop"],
-    ["mechanical:plan-amendment:stop"],
-);
-
 function ciCancellationScenario(choice: "engineer_follow_up" | "retry" | "stop") {
     const planName = `ci-cancel-${choice === "stop" ? "stop" : choice === "retry" ? "retry" : "follow-up"}`;
     return {
@@ -356,9 +258,6 @@ export const validationTreeValidationExhaustedStopScenario = withValidationBranc
 );
 
 export const validationWorkflowMechanicalScenarios = [
-    validationTreePlanAmendmentApproveScenario,
-    validationTreePlanAmendmentFollowUpScenario,
-    validationTreePlanAmendmentStopScenario,
     validationTreeCiLoopScenario,
     validationTreeCiRetrySuccessScenario,
     validationTreeCiCancelRetryScenario,
