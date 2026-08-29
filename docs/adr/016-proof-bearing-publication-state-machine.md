@@ -17,22 +17,36 @@ Plan validation and Git publication are different facts.
 
 The record advances monotonically through these proven phases:
 
-| Phase                  | Required evidence                                                       |
-| ---------------------- | ----------------------------------------------------------------------- |
-| `candidate_sealed`     | Validated execution commit and target head observed at sealing          |
-| `artifacts_committed`  | Commit containing the final Plan and generated delivery artifacts       |
-| `target_integrated`    | Target base commit and assembled integration commit                     |
-| `target_published`     | Exact local or remote target commit and publication mode                |
-| `publication_verified` | A fresh Git read proves the target still names the published commit     |
-| `cleanup_complete`     | Execution checkout, branch, and temporary publication clone are settled |
+| Phase                  | Required evidence                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| `candidate_sealed`     | Validated execution commit and target head observed at sealing                             |
+| `artifacts_committed`  | Commit containing the final Plan and generated delivery artifacts                          |
+| `target_integrated`    | Exact target ref head protected by the next CAS/lease and the assembled integration commit |
+| `target_published`     | Exact local or remote target commit and publication mode                                   |
+| `publication_verified` | A fresh Git read proves the target still names the published commit                        |
+| `cleanup_complete`     | Execution checkout, branch, and temporary publication clone are settled                    |
 
 Every registry update uses a compare-and-swap revision under the existing registry lock. A stale process cannot
 overwrite newer proof. A failure annotates the current phase without moving it backward.
+
+The target may advance after an integration is assembled but before it is published. Until `target_published`, RunWield
+may replace the `target_integrated` evidence with a newly assembled commit whose target-base commit is the new exact ref
+head. This is another revision of the same phase, not a backward transition. Once publication succeeds, the integration
+identity is immutable.
 
 On restart, RunWield reads the record and current Git facts. It may advance a missing receipt only when Git proves the
 external effect already happened—for example, an integration commit exists in the saved publication clone or the remote
 target already equals the recorded integration commit. Otherwise it retries the current phase. It never reruns
 validation or regenerates committed artifacts merely because publication was interrupted.
+
+`artifactCommit` is the immutable source-branch boundary. Publication does not commit or otherwise advance the source
+branch after that phase. During cleanup, the normal proof is that the published target contains the source-branch tip.
+Recovery may also delete a source branch that advanced past `artifactCommit` only when Git proves that the artifact is
+published and every later source-branch commit is a single-parent empty commit. Any later commit that changes files or
+merges history keeps the branch for the user.
+
+For remote publication, recovery interprets `targetBaseCommit` exactly as the remote branch head used by the push lease,
+not as the integration commit's first parent. A temporary reconciliation merge may sit between those commits.
 
 Remote publication uses a stable temporary clone and never checks out, rebases, stashes, resets, or writes the user's
 primary checkout. It pushes the assembled commit with a lease.
