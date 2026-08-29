@@ -88,7 +88,11 @@ export type ValidationMessageRequest =
     | { kind: "manual_qa_failed" }
     | { kind: "manual_qa_start" }
     | { kind: "work_record_start" }
-    | { kind: "work_record_result"; status: "disabled" | "skipped" | "generated" | "linked" | "failed" }
+    | {
+        kind: "work_record_result";
+        status: "disabled" | "skipped" | "generated" | "linked" | "failed";
+        reason?: string;
+    }
     | { kind: "quick_fix_start" }
     | { kind: "quick_fix_running"; attempt: number; maxAttempts: number }
     | { kind: "quick_fix_canceled" }
@@ -279,6 +283,9 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             if (request.status === "generated" || request.status === "linked") return "The Work Record is ready.";
             if (request.status === "failed") {
                 return "RunWield could not make the Work Record. The finished Plan is safe.";
+            }
+            if (request.reason === "parent_not_terminal") {
+                return "The Work Record will be made after the parent Epic is finished.";
             }
             return "No Work Record was made.";
         case "quick_fix_start":

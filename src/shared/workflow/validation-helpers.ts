@@ -307,13 +307,18 @@ export async function runFeaturePostVerificationHandoffs({
         return {
             status: "failed" as const,
             planName,
+            reason: undefined,
             message: buildValidationUserMessage({ kind: "work_record_result", status: "failed" }),
         };
     });
     const [, workRecordResult] = await Promise.all([manualQaPromise, workRecordPromise]);
     emitRunWieldSystemStatus(
         hostedSession,
-        buildValidationUserMessage({ kind: "work_record_result", status: workRecordResult.status }),
+        buildValidationUserMessage({
+            kind: "work_record_result",
+            status: workRecordResult.status,
+            reason: workRecordResult.reason,
+        }),
         workRecordResult.status === "failed"
             ? "warning"
             : workRecordResult.status === "generated" || workRecordResult.status === "linked"

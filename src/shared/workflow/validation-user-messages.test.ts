@@ -101,6 +101,17 @@ Deno.test("publication messages name the selected target branch", () => {
     assert(messages.every((message) => !message.includes("main")));
 });
 
+Deno.test("Epic child Work Record message explains that generation waits for the parent", () => {
+    assertEquals(
+        buildValidationUserMessage({
+            kind: "work_record_result",
+            status: "skipped",
+            reason: "parent_not_terminal",
+        }),
+        "The Work Record will be made after the parent Epic is finished.",
+    );
+});
+
 Deno.test("incomplete publication cleanup names the Git objects and recovery commands", () => {
     const message = buildValidationUserMessage({
         kind: "publication_cleanup_incomplete",

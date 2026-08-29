@@ -212,7 +212,7 @@ export const twoChildProjectContinuationScenario = {
                             title: "Child two",
                             order: 2,
                             summary: "Second child lifecycle",
-                            dependencies: [],
+                            dependencies: ["01-child-one"],
                             affectedPaths: [],
                             executionAgent: "engineer",
                             collaborationRecommendation: "autonomous",
@@ -382,7 +382,7 @@ export const twoChildProjectContinuationScenario = {
         {
             type: "waitForPlanStatus",
             planName: "epic/01-child-one",
-            statuses: ["verified", "user_verified"],
+            statuses: ["validated", "verified", "user_verified"],
             // Two full child journeys run inside these two waits, each with real Git,
             // real transactions and real Agent turns. It takes ~95s on its own, and
             // `deno task ci` runs 12 files at a time, so the budget is sized for that
@@ -392,11 +392,26 @@ export const twoChildProjectContinuationScenario = {
         {
             type: "waitForPlanStatus",
             planName: "epic/02-child-two",
-            statuses: ["verified", "user_verified"],
+            statuses: ["validated", "verified", "user_verified"],
             timeoutMs: 240000,
         },
-        // No idle wait here: both children's terminal statuses above already prove
-        // the Epic finished, and after the continuation replaced the Session the
+        // An execution Plan becomes validated before publication finishes. Wait for
+        // the registry entry to disappear and the parent Epic to reach its terminal
+        // state so the evidence below observes the delivered branch, not an
+        // in-progress publication snapshot.
+        {
+            type: "waitForWorktreeRegistryStatus",
+            planName: "epic/02-child-two",
+            statuses: ["absent"],
+            timeoutMs: 240000,
+        },
+        {
+            type: "waitForPlanStatus",
+            planName: "epic",
+            statuses: ["validated", "verified", "user_verified"],
+            timeoutMs: 240000,
+        },
+        // No idle wait here: after continuation replaces the Session, the
         // composition tracks a Session the Runtime has closed, so idle never settles.
         { type: "captureProjectDurability", planName: "epic" },
         { type: "capturePublishedWorkRecords" },

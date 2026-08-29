@@ -2294,8 +2294,8 @@ Deno.test("resolveSiblingChildPlanDependencyStates exposes verified unverified a
             name: "epic/01-done",
             planName: "epic/01-done",
             planId: "done-id",
-            status: "verified",
-            attrs: { status: "verified" },
+            status: "validated",
+            attrs: { status: "validated" },
         },
         {
             name: "epic/02-active",
@@ -2311,17 +2311,28 @@ Deno.test("resolveSiblingChildPlanDependencyStates exposes verified unverified a
             status: "user_verified",
             attrs: { status: "user_verified" },
         },
+        {
+            name: "epic/04-legacy",
+            planName: "epic/04-legacy",
+            planId: "legacy-id",
+            status: "verified",
+            attrs: { status: "verified" },
+        },
     ]);
 
     assertEquals(
-        resolveSiblingChildPlanDependencyStates("epic", ["done", "epic/active", "user", "04-missing"], siblings),
+        resolveSiblingChildPlanDependencyStates(
+            "epic",
+            ["done", "epic/active", "user", "legacy", "05-missing"],
+            siblings,
+        ),
         [
             {
                 dependency: "done",
                 planId: "done-id",
                 planName: "epic/01-done",
                 path: undefined,
-                status: "verified",
+                status: "validated",
                 state: "verified",
             },
             {
@@ -2340,7 +2351,15 @@ Deno.test("resolveSiblingChildPlanDependencyStates exposes verified unverified a
                 status: "user_verified",
                 state: "user_verified",
             },
-            { dependency: "04-missing", state: "missing" },
+            {
+                dependency: "legacy",
+                planId: "legacy-id",
+                planName: "epic/04-legacy",
+                path: undefined,
+                status: "verified",
+                state: "verified",
+            },
+            { dependency: "05-missing", state: "missing" },
         ],
     );
 });

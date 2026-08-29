@@ -3874,9 +3874,9 @@ export function resolveSiblingChildPlanDependencyStates(parentPlan, dependencies
         };
         return {
             ...resolved,
-            state: status === "verified"
+            state: isRunWieldVerifiedStatus(status)
                 ? /** @type {const} */ ("verified")
-                : status === "user_verified"
+                : isUserVerifiedStatus(status)
                 ? /** @type {const} */ ("user_verified")
                 : /** @type {const} */ ("unverified"),
         };
