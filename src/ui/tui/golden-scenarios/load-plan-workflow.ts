@@ -852,15 +852,15 @@ export const loadPlanValidateWithoutCustomChecksScenario = {
         { type: "enter" },
         { type: "enter" },
         { type: "waitForScreen", text: "Status: implemented", timeoutMs: 30000 },
-        { type: "waitForScreen", text: "The build and tests passed.", timeoutMs: 90000 },
+        { type: "waitForScreen", text: "Tests and CI passed.", timeoutMs: 90000 },
         { type: "waitForIdle", timeoutMs: 90000 },
         { type: "captureProjectState", planNames: ["no-custom-checks"] },
     ],
     assertions: [
         assertsGoldenCoverage("workflow:load-plan", (result: GoldenScenarioResult) => {
             assertEventIncludes(result, "terminal:type:/load-plan no-custom-checks");
-            assertScreenIncludes(result, "The build and tests passed.");
-            assertScreenIncludes(result, "Workflow Validation failed");
+            assertScreenIncludes(result, "Tests and CI passed.");
+            assertScreenIncludes(result, "Validation failed");
         }),
         assertsGoldenCoverage("recovery:workflow-validation", (result: GoldenScenarioResult) => {
             const plan = projectState(result).plans?.find((entry) => entry.name === "no-custom-checks");
@@ -955,7 +955,7 @@ export const loadPlanDirectReviewRunScenario = {
             assertEventIncludes(result, "terminal:type:/load-plan direct-review-run");
             assertEventIncludes(result, "runtime:agent:plan-engineer");
             assertEventIncludes(result, "runtime:tool:start:task_completed");
-            assertScreenIncludes(result, "launching Plan Engineer to execute");
+            assertScreenIncludes(result, "Starting Plan Engineer");
             assert(
                 !result.events.some((event) => event.includes("runtime:tool:start:plan_written")),
                 "Direct review Approve & Run must not start Planner before execution.",

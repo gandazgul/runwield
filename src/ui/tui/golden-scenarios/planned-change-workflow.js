@@ -46,7 +46,7 @@ function assertRealPlanReviewRevisionAndApproval(result) {
     assertScreenIncludes(result, "Running the tests in");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
     assertScreenIncludes(result, "found no need for a fix");
-    assertScreenIncludes(result, "Adding the commits to main");
+    assertScreenIncludes(result, "Merging work into main");
     assertEventIncludes(result, "workflow:durability:delivery-checked");
     assertEventIncludes(result, "workflow:durability:registry-clean");
     assertEventIncludes(result, "workflow:durability:ancestry-checked");
@@ -344,7 +344,7 @@ export const plannedChangeReviewRepairValidationScenario = {
             assert(result.state.editorUsable === true, "Expected input to remain ready after the follow-up.");
         }),
         // The inline verdict block, asserted where it renders. `Reviewer:` is its own
-        // header — the pinned panel titles the same report "Reviewer latest Review" —
+        // header — the pinned panel titles the same report "Reviewer latest AI code review" —
         // and the verdict line is the body it exists to show.
         assertsGoldenCoverage("block:review-result", (result) => {
             assertScreenIncludes(result, "Reviewer:");
@@ -358,8 +358,8 @@ export const plannedChangeReviewRepairValidationScenario = {
             // Both strings exist only inside the panel's own rendering. An earlier
             // attempt asserted "Workflow Validation", which the Engineer's handoff
             // line also contains — it passed with the panel fully disabled.
-            assertScreenIncludes(result, "Workflow Validation verified");
-            assertScreenIncludes(result, "Reviewer latest Review");
+            assertScreenIncludes(result, "Validation passed");
+            assertScreenIncludes(result, "Reviewer latest AI code review");
         }),
     ],
 };
@@ -477,14 +477,14 @@ export const plannedChangeCiRepairReentryScenario = {
     assertions: [
         assertsGoldenCoverage("recovery:ci-repair", (result) => {
             // CI really failed and the repair was really dispatched.
-            assertScreenIncludes(result, "The build failed");
+            assertScreenIncludes(result, "Tests and CI failed");
             // ...and then the loop went back and ran CI again, rather than moving on or
             // starting the Plan over.
             assertScreenIncludes(result, "Running the tests in");
             // Semantic Review is only reachable once Mechanical Validation passes, so
             // this is the proof that re-entry landed in the right place.
             assertScreenIncludes(result, "found no need for a fix");
-            assertScreenIncludes(result, "Adding the commits to main");
+            assertScreenIncludes(result, "Merging work into main");
             const durability =
                 /** @type {{ goldenFileExists?: boolean, trackedFiles?: string, executionCommitPublished?: boolean } | undefined} */ (result
                     .state.workflowDurability);
@@ -856,7 +856,7 @@ export const plannedChangeValidationExhaustedScenario = {
     ],
     assertions: [
         assertsGoldenCoverage("recovery:validation-exhausted", (result) => {
-            assertScreenIncludes(result, "The build failed");
+            assertScreenIncludes(result, "Tests and CI failed");
             assertScreenIncludes(result, "tests for");
             const executionPlan =
                 /** @type {{ attrs?: Record<string, unknown> | null, registryEntry?: { status?: string } | null }} */ (result

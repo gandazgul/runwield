@@ -60,7 +60,9 @@ export async function resumePlanPublicationCleanup(
     const entries = (await listEntries(registryRoot, { migrate: false }))
         .filter((entry) => entry.status !== "abandoned" && (!planName || entry.planName === planName));
     if (entries.some((entry) => entries.filter((candidate) => candidate.planName === entry.planName).length > 1)) {
-        throw new Error("More than one execution attempt owns this Plan. Inspect the registry before cleanup.");
+        throw new Error(
+            "More than one execution attempt owns this Plan. Inspect the saved worktree records before cleanup.",
+        );
     }
     const notices: PublicationCleanupNotice[] = [];
     for (const entry of entries) {

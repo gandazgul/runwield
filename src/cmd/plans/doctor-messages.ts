@@ -8,7 +8,7 @@ export function doctorCleanMessage(repaired: number): string {
 export function doctorNeedsHelpMessage(repaired: number, remaining: number): string {
     const fixed = repaired > 0 ? `Fixed ${repaired} safe problem${repaired === 1 ? "" : "s"}. ` : "";
     const left = remaining === 1 ? "1 problem needs" : `${remaining} problems need`;
-    return `[RunWield] ${fixed}${left} your attention, run wld plans doctor --check to see them.`;
+    return `[RunWield] ${fixed}${left} your attention. Run wld plans doctor --check to see next steps.`;
 }
 
 export function doctorCheckMessage(issues: number): string {

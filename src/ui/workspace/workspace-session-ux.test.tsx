@@ -211,8 +211,8 @@ Deno.test("Session workflow sidebar uses canonical progress stages", async () =>
         deriveWorkflowSidebarStages({
             stages: [
                 { id: "execution", label: "Execution", state: "passed", detail: "Implementation reached validation." },
-                { id: "mechanical", label: "Mechanical Validation", state: "passed", detail: "Checks passed." },
-                { id: "semantic", label: "Semantic Code Review", state: "running", detail: "Review is active." },
+                { id: "mechanical", label: "Tests and CI", state: "passed", detail: "Checks passed." },
+                { id: "semantic", label: "AI code review", state: "running", detail: "Review is active." },
                 { id: "repair", label: "Repair", state: "not_required", detail: "No repair is active." },
                 { id: "completion", label: "Completion", state: "pending", detail: "Waiting for delivery." },
             ],

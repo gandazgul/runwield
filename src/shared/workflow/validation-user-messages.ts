@@ -15,10 +15,11 @@ export type ValidationUserMessageKey =
     | "lost_attempt";
 
 const MESSAGES: Record<ValidationUserMessageKey, string> = {
-    running_tests: "Running the tests now.",
+    running_tests: "Running tests and CI now.",
     plan_fixed: "The Plan copy is fixed. We will go on.",
     amendment_check_failed: "RunWield could not check the Plan change. Your work is safe. Try again.",
-    publication_note_failed: "The checks passed. RunWield could not save the test note. Your work is safe. Try again.",
+    publication_note_failed:
+        "Tests and CI passed. RunWield could not save the test note. Your work is safe. Try again.",
     merge_failed: "The merge did not work. Your work is safe. RunWield will try to fix it.",
     retry_pause: "The check stopped. Your work is safe. Try again.",
     already_running: "The check is still on.",
@@ -155,7 +156,7 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
         case "ci_running":
             return `Running the tests in ${request.cwd}.`;
         case "checks_passed":
-            return "The build and tests passed.";
+            return "Tests and CI passed.";
         case "repair_waiting":
             return `${request.agent} stopped. The repair is not done. The check will start when the work note comes.`;
         case "repair_blocked":
@@ -165,43 +166,43 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
         case "engineer_follow_up":
             return `The check is on hold. Send a note to ${request.agent} when you are ready.`;
         case "ci_repair":
-            return `The build failed. ${request.agent} will fix it now.`;
+            return `Tests and CI failed. ${request.agent} will fix it now.`;
         case "semantic_round":
             return request.mode === "discovery"
-                ? `Code review ${request.round} of ${request.maxRounds} has begun. It will check all the work.`
-                : `Code review ${request.round} of ${request.maxRounds} has begun. It will check the last fixes.`;
+                ? `AI code review ${request.round} of ${request.maxRounds} has begun. It will check all the work.`
+                : `AI code review ${request.round} of ${request.maxRounds} has begun. It will check the last fixes.`;
         case "semantic_diff_missing":
             return request.planOnly
                 ? "RunWield found Plan edits but no code. Ask the Engineer to restore the code, then try again."
                 : "RunWield found no code. Ask the Engineer to restore the code, then try again.";
         case "semantic_skipped":
             return request.reason === "non_git"
-                ? "Review skipped: this work is not in Git."
-                : "Review skipped: there are no code changes to read.";
+                ? "AI code review skipped: this work is not in Git."
+                : "AI code review skipped: there are no code changes to read.";
         case "semantic_approved":
-            return `Code review ${request.round} is done. It found no need for a fix.`;
+            return `AI code review ${request.round} is done. It found no need for a fix.`;
         case "review_repair":
             return request.repairKind === "human_feedback"
-                ? "Your code review found issues. A repair will start now."
-                : "The code review found issues. A repair will start now.";
+                ? "Your human review found issues. A repair will start now."
+                : "AI code review found issues. A repair will start now.";
         case "repair_feedback_prompt":
-            return "Tell the Validation Repair Engineer what to try next.";
+            return "Tell the Repair Engineer what to try next.";
         case "repair_feedback_default":
             return "Revisit the remaining findings using my guidance, verify the repair, and report again.";
         case "reviewer_nudge":
-            return `The reviewer needs more time for round ${request.round}. Try ${request.attempt} of 3.`;
+            return `AI code review needs more time for round ${request.round}. Try ${request.attempt} of 3.`;
         case "semantic_limit":
-            return `The reviewer checked ${request.planName} ${request.rounds} times. ${request.openCount} item(s) stay open. The tests ${
+            return `AI code review checked ${request.planName} ${request.rounds} times. ${request.openCount} item(s) stay open. Tests and CI ${
                 request.testsPass ? "pass" : "do not pass"
             }. Look once more, read it, or stop.`;
         case "human_review_offer":
-            return "The code review passed. Do you want to read the changes before the merge?";
+            return "AI code review passed. Do you want human review before merge?";
         case "human_review_wait":
-            return "Waiting for your code review.";
+            return "Need your human review.";
         case "human_review_prompt":
             return `Read the changes for ${request.planName}.`;
         case "human_review_approved":
-            return "Your code check is done. You said it is good.";
+            return "Human review is done. You approved the work.";
         case "qa_prepare":
             return `Making the test list for ${request.planName}.`;
         case "qa_ready":
@@ -220,7 +221,7 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
                 case "updating_target":
                     return `Adding new commits from ${request.targetBranch}.`;
                 case "combining_work":
-                    return `Adding the commits to ${request.targetBranch}.`;
+                    return `Merging work into ${request.targetBranch}.`;
                 case "publishing":
                     return `Sending the new commits to ${request.targetBranch}.`;
                 case "verifying":
@@ -271,7 +272,7 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
                 ? `${request.planName} is on ${request.targetBranch}.`
                 : `${request.planName} is done.`;
         case "context_blocked":
-            return `RunWield cannot check ${request.planName} now. Your work is safe. Try again.`;
+            return `RunWield cannot check ${request.planName} now. Inspect the work, then try again.`;
         case "validation_command_missing":
             return "This project has no test command yet.";
         case "validation_command_prompt":
@@ -301,7 +302,7 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
         case "quick_fix_canceled":
             return "The quick fix tests were stopped. You can keep work with the Engineer.";
         case "quick_fix_ci_passed":
-            return "The quick fix build and tests passed.";
+            return "Quick fix tests and CI passed.";
         case "quick_fix_qa":
             return "Making the quick fix test list.";
         case "quick_fix_passed":
@@ -331,7 +332,7 @@ export function validationUserMessage(key: ValidationUserMessageKey): string {
 
 export function validationPhasePauseMessage(phase?: "mechanical" | "semantic" | "delivery"): string {
     if (!phase) return "The check is on hold. Your work is safe.";
-    const names = { mechanical: "tests", semantic: "code review", delivery: "merge" } as const;
+    const names = { mechanical: "tests and CI", semantic: "AI code review", delivery: "combining commits" } as const;
     return `The check stopped before the ${names[phase]}. Your work is safe.`;
 }
 
@@ -345,7 +346,7 @@ export function validationMergeRepairMessage(
 }
 
 export function validationReviewerPauseMessage(planName: string): string {
-    return `The code review for ${planName} stopped. Your work is safe. Try again.`;
+    return `AI code review for ${planName} stopped. Your work is safe. Try again.`;
 }
 
 export type PlanRecoveryMessageKey =
@@ -416,7 +417,7 @@ export function buildPlanRecoveryUserMessage(request: PlanRecoveryMessageRequest
         case "manual_merge_unavailable":
             return "Manual worktree merge is not ready. Run the checks again.";
         case "missing_worktree":
-            return "The saved worktree is not ready. Your work is safe.";
+            return "RunWield cannot find the saved worktree. Inspect the Plan and Git, then try again.";
         case "missing_plan_pointer":
             return "The Plan does not point to this worktree. Run the checks again.";
         case "missing_target":
@@ -428,11 +429,11 @@ export function buildPlanRecoveryUserMessage(request: PlanRecoveryMessageRequest
         case "not_worktree":
             return "This Plan does not use a worktree merge.";
         case "incomplete_worktree":
-            return "The saved worktree details are incomplete. Your work is safe.";
+            return "Saved worktree info is missing. Check Git, then try again.";
         case "snapshot_restore_failed":
             return "The merge is done. RunWield could not restore the local Plan copy.";
         case "registry_update_failed":
-            return "The merge is done. RunWield could not save the worktree result.";
+            return "The merge is done. RunWield could not save the worktree result. Run Plans Doctor.";
         case "merged":
             return "The worktree changes are merged. The Plan is done.";
         case "result_record_failed":
@@ -468,17 +469,17 @@ export function buildPlanRecoveryUserMessage(request: PlanRecoveryMessageRequest
         case "stopped":
             return "Stopped here. The Plan is ready for work.";
         case "record_incomplete":
-            return "Some worktree facts are missing. RunWield cannot put them back.";
+            return "Saved worktree info is missing. RunWield cannot put it back.";
         case "record_restore_failed":
             return "RunWield could not restore the saved worktree details. Your work is safe.";
         case "record_restored":
             return `The saved worktree details for ${request.planName} are back.`;
         case "records_settled":
-            return `The ${request.count} old work note${request.count === 1 ? " is" : "s are"} done.`;
+            return `Fixed ${request.count} old Plan stop${request.count === 1 ? "" : "s"}.`;
         case "record_unfinished":
-            return `An old work note for ${request.planName} is not done.`;
+            return `An old Plan update for ${request.planName} is not closed.`;
         case "records_attested":
-            return `Closed on your word. The old notes for ${request.planName} were kept.`;
+            return `Closed on your word. The old Plan updates for ${request.planName} were kept.`;
         case "deleting_worktree":
             return `RunWield will now take out the worktree for ${request.planName}.`;
         case "git_delete_skipped":
@@ -520,9 +521,9 @@ export function buildPlanRecoveryUserMessage(request: PlanRecoveryMessageRequest
 }
 
 const RECOVERY_MESSAGES: Record<PlanRecoveryMessageKey, string> = {
-    merge_cleanup_failed: "The merge is done. Cleanup stopped. Your worktree is safe. Try again.",
+    merge_cleanup_failed: "The merge is done. Cleanup stopped. Inspect the worktree, then try again.",
     handoff_failed: "The merge is done. The next step stopped. Try again.",
-    merge_failed: "The merge did not work. Your worktree is safe. Try again.",
+    merge_failed: "The merge did not work. Inspect the source branch, then try again.",
     baseline_reset_failed: "RunWield could not clear the old test base. No files changed.",
     worktree_recreate_failed: "RunWield could not make the worktree. No files changed.",
     action_blocked: "RunWield could not do that now. No files changed.",

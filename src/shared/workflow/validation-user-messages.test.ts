@@ -89,7 +89,7 @@ Deno.test("publication messages name the selected target branch", () => {
         "Checking release/next for new commits.",
         "No remote is configured. Adding the commits to the local release/next branch.",
         "Adding new commits from release/next.",
-        "Adding the commits to release/next.",
+        "Merging work into release/next.",
         "Sending the new commits to release/next.",
         "Checking the new commits on release/next.",
         "The new commits are on release/next. Cleaning up the worktree and source branch.",

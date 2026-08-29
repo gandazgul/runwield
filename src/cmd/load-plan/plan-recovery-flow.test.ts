@@ -341,7 +341,7 @@ Deno.test("Plan Recovery menu outcomes re-prompt without fallthrough", async () 
     const proofContext = makeActionContext(proofProject.projectRoot, proofProject.plan, proofUi);
     proofContext.unresolvedRecords = [{ transitionId: "proof-record", operation: "reset", reason: "pending" }];
     assertEquals(await settleRecoveryRecords(proofContext), { kind: "menu" });
-    assertEquals(proofUi.messages.some((message) => message.includes("1 old work note is done")), true);
+    assertEquals(proofUi.messages.some((message) => message.includes("Fixed 1 old Plan stop")), true);
     assertEquals(proofContext.unresolvedRecords.length, 0);
 
     const declineProject = await makeRealRecoveryProject();
@@ -507,7 +507,7 @@ Deno.test("follow-up recovery keeps the menu available when the recorded worktre
     });
     assertEquals(result.result, "handled");
     assertEquals(result.ui.prompts.length, 2);
-    assertEquals(result.ui.messages.some((message) => message.includes("worktree facts are missing")), true);
+    assertEquals(result.ui.messages.some((message) => message.includes("Saved worktree info is missing")), true);
 });
 
 Deno.test("continuing an in-progress worktree keeps its Plan authoritative and rebuilds missing attempt data", async () => {

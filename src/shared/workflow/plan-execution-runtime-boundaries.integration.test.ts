@@ -205,7 +205,7 @@ Deno.test("a legacy segment handoff announces Plan Engineer before resuming", as
                     hostedSession: fixture.hostedSession,
                 });
 
-                assertEquals(fixture.statusMessages.includes("launching Plan Engineer to execute..."), true);
+                assertEquals(fixture.statusMessages.includes("Starting Plan Engineer..."), true);
                 assertEquals(fixture.statusMessages.includes("launching Engineer to execute..."), false);
                 assertEquals(fixture.turns[0]?.agentName, "plan-engineer");
                 assertEquals(result.executionComplete, true);

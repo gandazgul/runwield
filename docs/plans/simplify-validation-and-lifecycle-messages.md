@@ -18,9 +18,15 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-08-14T00:11:43-04:00"
-status: "ready_for_work"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "eb3b6ea6-e9f3-4021-bfd7-5d3b8d0f6b4f"
+    path: "docs/work-records/2026-08-29-simplified-validation-and-lifecycle-messages.md"
+    lastAttemptAt: "2026-08-29T03:38:32.492Z"
+targetBranch: "main"
 ---
 
 # Simplify Validation and Lifecycle Messages

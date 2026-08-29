@@ -1,3 +1,5 @@
+import { validationStageLabel } from "../../../shared/workflow/validation-progress-presentation.ts";
+
 /**
  * @typedef {Object} SessionAvailabilityInput
  * @property {string | null | undefined} [state]
@@ -118,9 +120,9 @@ export function deriveSessionAvailability(input) {
             : delivery
             ? "Delivery running"
             : semantic
-            ? "Semantic Code Review running"
+            ? `${validationStageLabel("semantic_review")} running`
             : mechanical
-            ? "Mechanical Validation running"
+            ? `${validationStageLabel("ci")} running`
             : "Execution running";
         return {
             key: failed ? "workflow-failed" : completed ? "workflow-completed" : "execution-workflow",

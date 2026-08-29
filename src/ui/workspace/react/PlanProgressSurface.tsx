@@ -18,7 +18,7 @@ const BASE_PROGRESS = {
     overall: {
         state: "running",
         label: "running",
-        detail: "Semantic Code Review is active.",
+        detail: "AI code review is running.",
         updatedAt: "2026-08-20T21:30:00-04:00",
         settled: false,
     },
@@ -27,21 +27,21 @@ const BASE_PROGRESS = {
             id: "execution",
             label: "Execution",
             state: "passed",
-            detail: "Implementation reached Workflow Validation.",
+            detail: "Implementation is ready for validation.",
             updatedAt: "2026-08-20T21:20:00-04:00",
         },
         {
             id: "mechanical",
-            label: "Mechanical Validation",
+            label: "Tests and CI",
             state: "passed",
-            detail: "Mechanical checks passed.",
+            detail: "Tests and CI passed.",
             updatedAt: "2026-08-20T21:25:00-04:00",
         },
         {
             id: "semantic",
-            label: "Semantic Code Review",
+            label: "AI code review",
             state: "running",
-            detail: "Semantic Code Review is active.",
+            detail: "AI code review is running.",
             updatedAt: "2026-08-20T21:30:00-04:00",
         },
         { id: "repair", label: "Repair", state: "not_required", detail: "No repair is active.", updatedAt: null },
@@ -49,14 +49,14 @@ const BASE_PROGRESS = {
             id: "delivery",
             label: "Delivery",
             state: "pending",
-            detail: "Waiting for Semantic Code Review.",
+            detail: "Waiting for AI code review.",
             updatedAt: null,
         },
         {
             id: "completion",
             label: "Completion",
             state: "pending",
-            detail: "Waiting for delivery evidence.",
+            detail: "Waiting for delivery to finish.",
             updatedAt: null,
         },
     ],
@@ -71,7 +71,7 @@ const BASE_PROGRESS = {
         segments: [
             { ordinal: 0, kind: "planning", label: "Planning segment 1", sealed: true, current: false },
             { ordinal: 1, kind: "execution", label: "Execution segment 2", sealed: true, current: false },
-            { ordinal: 2, kind: "semantic_repair", label: "Semantic Repair segment 3", sealed: false, current: true },
+            { ordinal: 2, kind: "semantic_repair", label: "AI review repair segment 3", sealed: false, current: true },
         ],
     },
     degraded: null,
@@ -85,10 +85,10 @@ const FIXTURE_VARIANTS = {
             ...BASE_PROGRESS.overall,
             state: "repairing",
             label: "repairing",
-            detail: "Semantic repair is active.",
+            detail: "AI code review repair is active.",
         },
         stages: BASE_PROGRESS.stages.map((stage) =>
-            stage.id === "repair" ? { ...stage, state: "running", detail: "Semantic repair is active." } : stage
+            stage.id === "repair" ? { ...stage, state: "running", detail: "AI code review repair is active." } : stage
         ),
     },
     publicationFailure: {
@@ -109,7 +109,7 @@ const FIXTURE_VARIANTS = {
                         "Delivery failed while publishing the work. This is a long failure message that wraps without hiding the next action or creating horizontal page overflow.",
                 }
                 : stage.id === "semantic"
-                ? { ...stage, state: "passed", detail: "Semantic Code Review passed." }
+                ? { ...stage, state: "passed", detail: "AI code review passed." }
                 : stage
         ),
     },
@@ -309,7 +309,7 @@ export function PlanProgressSurface({
                         <label className="plan-progress-fixture-picker">
                             Fixture state
                             <select value={fixtureKey} onChange={(event) => setFixtureKey(event.currentTarget.value)}>
-                                <option value="semantic">Semantic review</option>
+                                <option value="semantic">AI code review</option>
                                 <option value="repair">Repair running</option>
                                 <option value="publicationFailure">Publication failure</option>
                                 <option value="completed">Completed</option>
