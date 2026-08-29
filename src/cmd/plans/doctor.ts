@@ -43,6 +43,7 @@ import {
     reconcileEntryIdentity,
 } from "../../shared/worktree-registry.js";
 import { isEpicArtifactPlanName } from "../../shared/epic-artifacts.ts";
+import { isCommitPublishedToTarget } from "../../shared/isolated-publication.ts";
 
 /** A registry attempt as stored, before doctor proves anything about it. */
 type RegistryEntry = Awaited<ReturnType<typeof inspectWorktreeRegistry>>["entries"][number];
@@ -757,7 +758,12 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean) {
     ) {
         const evidence = plan.attrs.deliveryEvidence;
         if (evidence?.mode === "worktree_merge" && evidence.executionCommit && evidence.targetBranch) {
-            if (!(await isGitAncestor(projectRoot, evidence.executionCommit, evidence.targetBranch))) {
+            const published = await isCommitPublishedToTarget({
+                projectRoot,
+                targetBranch: evidence.targetBranch,
+                commit: evidence.executionCommit,
+            }).catch(() => isGitAncestor(projectRoot, evidence.executionCommit, evidence.targetBranch));
+            if (!published) {
                 issues.push({
                     kind: "uncertain_publication",
                     planName: plan.name,

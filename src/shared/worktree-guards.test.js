@@ -17,6 +17,7 @@ import { GitRepositoryRequiredError } from "./git.js";
 import {
     checkpointExecutionWorktree,
     deleteMergedWorktreeBranch,
+    deleteRemotelyPublishedWorktreeBranch,
     mergeExecutionWorktree,
     prepareTargetBranchRef,
     removeWorktreeGitArtifacts,
@@ -192,5 +193,65 @@ Deno.test("deleteMergedWorktreeBranch deletes a merged branch and keeps an unmer
         assertEquals(stillKept.deleted, false, "a branch with commits beyond its base survives");
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("remote publication cleanup deletes only empty source-branch commits after the published artifact", async () => {
+    const projectRoot = await makeRepo();
+    const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-branch-cleanup-remote-" });
+    try {
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+        await git(projectRoot, ["push", "-u", "origin", "main"]);
+
+        await git(projectRoot, ["checkout", "-b", "worktree/published-with-empty-checkpoint"]);
+        await Deno.writeTextFile(`${projectRoot}/published.txt`, "published\n");
+        await git(projectRoot, ["add", "published.txt"]);
+        await git(projectRoot, ["commit", "-m", "Seal publication artifact"]);
+        const artifactCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
+        await git(projectRoot, ["checkout", "main"]);
+        await git(projectRoot, ["merge", "--no-ff", "--no-edit", artifactCommit]);
+        await git(projectRoot, ["push", "origin", "main"]);
+        const publicationCommit = await git(projectRoot, ["rev-parse", "main"]);
+
+        await git(projectRoot, ["checkout", "worktree/published-with-empty-checkpoint"]);
+        await git(projectRoot, ["commit", "--allow-empty", "-m", "Redundant publication checkpoint"]);
+        await git(projectRoot, ["checkout", "main"]);
+
+        const cleaned = await deleteRemotelyPublishedWorktreeBranch({
+            projectRoot,
+            branch: "worktree/published-with-empty-checkpoint",
+            remote: "origin",
+            upstreamBranch: "main",
+            publicationCommit,
+            artifactCommit,
+        });
+        assertEquals(cleaned.deleted, true);
+        assertEquals(await git(projectRoot, ["branch", "--list", "worktree/published-with-empty-checkpoint"]), "");
+
+        await git(projectRoot, ["branch", "worktree/published-with-new-work", artifactCommit]);
+        await git(projectRoot, ["checkout", "worktree/published-with-new-work"]);
+        await Deno.writeTextFile(`${projectRoot}/not-published.txt`, "keep me\n");
+        await git(projectRoot, ["add", "not-published.txt"]);
+        await git(projectRoot, ["commit", "-m", "New work after publication"]);
+        await git(projectRoot, ["checkout", "main"]);
+
+        const kept = await deleteRemotelyPublishedWorktreeBranch({
+            projectRoot,
+            branch: "worktree/published-with-new-work",
+            remote: "origin",
+            upstreamBranch: "main",
+            publicationCommit,
+            artifactCommit,
+        });
+        assertEquals(kept.deleted, false);
+        assertStringIncludes(kept.reason, "was kept");
+        assertStringIncludes(
+            await git(projectRoot, ["branch", "--list", "worktree/published-with-new-work"]),
+            "worktree/published-with-new-work",
+        );
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
     }
 });

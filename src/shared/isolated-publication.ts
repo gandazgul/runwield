@@ -4,7 +4,7 @@
  */
 
 import { basename, dirname, join } from "@std/path";
-import { assertPreMergeCandidateUnchanged, checkpointExecutionWorktree, mergeExecutionWorktree } from "./worktree.js";
+import { assertPreMergeCandidateUnchanged, mergeExecutionWorktree } from "./worktree.js";
 import { RUNWIELD_GITIGNORE_BLOCK } from "./runwield-owned-paths.ts";
 
 interface CommandResult {
@@ -24,6 +24,7 @@ export interface IsolatedPublicationArgs {
     allowedPlanPaths: string[];
     publicationRoot?: string;
     repairedPublicationRoot?: string;
+    recordedTargetBaseCommit?: string;
     onProgress?: (progress: IsolatedPublicationProgress) => void;
     onIntegrated?: (evidence: PublicationIntegrationEvidence) => Promise<void>;
     onPublished?: (evidence: PublicationPublishedEvidence) => Promise<void>;
@@ -84,6 +85,12 @@ export interface UpstreamPublicationInspectionArgs {
     executionBranch: string;
     targetBranch: string;
     executionCommit: string;
+}
+
+export interface TargetPublicationInspectionArgs {
+    projectRoot: string;
+    targetBranch: string;
+    commit: string;
 }
 
 export class IsolatedPublicationError extends Error {
@@ -215,15 +222,31 @@ async function commitPublicationMetadata(publicationRoot: string, planName: stri
 export async function isExecutionCommitPublishedUpstream(
     args: UpstreamPublicationInspectionArgs,
 ): Promise<boolean> {
+    return await isCommitPublishedToTarget({
+        projectRoot: args.projectRoot,
+        targetBranch: args.targetBranch,
+        commit: args.executionCommit,
+    });
+}
+
+/**
+ * Prove a commit against the configured publication authority. A configured
+ * upstream is authoritative even when the user's local target branch is
+ * intentionally behind it.
+ */
+export async function isCommitPublishedToTarget(
+    args: TargetPublicationInspectionArgs,
+): Promise<boolean> {
+    const localResult = await runGitResult(args.projectRoot, [
+        "merge-base",
+        "--is-ancestor",
+        args.commit,
+        `refs/heads/${args.targetBranch}`,
+    ]);
+    if (localResult.code === 0) return true;
     const upstream = await resolveUpstream(args.projectRoot, args.targetBranch);
     if (!upstream) {
-        const result = await runGitResult(args.projectRoot, [
-            "merge-base",
-            "--is-ancestor",
-            args.executionCommit,
-            `refs/heads/${args.targetBranch}`,
-        ]);
-        return result.code === 0;
+        return false;
     }
     const inspectionRoot = await Deno.makeTempDir({ prefix: `runwield-inspect-${basename(args.projectRoot)}-` });
     try {
@@ -237,15 +260,10 @@ export async function isExecutionCommitPublishedUpstream(
             "publication",
             `+refs/heads/${upstream.branch}:refs/remotes/publication/${upstream.branch}`,
         ]);
-        await runGit(inspectionRoot, [
-            "fetch",
-            "runwield-source",
-            `+refs/heads/${args.executionBranch}:refs/remotes/runwield-source/${args.executionBranch}`,
-        ]);
         const result = await runGitResult(inspectionRoot, [
             "merge-base",
             "--is-ancestor",
-            args.executionCommit,
+            args.commit,
             `refs/remotes/publication/${upstream.branch}`,
         ]);
         return result.code === 0;
@@ -265,19 +283,14 @@ export async function publishExecutionWorktreeIsolated(
     await assertPreMergeCandidateUnchanged({
         worktreePath: args.executionCwd,
         sealedExecutionCommit: args.sealedExecutionCommit,
-        allowedPlanPaths: args.allowedPlanPaths,
+        allowedPlanPaths: [],
     });
-    const checkpoint = await checkpointExecutionWorktree({
-        worktreePath: args.executionCwd,
-        branch: args.executionBranch,
-        planName: args.planName,
-        planDescription: args.planDescription,
-    });
+    const executionMetadataCommit = args.sealedExecutionCommit;
     args.onProgress?.("reading_target");
     const upstream = await resolveUpstream(args.projectRoot, args.targetBranch);
     if (!upstream) {
         args.onProgress?.("using_local_target");
-        return await publishToLocalTarget(args, checkpoint.executionCommit);
+        return await publishToLocalTarget(args, executionMetadataCommit);
     }
     const requestedPublicationRoot = args.repairedPublicationRoot || args.publicationRoot;
     const requestedRootExists = requestedPublicationRoot
@@ -300,7 +313,8 @@ export async function publishExecutionWorktreeIsolated(
                 );
             }
             const expectedRemoteHead = await remoteHead(publicationRoot, upstream.url, upstream.branch);
-            const targetHeadBeforeMerge = expectedRemoteHead || await runGit(publicationRoot, ["rev-parse", "HEAD^1"]);
+            const targetHeadBeforeMerge = expectedRemoteHead || args.recordedTargetBaseCommit ||
+                await runGit(publicationRoot, ["rev-parse", "HEAD^1"]);
             if (expectedRemoteHead) {
                 const publicationTargetRef = `refs/remotes/publication/${upstream.branch}`;
                 await runGit(publicationRoot, [
@@ -404,7 +418,7 @@ export async function publishExecutionWorktreeIsolated(
             return {
                 publicationMode: "remote",
                 updatedPrimaryCheckout: false,
-                executionMetadataCommit: checkpoint.executionCommit,
+                executionMetadataCommit,
                 targetHeadBeforeMerge,
                 deliveryCommit,
                 publicationCommit,
@@ -440,6 +454,7 @@ export async function publishExecutionWorktreeIsolated(
             args.targetBranch,
             `refs/remotes/runwield-source/${args.targetBranch}`,
         ]);
+        const sourceTargetHead = await runGit(publicationRoot, ["rev-parse", "HEAD"]);
 
         if (expectedRemoteHead) {
             const containsRemote = await runGitResult(publicationRoot, [
@@ -471,7 +486,7 @@ export async function publishExecutionWorktreeIsolated(
                 }
             }
         }
-        const targetHeadBeforeMerge = await runGit(publicationRoot, ["rev-parse", "HEAD"]);
+        const targetHeadBeforeMerge = expectedRemoteHead || sourceTargetHead;
         await runGit(publicationRoot, [
             "branch",
             "-f",
@@ -529,7 +544,7 @@ export async function publishExecutionWorktreeIsolated(
         return {
             publicationMode: "remote",
             updatedPrimaryCheckout: false,
-            executionMetadataCommit: checkpoint.executionCommit,
+            executionMetadataCommit,
             targetHeadBeforeMerge,
             deliveryCommit,
             publicationCommit,
