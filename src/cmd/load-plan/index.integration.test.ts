@@ -280,7 +280,7 @@ Deno.test("load-plan prints its real command help", async () => {
 Deno.test("sibling dependency resolution reads canonical child Plans from the fixture catalogue", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
         await writePlan(projectRoot, "epic", { classification: "PROJECT", status: "ready_for_work" });
-        await writePlan(projectRoot, "epic/01-first", { status: "verified", parentPlan: "epic" });
+        await writePlan(projectRoot, "epic/01-first", { status: "validated", parentPlan: "epic" });
         await writePlan(projectRoot, "epic/02-second", { status: "implemented", parentPlan: "epic" });
 
         const dependencies = await resolveSiblingChildPlanDependencies(projectRoot, "epic", [
@@ -292,7 +292,7 @@ Deno.test("sibling dependency resolution reads canonical child Plans from the fi
         assertEquals(
             dependencies.map(({ dependency, planName, status, state }) => ({ dependency, planName, status, state })),
             [
-                { dependency: "01-first", planName: "epic/01-first", status: "verified", state: "verified" },
+                { dependency: "01-first", planName: "epic/01-first", status: "validated", state: "verified" },
                 {
                     dependency: "epic/02-second",
                     planName: "epic/02-second",

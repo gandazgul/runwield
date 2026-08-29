@@ -42,7 +42,7 @@ Deno.test("resolveEpicContinuation selects the earliest non-terminal child by or
     await writePlan(cwd, "epic/01-done", {
         classification: "FEATURE",
         complexity: "MEDIUM",
-        status: "verified",
+        status: "validated",
         summary: "Done",
         affectedPaths: [],
         parentPlan: "epic",
@@ -66,6 +66,7 @@ Deno.test("resolveEpicContinuation selects the earliest non-terminal child by or
         summary: "Draft",
         affectedPaths: [],
         parentPlan: "epic",
+        dependencies: ["01-done"],
         order: 2,
         createdAt: "2026-01-01T00:00:00.000Z",
     });

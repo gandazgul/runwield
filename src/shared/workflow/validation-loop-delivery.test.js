@@ -162,6 +162,8 @@ Deno.test("Epic child delivery commits its Manual QA artifact with verified meta
     });
 
     assertEquals(result.kind, "verified");
+    assertEquals(result.epicContinuation?.completedPlanName, "epic/01-one");
+    assertEquals(result.epicContinuation?.projectRoot, projectRoot);
     assertEquals((await loadPlan(projectRoot, "epic/01-one"))?.attrs.status, "validated");
     const artifact = await Deno.readTextFile(`${projectRoot}/docs/plans/epic/manual-qa.md`);
     assertStringIncludes(artifact, "# Manual QA for epic");

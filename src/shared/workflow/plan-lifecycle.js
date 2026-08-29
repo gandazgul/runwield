@@ -201,10 +201,7 @@ export function isArchiveEligiblePlanStatus(status) {
     return isTerminalPlanStatus(status);
 }
 
-/** @param {string | undefined | null} status */
-export function isDependencySatisfiedPlanStatus(status) {
-    return status === "validated" || status === "verified" || status === "user_verified";
-}
+export { isPlanDependencySatisfiedStatus as isDependencySatisfiedPlanStatus };
 
 const ALL_KNOWN_STATUSES = PLAN_STATUSES;
 
