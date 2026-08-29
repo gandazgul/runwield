@@ -1,8 +1,22 @@
-import type { RuntimeValidationProgress } from "../session/session-runtime-events.js";
-
-export type ValidationProgressStage = RuntimeValidationProgress["stage"];
-export type ValidationProgressOutcome = RuntimeValidationProgress["outcome"];
+export type ValidationProgressStage =
+    | "cycle"
+    | "ci"
+    | "engineer_repair"
+    | "semantic_review"
+    | "human_review"
+    | "merge"
+    | "manual_qa"
+    | "terminal";
+export type ValidationProgressOutcome = "running" | "paused" | "verified" | "failed";
 export type ValidationProgressCheckName = "ci" | "semanticReview" | "humanReview" | "merge";
+export type ValidationProgressCheckState = "pending" | "running" | "passed" | "failed" | "skipped" | "canceled";
+
+export interface RuntimeValidationProgressPresentationInput {
+    kind: "workflow" | "mechanical";
+    outcome: ValidationProgressOutcome;
+    stage: ValidationProgressStage;
+    checks: Record<ValidationProgressCheckName, ValidationProgressCheckState>;
+}
 
 const STAGE_LABELS: Record<ValidationProgressStage, string> = {
     cycle: "Validation",
@@ -41,13 +55,16 @@ export function validationOutcomeLabel(outcome: ValidationProgressOutcome): stri
     return OUTCOME_LABELS[outcome];
 }
 
-export function validationProgressHeading(progress: RuntimeValidationProgress): string {
+export function validationProgressHeading(progress: RuntimeValidationProgressPresentationInput): string {
+    if (progress.kind === "mechanical") {
+        return `${validationCheckLabel("ci")} ${validationOutcomeLabel(progress.outcome)}`;
+    }
     if (progress.outcome === "verified") return "Validation passed";
     if (progress.outcome === "failed") return "Validation failed";
     return `${validationStageLabel(progress.stage)} ${validationOutcomeLabel(progress.outcome)}`;
 }
 
-export function validationProgressCheckSummary(progress: RuntimeValidationProgress): string {
+export function validationProgressCheckSummary(progress: RuntimeValidationProgressPresentationInput): string {
     if (progress.kind === "mechanical") return `${validationCheckLabel("ci")} ${progress.checks.ci}`;
     return [
         `${validationCheckLabel("ci")} ${progress.checks.ci}`,

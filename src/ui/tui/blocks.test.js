@@ -351,7 +351,8 @@ Deno.test("ValidationHandoffBlock renders tests and CI wording for QUICK_FIX pro
     });
     const verifiedPlain = stripAnsi(verifiedBlock.render(120).join("\n"));
 
-    assertEquals(verifiedPlain.includes("Validation passed"), true);
+    assertEquals(verifiedPlain.includes("Tests and CI passed"), true);
+    assertEquals(verifiedPlain.includes("Validation passed"), false);
     assertEquals(verifiedPlain.includes("Mechanical Validation"), false);
 });
 

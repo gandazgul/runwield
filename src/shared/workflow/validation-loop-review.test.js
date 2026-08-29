@@ -337,7 +337,7 @@ Deno.test("runValidationPhase nudges the same reviewer session when review_compl
     assertStringIncludes(reviewOpts[1].userRequest, "have not called review_complete");
     assertEquals(reviewOpts[1].userRequest.includes("Approved Plan"), false);
     assertEquals(reviewOpts[0].sessionManager, reviewOpts[1].sessionManager);
-    assertStringIncludes(uiAPI.messages.join(" "), "reviewer needs more time");
+    assertStringIncludes(uiAPI.messages.join(" "), "AI code review needs more time");
 });
 
 Deno.test("runValidationPhase returns invalid review_complete arguments to the same Reviewer session", async () => {
@@ -425,7 +425,7 @@ Deno.test("runValidationPhase stops after one unknown Reviewer failure", async (
     assertEquals(reviewCalls, 1);
     assertEquals(result.kind, "failed");
     assertEquals(plan?.attrs.status, "validated_ci");
-    assertStringIncludes(uiAPI.messages.join(" "), "The code review for p stopped.");
+    assertStringIncludes(uiAPI.messages.join(" "), "AI code review for p stopped.");
     assertStringIncludes(uiAPI.messages.join(" "), "Context window exceeded");
 });
 
@@ -483,7 +483,7 @@ Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Fe
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
     assertEquals(plan?.attrs.status, "implemented");
     assertEquals(plan?.attrs.validationSemanticRounds, 1);
-    assertStringIncludes(uiAPI.messages.join(" "), "Code review 1 of 3 has begun");
+    assertStringIncludes(uiAPI.messages.join(" "), "AI code review 1 of 3 has begun");
 });
 
 Deno.test("runValidationPhase carries existing ledger identities and repair report into the next semantic round", async () => {

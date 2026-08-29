@@ -48,6 +48,18 @@ Deno.test("validation progress headings hide raw stages and counters", () => {
         progress({ kind: "workflow", outcome: "paused", stage: "human_review" }),
         progress({ kind: "workflow", outcome: "failed", stage: "terminal" }),
         progress({ kind: "workflow", outcome: "verified", stage: "terminal" }),
+        progress({
+            kind: "mechanical",
+            outcome: "failed",
+            stage: "terminal",
+            checks: { ...BASE_CHECKS, ci: "failed" },
+        }),
+        progress({
+            kind: "mechanical",
+            outcome: "verified",
+            stage: "terminal",
+            checks: { ...BASE_CHECKS, ci: "passed" },
+        }),
     ];
     const headings = cases.map(validationProgressHeading);
 
@@ -57,6 +69,8 @@ Deno.test("validation progress headings hide raw stages and counters", () => {
         "Human review paused",
         "Validation failed",
         "Validation passed",
+        "Tests and CI failed",
+        "Tests and CI passed",
     ]);
     for (const heading of headings) {
         assertEquals(heading.includes("semantic_review"), false, heading);
