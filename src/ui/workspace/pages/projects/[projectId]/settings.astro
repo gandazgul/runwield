@@ -1,0 +1,52 @@
+---
+import WorkspaceLayout from "../../../layouts/WorkspaceLayout.astro";
+import { loadOwnerProjects } from "../../../server/astro-owner-data.js";
+
+const projectId = Astro.params.projectId ?? "";
+const project = (await loadOwnerProjects()).find((item: { projectId: string }) => item.projectId === projectId);
+if (!project) Astro.response.status = 404;
+---
+<WorkspaceLayout title={project ? `${project.displayName} settings · RunWield Workspace` : "Project settings · RunWield Workspace"} selectedTab="projects" url={Astro.url.href}>
+    {project ? (
+        <>
+            <section class="page-header">
+                <h1>{project.displayName} settings</h1>
+                <p>{project.rootLabel} · {project.healthStatus}</p>
+            </section>
+            <section class="owner-card project-settings-card">
+                <div class="card-actions">
+                    <a class="action-primary" href={`/projects/${encodeURIComponent(project.projectId)}/plans`}>Open Plan Board</a>
+                    <a class="action-secondary" href={`/projects/${encodeURIComponent(project.projectId)}/sessions/new`}>New Session</a>
+                    <a class="action-secondary" href="/devices">Devices</a>
+                </div>
+            </section>
+            <section class="owner-card project-settings-card">
+                <h2>Project root</h2>
+                <form class="owner-form project-relink-form" data-project-relink={project.projectId}>
+                    <label>Relink Project root <input name="newRoot" placeholder="New absolute path" /></label>
+                    <button class="action-secondary" type="submit">Relink</button>
+                </form>
+            </section>
+            <section class="owner-card project-settings-card">
+                <h2>Maintenance</h2>
+                <div class="card-actions">
+                    <button class="action-secondary" data-project-action={project.projectId} data-action={project.lifecycle === "disabled" ? "enable" : "disable"}>{project.lifecycle === "disabled" ? "Enable" : "Disable"}</button>
+                    <button class="action-secondary" data-project-action={project.projectId} data-action="rescan">Full Session rescan</button>
+                    <button class="action-danger" data-project-action={project.projectId} data-action={project.lifecycle === "removed" ? "restore" : "remove"}>{project.lifecycle === "removed" ? "Restore" : "Remove"}</button>
+                </div>
+                <pre class="project-diagnostics" data-project-diagnostics={project.projectId} hidden></pre>
+            </section>
+            <script is:inline>
+                function ownerCookie(name){return document.cookie.split('; ').find(v=>v.startsWith(name+'='))?.split('=').slice(1).join('=')||'';}
+                async function ownerFetch(url,options={}){options.headers=Object.assign({'content-type':'application/json','x-runwield-csrf':decodeURIComponent(ownerCookie('rw_owner_csrf'))},options.headers||{});return await fetch(url,options);}
+                document.querySelectorAll('[data-project-action]').forEach((button)=>button.addEventListener('click',async()=>{if(button.dataset.action==='remove'&&!confirm('Remove this Project from Workspace? Repository files are not deleted.'))return;const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(button.dataset.projectAction)+'/action',{method:'POST',body:JSON.stringify({action:button.dataset.action})});const data=await response.json().catch(()=>({}));if(response.ok){if(button.dataset.action==='rescan'){const diagnostics=document.querySelector('[data-project-diagnostics="'+CSS.escape(button.dataset.projectAction)+'"]');if(diagnostics){diagnostics.hidden=false;diagnostics.textContent=(data.diagnostics||[]).length?JSON.stringify(data.diagnostics,null,2):'Full Session catalog rescan completed with no diagnostics.';}return;}location.reload();} else alert(data.error); }));
+                document.querySelectorAll('[data-project-relink]').forEach((relinkForm)=>relinkForm.addEventListener('submit',async(event)=>{event.preventDefault();const formData=new FormData(relinkForm);const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(relinkForm.dataset.projectRelink)+'/action',{method:'POST',body:JSON.stringify({action:'relink',newRoot:formData.get('newRoot')})});if(response.ok) location.reload(); else alert((await response.json()).error);}));
+            </script>
+        </>
+    ) : (
+        <section class="error-panel">
+            <h2>Project settings not found</h2>
+            <p>The requested Project is not registered.</p>
+        </section>
+    )}
+</WorkspaceLayout>

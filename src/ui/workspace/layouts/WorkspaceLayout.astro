@@ -27,43 +27,31 @@ function linkWithToken(path: string) {
         <link rel="stylesheet" href="/theme.css" />
     </head>
     <body class="theme-runwield">
-        <div class="workspace-shell" data-selected-tab={selectedTab} data-astro-workspace-shell>
-            <header class="topbar">
-                <a class="brand" href={linkWithToken("/")} aria-label="RunWield Planning Workspace home">
-                    <img class="brand-logo" src="/brand/logo.svg" alt="" aria-hidden="true" />
-                    <span>RunWield Workspace</span>
-                </a>
-            </header>
-            <nav class="tabs" aria-label="Workspace views">
-                {selectedTab === "projects" || selectedTab === "devices" ? (
-                    <>
-                        <a class={selectedTab === "projects" ? "active" : ""} data-tab="projects" href={linkWithToken("/")}>
-                            Projects
-                        </a>
-                        <a class={selectedTab === "devices" ? "active" : ""} data-tab="devices" href={linkWithToken("/devices")}>
-                            Devices
-                        </a>
-                    </>
-                ) : (
-                    <>
-                        <a class={selectedTab === "active" ? "active" : ""} data-tab="active" href={linkWithToken("/")}>
-                            Plan Board
-                        </a>
-                        <a class={selectedTab === "closed" ? "active" : ""} data-tab="closed" href={linkWithToken("/closed")}>
-                            Closed
-                        </a>
-                        <a class={selectedTab === "on-hold" ? "active" : ""} data-tab="on-hold" href={linkWithToken("/on-hold")}>
-                            On Hold
-                        </a>
-                    </>
-                )}
-                <div class="tab-search-slot" data-plan-search-slot>
-                    <slot name="toolbar" />
+        <div class="workspace-shell workspace-shell-with-sidebar" data-selected-tab={selectedTab} data-astro-workspace-shell>
+            <aside class="workspace-sidebar" data-workspace-sidebar aria-label="Workspace navigation">
+                <div class="workspace-sidebar-brand">
+                    <a href={linkWithToken("/")} aria-label="RunWield Workspace home">
+                        <img src="/brand/logo.svg" alt="" aria-hidden="true" />
+                        <span>RunWield</span>
+                    </a>
                 </div>
-            </nav>
-            <main>
-                <slot />
-            </main>
+                <p class="workspace-sidebar-empty">Loading Workspace…</p>
+            </aside>
+            <div class="workspace-main-shell">
+                <header class="workspace-main-header">
+                    <a class="brand workspace-main-brand" href={linkWithToken("/")} aria-label="RunWield Workspace home">
+                        <img class="brand-logo" src="/brand/logo.svg" alt="" aria-hidden="true" />
+                        <span>RunWield Workspace</span>
+                    </a>
+                    <div class="tab-search-slot" data-plan-search-slot>
+                        <slot name="toolbar" />
+                    </div>
+                </header>
+                <main>
+                    <slot />
+                </main>
+            </div>
         </div>
+        <script is:inline src="/workspace-shell.js"></script>
     </body>
 </html>

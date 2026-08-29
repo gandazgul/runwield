@@ -144,9 +144,9 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         );
         assertEquals(page.status, 200);
         const html = await page.text();
-        assertStringIncludes(html, "Project Plan Board");
+        assertStringIncludes(html, "Owner Project Plan Board");
         assertStringIncludes(html, "Visible owner plan");
-        assertStringIncludes(html, "current owner-safe actions");
+        assertStringIncludes(html, "project · available");
         assertStringIncludes(html, "Open a Plan to review its current status and available owner actions.");
         assertEquals(html.includes("Drag this Plan Card"), false);
 
@@ -287,6 +287,17 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         assertStringIncludes(sessionsText, "[local path]");
         assertEquals(sessionsText.includes(projectRoot), false);
         assertEquals(sessionsText.includes("sessionPath"), false);
+
+        const sidebarApi = await app(
+            new Request("http://127.0.0.1:8787/api/owner/sidebar", {
+                headers: { cookie: cookiePair(claimed.credential) },
+            }),
+        );
+        assertEquals(sidebarApi.status, 200);
+        const sidebarText = JSON.stringify(await sidebarApi.json());
+        assertStringIncludes(sidebarText, "Owner Project");
+        assertStringIncludes(sidebarText, "Phone Ideation");
+        assertEquals(sidebarText.includes(projectRoot), false);
 
         const optionsApi = await app(
             new Request(`http://127.0.0.1:8787/api/owner/projects/${project.projectId}/session-options`, {
@@ -442,6 +453,18 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         );
         assertEquals(newSessionPage.status === 404, false);
         assertStringIncludes(await newSessionPage.text(), "New Project Session");
+
+        const settingsPage = await app(
+            new Request(`http://127.0.0.1:8787/projects/${project.projectId}/settings`, {
+                headers: { cookie: cookiePair(claimed.credential) },
+            }),
+        );
+        assertEquals(settingsPage.status === 404, false);
+        const settingsHtml = await settingsPage.text();
+        assertStringIncludes(settingsHtml, "Owner Project settings");
+        assertStringIncludes(settingsHtml, "Open Plan Board");
+        assertStringIncludes(settingsHtml, "Devices");
+        assertStringIncludes(settingsHtml, "Relink Project root");
 
         /** @type {any} */ (store).getSessionById = (runwieldSessionId) =>
             runwieldSessionId === "session-owned"

@@ -54,6 +54,7 @@ import {
     ownerProjectPlanActionApi,
     ownerProjectPlanDetailApi,
     ownerProjectPlanProgressApi,
+    ownerSidebarApi,
     pairingClaimApi,
     pairingRequestApi,
     pairingStatusApi,
@@ -94,6 +95,7 @@ const STYLES_PATH = join(WORKSPACE_DIR, "static", "styles.css");
 const TOKENS_CSS_PATH = join(DESIGN_SYSTEM_DIR, "tokens.css");
 const COMPONENTS_CSS_PATH = join(DESIGN_SYSTEM_DIR, "components.css");
 const WORKSPACE_CSS_PATH = join(WORKSPACE_DIR, "static", "workspace.css");
+const WORKSPACE_SHELL_JS_PATH = join(WORKSPACE_DIR, "static", "workspace-shell.ts");
 const LOGO_PATH = join(ROOT_DIR, "brand", "logo.svg");
 const ASTRO_SOURCE_DIST_DIR = join(ROOT_DIR, "dist", "workspace");
 const ASTRO_RUNTIME_DIR = join(ROOT_DIR, "dist", "workspace-runtime");
@@ -272,6 +274,7 @@ export function createOwnerWorkspaceApp(options) {
         "/projects/:projectId/plans/:planId",
         async (ctx) => ownerHtmlResponse("Project Plan", await renderOwnerPlanDetail(ctx)),
     );
+    app.get("/projects/:projectId/settings", renderOwnerProjectSettingsPage);
     app.get("/projects/:projectId/sessions", renderOwnerProjectSessionsPage);
     app.get("/projects/:projectId/sessions/new", renderOwnerProjectSessionNewPage);
     app.get("/projects/:projectId/sessions/:runwieldSessionId", renderOwnerProjectSessionDetailPage);
@@ -279,6 +282,7 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/pairing/status", pairingStatusApi);
     app.post("/api/owner/pairing/claim", pairingClaimApi);
     app.get("/api/owner/projects", projectsApi);
+    app.get("/api/owner/sidebar", ownerSidebarApi);
     app.post("/api/owner/projects", registerProjectApi);
     app.post("/api/owner/projects/:projectId/action", projectActionApi);
     app.get("/api/owner/projects/:projectId/plans", ownerProjectBoardApi);
@@ -646,7 +650,7 @@ function ownerHtmlResponse(title, body, status = 200) {
     const html =
         `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${
             escapeHtml(title)
-        }</title><link rel="icon" href="/brand/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/components.css"><link rel="stylesheet" href="/workspace.css"><link rel="stylesheet" href="/theme.css"></head><body class="theme-runwield"><div class="workspace-shell owner-workspace-shell"><header class="topbar"><a class="brand" href="/" aria-label="RunWield Workspace home"><img class="brand-logo" src="/brand/logo.svg" alt="" aria-hidden="true"><span>RunWield Workspace</span></a></header><nav class="tabs" aria-label="Workspace views"><a data-tab="projects" href="/" class="active">Projects</a><a data-tab="devices" href="/devices">Devices</a></nav><main>${body}</main></div></body></html>`;
+        }</title><link rel="icon" href="/brand/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/components.css"><link rel="stylesheet" href="/workspace.css"><link rel="stylesheet" href="/theme.css"></head><body class="theme-runwield"><div class="workspace-shell workspace-shell-with-sidebar owner-workspace-shell"><aside class="workspace-sidebar" data-workspace-sidebar aria-label="Workspace navigation"><p class="workspace-sidebar-empty">Loading Workspace…</p></aside><div class="workspace-main-shell"><header class="workspace-main-header"><a class="brand workspace-main-brand" href="/" aria-label="RunWield Workspace home"><img class="brand-logo" src="/brand/logo.svg" alt="" aria-hidden="true"><span>RunWield Workspace</span></a></header><main>${body}</main></div></div><script src="/workspace-shell.js"></script></body></html>`;
     return withOwnerSecurityHeaders(
         new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8" } }),
     );
@@ -719,8 +723,49 @@ function renderOwnerHome(ctx) {
                 escapeHtml(project.projectId)
             }" hidden></pre></article>`
         ).join("")
-        : `<section class="owner-card empty-state"><h2>No registered Projects yet</h2><p>Register trusted local Projects before Workspace can browse Plans or Sessions.</p></section>`;
-    return `<section class="page-header"><h1>Projects</h1><p>Register and repair trusted Project roots.</p></section><section class="owner-card"><form id="project-register" class="owner-form"><label>Project root <input name="root" placeholder="/absolute/path/to/project" required></label><label>Display name <input name="displayName" placeholder="Optional"></label><button class="action-primary" type="submit">Register Project</button></form><p id="project-message" aria-live="polite"></p></section><section class="project-grid">${cards}</section><script>${ownerMutationScript()}document.getElementById('project-register').addEventListener('submit',async(event)=>{event.preventDefault();const form=new FormData(event.currentTarget);const response=await ownerFetch('/api/owner/projects',{method:'POST',body:JSON.stringify({root:form.get('root'),displayName:form.get('displayName')})});if(response.ok) location.reload(); else document.getElementById('project-message').textContent=(await response.json()).error;});document.querySelectorAll('[data-project-action]').forEach((button)=>button.addEventListener('click',async()=>{if(button.dataset.action==='remove'&&!confirm('Remove this Project from Workspace? Repository files are not deleted.'))return;const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(button.dataset.projectAction)+'/action',{method:'POST',body:JSON.stringify({action:button.dataset.action})});const data=await response.json().catch(()=>({}));if(response.ok){if(button.dataset.action==='rescan'){const diagnostics=document.querySelector('[data-project-diagnostics="'+CSS.escape(button.dataset.projectAction)+'"]');if(diagnostics){diagnostics.hidden=false;diagnostics.textContent=(data.diagnostics||[]).length?JSON.stringify(data.diagnostics,null,2):'Full Session catalog rescan completed with no diagnostics.';}return;}location.reload();} else alert(data.error); }));document.querySelectorAll('[data-project-relink]').forEach((relinkForm)=>relinkForm.addEventListener('submit',async(event)=>{event.preventDefault();const formData=new FormData(relinkForm);const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(relinkForm.dataset.projectRelink)+'/action',{method:'POST',body:JSON.stringify({action:'relink',newRoot:formData.get('newRoot')})});if(response.ok) location.reload(); else alert((await response.json()).error);}));</script>`;
+        : `<section class="owner-card empty-state"><h2>No registered Projects yet</h2><p>Register a trusted local Project before Workspace can open Sessions.</p></section>`;
+    return `<section class="page-header"><h1>Workspace</h1><p>Workspace opens your last Session. If no Session exists, it starts from the first Project.</p></section><section class="owner-card"><form id="project-register" class="owner-form"><label>Project root <input name="root" placeholder="/absolute/path/to/project" required></label><label>Display name <input name="displayName" placeholder="Optional"></label><button class="action-primary" type="submit">Register Project</button></form><p id="project-message" aria-live="polite"></p></section><section class="project-grid">${cards}</section><script>${ownerMutationScript()}document.getElementById('project-register').addEventListener('submit',async(event)=>{event.preventDefault();const form=new FormData(event.currentTarget);const response=await ownerFetch('/api/owner/projects',{method:'POST',body:JSON.stringify({root:form.get('root'),displayName:form.get('displayName')})});if(response.ok) location.reload(); else document.getElementById('project-message').textContent=(await response.json()).error;});document.querySelectorAll('[data-project-action]').forEach((button)=>button.addEventListener('click',async()=>{if(button.dataset.action==='remove'&&!confirm('Remove this Project from Workspace? Repository files are not deleted.'))return;const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(button.dataset.projectAction)+'/action',{method:'POST',body:JSON.stringify({action:button.dataset.action})});const data=await response.json().catch(()=>({}));if(response.ok){if(button.dataset.action==='rescan'){const diagnostics=document.querySelector('[data-project-diagnostics="'+CSS.escape(button.dataset.projectAction)+'"]');if(diagnostics){diagnostics.hidden=false;diagnostics.textContent=(data.diagnostics||[]).length?JSON.stringify(data.diagnostics,null,2):'Full Session catalog rescan completed with no diagnostics.';}return;}location.reload();} else alert(data.error); }));document.querySelectorAll('[data-project-relink]').forEach((relinkForm)=>relinkForm.addEventListener('submit',async(event)=>{event.preventDefault();const formData=new FormData(relinkForm);const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(relinkForm.dataset.projectRelink)+'/action',{method:'POST',body:JSON.stringify({action:'relink',newRoot:formData.get('newRoot')})});if(response.ok) location.reload(); else alert((await response.json()).error);}));</script>`;
+}
+
+/** @param {any} ctx */
+async function renderOwnerProjectSettingsPage(ctx) {
+    const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+    const response = await renderAstroPage(ctx.req, root);
+    if (response) return response;
+    const project = listOwnerProjects(ctx.state.store).find((item) => item.projectId === ctx.params.projectId);
+    if (!project) {
+        return ownerHtmlResponse(
+            "Project settings not found",
+            `<section class="error-panel"><h2>Project settings not found</h2><p>The requested Project is not registered.</p></section>`,
+            404,
+        );
+    }
+    return ownerHtmlResponse(
+        `${project.displayName} settings`,
+        `<section class="page-header"><h1>${escapeHtml(project.displayName)} settings</h1><p>${
+            escapeHtml(project.rootLabel)
+        } · ${
+            escapeHtml(project.healthStatus)
+        }</p></section><section class="owner-card project-settings-card"><div class="card-actions"><a class="action-primary" href="/projects/${
+            encodeURIComponent(project.projectId)
+        }/plans">Open Plan Board</a><a class="action-secondary" href="/projects/${
+            encodeURIComponent(project.projectId)
+        }/sessions/new">New Session</a><a class="action-secondary" href="/devices">Devices</a></div></section><section class="owner-card project-settings-card"><h2>Project root</h2><form class="owner-form project-relink-form" data-project-relink="${
+            escapeHtml(project.projectId)
+        }"><label>Relink Project root <input name="newRoot" placeholder="New absolute path"></label><button class="action-secondary" type="submit">Relink</button></form></section><section class="owner-card project-settings-card"><h2>Maintenance</h2><div class="card-actions"><button class="action-secondary" data-project-action="${
+            escapeHtml(project.projectId)
+        }" data-action="${project.lifecycle === "disabled" ? "enable" : "disable"}">${
+            project.lifecycle === "disabled" ? "Enable" : "Disable"
+        }</button><button class="action-secondary" data-project-action="${
+            escapeHtml(project.projectId)
+        }" data-action="rescan">Full Session rescan</button><button class="action-danger" data-project-action="${
+            escapeHtml(project.projectId)
+        }" data-action="${project.lifecycle === "removed" ? "restore" : "remove"}">${
+            project.lifecycle === "removed" ? "Restore" : "Remove"
+        }</button></div><pre class="project-diagnostics" data-project-diagnostics="${
+            escapeHtml(project.projectId)
+        }" hidden></pre></section><script>${ownerMutationScript()}document.querySelectorAll('[data-project-action]').forEach((button)=>button.addEventListener('click',async()=>{if(button.dataset.action==='remove'&&!confirm('Remove this Project from Workspace? Repository files are not deleted.'))return;const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(button.dataset.projectAction)+'/action',{method:'POST',body:JSON.stringify({action:button.dataset.action})});const data=await response.json().catch(()=>({}));if(response.ok){if(button.dataset.action==='rescan'){const diagnostics=document.querySelector('[data-project-diagnostics="'+CSS.escape(button.dataset.projectAction)+'"]');if(diagnostics){diagnostics.hidden=false;diagnostics.textContent=(data.diagnostics||[]).length?JSON.stringify(data.diagnostics,null,2):'Full Session catalog rescan completed with no diagnostics.';}return;}location.reload();} else alert(data.error); }));document.querySelectorAll('[data-project-relink]').forEach((relinkForm)=>relinkForm.addEventListener('submit',async(event)=>{event.preventDefault();const formData=new FormData(relinkForm);const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(relinkForm.dataset.projectRelink)+'/action',{method:'POST',body:JSON.stringify({action:'relink',newRoot:formData.get('newRoot')})});if(response.ok) location.reload(); else alert((await response.json()).error);}));</script>`,
+    );
 }
 
 /** @param {any} ctx */
@@ -781,6 +826,7 @@ function ownerPlanBoardSearchScript(boardId, searchIndex) {
 /** @param {any} ctx @param {"active" | "closed" | "on-hold"} view */
 async function renderOwnerProjectBoard(ctx, view) {
     const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+    const project = listOwnerProjects(ctx.state.store).find((item) => item.projectId === ctx.params.projectId);
     const board = await loadBoard(root);
     const componentView = ownerBoardScreenKey(view);
     const projectId = encodeURIComponent(ctx.params.projectId);
@@ -804,7 +850,15 @@ async function renderOwnerProjectBoard(ctx, view) {
     });
     const boardId = `status-board-${componentView}`;
     const searchIndex = buildPlanBoardSearchIndex(board.screens[componentView]);
-    return `<section class="page-header"><a class="detail-back-link" href="/">← Projects</a><h1>Project Plan Board</h1><p>Owner Workspace shows registered Project Plans and their current owner-safe actions.</p></section>${tabs}<div class="toolbar">${toolbar}</div>${boardHtml}${
+    return `<section class="page-header"><h1>${
+        escapeHtml(project ? `${project.displayName} Plan Board` : "Project Plan Board")
+    }</h1><p>${
+        escapeHtml(
+            project
+                ? `${project.rootLabel} · ${project.healthStatus}`
+                : "Owner Workspace shows registered Project Plans and their current owner-safe actions.",
+        )
+    }</p></section>${tabs}<div class="toolbar">${toolbar}</div>${boardHtml}${
         ownerPlanBoardSearchScript(boardId, searchIndex)
     }`;
 }
@@ -1001,6 +1055,7 @@ function registerStaticRoutes(app) {
     app.get("/tokens.css", async () => await handleStaticRoute("/tokens.css"));
     app.get("/components.css", async () => await handleStaticRoute("/components.css"));
     app.get("/workspace.css", async () => await handleStaticRoute("/workspace.css"));
+    app.get("/workspace-shell.js", async () => await handleStaticRoute("/workspace-shell.js"));
     app.get("/theme.css", async () => await handleStaticRoute("/theme.css"));
     app.get("/brand/logo.svg", async () => await handleStaticRoute("/brand/logo.svg"));
     app.get("/_astro/:asset", async (ctx) => await handleStaticRoute(ctx.url.pathname));
@@ -1012,6 +1067,9 @@ async function handleStaticRoute(pathname) {
     if (pathname === "/tokens.css") return await textFileResponse(TOKENS_CSS_PATH, "text/css; charset=utf-8");
     if (pathname === "/components.css") return await textFileResponse(COMPONENTS_CSS_PATH, "text/css; charset=utf-8");
     if (pathname === "/workspace.css") return await textFileResponse(WORKSPACE_CSS_PATH, "text/css; charset=utf-8");
+    if (pathname === "/workspace-shell.js") {
+        return await textFileResponse(WORKSPACE_SHELL_JS_PATH, "text/javascript; charset=utf-8");
+    }
     if (pathname === "/theme.css") {
         const css = await loadRunWieldThemeCss();
         return new Response(css, {
@@ -1101,6 +1159,7 @@ function isPublicWorkspaceAsset(pathname) {
         pathname === "/tokens.css" ||
         pathname === "/components.css" ||
         pathname === "/workspace.css" ||
+        pathname === "/workspace-shell.js" ||
         pathname === "/theme.css" ||
         pathname === "/brand/logo.svg" ||
         pathname.startsWith("/_astro/");

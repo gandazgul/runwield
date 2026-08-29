@@ -2,9 +2,10 @@
 import WorkspaceLayout from "../../../layouts/WorkspaceLayout.astro";
 import { PlanBoard } from "../../../components/Board.jsx";
 import { serializeCanonicalPlanError } from "../../../server/astro-canonical-data.js";
-import { loadOwnerProjectBoard } from "../../../server/astro-owner-data.js";
+import { loadOwnerProjectBoard, loadOwnerProjects } from "../../../server/astro-owner-data.js";
 
 const projectId = Astro.params.projectId ?? "";
+const project = (await loadOwnerProjects()).find((item: { projectId: string }) => item.projectId === projectId);
 let board = null;
 let error = null;
 try {
@@ -16,9 +17,8 @@ try {
 ---
 <WorkspaceLayout title="Project Plan Board" selectedTab="projects" url={Astro.url.href}>
     <section class="page-header">
-        <a class="detail-back-link" href="/">← Projects</a>
-        <h1>Project Plan Board</h1>
-        <p>Owner Workspace shows registered Project Plans within their Project boundary.</p>
+        <h1>{project ? `${project.displayName} Plan Board` : "Project Plan Board"}</h1>
+        <p>{project ? `${project.rootLabel} · ${project.healthStatus}` : "Owner Workspace shows registered Project Plans within their Project boundary."}</p>
     </section>
     {error ? (
         <section class="error-panel">

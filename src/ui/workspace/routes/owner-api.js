@@ -159,6 +159,29 @@ export function projectsApi(ctx) {
 }
 
 /** @param {any} ctx */
+export async function ownerSidebarApi(ctx) {
+    try {
+        const projects = await Promise.all(
+            listOwnerProjects(ctx.state.store).map(async (/** @type {any} */ project) => {
+                if (!project.enabled) return { ...project, sessions: [], hasMoreSessions: false };
+                const result = await ctx.state.sessionContinuation.listSessions(project.projectId, {
+                    page: 0,
+                    pageSize: 5,
+                });
+                return {
+                    ...project,
+                    sessions: result.sessions || [],
+                    hasMoreSessions: result.hasNext === true,
+                };
+            }),
+        );
+        return ownerJson({ projects });
+    } catch (error) {
+        return ownerErrorJson(error);
+    }
+}
+
+/** @param {any} ctx */
 export async function registerProjectApi(ctx) {
     try {
         const body = await readJson(ctx.req);
