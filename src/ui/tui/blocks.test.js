@@ -283,7 +283,7 @@ Deno.test("ReviewResultBlock renders feedback markdown with error background", (
     assertEquals(plain.includes("Missing thing"), true);
 });
 
-Deno.test("ValidationHandoffBlock renders full validation state and latest handoff reports", () => {
+Deno.test("ValidationHandoffBlock renders owner validation labels and latest handoff reports", () => {
     const w = 180;
     const block = new ValidationHandoffBlock({
         progress: {
@@ -305,18 +305,21 @@ Deno.test("ValidationHandoffBlock renders full validation state and latest hando
     const plain = lines.map((line) => stripAnsi(line)).join("\n");
 
     assertBlockBackground(lines, w, "ValidationHandoffBlock");
-    assertEquals(plain.includes("Workflow Validation paused"), true);
-    // Workflow validation counts review rounds; "cycle" would contradict every
-    // other message in the loop.
-    assertEquals(plain.includes("Round 2/3 (total 5)"), true);
-    assertEquals(plain.includes("Stage: engineer repair"), true);
-    assertEquals(plain.includes("Attempt 1/3"), true);
-    assertEquals(plain.includes("CI failed, Review pending, Human pending, Merge pending"), true);
-    assertEquals(plain.includes("Engineer latest Task Completion"), true);
-    assertEquals(plain.includes("Reviewer latest Review — rejected (feedback addressed; rechecking)"), true);
+    assertEquals(plain.includes("Repair paused"), true);
+    assertEquals(
+        plain.includes("Tests and CI failed, AI code review pending, Human review pending, Combining commits pending"),
+        true,
+    );
+    assertEquals(plain.includes("Round 2/3"), false);
+    assertEquals(plain.includes("Stage: engineer repair"), false);
+    assertEquals(plain.includes("Attempt 1/3"), false);
+    assertEquals(plain.includes("Mechanical Validation"), false);
+    assertEquals(plain.includes("Semantic review"), false);
+    assertEquals(plain.includes("Engineer latest completion report"), true);
+    assertEquals(plain.includes("Reviewer latest AI code review — rejected (feedback addressed; rechecking)"), true);
 });
 
-Deno.test("ValidationHandoffBlock renders mechanical validation with QUICK_FIX wording and only applicable CI check", () => {
+Deno.test("ValidationHandoffBlock renders tests and CI wording for QUICK_FIX progress", () => {
     const runningBlock = new ValidationHandoffBlock({
         progress: {
             kind: "mechanical",
@@ -328,14 +331,15 @@ Deno.test("ValidationHandoffBlock renders mechanical validation with QUICK_FIX w
     });
     const runningPlain = stripAnsi(runningBlock.render(120).join("\n"));
 
-    assertEquals(runningPlain.includes("Mechanical Validation running"), true);
-    assertEquals(runningPlain.includes("Stage: CI"), true);
-    assertEquals(runningPlain.includes("CI running"), true);
+    assertEquals(runningPlain.includes("Tests and CI running"), true);
+    assertEquals(runningPlain.includes("Stage: CI"), false);
+    assertEquals(runningPlain.includes("Mechanical Validation"), false);
+    assertEquals(runningPlain.includes("Tests and CI running"), true);
     assertEquals(runningPlain.includes("Review skipped"), false);
     assertEquals(runningPlain.includes("Human skipped"), false);
     assertEquals(runningPlain.includes("Merge skipped"), false);
-    assertEquals(runningPlain.includes("Engineer latest Task Completion"), true);
-    assertEquals(runningPlain.includes("Reviewer latest Review"), false);
+    assertEquals(runningPlain.includes("Engineer latest completion report"), true);
+    assertEquals(runningPlain.includes("Reviewer latest AI code review"), false);
 
     const verifiedBlock = new ValidationHandoffBlock({
         progress: {
@@ -347,8 +351,9 @@ Deno.test("ValidationHandoffBlock renders mechanical validation with QUICK_FIX w
     });
     const verifiedPlain = stripAnsi(verifiedBlock.render(120).join("\n"));
 
-    assertEquals(verifiedPlain.includes("Mechanical Validation passed"), true);
-    assertEquals(verifiedPlain.includes("Mechanical Validation verified"), false);
+    assertEquals(verifiedPlain.includes("Tests and CI passed"), true);
+    assertEquals(verifiedPlain.includes("Validation passed"), false);
+    assertEquals(verifiedPlain.includes("Mechanical Validation"), false);
 });
 
 Deno.test("KeyboardHelpBlock renders ordered shortcuts with responsive wrapping", () => {

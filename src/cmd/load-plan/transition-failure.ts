@@ -20,8 +20,8 @@ export function transitionFailureError(transition: TransitionResult, fallbackMes
         })
         .join("\n");
     const blocked = transition.status === "blocked"
-        ? "\nThis Plan has an unresolved lifecycle transition. " +
-            `Run \`${CLI_BIN} plans doctor --repair\` to close records that are provably settled.`
+        ? "\nA previous Plan update stopped before RunWield could prove the result. " +
+            `Run \`${CLI_BIN} plans doctor --repair\` to repair safe records.`
         : "";
     return new Error(
         `${transition.message || fallbackMessage}${blocked}${recovery ? `\nRecovery options:\n${recovery}` : ""}`,

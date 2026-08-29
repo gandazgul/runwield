@@ -12,6 +12,10 @@ import {
 } from "@earendil-works/pi-tui";
 import { getMarkdownTheme, getSelectListTheme, theme } from "../theme/theme.js";
 import { buildActiveConversationStatusMessage } from "../../shared/session/session-user-messages.ts";
+import {
+    validationProgressCheckSummary,
+    validationProgressHeading,
+} from "../../shared/workflow/validation-progress-presentation.ts";
 import { MermaidMarkdown } from "./mermaid-markdown.js";
 import stripAnsi from "strip-ansi";
 
@@ -411,35 +415,8 @@ export class ValidationHandoffBlock {
 
     /** @param {import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress} progress */
     formatHeading(progress) {
-        const kind = progress.kind === "mechanical" ? "Mechanical Validation" : "Workflow Validation";
-        const outcome = progress.outcome === "verified"
-            ? progress.kind === "mechanical" ? "passed" : "verified"
-            : progress.outcome === "failed"
-            ? "failed"
-            : progress.outcome === "paused"
-            ? "paused"
-            : "running";
-        // Workflow validation counts semantic review rounds; the underlying event
-        // field is still named `cycle`, but the user-facing vocabulary is "round"
-        // everywhere else in the loop and the header must not contradict it.
-        const counterLabel = progress.kind === "mechanical" ? "Cycle" : "Round";
-        const cycle = progress.cycle && progress.maxCycles
-            ? ` • ${counterLabel} ${progress.cycle}/${progress.maxCycles}`
-            : "";
-        const total = progress.totalCycle && progress.totalCycle !== progress.cycle
-            ? ` (total ${progress.totalCycle})`
-            : "";
-        const stageLabel = progress.stage.replaceAll("_", " ").replace(/^ci$/, "CI");
-        const stage = ` • Stage: ${stageLabel}`;
-        const repair = progress.repairAttempt && progress.maxRepairAttempts
-            ? ` • Attempt ${progress.repairAttempt}/${progress.maxRepairAttempts}`
-            : "";
-        const checks = progress.checks
-            ? progress.kind === "mechanical"
-                ? ` • CI ${progress.checks.ci}`
-                : ` • CI ${progress.checks.ci}, Review ${progress.checks.semanticReview}, Human ${progress.checks.humanReview}, Merge ${progress.checks.merge}`
-            : "";
-        return `${kind} ${outcome}${cycle}${total}${stage}${repair}${checks}`;
+        const checks = progress.checks ? ` • ${validationProgressCheckSummary(progress)}` : "";
+        return `${validationProgressHeading(progress)}${checks}`;
     }
 
     /**
@@ -472,7 +449,7 @@ export class ValidationHandoffBlock {
         if (engineer) {
             this.appendMarkdownSection(
                 lines,
-                `${engineer.agentName || "Engineer"} latest Task Completion`,
+                `${engineer.agentName || "Engineer"} latest completion report`,
                 engineer.markdown,
                 width,
             );
@@ -484,7 +461,7 @@ export class ValidationHandoffBlock {
             const verdict = reviewer.approved ? "approved" : "rejected";
             this.appendMarkdownSection(
                 lines,
-                `${reviewer.agentName || "Reviewer"} latest Review — ${verdict}${stale}`,
+                `${reviewer.agentName || "Reviewer"} latest AI code review — ${verdict}${stale}`,
                 reviewer.markdown || (reviewer.approved ? "Approved." : "Rejected without detailed feedback."),
                 width,
             );

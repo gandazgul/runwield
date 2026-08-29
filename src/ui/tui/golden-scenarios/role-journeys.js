@@ -254,7 +254,7 @@ export const engineerQuickFixMechanicalValidationScenario = {
             phase: "engineer",
             ordinal: 1,
             requiredTools: ["bash", "task_completed"],
-            text: "Mechanical Validation passed after QUICK_FIX.",
+            text: "Tests and CI passed after QUICK_FIX.",
             toolCalls: [
                 { name: "bash", arguments: { command: "printf quick > golden-quick-fix.txt" } },
                 { name: "task_completed", arguments: { message: "- QUICK_FIX implemented and verified." } },
@@ -297,10 +297,10 @@ export const engineerQuickFixMechanicalValidationScenario = {
             assertScreenIncludes(result, "The test command is saved: true");
         }),
         assertRuntimeEvent("recovery:steered-task-completion", "runtime:queue"),
-        // QUICK_FIX drives the mechanical panel. Asserting a `task_completed` tool
+        // QUICK_FIX drives the tests-and-CI panel. Asserting a `task_completed` tool
         // start here proved nothing about the panel; the heading does.
         assertsGoldenCoverage("block:validation-handoff", (result) => {
-            assertScreenIncludes(result, "Mechanical Validation");
+            assertScreenIncludes(result, "Tests and CI");
         }),
         assertsGoldenCoverage("durable:quick-fix-delivery", (result) => {
             assertEventIncludes(result, "project:file-checked");

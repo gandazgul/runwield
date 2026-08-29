@@ -102,7 +102,10 @@ Deno.test("Workspace progress uses the authoritative execution Plan and never mu
         assertEquals(serialized.includes(dir), false);
         assertEquals(serialized.includes(worktreeRoot), false);
         assertEquals(serialized.includes("attempt-1"), false);
-        assertStringIncludes(serialized, "Semantic Code Review");
+        assertStringIncludes(serialized, "AI code review");
+        assertStringIncludes(serialized, "Tests and CI");
+        assertEquals(serialized.includes("Semantic Code Review"), false);
+        assertEquals(serialized.includes("Mechanical Validation"), false);
         assertEquals(await readIfExists(primaryPath), before.primary);
         assertEquals(await readIfExists(worktreePath), before.worktree);
         assertEquals(await readIfExists(registryPath), before.registry);

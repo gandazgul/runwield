@@ -1856,17 +1856,17 @@ Deno.test("SessionRuntime keeps executePlan workflow operations busy while prepa
                 if (event.type === RuntimeEventTypes.BUSY_CHANGED) busyStates.push(event.busy);
                 if ("message" in event && typeof event.message === "string") {
                     if (
-                        event.message.includes("preparing execution target") ||
-                        event.message.includes("preparing in-place execution") ||
-                        event.message.includes("updating Plan status to in_progress") ||
-                        event.message.includes("launching Plan Engineer to execute")
+                        event.message.includes("Preparing the implementation target") ||
+                        event.message.includes("Preparing in-place work because Git is unavailable") ||
+                        event.message.includes("Marking the Plan as in progress") ||
+                        event.message.includes("Starting Plan Engineer")
                     ) {
                         preparationMessages.push({
                             message: event.message,
                             busy: runtime.getSessionSnapshot(sessionId)?.busy,
                         });
                     }
-                    if (event.message.includes("launching Plan Engineer to execute")) resolveLaunchSeen();
+                    if (event.message.includes("Starting Plan Engineer")) resolveLaunchSeen();
                 }
             });
 
@@ -1894,10 +1894,10 @@ Deno.test("SessionRuntime keeps executePlan workflow operations busy while prepa
 
             assertEquals(busyStates, [true, false]);
             assertEquals(preparationMessages.map((entry) => entry.message), [
-                "preparing execution target...",
-                "preparing in-place execution because Git is unavailable...",
-                "updating Plan status to in_progress...",
-                "launching Plan Engineer to execute...",
+                "Preparing the implementation target...",
+                "Preparing in-place work because Git is unavailable...",
+                "Marking the Plan as in progress...",
+                "Starting Plan Engineer...",
             ]);
             assertEquals(preparationMessages.map((entry) => entry.busy), [true, true, true, true]);
             assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, false);

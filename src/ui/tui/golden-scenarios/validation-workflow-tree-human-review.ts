@@ -35,7 +35,7 @@ export const validationTreeHumanReviewAskSkipScenario = withValidationBranches(
             },
         ],
         scriptedInteractions: [
-            { type: "select", promptIncludes: "read the changes before the merge", value: "skip" },
+            { type: "select", promptIncludes: "human review before merge", value: "skip" },
         ],
         actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
             action.type !== "assertWorkflowDurability"
@@ -57,7 +57,7 @@ export const validationTreeHumanReviewAskOpenApproveScenario = withValidationBra
             },
         ],
         scriptedInteractions: [
-            { type: "select", promptIncludes: "read the changes before the merge", value: "open" },
+            { type: "select", promptIncludes: "human review before merge", value: "open" },
         ],
         humanReviewDecisions: [{ approved: true, feedback: "Human approves the Golden implementation." }],
         actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>

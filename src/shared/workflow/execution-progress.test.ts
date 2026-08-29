@@ -98,12 +98,12 @@ Deno.test("execution preparation progress reports fresh worktree setup before la
             const messages = messagesFrom(events);
             assertMessageOrder(messages, [
                 "=== Executing Plan: fresh-progress ===",
-                "preparing execution target...",
-                "creating execution worktree from base branch",
-                `created worktree ${workflow.worktreeBranch} from base branch`,
-                "materializing Plan in execution worktree...",
-                "updating Plan status to in_progress...",
-                "launching Plan Engineer to execute...",
+                "Preparing the implementation target...",
+                "Creating the worktree from base branch",
+                `Created worktree ${workflow.worktreeBranch} from base branch`,
+                "Copying the Plan into the worktree...",
+                "Marking the Plan as in progress...",
+                "Starting Plan Engineer...",
             ]);
             // An `engineer`-owned Plan runs under the workflow-only Plan Engineer.
             assertEquals(hostedSession.getRootAgentName(), "plan-engineer");
@@ -161,8 +161,8 @@ Deno.test("execution preparation progress reports reused worktree without claimi
         });
 
         const messages = messagesFrom(events);
-        assertStringIncludes(messages.join("\n"), `reusing worktree ${firstWorkflow.worktreeBranch}`);
-        assertEquals(messages.some((message) => message.includes("creating execution worktree")), false);
+        assertStringIncludes(messages.join("\n"), `Reusing worktree ${firstWorkflow.worktreeBranch}`);
+        assertEquals(messages.some((message) => message.includes("Creating the worktree")), false);
     } finally {
         if (executionCwd) {
             await removeWorktreeGitArtifacts({ projectRoot, path: executionCwd, force: true }).catch(() => undefined);
@@ -229,7 +229,7 @@ Deno.test("restart resumes a dirty ready-for-work worktree without repeating pre
         const headAfter = await git(worktree.path, ["rev-parse", "HEAD"]);
         assertEquals(headAfter, headBefore, "resume must not checkpoint unreviewed Agent files as setup");
         const messages = messagesFrom(events);
-        assertStringIncludes(messages.join("\n"), `reusing worktree ${worktree.branch}`);
+        assertStringIncludes(messages.join("\n"), `Reusing worktree ${worktree.branch}`);
 
         // Mirror the durable residue left by the old failure: the Plan Event landed,
         // the registry contains a tree captured after the Agent edits, and the
@@ -321,9 +321,9 @@ Deno.test("execution preparation progress reports non-Git in-place preparation w
 
         const messages = messagesFrom(events);
         assertMessageOrder(messages, [
-            "preparing execution target...",
-            "preparing in-place execution because Git is unavailable...",
-            "updating Plan status to in_progress...",
+            "Preparing the implementation target...",
+            "Preparing in-place work because Git is unavailable...",
+            "Marking the Plan as in progress...",
         ]);
         assertEquals(messages.some((message) => message.includes("worktree")), false);
     } finally {

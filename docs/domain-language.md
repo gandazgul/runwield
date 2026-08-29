@@ -308,11 +308,18 @@ Verified plan, archived plan, on-hold plan
 **Review Loop**: The cycle where a planning agent writes or revises a Plan and the user approves or returns it through
 Plannotator. _Avoid_: Feedback loop, approval cycle
 
-**Semantic Code Review**: The Reviewer check during Workflow Validation that compares implementation against the
-approved Plan. _Avoid_: Local Human Code Review, Forge review, automated tests
+**Semantic Code Review**: The internal state-machine term for the Reviewer check during Workflow Validation. It compares
+implementation against the approved Plan. Owner-facing status copy calls this **AI code review**. _Avoid_: Local Human
+Code Review, Forge review, automated tests
+
+**AI code review**: The owner-facing label for Semantic Code Review. Use it in normal TUI and Workspace progress copy
+when the Reviewer checks implementation against the Plan. _Avoid_: human review, tests, CI
 
 **Local Human Code Review**: The optional RunWield gate where a person reviews the implementation diff before delivery.
-_Avoid_: Semantic Code Review, Forge review, Plan Review Loop
+Owner-facing status copy calls this **human review**. _Avoid_: Semantic Code Review, Forge review, Plan Review Loop
+
+**Human review**: The owner-facing label for Local Human Code Review. Use it when the user reads the implementation diff
+and approves it or sends feedback. _Avoid_: AI code review, Plan Review Loop, Forge review
 
 **Review Issue Ledger**: The temporary per-attempt record of requirement coverage, Review Issues, repair claims, and
 Reviewer re-verification. _Avoid_: Review log, durable Plan history, Work Record

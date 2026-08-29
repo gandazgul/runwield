@@ -206,7 +206,7 @@ Deno.test("startActiveExecutionWorkflow indexes a newly created execution worktr
             const marker = (await Deno.readTextFile(markerPath)).trim().split("\n");
             assertEquals(marker, [await Deno.realPath(result.executionCwd), "index ."]);
             assertEquals(
-                events.some((event) => event.message === "indexing execution worktree for code search..."),
+                events.some((event) => event.message === "Indexing the worktree for code search..."),
                 true,
             );
         } finally {

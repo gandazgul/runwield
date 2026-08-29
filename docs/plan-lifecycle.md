@@ -256,6 +256,10 @@ code review gate, and delivery evidence succeed. Publication then advances indep
 registry record. Worktree-backed FEATURE Plans fail closed when the execution mode or worktree publication context is
 unknown; missing volatile Session state is not treated as proof that validation should run in the primary checkout.
 
+Normal owner-facing progress uses shorter labels for these same phases. Mechanical Validation appears as **tests and
+CI**. Semantic Code Review appears as **AI code review**. Local Human Code Review appears as **human review**. Raw Plan
+Status values stay in technical details and diagnostics.
+
 For worktree-backed plans:
 
 1. Implementation runs in the execution worktree.
