@@ -1,4 +1,5 @@
 ---
+planId: "ba8f9bba-8cae-4d1b-bb33-4932c42368a8"
 classification: "PROJECT"
 complexity: "HIGH"
 affectedPaths:
@@ -29,10 +30,9 @@ affectedPaths:
     - "docs/adr/016-proof-bearing-publication-state-machine.md"
     - "docs/adr/017-project-runtime-state-under-wld-internal.md"
 createdAt: "2026-08-28T11:53:52-04:00"
-status: "ready_for_decomposition"
+status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
-planId: "ba8f9bba-8cae-4d1b-bb33-4932c42368a8"
 ---
 
 # Consolidate Project Runtime State Under `.wld/internal/`
