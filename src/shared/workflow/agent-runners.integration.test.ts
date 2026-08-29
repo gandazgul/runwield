@@ -176,8 +176,9 @@ Deno.test("Pair execution exposes the real checkpoint tool and resumes after the
             );
 
             assertEquals(result.completed, true);
-            assertEquals(interactionRequests.map((request) => request.type), ["pair_checkpoint"]);
-            assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.pairCheckpointCount, 1);
+            assertEquals(interactionRequests.map((request) => request.type), ["pair_checkpoint", "pair_checkpoint"]);
+            assertEquals(interactionRequests[1]?._meta?.finalCompletion, true);
+            assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.pairCheckpointCount, 2);
             assert(fixture.hostedSession.getActiveExecutionWorkflow()?.pairPauseReason === undefined);
         } finally {
             fixture.hostedSession.dispose();

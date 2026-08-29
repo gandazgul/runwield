@@ -21,7 +21,6 @@ import { clampCycle, emitProgress, emitStatus, repairBlockedReason } from "./val
 import { pauseForUserAction, requestInteraction } from "./validation-interactions.ts";
 import { ValidationInteractionTypes } from "./validation-ports.ts";
 import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
-import { applyValidationPlanAmendment, detectValidationPlanAmendment } from "./validation-plan-amendment.ts";
 import { buildValidationUserMessage } from "./validation-user-messages.ts";
 import {
     decideValidationRecovery,
@@ -35,12 +34,6 @@ const ENGINEER_FOLLOW_UP_OPTIONS: UserActionOption[] = [
     { value: "retry", label: "Retry" },
     { value: "stop", label: "Stop" },
 ];
-
-type PlanAmendmentDecision =
-    | { kind: "none" }
-    | { kind: "amended" }
-    | { kind: "engineer_follow_up"; feedback: string }
-    | { kind: "stop" };
 
 function adoptRecordedPlanState(
     args: ValidationLoopArgs,
@@ -134,70 +127,6 @@ async function reloadValidationPlanSnapshot(args: ValidationLoopArgs): Promise<V
     return null;
 }
 
-async function resolveValidationPlanAmendment(
-    args: ValidationLoopArgs,
-    context: PhaseContext,
-): Promise<PlanAmendmentDecision> {
-    const proposal = await detectValidationPlanAmendment(
-        context.projectRoot,
-        context.executionCwd,
-        args.planName,
-        context.executionContext.executionMode === "worktree" ? context.baselineTree : undefined,
-        context.executionContext.executionMode === "worktree" ? context.executionContext.worktreeBaseCommit : undefined,
-    );
-    if (!proposal) return { kind: "none" };
-    emitStatus(args, buildValidationUserMessage({ kind: "amendment_decision", summary: proposal.summary }), "warning");
-    const response = await requestInteraction(args, {
-        type: ValidationInteractionTypes.SELECT,
-        prompt: buildValidationUserMessage({ kind: "amendment_prompt", summary: proposal.summary }),
-        options: [
-            { value: "approve_amendment", label: "Approve Plan changes" },
-            { value: "engineer_follow_up", label: "Engineer follow-up" },
-            { value: "stop", label: "Stop" },
-        ],
-    });
-    if (response.outcome === "selected" && response.value === "approve_amendment") {
-        const canonical = await applyValidationPlanAmendment(
-            context.projectRoot,
-            context.executionCwd,
-            args.planName,
-            proposal,
-            context.worktreeId,
-        );
-        args.triageMeta = canonical.attrs as ValidationLoopArgs["triageMeta"];
-        args.planContent = canonical.markdown;
-        emitStatus(args, buildValidationUserMessage({ kind: "amendment_approved" }), "success");
-        return { kind: "amended" };
-    }
-    if (response.outcome === "selected" && response.value === "engineer_follow_up") {
-        const feedback = await requestEngineerFollowUpFeedback(
-            args,
-            "Tell the Engineer what to change before this Plan Amendment can be approved.",
-            "The Plan Amendment was not approved. Revise the Plan or implementation and report completion again.",
-        );
-        return { kind: "engineer_follow_up", feedback };
-    }
-    return { kind: "stop" };
-}
-
-function finishPlanAmendmentDecision(
-    args: ValidationLoopArgs,
-    context: PhaseContext,
-    decision: PlanAmendmentDecision,
-): ValidationPhaseResult | null {
-    if (decision.kind === "engineer_follow_up") {
-        return pauseForEngineerFollowUp(
-            args,
-            context,
-            `Plan Amendment needs Engineer follow-up.\n\nUser feedback:\n${decision.feedback}`,
-        );
-    }
-    if (decision.kind === "stop") {
-        return pausedResult(args, context, "Workflow Validation stopped with a pending Plan Amendment decision.");
-    }
-    return null;
-}
-
 export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
     let ciAttempts = readCiAttempts(args.triageMeta);
     let operationalAttempts = 0;
@@ -207,12 +136,6 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
         const phase = await resolvePhaseContext(args);
         if (phase.kind === "blocked") return phase.result;
         ciAttempts = readCiAttempts(args.triageMeta);
-        const amendmentResult = finishPlanAmendmentDecision(
-            args,
-            phase.context,
-            await resolveValidationPlanAmendment(args, phase.context),
-        );
-        if (amendmentResult) return amendmentResult;
 
         emitProgress(
             args,

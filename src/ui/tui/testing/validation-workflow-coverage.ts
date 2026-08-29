@@ -1,9 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 
 export type ValidationWorkflowBranchId =
-    | "mechanical:plan-amendment:approve"
-    | "mechanical:plan-amendment:follow-up"
-    | "mechanical:plan-amendment:stop"
     | "mechanical:ci:pass"
     | "mechanical:ci:repair-completed"
     | "mechanical:ci:repair-incomplete"
@@ -93,9 +90,6 @@ type ValidationStateValue = string | number | boolean | null | ValidationStateVa
 };
 
 export const EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS: readonly ValidationWorkflowBranchId[] = Object.freeze([
-    "mechanical:plan-amendment:approve",
-    "mechanical:plan-amendment:follow-up",
-    "mechanical:plan-amendment:stop",
     "mechanical:ci:pass",
     "mechanical:ci:repair-completed",
     "mechanical:ci:repair-incomplete",
@@ -153,9 +147,6 @@ function phaseFor(id: ValidationWorkflowBranchId): ValidationWorkflowBranch["pha
 }
 
 const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
-    "mechanical:plan-amendment:approve": "validation-tree-plan-amendment-approve",
-    "mechanical:plan-amendment:follow-up": "validation-tree-plan-amendment-follow-up",
-    "mechanical:plan-amendment:stop": "validation-tree-plan-amendment-stop",
     "mechanical:ci:pass": "validation-tree-ci-loop",
     "mechanical:ci:repair-completed": "validation-tree-ci-loop",
     "mechanical:ci:repair-incomplete": "validation-tree-ci-repair-incomplete",
@@ -366,14 +357,13 @@ export const VALIDATION_INTERACTION_OPTION_BRANCHES: Readonly<Record<string, rea
         engineer_follow_up: [
             "mechanical:ci:cancel-follow-up",
         ],
-        approve_amendment: ["mechanical:plan-amendment:approve"],
-        reject: ["mechanical:plan-amendment:stop"],
+        reject: ["human-review:no-answer-stop"],
         open: ["human-review:ask-open-approve"],
         skip: ["human-review:ask-skip"],
         continue: ["semantic:round-limit:continue"],
         code_review: ["semantic:round-limit:human-review"],
-        confirm: ["mechanical:plan-amendment:approve"],
-        later: ["mechanical:plan-amendment:follow-up"],
+        confirm: ["human-review:feedback-repair-approve"],
+        later: ["human-review:no-answer-retry"],
     });
 
 export const VALIDATION_WORKFLOW_BRANCHES: readonly ValidationWorkflowBranch[] = Object.freeze(

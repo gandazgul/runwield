@@ -6,7 +6,6 @@
 export type ValidationUserMessageKey =
     | "running_tests"
     | "plan_fixed"
-    | "amendment_check_failed"
     | "publication_note_failed"
     | "merge_failed"
     | "retry_pause"
@@ -17,7 +16,6 @@ export type ValidationUserMessageKey =
 const MESSAGES: Record<ValidationUserMessageKey, string> = {
     running_tests: "Running tests and CI now.",
     plan_fixed: "The Plan copy is fixed. We will go on.",
-    amendment_check_failed: "RunWield could not check the Plan change. Your work is safe. Try again.",
     publication_note_failed:
         "Tests and CI passed. RunWield could not save the test note. Your work is safe. Try again.",
     merge_failed: "The merge did not work. Your work is safe. RunWield will try to fix it.",
@@ -28,10 +26,6 @@ const MESSAGES: Record<ValidationUserMessageKey, string> = {
 };
 
 export type ValidationMessageRequest =
-    | { kind: "amendment_failed_prompt" }
-    | { kind: "amendment_prompt"; summary: string }
-    | { kind: "amendment_decision"; summary: string }
-    | { kind: "amendment_approved" }
     | { kind: "ci_running"; cwd: string }
     | { kind: "checks_passed" }
     | { kind: "repair_waiting"; agent: string }
@@ -145,14 +139,6 @@ export function buildValidationRecoveryNotice(notice: ValidationRecoveryNotice):
 /** Build text only at a user display edge. */
 export function buildValidationUserMessage(request: ValidationMessageRequest): string {
     switch (request.kind) {
-        case "amendment_failed_prompt":
-            return `${MESSAGES.amendment_check_failed}\n\nWhat should RunWield do?`;
-        case "amendment_prompt":
-            return `${request.summary}\n\nDo you approve this Plan change?`;
-        case "amendment_decision":
-            return `Plan amendment: pick what to do.\n\n${request.summary}`;
-        case "amendment_approved":
-            return "The Plan change is saved. The tests will start again.";
         case "ci_running":
             return `Running the tests in ${request.cwd}.`;
         case "checks_passed":

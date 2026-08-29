@@ -198,7 +198,7 @@ Deno.test("stale RunWield state self-heals and validation continues", async () =
     }
 });
 
-Deno.test("approved body-only Plan amendment reloads and starts Mechanical Validation immediately", async () => {
+Deno.test("body-only Plan amendment no longer prompts before Mechanical Validation", async () => {
     const testFixture = await makeReportedMismatchFixture();
     try {
         const primary = await loadPlan(testFixture.projectRoot, "demo");
@@ -217,7 +217,7 @@ Deno.test("approved body-only Plan amendment reloads and starts Mechanical Valid
         const prompts: string[] = [];
         recorder.promptSelect = (prompt: string) => {
             prompts.push(prompt);
-            return Promise.resolve(prompt.includes("Do you approve this Plan change?") ? "approve_amendment" : "stop");
+            return Promise.resolve("stop");
         };
         const hostedSession = attachRecorder(
             new HostedSession({ id: "validation-body-amendment", cwd: testFixture.projectRoot }),
@@ -257,8 +257,7 @@ Deno.test("approved body-only Plan amendment reloads and starts Mechanical Valid
             },
         });
 
-        const amendmentPrompts = prompts.filter((prompt) => prompt.includes("Do you approve this Plan change?"));
-        assertEquals(amendmentPrompts.length, 1);
+        assertEquals(prompts.length, 0);
         assertEquals(ciRuns, 1);
         assertEquals(result.kind, "failed");
         const executionAfter = await loadPlan(testFixture.executionCwd, "demo");
@@ -269,7 +268,7 @@ Deno.test("approved body-only Plan amendment reloads and starts Mechanical Valid
         assertExists(primaryAfter);
         assertEquals(primaryAfter.body, "# Demo\n\nKeep the approved body.\n");
         assertEquals(primaryAfter.attrs.status, "implemented");
-        assertStringIncludes(recorder.messages.join("\n"), "The Plan change is saved. The tests will start again.");
+        assertEquals(recorder.messages.join("\n").includes("The Plan change is saved"), false);
     } finally {
         await removeFixture(testFixture);
     }

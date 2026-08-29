@@ -179,10 +179,6 @@ Deno.test("all validation recovery and doctor messages stay plain", async () => 
     ];
     const messages = [
         ...listValidationUserMessages().map((entry) => entry.message),
-        buildValidationUserMessage({ kind: "amendment_failed_prompt" }),
-        buildValidationUserMessage({ kind: "amendment_prompt", summary: "The test command changed." }),
-        buildValidationUserMessage({ kind: "amendment_decision", summary: "The test command changed." }),
-        buildValidationUserMessage({ kind: "amendment_approved" }),
         buildValidationUserMessage({ kind: "ci_running", cwd: "/tmp/demo" }),
         buildValidationUserMessage({ kind: "checks_passed" }),
         buildValidationUserMessage({ kind: "repair_waiting", agent: "Engineer" }),

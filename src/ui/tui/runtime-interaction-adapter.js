@@ -99,6 +99,7 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
                 const viewport = formatPairPromptValue(meta.viewport);
                 const diagnostics = formatPairPromptValue(meta.diagnostics);
                 const nextIncrement = formatPairPromptValue(meta.nextIncrement);
+                const finalCompletion = meta.finalCompletion === true;
                 const context = [
                     checkpointNumber && `Checkpoint: ${checkpointNumber}`,
                     route && `Route: ${route}`,
@@ -106,19 +107,26 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
                     viewport && `Viewport: ${viewport}`,
                 ].filter(Boolean).join(" | ");
                 const prompt = [
-                    "Pair checkpoint",
+                    finalCompletion ? "Final Pair checkpoint" : "Pair checkpoint",
                     formatPairPromptValue(request.prompt),
                     context,
                     evidence,
                     diagnostics && `Diagnostics: ${diagnostics}`,
                     nextIncrement && `Next: ${nextIncrement}`,
                 ].filter(Boolean).join("\n");
-                const options = [
-                    { value: "continue", label: "Continue to the next increment" },
-                    { value: "revise", label: "Revise this increment" },
-                    { value: "autonomous", label: "Finish autonomously" },
-                    { value: "stop", label: "Stop and keep the Plan in progress" },
-                ];
+                const options = finalCompletion
+                    ? [
+                        { value: "continue", label: "Approve and start validation" },
+                        { value: "revise", label: "Revise the final result" },
+                        { value: "autonomous", label: "Finish autonomously" },
+                        { value: "stop", label: "Stop and keep the Plan in progress" },
+                    ]
+                    : [
+                        { value: "continue", label: "Continue to the next increment" },
+                        { value: "revise", label: "Revise this increment" },
+                        { value: "autonomous", label: "Finish autonomously" },
+                        { value: "stop", label: "Stop and keep the Plan in progress" },
+                    ];
                 const value = await uiAPI.promptSelect(prompt, options);
                 if (value === null) return { outcome: RuntimeInteractionOutcomes.CANCELED };
                 const option = options.find((item) => item.value === value);
@@ -129,10 +137,17 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
                     };
                 }
                 if (value !== "revise") return { outcome: RuntimeInteractionOutcomes.SELECTED, value };
-                const feedback = await uiAPI.promptText("Revision feedback for this Pair checkpoint", {
-                    placeholder: "Describe what should change in this increment",
-                    allowEmpty: false,
-                });
+                const feedback = await uiAPI.promptText(
+                    finalCompletion
+                        ? "Revision feedback for this final Pair checkpoint"
+                        : "Revision feedback for this Pair checkpoint",
+                    {
+                        placeholder: finalCompletion
+                            ? "Describe what should change before validation"
+                            : "Describe what should change in this increment",
+                        allowEmpty: false,
+                    },
+                );
                 if (feedback === null || !feedback.trim()) return { outcome: RuntimeInteractionOutcomes.CANCELED };
                 return { outcome: RuntimeInteractionOutcomes.SELECTED, value, _meta: { feedback } };
             }

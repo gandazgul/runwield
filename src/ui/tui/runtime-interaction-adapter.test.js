@@ -136,6 +136,48 @@ Deno.test("TUI interaction adapter returns atomic pair checkpoint revision feedb
     assertEquals(feedbackPrompt, "Revision feedback for this Pair checkpoint");
 });
 
+Deno.test("TUI interaction adapter labels final Pair checkpoint as validation approval", async () => {
+    const prompts = /** @type {string[]} */ ([]);
+    let options = /** @type {Array<{ value: string, label: string }>} */ ([]);
+    let feedbackPrompt = "";
+    const adapter = createTuiInteractionAdapter(
+        /** @type {any} */ ({
+            promptSelect: (
+                /** @type {string} */ prompt,
+                /** @type {Array<{ value: string, label: string }>} */ opts,
+            ) => {
+                prompts.push(prompt);
+                options = opts;
+                return Promise.resolve("revise");
+            },
+            promptText: (/** @type {string} */ prompt) => {
+                feedbackPrompt = prompt;
+                return Promise.resolve("One more visual polish pass");
+            },
+        }),
+    );
+
+    const response = await adapter.requestInteraction({
+        type: "pair_checkpoint",
+        prompt: "- Final page is ready.",
+        _meta: { finalCompletion: true, checkpointNumber: 3 },
+    });
+
+    assertEquals(response, {
+        outcome: "selected",
+        value: "revise",
+        _meta: { feedback: "One more visual polish pass" },
+    });
+    assertEquals(prompts[0].startsWith("Final Pair checkpoint\n- Final page is ready."), true);
+    assertEquals(options, [
+        { value: "continue", label: "Approve and start validation" },
+        { value: "revise", label: "Revise the final result" },
+        { value: "autonomous", label: "Finish autonomously" },
+        { value: "stop", label: "Stop and keep the Plan in progress" },
+    ]);
+    assertEquals(feedbackPrompt, "Revision feedback for this final Pair checkpoint");
+});
+
 for (const decision of ["continue", "autonomous", "stop"]) {
     Deno.test(`TUI interaction adapter returns Pair checkpoint ${decision} direction`, async () => {
         const adapter = createTuiInteractionAdapter(makeUi(decision));
