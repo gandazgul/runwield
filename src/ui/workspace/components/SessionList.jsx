@@ -51,11 +51,6 @@ export function SessionList({
     const diagnostics = Array.isArray(data?.diagnostics) ? /** @type {unknown[]} */ (data.diagnostics) : [];
     const newSessionAction = (
         <section className="session-create-panel" aria-labelledby="session-list-new-heading">
-            <div className="session-create-copy">
-                <p className="kicker">New Session</p>
-                <h2 id="session-list-new-heading">Start a browser Session</h2>
-                <p>Open the chat surface, choose Session settings, and send the first User Request there.</p>
-            </div>
             <a className="rw-toolbar-button" href={newSessionHref(projectId)}>New Session</a>
         </section>
     );
