@@ -80,7 +80,10 @@ async function resolveRemoteTarget(
     return { remote, branch, url: url.stdout };
 }
 
-async function integratedEvidence(attempt: PublicationAttempt): Promise<PublicationPhaseEvidence | null> {
+async function integratedEvidence(
+    projectRoot: string,
+    attempt: PublicationAttempt,
+): Promise<PublicationPhaseEvidence | null> {
     const stat = await Deno.stat(attempt.publicationRoot).catch(() => null);
     if (!stat?.isDirectory) return null;
     if ((await git(attempt.publicationRoot, ["rev-parse", "--verify", "MERGE_HEAD"])).code === 0) return null;
@@ -88,6 +91,7 @@ async function integratedEvidence(attempt: PublicationAttempt): Promise<Publicat
     if (head.code !== 0 || !head.stdout) return null;
     if (!(await gitAncestor(attempt.publicationRoot, attempt.artifactCommit || "", head.stdout))) return null;
     const merges = await git(attempt.publicationRoot, ["rev-list", "--merges", "--first-parent", "HEAD"]);
+    let assembledTargetBase: string | null = null;
     for (const merge of merges.stdout.split("\n").filter(Boolean)) {
         const parents = await git(attempt.publicationRoot, ["rev-parse", `${merge}^1`, `${merge}^2`]);
         if (parents.code !== 0) continue;
@@ -100,10 +104,42 @@ async function integratedEvidence(attempt: PublicationAttempt): Promise<Publicat
                 secondParent,
             )
         ) {
-            return { targetBaseCommit: firstParent, integrationCommit: head.stdout };
+            assembledTargetBase = firstParent;
+            break;
         }
     }
-    return null;
+    if (!assembledTargetBase) return null;
+
+    const remote = await resolveRemoteTarget(projectRoot, attempt.targetBranch);
+    if (!remote) {
+        return { targetBaseCommit: assembledTargetBase, integrationCommit: head.stdout };
+    }
+    const remoteHeadResult = await git(attempt.publicationRoot, [
+        "ls-remote",
+        "--heads",
+        remote.url,
+        `refs/heads/${remote.branch}`,
+    ]);
+    if (remoteHeadResult.code !== 0) return null;
+    const remoteHead = remoteHeadResult.stdout.split(/\s+/)[0] || "";
+    if (!remoteHead) {
+        return { targetBaseCommit: assembledTargetBase, integrationCommit: head.stdout };
+    }
+    if (remoteHead === head.stdout) {
+        const trackedRemote = await git(attempt.publicationRoot, [
+            "rev-parse",
+            `refs/remotes/publication/${remote.branch}`,
+        ]);
+        if (
+            trackedRemote.code === 0 && trackedRemote.stdout && trackedRemote.stdout !== head.stdout &&
+            await gitAncestor(attempt.publicationRoot, trackedRemote.stdout, head.stdout)
+        ) {
+            return { targetBaseCommit: trackedRemote.stdout, integrationCommit: head.stdout };
+        }
+        return { targetBaseCommit: assembledTargetBase, integrationCommit: head.stdout };
+    }
+    if (!(await gitAncestor(attempt.publicationRoot, remoteHead, head.stdout))) return null;
+    return { targetBaseCommit: remoteHead, integrationCommit: head.stdout };
 }
 
 async function publishedEvidence(
@@ -204,23 +240,33 @@ export async function advanceStoredPublication(
     phase: PublicationPhase,
     evidence: PublicationPhaseEvidence,
 ): Promise<PublicationAttempt> {
-    if (publicationPhaseAtLeast(current.phase, phase)) {
-        for (const [field, expected] of Object.entries(evidence)) {
-            if (expected === undefined) continue;
-            const actual = current[field as keyof PublicationAttempt];
-            if (actual !== expected) {
-                throw new Error(
-                    `Publication ${current.attemptId} has conflicting ${field}: ${String(actual)} != ${
-                        String(expected)
-                    }.`,
-                );
-            }
+    const mismatch = Object.entries(evidence).find(([field, expected]) => {
+        if (expected === undefined) return false;
+        const actual = current[field as keyof PublicationAttempt];
+        if (Array.isArray(actual) && Array.isArray(expected)) {
+            return actual.length !== expected.length || actual.some((value, index) => value !== expected[index]);
         }
-        return current;
+        return actual !== expected;
+    });
+    if (publicationPhaseAtLeast(current.phase, phase)) {
+        if (!mismatch) return current;
+        if (current.phase !== "target_integrated" || phase !== "target_integrated") {
+            const [field, expected] = mismatch;
+            const actual = current[field as keyof PublicationAttempt];
+            throw new Error(
+                `Publication ${current.attemptId} has conflicting ${field}: ${String(actual)} != ${String(expected)}.`,
+            );
+        }
     }
     const next = advancePublicationAttempt(current, phase, evidence);
-    await updatePublication(projectRoot, current.attemptId, current.revision, next);
-    return next;
+    try {
+        await updatePublication(projectRoot, current.attemptId, current.revision, next);
+        return next;
+    } catch (error) {
+        const refreshed = await loadPublicationAttempt(projectRoot, current.attemptId);
+        if (!refreshed || refreshed.revision === current.revision) throw error;
+        return await advanceStoredPublication(projectRoot, refreshed, phase, evidence);
+    }
 }
 
 export async function failStoredPublication(
@@ -229,8 +275,14 @@ export async function failStoredPublication(
     failure: Omit<PublicationFailure, "phase" | "recordedAt"> & { phase?: PublicationPhase },
 ): Promise<PublicationAttempt> {
     const next = recordPublicationFailure(current, failure);
-    await updatePublication(projectRoot, current.attemptId, current.revision, next);
-    return next;
+    try {
+        await updatePublication(projectRoot, current.attemptId, current.revision, next);
+        return next;
+    } catch (error) {
+        const refreshed = await loadPublicationAttempt(projectRoot, current.attemptId);
+        if (!refreshed || refreshed.revision === current.revision) throw error;
+        return refreshed;
+    }
 }
 
 /**
@@ -248,7 +300,7 @@ export async function reconcileStoredPublication(
         if (evidence) current = await advanceStoredPublication(projectRoot, current, "artifacts_committed", evidence);
     }
     if (current.phase === "artifacts_committed") {
-        const evidence = await integratedEvidence(current);
+        const evidence = await integratedEvidence(projectRoot, current);
         if (evidence) {
             current = await advanceStoredPublication(projectRoot, current, "target_integrated", evidence);
         }
@@ -346,6 +398,7 @@ export async function cleanupStoredPublication(
                         remote: attempt.upstreamRemote,
                         upstreamBranch: attempt.upstreamBranch,
                         publicationCommit: attempt.publishedCommit || "",
+                        artifactCommit: attempt.artifactCommit,
                     })
                     : await deleteMergedWorktreeBranch({ projectRoot, branch: attempt.executionBranch });
             if (!branchCleanup.deleted) {

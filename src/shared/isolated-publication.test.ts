@@ -138,6 +138,100 @@ Deno.test("isolated publication pushes the target upstream without touching the 
     }
 });
 
+Deno.test("publication refuses to advance the source branch after the artifact is sealed", async () => {
+    const projectRoot = await makeRepo();
+    const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-sealed-publication-remote-" });
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-sealed-publication-worktree-" });
+    let worktree: Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined;
+    try {
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+        await git(projectRoot, ["push", "-u", "origin", "main"]);
+        worktree = await createTestWorktreeAttempt({ projectRoot, planName: "sealed-artifact", worktreeRoot });
+        await Deno.mkdir(`${worktree.path}/docs/plans`, { recursive: true });
+        await Deno.writeTextFile(`${worktree.path}/docs/plans/sealed-artifact.md`, "validated plan\n");
+        await git(worktree.path, ["add", "docs/plans/sealed-artifact.md"]);
+        await git(worktree.path, ["commit", "-m", "Seal publication artifact"]);
+        const sealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
+        await Deno.writeTextFile(`${worktree.path}/docs/plans/sealed-artifact.md`, "changed after sealing\n");
+
+        await assertRejects(
+            () =>
+                publishExecutionWorktreeIsolated({
+                    projectRoot,
+                    executionCwd: worktree!.path,
+                    executionBranch: worktree!.branch,
+                    targetBranch: "main",
+                    planName: "sealed-artifact",
+                    sealedExecutionCommit: sealedCommit,
+                    allowedPlanPaths: ["docs/plans/sealed-artifact.md"],
+                }),
+            Error,
+            "changed after the validated candidate was sealed",
+        );
+        assertEquals(await git(worktree.path, ["rev-parse", "HEAD"]), sealedCommit);
+        assertEquals(await git(projectRoot, ["rev-parse", worktree.branch]), sealedCommit);
+    } finally {
+        if (worktree) {
+            await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("remote publication records the lease head when the primary target is behind", async () => {
+    const projectRoot = await makeRepo();
+    const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-publication-ahead-remote-" });
+    const contributorRoot = await Deno.makeTempDir({ prefix: "runwield-publication-contributor-" });
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-publication-ahead-worktree-" });
+    let worktree: Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined;
+    try {
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+        await git(projectRoot, ["push", "-u", "origin", "main"]);
+        worktree = await createTestWorktreeAttempt({ projectRoot, planName: "remote-ahead", worktreeRoot });
+        await Deno.writeTextFile(`${worktree.path}/implementation.txt`, "validated implementation\n");
+        await git(worktree.path, ["add", "implementation.txt"]);
+        await git(worktree.path, ["commit", "-m", "Validated execution candidate"]);
+        const sealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
+
+        await git(projectRoot, ["clone", remoteRoot, contributorRoot]);
+        await git(contributorRoot, ["config", "user.name", "RunWield Tests"]);
+        await git(contributorRoot, ["config", "user.email", "runwield@example.com"]);
+        await git(contributorRoot, ["checkout", "-b", "main", "origin/main"]);
+        await Deno.writeTextFile(`${contributorRoot}/remote-only.txt`, "new target commit\n");
+        await git(contributorRoot, ["add", "remote-only.txt"]);
+        await git(contributorRoot, ["commit", "-m", "Advance remote target"]);
+        await git(contributorRoot, ["push", "origin", "main"]);
+        const leaseHead = await git(contributorRoot, ["rev-parse", "HEAD"]);
+
+        const published = await publishExecutionWorktreeIsolated({
+            projectRoot,
+            executionCwd: worktree.path,
+            executionBranch: worktree.branch,
+            targetBranch: "main",
+            planName: "remote-ahead",
+            sealedExecutionCommit: sealedCommit,
+            allowedPlanPaths: [],
+        });
+
+        assertEquals(published.targetHeadBeforeMerge, leaseHead);
+        await git(projectRoot, ["fetch", "origin", "main"]);
+        await git(projectRoot, ["merge-base", "--is-ancestor", leaseHead, "origin/main"]);
+        await git(projectRoot, ["merge-base", "--is-ancestor", sealedCommit, "origin/main"]);
+    } finally {
+        if (worktree) {
+            await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(contributorRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("a remote policy rejection is typed as fatal and leaves the execution branch recoverable", async () => {
     const projectRoot = await makeRepo();
     const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-publication-rejecting-remote-" });

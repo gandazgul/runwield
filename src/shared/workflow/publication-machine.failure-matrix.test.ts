@@ -159,6 +159,34 @@ Deno.test("publication failure and recovery matrix uses real Git and fresh proce
         });
     }
 
+    await test.step("a real target advance refreshes an integration receipt before publication", async () => {
+        const fixture = await makeFixture("target-advance-after-integration");
+        try {
+            assertEquals((await runDriver(fixture.configPath, "integration_receipt")).code, 86);
+            const firstIntegration = await loadPublicationAttempt(fixture.projectRoot, "attempt-1");
+            assertEquals(firstIntegration?.phase, "target_integrated");
+
+            await Deno.writeTextFile(`${fixture.projectRoot}/arrived-after-integration.txt`, "preserved\n");
+            await git(fixture.projectRoot, ["add", "arrived-after-integration.txt"]);
+            await git(fixture.projectRoot, ["commit", "-m", "Advance target after integration receipt"]);
+            await git(fixture.projectRoot, ["push", "origin", "main"]);
+            const advancedTarget = await git(fixture.projectRoot, ["rev-parse", "HEAD"]);
+
+            assertEquals((await runDriver(fixture.configPath)).code, 0);
+            await assertPublishedOnce(fixture);
+            const remoteHead = (await git(fixture.projectRoot, ["ls-remote", "origin", "refs/heads/main"]))
+                .split(/\s+/)[0];
+            await git(fixture.projectRoot, ["fetch", "origin", "main"]);
+            await git(fixture.projectRoot, ["merge-base", "--is-ancestor", advancedTarget, remoteHead]);
+            assertEquals(
+                await git(fixture.projectRoot, ["show", `${remoteHead}:arrived-after-integration.txt`]),
+                "preserved",
+            );
+        } finally {
+            await dispose(fixture);
+        }
+    });
+
     await test.step("a real content conflict can be repaired in the saved publication copy and resumed", async () => {
         const fixture = await makeFixture("content-conflict");
         try {
@@ -183,11 +211,28 @@ Deno.test("publication failure and recovery matrix uses real Git and fresh proce
             await git(repairRoot, ["add", "conflict.txt"]);
             await git(repairRoot, ["commit", "--no-edit"]);
 
+            await Deno.writeTextFile(`${fixture.projectRoot}/arrived-during-repair.txt`, "preserved\n");
+            await git(fixture.projectRoot, ["add", "arrived-during-repair.txt"]);
+            await git(fixture.projectRoot, ["commit", "-m", "Advance target during publication repair"]);
+            await git(fixture.projectRoot, ["push", "origin", "main"]);
+            const advancedTarget = await git(fixture.projectRoot, ["rev-parse", "HEAD"]);
+
+            assertEquals((await runDriver(fixture.configPath, "integration_effect")).code, 86);
+            assertEquals(
+                (await loadPublicationAttempt(fixture.projectRoot, "attempt-1"))?.phase,
+                "artifacts_committed",
+            );
             assertEquals((await runDriver(fixture.configPath)).code, 0);
             await assertPublishedOnce(fixture);
             const remoteHead = (await git(fixture.projectRoot, ["ls-remote", "origin", "refs/heads/main"]))
                 .split(/\s+/)[0];
+            await git(fixture.projectRoot, ["fetch", "origin", "main"]);
+            await git(fixture.projectRoot, ["merge-base", "--is-ancestor", advancedTarget, remoteHead]);
             assertEquals(await git(fixture.projectRoot, ["show", `${remoteHead}:conflict.txt`]), "resolved");
+            assertEquals(
+                await git(fixture.projectRoot, ["show", `${remoteHead}:arrived-during-repair.txt`]),
+                "preserved",
+            );
         } finally {
             await dispose(fixture);
         }

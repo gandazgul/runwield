@@ -696,3 +696,49 @@ Deno.test("doctor proves publication from real Git ancestry in both directions",
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }
 });
+
+Deno.test("doctor proves remote publication while the local target checkout is behind", async () => {
+    const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-remote-git-" });
+    const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-remote-" });
+    try {
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(cwd, ["remote", "add", "origin", remoteRoot]);
+        await git(cwd, ["push", "-u", "origin", "main"]);
+        const localTargetCommit = await git(cwd, ["rev-parse", "main"]);
+
+        await git(cwd, ["checkout", "-b", "published-source"]);
+        await Deno.writeTextFile(join(cwd, "published-remotely.txt"), "published\n");
+        await git(cwd, ["add", "published-remotely.txt"]);
+        await git(cwd, ["commit", "-m", "Published only to the remote target"]);
+        const publishedCommit = await git(cwd, ["rev-parse", "HEAD"]);
+        await git(cwd, ["push", "origin", `${publishedCommit}:refs/heads/main`]);
+        await git(cwd, ["checkout", "main"]);
+        assertEquals(await git(cwd, ["rev-parse", "main"]), localTargetCommit);
+
+        await savePlan(cwd, "remote-published", "# Remote Published\n", {
+            planId: "plan-remote-published",
+            classification: "FEATURE",
+            status: "verified",
+            summary: "s",
+            affectedPaths: [],
+            deliveryEvidence: {
+                version: 1,
+                mode: "worktree_merge",
+                executionCommit: publishedCommit,
+                targetBranch: "main",
+                targetHeadBeforeMerge: localTargetCommit,
+            },
+        });
+
+        const report = await runPlansDoctor(cwd, false);
+        assertEquals(
+            report.issues.some((issue) =>
+                issue.kind === "uncertain_publication" && issue.planName === "remote-published"
+            ),
+            false,
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+        await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
+    }
+});

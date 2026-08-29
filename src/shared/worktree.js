@@ -1458,7 +1458,17 @@ export async function deleteMergedWorktreeBranch({ projectRoot, branch, baseComm
  * reachable. This fetches into a temporary RunWield ref; it never advances a
  * local target branch or changes the user's checkout.
  *
- * @param {{ projectRoot: string, branch: string, remote: string, upstreamBranch: string, publicationCommit: string }} opts
+ * @typedef {Object} RemotePublishedBranchDeletionOptions
+ * @property {string} projectRoot
+ * @property {string} branch
+ * @property {string} remote
+ * @property {string} upstreamBranch
+ * @property {string} publicationCommit
+ * @property {string} [artifactCommit]
+ */
+
+/**
+ * @param {RemotePublishedBranchDeletionOptions} opts
  * @returns {Promise<{ deleted: boolean, reason: string }>}
  */
 export async function deleteRemotelyPublishedWorktreeBranch({
@@ -1467,6 +1477,7 @@ export async function deleteRemotelyPublishedWorktreeBranch({
     remote,
     upstreamBranch,
     publicationCommit,
+    artifactCommit,
 }) {
     const proofRef = `refs/runwield/publication-proof/${crypto.randomUUID()}`;
     try {
@@ -1482,7 +1493,7 @@ export async function deleteRemotelyPublishedWorktreeBranch({
                 reason: `The upstream target changed before branch cleanup, so ${branch} was kept.`,
             };
         }
-        const contains = await runGitResult(projectRoot, ["merge-base", "--is-ancestor", branch, proofRef]);
+        let contains = await runGitResult(projectRoot, ["merge-base", "--is-ancestor", branch, proofRef]);
         if (contains.code !== 0) {
             // Cleanup can be resumed by more than one process after publication.
             // If another cleanup removed the branch between our existence check
@@ -1496,7 +1507,54 @@ export async function deleteRemotelyPublishedWorktreeBranch({
             if (branchStillExists.code !== 0) {
                 return { deleted: true, reason: `${branch} was already deleted.` };
             }
-            return { deleted: false, reason: `The upstream target does not contain ${branch}, so it was kept.` };
+            if (artifactCommit) {
+                const artifactPublished = await runGitResult(projectRoot, [
+                    "merge-base",
+                    "--is-ancestor",
+                    artifactCommit,
+                    proofRef,
+                ]);
+                const branchDescendsFromArtifact = await runGitResult(projectRoot, [
+                    "merge-base",
+                    "--is-ancestor",
+                    artifactCommit,
+                    `refs/heads/${branch}`,
+                ]);
+                if (artifactPublished.code === 0 && branchDescendsFromArtifact.code === 0) {
+                    const descendants = await runGitResult(projectRoot, [
+                        "rev-list",
+                        "--parents",
+                        `${artifactCommit}..refs/heads/${branch}`,
+                    ]);
+                    const commits = descendants.code === 0
+                        ? descendants.stdout.split("\n").map((line) => line.trim()).filter(Boolean)
+                        : [];
+                    let onlyEmptySingleParentCommits = descendants.code === 0 && commits.length > 0;
+                    for (const line of commits) {
+                        const [commit, parent, ...otherParents] = line.split(/\s+/);
+                        if (!commit || !parent || otherParents.length > 0) {
+                            onlyEmptySingleParentCommits = false;
+                            break;
+                        }
+                        const changed = await runGitResult(projectRoot, [
+                            "diff-tree",
+                            "--quiet",
+                            "--exit-code",
+                            parent,
+                            commit,
+                            "--",
+                        ]);
+                        if (changed.code !== 0) {
+                            onlyEmptySingleParentCommits = false;
+                            break;
+                        }
+                    }
+                    if (onlyEmptySingleParentCommits) contains = { ...contains, code: 0 };
+                }
+            }
+            if (contains.code !== 0) {
+                return { deleted: false, reason: `The upstream target does not contain ${branch}, so it was kept.` };
+            }
         }
         const deletion = await runGitResult(projectRoot, ["branch", "-D", branch]);
         if (deletion.code !== 0) {

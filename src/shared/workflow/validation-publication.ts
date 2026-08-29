@@ -601,6 +601,7 @@ async function runLockedPublicationPhase(
                     allowedPlanPaths: planPaths,
                     publicationRoot: publicationAttempt?.publicationRoot,
                     repairedPublicationRoot: repairMergeWorktreePath || undefined,
+                    recordedTargetBaseCommit: publicationAttempt?.targetBaseCommit,
                     onIntegrated: async (evidence) => {
                         if (!publicationAttempt) throw new Error("Publication attempt disappeared before integration.");
                         publicationAttempt = await advanceStoredPublication(
