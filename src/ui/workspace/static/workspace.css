@@ -2775,3 +2775,212 @@
     font-size: 0.85rem;
     font-weight: 700;
 }
+
+.workspace-shell-with-sidebar {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+    gap: 0;
+    max-width: none;
+    min-height: 100vh;
+    padding: 0;
+}
+
+.workspace-sidebar {
+    background: color-mix(in srgb, var(--rw-page-bg) 86%, black);
+    border-right: 1px solid var(--rw-border);
+    box-sizing: border-box;
+    color: var(--rw-text-muted);
+    min-height: 100vh;
+    overflow-y: auto;
+    padding: 18px 12px;
+}
+
+.workspace-main-shell {
+    box-sizing: border-box;
+    min-width: 0;
+    padding: var(--rw-space-panel);
+}
+
+.workspace-shell-with-sidebar .session-surface-new {
+    position: relative;
+    inset: auto;
+    z-index: auto;
+    min-height: calc(100vh - (2 * var(--rw-space-panel)) - 2.25rem);
+}
+
+.workspace-main-header {
+    align-items: center;
+    display: flex;
+    gap: 1rem;
+    min-height: 2.25rem;
+}
+
+.workspace-main-brand {
+    display: none;
+}
+
+.workspace-sidebar-brand a,
+.workspace-sidebar-new,
+.workspace-sidebar-project summary,
+.workspace-sidebar-session,
+.workspace-sidebar-project-links a {
+    align-items: center;
+    border-radius: var(--rw-radius-control);
+    color: var(--rw-text-muted);
+    display: flex;
+    gap: 0.6rem;
+    min-height: 32px;
+    text-decoration: none;
+}
+
+.workspace-sidebar-brand a {
+    color: var(--rw-text-strong);
+    font-weight: 800;
+    margin-bottom: 16px;
+}
+
+.workspace-sidebar-brand img {
+    height: 28px;
+    width: 34px;
+}
+
+.workspace-sidebar-new {
+    color: var(--rw-text-strong);
+    font-weight: 700;
+    padding: 0 8px;
+}
+
+.workspace-sidebar-new:hover,
+.workspace-sidebar-project summary:hover,
+.workspace-sidebar-session:hover,
+.workspace-sidebar-session.active,
+.workspace-sidebar-project-links a:hover {
+    background: var(--rw-surface-muted);
+    color: var(--rw-text-strong);
+}
+
+.workspace-sidebar-section-title {
+    color: var(--rw-text-dim);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    margin: 22px 8px 8px;
+}
+
+.workspace-sidebar-project {
+    margin: 2px 0;
+}
+
+.workspace-sidebar-project summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 0 8px;
+}
+
+.workspace-sidebar-project summary::-webkit-details-marker {
+    display: none;
+}
+
+.workspace-sidebar-project[open] .workspace-sidebar-folder {
+    transform: rotate(90deg);
+}
+
+.workspace-sidebar-folder {
+    color: var(--rw-text-dim);
+    display: inline-block;
+    transition: transform 120ms ease;
+}
+
+.workspace-sidebar-project-name,
+.workspace-sidebar-session span {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.workspace-sidebar-gear {
+    border-radius: var(--rw-radius-control);
+    color: var(--rw-text-dim);
+    flex: 0 0 auto;
+    padding: 2px 6px;
+    text-decoration: none;
+}
+
+.workspace-sidebar-gear:hover,
+.workspace-sidebar-gear:focus-visible {
+    background: var(--rw-surface-strong);
+    color: var(--rw-accent-text);
+}
+
+.workspace-sidebar-project-links a,
+.workspace-sidebar-session,
+.workspace-sidebar-show-more,
+.workspace-sidebar-empty {
+    margin-left: 28px;
+}
+
+.workspace-sidebar-project-links a {
+    font-size: 0.82rem;
+    min-height: 28px;
+    padding: 0 8px;
+}
+
+.workspace-sidebar-session {
+    font-size: 0.86rem;
+    padding: 0 8px;
+}
+
+.workspace-sidebar-session small {
+    color: var(--rw-text-dim);
+    flex: 0 0 auto;
+    font-size: 0.72rem;
+}
+
+.workspace-sidebar-show-more {
+    background: transparent;
+    border: 0;
+    border-radius: var(--rw-radius-control);
+    color: var(--rw-text-dim);
+    cursor: pointer;
+    display: block;
+    font: inherit;
+    padding: 6px 8px;
+    text-align: left;
+    width: calc(100% - 28px);
+}
+
+.workspace-sidebar-show-more:hover,
+.workspace-sidebar-show-more:focus-visible {
+    background: var(--rw-surface-muted);
+    color: var(--rw-text-strong);
+}
+
+.workspace-sidebar-empty {
+    color: var(--rw-text-dim);
+    font-size: 0.82rem;
+    margin-bottom: 0.4rem;
+    margin-top: 0.4rem;
+}
+
+.project-settings-card {
+    margin-bottom: 1rem;
+}
+
+@media (max-width: 860px) {
+    .workspace-shell-with-sidebar {
+        grid-template-columns: 1fr;
+    }
+
+    .workspace-sidebar {
+        border-bottom: 1px solid var(--rw-border);
+        border-right: 0;
+        min-height: 0;
+        max-height: 45vh;
+    }
+
+    .workspace-main-brand {
+        display: inline-flex;
+    }
+}

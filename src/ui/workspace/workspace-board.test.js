@@ -348,7 +348,7 @@ Deno.test("workspace adapter exposes Epic dependency health done-enough held and
             planId: "done-id",
             classification: "FEATURE",
             parentPlan: "epic",
-            status: "verified",
+            status: "validated",
         });
         await savePlan(cwd, "epic/02-blocked", "# Blocked", {
             planId: "blocked-id",
