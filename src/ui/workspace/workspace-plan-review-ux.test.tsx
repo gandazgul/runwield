@@ -58,6 +58,26 @@ Deno.test("Plan feedback action sits above the annotation list with theme accent
     }
 });
 
+Deno.test("Plan review offers a reusable Planner conversation without replacing Send Annotations", async () => {
+    const route = await Deno.readTextFile(ROUTE_PATH);
+    const surface = await Deno.readTextFile(SURFACE_PATH);
+    const conversation = await Deno.readTextFile("src/ui/workspace/react/ArtifactConversationSidebar.tsx");
+    const components = await Deno.readTextFile("src/ui/design-system/components.css");
+    const docs = await Deno.readTextFile("docs/design-system.md");
+
+    assertStringIncludes(route, "operationStatusUrl");
+    assertStringIncludes(route, "planDetailUrl");
+    assertStringIncludes(route, "interactionAnswerBaseUrl");
+    assertStringIncludes(surface, 'label="Send Annotations"');
+    assertStringIncludes(surface, "Add to Planner chat");
+    assertStringIncludes(surface, "<ArtifactConversationSidebar");
+    assertStringIncludes(surface, "waitForPlannerReview");
+    assertStringIncludes(surface, "setPlannerDiffBase(options.priorPlan)");
+    assertStringIncludes(conversation, "Message ${props.agentLabel}");
+    assertStringIncludes(components, ".rw-artifact-conversation {");
+    assertStringIncludes(docs, "**Artifact conversation**");
+});
+
 Deno.test("Code feedback action matches the Plan annotation sidebar treatment", async () => {
     const surface = await Deno.readTextFile(CODE_SURFACE_PATH);
     const sidebarIndex = surface.indexOf('className="rw-code-review-annotation-sidebar"');
@@ -314,6 +334,7 @@ Deno.test("Plan reviews recover unfinished work and send direct edits as feedbac
     assertStringIncludes(surface, "Restore draft");
     assertStringIncludes(surface, "persistReviewDraftLocally");
     assertStringIncludes(surface, "directEdits={directEditPanel}");
-    assertStringIncludes(surface, "disabled={!hasReviewFeedback || submitting !== null}");
+    assertStringIncludes(surface, "disabled={!hasReviewFeedback || submitting !== null ||");
+    assertStringIncludes(surface, "plannerWorking}");
     assertStringIncludes(surface, "buildPlanReviewFeedback");
 });

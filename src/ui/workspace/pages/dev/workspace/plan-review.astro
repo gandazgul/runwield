@@ -1,0 +1,11 @@
+---
+import WorkspaceLayout from "../../../layouts/WorkspaceLayout.astro";
+import { ReviewDevSurface } from "../../../react/ReviewDevSurface.tsx";
+
+if (!import.meta.env.DEV) {
+    return new Response("Not found", { status: 404 });
+}
+---
+<WorkspaceLayout title="Workspace Plan Review Dev · RunWield" selectedTab="projects" url={Astro.url.href}>
+    <ReviewDevSurface surface="plan" presentation="workspace" client:only="react" />
+</WorkspaceLayout>

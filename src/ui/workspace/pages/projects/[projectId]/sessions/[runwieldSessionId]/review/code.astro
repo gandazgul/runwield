@@ -1,0 +1,54 @@
+---
+import WorkspaceLayout from "../../../../../../layouts/WorkspaceLayout.astro";
+import { CodeReviewSurface } from "../../../../../../react/CodeReviewSurface.tsx";
+import { getAstroOwnerWorkspaceSessionContinuation } from "../../../../../../server/astro-owner-data.js";
+
+const projectId = Astro.params.projectId ?? "";
+const runwieldSessionId = Astro.params.runwieldSessionId ?? "";
+const operationId = Astro.url.searchParams.get("operation") || "";
+const interactionId = Astro.url.searchParams.get("interaction") || "";
+const liveReview = operationId && interactionId
+    ? getAstroOwnerWorkspaceSessionContinuation()?.getLiveCodeReview?.({
+        projectId,
+        runwieldSessionId,
+        operationId,
+        interactionId,
+    }) || null
+    : null;
+
+if (!liveReview) Astro.response.status = 404;
+const codeReview = liveReview?.request?.codeReview || null;
+const sessionHref = `/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(runwieldSessionId)}`;
+const payload = codeReview
+    ? {
+        ...codeReview,
+        token: `workspace:${operationId}:${interactionId}`,
+        mode: "workspace",
+        projectId,
+        runwieldSessionId,
+        reviewContext: {
+            projectLabel: projectId,
+            sessionHref,
+            sessionLabel: runwieldSessionId,
+            actingSession: runwieldSessionId,
+            artifactLabel: codeReview.planName || "Code changes",
+            statusLabel: "Human code review",
+            live: true,
+        },
+        interactionAnswerUrl: `/api/owner/projects/${encodeURIComponent(projectId)}/session-operations/${
+            encodeURIComponent(operationId)
+        }/interactions/${encodeURIComponent(interactionId)}/answer`,
+    }
+    : null;
+---
+<WorkspaceLayout title="Code Review · RunWield Workspace" selectedTab="projects" url={Astro.url.href}>
+    {payload ? (
+        <CodeReviewSurface payload={payload} presentation="workspace" client:only="react" />
+    ) : (
+        <section class="error-panel">
+            <h1>Code Review is no longer available</h1>
+            <p>This live review ended or belongs to a different Session.</p>
+            <a class="secondary-action" href={sessionHref}>Return to Session</a>
+        </section>
+    )}
+</WorkspaceLayout>

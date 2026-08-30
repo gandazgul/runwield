@@ -1,11 +1,19 @@
 ---
 import { PLAN_SEARCH_QUERY_PARAM, PLAN_UI_TOKEN_QUERY } from "../constants.js";
 
-const { title = "RunWield Workspace", selectedTab = "active", url = Astro.url.href } = Astro.props;
+const {
+    title = "RunWield Workspace",
+    selectedTab = "active",
+    url = Astro.url.href,
+    shell = "workspace",
+} = Astro.props;
 const currentUrl = url instanceof URL ? url : new URL(String(url));
+const localShell = shell === "local";
 
 function linkWithToken(path: string) {
-    const token = currentUrl.searchParams.get(PLAN_UI_TOKEN_QUERY) || "";
+    const ownerRoute = currentUrl.pathname === "/projects" || currentUrl.pathname.startsWith("/projects/") ||
+        currentUrl.pathname === "/devices" || currentUrl.pathname === "/pair";
+    const token = ownerRoute ? "" : currentUrl.searchParams.get(PLAN_UI_TOKEN_QUERY) || "";
     const query = currentUrl.searchParams.get(PLAN_SEARCH_QUERY_PARAM) || "";
     const next = new URL(path, currentUrl);
     if (token) next.searchParams.set(PLAN_UI_TOKEN_QUERY, token);
@@ -27,24 +35,13 @@ function linkWithToken(path: string) {
         <link rel="stylesheet" href="/theme.css" />
     </head>
     <body class="theme-runwield">
-        <div class="workspace-shell workspace-shell-with-sidebar" data-selected-tab={selectedTab} data-astro-workspace-shell>
-            <aside class="workspace-sidebar" data-workspace-sidebar aria-label="Workspace navigation">
-                <div class="workspace-sidebar-brand">
-                    <a href={linkWithToken("/")} aria-label="RunWield Workspace home">
-                        <img src="/brand/logo.svg" alt="" aria-hidden="true" />
-                        <span>RunWield</span>
+        {localShell ? (
+            <div class="workspace-shell workspace-local-shell" data-selected-tab={selectedTab} data-astro-workspace-shell>
+                <header class="workspace-local-header">
+                    <a class="brand" href={linkWithToken("/")} aria-label="RunWield Plans home">
+                        <img class="brand-logo" src="/brand/logo.svg" alt="" aria-hidden="true" />
+                        <span>RunWield Plans</span>
                     </a>
-                </div>
-                <p class="workspace-sidebar-empty">Loading Workspace…</p>
-            </aside>
-            <div class="workspace-main-shell">
-                <header class="workspace-main-header">
-                    <div class="workspace-main-header-left" data-workspace-main-header-left>
-                        <a class="brand workspace-main-brand" href={linkWithToken("/")} aria-label="RunWield Workspace home">
-                            <img class="brand-logo" src="/brand/logo.svg" alt="" aria-hidden="true" />
-                            <span>RunWield Workspace</span>
-                        </a>
-                    </div>
                     <div class="tab-search-slot" data-plan-search-slot>
                         <slot name="toolbar" />
                     </div>
@@ -53,7 +50,35 @@ function linkWithToken(path: string) {
                     <slot />
                 </main>
             </div>
-        </div>
-        <script is:inline src="/workspace-shell.js"></script>
+        ) : (
+            <div class="workspace-shell workspace-shell-with-sidebar" data-selected-tab={selectedTab} data-astro-workspace-shell>
+                <aside class="workspace-sidebar" data-workspace-sidebar aria-label="Workspace navigation">
+                    <div class="workspace-sidebar-brand">
+                        <a href={linkWithToken("/")} aria-label="RunWield Workspace home">
+                            <img src="/brand/logo.svg" alt="" aria-hidden="true" />
+                            <span>RunWield</span>
+                        </a>
+                    </div>
+                    <p class="workspace-sidebar-empty">Loading Workspace…</p>
+                </aside>
+                <div class="workspace-main-shell">
+                    <header class="workspace-main-header">
+                        <div class="workspace-main-header-left" data-workspace-main-header-left>
+                            <a class="brand workspace-main-brand" href={linkWithToken("/")} aria-label="RunWield Workspace home">
+                                <img class="brand-logo" src="/brand/logo.svg" alt="" aria-hidden="true" />
+                                <span>RunWield Workspace</span>
+                            </a>
+                        </div>
+                        <div class="tab-search-slot" data-plan-search-slot>
+                            <slot name="toolbar" />
+                        </div>
+                    </header>
+                    <main>
+                        <slot />
+                    </main>
+                </div>
+            </div>
+        )}
+        {!localShell && <script is:inline src="/workspace-shell.js"></script>}
     </body>
 </html>

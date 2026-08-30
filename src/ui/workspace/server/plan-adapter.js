@@ -80,6 +80,21 @@ export const STATUS_META = {
         label: "Implemented",
         description: "Implemented work awaiting validation or closure.",
     },
+    validated_ci: {
+        status: "validated_ci",
+        label: "CI Validated",
+        description: "Mechanical Validation passed; Semantic Code Review is next.",
+    },
+    validated_reviewer: {
+        status: "validated_reviewer",
+        label: "Reviewer Validated",
+        description: "Semantic Code Review passed; final verification is next.",
+    },
+    validated: {
+        status: "validated",
+        label: "Validated",
+        description: "Workflow Validation passed; delivery publication may still be finishing.",
+    },
     verified: {
         status: "verified",
         label: "Verified",
@@ -432,7 +447,11 @@ function columnsForStatuses(plans, statuses, options = {}) {
             ? topLevelCardsForStatus(plans, status)
             : plans.filter((plan) => String(plan.status) === status && plan.hierarchyRole !== "orphan-child");
         const orphanChildren = orphanCardsForStatus(plans, status);
-        const meta = /** @type {any} */ (STATUS_META)[status];
+        const meta = /** @type {any} */ (STATUS_META)[status] || {
+            status,
+            label: status,
+            description: "",
+        };
         return {
             ...meta,
             cards,

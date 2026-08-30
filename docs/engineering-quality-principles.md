@@ -38,6 +38,12 @@ Define named domain shapes or let the language infer a precise type.
 Locally reasonable changes can create system-level unknowns. Review architecture and cross-surface invariants separately
 from the local implementation.
 
+### Symptom-only Fixes
+
+- The fix addresses the visible symptom but not the underlying cause.
+- Trace the failure to its source and correct the faulty ownership, invariant, or design instead of patching around its
+  effects.
+
 ## Positive Design Principles
 
 - Deep modules with small interfaces.

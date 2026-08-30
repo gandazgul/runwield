@@ -7,6 +7,8 @@ import { Viewer } from "@plannotator/ui/components/Viewer.tsx";
 import { MarkdownEditor } from "@plannotator/ui/components/MarkdownEditor.tsx";
 import { AnnotationPanel } from "@plannotator/ui/components/AnnotationPanel.tsx";
 import { RunWieldAnnotationToolstrip } from "./RunWieldAnnotationToolstrip.tsx";
+import { ReviewContextBar } from "./ReviewContextBar.tsx";
+import { ArtifactConversationSidebar } from "./ArtifactConversationSidebar.tsx";
 import { FeedbackButton } from "@plannotator/ui/components/ToolbarButtons.tsx";
 import { PlanDiffViewer } from "@plannotator/ui/components/plan-diff/PlanDiffViewer.tsx";
 import { CompletionOverlay } from "@plannotator/ui/components/CompletionOverlay.tsx";
@@ -45,17 +47,19 @@ import {
 import { buildRunWieldDirectEditPanel } from "./plan-review-direct-edits.ts";
 import { buildPlanReviewFeedback } from "./plan-review-feedback.ts";
 import { normalizePlanReviewVersions } from "./plan-review-versions.ts";
+import { buildArtifactConversationFeedback, collectArtifactConversationReply } from "./artifact-conversation.ts";
 import "./plannotator.css";
 
 const DEFAULT_PLAN_PAYLOAD = { plan: "", token: "", mode: "dev" };
 
-export function PlanReviewSurface({ payload }) {
+export function PlanReviewSurface({ payload, presentation = "standalone" }) {
     usePrintMode();
     const initialPayload = useMemo(() => payload || readEmbeddedPayload("review-payload") || DEFAULT_PLAN_PAYLOAD, [
         payload,
     ]);
     const submittedPlan = initialPayload.plan || "";
     const reviewDraftKey = planReviewDraftKey(initialPayload.token || initialPayload.planPath || "dev-plan");
+    const [reviewBasePlan, setReviewBasePlan] = useState(submittedPlan);
     const [plan, setPlan] = useState(initialPayload.plan || "");
     const [draftPlan, setDraftPlan] = useState(initialPayload.plan || "");
     const [editorMode, setEditorMode] = useState("view");
@@ -65,6 +69,7 @@ export function PlanReviewSurface({ payload }) {
     const [sidebarOpen, setSidebarOpen] = useState(() => getUIPreferences().tocEnabled);
     const [sidebarTab, setSidebarTab] = useState("toc");
     const [annotationsOpen, setAnnotationsOpen] = useState(true);
+    const [rightSidebarView, setRightSidebarView] = useState("annotations");
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
     const [annotations, setAnnotations] = useState([]);
@@ -83,14 +88,25 @@ export function PlanReviewSurface({ payload }) {
     const [pendingReviewDraft, setPendingReviewDraft] = useState(null);
     const [reviewDraftReady, setReviewDraftReady] = useState(false);
     const [reviewDraftStorageError, setReviewDraftStorageError] = useState("");
+    const [conversationMessages, setConversationMessages] = useState([]);
+    const [conversationComposer, setConversationComposer] = useState("");
+    const [conversationContextAttached, setConversationContextAttached] = useState(false);
+    const [plannerWorking, setPlannerWorking] = useState(false);
+    const [plannerError, setPlannerError] = useState("");
+    const [plannerDiffBase, setPlannerDiffBase] = useState(null);
+    const [plannerDiffRevision, setPlannerDiffRevision] = useState(0);
+    const [activeInteractionId, setActiveInteractionId] = useState(initialPayload.interactionId || "");
+    const [activeInteractionAnswerUrl, setActiveInteractionAnswerUrl] = useState(
+        initialPayload.interactionAnswerUrl || "",
+    );
     const editorHandleRef = useRef(null);
     const viewerHandleRef = useRef(null);
     const gridEnabled = useConfigValue("gridEnabled");
     const editorDirty = draftPlan !== plan;
-    const directlyEditedPlan = draftPlan === submittedPlan ? null : draftPlan;
+    const directlyEditedPlan = draftPlan === reviewBasePlan ? null : draftPlan;
     const directEditPanel = useMemo(
-        () => buildRunWieldDirectEditPanel(submittedPlan, directlyEditedPlan ?? submittedPlan),
-        [directlyEditedPlan, submittedPlan],
+        () => buildRunWieldDirectEditPanel(reviewBasePlan, directlyEditedPlan ?? reviewBasePlan),
+        [directlyEditedPlan, reviewBasePlan],
     );
     const hasReviewFeedback = annotations.length > 0 || codeAnnotations.length > 0 || globalAttachments.length > 0 ||
         directlyEditedPlan !== null;
@@ -140,11 +156,16 @@ export function PlanReviewSurface({ payload }) {
     }), [initialPayload.planPath, planVersions]);
     const planDiff = usePlanDiff(
         plan,
-        previousPlan,
-        versionInfo,
+        plannerDiffBase || previousPlan,
+        plannerDiffBase ? { version: 2, totalVersions: 2, project: "RunWield" } : versionInfo,
         planDiffFetchers,
+        plannerDiffRevision > 0 ? `planner-revision-${plannerDiffRevision}` : "initial-plan",
     );
-    const selectedVersionLabel = planDiff.diffBaseVersion ? `version ${planDiff.diffBaseVersion}` : "previous version";
+    const selectedVersionLabel = plannerDiffBase
+        ? "the Plan before the Planner update"
+        : planDiff.diffBaseVersion
+        ? `version ${planDiff.diffBaseVersion}`
+        : "previous version";
     const affectedPaths = useMemo(
         () =>
             Array.isArray(parsed.frontmatter?.affectedPaths)
@@ -179,6 +200,14 @@ export function PlanReviewSurface({ payload }) {
     const [executionPolicy, setExecutionPolicy] = useState(trustedPolicy);
     const executionAgent = executionPolicy.executionAgent;
     const collaborationRecommendation = executionPolicy.collaborationRecommendation;
+    const conversationEnabled = initialPayload.mode === "dev" || Boolean(
+        initialPayload.operationStatusUrl && initialPayload.planDetailUrl && initialPayload.interactionAnswerBaseUrl,
+    );
+    const reviewContextCount = annotations.length + codeAnnotations.length + globalAttachments.length +
+        (directlyEditedPlan === null ? 0 : 1);
+    const attachedContextLabel = conversationContextAttached && reviewContextCount > 0
+        ? `${reviewContextCount} review ${reviewContextCount === 1 ? "note" : "notes"} attached`
+        : undefined;
 
     const persistReviewDraftLocally = useCallback((reportError = true) => {
         try {
@@ -186,7 +215,7 @@ export function PlanReviewSurface({ payload }) {
                 globalThis.localStorage?.removeItem(reviewDraftKey);
             } else {
                 const draft = createPlanReviewDraft({
-                    basePlan: submittedPlan,
+                    basePlan: reviewBasePlan,
                     annotations,
                     codeAnnotations,
                     globalAttachments,
@@ -207,7 +236,7 @@ export function PlanReviewSurface({ payload }) {
         globalAttachments,
         hasReviewFeedback,
         reviewDraftKey,
-        submittedPlan,
+        reviewBasePlan,
     ]);
 
     useEffect(() => {
@@ -277,6 +306,159 @@ export function PlanReviewSurface({ payload }) {
         } finally {
             setSubmitting(null);
         }
+    }
+
+    function attachReviewContextToConversation() {
+        if (!hasReviewFeedback) return;
+        setConversationContextAttached(true);
+        setRightSidebarView("planner");
+        setPlannerError("");
+    }
+
+    async function sendPlannerMessage() {
+        const message = conversationComposer.trim();
+        if (!message || plannerWorking) return;
+        const attachedFeedback = conversationContextAttached && hasReviewFeedback ? currentFeedback() : "";
+        const contextLabel = attachedFeedback ? attachedContextLabel : undefined;
+        const userMessageId = `user-${crypto.randomUUID()}`;
+        const agentMessageId = `agent-${crypto.randomUUID()}`;
+        const priorPlan = currentPlan();
+        let eventStartIndex = 0;
+
+        setPlannerWorking(true);
+        setPlannerError("");
+        setError("");
+        setConversationComposer("");
+        setConversationMessages((items) => [...items, {
+            id: userMessageId,
+            role: "user",
+            body: message,
+            ...(contextLabel && { contextLabel }),
+        }]);
+
+        try {
+            if (initialPayload.mode !== "dev") {
+                const statusResponse = await fetch(initialPayload.operationStatusUrl);
+                const statusPayload = await statusResponse.json().catch(() => ({}));
+                if (!statusResponse.ok) throw new Error(statusPayload.error || "Planner status is unavailable.");
+                eventStartIndex = Array.isArray(statusPayload.events) ? statusPayload.events.length : 0;
+            }
+
+            const result = await submit("deny", {
+                ...buildReviewPayload(),
+                feedback: buildArtifactConversationFeedback({ message, attachedFeedback }),
+                ...buildPlanSavePayload(),
+            });
+            if (result?.status === "recovery_required" || result?.result?.kind === "recovery_required") return;
+
+            if (initialPayload.mode === "dev") {
+                await pause(700);
+                const revisedPlan = initialPayload.plannerConversation?.revisedPlan ||
+                    `${priorPlan}\n\n## Planner update\n\n- Added after the conversation turn.`;
+                applyPlannerRevision({
+                    priorPlan,
+                    revisedPlan,
+                    interactionId: `dev-${crypto.randomUUID()}`,
+                    reply: initialPayload.plannerConversation?.reply ||
+                        "I tightened the Plan and added a clearer verification step.",
+                    agentMessageId,
+                    clearAttachedContext: Boolean(attachedFeedback),
+                });
+                return;
+            }
+
+            await waitForPlannerReview({
+                priorPlan,
+                previousInteractionId: activeInteractionId,
+                eventStartIndex,
+                agentMessageId,
+                clearAttachedContext: Boolean(attachedFeedback),
+            });
+        } catch (caught) {
+            setPlannerError(caught instanceof Error ? caught.message : String(caught));
+        } finally {
+            setPlannerWorking(false);
+        }
+    }
+
+    async function waitForPlannerReview(options) {
+        const deadline = Date.now() + 180_000;
+        while (Date.now() < deadline) {
+            const response = await fetch(initialPayload.operationStatusUrl);
+            const operation = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(operation.error || "Planner status is unavailable.");
+
+            const events = Array.isArray(operation.events) ? operation.events : [];
+            const reply = collectArtifactConversationReply(events, options.eventStartIndex);
+            if (reply.text) {
+                upsertPlannerReply(options.agentMessageId, reply.text);
+            }
+
+            const interaction = operation.liveInteraction;
+            if (
+                interaction?.interactionId && interaction.interactionId !== options.previousInteractionId &&
+                interaction.request?.type === "plan_review"
+            ) {
+                const planResponse = await fetch(initialPayload.planDetailUrl);
+                const planPayload = await planResponse.json().catch(() => ({}));
+                if (!planResponse.ok) throw new Error(planPayload.error || "The revised Plan could not be loaded.");
+                const revisedPlan = planPayload.plan?.markdown || planPayload.plan?.body;
+                if (typeof revisedPlan !== "string") throw new Error("The revised Plan response is incomplete.");
+                applyPlannerRevision({
+                    priorPlan: options.priorPlan,
+                    revisedPlan,
+                    interactionId: interaction.interactionId,
+                    reply: reply.text ||
+                        (revisedPlan === options.priorPlan
+                            ? "I reviewed that request and left the Plan unchanged."
+                            : "I updated the Plan. The changes are open in the diff."),
+                    agentMessageId: options.agentMessageId,
+                    clearAttachedContext: options.clearAttachedContext,
+                });
+                return;
+            }
+
+            if (["failed", "canceled", "completed"].includes(operation.status)) {
+                throw new Error(operation.error || "The Planner ended without reopening Plan review.");
+            }
+            await pause(750);
+        }
+        throw new Error("The Planner is still working. Return to the Session to check its progress.");
+    }
+
+    function applyPlannerRevision(options) {
+        upsertPlannerReply(options.agentMessageId, options.reply);
+        setActiveInteractionId(options.interactionId);
+        if (initialPayload.interactionAnswerBaseUrl) {
+            setActiveInteractionAnswerUrl(
+                `${initialPayload.interactionAnswerBaseUrl}/${encodeURIComponent(options.interactionId)}/answer`,
+            );
+        }
+        setPlannerDiffBase(options.priorPlan);
+        setPlannerDiffRevision((value) => value + 1);
+        setReviewBasePlan(options.revisedPlan);
+        setPlan(options.revisedPlan);
+        setDraftPlan(options.revisedPlan);
+        setEditorMode("view");
+        setIsPlanDiffActive(options.revisedPlan !== options.priorPlan);
+        if (options.clearAttachedContext) {
+            setAnnotations([]);
+            setCodeAnnotations([]);
+            setGlobalAttachments([]);
+            setSelectedAnnotationId(null);
+            setSelectedCodeAnnotationId(null);
+            setConversationContextAttached(false);
+            clearReviewDraft();
+        }
+    }
+
+    function upsertPlannerReply(messageId, body) {
+        setConversationMessages((items) => {
+            const existing = items.findIndex((item) => item.id === messageId);
+            const message = { id: messageId, role: "agent", body };
+            if (existing < 0) return [...items, message];
+            return items.map((item, index) => index === existing ? message : item);
+        });
     }
 
     function addAnnotation(annotation) {
@@ -393,7 +575,7 @@ export function PlanReviewSurface({ payload }) {
             annotations,
             codeAnnotations,
             globalAttachments,
-            basePlan: submittedPlan,
+            basePlan: reviewBasePlan,
             reviewedPlan,
         });
     }
@@ -488,7 +670,9 @@ export function PlanReviewSurface({ payload }) {
         >
             <TooltipProvider>
                 <div
-                    className="rw-plannotator-host rw-plan-review"
+                    className={`rw-plannotator-host rw-plan-review ${
+                        presentation === "workspace" ? "rw-review-embedded" : ""
+                    }`}
                     data-review-mode={initialPayload.mode}
                     data-plan-width={planWidthMode}
                 >
@@ -527,37 +711,25 @@ export function PlanReviewSurface({ payload }) {
                                                 value,
                                             })
                                         )}
-                                    disabled={submitting !== null}
+                                    disabled={submitting !== null || plannerWorking}
                                 />
                             )}
                             <PlanApprovalSplitButton
                                 primaryAction={primaryApprovalAction}
                                 onApprove={submitApprove}
-                                disabled={submitting !== null}
+                                disabled={submitting !== null || plannerWorking}
                                 isLoading={submitting === "approve"}
                             />
                         </div>
                     </header>
-                    {initialPayload.reviewContext && (
-                        <section className="rw-plan-review-context" aria-label="Plan review context">
-                            <nav aria-label="Plan location">
-                                <span>{initialPayload.reviewContext.projectLabel || "Project"}</span>
-                                <span aria-hidden="true">→</span>
-                                <a href={initialPayload.reviewContext.sessionHref || "#session"}>
-                                    {initialPayload.reviewContext.sessionLabel || "Session"}
-                                </a>
-                                <span aria-hidden="true">→</span>
-                                <span>{initialPayload.reviewContext.planLabel || "Plan"}</span>
-                            </nav>
-                            <div>
-                                <span>
-                                    {initialPayload.reviewContext.actingSession || "Acting Session not recorded"}
-                                </span>
-                                <span>{initialPayload.reviewContext.planStatus || "Status unknown"}</span>
-                                <span>{initialPayload.reviewContext.live ? "Live review" : "Settled review"}</span>
-                            </div>
-                        </section>
-                    )}
+                    <ReviewContextBar
+                        context={initialPayload.reviewContext && {
+                            ...initialPayload.reviewContext,
+                            artifactLabel: initialPayload.reviewContext.planLabel || "Plan",
+                            statusLabel: initialPayload.reviewContext.planStatus || "Status unknown",
+                        }}
+                        artifactLabel="Plan review"
+                    />
                     {initialPayload.reviewNotice && (
                         <section
                             className={`rw-plan-review-notice state-${initialPayload.reviewNotice.state || "info"}`}
@@ -898,50 +1070,117 @@ export function PlanReviewSurface({ payload }) {
                                             <PanelCollapseIcon side="right" />
                                         </button>
                                     </div>
-                                    <div className="rw-review-feedback-action rw-review-action">
-                                        <FeedbackButton
-                                            onClick={submitFeedback}
-                                            disabled={!hasReviewFeedback || submitting !== null}
-                                            isLoading={submitting === "feedback"}
-                                            label="Send Annotations"
-                                            loadingLabel="Sending Annotations…"
-                                            title={!hasReviewFeedback
-                                                ? "Add a Plan or file annotation, attachment, or direct Plan edit before sending annotations"
-                                                : "Send annotations"}
-                                        />
-                                    </div>
-                                    <AnnotationPanel
-                                        isOpen
-                                        presentation="embedded"
-                                        annotations={annotations}
-                                        codeAnnotations={codeAnnotations}
-                                        blocks={parsed.blocks}
-                                        onSelect={(id) => {
-                                            setSelectedCodeAnnotationId(null);
-                                            setSelectedAnnotationId(id);
-                                        }}
-                                        onDelete={removeAnnotation}
-                                        onEdit={(id, updates) =>
-                                            setAnnotations((items) =>
-                                                items.map((item) => item.id === id ? { ...item, ...updates } : item)
-                                            )}
-                                        onSelectCodeAnnotation={(id) => {
-                                            const annotation = codeAnnotations.find((item) => item.id === id);
-                                            if (!annotation) return;
-                                            setSelectedAnnotationId(null);
-                                            setSelectedCodeAnnotationId(id);
-                                            codeFilePopout.open(annotation.filePath);
-                                        }}
-                                        onDeleteCodeAnnotation={removeCodeAnnotation}
-                                        onEditCodeAnnotation={(id, updates) =>
-                                            setCodeAnnotations((items) =>
-                                                items.map((item) => item.id === id ? { ...item, ...updates } : item)
-                                            )}
-                                        onQuickCopy={() => copyTextToClipboard(currentFeedback())}
-                                        selectedId={selectedCodeAnnotationId || selectedAnnotationId}
-                                        sharingEnabled={false}
-                                        directEdits={directEditPanel}
-                                    />
+                                    {conversationEnabled && (
+                                        <div
+                                            className="rw-review-sidebar-tabs rw-segmented-toggle"
+                                            role="tablist"
+                                            aria-label="Review sidebar"
+                                        >
+                                            <button
+                                                className={rightSidebarView === "annotations" ? "active" : ""}
+                                                type="button"
+                                                role="tab"
+                                                aria-selected={rightSidebarView === "annotations"}
+                                                onClick={() => setRightSidebarView("annotations")}
+                                                title="Annotations"
+                                            >
+                                                <ToggleIcon name="annotations" />
+                                                <span>Annotations</span>
+                                            </button>
+                                            <button
+                                                className={rightSidebarView === "planner" ? "active" : ""}
+                                                type="button"
+                                                role="tab"
+                                                aria-selected={rightSidebarView === "planner"}
+                                                onClick={() => setRightSidebarView("planner")}
+                                                title="Planner"
+                                            >
+                                                <PlannerChatIcon />
+                                                <span>Planner</span>
+                                            </button>
+                                        </div>
+                                    )}
+                                    {rightSidebarView === "annotations"
+                                        ? (
+                                            <>
+                                                <div className="rw-review-feedback-action rw-review-action">
+                                                    <FeedbackButton
+                                                        onClick={submitFeedback}
+                                                        disabled={!hasReviewFeedback || submitting !== null ||
+                                                            plannerWorking}
+                                                        isLoading={submitting === "feedback"}
+                                                        label="Send Annotations"
+                                                        loadingLabel="Sending Annotations…"
+                                                        title={!hasReviewFeedback
+                                                            ? "Add a Plan or file annotation, attachment, or direct Plan edit before sending annotations"
+                                                            : "Send annotations"}
+                                                    />
+                                                    {conversationEnabled && (
+                                                        <button
+                                                            className="rw-review-context-to-chat"
+                                                            type="button"
+                                                            disabled={!hasReviewFeedback || plannerWorking}
+                                                            onClick={attachReviewContextToConversation}
+                                                        >
+                                                            <PlannerChatIcon />
+                                                            Add to Planner chat
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <AnnotationPanel
+                                                    isOpen
+                                                    presentation="embedded"
+                                                    annotations={annotations}
+                                                    codeAnnotations={codeAnnotations}
+                                                    blocks={parsed.blocks}
+                                                    onSelect={(id) => {
+                                                        setSelectedCodeAnnotationId(null);
+                                                        setSelectedAnnotationId(id);
+                                                    }}
+                                                    onDelete={removeAnnotation}
+                                                    onEdit={(id, updates) =>
+                                                        setAnnotations((items) =>
+                                                            items.map((item) =>
+                                                                item.id === id ? { ...item, ...updates } : item
+                                                            )
+                                                        )}
+                                                    onSelectCodeAnnotation={(id) => {
+                                                        const annotation = codeAnnotations.find((item) =>
+                                                            item.id === id
+                                                        );
+                                                        if (!annotation) return;
+                                                        setSelectedAnnotationId(null);
+                                                        setSelectedCodeAnnotationId(id);
+                                                        codeFilePopout.open(annotation.filePath);
+                                                    }}
+                                                    onDeleteCodeAnnotation={removeCodeAnnotation}
+                                                    onEditCodeAnnotation={(id, updates) =>
+                                                        setCodeAnnotations((items) =>
+                                                            items.map((item) =>
+                                                                item.id === id ? { ...item, ...updates } : item
+                                                            )
+                                                        )}
+                                                    onQuickCopy={() => copyTextToClipboard(currentFeedback())}
+                                                    selectedId={selectedCodeAnnotationId || selectedAnnotationId}
+                                                    sharingEnabled={false}
+                                                    directEdits={directEditPanel}
+                                                />
+                                            </>
+                                        )
+                                        : (
+                                            <ArtifactConversationSidebar
+                                                agentLabel="Planner"
+                                                messages={conversationMessages}
+                                                composer={conversationComposer}
+                                                attachedContextLabel={attachedContextLabel}
+                                                working={plannerWorking}
+                                                disabled={submitting !== null}
+                                                error={plannerError}
+                                                onComposerChange={setConversationComposer}
+                                                onSend={sendPlannerMessage}
+                                                onDetachContext={() => setConversationContextAttached(false)}
+                                            />
+                                        )}
                                 </aside>
                             )}
                         </div>
@@ -998,7 +1237,7 @@ export function PlanReviewSurface({ payload }) {
             console.log("Plan review dev decision", { endpoint, body });
             return { status: "accepted" };
         }
-        const targetUrl = initialPayload.interactionAnswerUrl || initialPayload.submitUrl ||
+        const targetUrl = activeInteractionAnswerUrl || initialPayload.submitUrl ||
             `/api/review/${endpoint}?token=${encodeURIComponent(initialPayload.token)}`;
         const headers = {
             "content-type": "application/json",
@@ -1010,7 +1249,7 @@ export function PlanReviewSurface({ payload }) {
             method: "POST",
             headers,
             body: JSON.stringify(
-                initialPayload.interactionAnswerUrl
+                activeInteractionAnswerUrl
                     ? {
                         requestId,
                         runwieldSessionId: initialPayload.runwieldSessionId,
@@ -1302,6 +1541,15 @@ function ToggleIcon({ name }) {
     );
 }
 
+function PlannerChatIcon() {
+    return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor">
+            <path d="M5 5h14v10H9l-4 4V5z" strokeWidth="1.75" strokeLinejoin="round" />
+            <path d="M8 9h8M8 12h5" strokeWidth="1.75" strokeLinecap="round" />
+        </svg>
+    );
+}
+
 function CheckIcon() {
     return (
         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -1440,4 +1688,8 @@ function readEmbeddedPayload(name) {
     } catch {
         return null;
     }
+}
+
+function pause(milliseconds) {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

@@ -1,6 +1,7 @@
 import { assertEquals, assertFalse, assertStringIncludes } from "@std/assert";
 import { actionClassName } from "./components/Button.jsx";
 import { Dialog } from "./components/Dialog.jsx";
+import { RunWieldButton, RunWieldLink } from "./components/react/RunWieldPrimitives.jsx";
 import { renderRunWieldThemeCss } from "./theme-bridge.js";
 
 Deno.test("design-system actionClassName maps visual action variants", () => {
@@ -15,6 +16,17 @@ Deno.test("design-system Dialog primitive is importable and styled", async () =>
     assertStringIncludes(css, ".rw-dialog-backdrop");
     assertStringIncludes(css, ".rw-dialog-panel");
     assertStringIncludes(css, ".rw-dialog-footer");
+});
+
+Deno.test("React action primitives preserve button and link semantics", () => {
+    const button = RunWieldButton({ children: "Save" });
+    const link = RunWieldLink({ children: "Open", href: "/plans", variant: "primary" });
+    assertEquals(button.type, "button");
+    assertEquals(button.props.type, "button");
+    assertEquals(button.props.className, "secondary-action");
+    assertEquals(link.type, "a");
+    assertEquals(link.props.href, "/plans");
+    assertEquals(link.props.className, "primary-action");
 });
 
 Deno.test("design-system exposes review action, modal, and segmented toggle styling", async () => {
@@ -53,9 +65,10 @@ Deno.test("design-system keeps Workspace controls compact and reserves pills for
     assertStringIncludes(docs, "pill geometry only for statuses, counts, and short metadata badges");
 
     const sharedActionRule = components.match(/\.primary-action,[\s\S]*?\{([\s\S]*?)\}/)?.[1] || "";
-    const workspaceActionRule = workspace.match(/\.action-primary,[\s\S]*?\{([\s\S]*?)\}/)?.[1] || "";
     assertFalse(sharedActionRule.includes("999px"));
-    assertFalse(workspaceActionRule.includes("999px"));
+    assertFalse(components.includes(".action-primary"));
+    assertFalse(workspace.includes(".action-primary"));
+    assertStringIncludes(docs, "Use `.primary-action`, `.secondary-action`, and `.danger-action`");
 });
 
 Deno.test("renderRunWieldThemeCss renders browser theme variables", () => {

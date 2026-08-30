@@ -278,6 +278,186 @@
     display: inline;
 }
 
+.rw-artifact-conversation {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    background: var(--rw-surface);
+}
+
+.rw-artifact-conversation-transcript {
+    display: flex;
+    min-height: 10rem;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.75rem;
+    overflow-y: auto;
+    padding: 1rem 0.75rem;
+}
+
+.rw-artifact-conversation-empty {
+    margin: auto 0;
+    padding: 1.25rem 0.5rem;
+    color: var(--rw-text-muted);
+    text-align: center;
+}
+
+.rw-artifact-conversation-avatar {
+    display: inline-flex;
+    width: 2rem;
+    height: 2rem;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid color-mix(in srgb, var(--rw-accent) 45%, var(--rw-border));
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--rw-accent) 12%, var(--rw-surface-raised));
+    color: var(--rw-accent-text);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 750;
+}
+
+.rw-artifact-conversation-empty h3 {
+    margin: 0.65rem 0 0.35rem;
+    color: var(--rw-text-strong);
+    font-size: 0.86rem;
+}
+
+.rw-artifact-conversation-empty p {
+    margin: 0;
+    font-size: 0.74rem;
+    line-height: 1.55;
+}
+
+.rw-artifact-conversation-message {
+    max-width: 92%;
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-panel);
+    padding: 0.65rem 0.75rem;
+    background: var(--rw-surface-raised);
+}
+
+.rw-artifact-conversation-message-user {
+    align-self: flex-end;
+    border-color: color-mix(in srgb, var(--rw-accent) 38%, var(--rw-border));
+    background: color-mix(in srgb, var(--rw-accent) 9%, var(--rw-surface-raised));
+}
+
+.rw-artifact-conversation-message > span {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--rw-text-muted);
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.rw-artifact-conversation-message p {
+    margin: 0;
+    color: var(--rw-text);
+    font-size: 0.76rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.rw-artifact-conversation-message small {
+    display: block;
+    margin-top: 0.5rem;
+    color: var(--rw-accent-text);
+    font-size: 0.65rem;
+}
+
+.rw-artifact-conversation-working {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--rw-text-muted);
+    font-size: 0.72rem;
+}
+
+.rw-artifact-conversation-working > span {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--rw-accent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--rw-accent) 35%, transparent);
+    animation: rw-conversation-pulse 1.4s ease-out infinite;
+}
+
+.rw-artifact-conversation-composer {
+    display: grid;
+    gap: 0.55rem;
+    padding: 0.75rem;
+    border-top: 1px solid var(--rw-border);
+    background: var(--rw-surface-raised);
+}
+
+.rw-artifact-conversation-composer textarea {
+    width: 100%;
+    min-height: 5.5rem;
+    resize: vertical;
+}
+
+.rw-artifact-conversation-context {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    border: 1px solid color-mix(in srgb, var(--rw-accent) 35%, var(--rw-border));
+    border-radius: var(--rw-radius-control);
+    padding: 0.4rem 0.55rem;
+    background: color-mix(in srgb, var(--rw-accent) 8%, var(--rw-surface));
+    color: var(--rw-accent-text);
+    font-size: 0.68rem;
+}
+
+.rw-artifact-conversation-context button {
+    border: 0;
+    padding: 0 0.15rem;
+    color: inherit;
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.rw-artifact-conversation-submit {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.65rem;
+}
+
+.rw-artifact-conversation-submit > span {
+    color: var(--rw-text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+}
+
+.rw-artifact-conversation-submit .rw-review-action-button {
+    width: auto;
+}
+
+.rw-artifact-conversation-error {
+    margin: 0;
+    color: var(--rw-danger, var(--destructive));
+    font-size: 0.7rem;
+    line-height: 1.4;
+}
+
+@keyframes rw-conversation-pulse {
+    70%,
+    100% {
+        box-shadow: 0 0 0 0.45rem transparent;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rw-artifact-conversation-working > span {
+        animation: none;
+    }
+}
+
 .card-actions a {
     color: var(--rw-accent-text);
     text-decoration: none;
@@ -550,10 +730,7 @@ button.primary-action,
 .secondary-action,
 button.secondary-action,
 .danger-action,
-button.danger-action,
-.action-primary,
-.action-secondary,
-.action-danger {
+button.danger-action {
     align-items: center;
     min-height: var(--rw-control-height);
     border-radius: var(--rw-radius-control);
@@ -575,33 +752,28 @@ button.danger-action,
 
 .primary-action,
 button.primary-action,
-.card-actions a.primary-action,
-.action-primary,
-.card-actions a.action-primary {
+.card-actions a.primary-action {
     background: var(--rw-accent);
     border: 1px solid var(--rw-accent);
     color: #fff;
 }
 
 .secondary-action,
-button.secondary-action,
-.action-secondary {
+button.secondary-action {
     background: var(--rw-surface);
     border: 1px solid var(--rw-border);
     color: var(--rw-accent-text);
 }
 
 .danger-action,
-button.danger-action,
-.action-danger {
+button.danger-action {
     background: color-mix(in srgb, var(--rw-error) 42%, var(--rw-surface-raised));
     border: 1px solid var(--rw-error);
     color: color-mix(in srgb, var(--rw-error) 20%, var(--rw-text-strong));
 }
 
 .primary-action:hover,
-button.primary-action:hover,
-.action-primary:hover {
+button.primary-action:hover {
     background: color-mix(in srgb, var(--rw-accent) 82%, var(--rw-text-strong));
     border-color: var(--rw-accent-strong);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 22%, transparent);
@@ -609,8 +781,7 @@ button.primary-action:hover,
 }
 
 .secondary-action:hover,
-button.secondary-action:hover,
-.action-secondary:hover {
+button.secondary-action:hover {
     background: var(--rw-surface-strong);
     border-color: var(--rw-accent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 20%, transparent);
@@ -619,8 +790,7 @@ button.secondary-action:hover,
 }
 
 .danger-action:hover,
-button.danger-action:hover,
-.action-danger:hover {
+button.danger-action:hover {
     background: color-mix(in srgb, var(--rw-error) 56%, var(--rw-surface-raised));
     border-color: color-mix(in srgb, var(--rw-error) 72%, var(--rw-text-strong));
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-error) 25%, transparent);

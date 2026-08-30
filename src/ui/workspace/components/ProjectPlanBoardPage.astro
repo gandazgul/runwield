@@ -1,0 +1,13 @@
+---
+import PlanBoardPage from "./PlanBoardPage.astro";
+
+type BoardView = "active" | "closed" | "onHold";
+
+interface Props {
+    projectId: string;
+    view: BoardView;
+}
+
+const { projectId, view } = Astro.props;
+---
+<PlanBoardPage context="workspace" projectId={projectId} view={view} />

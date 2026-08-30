@@ -15,24 +15,24 @@ if (!project) Astro.response.status = 404;
             </section>
             <section class="owner-card project-settings-card">
                 <div class="card-actions">
-                    <a class="action-primary" href={`/projects/${encodeURIComponent(project.projectId)}/plans`}>Open Plan Board</a>
-                    <a class="action-secondary" href={`/projects/${encodeURIComponent(project.projectId)}/sessions/new`}>New Session</a>
-                    <a class="action-secondary" href="/devices">Devices</a>
+                    <a class="primary-action" href={`/projects/${encodeURIComponent(project.projectId)}/plans`}>Open Plan Board</a>
+                    <a class="secondary-action" href={`/projects/${encodeURIComponent(project.projectId)}/sessions/new`}>New Session</a>
+                    <a class="secondary-action" href="/devices">Devices</a>
                 </div>
             </section>
             <section class="owner-card project-settings-card">
                 <h2>Project root</h2>
                 <form class="owner-form project-relink-form" data-project-relink={project.projectId}>
                     <label>Relink Project root <input name="newRoot" placeholder="New absolute path" /></label>
-                    <button class="action-secondary" type="submit">Relink</button>
+                    <button class="secondary-action" type="submit">Relink</button>
                 </form>
             </section>
             <section class="owner-card project-settings-card">
                 <h2>Maintenance</h2>
                 <div class="card-actions">
-                    <button class="action-secondary" data-project-action={project.projectId} data-action={project.lifecycle === "disabled" ? "enable" : "disable"}>{project.lifecycle === "disabled" ? "Enable" : "Disable"}</button>
-                    <button class="action-secondary" data-project-action={project.projectId} data-action="rescan">Full Session rescan</button>
-                    <button class="action-danger" data-project-action={project.projectId} data-action={project.lifecycle === "removed" ? "restore" : "remove"}>{project.lifecycle === "removed" ? "Restore" : "Remove"}</button>
+                    <button type="button" class="secondary-action" data-project-action={project.projectId} data-action={project.lifecycle === "disabled" ? "enable" : "disable"}>{project.lifecycle === "disabled" ? "Enable" : "Disable"}</button>
+                    <button type="button" class="secondary-action" data-project-action={project.projectId} data-action="rescan">Full Session rescan</button>
+                    <button type="button" class="danger-action" data-project-action={project.projectId} data-action={project.lifecycle === "removed" ? "restore" : "remove"}>{project.lifecycle === "removed" ? "Restore" : "Remove"}</button>
                 </div>
                 <pre class="project-diagnostics" data-project-diagnostics={project.projectId} hidden></pre>
             </section>

@@ -147,8 +147,9 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         assertStringIncludes(html, "Owner Project Plan Board");
         assertStringIncludes(html, "Visible owner plan");
         assertStringIncludes(html, "project · available");
-        assertStringIncludes(html, "Open a Plan to review its current status and available owner actions.");
-        assertEquals(html.includes("Drag this Plan Card"), false);
+        assertStringIncludes(html, "Project Plan views");
+        assertStringIncludes(html, `/projects/${project.projectId}/plans/closed`);
+        assertStringIncludes(html, `/projects/${project.projectId}/plans/on-hold`);
 
         const tokenizedPage = await app(
             new Request(`http://127.0.0.1:8787/projects/${project.projectId}/plans?token=ephemeral&q=owner`, {
@@ -159,7 +160,6 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         const tokenizedHtml = await tokenizedPage.text();
         assertStringIncludes(tokenizedHtml, "q=owner");
         assertStringIncludes(tokenizedHtml, `/projects/${project.projectId}/plans/closed?q=owner`);
-        assertStringIncludes(tokenizedHtml, "ownerApplyPlanSearch");
         assertEquals(/href=\"[^\"]*token=ephemeral/.test(tokenizedHtml), false);
 
         const onHoldPage = await app(
@@ -169,6 +169,13 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         );
         assertEquals(onHoldPage.status, 200);
         assertStringIncludes(await onHoldPage.text(), "Visible held plan");
+
+        const missingPlanPage = await app(
+            new Request(`http://127.0.0.1:8787/projects/${project.projectId}/plans/missing-plan`, {
+                headers: { cookie: cookiePair(claimed.credential) },
+            }),
+        );
+        assertEquals(missingPlanPage.status, 404);
 
         const boardApi = await app(
             new Request(`http://127.0.0.1:8787/api/owner/projects/${project.projectId}/plans`, {
@@ -265,9 +272,10 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
             new Request("http://127.0.0.1:8787/", { headers: { cookie: cookiePair(claimed.credential) } }),
         );
         const homeHtml = await home.text();
-        assertStringIncludes(homeHtml, "Relink Project root");
-        assertStringIncludes(homeHtml, "Full Session rescan");
-        assertStringIncludes(homeHtml, "Open Sessions");
+        assertStringIncludes(homeHtml, "Opening Workspace");
+        assertStringIncludes(homeHtml, "Restoring the latest available Project Session");
+        assertStringIncludes(homeHtml, "/workspace-shell.js");
+        assertEquals(homeHtml.includes("Relink Project root"), false);
 
         /** @type {any} */ (store).listProjectSessions = () =>
             Promise.resolve({

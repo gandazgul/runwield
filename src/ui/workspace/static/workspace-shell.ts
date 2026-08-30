@@ -183,8 +183,10 @@
         const projectId = project.projectId;
         const open = current.projectId === projectId ? " open" : "";
         const sessions = Array.isArray(project.sessions) ? project.sessions : [];
-        const items = sessions.map((session) => renderSessionRow(projectId, session, current)).join("");
-        const activeOutsidePage = current.kind === "session" && current.projectId === projectId &&
+        const items = project.enabled
+            ? sessions.map((session) => renderSessionRow(projectId, session, current)).join("")
+            : "";
+        const activeOutsidePage = project.enabled && current.kind === "session" && current.projectId === projectId &&
             current.runwieldSessionId !== "new" &&
             !sessions.some((session) => session.runwieldSessionId === current.runwieldSessionId);
         const activeItem = activeOutsidePage
@@ -199,21 +201,23 @@
                 " workspace-sidebar-session-extra",
             )
             : "";
-        const showMore = project.hasMoreSessions
+        const showMore = project.enabled && project.hasMoreSessions
             ? `<button type="button" class="workspace-sidebar-show-more" data-show-more-sessions="${
                 html(projectId)
             }">Show more...</button>`
             : "";
+        const projectLinks = project.enabled
+            ? `<a href="${plansHref(projectId)}">Plan Board</a>`
+            : `<a href="${settingsHref(projectId)}">Project unavailable · open settings</a>`;
         return `<details class="workspace-sidebar-project" data-sidebar-project="${
             html(projectId)
         }"${open}><summary><span class="workspace-sidebar-folder" aria-hidden="true">▸</span><span class="workspace-sidebar-project-name">${
             html(project.displayName)
         }</span><a class="workspace-sidebar-gear" href="${settingsHref(projectId)}" aria-label="${
             html(project.displayName)
-        } settings">⚙</a></summary><div class="workspace-sidebar-project-links"><a href="${
-            plansHref(projectId)
-        }">Plan Board</a></div><div class="workspace-sidebar-sessions">${
-            items || `<p class="workspace-sidebar-empty">No Sessions yet.</p>`
+        } settings">⚙</a></summary><div class="workspace-sidebar-project-links">${projectLinks}</div><div class="workspace-sidebar-sessions">${
+            items ||
+            `<p class="workspace-sidebar-empty">${project.enabled ? "No Sessions yet." : "Sessions unavailable."}</p>`
         }${activeItem}${showMore}</div></details>`;
     }
 
@@ -222,8 +226,10 @@
         if (!sidebar) return;
         const projects = Array.isArray(payload.projects) ? payload.projects : [];
         const rememberedProject = readStored(LAST_PROJECT_KEY)?.projectId || "";
-        const newProjectId = current.projectId || rememberedProject ||
-            projects.find((project) => project.enabled)?.projectId || projects[0]?.projectId || "";
+        const enabledProjects = projects.filter((project) => project.enabled);
+        const newProjectId = enabledProjects.find((project) => project.projectId === current.projectId)?.projectId ||
+            enabledProjects.find((project) => project.projectId === rememberedProject)?.projectId ||
+            enabledProjects[0]?.projectId || "";
         renderMainHeader(payload, current);
         sidebar.innerHTML =
             `<div class="workspace-sidebar-brand"><a href="/" aria-label="RunWield Workspace home"><img src="/brand/logo.svg" alt="" aria-hidden="true"><span>Workspace</span></a><button class="workspace-sidebar-collapse" type="button" data-workspace-sidebar-collapse aria-label="Collapse Workspace sidebar" title="Collapse Workspace sidebar">${
@@ -285,19 +291,28 @@
     async function boot() {
         installSidebarOverlayDismiss();
         const current = rememberCurrentRoute();
-        if (location.pathname === "/") {
-            const last = readStored(LAST_SESSION_KEY);
-            if (last?.projectId && last?.runwieldSessionId) {
-                location.replace(sessionHref(last.projectId, last.runwieldSessionId));
-                return;
-            }
-        }
         try {
             const payload = await ownerJson("/api/owner/sidebar");
             if (location.pathname === "/") {
+                const projects = Array.isArray(payload.projects) ? payload.projects : [];
+                const lastSession = readStored(LAST_SESSION_KEY);
+                const rememberedSessionProject = projects.find((project) =>
+                    project.enabled && project.projectId === lastSession?.projectId
+                );
+                const rememberedSession = rememberedSessionProject?.sessions?.find((session) =>
+                    session.runwieldSessionId === lastSession?.runwieldSessionId
+                );
+                if (rememberedSessionProject && rememberedSession) {
+                    location.replace(
+                        sessionHref(rememberedSessionProject.projectId, rememberedSession.runwieldSessionId),
+                    );
+                    return;
+                }
                 const lastProject = readStored(LAST_PROJECT_KEY)?.projectId;
-                const fallbackProject = payload.projects?.find((project) => project.projectId === lastProject) ||
-                    payload.projects?.find((project) => project.enabled) || payload.projects?.[0];
+                const fallbackProject = projects.find((project) =>
+                    project.enabled && project.projectId === lastProject
+                ) ||
+                    projects.find((project) => project.enabled);
                 const fallbackSession = fallbackProject?.sessions?.[0];
                 if (fallbackProject && fallbackSession) {
                     location.replace(sessionHref(fallbackProject.projectId, fallbackSession.runwieldSessionId));

@@ -30,11 +30,6 @@ import {
 import { openRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 import { withAccessLogger } from "./server-access-logger.ts";
 import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../../shared/work-records/mnemosyne-port.ts";
-import { loadBoard, loadWorkspaceDetail } from "./server/plan-adapter.js";
-import { PlanBoard } from "./components/Board.jsx";
-import { PlanBoardToolbar } from "./components/PlanBoardToolbar.jsx";
-import { buildPlanBoardSearchIndex } from "./plan-search.js";
-import { PlanDetail } from "./components/PlanDetail.jsx";
 import { PlanProgressSurface } from "./react/PlanProgressSurface.tsx";
 import { loadRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.js";
@@ -248,22 +243,13 @@ export function createOwnerWorkspaceApp(options) {
             );
         }
     });
-    app.get("/", (ctx) => ownerHtmlResponse("RunWield Owner Workspace", renderOwnerHome(ctx)));
-    app.get("/pair", (ctx) => ownerHtmlResponse("Pair RunWield Workspace", renderPairingPage(ctx)));
-    app.get("/devices", (ctx) => ownerHtmlResponse("Paired devices", renderDevicesPage(ctx)));
-    app.get("/projects", renderOwnerProjectsPage);
-    app.get(
-        "/projects/:projectId/plans",
-        async (ctx) => ownerHtmlResponse("Project Plans", await renderOwnerProjectBoard(ctx, "active")),
-    );
-    app.get(
-        "/projects/:projectId/plans/closed",
-        async (ctx) => ownerHtmlResponse("Closed Project Plans", await renderOwnerProjectBoard(ctx, "closed")),
-    );
-    app.get(
-        "/projects/:projectId/plans/on-hold",
-        async (ctx) => ownerHtmlResponse("On-hold Project Plans", await renderOwnerProjectBoard(ctx, "on-hold")),
-    );
+    app.get("/", () => ownerHtmlResponse("RunWield Owner Workspace", renderOwnerHome()));
+    app.get("/pair", renderRequiredOwnerAstroPage);
+    app.get("/devices", renderRequiredOwnerAstroPage);
+    app.get("/projects", renderRequiredOwnerAstroPage);
+    app.get("/projects/:projectId/plans", renderRequiredOwnerAstroPage);
+    app.get("/projects/:projectId/plans/closed", renderRequiredOwnerAstroPage);
+    app.get("/projects/:projectId/plans/on-hold", renderRequiredOwnerAstroPage);
     app.get(
         "/projects/:projectId/plans/:planId/progress",
         async (ctx) => {
@@ -271,13 +257,14 @@ export function createOwnerWorkspaceApp(options) {
             return body instanceof Response ? body : ownerHtmlResponse("Project Plan Progress", body);
         },
     );
-    app.get(
-        "/projects/:projectId/plans/:planId",
-        async (ctx) => ownerHtmlResponse("Project Plan", await renderOwnerPlanDetail(ctx)),
-    );
+    app.get("/projects/:projectId/plans/:planId", renderRequiredOwnerAstroPage);
     app.get("/projects/:projectId/settings", renderOwnerProjectSettingsPage);
     app.get("/projects/:projectId/sessions", renderOwnerProjectSessionsPage);
     app.get("/projects/:projectId/sessions/new", renderOwnerProjectSessionNewPage);
+    app.get(
+        "/projects/:projectId/sessions/:runwieldSessionId/review/code",
+        renderRequiredOwnerAstroPage,
+    );
     app.get("/projects/:projectId/sessions/:runwieldSessionId", renderOwnerProjectSessionDetailPage);
     app.post("/api/owner/pairing/request", pairingRequestApi);
     app.get("/api/owner/pairing/status", pairingStatusApi);
@@ -291,6 +278,20 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects/:projectId/plans/:planId/progress", ownerProjectPlanProgressApi);
     app.get("/api/owner/projects/:projectId/plans/:planId", ownerProjectPlanDetailApi);
     app.get("/api/owner/projects/:projectId/files/content", ownerProjectFileContentApi);
+    app.get("/api/file-content", ownerInSituReviewFileContent);
+    app.get("/api/open-in/apps", () => reviewOpenInAppsApi());
+    app.post("/api/config", () => reviewLocalConfigApi());
+    app.post("/api/upload", (ctx) => reviewImageUploadApi(ctx.req));
+    app.get("/api/image", async (ctx) => {
+        const projectId = ownerReviewProjectId(ctx.req);
+        if (!projectId) return ownerErrorJson(new Error("Review Project context is missing."), 400);
+        try {
+            const root = requireOwnerProjectRoot(ctx.state.store, projectId);
+            return await reviewImageApi(ctx.req, { cwd: root });
+        } catch (error) {
+            return ownerErrorJson(error, 404);
+        }
+    });
     app.post("/api/owner/projects/:projectId/plans/:planId/actions", ownerProjectPlanActionApi);
     app.get("/api/owner/projects/:projectId/session-options", ownerSessionOptionsApi);
     app.get("/api/owner/projects/:projectId/sessions", ownerProjectSessionsApi);
@@ -677,145 +678,52 @@ function createInProcessRateLimit({ limit, windowMs }) {
     };
 }
 
-function ownerMutationScript() {
-    return `function ownerCookie(name){return document.cookie.split('; ').find(v=>v.startsWith(name+'='))?.split('=').slice(1).join('=')||'';} async function ownerFetch(url,options={}){options.headers=Object.assign({'content-type':'application/json','x-runwield-csrf':decodeURIComponent(ownerCookie('rw_owner_csrf'))},options.headers||{});return await fetch(url,options);}`;
+function renderOwnerHome() {
+    return `<section class="owner-card"><p class="kicker">RunWield Workspace</p><h1>Opening Workspace…</h1><p>Restoring the latest available Project Session.</p></section>`;
 }
 
-function renderPairingPage() {
-    return `<section class="owner-card pairing-card"><p class="kicker">Device pairing</p><h1>Pair this browser with owner Workspace</h1><p>Private networking is not authorization. A short-lived code appears below; approve it locally with&nbsp;<code>wld workspace pair &lt;code&gt;</code>.</p><form id="pairing-form" class="owner-form"><label>Device label <input id="device-label" name="deviceLabel" value="Browser device" maxlength="80"></label></form><div id="pairing-result" class="owner-pairing-result" aria-live="polite"></div></section><script>function escapeHtml(value){return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');}function defaultDeviceLabel(){const ua=navigator.userAgent;const browser=ua.includes('Edg/')?'Edge':(ua.includes('CriOS')||ua.includes('Chrome/'))?'Chrome':(ua.includes('Firefox/')||ua.includes('FxiOS'))?'Firefox':ua.includes('Safari/')?'Safari':'Browser';const os=/iPhone|iPad|iPod/.test(ua)?'iPhone':ua.includes('Android')?'Android':ua.includes('Mac OS X')?'macOS':ua.includes('Windows')?'Windows':ua.includes('Linux')?'Linux':'this device';return browser+' on '+os;}const form=document.getElementById('pairing-form');const label=document.getElementById('device-label');if(label instanceof HTMLInputElement)label.value=defaultDeviceLabel();const out=document.getElementById('pairing-result');let timer=null;let pollTimer=null;let pollDelay=1000;async function requestCode(){clearTimeout(pollTimer);const body={deviceLabel:new FormData(form).get('deviceLabel')};const res=await fetch('/api/owner/pairing/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok){out.innerHTML='<p class="notice danger">'+escapeHtml(data.error)+'</p>';return;}pollDelay=1000;renderCode(data);pollStatus();}async function claimApproved(){const claim=await fetch('/api/owner/pairing/claim',{method:'POST'});const claimData=await claim.json();if(claim.ok){location.href='/';return true;}if(claimData.error)out.insertAdjacentHTML('beforeend','<p class="notice danger">'+escapeHtml(claimData.error)+'</p>');return false;}async function pollStatus(){const status=await fetch('/api/owner/pairing/status');const data=await status.json().catch(()=>({state:'missing'}));if(data.state==='approved'){if(await claimApproved())return;}if(data.state==='expired'||data.state==='missing'){requestCode();return;}pollDelay=Math.min(Math.round(pollDelay*1.5),8000);pollTimer=setTimeout(pollStatus,pollDelay);}function renderCode(data){clearInterval(timer);out.innerHTML='<div class="pairing-actions-row"><div class="pairing-code" aria-label="Pairing code">'+escapeHtml(data.code)+'</div><div class="pairing-command-box"><p>Run <code id="pairing-command">wld workspace pair '+escapeHtml(data.code)+'</code>.</p><button class="copy-command-button" id="copy-pairing-command" type="button">Copy command</button><p class="pairing-poll-note">Waiting for local approval. This browser will pair automatically.</p></div></div><p class="pairing-timer" id="pairing-timer"></p>';const timerEl=document.getElementById('pairing-timer');const expiresAt=new Date(data.expiresAt).getTime();function tick(){const remaining=Math.max(0,expiresAt-Date.now());const seconds=Math.ceil(remaining/1000);const minutes=Math.floor(seconds/60);const rest=String(seconds%60).padStart(2,'0');timerEl.textContent=remaining>0?'This code expires in '+minutes+':'+rest+'. A new code appears automatically when it expires.':'Code expired. Generating a new code...';if(remaining<=0){clearInterval(timer);requestCode();}}tick();timer=setInterval(tick,1000);document.getElementById('copy-pairing-command').addEventListener('click',async(event)=>{await navigator.clipboard.writeText(document.getElementById('pairing-command').textContent||'');event.currentTarget.textContent='Copied';setTimeout(()=>event.currentTarget.textContent='Copy command',1600);});}label?.addEventListener('change',()=>requestCode());requestCode();</script>`;
-}
-
-/** @param {any} ctx */
-function renderOwnerHome(ctx) {
-    const projects = listOwnerProjects(ctx.state.store);
-    const cards = projects.length
-        ? projects.map((project) =>
-            `<article class="owner-card project-card"><div class="card-header"><div><p class="kicker">${
-                escapeHtml(project.lifecycle)
-            } Project</p><h2>${escapeHtml(project.displayName)}</h2><p>${escapeHtml(project.rootLabel)} · ${
-                escapeHtml(project.healthStatus)
-            }</p></div><span class="status-badge">${
-                escapeHtml(project.enabled ? "Available" : "Needs repair")
-            }</span></div>${
-                project.healthEvidence?.length
-                    ? `<ul>${project.healthEvidence.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
-                    : ""
-            }<div class="card-actions">${
-                project.enabled
-                    ? `<a class="action-primary" href="/projects/${
-                        encodeURIComponent(project.projectId)
-                    }/plans">Open Plan Board</a><a class="action-secondary" href="/projects/${
-                        encodeURIComponent(project.projectId)
-                    }/sessions">Open Sessions</a>`
-                    : ""
-            }<button class="action-secondary" data-project-action="${escapeHtml(project.projectId)}" data-action="${
-                project.lifecycle === "disabled" ? "enable" : "disable"
-            }">${
-                project.lifecycle === "disabled" ? "Enable" : "Disable"
-            }</button><button class="action-secondary" data-project-action="${
-                escapeHtml(project.projectId)
-            }" data-action="rescan">Full Session rescan</button><button class="action-danger" data-project-action="${
-                escapeHtml(project.projectId)
-            }" data-action="${project.lifecycle === "removed" ? "restore" : "remove"}">${
-                project.lifecycle === "removed" ? "Restore" : "Remove"
-            }</button></div><form class="owner-form project-relink-form" data-project-relink="${
-                escapeHtml(project.projectId)
-            }"><label>Relink Project root <input name="newRoot" placeholder="New absolute path"></label><button class="action-secondary" type="submit">Relink</button></form><pre class="project-diagnostics" data-project-diagnostics="${
-                escapeHtml(project.projectId)
-            }" hidden></pre></article>`
-        ).join("")
-        : `<section class="owner-card empty-state"><h2>No registered Projects yet</h2><p>Register a trusted local Project before Workspace can open Sessions.</p></section>`;
-    return `<section class="page-header"><h1>Workspace</h1><p>Workspace opens your last Session. If no Session exists, it starts from the first Project.</p></section><section class="owner-card"><form id="project-register" class="owner-form"><label>Project root <input name="root" placeholder="/absolute/path/to/project" required></label><label>Display name <input name="displayName" placeholder="Optional"></label><button class="action-primary" type="submit">Register Project</button></form><p id="project-message" aria-live="polite"></p></section><section class="project-grid">${cards}</section><script>${ownerMutationScript()}document.getElementById('project-register').addEventListener('submit',async(event)=>{event.preventDefault();const form=new FormData(event.currentTarget);const response=await ownerFetch('/api/owner/projects',{method:'POST',body:JSON.stringify({root:form.get('root'),displayName:form.get('displayName')})});if(response.ok) location.reload(); else document.getElementById('project-message').textContent=(await response.json()).error;});document.querySelectorAll('[data-project-action]').forEach((button)=>button.addEventListener('click',async()=>{if(button.dataset.action==='remove'&&!confirm('Remove this Project from Workspace? Repository files are not deleted.'))return;const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(button.dataset.projectAction)+'/action',{method:'POST',body:JSON.stringify({action:button.dataset.action})});const data=await response.json().catch(()=>({}));if(response.ok){if(button.dataset.action==='rescan'){const diagnostics=document.querySelector('[data-project-diagnostics="'+CSS.escape(button.dataset.projectAction)+'"]');if(diagnostics){diagnostics.hidden=false;diagnostics.textContent=(data.diagnostics||[]).length?JSON.stringify(data.diagnostics,null,2):'Full Session catalog rescan completed with no diagnostics.';}return;}location.reload();} else alert(data.error); }));document.querySelectorAll('[data-project-relink]').forEach((relinkForm)=>relinkForm.addEventListener('submit',async(event)=>{event.preventDefault();const formData=new FormData(relinkForm);const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(relinkForm.dataset.projectRelink)+'/action',{method:'POST',body:JSON.stringify({action:'relink',newRoot:formData.get('newRoot')})});if(response.ok) location.reload(); else alert((await response.json()).error);}));</script>`;
+/** @param {Request} request */
+function ownerReviewProjectId(request) {
+    const referer = request.headers.get("referer");
+    if (!referer) return "";
+    try {
+        const match = /^\/projects\/([^/]+)\//.exec(new URL(referer).pathname);
+        return match ? decodeURIComponent(match[1]) : "";
+    } catch {
+        return "";
+    }
 }
 
 /** @param {any} ctx */
-function renderOwnerProjectsPage(ctx) {
-    const projects = listOwnerProjects(ctx.state.store);
-    const rows = projects.length
-        ? projects.map((project) =>
-            `<a class="project-list-row" href="/projects/${
-                encodeURIComponent(project.projectId)
-            }/sessions"><span><strong>${escapeHtml(project.displayName)}</strong><small>${
-                escapeHtml(project.rootLabel)
-            } · ${escapeHtml(project.healthStatus)}</small></span><span class="project-list-state">${
-                escapeHtml(project.lifecycle)
-            }${project.enabled ? "" : " · unavailable"}</span></a>`
-        ).join("")
-        : `<p class="empty">No Projects are linked yet.</p>`;
-    return ownerHtmlResponse(
-        "Projects · RunWield Workspace",
-        `<section class="page-header"><h1>Projects</h1><p>Link a Project, then open its Sessions.</p></section><section class="owner-card project-link-card"><h2>Link a Project</h2><form class="owner-form project-register-form" data-project-register><label>Project root <input name="root" required placeholder="Absolute path to a Project"></label><label>Display name <input name="displayName" placeholder="Optional"></label><button class="action-primary" type="submit">Link Project</button></form><p class="muted" data-project-register-status role="status"></p></section><section class="project-list-panel" aria-label="Linked Projects">${rows}</section><script>${ownerMutationScript()}const registerForm=document.querySelector('[data-project-register]');const status=document.querySelector('[data-project-register-status]');registerForm?.addEventListener('submit',async(event)=>{event.preventDefault();const formData=new FormData(registerForm);if(status)status.textContent='Linking Project...';const response=await ownerFetch('/api/owner/projects',{method:'POST',body:JSON.stringify({root:formData.get('root'),displayName:formData.get('displayName')})});const data=await response.json().catch(()=>({}));if(response.ok&&data.project?.projectId){location.href='/projects/'+encodeURIComponent(data.project.projectId)+'/sessions';return;}if(status)status.textContent=data.error||'Project link failed.';});</script>`,
-    );
+async function ownerInSituReviewFileContent(ctx) {
+    const projectId = ownerReviewProjectId(ctx.req);
+    if (!projectId) return ownerErrorJson(new Error("Review Project context is missing."), 400);
+    try {
+        const root = requireOwnerProjectRoot(ctx.state.store, projectId);
+        return await reviewFileContentApi(ctx.req, { cwd: root });
+    } catch (error) {
+        return ownerErrorJson(error, 404);
+    }
+}
+
+/**
+ * Owner pages have one production renderer. Unlike the optional local-page
+ * bridge, a genuine Astro 404 must remain a 404 instead of looking like a
+ * missing build.
+ *
+ * @param {any} ctx
+ * @param {string} [cwd]
+ */
+async function renderRequiredOwnerAstroPage(ctx, cwd = Deno.cwd()) {
+    const handle = await loadAstroHandle();
+    if (!handle) return workspaceBuildUnavailable();
+    return await handle(withWorkspaceCwdHeader(ctx.req, cwd));
 }
 
 /** @param {any} ctx */
 async function renderOwnerProjectSettingsPage(ctx) {
     const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
-    const response = await renderAstroPage(ctx.req, root);
-    if (response) return response;
-    const project = listOwnerProjects(ctx.state.store).find((item) => item.projectId === ctx.params.projectId);
-    if (!project) {
-        return ownerHtmlResponse(
-            "Project settings not found",
-            `<section class="error-panel"><h2>Project settings not found</h2><p>The requested Project is not registered.</p></section>`,
-            404,
-        );
-    }
-    return ownerHtmlResponse(
-        `${project.displayName} settings`,
-        `<section class="page-header"><h1>${escapeHtml(project.displayName)} settings</h1><p>${
-            escapeHtml(project.rootLabel)
-        } · ${
-            escapeHtml(project.healthStatus)
-        }</p></section><section class="owner-card project-settings-card"><div class="card-actions"><a class="action-primary" href="/projects/${
-            encodeURIComponent(project.projectId)
-        }/plans">Open Plan Board</a><a class="action-secondary" href="/projects/${
-            encodeURIComponent(project.projectId)
-        }/sessions/new">New Session</a><a class="action-secondary" href="/devices">Devices</a></div></section><section class="owner-card project-settings-card"><h2>Project root</h2><form class="owner-form project-relink-form" data-project-relink="${
-            escapeHtml(project.projectId)
-        }"><label>Relink Project root <input name="newRoot" placeholder="New absolute path"></label><button class="action-secondary" type="submit">Relink</button></form></section><section class="owner-card project-settings-card"><h2>Maintenance</h2><div class="card-actions"><button class="action-secondary" data-project-action="${
-            escapeHtml(project.projectId)
-        }" data-action="${project.lifecycle === "disabled" ? "enable" : "disable"}">${
-            project.lifecycle === "disabled" ? "Enable" : "Disable"
-        }</button><button class="action-secondary" data-project-action="${
-            escapeHtml(project.projectId)
-        }" data-action="rescan">Full Session rescan</button><button class="action-danger" data-project-action="${
-            escapeHtml(project.projectId)
-        }" data-action="${project.lifecycle === "removed" ? "restore" : "remove"}">${
-            project.lifecycle === "removed" ? "Restore" : "Remove"
-        }</button></div><pre class="project-diagnostics" data-project-diagnostics="${
-            escapeHtml(project.projectId)
-        }" hidden></pre></section><script>${ownerMutationScript()}document.querySelectorAll('[data-project-action]').forEach((button)=>button.addEventListener('click',async()=>{if(button.dataset.action==='remove'&&!confirm('Remove this Project from Workspace? Repository files are not deleted.'))return;const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(button.dataset.projectAction)+'/action',{method:'POST',body:JSON.stringify({action:button.dataset.action})});const data=await response.json().catch(()=>({}));if(response.ok){if(button.dataset.action==='rescan'){const diagnostics=document.querySelector('[data-project-diagnostics="'+CSS.escape(button.dataset.projectAction)+'"]');if(diagnostics){diagnostics.hidden=false;diagnostics.textContent=(data.diagnostics||[]).length?JSON.stringify(data.diagnostics,null,2):'Full Session catalog rescan completed with no diagnostics.';}return;}location.reload();} else alert(data.error); }));document.querySelectorAll('[data-project-relink]').forEach((relinkForm)=>relinkForm.addEventListener('submit',async(event)=>{event.preventDefault();const formData=new FormData(relinkForm);const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(relinkForm.dataset.projectRelink)+'/action',{method:'POST',body:JSON.stringify({action:'relink',newRoot:formData.get('newRoot')})});if(response.ok) location.reload(); else alert((await response.json()).error);}));</script>`,
-    );
-}
-
-/** @param {any} ctx */
-function renderDevicesPage(ctx) {
-    const devices = ctx.state.store.listDevices();
-    const currentDeviceId = ctx.state.ownerDevice?.deviceId || "";
-    const items = devices.map((device) =>
-        `<article class="owner-card"><div class="card-header"><div><p class="kicker">Paired device</p><h2>${
-            escapeHtml(device.label)
-        }</h2><p>Paired ${escapeHtml(device.createdAt)}${
-            device.lastSeenAt ? ` · Last seen ${escapeHtml(device.lastSeenAt)}` : ""
-        }</p></div><span class="status-badge">${
-            device.revokedAt ? "Revoked" : device.deviceId === currentDeviceId ? "Current" : "Active"
-        }</span></div>${
-            device.revokedAt
-                ? `<p>Revoked ${escapeHtml(device.revokedAt)}</p>`
-                : `<button class="action-danger" data-revoke-device="${escapeHtml(device.deviceId)}">Revoke</button>`
-        }</article>`
-    ).join("");
-    return `<section class="page-header"><h1>Paired devices</h1><p>Revocation denies the device's next owner request and closes registered live connections without canceling unrelated workflows.</p></section><section class="project-grid">${
-        items || `<article class="owner-card"><h2>No devices</h2></article>`
-    }</section><script>${ownerMutationScript()}const currentDeviceId=${
-        JSON.stringify(currentDeviceId)
-    };document.querySelectorAll('[data-revoke-device]').forEach((button)=>button.addEventListener('click',async()=>{if(!confirm('Revoke this device?'))return;const response=await ownerFetch('/api/owner/devices/'+encodeURIComponent(button.dataset.revokeDevice)+'/revoke',{method:'POST',body:'{}'});if(response.ok){ if(button.dataset.revokeDevice===currentDeviceId) location.href='/pair'; else location.reload(); } else alert((await response.json()).error);}));</script>`;
-}
-
-/** @param {"active" | "closed" | "on-hold"} view */
-function ownerBoardScreenKey(view) {
-    return view === "on-hold" ? "onHold" : view;
+    return await renderRequiredOwnerAstroPage(ctx, root);
 }
 
 /** @param {any} component @param {Record<string, unknown>} props */
@@ -833,89 +741,6 @@ function ownerPresentationUrl(currentUrl, pathname) {
     const query = currentUrl.searchParams.get("q");
     if (query) url.searchParams.set("q", query);
     return String(url);
-}
-
-/**
- * @param {string} boardId
- * @param {Array<{ planId: string, title: string, planName: string, summary: string }>} searchIndex
- */
-function ownerPlanBoardSearchScript(boardId, searchIndex) {
-    const payload = escapeScriptJson(JSON.stringify({ boardId, searchIndex }));
-    return `<script>const ownerPlanSearch=${payload};function normalizePlanQuery(value){return String(value||'').trim().replace(/\\s+/g,' ');}function ownerSearchMatches(entry,query){const normalized=normalizePlanQuery(query).toLowerCase();if(!normalized)return true;const haystack=[entry.title,entry.planName,entry.summary].join(' ').toLowerCase();return normalized.split(' ').every((term)=>haystack.includes(term));}function ownerApplyPlanSearch(query){const normalized=normalizePlanQuery(query);const scope=document.querySelector('[data-plan-search-scope="'+CSS.escape(ownerPlanSearch.boardId)+'"]');if(!scope)return;const visibleIds=new Set(ownerPlanSearch.searchIndex.filter((entry)=>ownerSearchMatches(entry,normalized)).map((entry)=>entry.planId));let visibleCount=0;scope.querySelectorAll('[data-plan-search-card]').forEach((card)=>{const visible=!normalized||visibleIds.has(card.dataset.planSearchCard||'');card.hidden=!visible;if(visible)visibleCount+=1;});scope.querySelectorAll('[data-plan-search-column]').forEach((column)=>{const visible=[...column.querySelectorAll('[data-plan-search-card]')].filter((card)=>!card.hidden).length;const count=column.querySelector('[data-column-count]');if(count)count.textContent=normalized?String(visible):(column.dataset.columnOriginalCount||String(visible));const filtered=column.querySelector('[data-filtered-empty]');if(filtered)filtered.hidden=!normalized||visible>0;const original=column.querySelector('[data-original-empty]');if(original)original.hidden=Boolean(normalized);});scope.querySelectorAll('[data-plan-search-repair]').forEach((lane)=>{const visible=[...lane.querySelectorAll('[data-plan-search-card]')].filter((card)=>!card.hidden).length;const filtered=lane.querySelector('[data-filtered-empty]');if(filtered)filtered.hidden=!normalized||visible>0;});const noResults=scope.querySelector('[data-plan-search-no-results]');if(noResults)noResults.hidden=!normalized||visibleCount>0;const url=new URL(location.href);if(normalized)url.searchParams.set('q',normalized);else url.searchParams.delete('q');history.replaceState(history.state,'',url.pathname+url.search+url.hash);document.querySelectorAll('a[href]').forEach((link)=>{const href=link.getAttribute('href')||'';if(!href||href.startsWith('#'))return;const next=new URL(href,location.href);if(next.origin!==location.origin)return;if(normalized)next.searchParams.set('q',normalized);else next.searchParams.delete('q');link.setAttribute('href',next.pathname+next.search+next.hash);});}const input=document.getElementById(ownerPlanSearch.boardId+'-plan-search');if(input){ownerApplyPlanSearch(input.value);input.addEventListener('input',(event)=>ownerApplyPlanSearch(event.currentTarget.value));}</script>`;
-}
-
-/** @param {any} ctx @param {"active" | "closed" | "on-hold"} view */
-async function renderOwnerProjectBoard(ctx, view) {
-    const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
-    const project = listOwnerProjects(ctx.state.store).find((item) => item.projectId === ctx.params.projectId);
-    const board = await loadBoard(root);
-    const componentView = ownerBoardScreenKey(view);
-    const projectId = encodeURIComponent(ctx.params.projectId);
-    const url = ownerPresentationUrl(ctx.url, `/projects/${projectId}/plans${view === "active" ? "" : `/${view}`}`);
-    const activeHref = ownerPresentationUrl(ctx.url, `/projects/${projectId}/plans`);
-    const closedHref = ownerPresentationUrl(ctx.url, `/projects/${projectId}/plans/closed`);
-    const onHoldHref = ownerPresentationUrl(ctx.url, `/projects/${projectId}/plans/on-hold`);
-    const tabs = `<nav class="tabs owner-project-tabs" aria-label="Project Plan views"><a href="${
-        escapeHtml(activeHref)
-    }" class="${view === "active" ? "active" : ""}">Plan Board</a><a href="${escapeHtml(closedHref)}" class="${
-        view === "closed" ? "active" : ""
-    }">Closed</a><a href="${escapeHtml(onHoldHref)}" class="${view === "on-hold" ? "active" : ""}">On Hold</a></nav>`;
-    const toolbar = await renderOwnerReactComponent(PlanBoardToolbar, { board, view: componentView, url });
-    const boardHtml = await renderOwnerReactComponent(PlanBoard, {
-        board,
-        view: componentView,
-        url,
-        staticRender: true,
-        staticRenderNotice: "Open a Plan to review its current status and available owner actions.",
-        draggableCards: false,
-    });
-    const boardId = `status-board-${componentView}`;
-    const searchIndex = buildPlanBoardSearchIndex(board.screens[componentView]);
-    return `<section class="page-header"><h1>${
-        escapeHtml(project ? `${project.displayName} Plan Board` : "Project Plan Board")
-    }</h1><p>${
-        escapeHtml(
-            project
-                ? `${project.rootLabel} · ${project.healthStatus}`
-                : "Owner Workspace shows registered Project Plans and their current owner-safe actions.",
-        )
-    }</p></section>${tabs}<div class="toolbar">${toolbar}</div>${boardHtml}${
-        ownerPlanBoardSearchScript(boardId, searchIndex)
-    }`;
-}
-
-/** @param {any} plan */
-function ownerReadOnlyPlanDetail(plan) {
-    return {
-        ...plan,
-        capabilities: { ...(plan.capabilities || {}), bodyEditing: false },
-        actions: {},
-        childrenByStatus: plan.childrenByStatus
-            ? Object.fromEntries(
-                Object.entries(plan.childrenByStatus).map(([status, children]) => [
-                    status,
-                    Array.isArray(children) ? children.map(ownerReadOnlyPlanDetail) : children,
-                ]),
-            )
-            : plan.childrenByStatus,
-    };
-}
-
-/** @param {any} ctx */
-async function renderOwnerPlanDetail(ctx) {
-    const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
-    const plan = ownerReadOnlyPlanDetail(await loadWorkspaceDetail(root, ctx.params.planId));
-    const url = ownerPresentationUrl(
-        ctx.url,
-        `/projects/${encodeURIComponent(ctx.params.projectId)}/plans/${encodeURIComponent(ctx.params.planId)}`,
-    );
-    const detailHtml = await renderOwnerReactComponent(PlanDetail, {
-        plan,
-        url,
-        editIntent: false,
-        staticRender: true,
-    });
-    return `${detailHtml}<aside class="owner-card owner-read-only-note"><h2>Owner safety</h2><p>Some Plan changes require a live Session with matching Plan evidence before RunWield can apply them.</p></aside>`;
 }
 
 /** @param {any} ctx */

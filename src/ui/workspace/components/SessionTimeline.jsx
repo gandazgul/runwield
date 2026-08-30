@@ -5,6 +5,7 @@ import {
     RuntimeInteractionTypes,
 } from "../../../shared/session/session-runtime-interactions.js";
 import { MarkdownView } from "./MarkdownView.jsx";
+import { RunWieldLink } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 const MESSAGE_TYPES = new Set([
     "message",
@@ -15,6 +16,7 @@ const MESSAGE_TYPES = new Set([
     "activity",
     "interaction",
     "plan-review",
+    "code-review",
     "interruption",
     "system-event",
 ]);
@@ -194,7 +196,11 @@ export function reduceSessionEvents(events, options = {}) {
             const requestType = text(event.interactionType || "text");
             const review = asRecord(event.review);
             ensure(`interaction:${text(event.interactionId || id)}`, {
-                kind: requestType === "plan_review" ? "plan-review" : "interaction",
+                kind: requestType === "plan_review"
+                    ? "plan-review"
+                    : requestType === "code_review"
+                    ? "code-review"
+                    : "interaction",
                 key: event.eventId || `interaction:${text(event.interactionId || id)}`,
                 interactionId: text(event.interactionId || id),
                 request: {
@@ -524,19 +530,42 @@ export function SessionTimeline({ items, events, emptyMessage = "" }) {
                         )
                         : item.kind === "interaction"
                         ? <SessionInteractionCard item={item} />
-                        : item.kind === "plan-review"
+                        : item.kind === "plan-review" || item.kind === "code-review"
                         ? (
-                            <article className="session-plan-review-card" aria-label="Plan ready for review">
-                                <p className="kicker">Plan ready for review</p>
-                                <strong>{item.request?.planReview?.planName || "Plan"}</strong>
-                                <p>
-                                    {item.request?.planReview?.classification || "PLANNED_CHANGE"}
-                                    {item.request?.planReview?.expectedStatus
-                                        ? ` · ${item.request.planReview.expectedStatus}`
-                                        : ""}
+                            <article
+                                className="session-plan-review-card"
+                                aria-label={item.kind === "code-review"
+                                    ? "Code ready for review"
+                                    : "Plan ready for review"}
+                            >
+                                <p className="kicker">
+                                    {item.kind === "code-review" ? "Code ready for review" : "Plan ready for review"}
                                 </p>
+                                <strong>
+                                    {item.kind === "code-review"
+                                        ? item.request?.codeReview?.planName || "Workspace changes"
+                                        : item.request?.planReview?.planName || "Plan"}
+                                </strong>
+                                {item.kind === "plan-review"
+                                    ? (
+                                        <p>
+                                            {item.request?.planReview?.classification || "PLANNED_CHANGE"}
+                                            {item.request?.planReview?.expectedStatus
+                                                ? ` · ${item.request.planReview.expectedStatus}`
+                                                : ""}
+                                        </p>
+                                    )
+                                    : <p>Review the current workflow diff without leaving this Workspace.</p>}
                                 {item.reviewUrl
-                                    ? <a className="rw-plan-review-link" href={item.reviewUrl}>Review Plan</a>
+                                    ? (
+                                        <RunWieldLink
+                                            variant="primary"
+                                            className="rw-plan-review-link"
+                                            href={item.reviewUrl}
+                                        >
+                                            {item.kind === "code-review" ? "Review Code" : "Review Plan"}
+                                        </RunWieldLink>
+                                    )
                                     : null}
                             </article>
                         )

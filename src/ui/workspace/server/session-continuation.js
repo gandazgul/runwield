@@ -100,6 +100,21 @@ function safePlanReviewReference(request) {
     };
 }
 
+/** @param {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} request */
+function safeCodeReviewReference(request) {
+    const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
+    const rawPatch = typeof meta.diffText === "string" ? meta.diffText : "";
+    if (!rawPatch) return null;
+    const planName = typeof meta.planName === "string" && meta.planName.trim()
+        ? meta.planName.trim()
+        : "Workspace changes";
+    return {
+        rawPatch,
+        gitRef: `RunWield workflow diff: ${planName}`,
+        planName,
+    };
+}
+
 /** @param {unknown} response */
 function readPlanReviewDecisionMeta(response) {
     if (!response || typeof response !== "object") return {};
@@ -113,10 +128,10 @@ function readPlanReviewDecisionMeta(response) {
 function acceptedInteractionResponse(response) {
     if (response && typeof response === "object") {
         const source = /** @type {Record<string, unknown>} */ (response);
-        if (source.outcome === "accepted" && source._meta && typeof source._meta === "object") return source;
+        if (typeof source.outcome === "string") return source;
         return { outcome: "accepted", _meta: source };
     }
-    return { outcome: "unsupported", message: "Plan review response is invalid." };
+    return { outcome: "unsupported", message: "Workspace interaction response is invalid." };
 }
 
 /** @param {string} transcriptPath */
@@ -584,12 +599,19 @@ export class WorkspaceSessionContinuationService {
                         return;
                     }
                     const planReview = request.type === "plan_review" ? safePlanReviewReference(request) : null;
+                    const codeReview = request.type === "code_review" ? safeCodeReviewReference(request) : null;
                     const reviewUrl = planReview
                         ? `/projects/${encodeURIComponent(current.projectId)}/plans/${
                             encodeURIComponent(planReview.planId)
                         }?session=${encodeURIComponent(current.runwieldSessionId || "")}&operation=${
                             encodeURIComponent(options.operationId)
                         }&interaction=${encodeURIComponent(interactionId)}`
+                        : codeReview
+                        ? `/projects/${encodeURIComponent(current.projectId)}/sessions/${
+                            encodeURIComponent(current.runwieldSessionId || "")
+                        }/review/code?operation=${encodeURIComponent(options.operationId)}&interaction=${
+                            encodeURIComponent(interactionId)
+                        }`
                         : null;
                     this.operations.set(options.operationId, {
                         ...current,
@@ -614,6 +636,7 @@ export class WorkspaceSessionContinuationService {
                                 placeholder: request.placeholder,
                                 allowEmpty: request.allowEmpty === true,
                                 ...(planReview && { planReview, reviewUrl }),
+                                ...(codeReview && { codeReview, reviewUrl }),
                             },
                         },
                         answer: { resolve, reject },
@@ -1039,6 +1062,25 @@ export class WorkspaceSessionContinuationService {
             ? /** @type {Record<string, unknown>} */ (request.planReview)
             : null;
         if (!planReview || planReview.planId !== options.planId) return null;
+        return { operationId: options.operationId, interactionId: options.interactionId, request };
+    }
+
+    /**
+     * @param {{ projectId: string, operationId: string, interactionId: string, runwieldSessionId: string }} options
+     */
+    getLiveCodeReview(options) {
+        const operation = this.operations.get(options.operationId);
+        if (!operation || operation.status !== "running" || operation.projectId !== options.projectId) return null;
+        if (operation.runwieldSessionId !== options.runwieldSessionId) return null;
+        if (!operation.liveInteraction || operation.liveInteraction.interactionId !== options.interactionId) {
+            return null;
+        }
+        const request = operation.liveInteraction.request || {};
+        if (request.type !== "code_review") return null;
+        const codeReview = request.codeReview && typeof request.codeReview === "object"
+            ? /** @type {Record<string, unknown>} */ (request.codeReview)
+            : null;
+        if (!codeReview || typeof codeReview.rawPatch !== "string") return null;
         return { operationId: options.operationId, interactionId: options.interactionId, request };
     }
 

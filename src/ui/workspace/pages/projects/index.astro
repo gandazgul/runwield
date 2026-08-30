@@ -14,13 +14,18 @@ const projects = await loadOwnerProjects();
         <form class="owner-form project-register-form" data-project-register>
             <label>Project root <input name="root" required placeholder="Absolute path to a Project" /></label>
             <label>Display name <input name="displayName" placeholder="Optional" /></label>
-            <button class="action-primary" type="submit">Link Project</button>
+            <button class="primary-action" type="submit">Link Project</button>
         </form>
         <p class="muted" data-project-register-status role="status"></p>
     </section>
     <section class="project-list-panel" aria-label="Linked Projects">
         {projects.length ? projects.map((project: { projectId: string; displayName: string; rootLabel: string; healthStatus: string; lifecycle: string; enabled: boolean }) => (
-            <a class="project-list-row" href={`/projects/${encodeURIComponent(project.projectId)}/sessions`}>
+            <a
+                class="project-list-row"
+                href={project.enabled
+                    ? `/projects/${encodeURIComponent(project.projectId)}/sessions`
+                    : `/projects/${encodeURIComponent(project.projectId)}/settings`}
+            >
                 <span>
                     <strong>{project.displayName}</strong>
                     <small>{project.rootLabel} · {project.healthStatus}</small>

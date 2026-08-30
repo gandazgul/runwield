@@ -50,7 +50,7 @@ export function SessionList({
     }
     const diagnostics = Array.isArray(data?.diagnostics) ? /** @type {unknown[]} */ (data.diagnostics) : [];
     const newSessionAction = (
-        <section className="session-create-panel" aria-labelledby="session-list-new-heading">
+        <section className="session-create-panel" aria-label="Session actions">
             <a className="rw-toolbar-button" href={newSessionHref(projectId)}>
                 <span className="rw-toolbar-plus" aria-hidden="true">+</span>
                 <span>New Session</span>

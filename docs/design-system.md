@@ -57,6 +57,7 @@ The rest of Workspace should reuse that language through these implementation la
   `src/ui/workspace/static/workspace.css`
 - theme bridge: `src/ui/design-system/theme-bridge.js`
 - shell and navigation: `src/ui/workspace/layouts/WorkspaceLayout.astro`
+- shared Plan Board page composition: `src/ui/workspace/components/PlanBoardPage.astro`
 - board patterns: `src/ui/workspace/components/BoardColumn.jsx`, `PlanCard.jsx`, and `EpicCard.jsx`
 - detail patterns: `src/ui/workspace/components/PlanDetail.jsx`
 - editor and action islands: `src/ui/workspace/islands/`
@@ -230,6 +231,17 @@ Tab rules:
 
 Do not use tabs for one-off actions. Use action buttons instead.
 
+### Action controls
+
+Use `.primary-action`, `.secondary-action`, and `.danger-action` for ordinary actions across Workspace and review
+surfaces. These classes are defined only in `src/ui/design-system/components.css`; feature stylesheets may add layout
+classes but must not redefine their shape, color, type, hover, or focus behavior. Do not introduce reversed aliases such
+as `.action-primary`; one vocabulary keeps markup and visual behavior searchable.
+
+React surfaces should use `RunWieldButton` for state-changing actions and `RunWieldLink` for navigation styled as an
+action. `RunWieldButton` defaults to `type="button"`; submit controls must opt into `type="submit"`. Do not turn an
+anchor into a button handler or use placeholder fragment URLs for actions that do not exist.
+
 ### Toolbar controls
 
 Use `.rw-toolbar-button` for compact actions inside Workspace toolbars. This class is shared in
@@ -252,6 +264,14 @@ Use the **Review action button** pattern for a prominent safe action in Plan Rev
 surfaces. The CSS hooks are `.rw-review-action` for wrappers around Plannotator buttons and `.rw-review-action-button`
 for native buttons. Use it for actions such as **Send Annotations** or **Close** when the action must stay easy to find
 inside the review surface. Do not use it for destructive outcomes or low-emphasis toolbar controls.
+
+Use the **Artifact conversation** pattern when the active workflow agent can discuss and revise the artifact without
+leaving its review surface. Render `ArtifactConversationSidebar` inside an existing review sidebar, keep its message and
+operation wiring in the owning surface, and use the shared `.rw-artifact-conversation-*` classes. Review context is
+attached explicitly as a removable chip; ordinary final feedback actions remain separate. Only one agent turn may be
+active at a time. When a revised artifact arrives, replace the readable artifact in place and open a before/after diff
+automatically. The component is artifact-neutral so Plan Review, Code Review, and later review surfaces can share the
+same transcript, composer, working, and error states.
 
 ### Boards and columns
 
@@ -488,16 +508,26 @@ When imported Plannotator components are used:
 - use Radix primitives from Plannotator when needed for shared React surfaces, but keep RunWield-owned semantics and
   workflow language around them.
 
-The first accepted proof is read-only Plan detail rendering through an imported Plannotator UI component. The next
-Workspace platform slice adds Astro dev entrypoints:
+The Plan Board, Plan Review, and Code Review each have one surface body. Shells are explicit presentation concerns:
 
-- `deno task workspace:dev` for the Workspace shell;
-- `deno task workspace:dev:plan-review` for a fixture-backed internal Plan review route;
-- `deno task workspace:dev:code-review` for a fixture-backed internal code review route.
+- `PlanBoardPage.astro` renders the same board, filters, tabs, cards, and empty states with either the compact local
+  `wld plans ui` shell or the owner Workspace sidebar shell;
+- `PlanReviewSurface` and `CodeReviewSurface` use `presentation="standalone"` for TUI-launched browser windows and
+  `presentation="workspace"` when a live Session opens the review in the Workspace shell;
+- behavior, payload interpretation, annotations, and decision controls stay in the shared surface. Do not fork a
+  Workspace-only copy of either review.
 
-These review routes are HMR development surfaces only until workflow decision transport is implemented behind the
-review-launcher seam. Editable Plan body replacement, built-in Plan Review, built-in code review, and WebTUI chat
-integration require follow-up slices with their own verification.
+Astro development entrypoints:
+
+- `deno task workspace:dev:surfaces` opens `/dev`, the catalog for every paired presentation;
+- `/` and `/projects/dev-project/plans` compare the local and Workspace Plan Board shells;
+- `/dev/plan-review` and `/dev/workspace/plan-review` compare standalone and in-situ Plan Review;
+- `/dev/code-review` and `/dev/workspace/code-review` compare standalone and in-situ Code Review;
+- `/projects/dev-project/sessions/choose-terraform-folder-name` exercises the Session shell and timeline.
+
+The `/dev` routes are fixture-only and return 404 in production. The standalone `/review/plan` and `/review/code` routes
+remain the real token-protected TUI launch targets. Live Workspace Plan and Code Review decisions return to the same
+Session interaction through owner Workspace endpoints.
 
 ## Guided Review Explainer blocks
 
