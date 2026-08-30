@@ -251,6 +251,7 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/", (ctx) => ownerHtmlResponse("RunWield Owner Workspace", renderOwnerHome(ctx)));
     app.get("/pair", (ctx) => ownerHtmlResponse("Pair RunWield Workspace", renderPairingPage(ctx)));
     app.get("/devices", (ctx) => ownerHtmlResponse("Paired devices", renderDevicesPage(ctx)));
+    app.get("/projects", renderOwnerProjectsPage);
     app.get(
         "/projects/:projectId/plans",
         async (ctx) => ownerHtmlResponse("Project Plans", await renderOwnerProjectBoard(ctx, "active")),
@@ -725,6 +726,26 @@ function renderOwnerHome(ctx) {
         ).join("")
         : `<section class="owner-card empty-state"><h2>No registered Projects yet</h2><p>Register a trusted local Project before Workspace can open Sessions.</p></section>`;
     return `<section class="page-header"><h1>Workspace</h1><p>Workspace opens your last Session. If no Session exists, it starts from the first Project.</p></section><section class="owner-card"><form id="project-register" class="owner-form"><label>Project root <input name="root" placeholder="/absolute/path/to/project" required></label><label>Display name <input name="displayName" placeholder="Optional"></label><button class="action-primary" type="submit">Register Project</button></form><p id="project-message" aria-live="polite"></p></section><section class="project-grid">${cards}</section><script>${ownerMutationScript()}document.getElementById('project-register').addEventListener('submit',async(event)=>{event.preventDefault();const form=new FormData(event.currentTarget);const response=await ownerFetch('/api/owner/projects',{method:'POST',body:JSON.stringify({root:form.get('root'),displayName:form.get('displayName')})});if(response.ok) location.reload(); else document.getElementById('project-message').textContent=(await response.json()).error;});document.querySelectorAll('[data-project-action]').forEach((button)=>button.addEventListener('click',async()=>{if(button.dataset.action==='remove'&&!confirm('Remove this Project from Workspace? Repository files are not deleted.'))return;const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(button.dataset.projectAction)+'/action',{method:'POST',body:JSON.stringify({action:button.dataset.action})});const data=await response.json().catch(()=>({}));if(response.ok){if(button.dataset.action==='rescan'){const diagnostics=document.querySelector('[data-project-diagnostics="'+CSS.escape(button.dataset.projectAction)+'"]');if(diagnostics){diagnostics.hidden=false;diagnostics.textContent=(data.diagnostics||[]).length?JSON.stringify(data.diagnostics,null,2):'Full Session catalog rescan completed with no diagnostics.';}return;}location.reload();} else alert(data.error); }));document.querySelectorAll('[data-project-relink]').forEach((relinkForm)=>relinkForm.addEventListener('submit',async(event)=>{event.preventDefault();const formData=new FormData(relinkForm);const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(relinkForm.dataset.projectRelink)+'/action',{method:'POST',body:JSON.stringify({action:'relink',newRoot:formData.get('newRoot')})});if(response.ok) location.reload(); else alert((await response.json()).error);}));</script>`;
+}
+
+/** @param {any} ctx */
+function renderOwnerProjectsPage(ctx) {
+    const projects = listOwnerProjects(ctx.state.store);
+    const rows = projects.length
+        ? projects.map((project) =>
+            `<a class="project-list-row" href="/projects/${
+                encodeURIComponent(project.projectId)
+            }/sessions"><span><strong>${escapeHtml(project.displayName)}</strong><small>${
+                escapeHtml(project.rootLabel)
+            } · ${escapeHtml(project.healthStatus)}</small></span><span class="project-list-state">${
+                escapeHtml(project.lifecycle)
+            }${project.enabled ? "" : " · unavailable"}</span></a>`
+        ).join("")
+        : `<p class="empty">No Projects are linked yet.</p>`;
+    return ownerHtmlResponse(
+        "Projects · RunWield Workspace",
+        `<section class="page-header"><h1>Projects</h1><p>Link a Project, then open its Sessions.</p></section><section class="owner-card project-link-card"><h2>Link a Project</h2><form class="owner-form project-register-form" data-project-register><label>Project root <input name="root" required placeholder="Absolute path to a Project"></label><label>Display name <input name="displayName" placeholder="Optional"></label><button class="action-primary" type="submit">Link Project</button></form><p class="muted" data-project-register-status role="status"></p></section><section class="project-list-panel" aria-label="Linked Projects">${rows}</section><script>${ownerMutationScript()}const registerForm=document.querySelector('[data-project-register]');const status=document.querySelector('[data-project-register-status]');registerForm?.addEventListener('submit',async(event)=>{event.preventDefault();const formData=new FormData(registerForm);if(status)status.textContent='Linking Project...';const response=await ownerFetch('/api/owner/projects',{method:'POST',body:JSON.stringify({root:formData.get('root'),displayName:formData.get('displayName')})});const data=await response.json().catch(()=>({}));if(response.ok&&data.project?.projectId){location.href='/projects/'+encodeURIComponent(data.project.projectId)+'/sessions';return;}if(status)status.textContent=data.error||'Project link failed.';});</script>`,
+    );
 }
 
 /** @param {any} ctx */

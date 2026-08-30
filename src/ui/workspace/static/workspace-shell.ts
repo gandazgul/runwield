@@ -81,18 +81,49 @@
         return payload;
     }
 
+    function titleFromSessionId(sessionId) {
+        return String(sessionId || "Current Session")
+            .split(/[-_\s]+/)
+            .filter(Boolean)
+            .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+            .join(" ") || "Current Session";
+    }
+
+    function sessionStatusLabel(state) {
+        const normalized = String(state || "idle").toLowerCase();
+        return normalized === "active" || normalized === "busy" ? "busy" : "";
+    }
+
+    function renderSessionRow(projectId, session, current, extraClass = "") {
+        const active = current.runwieldSessionId === session.runwieldSessionId ? " active" : "";
+        const status = sessionStatusLabel(session.state);
+        return `<a class="workspace-sidebar-session${active}${extraClass}" href="${
+            sessionHref(projectId, session.runwieldSessionId)
+        }" data-sidebar-session="${html(session.runwieldSessionId)}"><span>${
+            html(session.displayName || "Untitled Session")
+        }</span>${status ? `<small>${html(status)}</small>` : ""}</a>`;
+    }
+
     function renderProject(project, current) {
         const projectId = project.projectId;
         const open = current.projectId === projectId ? " open" : "";
         const sessions = Array.isArray(project.sessions) ? project.sessions : [];
-        const items = sessions.map((session) => {
-            const active = current.runwieldSessionId === session.runwieldSessionId ? " active" : "";
-            return `<a class="workspace-sidebar-session${active}" href="${
-                sessionHref(projectId, session.runwieldSessionId)
-            }"><span>${html(session.displayName || "Untitled Session")}</span><small>${
-                html(session.state || "idle")
-            }</small></a>`;
-        }).join("");
+        const items = sessions.map((session) => renderSessionRow(projectId, session, current)).join("");
+        const activeOutsidePage = current.kind === "session" && current.projectId === projectId &&
+            current.runwieldSessionId !== "new" &&
+            !sessions.some((session) => session.runwieldSessionId === current.runwieldSessionId);
+        const activeItem = activeOutsidePage
+            ? renderSessionRow(
+                projectId,
+                {
+                    runwieldSessionId: current.runwieldSessionId,
+                    displayName: titleFromSessionId(current.runwieldSessionId),
+                    state: "idle",
+                },
+                current,
+                " workspace-sidebar-session-extra",
+            )
+            : "";
         const showMore = project.hasMoreSessions
             ? `<button type="button" class="workspace-sidebar-show-more" data-show-more-sessions="${
                 html(projectId)
@@ -108,7 +139,7 @@
             plansHref(projectId)
         }">Plan Board</a></div><div class="workspace-sidebar-sessions">${
             items || `<p class="workspace-sidebar-empty">No Sessions yet.</p>`
-        }${showMore}</div></details>`;
+        }${activeItem}${showMore}</div></details>`;
     }
 
     function renderSidebar(payload, current) {
@@ -119,11 +150,11 @@
         const newProjectId = current.projectId || rememberedProject ||
             projects.find((project) => project.enabled)?.projectId || projects[0]?.projectId || "";
         sidebar.innerHTML =
-            `<div class="workspace-sidebar-brand"><a href="/" aria-label="RunWield Workspace home"><img src="/brand/logo.svg" alt="" aria-hidden="true"><span>RunWield</span></a></div><a class="workspace-sidebar-new" href="${
-                newProjectId ? newSessionHref(newProjectId) : "/"
+            `<div class="workspace-sidebar-brand"><a href="/" aria-label="RunWield Workspace home"><img src="/brand/logo.svg" alt="" aria-hidden="true"><span>Workspace</span></a></div><a class="workspace-sidebar-new" href="${
+                newProjectId ? newSessionHref(newProjectId) : "/projects"
             }" ${
                 newProjectId ? "" : 'aria-disabled="true"'
-            }>✎ <span>New Session</span></a><div class="workspace-sidebar-section-title">Projects</div><nav class="workspace-sidebar-project-list" aria-label="Projects and Sessions">${
+            }><span class="workspace-sidebar-plus" aria-hidden="true">+</span><span>New Session</span></a><a class="workspace-sidebar-section-title" href="/projects">Projects</a><nav class="workspace-sidebar-project-list" aria-label="Projects and Sessions">${
                 projects.map((project) => renderProject(project, current)).join("") ||
                 `<p class="workspace-sidebar-empty">No Projects registered.</p>`
             }</nav>`;
@@ -143,11 +174,7 @@
                     const rows = (Array.isArray(data.sessions) ? data.sessions : [])
                         .map((session) => ({ session, href: sessionHref(projectId, session.runwieldSessionId) }))
                         .filter((entry) => !known.has(entry.href))
-                        .map((entry) =>
-                            `<a class="workspace-sidebar-session" href="${entry.href}"><span>${
-                                html(entry.session.displayName || "Untitled Session")
-                            }</span><small>${html(entry.session.state || "idle")}</small></a>`
-                        )
+                        .map((entry) => renderSessionRow(projectId, entry.session, current))
                         .join("");
                     button.insertAdjacentHTML(
                         "beforebegin",

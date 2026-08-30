@@ -50,6 +50,7 @@
     background: color-mix(in srgb, var(--rw-surface) 88%, var(--rw-surface-raised));
     color: var(--rw-text);
     font-size: 0.72rem;
+    text-decoration: none;
     font-weight: 600;
 }
 

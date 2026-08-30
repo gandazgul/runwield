@@ -51,6 +51,7 @@ export const GET = ({ request, params }: { request: Request; params: { segments?
 export const POST = ({ params }: { params: { segments?: string } }) => {
     if (!import.meta.env.DEV) return json({ error: "Not found." }, 404);
     const segments = routeSegments({ params });
+    if (segments.join("/") === "projects") return json({ project: DEV_OWNER_PROJECT }, 201);
     if (segments[0] === "projects" && segments[1] === DEV_OWNER_PROJECT.projectId && segments[2] === "action") {
         return json({ projects: [DEV_OWNER_PROJECT], diagnostics: [] });
     }

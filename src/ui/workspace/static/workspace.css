@@ -2850,6 +2850,17 @@
     padding: 0 8px;
 }
 
+.workspace-sidebar-plus,
+.rw-toolbar-plus {
+    align-items: center;
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 1.1em;
+    font-weight: 900;
+    justify-content: center;
+    line-height: 1;
+}
+
 .workspace-sidebar-new:hover,
 .workspace-sidebar-project summary:hover,
 .workspace-sidebar-session:hover,
@@ -2861,10 +2872,17 @@
 
 .workspace-sidebar-section-title {
     color: var(--rw-text-dim);
+    display: block;
     font-size: 0.78rem;
     font-weight: 800;
     letter-spacing: 0.02em;
     margin: 22px 8px 8px;
+    text-decoration: none;
+}
+
+.workspace-sidebar-section-title:hover,
+.workspace-sidebar-section-title:focus-visible {
+    color: var(--rw-text-strong);
 }
 
 .workspace-sidebar-project {
@@ -2928,8 +2946,25 @@
 }
 
 .workspace-sidebar-session {
+    border: 1px solid transparent;
     font-size: 0.86rem;
     padding: 0 8px;
+}
+
+.workspace-sidebar-session.active {
+    background: color-mix(in srgb, var(--rw-accent) 18%, var(--rw-surface-muted));
+    border-color: color-mix(in srgb, var(--rw-accent) 50%, var(--rw-border));
+    box-shadow: inset 3px 0 0 var(--rw-accent);
+    color: var(--rw-text-strong);
+    font-weight: 800;
+}
+
+.workspace-sidebar-session.active small {
+    color: var(--rw-accent-text);
+}
+
+.workspace-sidebar-session-extra {
+    margin-top: 4px;
 }
 
 .workspace-sidebar-session small {
@@ -2964,8 +2999,53 @@
     margin-top: 0.4rem;
 }
 
-.project-settings-card {
+.project-settings-card,
+.project-link-card {
+    display: grid;
+    gap: 0.85rem;
     margin-bottom: 1rem;
+}
+
+.project-list-panel {
+    display: grid;
+    gap: 0.6rem;
+    margin: 1rem 0;
+}
+
+.project-list-row {
+    align-items: center;
+    background: var(--rw-surface);
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-card);
+    color: var(--rw-text);
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    padding: 0.9rem 1rem;
+    text-decoration: none;
+}
+
+.project-list-row:hover,
+.project-list-row:focus-visible {
+    background: var(--rw-surface-muted);
+    border-color: var(--rw-accent);
+    color: var(--rw-text-strong);
+}
+
+.project-list-row span:first-child {
+    display: grid;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.project-list-row small,
+.project-list-state {
+    color: var(--rw-text-dim);
+}
+
+.project-list-state {
+    flex: 0 0 auto;
+    font-size: 0.82rem;
 }
 
 @media (max-width: 860px) {
