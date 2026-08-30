@@ -2,6 +2,7 @@
 (() => {
     const LAST_SESSION_KEY = "runwield:owner:last-session";
     const LAST_PROJECT_KEY = "runwield:owner:last-project";
+    const SIDEBAR_COLLAPSED_KEY = "runwield:owner:sidebar-collapsed";
 
     function html(value) {
         return String(value || "")
@@ -94,6 +95,80 @@
         return normalized === "active" || normalized === "busy" ? "busy" : "";
     }
 
+    function panelCollapseIcon(side) {
+        const path = side === "left" ? "M15 6l-6 6 6 6" : "M9 6l6 6-6 6";
+        return `<svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"><path d="M5 4v16" stroke-width="1.5" stroke-linecap="round"></path><path d="M19 4v16" stroke-width="1.5" stroke-linecap="round"></path><path d="${path}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path></svg>`;
+    }
+
+    function isNarrowSidebarMode() {
+        return globalThis.matchMedia("(max-width: 860px)").matches;
+    }
+
+    function setSidebarCollapsed(collapsed) {
+        const shell = document.querySelector(".workspace-shell-with-sidebar");
+        if (!shell) return;
+        shell.classList.toggle("workspace-sidebar-collapsed", collapsed);
+        shell.classList.remove("workspace-sidebar-overlay-open");
+        try {
+            localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "true" : "false");
+        } catch {
+            // Sidebar state is only a convenience.
+        }
+    }
+
+    function openSidebar() {
+        const shell = document.querySelector(".workspace-shell-with-sidebar");
+        if (!shell) return;
+        if (isNarrowSidebarMode()) {
+            shell.classList.remove("workspace-sidebar-collapsed");
+            shell.classList.add("workspace-sidebar-overlay-open");
+            return;
+        }
+        setSidebarCollapsed(false);
+    }
+
+    function closeSidebarOverlay() {
+        document.querySelector(".workspace-shell-with-sidebar")?.classList.remove("workspace-sidebar-overlay-open");
+    }
+
+    function isSidebarCollapsed() {
+        try {
+            return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+        } catch {
+            return false;
+        }
+    }
+
+    function sessionTitleFromPayload(payload, current) {
+        if (current.kind !== "session") return "";
+        if (current.runwieldSessionId === "new") return "New Session";
+        const projects = Array.isArray(payload.projects) ? payload.projects : [];
+        for (const project of projects) {
+            const sessions = Array.isArray(project.sessions) ? project.sessions : [];
+            const match = sessions.find((session) => session.runwieldSessionId === current.runwieldSessionId);
+            if (match) return match.displayName || titleFromSessionId(current.runwieldSessionId);
+        }
+        return titleFromSessionId(current.runwieldSessionId);
+    }
+
+    function renderMainHeader(payload, current) {
+        const header = document.querySelector("[data-workspace-main-header-left]");
+        if (!header) return;
+        header.querySelector("[data-workspace-sidebar-restore]")?.remove();
+        header.querySelector(".workspace-main-session-name")?.remove();
+        const title = sessionTitleFromPayload(payload, current);
+        const restore =
+            `<button class="rw-toolbar-button workspace-sidebar-restore" type="button" data-workspace-sidebar-restore aria-label="Open Workspace sidebar" title="Open Workspace sidebar">${
+                panelCollapseIcon("right")
+            }</button>`;
+        const sessionName = title ? `<strong class="workspace-main-session-name">${html(title)}</strong>` : "";
+        header.insertAdjacentHTML("beforeend", `${restore}${sessionName}`);
+        header.querySelector("[data-workspace-sidebar-restore]")?.addEventListener("click", (event) => {
+            event.stopPropagation();
+            openSidebar();
+        });
+    }
+
     function renderSessionRow(projectId, session, current, extraClass = "") {
         const active = current.runwieldSessionId === session.runwieldSessionId ? " active" : "";
         const status = sessionStatusLabel(session.state);
@@ -149,8 +224,11 @@
         const rememberedProject = readStored(LAST_PROJECT_KEY)?.projectId || "";
         const newProjectId = current.projectId || rememberedProject ||
             projects.find((project) => project.enabled)?.projectId || projects[0]?.projectId || "";
+        renderMainHeader(payload, current);
         sidebar.innerHTML =
-            `<div class="workspace-sidebar-brand"><a href="/" aria-label="RunWield Workspace home"><img src="/brand/logo.svg" alt="" aria-hidden="true"><span>Workspace</span></a></div><a class="workspace-sidebar-new" href="${
+            `<div class="workspace-sidebar-brand"><a href="/" aria-label="RunWield Workspace home"><img src="/brand/logo.svg" alt="" aria-hidden="true"><span>Workspace</span></a><button class="workspace-sidebar-collapse" type="button" data-workspace-sidebar-collapse aria-label="Collapse Workspace sidebar" title="Collapse Workspace sidebar">${
+                panelCollapseIcon("left")
+            }</button></div><a class="workspace-sidebar-new" href="${
                 newProjectId ? newSessionHref(newProjectId) : "/projects"
             }" ${
                 newProjectId ? "" : 'aria-disabled="true"'
@@ -158,6 +236,10 @@
                 projects.map((project) => renderProject(project, current)).join("") ||
                 `<p class="workspace-sidebar-empty">No Projects registered.</p>`
             }</nav>`;
+        sidebar.querySelector("[data-workspace-sidebar-collapse]")?.addEventListener("click", () => {
+            setSidebarCollapsed(true);
+        });
+        setSidebarCollapsed(isSidebarCollapsed());
         sidebar.querySelectorAll("[data-show-more-sessions]").forEach((button) => {
             button.addEventListener("click", async () => {
                 const projectId = button.getAttribute("data-show-more-sessions") || "";
@@ -189,7 +271,19 @@
         });
     }
 
+    function installSidebarOverlayDismiss() {
+        document.addEventListener("click", (event) => {
+            const shell = document.querySelector(".workspace-shell-with-sidebar");
+            if (!shell?.classList.contains("workspace-sidebar-overlay-open")) return;
+            const target = event.target;
+            if (!(target instanceof Element)) return;
+            if (target.closest(".workspace-sidebar")) return;
+            closeSidebarOverlay();
+        });
+    }
+
     async function boot() {
+        installSidebarOverlayDismiss();
         const current = rememberCurrentRoute();
         if (location.pathname === "/") {
             const last = readStored(LAST_SESSION_KEY);
