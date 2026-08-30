@@ -68,8 +68,10 @@ Deno.test("Plan review offers a reusable Planner conversation without replacing 
     assertStringIncludes(route, "operationStatusUrl");
     assertStringIncludes(route, "planDetailUrl");
     assertStringIncludes(route, "interactionAnswerBaseUrl");
+    assertStringIncludes(surface, "initialPayload.conversationStatusUrl");
+    assertStringIncludes(surface, "waitForStandaloneReview");
     assertStringIncludes(surface, 'label="Send Annotations"');
-    assertStringIncludes(surface, "Add to Planner chat");
+    assertStringIncludes(surface, "Add to {agentLabel} chat");
     assertStringIncludes(surface, "<ArtifactConversationSidebar");
     assertStringIncludes(surface, "waitForPlannerReview");
     assertStringIncludes(surface, "setPlannerDiffBase(options.priorPlan)");

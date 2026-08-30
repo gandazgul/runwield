@@ -15,8 +15,8 @@ affectedPaths:
     - "src/ui/workspace/react/plannotator.css"
 executionAgent: "frontend-engineer"
 collaborationRecommendation: "autonomous"
-devServerCommand: "deno task workspace:dev:plan-review"
-devServerUrl: "http://127.0.0.1:5173/dev/plan-review"
+devServerCommand: "deno task workspace:dev"
+devServerUrl: "http://127.0.0.1:5173/dev"
 devServerHmr: true
 worktreeBaseBranch: "fixture/plan-review-ui"
 createdAt: "2026-07-13T14:00:00.000Z"
@@ -694,6 +694,7 @@ export function ReviewDevSurface({ surface, presentation = "standalone" }) {
             plan: PROJECT_PLAN_FIXTURE,
             token: `dev-plan-review-${planVariant}`,
             mode: "dev",
+            agentLabel: "Architect",
             classification: "PROJECT",
             frontmatter: { classification: "PROJECT" },
             reviewNotice: planNotice,
@@ -709,6 +710,7 @@ export function ReviewDevSurface({ surface, presentation = "standalone" }) {
             linkedFiles: DEV_LINKED_FILES,
             token: `dev-plan-review-${planVariant}`,
             mode: "dev",
+            agentLabel: "Planner",
             classification: "FEATURE",
             frontmatter: {
                 classification: "FEATURE",

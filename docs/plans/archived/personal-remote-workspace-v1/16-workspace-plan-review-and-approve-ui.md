@@ -257,8 +257,8 @@ but it requires a session-independent continuation protocol and is not necessary
   to either active adapter. New components here are `.tsx`; see the language-policy step below.
 - `src/ui/workspace/pages/review/plan.astro` and `src/ui/workspace/react/ReviewDevSurface.tsx` — the two existing
   `PlanReviewSurface` callers. Both construct today's header/dev payload directly, so both must move to the
-  transport-neutral payload in the same change. `ReviewDevSurface` is the `/dev/plan-review` harness behind
-  `deno task workspace:dev:plan-review` and must keep rendering after the payload contract changes.
+  transport-neutral payload in the same change. `ReviewDevSurface` is the `/dev/plan-review` harness linked from the
+  Surface Lab opened by `deno task workspace:dev` and must keep rendering after the payload contract changes.
 - `src/ui/workspace/components/SessionTimeline.jsx` and `src/ui/workspace/islands/SessionSurface.jsx` — render live and
   committed Plan review links as Plan workflow items, poll decision settlement, replace lost review waits with the
   standard interruption line, and return from review to the same Session.

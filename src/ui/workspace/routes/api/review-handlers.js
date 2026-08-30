@@ -66,6 +66,7 @@ export async function reviewDecisionApi(ctx) {
 export async function reviewDenyApi(ctx) {
     return await resolveFromRequest(ctx, (body) => ({
         approved: false,
+        ...(body.conversationTurn === true && { conversationTurn: true }),
         feedback: typeof body.feedback === "string" ? body.feedback : "",
         annotations: Array.isArray(body.annotations) ? body.annotations : [],
         ...reviewImageDecisionFields(body),

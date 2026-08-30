@@ -57,6 +57,20 @@ interface PlanReviewVersion {
     timestamp: string;
 }
 
+interface PlanReviewConversationEvent {
+    type: "assistant_text_delta";
+    delta: string;
+    messageId: string;
+    agentName: string;
+}
+
+interface PlanReviewConversation {
+    id: string;
+    agentLabel: string;
+    revision: number;
+    events: PlanReviewConversationEvent[];
+}
+
 type ExecutionAgent = "engineer" | "frontend-engineer";
 type CollaborationRecommendation = "autonomous" | "pair";
 
@@ -169,6 +183,12 @@ function buildFeedbackRequestText(
         "",
         feedback || "(no specific feedback provided)",
     ].join("\n");
+}
+
+function planningAgentLabel(agentName: string): string {
+    return agentName.trim().split(/[-_\s]+/).filter(Boolean)
+        .map((part) => part[0]?.toUpperCase() + part.slice(1).toLowerCase())
+        .join(" ") || "Planner";
 }
 
 function textResult(
@@ -291,6 +311,24 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
     if (!hostedSession) throw new Error("createPlanWrittenTool: hostedSession is required");
     const cwd = hostedSession.cwd;
     const reviewPlanVersions = new Map<string, PlanReviewVersion[]>();
+    const reviewConversation: PlanReviewConversation = {
+        id: crypto.randomUUID(),
+        agentLabel: planningAgentLabel(agentName),
+        revision: 0,
+        events: [],
+    };
+    hostedSession.subscribeRuntimeEvents((event) => {
+        if (
+            event.type !== RuntimeEventTypes.ASSISTANT_TEXT_DELTA || typeof event.delta !== "string" ||
+            typeof event.messageId !== "string"
+        ) return;
+        reviewConversation.events.push({
+            type: "assistant_text_delta",
+            delta: event.delta,
+            messageId: event.messageId,
+            agentName: event.agentName || reviewConversation.agentLabel,
+        });
+    });
     return defineTool({
         name: "plan_written",
         label: "Plan Written",
@@ -452,6 +490,8 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                                 expectedWorktree: canonicalReviewEvidence?.worktree,
                                 previousPlan,
                                 planVersions: planVersions.map((entry) => ({ ...entry })),
+                                agentLabel: reviewConversation.agentLabel,
+                                reviewConversation,
                                 triageMeta: effectiveMeta,
                                 onOutput: onReviewServerOutput,
                                 onSurfaceReady: onReviewSurfaceReady,

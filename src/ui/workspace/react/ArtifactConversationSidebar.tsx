@@ -41,7 +41,9 @@ export function ArtifactConversationSidebar(props: ArtifactConversationSidebarPr
             <div className="rw-artifact-conversation-transcript" ref={transcriptRef} aria-live="polite">
                 {props.messages.length === 0 && (
                     <div className="rw-artifact-conversation-empty">
-                        <span className="rw-artifact-conversation-avatar" aria-hidden="true">P</span>
+                        <span className="rw-artifact-conversation-avatar" aria-hidden="true">
+                            {props.agentLabel.slice(0, 1).toUpperCase()}
+                        </span>
                         <h3>Talk through the Plan</h3>
                         <p>
                             Ask {props.agentLabel}{" "}
@@ -94,7 +96,7 @@ export function ArtifactConversationSidebar(props: ArtifactConversationSidebarPr
                         disabled={!canSend}
                         onClick={props.onSend}
                     >
-                        {props.working ? "Planner working…" : "Send to Planner"}
+                        {props.working ? `${props.agentLabel} working…` : `Send to ${props.agentLabel}`}
                     </button>
                 </div>
             </div>

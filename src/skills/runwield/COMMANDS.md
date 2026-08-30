@@ -11,7 +11,7 @@ https://github.com/gandazgul/runwield/blob/main/docs/usage.md for full usage.
 - `wld model`: set the default model from a `provider/model_id` value.
 - `wld load-plan`: load a saved Plan by name or path and continue its lifecycle.
 - `wld plans`: list active Plans and open Plan management subcommands.
-- `wld workspace`: start or pair the owner Workspace; `serve` and `pair` are available but not documented here yet.
+- `wld workspace`: start the paired-device owner Workspace with `serve`, or approve a browser with `pair <code>`.
 - `wld wr`: list, search, read, backfill, or repair the Work Record index.
 - `wld sleep`: back up and consolidate Memory, then keep Engineer active for follow-up.
 - `wld help`: show global or command help.

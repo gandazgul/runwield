@@ -34,6 +34,14 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
 /** @typedef {import('../types.js').ActiveExecutionWorkflow} ActiveExecutionWorkflow */
 
 /**
+ * @typedef {Object} HostedRuntimeEventObservation
+ * @property {string} type
+ * @property {string} [delta]
+ * @property {string} [messageId]
+ * @property {string} [agentName]
+ */
+
+/**
  * @typedef {Object} DisposableLike
  * @property {() => void | Promise<void>} [dispose]
  */
@@ -183,6 +191,8 @@ export class HostedSession {
         this.rootSessionManager = options.sessionManager || null;
         /** @type {unknown} */
         this.eventSink = options.eventSink || null;
+        /** @type {Set<(event: HostedRuntimeEventObservation) => void>} */
+        this.eventObservers = new Set();
         /** @type {import('./session-runtime-interactions.js').RuntimeInteractionAdapter | null} */
         this.interactionAdapter = options.interactionAdapter || null;
         /** @type {Map<string, ActiveInteractionRecord>} */
@@ -434,6 +444,24 @@ export class HostedSession {
 
     getEventSink() {
         return this.eventSink;
+    }
+
+    /** @param {(event: HostedRuntimeEventObservation) => void} observer */
+    subscribeRuntimeEvents(observer) {
+        this.assertActive();
+        this.eventObservers.add(observer);
+        return () => this.eventObservers.delete(observer);
+    }
+
+    /** @param {HostedRuntimeEventObservation} event */
+    publishRuntimeEvent(event) {
+        for (const observer of this.eventObservers) {
+            try {
+                observer(event);
+            } catch {
+                // Review and presentation observers must not interrupt the agent session.
+            }
+        }
     }
 
     /**
@@ -810,6 +838,7 @@ export class HostedSession {
         this.activeOnMessage = null;
         this.rootSessionManager = null;
         this.eventSink = null;
+        this.eventObservers.clear();
         this.interactionAdapter?.cancelAll?.();
         this.interactionAdapter = null;
         this.activeInteractions.clear();

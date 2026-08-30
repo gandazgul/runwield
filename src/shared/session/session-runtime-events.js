@@ -776,6 +776,7 @@ export function createSessionRuntimeEvent(sessionId, event) {
  * @returns {boolean}
  */
 export function emitHostedSessionRuntimeEvent(hostedSession, event) {
+    hostedSession?.publishRuntimeEvent?.(event);
     const sink = hostedSession?.getEventSink?.();
     if (!sink) return false;
     if (typeof sink === "function") {

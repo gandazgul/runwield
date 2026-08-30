@@ -5,8 +5,10 @@ Deno.test("artifact conversation keeps the user message and optional review cont
     const feedback = buildArtifactConversationFeedback({
         message: "Tighten the verification section.",
         attachedFeedback: "Verification Plan: Add one browser annotation.",
+        agentLabel: "Architect",
     });
 
+    assertStringIncludes(feedback, "## Architect conversation");
     assertStringIncludes(feedback, "### User message\nTighten the verification section.");
     assertStringIncludes(feedback, "### Attached review annotations\nVerification Plan: Add one browser annotation.");
     assertStringIncludes(feedback, "call `plan_written` again");

@@ -19,9 +19,8 @@ Plan review runs inside the Workspace UI. For source checkouts, confirm the revi
 published Plannotator packages are available:
 
 - `third_party/plannotator/` exists and matches `third_party/plannotator-revision.txt`.
-- `deno task workspace:dev:plan-review` starts the fixture-backed review route.
-- `deno task workspace:dev:surfaces` opens the development catalog for local/TUI and Workspace variants of the Plan
-  Board, Plan Review, and Code Review.
+- `deno task workspace:dev` opens the development catalog for local/TUI and Workspace variants of the Plan Board, Plan
+  Review, and Code Review. Use its direct links to open the fixture-backed review routes.
 - `deno task workspace:check` can resolve the `@plannotator/*` imports from `deno.json` and Workspace aliases.
 
 ## A saved plan is not loading

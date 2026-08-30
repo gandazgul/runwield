@@ -1,6 +1,6 @@
 import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 import { HostedSession } from "../../shared/session/hosted-session.js";
-import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
+import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { SESSION_COMPLETE_GUIDANCE } from "../../shared/workflow/plan-review-recovery.js";
 import { createPlanWrittenTool } from "../plan-written.ts";
 import { loadPlan } from "../../plan-store.js";
@@ -182,6 +182,30 @@ Deno.test("plan_written streams declared plan details into the active tool block
         ),
         false,
     );
+});
+
+Deno.test("plan_written identifies Architect conversations and keeps one conversation identity", async () => {
+    const { tool, hostedSession, interactionRequests } = await makeHarness({ classification: "PROJECT" });
+    await execute(tool, "runtime-epic");
+
+    const meta = interactionRequests[0]._meta;
+    assertEquals(meta.agentLabel, "Architect");
+    assertEquals(typeof meta.reviewConversation.id, "string");
+    assertEquals(meta.reviewConversation.agentLabel, "Architect");
+    assertEquals(meta.reviewConversation.revision, 0);
+    emitHostedSessionRuntimeEvent(hostedSession, {
+        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+        delta: "I revised the architecture boundary.",
+        messageId: "architect-message",
+        agentName: "Architect",
+        messageKind: "assistant",
+    });
+    assertEquals(meta.reviewConversation.events, [{
+        type: "assistant_text_delta",
+        delta: "I revised the architecture boundary.",
+        messageId: "architect-message",
+        agentName: "Architect",
+    }]);
 });
 
 Deno.test("plan_written rejects invalid loaded Plan policy before review or readiness", async () => {

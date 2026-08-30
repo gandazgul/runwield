@@ -212,8 +212,9 @@ a browser; revoking the current browser clears its cookies and returns it to pai
 closes registered live connections and denies its next owner request.
 
 Projects must be explicitly registered before Workspace can show their Plans. The owner Project view reuses the existing
-Plan Board inside the registered Project boundary. In the bootstrap slice, owner Project Plan views are read-only until
-later Plan Workflow Lease enforcement enables consequential remote Plan mutations safely.
+Plan Board inside the registered Project boundary. Consequential Plan actions run through owner Workspace APIs that
+check the paired device, CSRF token, Session identity, current Plan revision, and current Plan/worktree evidence before
+they mutate state.
 
 Every RunWield Session uses a stable local identity, an OS writer lock, and ordered transcript segments. New Sessions
 are cataloged automatically. When an older local transcript is opened, RunWield migrates it automatically and resumes it

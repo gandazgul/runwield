@@ -80,6 +80,7 @@ function safePlanReviewReference(request) {
     return {
         planId,
         planName,
+        agentLabel: typeof meta.agentLabel === "string" && meta.agentLabel.trim() ? meta.agentLabel.trim() : "Planner",
         classification,
         expectedRevision: typeof meta.expectedRevision === "string" ? meta.expectedRevision : null,
         expectedStatus: typeof meta.expectedStatus === "string" ? meta.expectedStatus : null,

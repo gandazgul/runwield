@@ -148,6 +148,79 @@ reviewLauncherTest("revised Plan Review exposes its initial Plan baseline", asyn
     assertEquals(await decision, { approved: false, feedback: "", exit: true, canceled: true });
 });
 
+reviewLauncherTest("standalone Plan conversation reuses one token page across agent revisions", async (projectRoot) => {
+    const browser = recordingBrowser(true);
+    const conversation = {
+        id: "conversation-fixture",
+        agentLabel: "Architect",
+        revision: 0,
+        events: [] as Array<{
+            type: "assistant_text_delta";
+            delta: string;
+            messageId: string;
+            agentName: string;
+        }>,
+    };
+    const first = await startPlanReviewSurface<PlanDecision>({
+        cwd: projectRoot,
+        plan: "# Initial Plan\n",
+        reviewConversation: conversation,
+        agentLabel: "Architect",
+        browser,
+    });
+    const token = new URL(first.url).searchParams.get("token") || "";
+    const firstDecision = first.waitForDecision();
+    const response = await fetch(`${new URL(first.url).origin}/api/review/deny?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-runwield-review-token": token },
+        body: JSON.stringify({
+            approved: false,
+            conversationTurn: true,
+            feedback: "Clarify the delivery boundary.",
+        }),
+    });
+    assertEquals(response.status, 200);
+    assertEquals(await firstDecision, {
+        approved: false,
+        conversationTurn: true,
+        feedback: "Clarify the delivery boundary.",
+        annotations: [],
+        plan: undefined,
+        savedPath: undefined,
+    });
+
+    conversation.events.push({
+        type: "assistant_text_delta",
+        delta: "I clarified the delivery boundary.",
+        messageId: "architect-reply",
+        agentName: "Architect",
+    });
+    const revised = await startPlanReviewSurface<PlanDecision>({
+        cwd: projectRoot,
+        plan: "# Revised Plan\n\nClear delivery boundary.\n",
+        previousPlan: "# Initial Plan\n",
+        reviewConversation: conversation,
+        agentLabel: "Architect",
+        browser,
+    });
+    const status = await (await fetch(
+        `${new URL(first.url).origin}/api/review/conversation?token=${encodeURIComponent(token)}`,
+        { headers: { "x-runwield-review-token": token } },
+    )).json();
+
+    assertEquals(revised.url, first.url);
+    assertEquals(revised.opened, false);
+    assertEquals(browser.urls, [first.url]);
+    assertEquals(status.agentLabel, "Architect");
+    assertEquals(status.revision, 1);
+    assertEquals(status.plan, "# Revised Plan\n\nClear delivery boundary.\n");
+    assertEquals(status.events[0].delta, "I clarified the delivery boundary.");
+
+    const revisedDecision = revised.waitForDecision();
+    await revised.stop();
+    assertEquals(await revisedDecision, { approved: false, feedback: "", exit: true, canceled: true });
+});
+
 reviewLauncherTest(
     "Code Review exposes guided-review and Git status payload through the real server",
     async () => {

@@ -160,6 +160,8 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
                     planPath: meta.planPath,
                     previousPlan: typeof meta.previousPlan === "string" ? meta.previousPlan : undefined,
                     planVersions: Array.isArray(meta.planVersions) ? meta.planVersions : undefined,
+                    reviewConversation: meta.reviewConversation,
+                    agentLabel: typeof meta.agentLabel === "string" ? meta.agentLabel : undefined,
                     triageMeta: meta.triageMeta,
                     onOutput: typeof meta.onOutput === "function" ? meta.onOutput : undefined,
                     onSurfaceReady: typeof meta.onSurfaceReady === "function" ? meta.onSurfaceReady : undefined,

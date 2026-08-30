@@ -519,7 +519,7 @@ The Plan Board, Plan Review, and Code Review each have one surface body. Shells 
 
 Astro development entrypoints:
 
-- `deno task workspace:dev:surfaces` opens `/dev`, the catalog for every paired presentation;
+- `deno task workspace:dev` starts the development server and opens `/dev`, the catalog for every paired presentation;
 - `/` and `/projects/dev-project/plans` compare the local and Workspace Plan Board shells;
 - `/dev/plan-review` and `/dev/workspace/plan-review` compare standalone and in-situ Plan Review;
 - `/dev/code-review` and `/dev/workspace/code-review` compare standalone and in-situ Code Review;

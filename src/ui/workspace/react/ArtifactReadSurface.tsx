@@ -105,7 +105,6 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                         <div className="rw-plan-review-heading rw-artifact-read-heading">
                             <img src="/brand/logo.svg" alt="" aria-hidden="true" />
                             <div className="rw-artifact-read-title-block">
-                                <p className="rw-artifact-kicker">Read-only {artifactLabel}</p>
                                 <h1>{title}</h1>
                                 {initialPayload.artifactPath && (
                                     <p className="rw-artifact-path">{initialPayload.artifactPath}</p>
