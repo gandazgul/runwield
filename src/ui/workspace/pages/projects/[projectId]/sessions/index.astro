@@ -6,7 +6,12 @@ const projectId = Astro.params.projectId ?? "";
 ---
 <WorkspaceLayout title="Project Sessions" selectedTab="projects" url={Astro.url.href}>
     <section class="page-header">
-        <a class="detail-back-link" href="/">← Projects</a>
+        <a class="rw-toolbar-button" href="/projects" aria-label="Back to Projects">
+            <svg class="rw-session-toolbar-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+                <path d="M12.8 4.2 7 10l5.8 5.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span>Projects</span>
+        </a>
         <h1>Project Sessions</h1>
         <p>Create a Session, inspect its committed timeline, and continue it from a phone when Session control allows.</p>
     </section>

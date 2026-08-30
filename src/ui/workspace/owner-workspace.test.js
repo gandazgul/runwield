@@ -251,6 +251,16 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         assertStringIncludes(registeredText, "rootLabel");
         assertEquals(registeredText.includes(projectRoot), false);
 
+        const projectsPage = await app(
+            new Request("http://127.0.0.1:8787/projects", { headers: { cookie: cookiePair(claimed.credential) } }),
+        );
+        assertEquals(projectsPage.status, 200);
+        const projectsHtml = await projectsPage.text();
+        assertStringIncludes(projectsHtml, "Link a Project");
+        assertStringIncludes(projectsHtml, "Project root");
+        assertStringIncludes(projectsHtml, "Owner Project");
+        assertStringIncludes(projectsHtml, `/projects/${project.projectId}/sessions`);
+
         const home = await app(
             new Request("http://127.0.0.1:8787/", { headers: { cookie: cookiePair(claimed.credential) } }),
         );

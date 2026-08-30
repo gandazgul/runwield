@@ -51,7 +51,10 @@ export function SessionList({
     const diagnostics = Array.isArray(data?.diagnostics) ? /** @type {unknown[]} */ (data.diagnostics) : [];
     const newSessionAction = (
         <section className="session-create-panel" aria-labelledby="session-list-new-heading">
-            <a className="rw-toolbar-button" href={newSessionHref(projectId)}>New Session</a>
+            <a className="rw-toolbar-button" href={newSessionHref(projectId)}>
+                <span className="rw-toolbar-plus" aria-hidden="true">+</span>
+                <span>New Session</span>
+            </a>
         </section>
     );
     if (!sessions.length) {
