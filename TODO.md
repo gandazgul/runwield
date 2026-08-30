@@ -34,7 +34,7 @@ I would order the overlapping group like this:
 
 7. Optional before foundation: guided-validation-repair.md - done
 
-8. simplify-validation-and-lifecycle-messages.md Better after the error/repair model is stable. - in progress
+8. simplify-validation-and-lifecycle-messages.md Better after the error/repair model is stable. - done
 
 9. plan-packages-and-independent-validation.md
 

@@ -47,6 +47,21 @@ interface PlanReviewDecision {
     globalAttachments?: ReviewImageInput[];
     annotations?: ReviewAnnotationInput[];
     codeAnnotations?: ReviewAnnotationInput[];
+    conversationTurn?: boolean;
+}
+
+interface PlanReviewConversationEvent {
+    type: "assistant_text_delta";
+    delta: string;
+    messageId: string;
+    agentName: string;
+}
+
+interface PlanReviewConversation {
+    id: string;
+    agentLabel: string;
+    revision: number;
+    events: PlanReviewConversationEvent[];
 }
 
 interface PlanReviewRecoveryRequired {
@@ -91,6 +106,8 @@ interface SubmitPlanForReviewOptions {
     planPath: string;
     previousPlan?: string;
     planVersions?: Array<{ plan: string; timestamp: string }>;
+    reviewConversation?: PlanReviewConversation;
+    agentLabel?: string;
     triageMeta?: Partial<PlanFrontMatter>;
     onOutput?(output: ReviewServerOutput): void;
     onSurfaceReady?(surface: ReviewSurfaceReady): void;
@@ -181,6 +198,8 @@ export async function submitPlanForReview({
     planPath,
     previousPlan,
     planVersions,
+    reviewConversation,
+    agentLabel,
     triageMeta,
     onOutput,
     onSurfaceReady,
@@ -225,11 +244,14 @@ export async function submitPlanForReview({
         planPath,
         previousPlan,
         planVersions,
+        reviewConversation,
+        agentLabel,
         browser,
         onOutput,
         onSurfaceReady,
     });
 
+    let keepSurfaceOpen = false;
     try {
         const canceled = new Promise<PlanReviewDecision>((resolveCanceled) => {
             if (signal?.aborted) {
@@ -241,6 +263,7 @@ export async function submitPlanForReview({
         const decision: PlanReviewDecision = await (
             signal ? Promise.race([server.waitForDecision(), canceled]) : server.waitForDecision()
         );
+        keepSurfaceOpen = decision.conversationTurn === true;
 
         // Handle cancellation triggered from the TUI or review timeout/exit before
         // writing edited review content or recording Plan Review lifecycle events.
@@ -287,7 +310,7 @@ export async function submitPlanForReview({
             ...(images.length > 0 && { images }),
         };
     } finally {
-        // Ensure server is stopped regardless of outcome
-        await server.stop();
+        // Conversation turns keep the token page alive for the agent's next Plan revision.
+        if (!keepSurfaceOpen) await server.stop();
     }
 }

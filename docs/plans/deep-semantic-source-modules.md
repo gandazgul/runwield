@@ -320,8 +320,8 @@ Individual files that need a decision rather than a bulk move:
 Configuration, scripts, and documentation:
 
 - `deno.json` — every task path changes: `cli`, `test:golden-tui`, `workspace:dev`, `workspace:build`,
-  `workspace:check`, `workspace:remote`, `workspace:test`, `workspace:dev:plan-review`, `workspace:dev:code-review`, and
-  `compile:watch` all name `src/cli.ts`, `src/ui/workspace/…`, `src/ui/tui/…`, or `src/shared/version.js`.
+  `workspace:check`, `workspace:remote`, `workspace:test`, and `compile:watch` all name `src/cli.ts`,
+  `src/ui/workspace/…`, `src/ui/tui/…`, or `src/shared/version.js`.
 - `scripts/compile.js` — entry path and `--include` resource arguments.
 - `scripts/language-policy-baseline.json` — 210 literal `src/**` paths, every one of which changes.
 - `scripts/write-version.js`, `scripts/check-doc-links.js`, `scripts/build-workspace-runtime.js`,

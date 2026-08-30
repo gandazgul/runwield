@@ -58,6 +58,7 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
         payload,
     ]);
     const submittedPlan = initialPayload.plan || "";
+    const agentLabel = initialPayload.agentLabel || "Planner";
     const reviewDraftKey = planReviewDraftKey(initialPayload.token || initialPayload.planPath || "dev-plan");
     const [reviewBasePlan, setReviewBasePlan] = useState(submittedPlan);
     const [plan, setPlan] = useState(initialPayload.plan || "");
@@ -162,7 +163,7 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
         plannerDiffRevision > 0 ? `planner-revision-${plannerDiffRevision}` : "initial-plan",
     );
     const selectedVersionLabel = plannerDiffBase
-        ? "the Plan before the Planner update"
+        ? `the Plan before the ${agentLabel} update`
         : planDiff.diffBaseVersion
         ? `version ${planDiff.diffBaseVersion}`
         : "previous version";
@@ -200,9 +201,11 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
     const [executionPolicy, setExecutionPolicy] = useState(trustedPolicy);
     const executionAgent = executionPolicy.executionAgent;
     const collaborationRecommendation = executionPolicy.collaborationRecommendation;
-    const conversationEnabled = initialPayload.mode === "dev" || Boolean(
-        initialPayload.operationStatusUrl && initialPayload.planDetailUrl && initialPayload.interactionAnswerBaseUrl,
-    );
+    const conversationEnabled = initialPayload.mode === "dev" || Boolean(initialPayload.conversationStatusUrl) ||
+        Boolean(
+            initialPayload.operationStatusUrl && initialPayload.planDetailUrl &&
+                initialPayload.interactionAnswerBaseUrl,
+        );
     const reviewContextCount = annotations.length + codeAnnotations.length + globalAttachments.length +
         (directlyEditedPlan === null ? 0 : 1);
     const attachedContextLabel = conversationContextAttached && reviewContextCount > 0
@@ -324,6 +327,7 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
         const agentMessageId = `agent-${crypto.randomUUID()}`;
         const priorPlan = currentPlan();
         let eventStartIndex = 0;
+        let conversationRevision = 0;
 
         setPlannerWorking(true);
         setPlannerError("");
@@ -338,15 +342,19 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
 
         try {
             if (initialPayload.mode !== "dev") {
-                const statusResponse = await fetch(initialPayload.operationStatusUrl);
+                const statusResponse = await fetch(
+                    initialPayload.conversationStatusUrl || initialPayload.operationStatusUrl,
+                );
                 const statusPayload = await statusResponse.json().catch(() => ({}));
-                if (!statusResponse.ok) throw new Error(statusPayload.error || "Planner status is unavailable.");
+                if (!statusResponse.ok) throw new Error(statusPayload.error || `${agentLabel} status is unavailable.`);
                 eventStartIndex = Array.isArray(statusPayload.events) ? statusPayload.events.length : 0;
+                conversationRevision = Number.isInteger(statusPayload.revision) ? statusPayload.revision : 0;
             }
 
             const result = await submit("deny", {
                 ...buildReviewPayload(),
-                feedback: buildArtifactConversationFeedback({ message, attachedFeedback }),
+                feedback: buildArtifactConversationFeedback({ message, attachedFeedback, agentLabel }),
+                ...(initialPayload.conversationStatusUrl && { conversationTurn: true }),
                 ...buildPlanSavePayload(),
             });
             if (result?.status === "recovery_required" || result?.result?.kind === "recovery_required") return;
@@ -354,13 +362,24 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
             if (initialPayload.mode === "dev") {
                 await pause(700);
                 const revisedPlan = initialPayload.plannerConversation?.revisedPlan ||
-                    `${priorPlan}\n\n## Planner update\n\n- Added after the conversation turn.`;
+                    `${priorPlan}\n\n## ${agentLabel} update\n\n- Added after the conversation turn.`;
                 applyPlannerRevision({
                     priorPlan,
                     revisedPlan,
                     interactionId: `dev-${crypto.randomUUID()}`,
                     reply: initialPayload.plannerConversation?.reply ||
                         "I tightened the Plan and added a clearer verification step.",
+                    agentMessageId,
+                    clearAttachedContext: Boolean(attachedFeedback),
+                });
+                return;
+            }
+
+            if (initialPayload.conversationStatusUrl) {
+                await waitForStandaloneReview({
+                    priorPlan,
+                    previousRevision: conversationRevision,
+                    eventStartIndex,
                     agentMessageId,
                     clearAttachedContext: Boolean(attachedFeedback),
                 });
@@ -381,12 +400,43 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
         }
     }
 
+    async function waitForStandaloneReview(options) {
+        const deadline = Date.now() + 180_000;
+        while (Date.now() < deadline) {
+            const response = await fetch(initialPayload.conversationStatusUrl);
+            const conversation = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(conversation.error || `${agentLabel} status is unavailable.`);
+
+            const events = Array.isArray(conversation.events) ? conversation.events : [];
+            const reply = collectArtifactConversationReply(events, options.eventStartIndex);
+            if (reply.text) upsertPlannerReply(options.agentMessageId, reply.text);
+
+            if (Number.isInteger(conversation.revision) && conversation.revision > options.previousRevision) {
+                if (typeof conversation.plan !== "string") throw new Error("The revised Plan response is incomplete.");
+                applyPlannerRevision({
+                    priorPlan: options.priorPlan,
+                    revisedPlan: conversation.plan,
+                    interactionId: `conversation-${conversation.revision}`,
+                    reply: reply.text ||
+                        (conversation.plan === options.priorPlan
+                            ? `I reviewed that request and left the Plan unchanged.`
+                            : `I updated the Plan. The changes are open in the diff.`),
+                    agentMessageId: options.agentMessageId,
+                    clearAttachedContext: options.clearAttachedContext,
+                });
+                return;
+            }
+            await pause(750);
+        }
+        throw new Error(`${agentLabel} is still working. Check the terminal Session for progress.`);
+    }
+
     async function waitForPlannerReview(options) {
         const deadline = Date.now() + 180_000;
         while (Date.now() < deadline) {
             const response = await fetch(initialPayload.operationStatusUrl);
             const operation = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(operation.error || "Planner status is unavailable.");
+            if (!response.ok) throw new Error(operation.error || `${agentLabel} status is unavailable.`);
 
             const events = Array.isArray(operation.events) ? operation.events : [];
             const reply = collectArtifactConversationReply(events, options.eventStartIndex);
@@ -419,11 +469,11 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
             }
 
             if (["failed", "canceled", "completed"].includes(operation.status)) {
-                throw new Error(operation.error || "The Planner ended without reopening Plan review.");
+                throw new Error(operation.error || `${agentLabel} ended without reopening Plan review.`);
             }
             await pause(750);
         }
-        throw new Error("The Planner is still working. Return to the Session to check its progress.");
+        throw new Error(`${agentLabel} is still working. Return to the Session to check its progress.`);
     }
 
     function applyPlannerRevision(options) {
@@ -1093,10 +1143,10 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
                                                 role="tab"
                                                 aria-selected={rightSidebarView === "planner"}
                                                 onClick={() => setRightSidebarView("planner")}
-                                                title="Planner"
+                                                title={agentLabel}
                                             >
                                                 <PlannerChatIcon />
-                                                <span>Planner</span>
+                                                <span>{agentLabel}</span>
                                             </button>
                                         </div>
                                     )}
@@ -1123,7 +1173,7 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
                                                             onClick={attachReviewContextToConversation}
                                                         >
                                                             <PlannerChatIcon />
-                                                            Add to Planner chat
+                                                            Add to {agentLabel} chat
                                                         </button>
                                                     )}
                                                 </div>
@@ -1169,7 +1219,7 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
                                         )
                                         : (
                                             <ArtifactConversationSidebar
-                                                agentLabel="Planner"
+                                                agentLabel={agentLabel}
                                                 messages={conversationMessages}
                                                 composer={conversationComposer}
                                                 attachedContextLabel={attachedContextLabel}

@@ -67,6 +67,13 @@ export function printWorkspaceServeHelp(): void {
     );
     console.log("Starts the persistent owner Workspace using the owner coordination database.");
     console.log("Defaults: --bind 127.0.0.1 --port 8787.");
+    console.log(
+        "Phone access: keep RunWield private, expose it through Tailscale/WireGuard or another trusted HTTPS terminator.",
+    );
+    console.log(
+        `Example: ${CLI_BIN} workspace serve --bind 127.0.0.1 --port 8787 --public-origin https://<tailnet-host> --no-open`,
+    );
+    console.log("Direct non-loopback serving requires --trust-tls-terminator and an https:// public origin.");
 }
 
 function installShutdownHandlers(controller: AbortController): () => void {

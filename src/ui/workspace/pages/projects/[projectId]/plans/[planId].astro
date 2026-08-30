@@ -46,6 +46,7 @@ const reviewPayload = plan && liveReview
         projectId,
         planPath: plan.path,
         classification: liveReview.request?.planReview?.classification,
+        agentLabel: liveReview.request?.planReview?.agentLabel || "Planner",
         runwieldSessionId,
         reviewContext: {
             projectLabel: projectId,

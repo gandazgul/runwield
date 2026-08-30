@@ -8,13 +8,14 @@ export interface ArtifactConversationEvent {
 export interface ArtifactConversationFeedbackInput {
     message: string;
     attachedFeedback?: string;
+    agentLabel?: string;
 }
 
 export function buildArtifactConversationFeedback(input: ArtifactConversationFeedbackInput): string {
     const message = input.message.trim();
     const attachedFeedback = input.attachedFeedback?.trim() || "";
     return [
-        "## Planner conversation",
+        `## ${input.agentLabel || "Planner"} conversation`,
         "",
         "### User message",
         message,

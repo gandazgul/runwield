@@ -1,4 +1,5 @@
 ---
+planId: "fa539a48-15d7-4ab7-bb3f-8f95f2592ec1"
 classification: "PROJECT"
 complexity: "HIGH"
 affectedPaths:
@@ -17,12 +18,10 @@ affectedPaths:
     - "src/ui/tui/"
     - "src/ui/workspace/"
     - "src/testing/"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-08-28T16:06:55-04:00"
-status: "draft"
-planId: "fa539a48-15d7-4ab7-bb3f-8f95f2592ec1"
+status: "ready_for_decomposition"
+origin: "internal"
+userVerifiedAt: null
 targetBranch: "project/forge-change-request-delivery"
 ---
 

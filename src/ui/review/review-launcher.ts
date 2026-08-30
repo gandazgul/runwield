@@ -5,6 +5,7 @@
 
 import { startReviewWorkspaceServer } from "../../review-workspace-server.js";
 import { parsePlanFrontMatter, resolvePlanExecutionPolicy } from "../../plan-store.js";
+import type { PlanExecutionPolicy, PlanFrontMatter } from "../../plan-store.js";
 import type { BrowserPort } from "../../shared/browser-port.ts";
 import type { GuidedReviewPolicy } from "../../shared/workflow/guided-review.js";
 
@@ -33,11 +34,41 @@ interface ReviewSurfaceServer<TDecision> {
     url: string;
     waitForDecision(): Promise<TDecision>;
     stop(): void | Promise<void>;
+    beginReviewRound?(options: {
+        reviewPayload: PlanReviewPayload;
+        reviewConversation?: PlanReviewConversation;
+    }): void;
+}
+
+interface PlanReviewPayload {
+    plan: string;
+    planPath?: string;
+    previousPlan?: string;
+    planVersions?: Array<{ plan: string; timestamp: string }>;
+    classification?: PlanFrontMatter["classification"];
+    frontmatter: PlanFrontMatter;
+    executionPolicy?: PlanExecutionPolicy;
+    agentLabel?: string;
+    conversationStatusUrl?: string;
 }
 
 interface ReviewSurfaceReady {
     url: string;
     opened: boolean;
+}
+
+interface PlanReviewConversationEvent {
+    type: "assistant_text_delta";
+    delta: string;
+    messageId: string;
+    agentName: string;
+}
+
+interface PlanReviewConversation {
+    id: string;
+    agentLabel: string;
+    revision: number;
+    events: PlanReviewConversationEvent[];
 }
 
 interface PlanReviewSurfaceOptions {
@@ -46,10 +77,13 @@ interface PlanReviewSurfaceOptions {
     planPath?: string;
     previousPlan?: string;
     planVersions?: Array<{ plan: string; timestamp: string }>;
+    reviewConversation?: PlanReviewConversation;
+    agentLabel?: string;
     token?: string;
     browser: BrowserPort;
     onOutput?(output: ReviewServerOutput): void;
     onSurfaceReady?(surface: ReviewSurfaceReady): void;
+    signal?: AbortSignal;
 }
 
 interface ArtifactReadSurfaceOptions {
@@ -76,6 +110,10 @@ interface CodeReviewSurfaceOptions {
 }
 
 const activeReviewSurfaces = new Set<{ stop(): void | Promise<void> }>();
+const activePlanReviewConversations = new Map<
+    string,
+    { server: ReviewSurfaceServer<ReviewDecisionValue>; pageUrl: string }
+>();
 let processExitCleanupInstalled = false;
 let processExitCleanupSignalHandlers: Array<{ signal: "SIGINT" | "SIGTERM"; handler: () => void }> = [];
 let stoppingActiveReviewSurfaces = false;
@@ -85,6 +123,7 @@ export async function stopActiveReviewSurfaces(): Promise<void> {
     stoppingActiveReviewSurfaces = true;
     const surfaces = Array.from(activeReviewSurfaces);
     activeReviewSurfaces.clear();
+    activePlanReviewConversations.clear();
 
     try {
         await Promise.all(surfaces.map(async (surface) => {
@@ -215,6 +254,7 @@ function workspaceServer<TDecision>(
 ) {
     const server = startReviewWorkspaceServer(options);
     return registerReviewSurface<TDecision>({
+        ...server,
         url: server.url,
         waitForDecision: () => server.waitForDecision() as Promise<TDecision>,
         stop: () => server.stop(),
@@ -227,34 +267,75 @@ export async function startPlanReviewSurface<TDecision = ReviewDecisionValue>({
     planPath,
     previousPlan,
     planVersions,
+    reviewConversation,
+    agentLabel,
     token = crypto.randomUUID(),
     browser,
     onOutput,
     onSurfaceReady,
+    signal,
 }: PlanReviewSurfaceOptions): Promise<ReviewSurface<TDecision>> {
     if (!cwd) throw new Error("startPlanReviewSurface: cwd is required");
     const { attrs } = parsePlanFrontMatter(plan);
     const policy = resolvePlanExecutionPolicy(attrs);
     const executionPolicy = policy.ok ? policy.policy : undefined;
+    const resolvedAgentLabel = agentLabel || reviewConversation?.agentLabel || "Planner";
+    const reviewPayload = {
+        plan,
+        planPath,
+        ...(previousPlan && { previousPlan }),
+        ...(planVersions && { planVersions }),
+        classification: attrs.classification,
+        frontmatter: attrs,
+        ...(executionPolicy && { executionPolicy }),
+        ...(reviewConversation && {
+            agentLabel: resolvedAgentLabel,
+            conversationStatusUrl: "/api/review/conversation",
+        }),
+    };
+    const existing = reviewConversation ? activePlanReviewConversations.get(reviewConversation.id) : null;
+    if (reviewConversation && existing?.server.beginReviewRound) {
+        const conversationId = reviewConversation.id;
+        existing.server.beginReviewRound({ reviewPayload, reviewConversation });
+        onSurfaceReady?.({ url: existing.pageUrl, opened: false });
+        return {
+            url: existing.pageUrl,
+            opened: false,
+            waitForDecision: () => existing.server.waitForDecision() as Promise<TDecision>,
+            stop: async () => {
+                activePlanReviewConversations.delete(conversationId);
+                await existing.server.stop();
+            },
+        };
+    }
+
     const server = workspaceServer<TDecision>({
         cwd,
         token,
-        reviewPayload: {
-            plan,
-            planPath,
-            ...(previousPlan && { previousPlan }),
-            ...(planVersions && { planVersions }),
-            classification: attrs.classification,
-            frontmatter: attrs,
-            ...(executionPolicy && { executionPolicy }),
-        },
+        reviewPayload,
         reviewType: "plan",
+        reviewConversation,
         onOutput,
+        signal,
     });
     const url = `${server.url}/review/plan?token=${encodeURIComponent(token)}`;
     onSurfaceReady?.({ url, opened: false });
     const opened = await browser.open(url);
-    return { ...server, url, opened };
+    if (reviewConversation) {
+        activePlanReviewConversations.set(reviewConversation.id, {
+            server: server as ReviewSurfaceServer<ReviewDecisionValue>,
+            pageUrl: url,
+        });
+    }
+    return {
+        ...server,
+        url,
+        opened,
+        stop: async () => {
+            if (reviewConversation) activePlanReviewConversations.delete(reviewConversation.id);
+            await server.stop();
+        },
+    };
 }
 
 export async function startArtifactReadSurface<TDecision = ReviewDecisionValue>({

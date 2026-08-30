@@ -125,6 +125,13 @@ Deno.test("workspace help and validation use isolated command processes without 
         assertEquals(help.code, 0);
         assertStringIncludes(decoder.decode(help.stdout), "workspace <command>");
 
+        const serveHelp = await runWorkspaceChild(fixture, ["serve", "--help"]);
+        assertEquals(serveHelp.code, 0);
+        const serveHelpText = decoder.decode(serveHelp.stdout);
+        assertStringIncludes(serveHelpText, "Phone access");
+        assertStringIncludes(serveHelpText, "trusted HTTPS terminator");
+        assertStringIncludes(serveHelpText, "--public-origin https://<tailnet-host>");
+
         const missingPairCode = await runWorkspaceChild(fixture, ["pair"]);
         assertEquals(missingPairCode.code, 0);
         assertStringIncludes(decoder.decode(missingPairCode.stderr), "Pairing code is required");

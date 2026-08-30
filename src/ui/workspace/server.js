@@ -79,7 +79,7 @@ import {
     isStateChangingRequest,
     withOwnerSecurityHeaders,
 } from "./server/owner-origin.js";
-import { listOwnerProjects, requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./server/owner-projects.js";
+import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./server/owner-projects.js";
 import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
 import { setAstroOwnerWorkspaceSessionContinuation, setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
 
@@ -340,9 +340,9 @@ function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false, mnemosyne
 }
 
 /**
- * @param {{ cwd: string, token: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code" }} options
+ * @param {{ cwd: string, token: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code", reviewConversation?: { id: string, agentLabel: string, revision: number, events: Array<{ type: string, delta: string, messageId: string, agentName: string }> } }} options
  */
-export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType }) {
+export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType, reviewConversation }) {
     const reviewAgentState = reviewType === "code"
         ? createReviewAgentState({ cwd, token, reviewPayload, runGuideCommand: runConfiguredGuideCommand })
         : null;
@@ -382,6 +382,17 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
                         return new Response("Review token required.", { status: 401 });
                     }
                     return reviewLocalConfigApi();
+                }
+                if (request.method === "GET" && url.pathname === "/api/review/conversation") {
+                    if (!reviewConversation || !hasReviewAssetToken(request, token)) {
+                        return new Response("Review conversation unavailable.", { status: 404 });
+                    }
+                    return Response.json({
+                        agentLabel: reviewConversation.agentLabel,
+                        revision: reviewConversation.revision,
+                        plan: typeof reviewPayload.plan === "string" ? reviewPayload.plan : "",
+                        events: reviewConversation.events.map((event) => ({ ...event })),
+                    }, { headers: { "cache-control": "no-store" } });
                 }
                 if (
                     reviewType === "code" &&
@@ -519,7 +530,7 @@ async function loadAstroHandle() {
         try {
             if (!await isAstroEntryImportable(entryPath)) continue;
             const entryUrl = toFileUrl(entryPath).href;
-            const entry = await import(`${entryUrl}?mtime=${Date.now()}`);
+            const entry = await import(/* @vite-ignore */ `${entryUrl}?mtime=${Date.now()}`);
             if (typeof entry.handle === "function") return entry.handle;
         } catch {
             // Try the source build after the opaque runtime build, or vice versa.
@@ -1101,17 +1112,18 @@ export function startWorkspaceServer(options) {
 }
 
 /**
- * @param {{ cwd?: string, token: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code", host?: string, port?: number, signal?: AbortSignal, onOutput?: ReviewServerOutputListener }} options
+ * @param {{ cwd?: string, token: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code", reviewConversation?: { id: string, agentLabel: string, revision: number, events: Array<{ type: string, delta: string, messageId: string, agentName: string }> }, host?: string, port?: number, signal?: AbortSignal, onOutput?: ReviewServerOutputListener }} options
  */
 export function startReviewWorkspaceServer(options) {
     const cwd = options.cwd ?? Deno.cwd();
     const host = options.host ?? "127.0.0.1";
-    const { promise } = registerReviewDecisionPromise(options.token);
+    let decision = registerReviewDecisionPromise(options.token);
     const app = createReviewWorkspaceApp({
         cwd,
         token: options.token,
         reviewPayload: options.reviewPayload,
         reviewType: options.reviewType,
+        reviewConversation: options.reviewConversation,
     });
     let server;
     try {
@@ -1162,7 +1174,16 @@ export function startReviewWorkspaceServer(options) {
 
     return {
         url,
-        waitForDecision: () => promise,
+        waitForDecision: () => decision.promise,
+        beginReviewRound({ reviewPayload, reviewConversation }) {
+            for (const key of Object.keys(options.reviewPayload)) delete options.reviewPayload[key];
+            Object.assign(options.reviewPayload, reviewPayload);
+            if (options.reviewConversation && reviewConversation) {
+                options.reviewConversation.agentLabel = reviewConversation.agentLabel;
+                options.reviewConversation.revision += 1;
+            }
+            decision = registerReviewDecisionPromise(options.token);
+        },
         stop,
     };
 }

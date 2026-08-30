@@ -28,3 +28,15 @@ Deno.test("dev Surface Lab exposes both presentations of every shared surface", 
         ]
     ) assertStringIncludes(catalog, path);
 });
+
+Deno.test("Workspace development has one Surface Lab entry task", async () => {
+    const denoConfig = JSON.parse(
+        await Deno.readTextFile(new URL("../../../deno.json", import.meta.url)),
+    );
+    const taskNames = Object.keys(denoConfig.tasks);
+
+    assertStringIncludes(denoConfig.tasks["workspace:dev"], "--open /dev");
+    if (taskNames.some((taskName) => taskName.startsWith("workspace:dev:"))) {
+        throw new Error("Use workspace:dev and add new fixtures to the Surface Lab instead of adding launch aliases");
+    }
+});
