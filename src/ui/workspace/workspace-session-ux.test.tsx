@@ -109,9 +109,9 @@ Deno.test("Session timeline renders safe segment and recovery events as system b
     ]);
     const systemEvents = items.filter((item) => item.kind === "system-event");
     assertEquals(systemEvents.map((item) => item.text), [
-        "Planning segment 1",
-        "Execution segment 2",
-        "Semantic Repair segment 3",
+        "Planner",
+        "Plan Engineer",
+        "Semantic Repair",
         "Recovered stale action.\nRestarted validation.",
     ]);
     assertEquals(systemEvents.at(-1)?.lines, ["Recovered stale action.", "Restarted validation."]);

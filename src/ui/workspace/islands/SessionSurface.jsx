@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 // New Session chat structure is adapted from OpenChamber's ChatContainer/ChatInput UI.
 // OpenChamber is MIT licensed: Copyright (c) 2025 Bohdan Triapitsyn.
@@ -241,32 +241,6 @@ export function deriveWorkflowSidebarStages(progress) {
     ];
 }
 
-export function deriveSessionModelDisclosure(snapshot) {
-    const activeModel = snapshot?.activeModel;
-    const rawModel = typeof activeModel?.model === "string" ? activeModel.model : snapshot?.model;
-    const rawProvider = typeof activeModel?.provider === "string" ? activeModel.provider : snapshot?.provider;
-    const model = typeof rawModel === "string" && rawModel.trim() ? rawModel.trim() : "";
-    const provider = typeof rawProvider === "string" && rawProvider.trim() ? rawProvider.trim() : "";
-    const reference = model
-        ? (provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model)
-        : "Model not recorded";
-    const isClaudeCli = provider === "claude-cli";
-    return {
-        reference,
-        backendLabel: isClaudeCli ? "Claude CLI" : provider || "Execution Backend not recorded",
-        showClaudeCaveat: isClaudeCli,
-    };
-}
-
-/** @param {{ snapshot?: SessionModelSnapshot | null }} props */
-function SessionsBackIcon() {
-    return (
-        <svg className="rw-session-toolbar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 6l-6 6 6 6" />
-        </svg>
-    );
-}
-
 function PaperAirplaneIcon() {
     return (
         <svg className="rw-session-toolbar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -275,30 +249,150 @@ function PaperAirplaneIcon() {
     );
 }
 
-export function SessionBackendDisclosure({ snapshot }) {
-    const disclosure = deriveSessionModelDisclosure(snapshot);
+function resizeComposerTextArea(textarea) {
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+}
+
+/** @param {string | null | undefined} value */
+function sessionSurfaceLabel(value) {
+    switch (String(value || "")) {
+        case "tui":
+            return "TUI";
+        case "acp":
+            return "ACP";
+        case "workspace":
+            return "Workspace";
+        case "test":
+            return "another surface";
+        default:
+            return String(value || "another surface");
+    }
+}
+
+/** @param {{ surface?: string | null }} props */
+function SessionBusyPanel({ surface }) {
     return (
-        <section className="session-backend-disclosure" aria-label="Session model and Execution Backend">
-            <div className="session-backend-grid">
-                <div>
-                    <span className="session-backend-label">Model</span>
-                    <code>{disclosure.reference}</code>
-                </div>
-                <div>
-                    <span className="session-backend-label">Execution Backend</span>
-                    <strong>{disclosure.backendLabel}</strong>
-                </div>
-            </div>
-            {disclosure.showClaudeCaveat
+        <section className="session-busy-panel" role="status" aria-live="polite" aria-busy="true">
+            <div className="session-busy-loader" aria-hidden="true" />
+            <p>This Session is busy in {sessionSurfaceLabel(surface)}.</p>
+        </section>
+    );
+}
+
+function SessionComposer({
+    id,
+    draft,
+    disabled,
+    controlsDisabled = disabled,
+    canSend,
+    submitting,
+    onDraftChange,
+    onSubmit,
+    onPaste,
+    imageAttachments = [],
+    onRemoveImage,
+    agents = [],
+    models = [],
+    thinkingLevels = [],
+    agentValue,
+    modelValue,
+    thinkingValue,
+    onAgentChange,
+    onModelChange,
+    onThinkingChange,
+    agentFallback = null,
+    modelFallback = null,
+    thinkingFallback = null,
+}) {
+    const textareaRef = useRef(null);
+    useEffect(() => resizeComposerTextArea(textareaRef.current), [draft]);
+    return (
+        <form
+            className="session-composer"
+            onSubmit={(event) => {
+                event.preventDefault();
+                onSubmit();
+            }}
+        >
+            <textarea
+                ref={textareaRef}
+                id={id}
+                value={draft}
+                rows={2}
+                disabled={disabled}
+                onPaste={onPaste}
+                onChange={(event) => {
+                    onDraftChange(event.currentTarget.value);
+                    resizeComposerTextArea(event.currentTarget);
+                }}
+                onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        onSubmit();
+                    }
+                }}
+                placeholder="Ask RunWield..."
+                aria-label="Message"
+            />
+            {imageAttachments.length
                 ? (
-                    <p className="session-backend-caveat" role="note">
-                        Claude Code owns its internal file/Bash/tool activity for this backend. RunWield persists the
-                        final assistant/workflow Session Transcript and owns workflow, resume, and replay, but Claude
-                        internal tool activity is not native RunWield tool-event history in this MVP.
-                    </p>
+                    <ul className="session-image-attachments" aria-label="Attached images">
+                        {imageAttachments.map((image) => (
+                            <li key={image.id}>
+                                <span>{image.name} · {image.mimeType}</span>
+                                <button type="button" onClick={() => onRemoveImage?.(image.id)}>Remove</button>
+                            </li>
+                        ))}
+                    </ul>
                 )
                 : null}
-        </section>
+            <div className="session-composer-actions" aria-label="Session settings">
+                <select
+                    aria-label="Agent"
+                    value={agentValue}
+                    disabled={controlsDisabled || !agents.length}
+                    onChange={(event) => onAgentChange(event.currentTarget.value)}
+                >
+                    {agentFallback}
+                    {agents.map((agent) => (
+                        <option key={agent.name} value={agent.name}>{agent.displayName || agent.name}</option>
+                    ))}
+                </select>
+                <select
+                    aria-label="Model"
+                    value={modelValue}
+                    disabled={controlsDisabled || !models.length}
+                    onChange={(event) => onModelChange(event.currentTarget.value)}
+                >
+                    {modelFallback}
+                    {models.map((model) => (
+                        <option key={`${model.provider}/${model.id}`} value={`${model.provider}\u001f${model.id}`}>
+                            {model.name || model.id}
+                        </option>
+                    ))}
+                </select>
+                <select
+                    aria-label="Thinking"
+                    value={thinkingValue}
+                    disabled={controlsDisabled || !thinkingLevels.length}
+                    onChange={(event) => onThinkingChange(event.currentTarget.value)}
+                >
+                    {thinkingFallback}
+                    {thinkingLevels.map((level) => <option key={level} value={level}>{level}</option>)}
+                </select>
+                <button
+                    type="submit"
+                    className="rw-toolbar-button session-send-button"
+                    disabled={!canSend || submitting}
+                    aria-label={submitting ? "Sending" : "Send"}
+                >
+                    <PaperAirplaneIcon />
+                    <span>{submitting ? "Sending" : "Send"}</span>
+                </button>
+            </div>
+        </form>
     );
 }
 
@@ -336,7 +430,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     operationRef.current = operation;
     const timelineEndRef = useRef(/** @type {HTMLDivElement | null} */ (null));
     const timelineScrollRef = useRef(/** @type {HTMLDivElement | null} */ (null));
-    const [followingLiveEdge, setFollowingLiveEdge] = useState(true);
+    const followingLiveEdgeRef = useRef(true);
+    const didPinInitialTimelineRef = useRef(false);
+    const [, setFollowingLiveEdge] = useState(true);
     const [latestActivityAvailable, setLatestActivityAvailable] = useState(false);
     const [newSessionStorageId] = useState(() => mode === "new" ? getNewSessionDraftInstanceId(projectId) : "");
     const sessionStorageId = runwieldSessionId || newSessionStorageId;
@@ -442,6 +538,10 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     }
 
     useEffect(() => {
+        didPinInitialTimelineRef.current = false;
+        followingLiveEdgeRef.current = true;
+        setFollowingLiveEdge(true);
+        setLatestActivityAvailable(false);
         if (mode === "list") loadList(listPage);
         if (mode === "detail") {
             loadTimeline();
@@ -825,7 +925,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     }, [mode, projectId, runwieldSessionId, timeline]);
 
     function scrollToLiveEdge() {
-        timelineEndRef.current?.scrollIntoView({ block: "nearest" });
+        const scroller = timelineScrollRef.current;
+        if (scroller) scroller.scrollTop = scroller.scrollHeight;
+        followingLiveEdgeRef.current = true;
         setFollowingLiveEdge(true);
         setLatestActivityAvailable(false);
     }
@@ -834,18 +936,26 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         const scroller = timelineScrollRef.current;
         if (!scroller) return;
         const atLiveEdge = isAtLiveScrollEdge(scroller);
+        followingLiveEdgeRef.current = atLiveEdge;
         setFollowingLiveEdge(atLiveEdge);
         if (atLiveEdge) setLatestActivityAvailable(false);
     }
 
-    useEffect(() => {
-        if (mode !== "detail") return;
-        if (followingLiveEdge) {
-            timelineEndRef.current?.scrollIntoView({ block: "nearest" });
-        } else {
-            setLatestActivityAvailable(true);
+    useLayoutEffect(() => {
+        if (mode !== "detail" && mode !== "new") return;
+        const scroller = timelineScrollRef.current;
+        if (!scroller) return;
+        const shouldPinInitial = !didPinInitialTimelineRef.current && (mode === "new" || !loadingDetail);
+        if (shouldPinInitial || followingLiveEdgeRef.current) {
+            scroller.scrollTop = scroller.scrollHeight;
+            didPinInitialTimelineRef.current = true;
+            followingLiveEdgeRef.current = true;
+            setFollowingLiveEdge(true);
+            setLatestActivityAvailable(false);
+            return;
         }
-    }, [mode, timelineItems.length, transientItems.length, interruptedOperation, followingLiveEdge]);
+        setLatestActivityAvailable(true);
+    }, [mode, loadingDetail, timelineItems.length, transientItems.length, interruptedOperation]);
 
     useEffect(() => {
         if (!operation?.operationId) return undefined;
@@ -902,7 +1012,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
         const thinkingLevels = Array.isArray(sessionOptions?.thinkingLevels) ? sessionOptions.thinkingLevels : [];
         return (
-            <section className="session-surface session-surface-new" aria-label="RunWield Session chat">
+            <section className="session-surface session-surface-detail" aria-label="RunWield Session chat">
                 {optionsError
                     ? (
                         <p className="rw-plan-review-dev-notice session-dev-shell-bar" role="status">
@@ -910,110 +1020,40 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                         </p>
                     )
                     : null}
-                <main className="session-oc-main" aria-label="New Session stream">
-                    <header className="session-chat-topbar">
-                        <a className="rw-toolbar-button" href={`/projects/${encodeURIComponent(projectId)}/sessions`}>
-                            <SessionsBackIcon />
-                            <span>Sessions</span>
-                        </a>
-                        <div>
-                            <strong>New Session</strong>
-                            <span>RunWield · {projectId}</span>
+                <div className="session-detail-layout session-detail-layout--chat-only">
+                    <main className="session-stream-panel" aria-label="Session stream">
+                        <div
+                            className="session-timeline-scroll"
+                            ref={timelineScrollRef}
+                            onScroll={updateScrollFollowState}
+                        >
+                            <div className="session-surface-status" aria-live="polite">{message}</div>
+                            <SessionTimeline items={newSessionItems} emptyMessage="" />
+                            <div ref={timelineEndRef} aria-hidden="true" />
                         </div>
-                    </header>
-                    <div className="session-surface-status" aria-live="polite">{message}</div>
-                    <div className="session-oc-scroll">
-                        <section className="session-new-welcome" aria-labelledby="session-new-welcome-heading">
-                            <h2 id="session-new-welcome-heading">What should RunWield do?</h2>
-                        </section>
-                        <SessionTimeline items={newSessionItems} emptyMessage="" />
-                        <div ref={timelineEndRef} aria-hidden="true" />
-                    </div>
-                    <form
-                        className="session-composer session-composer-openchamber"
-                        onSubmit={(event) => {
-                            event.preventDefault();
-                            createSession();
-                        }}
-                    >
-                        <label className="sr-only" htmlFor="new-session-request-text">User Request</label>
-                        <textarea
+                        <SessionComposer
                             id="new-session-request-text"
-                            value={draft}
-                            rows={3}
+                            draft={draft}
                             disabled={!canSendNew}
-                            onChange={(event) => setDraft(event.currentTarget.value)}
-                            onKeyDown={(event) => {
-                                if (event.key === "Enter" && !event.shiftKey) {
-                                    event.preventDefault();
-                                    createSession();
-                                }
-                            }}
-                            placeholder="Ask RunWield..."
+                            canSend={canSendNew && Boolean(draft.trim())}
+                            submitting={submitting || Boolean(operation?.operationId)}
+                            onDraftChange={setDraft}
+                            onSubmit={createSession}
+                            agents={agents}
+                            models={models}
+                            thinkingLevels={thinkingLevels}
+                            agentValue={selectedAgent}
+                            modelValue={selectedModelKey}
+                            thinkingValue={selectedThinking}
+                            onAgentChange={setSelectedAgent}
+                            onModelChange={setSelectedModelKey}
+                            onThinkingChange={setSelectedThinking}
+                            agentFallback={agents.length ? null : <option value="router">Router</option>}
+                            modelFallback={<option value="">Project default</option>}
+                            thinkingFallback={<option value="default">Default</option>}
                         />
-                        <div className="session-composer-footer">
-                            <div className="session-composer-toolbar" aria-label="Session settings">
-                                <label>
-                                    <span className="sr-only">Agent</span>
-                                    <select
-                                        value={selectedAgent}
-                                        disabled={!canSendNew || !agents.length}
-                                        onChange={(event) => setSelectedAgent(event.currentTarget.value)}
-                                    >
-                                        {agents.length ? null : <option value="router">Router</option>}
-                                        {agents.map((agent) => (
-                                            <option key={agent.name} value={agent.name}>
-                                                {agent.displayName || agent.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </label>
-                                <label>
-                                    <span className="sr-only">Model</span>
-                                    <select
-                                        value={selectedModelKey}
-                                        disabled={!canSendNew || !models.length}
-                                        onChange={(event) => setSelectedModelKey(event.currentTarget.value)}
-                                    >
-                                        <option value="">Project default</option>
-                                        {models.map((model) => (
-                                            <option
-                                                key={`${model.provider}/${model.id}`}
-                                                value={`${model.provider}\u001f${model.id}`}
-                                            >
-                                                {model.name || model.id}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </label>
-                                <label>
-                                    <span className="sr-only">Thinking</span>
-                                    <select
-                                        value={selectedThinking}
-                                        disabled={!canSendNew || !thinkingLevels.length}
-                                        onChange={(event) => setSelectedThinking(event.currentTarget.value)}
-                                    >
-                                        <option value="default">Default</option>
-                                        {thinkingLevels.map((level) => (
-                                            <option key={level} value={level}>{level}</option>
-                                        ))}
-                                    </select>
-                                </label>
-                                <button
-                                    type="submit"
-                                    className="rw-toolbar-button session-send-button"
-                                    disabled={!canSendNew || !draft.trim()}
-                                    aria-label={submitting || operation?.operationId
-                                        ? "Starting Session"
-                                        : "Send User Request"}
-                                >
-                                    <PaperAirplaneIcon />
-                                    <span>{submitting || operation?.operationId ? "Sending" : "Send"}</span>
-                                </button>
-                            </div>
-                        </div>
-                    </form>
-                </main>
+                    </main>
+                </div>
             </section>
         );
     }
@@ -1055,20 +1095,10 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         ? `${pendingConfiguration.provider || ""}\u001f${pendingConfiguration.model}`
         : activeModelKey;
     const displayedThinking = liveThinkingLevel || activeThinking;
-    const stagedConfigurationVisible = Boolean(pendingConfiguration?.agentName || pendingConfiguration?.model);
+    const showBusyPanel = ["active", "workspace-running", "execution-workflow"].includes(availability.key);
+    const busySurface = timeline?.activeSurface || (operation?.operationId ? "workspace" : null);
     return (
         <section className="session-surface session-surface-detail" aria-label="RunWield Session chat">
-            <header className="session-chat-topbar session-chat-topbar-detail">
-                <a className="rw-toolbar-button" href={`/projects/${encodeURIComponent(projectId)}/sessions`}>
-                    <SessionsBackIcon />
-                    <span>Sessions</span>
-                </a>
-                <div>
-                    <strong>{timeline?.snapshot?.name || "Session"}</strong>
-                    <span>RunWield · {projectId}</span>
-                </div>
-            </header>
-            <div className="session-surface-status" aria-live="polite">{message}</div>
             {loadingDetail
                 ? <p className="session-list-state" aria-busy="true">Loading committed Session timeline…</p>
                 : null}
@@ -1083,179 +1113,66 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 : null}
             {timeline
                 ? (
-                    <div className="session-detail-layout">
-                        <main
-                            className="session-stream-panel"
-                            aria-label="Session stream"
-                            ref={timelineScrollRef}
-                            onScroll={updateScrollFollowState}
-                        >
-                            <section className="session-summary-card">
-                                <div className="session-summary-heading">
-                                    <div>
-                                        <p className="kicker">Session</p>
-                                        <h2>{timeline.snapshot?.name || runwieldSessionId}</h2>
-                                        <p>
-                                            Generation {timeline.generation ?? "unavailable"} · Agent{" "}
-                                            {timeline.snapshot?.activeAgent || "unknown"}
-                                        </p>
-                                    </div>
-                                    <SessionActivationStatus availability={availability} />
-                                </div>
-                                <SessionBackendDisclosure snapshot={timeline.snapshot} />
-                                {operation?.operationId
-                                    ? (
-                                        <button
-                                            type="button"
-                                            className="rw-toolbar-button session-stop-button"
-                                            onClick={cancelOperation}
-                                        >
-                                            Stop
-                                        </button>
-                                    )
-                                    : null}
-                                {hasActivePlan && progressUrl && !workflowProgressError
-                                    ? <a className="rw-plan-review-link" href={progressUrl}>View progress</a>
-                                    : null}
-                            </section>
-                            {latestActivityAvailable
-                                ? (
-                                    <div className="session-scroll-offer" role="status">
-                                        <span>New activity is available.</span>
-                                        <button type="button" onClick={scrollToLiveEdge}>
-                                            Latest activity
-                                        </button>
-                                    </div>
-                                )
-                                : null}
-                            <SessionTimeline items={allItems} />
-                            <div ref={timelineEndRef} aria-hidden="true" />
-                            <form
-                                className="session-composer"
-                                onSubmit={(event) => {
-                                    event.preventDefault();
-                                    sendRequest();
-                                }}
+                    <div className={`session-detail-layout${hasActivePlan ? "" : " session-detail-layout--chat-only"}`}>
+                        <main className="session-stream-panel" aria-label="Session stream">
+                            <div
+                                className="session-timeline-scroll"
+                                ref={timelineScrollRef}
+                                onScroll={updateScrollFollowState}
                             >
-                                <label htmlFor="session-request-text">User Request</label>
-                                <textarea
-                                    id="session-request-text"
-                                    value={draft}
-                                    rows={5}
-                                    disabled={!availability.canContinue || submitting}
-                                    onPaste={handleComposerPaste}
-                                    onChange={(event) => setDraft(event.currentTarget.value)}
-                                    onKeyDown={(event) => {
-                                        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                                            event.preventDefault();
-                                            sendRequest();
-                                        }
-                                    }}
-                                    placeholder="Type the exact request to send to the active Agent. Paste images here to attach them."
-                                />
-                                {imageAttachments.length
+                                {showBusyPanel ? <SessionBusyPanel surface={busySurface} /> : null}
+                                {latestActivityAvailable
                                     ? (
-                                        <ul className="session-image-attachments" aria-label="Attached images">
-                                            {imageAttachments.map((image) => (
-                                                <li key={image.id}>
-                                                    <span>{image.name} · {image.mimeType}</span>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => removeImageAttachment(image.id)}
-                                                    >
-                                                        Remove
-                                                    </button>
-                                                </li>
-                                            ))}
-                                        </ul>
+                                        <div className="session-scroll-offer" role="status">
+                                            <span>New activity is available.</span>
+                                            <button type="button" onClick={scrollToLiveEdge}>
+                                                Latest activity
+                                            </button>
+                                        </div>
                                     )
                                     : null}
-                                <div className="session-composer-actions">
-                                    <div className="session-detail-settings" aria-label="Session settings">
-                                        <label>
-                                            <span>Agent</span>
-                                            <select
-                                                value={stagedAgent}
-                                                disabled={!canConfigureSession || !agents.length}
-                                                onChange={(event) =>
-                                                    configureSession({ agentName: event.currentTarget.value })}
-                                            >
-                                                {agents.some((agent) => agent.name === timeline.snapshot?.activeAgent)
-                                                    ? null
-                                                    : (
-                                                        <option value={timeline.snapshot?.activeAgent || ""}>
-                                                            {timeline.snapshot?.activeAgent || "Agent"}
-                                                        </option>
-                                                    )}
-                                                {agents.map((agent) => (
-                                                    <option key={agent.name} value={agent.name}>
-                                                        {agent.displayName || agent.name}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </label>
-                                        <label>
-                                            <span>Model</span>
-                                            <select
-                                                value={stagedModelKey}
-                                                disabled={!canConfigureSession || !models.length}
-                                                onChange={(event) => {
-                                                    const [provider, model] = event.currentTarget.value
-                                                        ? event.currentTarget.value.split("\u001f")
-                                                        : ["", ""];
-                                                    if (model) configureSession({ provider, model });
-                                                }}
-                                            >
-                                                {activeModelKey &&
-                                                        !models.some((model) =>
-                                                            `${model.provider}\u001f${model.id}` === activeModelKey
-                                                        )
-                                                    ? <option value={activeModelKey}>{activeModelId}</option>
-                                                    : null}
-                                                {models.map((model) => (
-                                                    <option
-                                                        key={`${model.provider}/${model.id}`}
-                                                        value={`${model.provider}\u001f${model.id}`}
-                                                    >
-                                                        {model.name || model.id}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </label>
-                                        <label>
-                                            <span>Thinking</span>
-                                            <select
-                                                value={displayedThinking}
-                                                disabled={!canConfigureSession || !thinkingLevels.length}
-                                                onChange={(event) =>
-                                                    configureSession({ thinkingLevel: event.currentTarget.value })}
-                                            >
-                                                {thinkingLevels.includes(displayedThinking)
-                                                    ? null
-                                                    : <option value={displayedThinking}>{displayedThinking}</option>}
-                                                {thinkingLevels.map((level) => (
-                                                    <option key={level} value={level}>{level}</option>
-                                                ))}
-                                            </select>
-                                        </label>
-                                    </div>
-                                    <RunWieldButton
-                                        type="submit"
-                                        variant="primary"
-                                        disabled={!availability.canContinue || submitting ||
-                                            (!draft.trim() && !imageAttachments.length)}
-                                    >
-                                        {submitting ? "Sending…" : "Send"}
-                                    </RunWieldButton>
-                                    <span className="session-composer-help">
-                                        {availability.canContinue
-                                            ? (stagedConfigurationVisible
-                                                ? "Agent settings apply after this response. Enter adds a newline. Command/Ctrl+Enter sends."
-                                                : "Enter adds a newline. Command/Ctrl+Enter sends. Paste images to attach them.")
-                                            : availability.explanation}
-                                    </span>
-                                </div>
-                            </form>
+                                <SessionTimeline items={allItems} />
+                                <div ref={timelineEndRef} aria-hidden="true" />
+                            </div>
+                            <SessionComposer
+                                id="session-request-text"
+                                draft={draft}
+                                disabled={!availability.canContinue || submitting}
+                                controlsDisabled={!canConfigureSession}
+                                canSend={availability.canContinue && Boolean(draft.trim() || imageAttachments.length)}
+                                submitting={submitting}
+                                onDraftChange={setDraft}
+                                onSubmit={sendRequest}
+                                onPaste={handleComposerPaste}
+                                imageAttachments={imageAttachments}
+                                onRemoveImage={removeImageAttachment}
+                                agents={agents}
+                                models={models}
+                                thinkingLevels={thinkingLevels}
+                                agentValue={stagedAgent}
+                                modelValue={stagedModelKey}
+                                thinkingValue={displayedThinking}
+                                onAgentChange={(agentName) => configureSession({ agentName })}
+                                onModelChange={(value) => {
+                                    const [provider, model] = value ? value.split("\u001f") : ["", ""];
+                                    if (model) configureSession({ provider, model });
+                                }}
+                                onThinkingChange={(thinkingLevel) => configureSession({ thinkingLevel })}
+                                agentFallback={agents.some((agent) => agent.name === timeline.snapshot?.activeAgent)
+                                    ? null
+                                    : (
+                                        <option value={timeline.snapshot?.activeAgent || ""}>
+                                            {timeline.snapshot?.activeAgent || "Agent"}
+                                        </option>
+                                    )}
+                                modelFallback={activeModelKey &&
+                                        !models.some((model) => `${model.provider}\u001f${model.id}` === activeModelKey)
+                                    ? <option value={activeModelKey}>{activeModelId}</option>
+                                    : null}
+                                thinkingFallback={thinkingLevels.includes(displayedThinking)
+                                    ? null
+                                    : <option value={displayedThinking}>{displayedThinking}</option>}
+                            />
                         </main>
                         {hasActivePlan
                             ? (

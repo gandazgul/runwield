@@ -113,13 +113,14 @@ export function reduceSessionEvents(events, options = {}) {
         const segmentKey = segmentOrdinal === null ? null : `${segmentOrdinal}:${segmentKind}`;
         if (segmentKey && segmentKey !== lastSegmentKey) {
             lastSegmentKey = segmentKey;
-            const label = segmentKind === "planning"
-                ? `Planning segment ${segmentOrdinal + 1}`
-                : segmentKind === "execution"
-                ? `Execution segment ${segmentOrdinal + 1}`
-                : segmentKind === "semantic_repair"
-                ? `Semantic Repair segment ${segmentOrdinal + 1}`
-                : `Session segment ${segmentOrdinal + 1}`;
+            const label = text(event.agentName) ||
+                (segmentKind === "planning"
+                    ? "Planner"
+                    : segmentKind === "execution"
+                    ? "Plan Engineer"
+                    : segmentKind === "semantic_repair"
+                    ? "Semantic Repair"
+                    : "Session");
             appendSystemEvent({
                 kind: "system-event",
                 key: `segment:${segmentKey}`,
@@ -302,6 +303,44 @@ export function sessionInteractionTypedResponse(requestType, value, hasChoices) 
     return { outcome: RuntimeInteractionOutcomes.TEXT, value };
 }
 
+function ActivityChevronIcon() {
+    return (
+        <svg className="session-activity-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path
+                d="M6 4l4 4-4 4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </svg>
+    );
+}
+
+function activityRowLabel(activityItem) {
+    if (activityItem.kind === "tool") return activityItem.toolName || activityItem.title || "tool";
+    if (activityItem.kind === "thinking") return "Thinking";
+    return "Usage";
+}
+
+function activityRowSummary(activityItem) {
+    if (activityItem.kind === "tool") {
+        const command = activityItem.title && activityItem.title !== activityItem.toolName ? activityItem.title : "";
+        const label = activityRowLabel(activityItem);
+        return command && command !== label ? `${label} ${command}` : label;
+    }
+    return activityRowLabel(activityItem);
+}
+
+function activityRowDetail(activityItem) {
+    if (activityItem.kind === "tool") {
+        return `${activityItem.status || "completed"}${activityItem.output ? ` · ${activityItem.output}` : ""}`;
+    }
+    if (activityItem.kind === "thinking") return activityItem.text || "Thinking complete.";
+    return activityItem.text || "Usage recorded";
+}
+
 function SessionInteractionCard({ item }) {
     const [value, setValue] = useState(text(item.request?.defaultValue));
     const [error, setError] = useState("");
@@ -408,14 +447,16 @@ function SessionInteractionCard({ item }) {
 }
 
 /** @param {{ items?: Array<Record<string, any>>, events?: Array<Record<string, any>>, emptyMessage?: string }} props */
-export function SessionTimeline({ items, events, emptyMessage = "No committed timeline events yet." }) {
+export function SessionTimeline({ items, events, emptyMessage = "" }) {
     const timelineItems = items || reduceSessionEvents(events || []);
     if (!timelineItems.length) {
-        return (
-            <section className="session-timeline empty-state">
-                <p>{emptyMessage}</p>
-            </section>
-        );
+        return emptyMessage
+            ? (
+                <section className="session-timeline empty-state">
+                    <p>{emptyMessage}</p>
+                </section>
+            )
+            : null;
     }
     return (
         <ol className="session-timeline" aria-label="Session timeline">
@@ -437,7 +478,10 @@ export function SessionTimeline({ items, events, emptyMessage = "No committed ti
                         ? (
                             <details className="session-thinking">
                                 <summary>
-                                    {item.agentName || "Ideator"} thinking {item.done ? "complete" : "in progress"}
+                                    <ActivityChevronIcon />
+                                    <span>
+                                        {item.agentName || "Ideator"} thinking {item.done ? "complete" : "in progress"}
+                                    </span>
                                 </summary>
                                 <p>{item.text || "Thinking details hidden."}</p>
                             </details>
@@ -452,35 +496,30 @@ export function SessionTimeline({ items, events, emptyMessage = "No committed ti
                         : item.kind === "activity"
                         ? (
                             <details className="session-activity-group">
-                                <summary>
+                                <summary className="session-activity-group-summary">
+                                    <ActivityChevronIcon />
                                     <strong>{item.title || "Activity"}</strong>
-                                    <span>{item.count || item.items?.length || 0} technical events</span>
+                                    <span>{item.count || item.items?.length || 0} events</span>
                                 </summary>
-                                <ol>
+                                <div className="session-activity-rows">
                                     {(Array.isArray(item.items) ? item.items : []).map((
                                         activityItem,
                                         activityIndex,
                                     ) => (
-                                        <li key={activityItem.key || `activity:${activityIndex}`}>
-                                            <strong>
-                                                {activityItem.kind === "tool"
-                                                    ? activityItem.toolName || activityItem.title || "Tool"
-                                                    : activityItem.kind === "thinking"
-                                                    ? "Thinking"
-                                                    : "Usage"}
-                                            </strong>
-                                            <p>
-                                                {activityItem.kind === "tool"
-                                                    ? `${activityItem.status || "completed"}${
-                                                        activityItem.output ? ` · ${activityItem.output}` : ""
-                                                    }`
-                                                    : activityItem.kind === "thinking"
-                                                    ? activityItem.text || "Thinking complete."
-                                                    : activityItem.text || "Usage recorded"}
-                                            </p>
-                                        </li>
+                                        <details
+                                            className={`session-activity-row activity-${
+                                                activityItem.kind || "item"
+                                            } status-${activityItem.status || "complete"}`}
+                                            key={activityItem.key || `activity:${activityIndex}`}
+                                        >
+                                            <summary>
+                                                <ActivityChevronIcon />
+                                                <span>{activityRowSummary(activityItem)}</span>
+                                            </summary>
+                                            <p>{activityRowDetail(activityItem)}</p>
+                                        </details>
                                     ))}
-                                </ol>
+                                </div>
                             </details>
                         )
                         : item.kind === "interaction"
@@ -500,6 +539,12 @@ export function SessionTimeline({ items, events, emptyMessage = "No committed ti
                                     ? <a className="rw-plan-review-link" href={item.reviewUrl}>Review Plan</a>
                                     : null}
                             </article>
+                        )
+                        : item.kind === "system-event" && item.header === "Segment"
+                        ? (
+                            <div className={`session-segment-marker segment-${item.segmentKind || "session"}`}>
+                                <span>{item.text}</span>
+                            </div>
                         )
                         : item.kind === "system-event"
                         ? (
