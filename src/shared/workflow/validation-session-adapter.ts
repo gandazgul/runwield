@@ -37,6 +37,8 @@ import {
     usedReviewDiffTool,
 } from "./validation-helpers.ts";
 import { extractAssistantOutput, readLatestReviewOutcome, readLatestTaskCompletedReport } from "./workflow.js";
+import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
+import { claimWorkflowToolEvent, settleWorkflowToolEvent } from "./workflow-tool-events.ts";
 import type { RuntimeValidationProgress } from "../session/session-runtime-events.js";
 import type {
     AgentTurnOutcome,
@@ -259,20 +261,33 @@ async function runIsolatedRequest(
             includeEditFallback: false,
             sessionManager: request.sessionManager as unknown as SessionManager,
         });
-        const reviewOutcome = readLatestReviewOutcome(messages);
+        const reviewEvent = claimWorkflowToolEvent(hostedSession, {
+            kinds: ["review_complete"],
+            owningSession: hostedSession.getActiveSteeringTargetSession(),
+        });
+        const diffEvent = claimWorkflowToolEvent(hostedSession, {
+            kinds: ["review_diff"],
+            owningSession: hostedSession.getActiveSteeringTargetSession(),
+        });
+        const reviewOutcome = reviewEvent?.kind === "review_complete"
+            ? reviewEvent.payload as import("./workflow-tool-events.ts").ReviewCompleteEventPayload
+            : readLatestReviewOutcome(messages);
         const toolFailure = reviewOutcome ? undefined : readReviewerToolFailure(messages);
         if (toolFailure) {
+            if (diffEvent) settleWorkflowToolEvent(hostedSession, diffEvent);
             return {
                 kind: "reviewer",
                 outcome: "operational_failure",
                 failure: toolFailure,
             };
         }
+        if (reviewEvent) settleWorkflowToolEvent(hostedSession, reviewEvent);
+        if (diffEvent) settleWorkflowToolEvent(hostedSession, diffEvent);
         return {
             kind: "reviewer",
             outcome: "completed",
             reviewOutcome,
-            usedDiffTool: usedReviewDiffTool(messages),
+            usedDiffTool: Boolean(diffEvent) || usedReviewDiffTool(messages),
             trustedClaudeMcpReview: hasTrustedClaudeMcpReview(messages),
         };
     }
@@ -306,7 +321,7 @@ async function runIsolatedRequest(
         customTools: request.customTools as unknown as ToolDefinition[],
         sessionManager: repairManager,
     });
-    const report = readRepairTurnOutcome(messages);
+    const report = readRepairTurnOutcome(hostedSession, messages);
     lastRepairSessions.set(hostedSession, {
         manager: repairManager,
         cwd: request.cwd,
@@ -329,7 +344,12 @@ async function runIsolatedRequest(
  * `task_completed`, and that session is isolated from the user, so the closing
  * text is carried out here or the pause says only that the turn ended.
  */
-function readRepairTurnOutcome(messages: AgentMessage[]): AgentTurnOutcome {
+function readRepairTurnOutcome(hostedSession: HostedSession, messages: AgentMessage[]): AgentTurnOutcome {
+    const completion = claimPendingTaskCompletion(hostedSession, null);
+    if (completion) {
+        acknowledgeTaskCompletion(hostedSession, completion);
+        return { completed: true, report: completion.report };
+    }
     const report = readLatestTaskCompletedReport(messages);
     if (report.completed) return { completed: true, report: report.message };
     return { completed: false, report: "", blockerText: extractAssistantOutput(messages) || "" };
@@ -381,7 +401,7 @@ export function createValidationSessionPort(
                 subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
                 sessionManager: repairManager,
             });
-            const completion = readRepairTurnOutcome(messages);
+            const completion = readRepairTurnOutcome(hostedSession, messages);
             lastRepairSessions.set(hostedSession, { manager: repairManager, cwd, agentName });
             if (completion.completed) clearPendingRepairManager(hostedSession, cwd, userRequest);
             return completion;
@@ -408,7 +428,7 @@ export function createValidationSessionPort(
                     subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
                     sessionManager: repair!.manager,
                 });
-            return readRepairTurnOutcome(messages);
+            return readRepairTurnOutcome(hostedSession, messages);
         },
         createInMemorySessionManager: (cwd) => SessionManager.inMemory(cwd) as unknown as SessionManagerHandle,
         runIsolatedAgentSession: async <K extends IsolatedAgentSessionRequest["kind"]>(

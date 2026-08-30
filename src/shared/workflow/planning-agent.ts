@@ -1,6 +1,7 @@
 // @ts-nocheck: extracted from checked JSDoc workflow.js; tightening types is out of scope for this structural split.
-import { readLatestPlanOutcome } from "./workflow-results.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
+import { readLatestPlanOutcome } from "./workflow-results.js";
+import { claimWorkflowToolEvent, settleWorkflowToolEvent } from "./workflow-tool-events.ts";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { HostedSession } from "../session/hosted-session.js";
 import type { PlanFrontMatter } from "../../plan-store.js";
@@ -17,6 +18,8 @@ import type { PlanFrontMatter } from "../../plan-store.js";
  * @property {string} [feedback]
  * @property {Array<{base64: string, mimeType: string}>} [images]
  */
+
+type PlanOutcomeResult = import("./workflow-tool-events.ts").PlanWrittenEventPayload;
 
 export interface RunPlanningAgentOptions {
     agentName: string;
@@ -42,7 +45,7 @@ export async function runPlanningAgent(
         images,
         planName,
     }: RunPlanningAgentOptions,
-) {
+): Promise<PlanOutcomeResult> {
     if (!hostedSession) throw new Error("runPlanningAgent: hostedSession is required");
 
     // Callers resuming or re-reviewing an existing Plan already know its name.
@@ -60,6 +63,11 @@ export async function runPlanningAgent(
         triageMeta,
     });
 
-    const result = readLatestPlanOutcome(messages);
-    return result || { outcome: "no_call" };
+    const event = claimWorkflowToolEvent(hostedSession, {
+        kinds: ["plan_written"],
+        owningSession: null,
+    });
+    if (event?.kind !== "plan_written") return readLatestPlanOutcome(messages) || { outcome: "no_call" as const };
+    settleWorkflowToolEvent(hostedSession, event);
+    return event.payload as PlanOutcomeResult;
 }

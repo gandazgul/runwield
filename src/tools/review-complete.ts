@@ -11,6 +11,7 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type { HostedSession } from "../shared/session/hosted-session.js";
 import { emitReviewResultMessage } from "../shared/session/workflow-messages.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
+import { publishWorkflowToolEvent } from "../shared/workflow/workflow-tool-events.ts";
 
 export interface ReviewFinding {
     id?: string;
@@ -112,7 +113,7 @@ export function createReviewCompletedTool(
             "Report non-blocking observations as `advisories` — they never block approval. " +
             "Call this exactly once when you have finished reviewing. Do not output text after calling this tool.",
         parameters: PARAMETERS,
-        async execute(_toolCallId, params): Promise<ReviewCompleteResult> {
+        async execute(toolCallId, params): Promise<ReviewCompleteResult> {
             await Promise.resolve();
             const approved = params.approved === true;
             const feedback = typeof params.feedback === "string" ? params.feedback.trim() : "";
@@ -137,7 +138,7 @@ export function createReviewCompletedTool(
                 };
             }
 
-            const outcome = approved ? "approved" : "feedback";
+            const outcome: "approved" | "feedback" = approved ? "approved" : "feedback";
             const resolvedCount = findings.length - openFindings.length;
             const projection = findings.length > 0 ? formatFindingsProjection(openFindings) : feedback;
             const openLabel = openFindings.length === 1 ? "1 issue open" : `${openFindings.length} issues open`;
@@ -164,9 +165,16 @@ export function createReviewCompletedTool(
                 },
             }, hostedSession.cwd);
 
+            const details = { outcome, approved, feedback: projection, findings, advisories };
+            publishWorkflowToolEvent({
+                hostedSession,
+                toolCallId,
+                kind: "review_complete",
+                payload: details,
+            });
             return {
                 content: [{ type: "text", text: message }],
-                details: { outcome, approved, feedback: projection, findings, advisories },
+                details,
                 terminate: true,
             };
         },

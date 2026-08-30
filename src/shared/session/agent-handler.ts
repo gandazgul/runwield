@@ -35,6 +35,12 @@ import {
     claimPendingTaskCompletion,
     type PendingTaskCompletionClaim,
 } from "./task-completion-session.ts";
+import {
+    claimWorkflowToolEvent,
+    type PlanWrittenEventPayload,
+    settleWorkflowToolEvent,
+    type TriageReportEventPayload,
+} from "../workflow/workflow-tool-events.ts";
 import { getStoredPlanPath, loadPlan } from "../../plan-store.js";
 import { AGENTS } from "../../constants.js";
 import { resolvePlanExecutionRuntimeAgent } from "../workflow/execution-agent.ts";
@@ -223,8 +229,18 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
             ? []
             : await runRootTurn({ hostedSession, agentName, userRequest, images, customTools, signal });
 
-        const triage = readLatestTriageOutcome(messages, preTurnCount);
-        if (triage) {
+        const triageEvent = claimWorkflowToolEvent(hostedSession, {
+            kinds: ["triage_report"],
+            owningSession: rootAgentSession,
+        });
+        const fallbackTriage = triageEvent?.kind === "triage_report"
+            ? null
+            : readLatestTriageOutcome(messages, preTurnCount);
+        if (triageEvent?.kind === "triage_report" || fallbackTriage) {
+            const triage = triageEvent?.kind === "triage_report"
+                ? triageEvent.payload as TriageReportEventPayload
+                : fallbackTriage;
+            if (!triage) throw new Error("Missing accepted triage payload.");
             const validationResult = await dispatchPostTriage({
                 hostedSession,
                 triage,
@@ -233,16 +249,22 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 sessionManager,
                 localCI: systemLocalCIPort,
             });
+            if (triageEvent) settleWorkflowToolEvent(hostedSession, triageEvent);
             if (validationResult?.epicContinuation) {
                 return { kind: "complete", validationResult };
             }
             return { kind: "complete" };
         }
 
-        // If the agent's plan_written returned approved_execute, dispatch the plan.
-        // Other outcomes (saved/feedback/canceled/repair_required) self-terminate
-        // appropriately inside plan_written.
-        const outcome = readLatestPlanOutcome(messages, preTurnCount);
+        // If plan_written publishes an accepted event, dispatch from that event.
+        // Tool-result transcript messages are display and audit data only.
+        const planEvent = claimWorkflowToolEvent(hostedSession, {
+            kinds: ["plan_written"],
+            owningSession: rootAgentSession,
+        });
+        const outcome = planEvent?.kind === "plan_written"
+            ? planEvent.payload as PlanWrittenEventPayload
+            : readLatestPlanOutcome(messages, preTurnCount);
         const planningDecision = decidePostPlanning(outcome, {
             planningAgentName: agentName,
             fallbackTriageMeta: {},
@@ -256,6 +278,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 : undefined,
             details: summarizeWorkflowDecision(planningDecision),
         });
+        if (planEvent) settleWorkflowToolEvent(hostedSession, planEvent);
         if (planningDecision.kind === "start_slicer") {
             const planName = typeof planningDecision.payload.planName === "string"
                 ? planningDecision.payload.planName

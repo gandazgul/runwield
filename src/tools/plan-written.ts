@@ -38,6 +38,7 @@ import {
     requestRecoverablePlanReview,
     SESSION_COMPLETE_GUIDANCE,
 } from "../shared/workflow/plan-review-recovery.js";
+import { publishWorkflowToolEvent } from "../shared/workflow/workflow-tool-events.ts";
 import type { HostedSession } from "../shared/session/hosted-session.js";
 import type { PlanFrontMatter } from "../plan-store.js";
 
@@ -301,7 +302,30 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             "If the user submits feedback instead of approving, the tool result contains that feedback so you can " +
             "revise in this same session.",
         parameters: TOOL_PARAMS,
-        async execute(_toolCallId, params, _signal, onUpdate, _ctx) {
+        async execute(toolCallId, params, _signal, onUpdate, _ctx) {
+            const publishAcceptedPlanOutcome = (details: ToolResultDetails, images: ReviewImage[] = []) => {
+                if (!details.outcome) return;
+                if (details.outcome === "repair_required") return;
+                publishWorkflowToolEvent({
+                    hostedSession,
+                    toolCallId,
+                    kind: "plan_written",
+                    payload: {
+                        outcome: details.outcome as
+                            | "approved_execute"
+                            | "approved_decompose"
+                            | "saved"
+                            | "feedback"
+                            | "canceled"
+                            | "repair_required"
+                            | "no_call",
+                        planName: details.planName,
+                        triageMeta: details.triageMeta,
+                        feedback: details.feedback,
+                        images,
+                    },
+                });
+            };
             const planName = String(params.planName || "").trim().replace(/^docs\/plans\//i, "").replace(/\.md$/i, "")
                 .trim();
 
@@ -659,15 +683,17 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 const slicerFeedbackSuffix = reviewResult.feedback
                     ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
                     : "";
+                const details = {
+                    ...params,
+                    outcome: "approved_decompose",
+                    planName,
+                    triageMeta: projectMeta,
+                    ...reviewContextDetails(reviewResult),
+                };
+                publishAcceptedPlanOutcome(details, reviewResult.images);
                 return textResult(
                     `PROJECT Epic "${planName}" approved for Slicer decomposition. ${slicerFeedbackSuffix}`,
-                    {
-                        ...params,
-                        outcome: "approved_decompose",
-                        planName,
-                        triageMeta: projectMeta,
-                        ...reviewContextDetails(reviewResult),
-                    },
+                    details,
                     true,
                     reviewResult.images,
                 );
@@ -709,17 +735,19 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 const savedFeedbackSuffix = reviewResult.feedback
                     ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
                     : "";
+                const details = {
+                    ...params,
+                    outcome: "saved",
+                    planName,
+                    triageMeta: approvedMeta,
+                    ...reviewContextDetails(reviewResult),
+                };
+                publishAcceptedPlanOutcome(details, reviewResult.images);
                 return textResult(
                     appendSessionCompleteGuidance(
                         `Plan "${planName}" approved and saved for later execution. Your role as ${agentName} is complete. Do not generate any further text.${savedFeedbackSuffix}`,
                     ),
-                    {
-                        ...params,
-                        outcome: "saved",
-                        planName,
-                        triageMeta: approvedMeta,
-                        ...reviewContextDetails(reviewResult),
-                    },
+                    details,
                     true,
                     reviewResult.images,
                 );
@@ -739,15 +767,17 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             const execFeedbackSuffix = reviewResult.feedback
                 ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
                 : "";
+            const details = {
+                ...params,
+                outcome: "approved_execute",
+                planName,
+                triageMeta: approvedMeta,
+                ...reviewContextDetails(reviewResult),
+            };
+            publishAcceptedPlanOutcome(details, reviewResult.images);
             return textResult(
                 `Plan "${planName}" approved for execution.${execFeedbackSuffix}`,
-                {
-                    ...params,
-                    outcome: "approved_execute",
-                    planName,
-                    triageMeta: approvedMeta,
-                    ...reviewContextDetails(reviewResult),
-                },
+                details,
                 true,
                 reviewResult.images,
             );

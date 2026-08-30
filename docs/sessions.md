@@ -56,9 +56,10 @@ back through triage.
 
 Router is not a special session mode. It is the default Agent for fresh triage, `/agent router`, and explicit user
 requests to reassess. Boot, `/agent`, and workflow restores activate Agents through the same Agent Handler. Workflow
-progression is driven by Custom Tool outcomes such as `triage_report`, `plan_written`, and `task_completed`, not by
-special-casing a particular Agent name. During active execution, `/agent <name>` is an explicit user-owned release from
-workflow ownership; Plan and worktree recovery evidence stay available through `/load-plan`.
+progression is driven by accepted Workflow Tool Events from tools such as `triage_report`, `plan_written`, and
+`task_completed`, not by special-casing a particular Agent name or by scanning transcript messages. During active
+execution, `/agent <name>` is an explicit user-owned release from workflow ownership; Plan and worktree recovery
+evidence stay available through `/load-plan`.
 
 ## Resume compaction
 

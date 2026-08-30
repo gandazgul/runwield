@@ -8,6 +8,7 @@
 
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import { publishWorkflowToolEvent } from "./workflow-tool-events.ts";
 
 /**
  * @typedef {Object} DiffFileEntry
@@ -273,9 +274,10 @@ export function listDiffFiles(entries, maxInlineBytes = 64 * 1024) {
  * something". Round one has no repair scope.
  *
  * @param {string | { full: string, repair?: string }} diffs - Workflow diff text, or per-scope diff texts.
+ * @param {{ hostedSession?: import('../session/hosted-session.js').HostedSession }} [options]
  * @returns {ReturnType<typeof defineTool>}
  */
-export function createReviewDiffTool(diffs) {
+export function createReviewDiffTool(diffs, options = {}) {
     const fullText = typeof diffs === "string" ? diffs : diffs?.full || "";
     const repairText = typeof diffs === "string" ? "" : diffs?.repair || "";
     const hasRepairScope = typeof diffs !== "string" && typeof diffs?.repair === "string";
@@ -321,7 +323,7 @@ export function createReviewDiffTool(diffs) {
                     `Maximum bytes to return for this file's diff. Default: ${MAX_READ_BYTES}. Max: ${MAX_READ_BYTES}.`,
             })),
         }),
-        execute(_toolCallId, rawParams) {
+        execute(toolCallId, rawParams) {
             /** @type {{ command: string, scope?: string, path?: string, offsetBytes?: number, maxBytes?: number }} */
             const params = /** @type {any} */ (rawParams);
             const scope = params.scope === "repair" ? "repair" : "full";
@@ -343,6 +345,14 @@ export function createReviewDiffTool(diffs) {
             if (params.command === "list") {
                 const summaries = listDiffFiles(entries, MAX_INLINE_BYTES);
                 if (summaries.length === 0) {
+                    if (options.hostedSession) {
+                        publishWorkflowToolEvent({
+                            hostedSession: options.hostedSession,
+                            toolCallId,
+                            kind: "review_diff",
+                            payload: { hasDiff: false },
+                        });
+                    }
                     return Promise.resolve({
                         content: [{ type: "text", text: `No changed files detected in the ${scopeLabel}.` }],
                         details: /** @type {any} */ ({ command: "list", scope, fileCount: 0 }),
@@ -368,6 +378,14 @@ export function createReviewDiffTool(diffs) {
                     `Use \`review_diff(command: "show", scope: "${scope}", path: "<file-path>")\` to read the diff for a specific file.`,
                 );
 
+                if (options.hostedSession) {
+                    publishWorkflowToolEvent({
+                        hostedSession: options.hostedSession,
+                        toolCallId,
+                        kind: "review_diff",
+                        payload: { hasDiff: summaries.length > 0 },
+                    });
+                }
                 return Promise.resolve({
                     content: [{ type: "text", text: lines.join("\n") }],
                     details: /** @type {any} */ ({ command: "list", scope, fileCount: summaries.length }),
@@ -410,6 +428,14 @@ export function createReviewDiffTool(diffs) {
                 }
                 content.push("", "```diff", result.content, "```");
 
+                if (options.hostedSession) {
+                    publishWorkflowToolEvent({
+                        hostedSession: options.hostedSession,
+                        toolCallId,
+                        kind: "review_diff",
+                        payload: { hasDiff: true },
+                    });
+                }
                 return Promise.resolve({
                     content: [{ type: "text", text: content.join("\n") }],
                     details: /** @type {any} */ ({

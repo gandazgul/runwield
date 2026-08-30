@@ -79,7 +79,7 @@ import {
     isStateChangingRequest,
     withOwnerSecurityHeaders,
 } from "./server/owner-origin.js";
-import { listOwnerProjects, requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./server/owner-projects.js";
+import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./server/owner-projects.js";
 import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
 import { setAstroOwnerWorkspaceSessionContinuation, setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
 

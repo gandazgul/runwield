@@ -25,7 +25,8 @@ import {
     updateValidationProgress,
 } from "./validation-progress.ts";
 
-import { extractAssistantOutput, readLatestTaskCompletedOutcome } from "./workflow.js";
+import { extractAssistantOutput } from "./workflow.js";
+import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
 import { runActiveAgentTurn, switchActiveAgent } from "../session/agent-switching.js";
 import {
     requestHostedSessionInteraction,
@@ -368,45 +369,6 @@ export async function runFeaturePostVerificationHandoffs({
     }
 }
 
-/**
- * @param {import('../session/hosted-session.js').HostedSession | undefined} hostedSession
- * @param {string} agentName
- * @returns {AgentMessage[]}
- */
-function getRootMessages(
-    hostedSession: import("../session/hosted-session.js").HostedSession | undefined,
-    agentName: string,
-) {
-    if (hostedSession?.getRootAgentName?.() !== agentName) return [];
-    const rootSession = hostedSession?.getRootAgentSession?.();
-    const messages = (rootSession as { agent?: { state?: { messages?: AgentMessage[] } } } | undefined)?.agent?.state
-        ?.messages;
-    return Array.isArray(messages) ? messages : [];
-}
-
-/**
- * @param {AgentMessage} left
- * @param {AgentMessage} right
- * @returns {boolean}
- */
-function isSameMessage(left: AgentMessage, right: AgentMessage) {
-    if (left === right) return true;
-    try {
-        return JSON.stringify(left) === JSON.stringify(right);
-    } catch {
-        return false;
-    }
-}
-
-/**
- * @param {AgentMessage[]} messages
- * @param {AgentMessage[]} prefix
- * @returns {boolean}
- */
-function startsWithMessages(messages: AgentMessage[], prefix: AgentMessage[]) {
-    return prefix.every((message, index) => isSameMessage(messages[index], message));
-}
-
 interface RunCompletionGatedRepairOptions {
     agentName: string;
     userRequest: string;
@@ -424,13 +386,11 @@ async function runCompletionGatedRepair({
     cwd,
     hostedSession,
 }: RunCompletionGatedRepairOptions): Promise<boolean> {
-    const previousRootMessages = getRootMessages(hostedSession, agentName).slice();
-    const fromIndex = previousRootMessages.length;
     const workflow = hostedSession.getActiveExecutionWorkflow?.();
     const customTools = workflow?.collaborationStyle === "pair"
         ? [createPairCheckpointTool({ hostedSession })]
         : undefined;
-    const messages = await runActiveAgentTurn({
+    await runActiveAgentTurn({
         hostedSession,
         agentName,
         userRequest,
@@ -441,8 +401,10 @@ async function runCompletionGatedRepair({
         ...(customTools ? { customTools } : {}),
     });
 
-    const returnedRootTranscript = startsWithMessages(messages, previousRootMessages);
-    return readLatestTaskCompletedOutcome(messages, returnedRootTranscript ? fromIndex : undefined);
+    const completion = claimPendingTaskCompletion(hostedSession, hostedSession.getRootAgentSession() || null);
+    if (!completion) return false;
+    acknowledgeTaskCompletion(hostedSession, completion);
+    return true;
 }
 
 /**
