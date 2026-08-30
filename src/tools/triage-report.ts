@@ -11,6 +11,7 @@ import { normalizeRoutingIntent, normalizeWorkKind, ROUTING_INTENTS, WORK_KINDS 
 import { emitSystemStatus } from "../shared/session/session-runtime-events.js";
 import { sanitizeSessionName } from "../shared/session/session-name.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
+import { publishWorkflowToolEvent } from "../shared/workflow/workflow-tool-events.ts";
 
 const TRIAGE_COMPLEXITIES = ["LOW", "MEDIUM", "HIGH"] as const;
 
@@ -108,7 +109,7 @@ export function createTriageReportTool(
             "Clearly operational or informational requests may need no codebase exploration before routing. " +
             "Do not output the Routing Intent as freeform text — use this tool.",
         parameters: PARAMETERS,
-        async execute(_toolCallId, params): Promise<TriageReportResult> {
+        async execute(toolCallId, params): Promise<TriageReportResult> {
             const details = normalizeTriageParams(params);
             const { routingIntent, complexity, summary, workKind } = details;
 
@@ -138,6 +139,12 @@ export function createTriageReportTool(
                         hasSessionName: Boolean(details.sessionName),
                     },
                 }, hostedSession.cwd);
+                publishWorkflowToolEvent({
+                    hostedSession,
+                    toolCallId,
+                    kind: "triage_report",
+                    payload: details,
+                });
             }
 
             return {

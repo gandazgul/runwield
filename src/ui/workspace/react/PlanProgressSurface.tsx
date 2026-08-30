@@ -225,7 +225,7 @@ type ProgressPayload = {
 export function PlanProgressSurface({
     initialProgress = null,
     apiUrl = "",
-    progressUrl = "",
+    progressUrl: _progressUrl = "",
 }: { initialProgress?: ProgressPayload | null; apiUrl?: string; progressUrl?: string }) {
     const [fixtureKey, setFixtureKey] = useState("semantic");
     const [progress, setProgress] = useState(initialProgress || (apiUrl ? null : FIXTURE_VARIANTS.semantic));

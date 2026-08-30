@@ -1,0 +1,102 @@
+import { assertEquals, assertExists } from "@std/assert";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { makeToolProjectFixture } from "../../testing/workflow-metrics-fixture.ts";
+import { HostedSession } from "../session/hosted-session.js";
+import {
+    claimWorkflowToolEvent,
+    listPendingWorkflowToolEvents,
+    publishWorkflowToolEvent,
+    settleWorkflowToolEvent,
+    waitForWorkflowToolEvent,
+    WORKFLOW_TOOL_EVENT_CUSTOM_TYPE,
+} from "./workflow-tool-events.ts";
+
+const PROJECT_ROOT = makeToolProjectFixture("runwield-workflow-tool-events-");
+type HostedSessionManager = NonNullable<ConstructorParameters<typeof HostedSession>[0]["sessionManager"]>;
+
+function hostedSessionManager(sessionManager: SessionManager): HostedSessionManager {
+    return sessionManager as HostedSessionManager;
+}
+
+function makeHostedSession(id: string) {
+    const sessionManager = SessionManager.inMemory(PROJECT_ROOT);
+    const hostedSession = new HostedSession({
+        id,
+        cwd: PROJECT_ROOT,
+        sessionManager: hostedSessionManager(sessionManager),
+    });
+    const root = { dispose: () => {} };
+    hostedSession.setRootAgentSession(root);
+    return { hostedSession, sessionManager, root };
+}
+
+Deno.test("Workflow Tool Event is consume-once and settled through the root outbox", () => {
+    const { hostedSession, sessionManager, root } = makeHostedSession("workflow-event-root");
+    hostedSession.beginTurn("turn-1");
+    publishWorkflowToolEvent({
+        hostedSession,
+        toolCallId: "triage-call",
+        kind: "triage_report",
+        payload: {
+            routingIntent: "QUICK_FIX",
+            complexity: "LOW",
+            summary: "Fix it.",
+            classification: "QUICK_FIX",
+        },
+    });
+
+    const claimed = claimWorkflowToolEvent(hostedSession, { kinds: ["triage_report"], owningSession: root });
+    assertExists(claimed);
+    assertEquals(claimed.turnId, "turn-1");
+    assertEquals(claimWorkflowToolEvent(hostedSession, { kinds: ["triage_report"], owningSession: root }), null);
+
+    settleWorkflowToolEvent(hostedSession, claimed, 1234);
+    assertEquals(listPendingWorkflowToolEvents(hostedSession).length, 0);
+    const journalEntries = sessionManager.getBranch().filter((entry) =>
+        entry.type === "custom" && entry.customType === WORKFLOW_TOOL_EVENT_CUSTOM_TYPE
+    );
+    assertEquals(journalEntries.length, 2);
+});
+
+Deno.test("Workflow Tool Event waiters receive events published before turn completion", async () => {
+    const { hostedSession, root } = makeHostedSession("workflow-event-waiter");
+    const waited = waitForWorkflowToolEvent(hostedSession, { kinds: ["plan_written"], owningSession: root });
+    publishWorkflowToolEvent({
+        hostedSession,
+        toolCallId: "plan-call",
+        kind: "plan_written",
+        payload: { outcome: "approved_execute", planName: "event-plan" },
+    });
+
+    const claimed = await waited;
+    assertEquals(claimed.kind, "plan_written");
+    const payload = claimed.payload as import("./workflow-tool-events.ts").PlanWrittenEventPayload;
+    assertEquals(payload.planName, "event-plan");
+    assertEquals(claimWorkflowToolEvent(hostedSession, { kinds: ["plan_written"], owningSession: root }), null);
+});
+
+Deno.test("Workflow Tool Event rejects stale workflow attempts", () => {
+    const { hostedSession, root } = makeHostedSession("workflow-event-stale-attempt");
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "same-plan",
+        triageMeta: { classification: "PLANNED_CHANGE" },
+        executionAgent: "engineer",
+        executionStarted: true,
+        executionAttemptStartedAtMs: 1,
+    });
+    publishWorkflowToolEvent({
+        hostedSession,
+        toolCallId: "completion-call",
+        kind: "task_completed",
+        payload: { outcome: "task_completed", agentName: "plan-engineer", message: "done" },
+    });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "same-plan",
+        triageMeta: { classification: "PLANNED_CHANGE" },
+        executionAgent: "engineer",
+        executionStarted: true,
+        executionAttemptStartedAtMs: 2,
+    });
+
+    assertEquals(claimWorkflowToolEvent(hostedSession, { kinds: ["task_completed"], owningSession: root }), null);
+});

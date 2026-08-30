@@ -1,6 +1,8 @@
 import { Type } from "@earendil-works/pi-ai";
 import { type AgentToolResult, defineTool } from "@earendil-works/pi-coding-agent";
 import { appendEpicManualQaSection } from "../shared/epic-artifacts.ts";
+import { publishWorkflowToolEvent } from "../shared/workflow/workflow-tool-events.ts";
+import type { HostedSession } from "../shared/session/hosted-session.js";
 
 const TOOL_PARAMS = Type.Object({
     checklistMarkdown: Type.String({
@@ -23,6 +25,7 @@ export type QaChecklistGeneratedToolOptions = {
     epicPlanName: string;
     childPlanName: string;
     childHeading: string;
+    hostedSession?: HostedSession;
 };
 
 export function createQaChecklistGeneratedTool(options: QaChecklistGeneratedToolOptions) {
@@ -32,7 +35,7 @@ export function createQaChecklistGeneratedTool(options: QaChecklistGeneratedTool
         description:
             "Record this Epic child's Manual QA checklist in the Epic artifact. This tool is advisory only: failure never changes verification status.",
         parameters: TOOL_PARAMS,
-        async execute(_toolCallId, params): Promise<QaChecklistGeneratedResult> {
+        async execute(toolCallId, params): Promise<QaChecklistGeneratedResult> {
             try {
                 const result = await appendEpicManualQaSection({
                     projectRoot: options.projectRoot,
@@ -41,6 +44,18 @@ export function createQaChecklistGeneratedTool(options: QaChecklistGeneratedTool
                     childHeading: options.childHeading,
                     checklistMarkdown: params.checklistMarkdown,
                 });
+                const details = { outcome: result.status, relativePath: result.relativePath };
+                if (options.hostedSession) {
+                    publishWorkflowToolEvent({
+                        hostedSession: options.hostedSession,
+                        toolCallId,
+                        kind: "qa_checklist_generated",
+                        payload: {
+                            qaName: options.childPlanName,
+                            artifactPath: result.relativePath,
+                        },
+                    });
+                }
                 return {
                     content: [{
                         type: "text",
@@ -48,7 +63,7 @@ export function createQaChecklistGeneratedTool(options: QaChecklistGeneratedTool
                             ? `Manual QA checklist already exists in ${result.relativePath}.`
                             : `Manual QA checklist recorded in ${result.relativePath}.`,
                     }],
-                    details: { outcome: result.status, relativePath: result.relativePath },
+                    details,
                 };
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);

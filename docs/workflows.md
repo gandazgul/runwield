@@ -39,10 +39,10 @@ self-verifies.
 ## QUICK_FIX
 
 A `QUICK_FIX` is handled directly by the Engineer for bounded no-plan code changes. It creates no saved executable plan.
-After Engineer calls `task_completed`, RunWield runs no-plan Mechanical Validation using the configured local CI
-command. Each CI repair runs as an independent Engineer session with a bounded failure packet, then RunWield stops after
-three total repair attempts. It does not run Reviewer, Plannotator code review, Plan Events, Plan Status changes, or
-worktree merge-back.
+After Engineer calls `task_completed`, the accepted tool call publishes a Workflow Tool Event. RunWield claims that
+event and runs no-plan Mechanical Validation using the configured local CI command. Each CI repair runs as an
+independent Engineer session with a bounded failure packet, then RunWield stops after three total repair attempts. It
+does not run Reviewer, Plannotator code review, Plan Events, Plan Status changes, or worktree merge-back.
 
 ## FEATURE
 
@@ -50,7 +50,7 @@ A `FEATURE` creates a Markdown plan under `docs/plans/` and sends it through rev
 
 Typical flow:
 
-1. An Agent, usually Router, emits a Triage Report through `triage_report`.
+1. An Agent, usually Router, submits `triage_report`; the accepted call publishes the routing Workflow Tool Event.
 2. Planner writes a plan.
 3. The user reviews it in Plannotator. FEATURE Plan Review exposes structured execution controls for `executionAgent`
    and `collaborationRecommendation`; sending Feedback does not persist temporary control changes.

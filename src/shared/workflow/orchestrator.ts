@@ -44,7 +44,6 @@ import { buildAgentHandoffRequest } from "./workflow-prompts.js";
 import {
     executePlan,
     extractAssistantOutput,
-    readLatestTaskCompletedOutcome,
     resolveExecutionOwner,
     runPlanningAgent,
     runSlicerAgent,
@@ -224,6 +223,8 @@ function normalizeTriageOutcome(details: TriageOutcomeInput | null | undefined):
 
 /**
  * Read the latest triage_report tool result's details from a message stream.
+ * This is a compatibility helper for legacy tests and transcript display. Live
+ * routing uses accepted Workflow Tool Events.
  *
  * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
  * @param {number} [fromIndex]
@@ -298,11 +299,6 @@ export async function dispatchPostTriage({
     const activateAgent = async (agentName: string): Promise<void> => {
         await switchActiveAgent(hostedSession, { agentName });
     };
-    const getPreTurnMessageCount = (): number => {
-        const rootAgentSession = hostedSession.getRootAgentSession?.() as RootAgentSessionState | null;
-        return rootAgentSession?.agent?.state?.messages?.length ?? 0;
-    };
-
     applyAutoSessionName(sessionManager, normalizedTriage, hostedSession);
 
     const dispatchTarget = normalizedTriage.routingIntent === "INQUIRY"
@@ -350,14 +346,18 @@ export async function dispatchPostTriage({
         const operatorDisplay = getAgentDisplayName(AGENTS.OPERATOR, projectRoot);
         await activateAgent(AGENTS.OPERATOR);
 
-        const preTurnCount = getPreTurnMessageCount();
-        const messages = await runRootTurn({
+        await runRootTurn({
             hostedSession,
             agentName: AGENTS.OPERATOR,
             userRequest: decoratedRequest,
             images,
         });
-        const completed = readLatestTaskCompletedOutcome(messages, preTurnCount);
+        const acceptedCompletion = claimPendingTaskCompletion(
+            hostedSession,
+            hostedSession.getRootAgentSession() || null,
+        );
+        const completed = Boolean(acceptedCompletion);
+        if (acceptedCompletion) acknowledgeTaskCompletion(hostedSession, acceptedCompletion);
         await recordMetric({
             category: "execution",
             event: "operation_completed_observed",
@@ -402,7 +402,6 @@ export async function dispatchPostTriage({
             createQuickFixWorkflow(normalizedTriage, projectRoot, manualQaName, initialManualQaContext),
         );
 
-        const preTurnCount = getPreTurnMessageCount();
         const messages = await runRootTurn({
             hostedSession,
             agentName: AGENTS.ENGINEER,
@@ -410,7 +409,11 @@ export async function dispatchPostTriage({
             images,
             dispatchKind: "quick_fix",
         });
-        const completed = readLatestTaskCompletedOutcome(messages, preTurnCount);
+        const acceptedCompletion = claimPendingTaskCompletion(
+            hostedSession,
+            hostedSession.getRootAgentSession() || null,
+        );
+        const completed = Boolean(acceptedCompletion);
         if (!completed) {
             await recordMetric({
                 category: "execution",
@@ -427,10 +430,6 @@ export async function dispatchPostTriage({
         }
 
         const manualQaContext = buildQuickFixManualQaContext(decoratedRequest, messages);
-        const acceptedCompletion = claimPendingTaskCompletion(
-            hostedSession,
-            hostedSession.getRootAgentSession() || null,
-        );
         const quickFixWorkflow = hostedSession.getActiveExecutionWorkflow();
         hostedSession.clearActiveExecutionWorkflow();
         const mechanicalResult = await runMechanicalValidation({

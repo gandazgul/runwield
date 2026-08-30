@@ -7,6 +7,12 @@
  */
 
 import type { HostedSession } from "./hosted-session.js";
+import {
+    claimWorkflowToolEvent,
+    publishWorkflowToolEvent,
+    settleWorkflowToolEvent,
+    type WorkflowToolEvent,
+} from "../workflow/workflow-tool-events.ts";
 
 export const TASK_COMPLETION_CUSTOM_TYPE = "runwield.task_completion";
 
@@ -55,6 +61,7 @@ export type PendingTaskCompletionClaim = {
     workflow: ActiveExecutionWorkflow | null;
     durable: boolean;
     validationGeneration?: string;
+    workflowToolEvent?: WorkflowToolEvent;
 };
 
 type RecordTaskCompletionArgs = {
@@ -168,6 +175,18 @@ export function recordAcceptedTaskCompletion(args: RecordTaskCompletionArgs): st
         });
     }
 
+    publishWorkflowToolEvent({
+        hostedSession,
+        toolCallId: args.toolCallId,
+        kind: "task_completed",
+        acceptedAtMs: timestampMs,
+        payload: {
+            outcome: "task_completed",
+            agentName,
+            message: report,
+        },
+    });
+
     // Keep the existing in-process fast path and compatibility for sessions that
     // do not have a persisted root SessionManager.
     hostedSession.recordPendingTaskCompletion(agentName, report, timestampMs);
@@ -183,9 +202,37 @@ export function claimPendingTaskCompletion(
     hostedSession: HostedSession,
     owningSession: OwningSession,
 ): PendingTaskCompletionClaim | null {
-    const sessionManager = getCompletionSessionManager(hostedSession);
     const activeWorkflow = hostedSession.getActiveExecutionWorkflow();
     const workflowPlanName = hostedSession.getWorkflowContext()?.planName || "";
+    const workflowEvent = claimWorkflowToolEvent(hostedSession, {
+        kinds: ["task_completed"],
+        owningSession,
+        ...(activeWorkflow?.validationGeneration ? { validationGeneration: activeWorkflow.validationGeneration } : {}),
+    });
+    if (workflowEvent?.kind === "task_completed") {
+        const eventWorkflow = workflowEvent.workflow;
+        const payload = workflowEvent
+            .payload as import("../workflow/workflow-tool-events.ts").TaskCompletedEventPayload;
+        if (
+            !activeWorkflow || !eventWorkflow ||
+            eventWorkflow.planName === activeWorkflow.planName ||
+            (!workflowPlanName || eventWorkflow.planName === workflowPlanName)
+        ) {
+            hostedSession.consumePendingTaskCompletion(owningSession);
+            return {
+                completionId: workflowEvent.eventId,
+                agentName: payload.agentName,
+                report: payload.message,
+                timestampMs: workflowEvent.acceptedAtMs,
+                owningSession,
+                workflow: eventWorkflow ? { ...eventWorkflow } : null,
+                durable: workflowEvent.owner === "root",
+                validationGeneration: workflowEvent.validationGeneration,
+                workflowToolEvent: workflowEvent,
+            };
+        }
+    }
+    const sessionManager = getCompletionSessionManager(hostedSession);
     const pending = readUnconsumedAcceptedEvents(sessionManager).filter((event) => {
         if (activeWorkflow) return matchesActiveWorkflow(event, activeWorkflow);
         return !workflowPlanName || event.workflow.planName === workflowPlanName;
@@ -226,8 +273,22 @@ export function acknowledgeTaskCompletion(
     completion: PendingTaskCompletionClaim,
     timestampMs = Date.now(),
 ): void {
-    if (!completion.completionId) return;
     const sessionManager = getCompletionSessionManager(hostedSession);
+    if (completion.workflowToolEvent) {
+        settleWorkflowToolEvent(hostedSession, completion.workflowToolEvent, timestampMs);
+        const legacy = readUnconsumedAcceptedEvents(sessionManager).filter((event) =>
+            event.agentName === completion.agentName && event.report === completion.report
+        ).at(-1);
+        if (legacy && sessionManager?.appendCustomEntry) {
+            sessionManager.appendCustomEntry(TASK_COMPLETION_CUSTOM_TYPE, {
+                version: 1,
+                state: "consumed",
+                completionId: legacy.completionId,
+                timestampMs,
+            });
+        }
+    }
+    if (!completion.completionId || completion.workflowToolEvent) return;
     if (!sessionManager?.appendCustomEntry) {
         throw new Error("Cannot acknowledge durable task completion without a writable root SessionManager.");
     }
