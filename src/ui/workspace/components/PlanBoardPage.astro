@@ -1,0 +1,97 @@
+---
+import { PLAN_SEARCH_QUERY_PARAM, PLAN_UI_TOKEN_QUERY } from "../constants.js";
+import WorkspaceLayout from "../layouts/WorkspaceLayout.astro";
+import { loadCanonicalBoard, serializeCanonicalPlanError } from "../server/astro-canonical-data.js";
+import { loadOwnerProjectBoard, loadOwnerProjects } from "../server/astro-owner-data.js";
+import { currentWorkspaceCwd } from "../server/cwd.js";
+import { PlanBoard } from "./Board.jsx";
+import { PlanBoardToolbar } from "./PlanBoardToolbar.jsx";
+
+type BoardView = "active" | "closed" | "onHold";
+type BoardContext = "local" | "workspace";
+
+interface Props {
+    boardData?: Awaited<ReturnType<typeof loadCanonicalBoard>>;
+    boardError?: { error: string; repair: string };
+    context: BoardContext;
+    projectId?: string;
+    view: BoardView;
+}
+
+interface OwnerProject {
+    projectId: string;
+    displayName: string;
+    rootLabel: string;
+    healthStatus: string;
+}
+
+const { boardData, boardError, context, projectId = "", view } = Astro.props;
+const projects = context === "workspace" ? await loadOwnerProjects() : [];
+const project = projects.find((item: OwnerProject) => item.projectId === projectId);
+const workspaceCwd = Astro.request.headers.get("x-runwield-workspace-cwd") || currentWorkspaceCwd();
+let board = boardData || null;
+let error = boardError || null;
+if (!board && !error) {
+    try {
+        board = context === "workspace"
+            ? await loadOwnerProjectBoard(projectId)
+            : await loadCanonicalBoard(workspaceCwd);
+    } catch (caught) {
+        const serialized = await serializeCanonicalPlanError(caught);
+        error = serialized;
+        Astro.response.status = context === "workspace" && serialized.error.includes("not found") ? 404 : 409;
+    }
+}
+
+const encodedProjectId = encodeURIComponent(projectId);
+function boardHref(pathname: string) {
+    const url = new URL(pathname, Astro.url);
+    const query = Astro.url.searchParams.get(PLAN_SEARCH_QUERY_PARAM);
+    const token = context === "local" ? Astro.url.searchParams.get(PLAN_UI_TOKEN_QUERY) : null;
+    if (query) url.searchParams.set(PLAN_SEARCH_QUERY_PARAM, query);
+    if (token) url.searchParams.set(PLAN_UI_TOKEN_QUERY, token);
+    return `${url.pathname}${url.search}`;
+}
+
+const routePrefix = context === "workspace" ? `/projects/${encodedProjectId}/plans` : "";
+const tabs = [
+    { view: "active", label: "Plan Board", href: boardHref(routePrefix || "/") },
+    { view: "closed", label: "Closed", href: boardHref(`${routePrefix}/closed`) },
+    { view: "onHold", label: "On Hold", href: boardHref(`${routePrefix}/on-hold`) },
+] as const;
+const heading = context === "workspace" && project ? `${project.displayName} Plan Board` : "Plan Board";
+const description = context === "workspace"
+    ? project
+        ? `${project.rootLabel} · ${project.healthStatus}`
+        : "Registered Project Plans"
+    : "Plans in this checkout";
+const pageTitle = context === "workspace" ? `${heading} · RunWield Workspace` : "RunWield Plans";
+---
+<WorkspaceLayout
+    title={pageTitle}
+    selectedTab={context === "workspace" ? "projects" : view === "onHold" ? "on-hold" : view}
+    shell={context === "workspace" ? "workspace" : "local"}
+    url={Astro.url.href}
+>
+    {board ? <PlanBoardToolbar slot="toolbar" board={board} view={view} url={Astro.url.href} client:load /> : null}
+    <section class="page-header plan-board-page-header">
+        <h1>{heading}</h1>
+        <p>{description}</p>
+    </section>
+    <nav class="tabs plan-board-tabs" aria-label={context === "workspace" ? "Project Plan views" : "Plan Board views"}>
+        {tabs.map((tab) => (
+            <a href={tab.href} class:list={{ active: tab.view === view }} aria-current={tab.view === view ? "page" : undefined}>
+                {tab.label}
+            </a>
+        ))}
+    </nav>
+    {error ? (
+        <section class="error-panel">
+            <h2>Plan Board failed to load</h2>
+            <p>{error.error}</p>
+            <p>{error.repair}</p>
+        </section>
+    ) : (
+        <PlanBoard board={board} view={view} url={Astro.url.href} client:load />
+    )}
+</WorkspaceLayout>

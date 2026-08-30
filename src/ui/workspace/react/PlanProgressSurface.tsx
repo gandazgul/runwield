@@ -1,6 +1,7 @@
 // @ts-nocheck: Workspace React islands compile TSX, but progress payloads are server-owned JSON.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { RunWieldLink } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 const BASE_PROGRESS = {
     ok: true,
@@ -300,9 +301,6 @@ export function PlanProgressSurface({
                         {OVERALL_LABELS[progress.overall.state] || progress.overall.state}
                     </span>
                     {refreshing ? <span className="rw-status-badge state-running">Refreshing</span> : null}
-                    {progressUrl
-                        ? <a className="rw-plan-review-link" href={progressUrl}>Open stable progress link</a>
-                        : null}
                 </div>
                 {!apiUrl && !initialProgress
                     ? (
@@ -384,14 +382,15 @@ export function PlanProgressSurface({
                     <section className="owner-card plan-progress-session">
                         <div className="workflow-progress-title-row">
                             <h2>Session context</h2>
-                            <a
+                            <RunWieldLink
+                                variant="primary"
                                 className="rw-plan-review-link"
                                 href={`/projects/${encodeURIComponent(progress.projectId)}/sessions/${
                                     encodeURIComponent(progress.session.runwieldSessionId)
                                 }`}
                             >
                                 Open Session
-                            </a>
+                            </RunWieldLink>
                         </div>
                         <p>
                             {progress.session.displayName} · {progress.session.state}

@@ -139,6 +139,16 @@ const SECOND_PLAN_FIXTURE = PLAN_FIXTURE
         "- [ ] Step 6: Verify the revised review flow in a browser.",
     );
 
+const PLANNER_REVISED_PLAN_FIXTURE = PLAN_FIXTURE
+    .replace(
+        "- Manual: Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
+        "- Manual: Open Plan Review, send one Planner chat turn, and confirm the revised Plan reloads without leaving the page.",
+    )
+    .replace(
+        "- Expected: Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
+        "- Expected: The Planner reply appears in the sidebar and Changes opens an automatic before/after diff.",
+    );
+
 const DEV_LINKED_FILES = {
     "src/ui/workspace/react/PlanReviewSurface.tsx": `export function PlanReviewSurface({ payload }) {
     return <main aria-label="Plan review">{payload.plan}</main>;
@@ -649,7 +659,7 @@ function buildCodeReviewDevPayload(variant) {
     };
 }
 
-export function ReviewDevSurface({ surface }) {
+export function ReviewDevSurface({ surface, presentation = "standalone" }) {
     const isPlan = surface === "plan";
     const [guideVariant, setGuideVariant] = React.useState("ready");
     const [planVariant, setPlanVariant] = React.useState("feature");
@@ -719,6 +729,11 @@ export function ReviewDevSurface({ surface }) {
                 planStatus: "draft",
                 live: true,
             },
+            plannerConversation: {
+                enabled: true,
+                revisedPlan: PLANNER_REVISED_PLAN_FIXTURE,
+                reply: "I made the verification steps specific to the Planner conversation and automatic diff.",
+            },
             reviewNotice: planNotice,
         };
     const readPlanPayload = {
@@ -741,7 +756,20 @@ export function ReviewDevSurface({ surface }) {
         artifactPath: "docs/work-records/fixture-browser-read-work-record.md",
         notices: ["NOTICE: superseded Work Record; newer planning guidance may exist."],
     };
-    const payload = isPlan ? planPayload : buildCodeReviewDevPayload(guideVariant);
+    const payload = isPlan ? planPayload : {
+        ...buildCodeReviewDevPayload(guideVariant),
+        ...(presentation === "workspace" && {
+            reviewContext: {
+                projectLabel: "RunWield Dev Project",
+                sessionHref: "/projects/dev-project/sessions/choose-terraform-folder-name",
+                sessionLabel: "Choose Terraform folder name",
+                actingSession: "Choose Terraform folder name",
+                artifactLabel: "Fixture Code Review",
+                statusLabel: "Human code review",
+                live: true,
+            },
+        }),
+    };
 
     if (isPlan) {
         return React.createElement(
@@ -772,12 +800,17 @@ export function ReviewDevSurface({ surface }) {
                 ),
             ),
             planVariant === "read-plan"
-                ? React.createElement(ArtifactReadSurface, { key: planVariant, payload: readPlanPayload })
+                ? React.createElement(ArtifactReadSurface, { key: planVariant, payload: readPlanPayload, presentation })
                 : planVariant === "read-work-record"
-                ? React.createElement(ArtifactReadSurface, { key: planVariant, payload: readWorkRecordPayload })
+                ? React.createElement(ArtifactReadSurface, {
+                    key: planVariant,
+                    payload: readWorkRecordPayload,
+                    presentation,
+                })
                 : React.createElement(PlanReviewSurface, {
                     key: planVariant,
                     payload,
+                    presentation,
                 }),
         );
     }
@@ -801,6 +834,6 @@ export function ReviewDevSurface({ surface }) {
                 )
             ),
         ),
-        React.createElement(CodeReviewSurface, { key: guideVariant, payload }),
+        React.createElement(CodeReviewSurface, { key: guideVariant, payload, presentation }),
     );
 }

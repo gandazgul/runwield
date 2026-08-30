@@ -1,0 +1,103 @@
+import { useEffect, useRef } from "react";
+import type { KeyboardEvent } from "react";
+
+export interface ArtifactConversationMessage {
+    id: string;
+    role: "user" | "agent";
+    body: string;
+    contextLabel?: string;
+}
+
+export interface ArtifactConversationSidebarProps {
+    agentLabel: string;
+    messages: ArtifactConversationMessage[];
+    composer: string;
+    attachedContextLabel?: string;
+    working: boolean;
+    disabled?: boolean;
+    error?: string;
+    onComposerChange: (value: string) => void;
+    onSend: () => void;
+    onDetachContext?: () => void;
+}
+
+export function ArtifactConversationSidebar(props: ArtifactConversationSidebarProps) {
+    const transcriptRef = useRef<HTMLDivElement>(null);
+    const canSend = props.composer.trim().length > 0 && !props.working && !props.disabled;
+
+    useEffect(() => {
+        const transcript = transcriptRef.current;
+        if (transcript) transcript.scrollTop = transcript.scrollHeight;
+    }, [props.messages, props.working]);
+
+    function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+        if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey) || !canSend) return;
+        event.preventDefault();
+        props.onSend();
+    }
+
+    return (
+        <section className="rw-artifact-conversation" aria-label={`${props.agentLabel} conversation`}>
+            <div className="rw-artifact-conversation-transcript" ref={transcriptRef} aria-live="polite">
+                {props.messages.length === 0 && (
+                    <div className="rw-artifact-conversation-empty">
+                        <span className="rw-artifact-conversation-avatar" aria-hidden="true">P</span>
+                        <h3>Talk through the Plan</h3>
+                        <p>
+                            Ask {props.agentLabel}{" "}
+                            to clarify or revise something. The updated Plan will appear here with its changes
+                            highlighted.
+                        </p>
+                    </div>
+                )}
+                {props.messages.map((message) => (
+                    <article
+                        className={`rw-artifact-conversation-message rw-artifact-conversation-message-${message.role}`}
+                        key={message.id}
+                    >
+                        <span>{message.role === "agent" ? props.agentLabel : "You"}</span>
+                        <p>{message.body}</p>
+                        {message.contextLabel && <small>{message.contextLabel}</small>}
+                    </article>
+                ))}
+                {props.working && (
+                    <div className="rw-artifact-conversation-working" role="status">
+                        <span aria-hidden="true" />
+                        {props.agentLabel} is reviewing the Plan…
+                    </div>
+                )}
+            </div>
+            <div className="rw-artifact-conversation-composer">
+                {props.attachedContextLabel && (
+                    <div className="rw-artifact-conversation-context">
+                        <span>{props.attachedContextLabel}</span>
+                        <button type="button" onClick={props.onDetachContext} aria-label="Remove attached annotations">
+                            ×
+                        </button>
+                    </div>
+                )}
+                <textarea
+                    className="rw-modal-textarea"
+                    value={props.composer}
+                    onChange={(event) => props.onComposerChange(event.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={`Message ${props.agentLabel}…`}
+                    rows={4}
+                    disabled={props.working || props.disabled}
+                />
+                {props.error && <p className="rw-artifact-conversation-error" role="alert">{props.error}</p>}
+                <div className="rw-artifact-conversation-submit">
+                    <span>⌘↵</span>
+                    <button
+                        className="rw-review-action-button"
+                        type="button"
+                        disabled={!canSend}
+                        onClick={props.onSend}
+                    >
+                        {props.working ? "Planner working…" : "Send to Planner"}
+                    </button>
+                </div>
+            </div>
+        </section>
+    );
+}

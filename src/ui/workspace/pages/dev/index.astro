@@ -1,0 +1,76 @@
+---
+import WorkspaceLayout from "../../layouts/WorkspaceLayout.astro";
+
+if (!import.meta.env.DEV) {
+    return new Response("Not found", { status: 404 });
+}
+
+const groups = [
+    {
+        title: "Plan Board",
+        description: "One board body with launcher and owner Workspace shells.",
+        links: [
+            { href: "/", label: "Local launcher board", detail: "The UI opened by wld plans ui" },
+            { href: "/projects/dev-project/plans", label: "Workspace board", detail: "Project sidebar and header" },
+        ],
+    },
+    {
+        title: "Plan Review",
+        description: "One PlanReviewSurface in both contexts.",
+        links: [
+            { href: "/dev/plan-review", label: "Standalone Plan Review", detail: "TUI/browser launcher shell" },
+            {
+                href: "/dev/workspace/plan-review",
+                label: "Workspace Plan Review",
+                detail: "In-situ Session presentation",
+            },
+        ],
+    },
+    {
+        title: "Code Review",
+        description: "One CodeReviewSurface in both contexts.",
+        links: [
+            { href: "/dev/code-review", label: "Standalone Code Review", detail: "TUI/browser launcher shell" },
+            {
+                href: "/dev/workspace/code-review",
+                label: "Workspace Code Review",
+                detail: "In-situ Session presentation",
+            },
+        ],
+    },
+    {
+        title: "Session",
+        description: "The Workspace route that launches live in-situ reviews.",
+        links: [
+            {
+                href: "/projects/dev-project/sessions/choose-terraform-folder-name",
+                label: "Session showcase",
+                detail: "Timeline, interactions, and workflow rail",
+            },
+        ],
+    },
+] as const;
+---
+<WorkspaceLayout title="RunWield Surface Lab" selectedTab="dev" shell="local" url={Astro.url.href}>
+    <section class="page-header dev-surface-header">
+        <p class="kicker">Development</p>
+        <h1>Surface Lab</h1>
+        <p>Compare the shared UI bodies in their local/TUI and Workspace shells.</p>
+    </section>
+    <div class="dev-surface-grid">
+        {groups.map((group) => (
+            <section class="dev-surface-group">
+                <h2>{group.title}</h2>
+                <p>{group.description}</p>
+                <div class="dev-surface-links">
+                    {group.links.map((link) => (
+                        <a href={link.href}>
+                            <strong>{link.label}</strong>
+                            <span>{link.detail}</span>
+                        </a>
+                    ))}
+                </div>
+            </section>
+        ))}
+    </div>
+</WorkspaceLayout>

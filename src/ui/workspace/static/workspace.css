@@ -7,6 +7,76 @@
     font-size: 0.875rem;
 }
 
+.workspace-local-shell {
+    max-width: none;
+    min-height: 100vh;
+}
+
+.workspace-local-header {
+    align-items: center;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    min-height: 2.25rem;
+}
+
+.plan-board-page-header {
+    margin-bottom: 0;
+}
+
+.dev-surface-header {
+    max-width: 48rem;
+}
+
+.dev-surface-grid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+}
+
+.dev-surface-group {
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-panel);
+    background: var(--rw-surface);
+    padding: var(--rw-space-panel);
+}
+
+.dev-surface-group h2,
+.dev-surface-group > p {
+    margin: 0;
+}
+
+.dev-surface-group > p {
+    color: var(--rw-text-muted);
+    margin-top: 0.35rem;
+}
+
+.dev-surface-links {
+    display: grid;
+    gap: 0.4rem;
+    margin-top: 1rem;
+}
+
+.dev-surface-links a {
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-control);
+    color: var(--rw-text);
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.65rem 0.75rem;
+    text-decoration: none;
+}
+
+.dev-surface-links a:hover {
+    background: var(--rw-surface-strong);
+    border-color: var(--rw-accent);
+}
+
+.dev-surface-links span {
+    color: var(--rw-text-muted);
+    font-size: 0.78rem;
+}
+
 .sr-only {
     position: absolute;
     width: 1px;
@@ -1399,38 +1469,6 @@
     padding: 0.2rem 0.45rem;
 }
 
-.action-primary,
-.action-secondary,
-.action-danger {
-    min-height: var(--rw-control-height);
-    border-radius: var(--rw-radius-control);
-    cursor: pointer;
-    display: inline-flex;
-    font-weight: 800;
-    justify-content: center;
-    padding: var(--rw-space-control-y) var(--rw-space-control-x);
-    text-decoration: none;
-}
-
-.action-primary,
-.card-actions a.action-primary {
-    background: var(--rw-accent);
-    border: 1px solid var(--rw-accent);
-    color: #fff;
-}
-
-.action-secondary {
-    background: var(--rw-surface-muted);
-    border: 1px solid var(--rw-border);
-    color: var(--rw-accent-text);
-}
-
-.action-danger {
-    background: color-mix(in srgb, var(--rw-error) 22%, transparent);
-    border: 1px solid var(--rw-error);
-    color: var(--rw-text-strong);
-}
-
 .notice.danger {
     border-color: var(--rw-error);
     color: var(--rw-text-strong);
@@ -1453,9 +1491,9 @@
     }
 
     .tabs a,
-    .action-primary,
-    .action-secondary,
-    .action-danger {
+    .primary-action,
+    .secondary-action,
+    .danger-action {
         min-width: 0;
         width: 100%;
     }
@@ -1581,28 +1619,7 @@
 }
 
 .copy-command-button {
-    align-items: center;
-    background: var(--rw-accent);
-    border: 1px solid var(--rw-accent);
-    min-height: var(--rw-control-height);
-    border-radius: var(--rw-radius-control);
-    color: #fff;
-    cursor: pointer;
-    display: inline-flex;
-    font-weight: 900;
-    justify-content: center;
-    padding: var(--rw-space-control-y) var(--rw-space-control-x);
-    text-decoration: none;
     width: fit-content;
-}
-
-.copy-command-button:hover {
-    background: var(--rw-accent-strong);
-}
-
-.copy-command-button:focus-visible {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 28%, transparent);
-    outline: none;
 }
 
 /* Owner Session phone surface */
@@ -1618,6 +1635,21 @@
     height: 100vh;
     overflow: hidden;
     padding-bottom: 0;
+}
+
+.workspace-main-shell:has(.rw-review-embedded) {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100vh;
+    overflow: hidden;
+    padding-bottom: 0;
+}
+
+.workspace-main-shell:has(.rw-review-embedded) > main,
+.workspace-main-shell:has(.rw-review-embedded) > main > astro-island {
+    display: block;
+    height: 100%;
+    min-height: 0;
 }
 
 .workspace-main-shell:has(.session-surface-detail) > main,
@@ -2390,23 +2422,6 @@
 
 .rw-plan-review-link {
     width: fit-content;
-    min-height: var(--rw-control-height);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--rw-radius-control);
-    border: 1px solid var(--rw-accent);
-    background: var(--rw-accent);
-    color: var(--rw-page-bg);
-    padding: var(--rw-space-control-y) var(--rw-space-control-x);
-    font-weight: 800;
-    text-decoration: none;
-}
-
-.rw-plan-review-link:focus-visible,
-.rw-plan-review-link:hover {
-    outline: 3px solid color-mix(in srgb, var(--rw-accent) 45%, transparent);
-    outline-offset: 2px;
 }
 
 .session-live-interaction button,

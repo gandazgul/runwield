@@ -1,5 +1,5 @@
 ---
-import ReviewLayout from "../../../../layouts/ReviewLayout.astro";
+import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import { PlanDetail } from "../../../../components/PlanDetail.jsx";
 import { PlanReviewSurface } from "../../../../react/PlanReviewSurface.tsx";
 import { serializeCanonicalPlanError } from "../../../../server/astro-canonical-data.js";
@@ -48,7 +48,12 @@ const reviewPayload = plan && liveReview
         classification: liveReview.request?.planReview?.classification,
         runwieldSessionId,
         reviewContext: {
+            projectLabel: projectId,
+            sessionHref: `/projects/${encodeURIComponent(projectId)}/sessions/${
+                encodeURIComponent(runwieldSessionId)
+            }`,
             sessionLabel: runwieldSessionId,
+            actingSession: runwieldSessionId,
             planLabel: plan.title || plan.planName || planId,
             planStatus: plan.status || plan.attrs?.status,
             live: true,
@@ -56,6 +61,12 @@ const reviewPayload = plan && liveReview
         interactionAnswerUrl: `/api/owner/projects/${encodeURIComponent(projectId)}/session-operations/${
             encodeURIComponent(operationId)
         }/interactions/${encodeURIComponent(interactionId)}/answer`,
+        interactionAnswerBaseUrl: `/api/owner/projects/${encodeURIComponent(projectId)}/session-operations/${
+            encodeURIComponent(operationId)
+        }/interactions`,
+        interactionId,
+        operationStatusUrl: `/api/owner/session-operations/${encodeURIComponent(operationId)}`,
+        planDetailUrl: `/api/owner/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}`,
         recoveryUrl: `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
             encodeURIComponent(runwieldSessionId)
         }/force-recovery`,
@@ -67,7 +78,11 @@ const reviewPayload = plan && liveReview
     }
     : null;
 ---
-<ReviewLayout title={plan ? `${plan.planName} · RunWield Workspace` : "Project Plan · RunWield Workspace"}>
+<WorkspaceLayout
+    title={plan ? `${plan.planName} · RunWield Workspace` : "Project Plan · RunWield Workspace"}
+    selectedTab="projects"
+    url={Astro.url.href}
+>
     {error ? (
         <section class="error-panel">
             <h2>Project Plan lookup failed</h2>
@@ -75,8 +90,8 @@ const reviewPayload = plan && liveReview
             <p>{error.repair}</p>
         </section>
     ) : reviewPayload ? (
-        <PlanReviewSurface payload={reviewPayload} client:only="react" />
+        <PlanReviewSurface payload={reviewPayload} presentation="workspace" client:only="react" />
     ) : (
         <PlanDetail plan={plan} url={Astro.url.href} editIntent={false} client:load />
     )}
-</ReviewLayout>
+</WorkspaceLayout>

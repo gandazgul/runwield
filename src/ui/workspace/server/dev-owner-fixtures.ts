@@ -1,7 +1,7 @@
 export const DEV_OWNER_PROJECT = {
     projectId: "dev-project",
     displayName: "RunWield Dev Project",
-    rootLabel: "workspace-dev/fixture-project",
+    rootLabel: "current dev checkout",
     lifecycle: "enabled",
     healthStatus: "available",
     healthEvidence: [],

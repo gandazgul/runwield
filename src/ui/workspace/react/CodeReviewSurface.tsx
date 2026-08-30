@@ -16,6 +16,7 @@ import { SectionsPanel } from "../../../../third_party/plannotator/packages/revi
 import { parseDiffToFiles } from "../../../../third_party/plannotator/packages/review-editor/utils/diffParser.ts";
 import { exportReviewFeedback } from "../../../../third_party/plannotator/packages/review-editor/utils/exportFeedback.ts";
 import { PlanReviewSettings } from "./PlanReviewSettings.tsx";
+import { ReviewContextBar } from "./ReviewContextBar.tsx";
 import { useCodeReviewHighlighting } from "./code-review-highlighting.ts";
 import "./plannotator.css";
 
@@ -95,7 +96,7 @@ async function waitForGuideJob(jobId, token, setGuideJob) {
     throw new Error("Timed out waiting for Guided Review generation.");
 }
 
-export function CodeReviewSurface({ payload }) {
+export function CodeReviewSurface({ payload, presentation = "standalone" }) {
     const initialPayload = useMemo(
         () => payload || readEmbeddedPayload("code-review-payload") || DEFAULT_CODE_PAYLOAD,
         [payload],
@@ -122,7 +123,10 @@ export function CodeReviewSurface({ payload }) {
     const [allFilesContentFits, setAllFilesContentFits] = useState(false);
     const [guideOpen, setGuideOpen] = useState(false);
     const [guideJob, setGuideJob] = useState(null);
-    const [guideCapabilities, setGuideCapabilities] = useState(initialPayload.devGuideCapabilities || null);
+    const [guideCapabilities, setGuideCapabilities] = useState(
+        initialPayload.devGuideCapabilities ||
+            (initialPayload.mode === "workspace" ? { available: false, providers: [] } : null),
+    );
     const [guide, setGuide] = useState(initialPayload.guidedReviewFixture || null);
     const [guideGenerating, setGuideGenerating] = useState(false);
     const [guideError, setGuideError] = useState("");
@@ -184,7 +188,9 @@ export function CodeReviewSurface({ payload }) {
 
     useEffect(() => {
         let canceled = false;
-        if (!initialPayload.token || initialPayload.mode === "dev") return undefined;
+        if (!initialPayload.token || initialPayload.mode === "dev" || initialPayload.mode === "workspace") {
+            return undefined;
+        }
         fetch(`/api/agents/capabilities?token=${encodeURIComponent(initialPayload.token)}`, {
             headers: { "x-runwield-review-token": initialPayload.token },
         }).then((response) => response.ok ? response.json() : null).then((capabilities) => {
@@ -559,7 +565,12 @@ export function CodeReviewSurface({ payload }) {
             colorThemeStorageKey="runwield-review-color-theme"
         >
             <TooltipProvider>
-                <div className="rw-plannotator-host rw-code-review" data-review-mode={initialPayload.mode}>
+                <div
+                    className={`rw-plannotator-host rw-code-review ${
+                        presentation === "workspace" ? "rw-review-embedded" : ""
+                    }`}
+                    data-review-mode={initialPayload.mode}
+                >
                     <header className="rw-plannotator-toolbar">
                         <div className="rw-plan-review-heading">
                             <CodeReviewOptionsMenu
@@ -586,6 +597,7 @@ export function CodeReviewSurface({ payload }) {
                             />
                         </div>
                     </header>
+                    <ReviewContextBar context={initialPayload.reviewContext} artifactLabel="Code review" />
                     {error && <p className="rw-review-error" role="alert">{error}</p>}
                     <div
                         className="rw-plannotator-code-layout"
@@ -876,13 +888,28 @@ export function CodeReviewSurface({ payload }) {
             console.log("Code review dev decision", { endpoint, body });
             return;
         }
-        const response = await fetch(`/api/review/${endpoint}?token=${encodeURIComponent(initialPayload.token)}`, {
+        const targetUrl = initialPayload.interactionAnswerUrl ||
+            `/api/review/${endpoint}?token=${encodeURIComponent(initialPayload.token)}`;
+        const headers = {
+            "content-type": "application/json",
+            "x-runwield-review-token": initialPayload.token,
+        };
+        if (initialPayload.csrfToken) headers["x-runwield-csrf"] = initialPayload.csrfToken;
+        const response = await fetch(targetUrl, {
             method: "POST",
-            headers: {
-                "content-type": "application/json",
-                "x-runwield-review-token": initialPayload.token,
-            },
-            body: JSON.stringify(body),
+            headers,
+            body: JSON.stringify(
+                initialPayload.interactionAnswerUrl
+                    ? {
+                        requestId: crypto.randomUUID(),
+                        runwieldSessionId: initialPayload.runwieldSessionId,
+                        response: {
+                            outcome: body.approved ? "accepted" : "selected",
+                            _meta: body,
+                        },
+                    }
+                    : body,
+            ),
         });
         if (!response.ok) {
             const message = await response.text();

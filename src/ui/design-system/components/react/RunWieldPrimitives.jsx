@@ -18,7 +18,26 @@ export function RunWieldButton({ variant = "secondary", className, children, ...
         : variant === "danger"
         ? "danger-action"
         : "secondary-action";
-    return React.createElement("button", { ...props, className: classNames([variantClass, className]) }, children);
+    return React.createElement(
+        "button",
+        { type: "button", ...props, className: classNames([variantClass, className]) },
+        children,
+    );
+}
+
+/**
+ * Use this for links that should look like RunWield actions. Navigation remains
+ * an anchor, so browser affordances and accessibility semantics stay intact.
+ *
+ * @param {{ variant?: "primary" | "secondary" | "danger", className?: string, children?: any, [key: string]: any }} props
+ */
+export function RunWieldLink({ variant = "secondary", className, children, ...props }) {
+    const variantClass = variant === "primary"
+        ? "primary-action"
+        : variant === "danger"
+        ? "danger-action"
+        : "secondary-action";
+    return React.createElement("a", { ...props, className: classNames([variantClass, className]) }, children);
 }
 
 /**

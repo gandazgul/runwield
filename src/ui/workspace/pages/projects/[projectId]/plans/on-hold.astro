@@ -1,0 +1,6 @@
+---
+import ProjectPlanBoardPage from "../../../../components/ProjectPlanBoardPage.astro";
+
+const projectId = Astro.params.projectId ?? "";
+---
+<ProjectPlanBoardPage projectId={projectId} view="onHold" />

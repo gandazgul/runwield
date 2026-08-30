@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 // New Session chat structure is adapted from OpenChamber's ChatContainer/ChatInput UI.
 // OpenChamber is MIT licensed: Copyright (c) 2025 Bohdan Triapitsyn.
-import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
+import { RunWieldButton, RunWieldLink } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { SessionList } from "../components/SessionList.jsx";
 import { deriveSessionAvailability, SessionActivationStatus } from "../components/SessionActivationStatus.jsx";
 import { reduceSessionEvents, SessionTimeline } from "../components/SessionTimeline.jsx";
@@ -814,8 +814,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 if (payload.liveInteraction?.interactionId) {
                     const request = payload.liveInteraction.request || {};
                     const isPlanReview = request.type === "plan_review";
+                    const isCodeReview = request.type === "code_review";
                     items = [...items, {
-                        kind: isPlanReview ? "plan-review" : "interaction",
+                        kind: isPlanReview ? "plan-review" : isCodeReview ? "code-review" : "interaction",
                         key: `interaction:${payload.liveInteraction.interactionId}`,
                         interactionId: payload.liveInteraction.interactionId,
                         operationId: current.operationId,
@@ -1218,7 +1219,15 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                             </p>
                                         )}
                                     {progressUrl && !workflowProgressError
-                                        ? <a className="rw-plan-review-link" href={progressUrl}>Open progress</a>
+                                        ? (
+                                            <RunWieldLink
+                                                variant="primary"
+                                                className="rw-plan-review-link"
+                                                href={progressUrl}
+                                            >
+                                                Open progress
+                                            </RunWieldLink>
+                                        )
                                         : null}
                                 </aside>
                             )

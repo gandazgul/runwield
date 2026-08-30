@@ -237,7 +237,8 @@ explicit second submit. Persistent projection/evidence failures leave submission
 succeeds.
 
 `wld plans ui` remains the temporary current-checkout compatibility launcher. Use it when you want a one-shot local Plan
-Board without registering the Project or pairing a device.
+Board without registering the Project or pairing a device. It uses the same Plan Board surface as owner Workspace, with
+a compact current-checkout shell instead of the Project/Session sidebar.
 
 ## Collaborative Plan review
 

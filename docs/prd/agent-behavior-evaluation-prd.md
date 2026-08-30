@@ -1,6 +1,6 @@
 # Product Requirements Document: Agent Behavior Evaluation
 
-Last updated: 2026-07-18 11:23 EDT
+Last updated: 2026-08-30 14:02 EDT
 
 ## Objective
 
@@ -124,6 +124,32 @@ Build on the existing golden set and track at least:
 - tool calls before Triage;
 - repeated or forbidden tool attempts;
 - discovery cost and duration.
+
+### Semantic Reviewer
+
+Evaluate the Semantic Reviewer as a defect-finding and restraint system, not as a prose generator. The first scorecard
+must compare the current discovery prompt with the proposed Review Reconnaissance prompt against the same paired
+fixtures, model configuration, and repository context.
+
+Track at least:
+
+- distinct known defects found;
+- supported blocking findings versus unsupported or duplicate findings;
+- approval of clean twins that contain similar but correct code;
+- severe-defect recall reported separately from aggregate recall;
+- evidence accuracy and whether the finding identifies the causal behavior rather than only a symptom;
+- completeness when one change contains multiple independent defects;
+- correct defect-state tracking after complete, partial, empty, misleading, or regressive repairs;
+- advisory noise, protocol completion, diff inspection, cost, and repeated-trial stability.
+
+Do not retain or display risks that the Reviewer rules out. A plausible risk is not a blocking finding until repository
+evidence supports it. Do not collapse recall, precision, clean approval, or severe misses into one release score.
+
+The initial scorecard, fixture contract, and reviewable pilot catalog live in:
+
+- [Reviewer Benchmark Scorecard](../evaluation/reviewer-benchmark-scorecard.md)
+- [Reviewer Benchmark Fixture Contract](../evaluation/reviewer-benchmark-fixtures.md)
+- [Reviewer Benchmark Pilot Corpus](../evaluation/reviewer-benchmark-pilot-corpus.md)
 
 ### Engineer and Operator Pilot
 

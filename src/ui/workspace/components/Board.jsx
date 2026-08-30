@@ -4,9 +4,8 @@ import { PlanCard } from "./PlanCard.jsx";
 
 export { buildPlanBoardSearchIndex } from "../plan-search.js";
 
-/** @param {{ label: string }} props */
-function EmptyState({ label }) {
-    return <p className="empty">No {label} Plans found in this checkout.</p>;
+function EmptyState() {
+    return <p className="empty">No Plans found in this view.</p>;
 }
 
 /** @param {{ screen: any, url: URL | string }} props */
@@ -45,7 +44,7 @@ export function PlanBoard({ board, view, url, staticRender = false, staticRender
     const boardId = `status-board-${view}`;
     return (
         <section className="board-view" data-view={view} data-plan-search-scope={boardId}>
-            {totalCards === 0 ? <EmptyState label={screen.title.toLowerCase()} /> : null}
+            {totalCards === 0 ? <EmptyState /> : null}
             <p className="empty board-filtered-empty" data-plan-search-no-results hidden>
                 No Plans match this search in {screen.title}.
             </p>

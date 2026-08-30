@@ -1,6 +1,7 @@
 /** @module ui/workspace/server/astro-owner-data */
 
 import { devOwnerProjects } from "./dev-owner-fixtures.ts";
+import { currentWorkspaceCwd } from "./cwd.js";
 
 export const OWNER_WORKSPACE_STORE_KEY = Symbol.for("runwield.workspace.owner-store");
 export const OWNER_WORKSPACE_SESSION_CONTINUATION_KEY = Symbol.for("runwield.workspace.session-continuation");
@@ -38,7 +39,7 @@ export async function loadOwnerProjectBoard(projectId) {
     const store = getAstroOwnerWorkspaceStore();
     if (!store && import.meta.env.DEV) {
         const { loadCanonicalBoard } = await import("./astro-canonical-data.js");
-        return await loadCanonicalBoard("workspace-dev/fixture-project");
+        return await loadCanonicalBoard(currentWorkspaceCwd());
     }
     if (!store) throw new Error("Owner Workspace store is not available.");
     const [{ requireOwnerProjectRoot }, { loadBoard }] = await Promise.all([
@@ -54,7 +55,7 @@ export async function loadOwnerProjectPlanDetail(projectId, planId) {
     const store = getAstroOwnerWorkspaceStore();
     if (!store && import.meta.env.DEV) {
         const { loadCanonicalWorkspaceDetail } = await import("./astro-canonical-data.js");
-        return await loadCanonicalWorkspaceDetail("workspace-dev/fixture-project", planId);
+        return await loadCanonicalWorkspaceDetail(currentWorkspaceCwd(), planId);
     }
     if (!store) throw new Error("Owner Workspace store is not available.");
     const [{ requireOwnerProjectRoot }, { loadWorkspaceDetail }] = await Promise.all([

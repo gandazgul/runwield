@@ -23,7 +23,7 @@ const DEFAULT_READ_PAYLOAD = {
     notices: [],
 };
 
-export function ArtifactReadSurface({ payload }) {
+export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
     usePrintMode();
     const initialPayload = useMemo(() => payload || readEmbeddedPayload("review-payload") || DEFAULT_READ_PAYLOAD, [
         payload,
@@ -95,7 +95,12 @@ export function ArtifactReadSurface({ payload }) {
             colorThemeStorageKey="runwield-review-color-theme"
         >
             <TooltipProvider>
-                <div className="rw-plannotator-host rw-plan-review rw-artifact-read" data-artifact-kind={artifactKind}>
+                <div
+                    className={`rw-plannotator-host rw-plan-review rw-artifact-read ${
+                        presentation === "workspace" ? "rw-review-embedded" : ""
+                    }`}
+                    data-artifact-kind={artifactKind}
+                >
                     <header className="rw-plannotator-toolbar">
                         <div className="rw-plan-review-heading rw-artifact-read-heading">
                             <img src="/brand/logo.svg" alt="" aria-hidden="true" />
