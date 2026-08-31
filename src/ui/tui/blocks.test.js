@@ -559,6 +559,16 @@ Deno.test("PromptSelectBlock renders with uniform background", () => {
     assertEquals(uniqueBgs.length, 1, `PromptSelectBlock should have uniform bg, got: ${uniqueBgs.join(", ")}`);
 });
 
+Deno.test("PromptSelectBlock keeps a compact active layout", () => {
+    const block = new PromptSelectBlock("Choose:", [
+        { value: "option1", label: "Option 1" },
+        { value: "option2", label: "Option 2" },
+    ]);
+    block.focus();
+    const lines = block.render(100);
+    assertEquals(lines.length, 9);
+});
+
 Deno.test("PromptSelectBlock handles long items that trigger truncation", () => {
     const w = 80;
     const items = [
