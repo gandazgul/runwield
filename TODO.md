@@ -36,6 +36,8 @@ I would order the overlapping group like this:
 
 8. simplify-validation-and-lifecycle-messages.md Better after the error/repair model is stable. - done
 
+9 . docs/prd/post-verification-qa-policy.md
+
 9. plan-packages-and-independent-validation.md
 
 10. plan-package-frontend-experience-planning.md
