@@ -1,5 +1,6 @@
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { stopTUI } from "../../ui/tui/tui.ts";
+import { cleanupAgentBrowserSessionSync } from "../../shared/agent-browser-session.ts";
 
 interface QuitCommandEditor {
     setText(text: string): void;
@@ -29,6 +30,7 @@ export async function runQuitCommand(_argv: string[], options: QuitCommandOption
                 options.sessionRuntime?.closeAllSessions();
             }
             stopTUI();
+            cleanupAgentBrowserSessionSync();
             setTimeout(() => Deno.exit(0), 100);
         })();
     }, 50);

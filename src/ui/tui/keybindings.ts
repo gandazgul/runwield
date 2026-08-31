@@ -6,6 +6,7 @@
 
 import { type Container, type Editor, Image, Key, matchesKey, type TUI } from "@earendil-works/pi-tui";
 import { stopTUI } from "./tui.ts";
+import { cleanupAgentBrowserSessionSync } from "../../shared/agent-browser-session.ts";
 import type { ImageAttachment } from "../../shared/session/types.js";
 import { imageTheme } from "../theme/theme.js";
 import type { GenerationGuard } from "./generation-guard.js";
@@ -94,6 +95,7 @@ export function installKeybindings(ctx: KeybindingsContext): (data: string) => v
         if (matchesKey(data, Key.ctrl("c"))) {
             if (isCtrlCPendingExit()) {
                 stopTUI();
+                cleanupAgentBrowserSessionSync();
                 setTimeout(() => Deno.exit(0), 100);
                 return;
             }

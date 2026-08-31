@@ -17,6 +17,9 @@
 import { createRequire } from "node:module";
 import { parseArgs } from "@std/cli/parse-args";
 import { getCwd } from "./constants.js";
+import { cleanupAgentBrowserSessionSync, initializeAgentBrowserSession } from "./shared/agent-browser-session.ts";
+
+initializeAgentBrowserSession();
 
 if (Deno.build.standalone) {
     Object.defineProperty(globalThis, "require", {
@@ -175,17 +178,22 @@ async function runGuidedReviewCommand(): Promise<void> {
     }
 }
 
-main().catch(async (err: Error) => {
+try {
+    await main();
+} catch (err) {
     try {
         const { stopTUI } = await import("./ui/tui/tui.ts");
         stopTUI();
     } catch (_error) {
         // Ignore cleanup failures during fatal error reporting.
     }
-    if (err.message.includes("Mnemosyne binary not found")) {
+    if (err instanceof Error && err.message.includes("Mnemosyne binary not found")) {
         console.error(err.message);
     } else {
         console.error("[RunWield] Fatal error:", err);
     }
+    cleanupAgentBrowserSessionSync();
     Deno.exit(1);
-});
+} finally {
+    cleanupAgentBrowserSessionSync();
+}

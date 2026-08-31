@@ -21,10 +21,11 @@ export interface TuiCrashGuardRuntime {
     signalRuntime: SignalRuntime;
     os: typeof Deno.build.os;
     exit(code: number): never;
+    cleanup?: () => void;
 }
 
 export function createTuiCrashGuards(runtime: TuiCrashGuardRuntime) {
-    const { stop, eventTarget, signalRuntime, os, exit } = runtime;
+    const { stop, eventTarget, signalRuntime, os, exit, cleanup } = runtime;
     let installed = false;
 
     function safeStop(): void {
@@ -41,6 +42,7 @@ export function createTuiCrashGuards(runtime: TuiCrashGuardRuntime) {
     function makeSignalHandler(signal: TuiSignal): () => void {
         return () => {
             safeStop();
+            cleanup?.();
             const code = signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 129;
             exit(code);
         };
