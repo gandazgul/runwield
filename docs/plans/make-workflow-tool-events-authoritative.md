@@ -19,9 +19,14 @@ tickets:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-30T18:01:47-04:00"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "8106889d-c62b-4b01-b6ce-39a7c373bb98"
+    path: "docs/work-records/2026-08-31-workflow-tool-events-became-authoritative.md"
+    lastAttemptAt: "2026-08-31T15:05:17.982Z"
 targetBranch: "main"
 ---
 
