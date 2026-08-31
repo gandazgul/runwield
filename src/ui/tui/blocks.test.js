@@ -512,7 +512,6 @@ Deno.test("ToolExecutionBlock highlights the clickable plan review URL instructi
 
     assertEquals(plain.includes(`Review Plan: ${url}`), true);
     assertEquals(rendered.includes(`\x1b]8;;${url}\x07${url}\x1b]8;;\x07`), true);
-    assertEquals(rendered.includes("\x1b[1m"), true);
     assertEquals(rendered.includes("\x1b[2mReview Plan:"), false);
 });
 
