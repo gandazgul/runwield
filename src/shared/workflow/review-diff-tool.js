@@ -293,7 +293,7 @@ export function createReviewDiffTool(diffs, options = {}) {
         ? " Scope 'full' is the entire workflow diff; scope 'repair' is only what the most recent repair changed."
         : "";
 
-    return defineTool({
+    const tool = defineTool({
         name: "review_diff",
         label: "Review Diff",
         description:
@@ -455,6 +455,8 @@ export function createReviewDiffTool(diffs, options = {}) {
             });
         },
     });
+    Object.assign(tool, { __runwieldReviewDiffs: diffs });
+    return tool;
 }
 
 /**

@@ -106,11 +106,19 @@ export async function runWorkspaceServeCommand(argv: string[]): Promise<void> {
             store,
             signal: controller.signal,
         });
-        const url = parsed.publicOrigin;
-        console.log(`[RunWield] Owner Workspace: ${url}`);
-        console.log(`[RunWield] Owner database: ${store.path || getOwnerCoordinationDatabasePath()}`);
-        if (!parsed.noOpen) await SYSTEM_BROWSER_PORT.open(url);
-        await server.finished;
+        const shutdownOnAbort = () => {
+            void server.shutdown().catch(() => {});
+        };
+        controller.signal.addEventListener("abort", shutdownOnAbort, { once: true });
+        try {
+            const url = parsed.publicOrigin;
+            console.log(`[RunWield] Owner Workspace: ${url}`);
+            console.log(`[RunWield] Owner database: ${store.path || getOwnerCoordinationDatabasePath()}`);
+            if (!parsed.noOpen) await SYSTEM_BROWSER_PORT.open(url);
+            await server.finished;
+        } finally {
+            controller.signal.removeEventListener("abort", shutdownOnAbort);
+        }
     } finally {
         removeShutdownHandlers();
         store.close();

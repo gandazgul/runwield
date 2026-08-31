@@ -1,4 +1,4 @@
-import { assertEquals, assertExists } from "@std/assert";
+import { assertEquals, assertExists, assertThrows } from "@std/assert";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { makeToolProjectFixture } from "../../testing/workflow-metrics-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
@@ -73,6 +73,38 @@ Deno.test("Workflow Tool Event waiters receive events published before turn comp
     const payload = claimed.payload as import("./workflow-tool-events.ts").PlanWrittenEventPayload;
     assertEquals(payload.planName, "event-plan");
     assertEquals(claimWorkflowToolEvent(hostedSession, { kinds: ["plan_written"], owningSession: root }), null);
+});
+
+Deno.test("Workflow Tool Event rejects duplicate tool calls after settlement", () => {
+    const { hostedSession, root } = makeHostedSession("workflow-event-duplicate-settled");
+    hostedSession.beginTurn("turn-1");
+    const event = publishWorkflowToolEvent({
+        hostedSession,
+        toolCallId: "duplicate-call",
+        kind: "plan_written",
+        payload: { outcome: "approved_execute", planName: "event-plan" },
+    });
+    const claimed = claimWorkflowToolEvent(hostedSession, { kinds: ["plan_written"], owningSession: root });
+    assertExists(claimed);
+    settleWorkflowToolEvent(hostedSession, claimed);
+
+    assertThrows(
+        () =>
+            publishWorkflowToolEvent({
+                hostedSession,
+                toolCallId: "duplicate-call",
+                kind: "triage_report",
+                payload: {
+                    routingIntent: "QUICK_FIX",
+                    complexity: "LOW",
+                    summary: "Fix it.",
+                    classification: "QUICK_FIX",
+                },
+            }),
+        Error,
+        "Duplicate Workflow Tool Event tool call: duplicate-call",
+    );
+    assertEquals(event.eventId, "plan_written:turn-1:duplicate-call");
 });
 
 Deno.test("Workflow Tool Event rejects stale workflow attempts", () => {

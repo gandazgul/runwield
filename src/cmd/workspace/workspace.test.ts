@@ -76,6 +76,28 @@ async function runWorkspaceChild(
     return await new Deno.Command(Deno.execPath(), workspaceCommandOptions(fixture, argv)).output();
 }
 
+async function waitForChildOutput(child: Deno.ChildProcess, timeoutMs: number): Promise<Deno.CommandOutput> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const output = child.output();
+    const timedOut = new Promise<"timed-out">((resolve) => {
+        timeoutId = setTimeout(() => resolve("timed-out"), timeoutMs);
+    });
+    try {
+        const result = await Promise.race([output, timedOut]);
+        if (result === "timed-out") {
+            try {
+                child.kill("SIGTERM");
+            } catch {
+                // The child already stopped; the original output promise reports its result.
+            }
+            return await output;
+        }
+        return result;
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
 async function waitForWorkspace(origin: string): Promise<Response> {
     let lastError: Error | undefined;
     const deadline = Date.now() + 30_000;
@@ -148,7 +170,7 @@ Deno.test("workspace serve and pair complete the real browser pairing lifecycle"
         let serverOutput: Deno.CommandOutput | undefined;
         try {
             const pairPage = await waitForWorkspace(fixture.origin);
-            assertStringIncludes(await pairPage.text(), "Pair this browser with owner Workspace");
+            assertStringIncludes(await pairPage.text(), "Authorize this browser");
 
             const request = await fetch(`${fixture.origin}/api/owner/pairing/request`, {
                 method: "POST",
@@ -191,13 +213,13 @@ Deno.test("workspace serve and pair complete the real browser pairing lifecycle"
             } catch {
                 // The child already stopped; output below reports its result.
             }
-            serverOutput = await serverChild.output();
+            serverOutput = await waitForChildOutput(serverChild, 5_000);
         }
 
-        // The test stops the long-running child with SIGINT after the lifecycle succeeds.
-        // Deno may report either a graceful zero exit from the command's shutdown handler or
-        // the conventional SIGINT status when the signal wins the process-exit race.
-        assertEquals([0, 130].includes(serverOutput.code), true);
+        // The test stops the long-running child after the lifecycle succeeds. Deno may
+        // report a graceful zero exit, the conventional SIGINT status, or SIGTERM if the
+        // signal handler did not settle the server before the cleanup guard fired.
+        assertEquals([0, 130, 143].includes(serverOutput.code), true);
         assertStringIncludes(decoder.decode(serverOutput.stdout), `[RunWield] Owner Workspace: ${fixture.origin}`);
         assertStringIncludes(decoder.decode(serverOutput.stdout), `[RunWield] Owner database: ${fixture.databasePath}`);
         const store = openOwnerCoordinationStore({ dbPath: fixture.databasePath });
