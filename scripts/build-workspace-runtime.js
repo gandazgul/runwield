@@ -220,6 +220,18 @@ export function normalizeDenoAdapterShimImport(source) {
 }
 
 /**
+ * Deno adapter output can use deno:jsr: specifiers that work in generated
+ * server output but not in the follow-up deno bundle step. Convert them to
+ * normal JSR specifiers before bundling the standalone Workspace runtime.
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+export function normalizeDenoRuntimeSpecifiers(source) {
+    return source.replaceAll("deno:jsr:", "jsr:");
+}
+
+/**
  * Some npm CommonJS shims in the bundled Astro server call the generated
  * dynamic require helper for `node:child_process` even though the Deno bundle
  * also emits static Node built-in imports. That works under `deno run`, but a
@@ -273,10 +285,7 @@ export function unrefBundledMessageChannels(source) {
 /** @param {string} serverEntry */
 async function patchDenoAdapterShimImport(serverEntry) {
     const source = await Deno.readTextFile(serverEntry);
-    const patched = source.replace(
-        'import { fromFileUrl, serveFile } from "@deno/astro-adapter/__deno_imports.ts";',
-        'import { fromFileUrl } from "@std/path";\nimport { serveFile } from "jsr:@std/http@1.0/file-server";',
-    );
+    const patched = normalizeDenoRuntimeSpecifiers(normalizeDenoAdapterShimImport(source));
     if (patched !== source) await Deno.writeTextFile(serverEntry, patched);
 }
 

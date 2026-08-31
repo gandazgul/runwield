@@ -5,6 +5,7 @@ import {
     getServerEntryImportPaths,
     normalizeCompiledNodeChildProcessImports,
     normalizeDenoAdapterShimImport,
+    normalizeDenoRuntimeSpecifiers,
     unrefBundledMessageChannels,
     waitForStableWorkspaceClientAssets,
 } from "./build-workspace-runtime.js";
@@ -38,6 +39,15 @@ Deno.test("normalizeDenoAdapterShimImport replaces entrypoint adapter shims", ()
     assertEquals(
         normalizeDenoAdapterShimImport(source),
         'import { serveFile } from "jsr:@std/http@1.0/file-server";\nimport { fromFileUrl } from "jsr:@std/path@1.0";\n',
+    );
+});
+
+Deno.test("normalizeDenoRuntimeSpecifiers rewrites deno JSR imports for bundling", () => {
+    const source = 'import { serveFile } from "deno:jsr:@std/http@^1.1.1/file-server";\n';
+
+    assertEquals(
+        normalizeDenoRuntimeSpecifiers(source),
+        'import { serveFile } from "jsr:@std/http@^1.1.1/file-server";\n',
     );
 });
 
