@@ -29,7 +29,7 @@ export type QaChecklistGeneratedToolOptions = {
 };
 
 export function createQaChecklistGeneratedTool(options: QaChecklistGeneratedToolOptions) {
-    return defineTool<typeof TOOL_PARAMS, QaChecklistGeneratedDetails>({
+    const tool = defineTool<typeof TOOL_PARAMS, QaChecklistGeneratedDetails>({
         name: "qa_checklist_generated",
         label: "QA Checklist Generated",
         description:
@@ -51,6 +51,7 @@ export function createQaChecklistGeneratedTool(options: QaChecklistGeneratedTool
                         toolCallId,
                         kind: "qa_checklist_generated",
                         payload: {
+                            outcome: result.status,
                             qaName: options.childPlanName,
                             artifactPath: result.relativePath,
                         },
@@ -74,4 +75,6 @@ export function createQaChecklistGeneratedTool(options: QaChecklistGeneratedTool
             }
         },
     });
+    Object.assign(tool, { __runwieldQaChecklistOptions: options });
+    return tool;
 }

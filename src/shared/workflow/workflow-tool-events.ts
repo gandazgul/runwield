@@ -65,6 +65,7 @@ export interface ReviewCompleteEventPayload {
 }
 
 export interface QaChecklistGeneratedEventPayload {
+    outcome: "recorded" | "already_present";
     qaName?: string;
     artifactPath?: string;
 }
@@ -163,6 +164,7 @@ export interface ClaimWorkflowToolEventOptions {
     owningSession: OwningSession;
     turnId?: string;
     validationGeneration?: string;
+    signal?: AbortSignal;
 }
 
 const states = new WeakMap<HostedSession, EventState>();
@@ -214,11 +216,8 @@ function matchesOptions(event: WorkflowToolEvent, options: ClaimWorkflowToolEven
     ) {
         return false;
     }
-    if (options.turnId && event.turnId && event.turnId !== options.turnId) return false;
-    if (
-        options.validationGeneration && event.validationGeneration &&
-        event.validationGeneration !== options.validationGeneration
-    ) {
+    if (options.turnId && event.turnId !== options.turnId) return false;
+    if (options.validationGeneration && event.validationGeneration !== options.validationGeneration) {
         return false;
     }
     return true;
@@ -260,6 +259,21 @@ function refreshDurableState(hostedSession: HostedSession): void {
     }
 }
 
+function workflowToolCallKey(turnId: string | null, toolCallId: string): string {
+    return `${turnId || ""}:${toolCallId}`;
+}
+
+function readDurableToolCallKeys(hostedSession: HostedSession): Set<string> {
+    const toolCallKeys = new Set<string>();
+    for (const entry of getEntries(getEventSessionManager(hostedSession))) {
+        if (entry.type !== "custom" || entry.customType !== WORKFLOW_TOOL_EVENT_CUSTOM_TYPE) continue;
+        if (isDurableAccepted(entry.data)) {
+            toolCallKeys.add(workflowToolCallKey(entry.data.turnId, entry.data.toolCallId));
+        }
+    }
+    return toolCallKeys;
+}
+
 function wakeWaiters(hostedSession: HostedSession): void {
     const state = stateFor(hostedSession);
     for (const waiter of [...state.waiters]) {
@@ -283,14 +297,24 @@ export function publishWorkflowToolEvent<K extends WorkflowToolEventKind>(
     const rootSession = hostedSession.getRootAgentSession();
     const owner: WorkflowToolEventOwnerKind = isRootOwnedSession(owningSession, rootSession) ? "root" : "isolated";
     const workflow = hostedSession.getActiveExecutionWorkflow?.() || null;
+    const turnId = hostedSession.getActiveTurnId?.() || null;
+    refreshDurableState(hostedSession);
+    const state = stateFor(hostedSession);
+    const toolCallKey = workflowToolCallKey(turnId, toolCallId);
+    if (
+        state.events.some((entry) => workflowToolCallKey(entry.turnId, entry.toolCallId) === toolCallKey) ||
+        readDurableToolCallKeys(hostedSession).has(toolCallKey)
+    ) {
+        throw new Error(`Duplicate Workflow Tool Event tool call: ${toolCallId}`);
+    }
     const event: WorkflowToolEvent<K> = {
         version: 1,
-        eventId: `${toolCallId || kind}:${crypto.randomUUID()}`,
+        eventId: turnId ? `${kind}:${turnId}:${toolCallId}` : `${kind}:${toolCallId}`,
         toolCallId,
         kind,
         owner,
         owningSession,
-        turnId: hostedSession.getActiveTurnId?.() || null,
+        turnId,
         acceptedAtMs: options.acceptedAtMs ?? Date.now(),
         payload,
         workflow: workflow ? { ...workflow } : null,
@@ -299,10 +323,6 @@ export function publishWorkflowToolEvent<K extends WorkflowToolEventKind>(
         claimed: false,
         settled: false,
     };
-    const state = stateFor(hostedSession);
-    if (state.events.some((entry) => entry.eventId === event.eventId)) {
-        throw new Error(`Duplicate Workflow Tool Event: ${event.eventId}`);
-    }
     state.events.push(event);
     const sessionManager = getEventSessionManager(hostedSession);
     if (owner === "root" && sessionManager?.appendCustomEntry) {
@@ -337,11 +357,21 @@ export function claimWorkflowToolEvent(
         if (!matchesOptions(candidate, options)) return false;
         if (activeWorkflow && candidate.workflow) {
             if (candidate.workflow.planName !== activeWorkflow.planName) return false;
+            if (
+                activeWorkflow.validationGeneration &&
+                candidate.validationGeneration !== activeWorkflow.validationGeneration
+            ) {
+                return false;
+            }
             const candidateAttempt = candidate.workflowAttemptKey;
             const activeAttempt = workflowAttemptKey(activeWorkflow);
             if (candidateAttempt && activeAttempt && candidateAttempt !== activeAttempt) return false;
-        } else if (!activeWorkflow && workflowPlanName && candidate.workflow?.planName !== workflowPlanName) {
-            return false;
+        } else if (!activeWorkflow && workflowPlanName) {
+            const candidatePlanName = candidate.workflow?.planName ||
+                (candidate.kind === "plan_written"
+                    ? (candidate.payload as PlanWrittenEventPayload).planName
+                    : undefined);
+            if (candidatePlanName && candidatePlanName !== workflowPlanName) return false;
         }
         return true;
     });
@@ -356,14 +386,30 @@ export function waitForWorkflowToolEvent(
 ): Promise<WorkflowToolEvent> {
     const claimed = claimWorkflowToolEvent(hostedSession, options);
     if (claimed) return Promise.resolve(claimed);
-    return new Promise((resolve) => {
-        stateFor(hostedSession).waiters.push({
+    return new Promise((resolve, reject) => {
+        const state = stateFor(hostedSession);
+        const waiter: EventWaiter = {
             kinds: new Set(options.kinds),
             owningSession: options.owningSession,
             resolve,
             ...(options.turnId ? { turnId: options.turnId } : {}),
             ...(options.validationGeneration ? { validationGeneration: options.validationGeneration } : {}),
-        });
+        };
+        const abort = () => {
+            state.waiters = state.waiters.filter((entry) => entry !== waiter);
+            reject(options.signal?.reason || new DOMException("Workflow tool event wait canceled.", "AbortError"));
+        };
+        if (options.signal?.aborted) {
+            abort();
+            return;
+        }
+        options.signal?.addEventListener("abort", abort, { once: true });
+        const originalResolve = waiter.resolve;
+        waiter.resolve = (event) => {
+            options.signal?.removeEventListener("abort", abort);
+            originalResolve(event);
+        };
+        state.waiters.push(waiter);
     });
 }
 

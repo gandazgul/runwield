@@ -306,6 +306,10 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             const publishAcceptedPlanOutcome = (details: ToolResultDetails, images: ReviewImage[] = []) => {
                 if (!details.outcome) return;
                 if (details.outcome === "repair_required") return;
+                const eventPlanName = String(details.planName || "").trim().replace(/^docs\/plans\//i, "").replace(
+                    /\.md$/i,
+                    "",
+                ).trim();
                 publishWorkflowToolEvent({
                     hostedSession,
                     toolCallId,
@@ -319,7 +323,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                             | "canceled"
                             | "repair_required"
                             | "no_call",
-                        planName: details.planName,
+                        planName: eventPlanName,
                         triageMeta: details.triageMeta,
                         feedback: details.feedback,
                         images,
@@ -506,9 +510,11 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                         reason: recoverableReview.reason,
                     },
                 });
+                const details = { ...params, outcome: "canceled" as const, reason: recoverableReview.reason };
+                publishAcceptedPlanOutcome(details);
                 return textResult(
                     `${SESSION_COMPLETE_GUIDANCE}\n\nYour role as ${agentName} is complete. Do not generate any further text.`,
-                    { ...params, outcome: "canceled", reason: recoverableReview.reason },
+                    details,
                     true,
                 );
             }
@@ -541,16 +547,18 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                     });
                 }
                 emitSystemStatus(hostedSession, message, { header: "RunWield" });
+                const details = {
+                    ...params,
+                    outcome: "saved" as const,
+                    planName,
+                    triageMeta: effectiveMeta,
+                    remoteReview: true,
+                    ...reviewMeta,
+                };
+                publishAcceptedPlanOutcome(details, reviewMeta.images);
                 return textResult(
                     message,
-                    {
-                        ...params,
-                        outcome: "saved",
-                        planName,
-                        triageMeta: effectiveMeta,
-                        remoteReview: true,
-                        ...reviewMeta,
-                    },
+                    details,
                     true,
                 );
             }
@@ -566,9 +574,11 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                     planName,
                     details: { outcome: "canceled", classification: effectiveMeta.classification },
                 });
+                const details = { ...params, outcome: "canceled" as const };
+                publishAcceptedPlanOutcome(details);
                 return textResult(
                     "Plan review canceled by the user.",
-                    { ...params, outcome: "canceled" },
+                    details,
                     true,
                 );
             }
@@ -581,17 +591,20 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                     planName,
                     details: { outcome: "feedback", classification: effectiveMeta.classification },
                 });
+                const details = {
+                    ...params,
+                    outcome: "feedback" as const,
+                    planName,
+                    ...reviewContextDetails(reviewResult),
+                };
+                publishAcceptedPlanOutcome(details, reviewResult.images);
                 return textResult(
                     buildFeedbackRequestText({
                         round: 1,
                         planName,
                         feedback: reviewResult.feedback,
                     }),
-                    {
-                        ...params,
-                        outcome: "feedback",
-                        ...reviewContextDetails(reviewResult),
-                    },
+                    details,
                     false,
                     reviewResult.images,
                 );

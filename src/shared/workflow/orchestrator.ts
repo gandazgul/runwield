@@ -54,6 +54,7 @@ import type { LocalCIPort } from "./validation-local-ci.ts";
 import { createGitPort } from "../git-port.ts";
 import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../work-records/mnemosyne-port.ts";
 import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
+import { waitForWorkflowToolEvent } from "./workflow-tool-events.ts";
 
 export { runLocalCI, runMechanicalValidation } from "./validation.ts";
 
@@ -145,6 +146,43 @@ function refreshedQuickFixWorkflow(
         executionStarted: true,
         executionAttemptStartedAtMs: Date.now(),
     };
+}
+
+async function runRootTurnUntilTaskCompletion(args: {
+    hostedSession: import("../session/hosted-session.js").HostedSession;
+    agentName: string;
+    userRequest: string;
+    images?: import("../session/types.js").ImageAttachment[];
+    dispatchKind?: import("../session/request-dispatch.ts").RequestDispatchKind;
+}): Promise<AgentMessage[]> {
+    const waitController = new AbortController();
+    const turnController = new AbortController();
+    const turnId = args.hostedSession.getActiveTurnId?.() || undefined;
+    const eventPromise = waitForWorkflowToolEvent(args.hostedSession, {
+        kinds: ["task_completed"],
+        owningSession: args.hostedSession.getRootAgentSession() || null,
+        ...(turnId ? { turnId } : {}),
+        signal: waitController.signal,
+    });
+    const turnPromise = runRootTurn({
+        hostedSession: args.hostedSession,
+        agentName: args.agentName,
+        userRequest: args.userRequest,
+        images: args.images,
+        dispatchKind: args.dispatchKind,
+        signal: turnController.signal,
+    });
+    const first = await Promise.race([
+        eventPromise.then(() => ({ kind: "event" as const })),
+        turnPromise.then((messages) => ({ kind: "turn" as const, messages })),
+    ]);
+    if (first.kind === "event") {
+        turnController.abort(new DOMException("Workflow tool event accepted.", "AbortError"));
+        turnPromise.catch(() => undefined);
+        return [];
+    }
+    waitController.abort(new DOMException("Agent turn finished without workflow event.", "AbortError"));
+    return first.messages;
 }
 
 /**
@@ -346,7 +384,7 @@ export async function dispatchPostTriage({
         const operatorDisplay = getAgentDisplayName(AGENTS.OPERATOR, projectRoot);
         await activateAgent(AGENTS.OPERATOR);
 
-        await runRootTurn({
+        await runRootTurnUntilTaskCompletion({
             hostedSession,
             agentName: AGENTS.OPERATOR,
             userRequest: decoratedRequest,
@@ -402,7 +440,7 @@ export async function dispatchPostTriage({
             createQuickFixWorkflow(normalizedTriage, projectRoot, manualQaName, initialManualQaContext),
         );
 
-        const messages = await runRootTurn({
+        const messages = await runRootTurnUntilTaskCompletion({
             hostedSession,
             agentName: AGENTS.ENGINEER,
             userRequest: decoratedRequest,

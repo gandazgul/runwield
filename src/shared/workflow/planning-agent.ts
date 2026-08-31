@@ -1,6 +1,5 @@
 // @ts-nocheck: extracted from checked JSDoc workflow.js; tightening types is out of scope for this structural split.
 import { runActiveAgentTurn } from "../session/agent-switching.js";
-import { readLatestPlanOutcome } from "./workflow-results.js";
 import { claimWorkflowToolEvent, settleWorkflowToolEvent } from "./workflow-tool-events.ts";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { HostedSession } from "../session/hosted-session.js";
@@ -54,7 +53,8 @@ export async function runPlanningAgent(
     // exactly the thing that goes missing.
     if (planName) hostedSession.setWorkflowPlanName(planName);
 
-    const messages = await runActiveAgentTurn({
+    const turnId = hostedSession.getActiveTurnId?.() || undefined;
+    await runActiveAgentTurn({
         hostedSession,
         agentName,
         userRequest: initialRequest,
@@ -66,8 +66,9 @@ export async function runPlanningAgent(
     const event = claimWorkflowToolEvent(hostedSession, {
         kinds: ["plan_written"],
         owningSession: null,
+        ...(turnId ? { turnId } : {}),
     });
-    if (event?.kind !== "plan_written") return readLatestPlanOutcome(messages) || { outcome: "no_call" as const };
+    if (event?.kind !== "plan_written") return { outcome: "no_call" as const };
     settleWorkflowToolEvent(hostedSession, event);
     return event.payload as PlanOutcomeResult;
 }

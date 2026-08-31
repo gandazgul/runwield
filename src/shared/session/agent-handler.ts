@@ -4,16 +4,14 @@
  * lets workflow tool outcomes decide whether any follow-up workflow step runs.
  */
 
-import { getRootExecutionMessages } from "./execution-backend.ts";
 import { runRootTurn } from "./session.js";
 import {
     executePlan,
     finalizePlanImplementation,
-    readLatestPlanOutcome,
     resolveExecutionOwner,
     runSlicerAgent,
 } from "../workflow/workflow.js";
-import { dispatchPostTriage, readLatestTriageOutcome } from "../workflow/orchestrator.ts";
+import { dispatchPostTriage } from "../workflow/orchestrator.ts";
 import { systemLocalCIPort } from "../workflow/validation-local-ci.ts";
 import { createGitPort } from "../git-port.ts";
 import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../work-records/mnemosyne-port.ts";
@@ -40,6 +38,9 @@ import {
     type PlanWrittenEventPayload,
     settleWorkflowToolEvent,
     type TriageReportEventPayload,
+    waitForWorkflowToolEvent,
+    type WorkflowToolEvent,
+    type WorkflowToolEventKind,
 } from "../workflow/workflow-tool-events.ts";
 import { getStoredPlanPath, loadPlan } from "../../plan-store.js";
 import { AGENTS } from "../../constants.js";
@@ -78,6 +79,82 @@ export type AgentHandler = (
     sessionManager: SessionManager,
     signal?: AbortSignal,
 ) => Promise<AgentHandlerTurnResult>;
+
+interface RootTurnWorkflowEventResult {
+    messages: AgentMessage[];
+    event: WorkflowToolEvent | null;
+}
+
+async function runRootTurnUntilRootWorkflowEvent(args: {
+    hostedSession: HostedSession;
+    agentName: string;
+    userRequest: string;
+    images?: ImageAttachment[];
+    customTools?: ToolDefinition[];
+    rootAgentSession: RootAgentSessionState | null;
+    signal?: AbortSignal;
+}): Promise<RootTurnWorkflowEventResult> {
+    const waitController = new AbortController();
+    const turnController = new AbortController();
+    const abortBoth = () => {
+        const reason = args.signal?.reason || new DOMException("Root workflow turn canceled.", "AbortError");
+        waitController.abort(reason);
+        turnController.abort(reason);
+    };
+    if (args.signal?.aborted) abortBoth();
+    args.signal?.addEventListener("abort", abortBoth, { once: true });
+
+    const claimOptions: {
+        kinds: WorkflowToolEventKind[];
+        owningSession: RootAgentSessionState | null;
+    } = {
+        kinds: ["triage_report", "plan_written"],
+        owningSession: args.rootAgentSession,
+    };
+    const eventPromise = waitForWorkflowToolEvent(args.hostedSession, {
+        ...claimOptions,
+        signal: waitController.signal,
+    });
+    const turnPromise = runRootTurn({
+        hostedSession: args.hostedSession,
+        agentName: args.agentName,
+        userRequest: args.userRequest,
+        images: args.images,
+        customTools: args.customTools,
+        signal: turnController.signal,
+    });
+
+    try {
+        const first = await Promise.race([
+            eventPromise.then((event) => ({ kind: "event" as const, event })),
+            turnPromise.then((messages) => ({ kind: "turn" as const, messages })),
+        ]);
+        if (first.kind === "event") {
+            if (
+                first.event.kind === "plan_written" &&
+                (first.event.payload as PlanWrittenEventPayload).outcome === "feedback"
+            ) {
+                const messages = await turnPromise;
+                const latestPlanEvent = claimWorkflowToolEvent(args.hostedSession, claimOptions);
+                if (latestPlanEvent && latestPlanEvent.eventId !== first.event.eventId) {
+                    settleWorkflowToolEvent(args.hostedSession, first.event);
+                    return { messages, event: latestPlanEvent };
+                }
+                return { messages, event: first.event };
+            }
+            turnPromise.catch(() => undefined);
+            return { messages: [], event: first.event };
+        }
+        waitController.abort(new DOMException("Agent turn finished without root workflow event.", "AbortError"));
+        const waitedEvent = await eventPromise.catch(() => null);
+        return {
+            messages: first.messages,
+            event: waitedEvent || claimWorkflowToolEvent(args.hostedSession, claimOptions),
+        };
+    } finally {
+        args.signal?.removeEventListener("abort", abortBoth);
+    }
+}
 
 /**
  * @param {string} agentName
@@ -200,12 +277,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 `createAgentHandler: active handler "${agentName}" does not match root agent "${rootAgentName}"`,
             );
         }
-        // Capture the pre-turn message count so we only consider plan_written outcomes
-        // from the current turn. Stale outcomes from earlier turns (e.g. an already-executed
-        // approved_execute) would otherwise trigger duplicate executePlan calls on
-        // follow-up questions.
         const rootAgentSession = hostedSession.getRootAgentSession() as RootAgentSessionState | null;
-        const preTurnCount = getRootExecutionMessages(hostedSession.getRootAgentSession() as never).length;
         let agentStoppedAttentionRequested = false;
         const requestAgentStoppedAttention = () => {
             if (agentStoppedAttentionRequested) return;
@@ -225,22 +297,31 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
         if (taskCompletion?.workflow && !hostedSession.getActiveExecutionWorkflow()) {
             hostedSession.setActiveExecutionWorkflow({ ...taskCompletion.workflow });
         }
-        const messages: AgentMessage[] = taskCompletion
-            ? []
-            : await runRootTurn({ hostedSession, agentName, userRequest, images, customTools, signal });
+        let rootWorkflowEvent: WorkflowToolEvent | null = null;
+        if (!taskCompletion) {
+            const rootTurnResult = await runRootTurnUntilRootWorkflowEvent({
+                hostedSession,
+                agentName,
+                userRequest,
+                images,
+                customTools,
+                rootAgentSession,
+                signal,
+            });
+            rootWorkflowEvent = rootTurnResult.event;
+        }
 
-        const triageEvent = claimWorkflowToolEvent(hostedSession, {
-            kinds: ["triage_report"],
-            owningSession: rootAgentSession,
-        });
-        const fallbackTriage = triageEvent?.kind === "triage_report"
-            ? null
-            : readLatestTriageOutcome(messages, preTurnCount);
-        if (triageEvent?.kind === "triage_report" || fallbackTriage) {
-            const triage = triageEvent?.kind === "triage_report"
-                ? triageEvent.payload as TriageReportEventPayload
-                : fallbackTriage;
-            if (!triage) throw new Error("Missing accepted triage payload.");
+        const triageEvent = rootWorkflowEvent?.kind === "triage_report"
+            ? rootWorkflowEvent
+            : claimWorkflowToolEvent(hostedSession, {
+                kinds: ["triage_report"],
+                owningSession: rootAgentSession,
+            }) || claimWorkflowToolEvent(hostedSession, {
+                kinds: ["triage_report"],
+                owningSession: null,
+            });
+        if (triageEvent?.kind === "triage_report") {
+            const triage = triageEvent.payload as TriageReportEventPayload;
             const validationResult = await dispatchPostTriage({
                 hostedSession,
                 triage,
@@ -258,13 +339,16 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
 
         // If plan_written publishes an accepted event, dispatch from that event.
         // Tool-result transcript messages are display and audit data only.
-        const planEvent = claimWorkflowToolEvent(hostedSession, {
-            kinds: ["plan_written"],
-            owningSession: rootAgentSession,
-        });
-        const outcome = planEvent?.kind === "plan_written"
-            ? planEvent.payload as PlanWrittenEventPayload
-            : readLatestPlanOutcome(messages, preTurnCount);
+        const planEvent = rootWorkflowEvent?.kind === "plan_written"
+            ? rootWorkflowEvent
+            : claimWorkflowToolEvent(hostedSession, {
+                kinds: ["plan_written"],
+                owningSession: rootAgentSession,
+            }) || claimWorkflowToolEvent(hostedSession, {
+                kinds: ["plan_written"],
+                owningSession: null,
+            });
+        const outcome = planEvent?.kind === "plan_written" ? planEvent.payload as PlanWrittenEventPayload : null;
         const planningDecision = decidePostPlanning(outcome, {
             planningAgentName: agentName,
             fallbackTriageMeta: {},

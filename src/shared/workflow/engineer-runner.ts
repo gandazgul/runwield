@@ -58,8 +58,11 @@ export async function runEngineerWithPlan(
     }
 
     const pauseReason = hostedSession.getActiveExecutionWorkflow?.()?.pairPauseReason;
+    const activeOwnerSession = hostedSession.getActiveSteeringTargetSession?.() || null;
+    const rootOwnerSession = hostedSession.getRootAgentSession() || null;
     const acceptedCompletion = !pauseReason
-        ? claimPendingTaskCompletion(hostedSession, hostedSession.getRootAgentSession() || null)
+        ? claimPendingTaskCompletion(hostedSession, activeOwnerSession) ||
+            claimPendingTaskCompletion(hostedSession, rootOwnerSession)
         : null;
     const completed = Boolean(acceptedCompletion);
     const completionReport = acceptedCompletion?.report || undefined;
@@ -148,8 +151,11 @@ export async function runEngineerWithSegmentHandoff({ continuation, sessionManag
         return { completed: false, messages: rootMessages, error: errorMessage };
     }
     const pauseReason = hostedSession.getActiveExecutionWorkflow?.()?.pairPauseReason;
+    const activeOwnerSession = hostedSession.getActiveSteeringTargetSession?.() || null;
+    const rootOwnerSession = hostedSession.getRootAgentSession() || null;
     const acceptedCompletion = !pauseReason
-        ? claimPendingTaskCompletion(hostedSession, hostedSession.getRootAgentSession() || null)
+        ? claimPendingTaskCompletion(hostedSession, activeOwnerSession) ||
+            claimPendingTaskCompletion(hostedSession, rootOwnerSession)
         : null;
     const completed = Boolean(acceptedCompletion);
     const completionReport = acceptedCompletion?.report || undefined;

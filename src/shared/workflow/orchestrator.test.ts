@@ -12,6 +12,7 @@ import type { SessionRuntimeEvent } from "../session/session-runtime-events.js";
 import type { RuntimeInteractionRequest, RuntimeInteractionResponse } from "../session/session-runtime-interactions.js";
 import { dispatchPostTriage, type DispatchPostTriageArgs, readLatestTriageOutcome } from "./orchestrator.ts";
 import { getWorkflowMetricsFilePath } from "./metrics.js";
+import { publishWorkflowToolEvent } from "./workflow-tool-events.ts";
 import type { LocalCIPort, LocalCIResult } from "./validation-local-ci.ts";
 
 interface SessionFixture {
@@ -64,6 +65,19 @@ function defineLocalCIFixture(results: LocalCIResult[] = []): LocalCIFixture {
 
 function taskCompleted(summary: string): ReturnType<typeof fauxAssistantMessage> {
     return fauxAssistantMessage(fauxToolCall("task_completed", { message: summary }));
+}
+
+function publishPlanOutcome(
+    hostedSession: HostedSession,
+    outcome: "approved_execute" | "approved_decompose",
+    planName: string,
+): void {
+    publishWorkflowToolEvent({
+        hostedSession,
+        toolCallId: `plan-${crypto.randomUUID()}`,
+        kind: "plan_written",
+        payload: { outcome, planName },
+    });
 }
 
 function triageToolResult(details: DispatchPostTriageArgs["triage"]): ToolResultMessage<
@@ -412,12 +426,8 @@ Deno.test("PROJECT approval runs the real readiness transition and Slicer", asyn
             complexity: "HIGH",
             summary: "Epic A",
             affectedPaths: ["src/project.ts"],
-            status: "approved",
+            status: "ready_for_decomposition",
         });
-        setModelMessages([
-            fauxAssistantMessage(fauxToolCall("plan_written", { planName: "epic-a" })),
-            fauxAssistantMessage(fauxText("I am ready to decompose this Epic.")),
-        ]);
         const fixture = createSessionFixture(projectRoot, (request) => {
             if (request.type !== "plan_review") return { outcome: "canceled" };
             return {
@@ -425,6 +435,11 @@ Deno.test("PROJECT approval runs the real readiness transition and Slicer", asyn
                 _meta: { approved: true, approvalAction: "decompose" },
             };
         });
+        setModelMessages([
+            fauxAssistantMessage(fauxText("Plan submitted for decomposition.")),
+            fauxAssistantMessage(fauxText("I am ready to decompose this Epic.")),
+        ]);
+        publishPlanOutcome(fixture.hostedSession, "approved_decompose", "epic-a");
         const ci = defineLocalCIFixture();
 
         await dispatchPostTriage({
@@ -455,15 +470,9 @@ Deno.test("approved planned work executes through real lifecycle machinery and p
             complexity: "MEDIUM",
             summary: "Feature A",
             affectedPaths: ["src/feature.ts"],
-            status: "approved",
+            status: "ready_for_work",
             executionAgent: "engineer",
         });
-        setModelMessages([
-            fauxAssistantMessage(fauxToolCall("plan_written", {
-                planName: "feature-a",
-            })),
-            fauxAssistantMessage(fauxText("Execution is paused before completion.")),
-        ]);
         const interactions: RuntimeInteractionRequest[] = [];
         const fixture = createSessionFixture(projectRoot, (request) => {
             interactions.push(request);
@@ -473,6 +482,11 @@ Deno.test("approved planned work executes through real lifecycle machinery and p
             if (request.type === "select") return { outcome: "selected", value: "proceed" };
             return { outcome: "canceled" };
         });
+        setModelMessages([
+            fauxAssistantMessage(fauxText("Plan submitted for execution.")),
+            fauxAssistantMessage(fauxText("Execution is paused before completion.")),
+        ]);
+        publishPlanOutcome(fixture.hostedSession, "approved_execute", "feature-a");
         const ci = defineLocalCIFixture();
 
         await dispatchPostTriage({
@@ -494,7 +508,7 @@ Deno.test("approved planned work executes through real lifecycle machinery and p
         assertEquals(plan?.attrs.executionMode, "non_git_in_place");
         assertEquals(fixture.hostedSession.getRootAgentName(), "engineer");
         assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.planName, "feature-a");
-        assertEquals(interactions.map((request) => request.type), ["plan_review", "select"]);
+        assertEquals(interactions.map((request) => request.type), ["select"]);
         assertEquals(ci.calls, []);
         fixture.hostedSession.dispose();
     });
@@ -514,20 +528,9 @@ Deno.test("completed planned work runs the real validation lifecycle around exte
                 complexity: "MEDIUM",
                 summary: "Validated Feature",
                 affectedPaths: ["implemented.txt"],
-                status: "approved",
+                status: "ready_for_work",
                 executionAgent: "engineer",
             });
-            setModelMessages([
-                fauxAssistantMessage(fauxToolCall("plan_written", {
-                    planName: "feature-validated",
-                })),
-                fauxAssistantMessage(fauxToolCall("write", {
-                    path: "implemented.txt",
-                    content: "implemented\n",
-                })),
-                taskCompleted("Implemented and checked the fixture feature."),
-                fauxAssistantMessage(fauxText("Manual verification steps\n- [ ] Inspect implemented.txt.")),
-            ]);
             const fixture = createSessionFixture(projectRoot, (request) => {
                 if (request.type === "plan_review") {
                     return { outcome: "accepted", _meta: { approved: true, approvalAction: "run" } };
@@ -535,6 +538,16 @@ Deno.test("completed planned work runs the real validation lifecycle around exte
                 if (request.type === "select") return { outcome: "selected", value: "proceed" };
                 return { outcome: "canceled" };
             });
+            setModelMessages([
+                fauxAssistantMessage(fauxText("Plan submitted for execution.")),
+                fauxAssistantMessage(fauxToolCall("write", {
+                    path: "implemented.txt",
+                    content: "implemented\n",
+                })),
+                taskCompleted("Implemented and checked the fixture feature."),
+                fauxAssistantMessage(fauxText("Manual verification steps\n- [ ] Inspect implemented.txt.")),
+            ]);
+            publishPlanOutcome(fixture.hostedSession, "approved_execute", "feature-validated");
             const ci = defineLocalCIFixture([{ kind: "completed", exitCode: 0, output: "fixture CI passed" }]);
 
             const result = await dispatchPostTriage({
