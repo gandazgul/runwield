@@ -39,7 +39,7 @@
         "@modelcontextprotocol/sdk/server/webStandardStreamableHttp": "npm:@modelcontextprotocol/sdk@^1.30.0/server/webStandardStreamableHttp.js",
         "@modelcontextprotocol/sdk/types": "npm:@modelcontextprotocol/sdk@^1.30.0/types.js",
         "@base-ui/react": "npm:@base-ui/react@^1.7.0",
-        "dockview-react": "npm:dockview-react@^7.0.2",
+        "dockview-react": "npm:dockview-react@^8.2.0",
         "@plannotator/web-highlighter": "npm:@plannotator/web-highlighter@^0.8.1",
         "@plannotator/atomic-editor": "npm:@plannotator/atomic-editor@^0.8.0",
         "@plannotator/markdown-editor": "npm:@plannotator/markdown-editor@^0.4.0",
