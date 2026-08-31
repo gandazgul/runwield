@@ -47,6 +47,12 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  */
 
 /**
+ * @typedef {Object} AgentTransitionSteering
+ * @property {string} text
+ * @property {import('./types.js').ImageAttachment[]} images
+ */
+
+/**
  * @typedef {Object} SteeringTargetRecord
  * @property {string} steeringTargetId
  * @property {DisposableLike} session
@@ -206,6 +212,10 @@ export class HostedSession {
         /** @type {SteeringTargetRecord[]} */
         this.steeringTargetStack = [];
         this.steeringTargetSequence = 0;
+        /** @type {string | null} */
+        this.agentTransitionId = null;
+        /** @type {AgentTransitionSteering[]} */
+        this.agentTransitionSteering = [];
         this.delegatedReaderCount = 0;
         this.delegatedWriterActive = false;
         this.projectStateContext = "";
@@ -599,6 +609,43 @@ export class HostedSession {
         return this.steeringTargetStack[this.steeringTargetStack.length - 1].session;
     }
 
+    /** @returns {string} */
+    beginAgentTransition() {
+        this.assertActive();
+        if (this.agentTransitionId) throw new Error("An Agent transition is already active");
+        this.agentTransitionId = `agent-transition-${crypto.randomUUID()}`;
+        return this.agentTransitionId;
+    }
+
+    /** @returns {boolean} */
+    isAgentTransitioning() {
+        return Boolean(this.agentTransitionId);
+    }
+
+    /**
+     * @param {string} text
+     * @param {import('./types.js').ImageAttachment[]} images
+     * @returns {boolean}
+     */
+    queueAgentTransitionSteering(text, images = []) {
+        if (!this.agentTransitionId) return false;
+        this.agentTransitionSteering.push({ text, images: images.map((image) => ({ ...image })) });
+        return true;
+    }
+
+    /** @param {string} transitionId */
+    completeAgentTransition(transitionId) {
+        this.assertActive();
+        if (this.agentTransitionId === transitionId) this.agentTransitionId = null;
+    }
+
+    /** @returns {AgentTransitionSteering[]} */
+    consumeAgentTransitionSteering() {
+        const steering = this.agentTransitionSteering;
+        this.agentTransitionSteering = [];
+        return steering.map((entry) => ({ text: entry.text, images: entry.images.map((image) => ({ ...image })) }));
+    }
+
     /**
      * @param {"read" | "write"} mode
      * @returns {() => void}
@@ -853,6 +900,8 @@ export class HostedSession {
         this.pendingTaskCompletion = null;
         this.activeTurnId = null;
         this.steeringTargetStack = [];
+        this.agentTransitionId = null;
+        this.agentTransitionSteering = [];
         this.managed = null;
         this.disposed = true;
     }

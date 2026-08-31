@@ -2301,6 +2301,24 @@ Deno.test("SessionRuntime steers active foreground sub-agent before streaming ro
     hostedSession.removeSubAgentSession(foregroundSession);
 });
 
+Deno.test("SessionRuntime buffers steering for the replacement Agent during a transition", async () => {
+    const sessionHost = new SessionHost();
+    const rootSession = makeSteeringAgentSession();
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, rootSession);
+    const hostedSession = sessionHost.requireSession(sessionId);
+    const transitionId = hostedSession.beginAgentTransition();
+
+    const steered = await runtime.steerSession(sessionId, "send this to the new Agent", []);
+
+    assertEquals(steered, { ok: true, queued: true });
+    assertEquals(rootSession.getSteeringMessages(), []);
+    hostedSession.completeAgentTransition(transitionId);
+    assertEquals(hostedSession.consumeAgentTransitionSteering().map((entry) => entry.text), [
+        "send this to the new Agent",
+    ]);
+});
+
 Deno.test("SessionRuntime keeps queue subscriptions for multiple steering source sessions", async () => {
     const sessionHost = new SessionHost();
     const rootSession = makeSteeringAgentSession();

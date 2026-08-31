@@ -847,6 +847,10 @@ export class SessionRuntime {
         const capability = this.#currentManagedOperations.get(sessionId) || null;
         const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "steerSession", capability);
         if (managedRejection) return { ...managedRejection, queued: false };
+        if (hostedSession.isAgentTransitioning?.()) {
+            hostedSession.queueAgentTransitionSteering(text, images);
+            return { ok: true, queued: true };
+        }
         const activeTarget = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession?.());
         const rootSession = /** @type {any} */ (hostedSession.getRootAgentSession());
         const expectedTarget = activeTarget?.isStreaming ? activeTarget : rootSession;
