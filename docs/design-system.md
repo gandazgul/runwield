@@ -445,6 +445,14 @@ Plan Detail, Plan Review, and read-only Plan are modes of the same Plan workbenc
 review shell, compact title toolbar, document canvas, and pane boundaries. Change the available controls and side-rail
 content for each mode; do not give one mode a separate dashboard-detail layout.
 
+When Plan Review is embedded in Workspace, the Workspace main header is its only title and decision bar. Show
+`Plan Review — [Plan title]` on the left and the execution-policy controls plus approval action on the right. Begin the
+embedded surface directly with the Plan workbench: do not repeat the logo/title/options header or the Project/Session
+breadcrumb strip. Reuse the Session screen's `workspace-main-header` height, title alignment, and shell spacing; do not
+create review-specific header geometry. Keep one `--rw-space-panel` gap below that shared header before the embedded
+workbench begins. Workspace Plan Review defaults to the wide document canvas. Standalone review keeps its compact
+launcher header because it has no owner Workspace shell.
+
 Plannotator-specific mapping:
 
 - plan review page: use the shell plus a detail-panel layout;
@@ -524,6 +532,9 @@ Astro development entrypoints:
 - `/dev/plan-review` and `/dev/workspace/plan-review` compare standalone and in-situ Plan Review;
 - `/dev/code-review` and `/dev/workspace/code-review` compare standalone and in-situ Code Review;
 - `/projects/dev-project/sessions/choose-terraform-folder-name` exercises the Session shell and timeline.
+
+Plan Review fixture variants are linked from `/dev`; fixture pages do not render an additional variant switcher above
+the review surface.
 
 The `/dev` routes are fixture-only and return 404 in production. The standalone `/review/plan` and `/review/code` routes
 remain the real token-protected TUI launch targets. Live Workspace Plan and Code Review decisions return to the same

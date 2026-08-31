@@ -5,7 +5,8 @@ import { ReviewDevSurface } from "../../react/ReviewDevSurface.tsx";
 if (!import.meta.env.DEV) {
     return new Response("Not found", { status: 404 });
 }
+const variant = Astro.url.searchParams.get("variant") || "feature";
 ---
 <ReviewLayout title="Plan Review Dev · RunWield Workspace">
-    <ReviewDevSurface surface="plan" presentation="standalone" client:only="react" />
+    <ReviewDevSurface surface="plan" presentation="standalone" variant={variant} client:only="react" />
 </ReviewLayout>

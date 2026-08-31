@@ -81,6 +81,7 @@ const reviewPayload = plan && liveReview
 ---
 <WorkspaceLayout
     title={plan ? `${plan.planName} · RunWield Workspace` : "Project Plan · RunWield Workspace"}
+    surfaceTitle={reviewPayload ? `Plan Review — ${plan.title || plan.planName || planId}` : ""}
     selectedTab="projects"
     url={Astro.url.href}
 >

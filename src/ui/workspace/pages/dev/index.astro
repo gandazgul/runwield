@@ -5,6 +5,29 @@ if (!import.meta.env.DEV) {
     return new Response("Not found", { status: 404 });
 }
 
+const planVariants = [
+    { id: "feature", label: "FEATURE Plan" },
+    { id: "project", label: "PROJECT Epic" },
+    { id: "stale", label: "Stale review" },
+    { id: "expired", label: "Expired review" },
+    { id: "recovery", label: "Recovery required" },
+    { id: "read-plan", label: "Read-only Plan" },
+    { id: "read-work-record", label: "Read-only Work Record" },
+] as const;
+
+const planReviewLinks = planVariants.flatMap((variant) => [
+    {
+        href: `/dev/plan-review?variant=${variant.id}`,
+        label: `${variant.label} · standalone`,
+        detail: "TUI/browser launcher shell",
+    },
+    {
+        href: `/dev/workspace/plan-review?variant=${variant.id}`,
+        label: `${variant.label} · Workspace`,
+        detail: "In-situ Workspace shell",
+    },
+]);
+
 const groups = [
     {
         title: "Plan Board",
@@ -16,15 +39,8 @@ const groups = [
     },
     {
         title: "Plan Review",
-        description: "One PlanReviewSurface in both contexts.",
-        links: [
-            { href: "/dev/plan-review", label: "Standalone Plan Review", detail: "TUI/browser launcher shell" },
-            {
-                href: "/dev/workspace/plan-review",
-                label: "Workspace Plan Review",
-                detail: "In-situ Session presentation",
-            },
-        ],
+        description: "Every Plan presentation in standalone and Workspace shells.",
+        links: planReviewLinks,
     },
     {
         title: "Code Review",

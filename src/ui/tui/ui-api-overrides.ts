@@ -73,6 +73,40 @@ export function installUiApiOverrides({
     const basePromptText = uiAPI.promptText.bind(uiAPI);
     uiAPI.promptText = (...args) => runWithInlinePrompt(() => basePromptText(...args));
 
+    uiAPI.promptComposerText = (title, promptOptions = {}) => {
+        return new Promise((resolve) => {
+            const previousSubmit = editor.onSubmit;
+            const previousDisabled = editor.disableSubmit === true;
+            const previousText = editor.getText?.() || "";
+            const allowEmpty = promptOptions.allowEmpty !== false;
+            const hint = promptOptions.placeholder ? `${promptOptions.placeholder} ` : "";
+            uiAPI.appendSystemMessage(`${hint}Use the message input below. Press Enter to send.`, false, title);
+            editor.disableSubmit = false;
+            editor.setText(promptOptions.defaultValue || "");
+            tui.setFocus(editor);
+            tui.requestRender();
+
+            const restore = () => {
+                editor.onSubmit = previousSubmit;
+                editor.disableSubmit = previousDisabled;
+                if (previousText) editor.setText(previousText);
+                tui.requestRender();
+            };
+
+            editor.onSubmit = (text: string) => {
+                const finalValue = text || promptOptions.defaultValue || "";
+                if (!allowEmpty && !finalValue.trim()) {
+                    editor.setText(text);
+                    tui.requestRender();
+                    return;
+                }
+                editor.setText("");
+                restore();
+                resolve(finalValue);
+            };
+        });
+    };
+
     uiAPI.showModelSelector = (initialSearchInput?: string) => {
         return new Promise((resolve, reject) => {
             const modelRegistry = getModelRegistry();

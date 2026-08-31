@@ -610,6 +610,8 @@ const GUIDE_DEV_VARIANTS = [
     { id: "failed", label: "Failed generation" },
 ];
 
+const PLAN_DEV_VARIANTS = ["feature", "project", "stale", "expired", "recovery", "read-plan", "read-work-record"];
+
 function buildCodeReviewDevPayload(variant) {
     const base = {
         rawPatch: CODE_REVIEW_FIXTURE,
@@ -659,10 +661,10 @@ function buildCodeReviewDevPayload(variant) {
     };
 }
 
-export function ReviewDevSurface({ surface, presentation = "standalone" }) {
+export function ReviewDevSurface({ surface, presentation = "standalone", variant = "feature" }) {
     const isPlan = surface === "plan";
     const [guideVariant, setGuideVariant] = React.useState("ready");
-    const [planVariant, setPlanVariant] = React.useState("feature");
+    const planVariant = PLAN_DEV_VARIANTS.includes(variant) ? variant : "feature";
     const planNotice = planVariant === "stale"
         ? {
             state: "stale",
@@ -777,30 +779,6 @@ export function ReviewDevSurface({ surface, presentation = "standalone" }) {
         return React.createElement(
             React.Fragment,
             null,
-            React.createElement(
-                "nav",
-                { className: "rw-dev-fixture-switcher", "aria-label": "Plan Review dev fixtures" },
-                [
-                    { id: "feature", label: "FEATURE Plan" },
-                    { id: "project", label: "PROJECT Epic" },
-                    { id: "stale", label: "Stale review" },
-                    { id: "expired", label: "Expired review" },
-                    { id: "recovery", label: "Recovery required" },
-                    { id: "read-plan", label: "Read-only Plan" },
-                    { id: "read-work-record", label: "Read-only Work Record" },
-                ].map((variant) =>
-                    React.createElement(
-                        "button",
-                        {
-                            key: variant.id,
-                            type: "button",
-                            className: planVariant === variant.id ? "active" : "",
-                            onClick: () => setPlanVariant(variant.id),
-                        },
-                        variant.label,
-                    )
-                ),
-            ),
             planVariant === "read-plan"
                 ? React.createElement(ArtifactReadSurface, { key: planVariant, payload: readPlanPayload, presentation })
                 : planVariant === "read-work-record"

@@ -22,6 +22,7 @@ parentPlan: "consolidate-project-runtime-state"
 order: 8
 dependencies:
     - "07-enforce-git-and-publication-safety"
+planId: "6ec4a242-ca8e-4d00-ba74-fe141b7159a7"
 targetBranch: "epic/consolidate-project-runtime-state"
 ---
 

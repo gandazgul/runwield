@@ -155,13 +155,15 @@
         const header = document.querySelector("[data-workspace-main-header-left]");
         if (!header) return;
         header.querySelector("[data-workspace-sidebar-restore]")?.remove();
-        header.querySelector(".workspace-main-session-name")?.remove();
+        header.querySelector("[data-workspace-main-session-name]")?.remove();
         const title = sessionTitleFromPayload(payload, current);
         const restore =
             `<button class="rw-toolbar-button workspace-sidebar-restore" type="button" data-workspace-sidebar-restore aria-label="Open Workspace sidebar" title="Open Workspace sidebar">${
                 panelCollapseIcon("right")
             }</button>`;
-        const sessionName = title ? `<strong class="workspace-main-session-name">${html(title)}</strong>` : "";
+        const sessionName = title
+            ? `<strong class="workspace-main-session-name" data-workspace-main-session-name>${html(title)}</strong>`
+            : "";
         header.insertAdjacentHTML("beforeend", `${restore}${sessionName}`);
         header.querySelector("[data-workspace-sidebar-restore]")?.addEventListener("click", (event) => {
             event.stopPropagation();
