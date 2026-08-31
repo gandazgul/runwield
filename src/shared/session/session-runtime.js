@@ -1669,10 +1669,10 @@ export class SessionRuntime {
             const { createReviewDiffTool, buildDiffInspectionSection } = await import(
                 "../workflow/review-diff-tool.js"
             );
-            const { readLatestTaskCompletedMessage, readLatestTaskCompletedOutcome } = await import(
-                "../workflow/workflow-results.js"
+            const { acknowledgeTaskCompletion, claimPendingTaskCompletion } = await import(
+                "./task-completion-session.ts"
             );
-            const messages = await runActiveAgentTurn({
+            await runActiveAgentTurn({
                 hostedSession: session,
                 agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
                 userRequest: buildValidationRepairPrompt({
@@ -1696,10 +1696,12 @@ export class SessionRuntime {
                 cwd: executionCwd,
                 dispatchKind: "validation_repair",
                 subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
-                customTools: [createReviewDiffTool({ full: continuation.repair.diffText })],
+                customTools: [createReviewDiffTool({ full: continuation.repair.diffText }, { hostedSession: session })],
             });
-            const completed = readLatestTaskCompletedOutcome(messages);
-            const report = readLatestTaskCompletedMessage(messages) || "";
+            const acceptedCompletion = claimPendingTaskCompletion(session, null);
+            const completed = Boolean(acceptedCompletion);
+            const report = acceptedCompletion?.report || "";
+            if (acceptedCompletion) acknowledgeTaskCompletion(session, acceptedCompletion);
             session.setActiveExecutionWorkflow(
                 /** @type {any} */ ({
                     ...continuation.activeWorkflow,

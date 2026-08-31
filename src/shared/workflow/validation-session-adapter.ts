@@ -31,17 +31,18 @@ import {
     setCurrentValidationProgress,
 } from "./validation-progress.ts";
 import { clearValidationPosition, rememberValidationPosition } from "./validation-position.ts";
-import {
-    hasTrustedClaudeMcpReview,
-    runFeaturePostVerificationHandoffs,
-    usedReviewDiffTool,
-} from "./validation-helpers.ts";
-import { extractAssistantOutput, readLatestReviewOutcome, readLatestTaskCompletedReport } from "./workflow.js";
+import { hasTrustedClaudeMcpReview, runFeaturePostVerificationHandoffs } from "./validation-helpers.ts";
+import { extractAssistantOutput, readLatestTaskCompletedReport } from "./workflow.js";
+import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
+import { createReviewDiffTool } from "./review-diff-tool.js";
+import { createQaChecklistGeneratedTool } from "../../tools/qa-checklist-generated.ts";
+import { claimWorkflowToolEvent, settleWorkflowToolEvent } from "./workflow-tool-events.ts";
 import type { RuntimeValidationProgress } from "../session/session-runtime-events.js";
 import type {
     AgentTurnOutcome,
     IsolatedAgentSessionOutcome,
     IsolatedAgentSessionRequest,
+    OpaqueToolDefinition,
     SessionManagerHandle,
     ValidationSessionPort,
 } from "./validation-ports.ts";
@@ -197,34 +198,28 @@ function readReviewerToolFailure(messages: AgentMessage[]): ValidationOperationa
     return undefined;
 }
 
-function readLatestQaChecklistGeneratedOutcome(
-    messages: AgentMessage[],
-): Extract<IsolatedAgentSessionOutcome, { kind: "manual_qa" }> {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-        const message = messages[index];
-        if (!(message && "role" in message && message.role === "toolResult")) continue;
-        if (!("toolName" in message) || message.toolName !== "qa_checklist_generated") continue;
-        const details =
-            (message as { details?: { outcome?: unknown; relativePath?: unknown; reason?: unknown } }).details || {};
-        const outcome = details.outcome;
-        if (outcome === "recorded" || outcome === "already_present") {
-            return {
-                kind: "manual_qa",
-                outcome,
-                relativePath: typeof details.relativePath === "string" ? details.relativePath : undefined,
-            };
-        }
-        return {
-            kind: "manual_qa",
-            outcome: "rejected",
-            warning: typeof details.reason === "string" ? details.reason : "Manual QA checklist tool rejected output.",
-        };
-    }
-    return {
-        kind: "manual_qa",
-        outcome: "missing_tool_call",
-        warning: "Manual QA Agent did not call qa_checklist_generated.",
-    };
+type ReviewDiffToolOptions = Parameters<typeof createReviewDiffTool>[1];
+type ReviewDiffToolWithOptions = ToolDefinition & {
+    __runwieldReviewDiffs?: Parameters<typeof createReviewDiffTool>[0];
+};
+type QaChecklistToolOptions = Parameters<typeof createQaChecklistGeneratedTool>[0];
+type QaChecklistToolWithOptions = ToolDefinition & { __runwieldQaChecklistOptions?: QaChecklistToolOptions };
+
+function bindReviewDiffTools(hostedSession: HostedSession, customTools: OpaqueToolDefinition[]): ToolDefinition[] {
+    return (customTools as unknown as ToolDefinition[]).map((tool) => {
+        const tagged = tool as ReviewDiffToolWithOptions;
+        if (tagged.name !== "review_diff" || tagged.__runwieldReviewDiffs === undefined) return tool;
+        const options: ReviewDiffToolOptions = { hostedSession };
+        return createReviewDiffTool(tagged.__runwieldReviewDiffs, options);
+    });
+}
+
+function bindQaChecklistTools(hostedSession: HostedSession, customTools: OpaqueToolDefinition[]): ToolDefinition[] {
+    return (customTools as unknown as ToolDefinition[]).map((tool) => {
+        const tagged = tool as QaChecklistToolWithOptions;
+        if (tagged.name !== "qa_checklist_generated" || !tagged.__runwieldQaChecklistOptions) return tool;
+        return createQaChecklistGeneratedTool({ ...tagged.__runwieldQaChecklistOptions, hostedSession });
+    });
 }
 
 /**
@@ -255,24 +250,56 @@ async function runIsolatedRequest(
                 options: { reviewerMode: request.reviewerMode },
             },
             toolNames: [...REVIEWER_SUBAGENT_TOOLS],
-            customTools: request.customTools as unknown as ToolDefinition[],
+            customTools: bindReviewDiffTools(hostedSession, request.customTools),
             includeEditFallback: false,
             sessionManager: request.sessionManager as unknown as SessionManager,
         });
-        const reviewOutcome = readLatestReviewOutcome(messages);
+        const activeWorkflow = hostedSession.getActiveExecutionWorkflow?.() || null;
+        const claimScope = {
+            owningSession: hostedSession.getActiveSteeringTargetSession(),
+            ...(activeWorkflow?.validationGeneration
+                ? { validationGeneration: activeWorkflow.validationGeneration }
+                : {}),
+        };
+        const reviewEvent = claimWorkflowToolEvent(hostedSession, {
+            kinds: ["review_complete"],
+            ...claimScope,
+        }) || claimWorkflowToolEvent(hostedSession, {
+            kinds: ["review_complete"],
+            owningSession: null,
+            ...(activeWorkflow?.validationGeneration
+                ? { validationGeneration: activeWorkflow.validationGeneration }
+                : {}),
+        });
+        const diffEvent = claimWorkflowToolEvent(hostedSession, {
+            kinds: ["review_diff"],
+            ...claimScope,
+        }) || claimWorkflowToolEvent(hostedSession, {
+            kinds: ["review_diff"],
+            owningSession: null,
+            ...(activeWorkflow?.validationGeneration
+                ? { validationGeneration: activeWorkflow.validationGeneration }
+                : {}),
+        });
+        const reviewOutcome = reviewEvent?.kind === "review_complete"
+            ? reviewEvent.payload as import("./workflow-tool-events.ts").ReviewCompleteEventPayload
+            : null;
         const toolFailure = reviewOutcome ? undefined : readReviewerToolFailure(messages);
         if (toolFailure) {
+            if (diffEvent) settleWorkflowToolEvent(hostedSession, diffEvent);
             return {
                 kind: "reviewer",
                 outcome: "operational_failure",
                 failure: toolFailure,
             };
         }
+        if (reviewEvent) settleWorkflowToolEvent(hostedSession, reviewEvent);
+        if (diffEvent) settleWorkflowToolEvent(hostedSession, diffEvent);
         return {
             kind: "reviewer",
             outcome: "completed",
             reviewOutcome,
-            usedDiffTool: usedReviewDiffTool(messages),
+            usedDiffTool: Boolean(diffEvent),
             trustedClaudeMcpReview: hasTrustedClaudeMcpReview(messages),
         };
     }
@@ -280,17 +307,44 @@ async function runIsolatedRequest(
         const manualQaManager = request.sessionManager
             ? request.sessionManager as unknown as SessionManager
             : SessionManager.inMemory(request.cwd);
-        const messages = await isolatedSessions.runIsolatedAgentSession({
+        await isolatedSessions.runIsolatedAgentSession({
             hostedSession,
             agentName: request.agentName,
             userRequest: request.userRequest,
             cwd: request.cwd,
             subAgentDefinition: { id: SUBAGENTS.MANUAL_QA },
-            customTools: request.customTools as unknown as ToolDefinition[],
+            customTools: bindQaChecklistTools(hostedSession, request.customTools),
             includeEditFallback: false,
             sessionManager: manualQaManager,
         });
-        return readLatestQaChecklistGeneratedOutcome(messages);
+        const activeWorkflow = hostedSession.getActiveExecutionWorkflow?.() || null;
+        const qaEvent = claimWorkflowToolEvent(hostedSession, {
+            kinds: ["qa_checklist_generated"],
+            owningSession: hostedSession.getActiveSteeringTargetSession(),
+            ...(activeWorkflow?.validationGeneration
+                ? { validationGeneration: activeWorkflow.validationGeneration }
+                : {}),
+        }) || claimWorkflowToolEvent(hostedSession, {
+            kinds: ["qa_checklist_generated"],
+            owningSession: null,
+            ...(activeWorkflow?.validationGeneration
+                ? { validationGeneration: activeWorkflow.validationGeneration }
+                : {}),
+        });
+        if (qaEvent?.kind !== "qa_checklist_generated") {
+            return {
+                kind: "manual_qa",
+                outcome: "missing_tool_call",
+                warning: "Manual QA Agent did not call qa_checklist_generated.",
+            };
+        }
+        settleWorkflowToolEvent(hostedSession, qaEvent);
+        const payload = qaEvent.payload as import("./workflow-tool-events.ts").QaChecklistGeneratedEventPayload;
+        return {
+            kind: "manual_qa",
+            outcome: payload.outcome,
+            relativePath: payload.artifactPath,
+        };
     }
     const repairManager = request.sessionManager
         ? request.sessionManager as unknown as SessionManager
@@ -306,7 +360,7 @@ async function runIsolatedRequest(
         customTools: request.customTools as unknown as ToolDefinition[],
         sessionManager: repairManager,
     });
-    const report = readRepairTurnOutcome(messages);
+    const report = readRepairTurnOutcome(hostedSession, messages);
     lastRepairSessions.set(hostedSession, {
         manager: repairManager,
         cwd: request.cwd,
@@ -329,7 +383,12 @@ async function runIsolatedRequest(
  * `task_completed`, and that session is isolated from the user, so the closing
  * text is carried out here or the pause says only that the turn ended.
  */
-function readRepairTurnOutcome(messages: AgentMessage[]): AgentTurnOutcome {
+function readRepairTurnOutcome(hostedSession: HostedSession, messages: AgentMessage[]): AgentTurnOutcome {
+    const completion = claimPendingTaskCompletion(hostedSession, null);
+    if (completion) {
+        acknowledgeTaskCompletion(hostedSession, completion);
+        return { completed: true, report: completion.report };
+    }
     const report = readLatestTaskCompletedReport(messages);
     if (report.completed) return { completed: true, report: report.message };
     return { completed: false, report: "", blockerText: extractAssistantOutput(messages) || "" };
@@ -381,7 +440,7 @@ export function createValidationSessionPort(
                 subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
                 sessionManager: repairManager,
             });
-            const completion = readRepairTurnOutcome(messages);
+            const completion = readRepairTurnOutcome(hostedSession, messages);
             lastRepairSessions.set(hostedSession, { manager: repairManager, cwd, agentName });
             if (completion.completed) clearPendingRepairManager(hostedSession, cwd, userRequest);
             return completion;
@@ -408,7 +467,7 @@ export function createValidationSessionPort(
                     subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
                     sessionManager: repair!.manager,
                 });
-            return readRepairTurnOutcome(messages);
+            return readRepairTurnOutcome(hostedSession, messages);
         },
         createInMemorySessionManager: (cwd) => SessionManager.inMemory(cwd) as unknown as SessionManagerHandle,
         runIsolatedAgentSession: async <K extends IsolatedAgentSessionRequest["kind"]>(

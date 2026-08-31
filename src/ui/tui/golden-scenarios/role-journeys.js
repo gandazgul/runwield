@@ -249,16 +249,22 @@ export const engineerQuickFixMechanicalValidationScenario = {
     script: [
         triageTurn("QUICK_FIX"),
         {
-            id: "engineer-complete",
+            id: "engineer-implements-quick-fix",
             agent: "engineer",
             phase: "engineer",
             ordinal: 1,
-            requiredTools: ["bash", "task_completed"],
+            requiredTools: ["bash"],
             text: "Tests and CI passed after QUICK_FIX.",
-            toolCalls: [
-                { name: "bash", arguments: { command: "printf quick > golden-quick-fix.txt" } },
-                { name: "task_completed", arguments: { message: "- QUICK_FIX implemented and verified." } },
-            ],
+            toolCalls: [{ name: "bash", arguments: { command: "printf quick > golden-quick-fix.txt" } }],
+        },
+        {
+            id: "engineer-reports-quick-fix-complete",
+            agent: "engineer",
+            phase: "engineer",
+            ordinal: 2,
+            requiredTools: ["task_completed"],
+            text: "Task completed.",
+            toolCalls: [{ name: "task_completed", arguments: { message: "- QUICK_FIX implemented and verified." } }],
         },
     ],
     actions: [

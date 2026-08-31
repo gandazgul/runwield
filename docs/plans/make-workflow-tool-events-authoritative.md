@@ -1,4 +1,5 @@
 ---
+planId: "c4f4bd36-cb3c-4972-a9b7-dbc6b5b84bab"
 classification: "PLANNED_CHANGE"
 workKind: "BUG_FIX"
 complexity: "HIGH"
@@ -18,10 +19,15 @@ tickets:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-30T18:01:47-04:00"
-status: "ready_for_work"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
-planId: "c4f4bd36-cb3c-4972-a9b7-dbc6b5b84bab"
+workRecord:
+    status: "generated"
+    recordId: "8106889d-c62b-4b01-b6ce-39a7c373bb98"
+    path: "docs/work-records/2026-08-31-workflow-tool-events-became-authoritative.md"
+    lastAttemptAt: "2026-08-31T15:05:17.982Z"
+targetBranch: "main"
 ---
 
 # Make Workflow Tool Events Authoritative

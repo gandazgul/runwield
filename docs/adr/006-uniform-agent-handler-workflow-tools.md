@@ -18,14 +18,19 @@ could call `triage_report` successfully but nothing would dispatch the workflow 
 
 All active Agents use one Agent Handler.
 
-The Agent Handler runs the active Agent turn, then inspects workflow Custom Tool outcomes from that turn:
+The Agent Handler does not infer workflow transitions from returned messages or transcript text. Accepted workflow
+Custom Tools publish typed Workflow Tool Events. The handler or validation owner claims the event once and settles it
+after the durable lifecycle or validation checkpoint is safe to retry.
 
-- `triage_report` starts post-triage workflow dispatch.
-- `plan_written` starts Plan execution or keeps the planning Agent active, depending on the Review Loop outcome.
-- `task_completed` continues active execution or Workflow Validation when execution context exists.
+- `triage_report` publishes routing data and starts post-triage workflow dispatch.
+- `plan_written` publishes the Plan review outcome and starts execution, starts decomposition, or keeps planning active.
+- `task_completed` publishes the accepted completion and continues active execution or Workflow Validation when
+  execution context exists.
+- `review_diff`, `review_complete`, and `qa_checklist_generated` publish isolated validation evidence for the current
+  owner and generation.
 
 Router is the default Agent for fresh Triage, but Router has no special runtime handler. If another Agent is granted
-`triage_report`, the same post-triage workflow dispatch runs from that tool outcome.
+`triage_report`, the same post-triage workflow dispatch runs from that accepted event.
 
 Agent switching is uniform. Boot, `/agent`, `return_to_router`, Plan recovery, validation restore, and workflow steps
 activate an Agent by installing the same Agent Handler for the chosen Agent Name.
@@ -39,11 +44,11 @@ Agent Handler with explicit session data for that Agent Definition and its workf
 
 ### Positive
 
-- **Locality**: workflow outcome interpretation is concentrated in the Agent Handler instead of spread across activation
-  call sites.
-- **Leverage**: adding a workflow Custom Tool to an Agent preserves the tool's semantics without new handler code.
+- **Locality**: workflow outcome interpretation is concentrated in the Agent Handler and validation owner instead of
+  spread across activation call sites.
+- **Leverage**: adding a workflow Custom Tool to an Agent preserves the tool's semantics through one event contract.
 - **Simpler session model**: active Agent identity is data; there is no hidden "Router mode."
-- **Better tests**: regressions can assert that any Agent emitting `triage_report` dispatches workflow.
+- **Safer authority**: forged or stale transcript-shaped tool results cannot advance workflow state.
 
 ### Negative
 

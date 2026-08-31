@@ -1,6 +1,9 @@
 /**
  * @module shared/workflow/workflow-results
- * Helpers for extracting workflow outcomes from agent message streams.
+ * Helpers for extracting human-readable text and legacy test outcomes from
+ * agent message streams. Production workflow transitions should prefer
+ * Workflow Tool Events; transcript-derived tool results are display, audit, or
+ * compatibility data only.
  */
 
 /**

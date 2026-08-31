@@ -88,14 +88,17 @@ status: approved
     return { tool, hostedSession, events, interactionRequests, readPlan, cwd };
 }
 
+let nextToolCallSequence = 0;
+
 /**
  * @param {Awaited<ReturnType<typeof makeHarness>>["tool"]} tool
  * @param {string} [planName]
  * @param {(result: any) => void} [onUpdate]
  */
 function execute(tool, planName = "runtime-boundary", onUpdate = () => {}, params = {}) {
+    nextToolCallSequence += 1;
     return /** @type {any} */ (tool.execute)(
-        "call",
+        `call-${nextToolCallSequence}`,
         {
             planName,
             ...params,

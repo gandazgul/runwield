@@ -107,6 +107,11 @@ Router.
 **Triage Report**: The structured output of Triage containing routing intent, complexity, summary, and an optional
 auto-generated Session Name. _Avoid_: Triage result, classification result
 
+**Workflow Tool Event**: A RunWield-owned, typed, consume-once event published only after an accepted workflow Custom
+Tool call. It carries the tool-call ID, owner, turn, workflow attempt or validation generation, semantic payload, and
+accepted time. Workflow owners claim it once and settle it after a safe lifecycle or validation checkpoint. A Session
+Transcript can show the same tool result for users, but it cannot route, approve, validate, or complete workflow state.
+
 **Diagnostic Triage**: Read-only Triage for user-reported broken behavior that gathers enough evidence to estimate
 likely blast radius without reproducing, instrumenting, or fixing the issue. _Avoid_: Diagnosis, debugging,
 mini-debugger

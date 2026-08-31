@@ -21,7 +21,9 @@ Deno.test("design-system Dialog primitive is importable and styled", async () =>
 });
 
 Deno.test("React action primitives preserve button and link semantics", () => {
+    /** @type {{ type: string, props: { type?: string, className: string, href?: string } }} */
     const button = RunWieldButton({ children: "Save" });
+    /** @type {{ type: string, props: { type?: string, className: string, href?: string } }} */
     const link = RunWieldLink({ children: "Open", href: "/plans", variant: "primary" });
     assertEquals(button.type, "button");
     assertEquals(button.props.type, "button");

@@ -1,6 +1,7 @@
 import { assertEquals, assertNotEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
+import { publishWorkflowToolEvent } from "./workflow-tool-events.ts";
 import { captureWorktreeTree } from "./git-snapshot.js";
 import {
     git,
@@ -92,9 +93,36 @@ function repairMessages(message = "R1-1 — fixed: added the missing guard.") {
  * @param {Record<string, unknown>} [overrides]
  */
 function reviewPort(overrides = {}) {
+    const overrideRun = typeof overrides.runIsolatedAgentSession === "function"
+        ? overrides.runIsolatedAgentSession
+        : () => Promise.reject(new Error("Unexpected isolated Agent session"));
+    let toolCallCounter = 0;
     return /** @type {any} */ ({
-        runIsolatedAgentSession: () => Promise.reject(new Error("Unexpected isolated Agent session")),
         ...overrides,
+        runIsolatedAgentSession: async (/** @type {any} */ opts) => {
+            const messages = await overrideRun(opts);
+            for (const message of messages || []) {
+                if (message?.role !== "toolResult" || message.isError) continue;
+                toolCallCounter += 1;
+                const toolCallId = message.toolCallId || `${message.toolName}-test-${toolCallCounter}`;
+                const tool = opts.customTools?.find((/** @type {any} */ candidate) =>
+                    candidate.name === message.toolName
+                );
+                if (tool) {
+                    await tool.execute(toolCallId, message.details || {});
+                    continue;
+                }
+                if (message.toolName === "review_complete") {
+                    publishWorkflowToolEvent({
+                        hostedSession: opts.hostedSession,
+                        toolCallId,
+                        kind: "review_complete",
+                        payload: message.details || {},
+                    });
+                }
+            }
+            return messages;
+        },
     });
 }
 
@@ -811,8 +839,7 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 2 },
         supportsSemanticRepairHandoff: true,
-        semanticReviewPort: {
-            ...roundLimitPort(),
+        semanticReviewPort: reviewPort({
             runIsolatedAgentSession: () => {
                 modes.push("verify");
                 round += 1;
@@ -820,7 +847,7 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
                     reviewerMessages({ approved: false, findings: [{ title: "Issue from round 1" }] }),
                 );
             },
-        },
+        }),
         localCI: {
             run: () => {
                 ciRuns += 1;
