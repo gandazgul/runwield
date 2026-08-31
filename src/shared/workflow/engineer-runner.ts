@@ -5,7 +5,7 @@ import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.ts";
 import { buildEngineerRequest } from "./workflow-prompts.js";
-import { readLatestTaskCompletedMessage, readLatestTaskCompletedOutcome } from "./workflow-results.js";
+import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
 import { CollaborationStyles, PairPauseReasons } from "./execution-collaboration.ts";
 import { resolvePlanExecutionRuntimeAgent } from "./execution-agent.ts";
 
@@ -58,8 +58,15 @@ export async function runEngineerWithPlan(
     }
 
     const pauseReason = hostedSession.getActiveExecutionWorkflow?.()?.pairPauseReason;
-    const completed = !pauseReason && readLatestTaskCompletedOutcome(messages);
-    const completionReport = completed ? readLatestTaskCompletedMessage(messages) || undefined : undefined;
+    const activeOwnerSession = hostedSession.getActiveSteeringTargetSession?.() || null;
+    const rootOwnerSession = hostedSession.getRootAgentSession() || null;
+    const acceptedCompletion = !pauseReason
+        ? claimPendingTaskCompletion(hostedSession, activeOwnerSession) ||
+            claimPendingTaskCompletion(hostedSession, rootOwnerSession)
+        : null;
+    const completed = Boolean(acceptedCompletion);
+    const completionReport = acceptedCompletion?.report || undefined;
+    if (acceptedCompletion) acknowledgeTaskCompletion(hostedSession, acceptedCompletion);
     if (!completed) {
         emitSystemStatus(
             hostedSession,
@@ -144,8 +151,15 @@ export async function runEngineerWithSegmentHandoff({ continuation, sessionManag
         return { completed: false, messages: rootMessages, error: errorMessage };
     }
     const pauseReason = hostedSession.getActiveExecutionWorkflow?.()?.pairPauseReason;
-    const completed = !pauseReason && readLatestTaskCompletedOutcome(messages);
-    const completionReport = completed ? readLatestTaskCompletedMessage(messages) || undefined : undefined;
+    const activeOwnerSession = hostedSession.getActiveSteeringTargetSession?.() || null;
+    const rootOwnerSession = hostedSession.getRootAgentSession() || null;
+    const acceptedCompletion = !pauseReason
+        ? claimPendingTaskCompletion(hostedSession, activeOwnerSession) ||
+            claimPendingTaskCompletion(hostedSession, rootOwnerSession)
+        : null;
+    const completed = Boolean(acceptedCompletion);
+    const completionReport = acceptedCompletion?.report || undefined;
+    if (acceptedCompletion) acknowledgeTaskCompletion(hostedSession, acceptedCompletion);
     if (!completed) {
         emitSystemStatus(
             hostedSession,

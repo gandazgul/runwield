@@ -1,6 +1,12 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { type ExtensionContext, SessionManager } from "@earendil-works/pi-coding-agent";
+import { Type } from "@earendil-works/pi-ai";
+import {
+    defineTool,
+    type ExtensionContext,
+    SessionManager,
+    type ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { createTaskCompletedTool } from "../../tools/task-completed.ts";
 import { type AgentHandler, createAgentHandler } from "./agent-handler.ts";
@@ -8,6 +14,7 @@ import { HostedSession } from "./hosted-session.js";
 import { ensureRootAgentSession } from "./session.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { setCustomSetting } from "../settings.js";
+import { publishWorkflowToolEvent } from "../workflow/workflow-tool-events.ts";
 import { listPendingTaskCompletions } from "./task-completion-session.ts";
 
 const EXTENSION_CONTEXT = {} as ExtensionContext;
@@ -35,6 +42,7 @@ async function activateHandler(
     projectRoot: string,
     agentName: string,
     events: CapturedRuntimeEvent[],
+    customTools?: ToolDefinition[],
 ): Promise<ActiveHandlerFixture> {
     const sessionManager = SessionManager.inMemory(projectRoot);
     const hostedSession = new HostedSession({
@@ -43,14 +51,23 @@ async function activateHandler(
         sessionManager: hostedSessionManager(sessionManager),
         eventSink: { emit: (event: CapturedRuntimeEvent) => events.push(event) },
     });
-    const handler = createAgentHandler(agentName, { hostedSession });
+    const handler = createAgentHandler(agentName, { hostedSession, customTools });
     await ensureRootAgentSession({
         hostedSession,
         agentName,
         activeHandler: handler,
         sessionManager,
+        customTools,
     });
     return { handler, hostedSession, sessionManager };
+}
+
+function deferredVoid(): { promise: Promise<void>; resolve: () => void } {
+    let resolve: () => void = () => {};
+    const promise = new Promise<void>((done) => {
+        resolve = done;
+    });
+    return { promise, resolve };
 }
 
 Deno.test("agent handler completes a real root turn and requests user attention", async () => {
@@ -70,6 +87,44 @@ Deno.test("agent handler completes a real root turn and requests user attention"
             ),
             true,
         );
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("agent handler dispatches plan_written before the root turn finishes", async () => {
+    await withRuntimeCommandFixture("agent-handler-live-plan-", async ({ projectRoot, setModelMessages }) => {
+        const events: CapturedRuntimeEvent[] = [];
+        const releaseTool = deferredVoid();
+        let toolReturned = false;
+        const planTool = defineTool({
+            name: "plan_written",
+            label: "Plan Written",
+            description: "Publish a saved Plan outcome for the live event handoff test.",
+            parameters: Type.Object({}),
+            async execute(toolCallId) {
+                publishWorkflowToolEvent({
+                    hostedSession: fixture.hostedSession,
+                    toolCallId,
+                    kind: "plan_written",
+                    payload: { outcome: "saved", planName: "event-plan" },
+                });
+                await releaseTool.promise;
+                toolReturned = true;
+                return {
+                    content: [{ type: "text" as const, text: "Plan saved." }],
+                    details: { outcome: "saved", planName: "event-plan" },
+                    terminate: false,
+                };
+            },
+        });
+        setModelMessages([fauxAssistantMessage(fauxToolCall("plan_written", {}))]);
+        const fixture: ActiveHandlerFixture = await activateHandler(projectRoot, "guide", events, [planTool]);
+
+        const result = await fixture.handler("Save the Plan.", [], fixture.sessionManager);
+
+        assertEquals(result, { kind: "complete" });
+        assertEquals(toolReturned, false);
+        releaseTool.resolve();
         fixture.hostedSession.dispose();
     });
 });

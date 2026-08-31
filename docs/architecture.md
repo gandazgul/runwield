@@ -14,7 +14,7 @@ when appropriate, a durable Plan workflow. The central design goals are:
 
 - keep conversation and execution state scoped to an explicit project root;
 - make the session runtime independent of any one presentation protocol;
-- use agent tool results as structured workflow signals;
+- use accepted Workflow Tool Events as structured workflow signals;
 - keep Plan state in versionable Markdown rather than an opaque database;
 - isolate implementation work in Git worktrees when Git is available;
 - require explicit completion and validation signals before advancing durable state;
@@ -454,8 +454,9 @@ sequenceDiagram
         Runtime-->>Adapter: subscribed runtime event
     end
 
-    Pi-->>Handler: final message stream
-    Handler->>Workflow: interpret current-turn tool results
+    Pi-->>WorkflowEvents: accepted workflow Custom Tool call
+    WorkflowEvents-->>Handler: owner-scoped consume-once event
+    Pi-->>Handler: final message stream for display and audit only
 
     alt triage or Plan workflow
         Workflow->>Hosted: switch agent or record active workflow
@@ -470,9 +471,9 @@ sequenceDiagram
 ```
 
 `HostedSession.beginTurn()` is the concurrency gate. A second prompt for the same hosted session raises
-`SessionTurnInProgressError`; different hosted sessions can progress independently. A Custom Tool outcome can drive
-deterministic workflow progression through the active handler, but it cannot change the root Agent or create a chained
-root turn.
+`SessionTurnInProgressError`; different hosted sessions can progress independently. An accepted Workflow Tool Event can
+drive deterministic workflow progression through the active handler, but transcript text and replayed `toolResult`
+messages cannot change the root Agent or create a chained root turn.
 
 Agent switching is transactional. The target root session is built before the active handler is replaced, so a build
 failure leaves the previous root/handler pair intact. Root reuse preserves conversational context while the same agent

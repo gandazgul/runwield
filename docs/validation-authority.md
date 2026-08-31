@@ -33,9 +33,10 @@ Error text is for people and diagnostics. It is not a lifecycle discriminator.
 
 ## Mechanical repair completion and restart
 
-CI repairs run in isolated Reviewer-Feedback Engineer turns. When such a turn returns a structured `task_completed`
-result to the live validation owner, that owner immediately reruns Mechanical Validation. The result is not a root
-Session Task Completion journal entry, so the root Agent Handler cannot claim or acknowledge it.
+CI repairs run in isolated Reviewer-Feedback Engineer turns. When such a turn accepts `task_completed`, it publishes an
+owner-scoped Workflow Tool Event to the live validation owner. That owner claims the event once and immediately reruns
+Mechanical Validation. The result is not a root Session Task Completion journal entry, so the root Agent Handler cannot
+claim or acknowledge it.
 
 If the process stops before dispatch, during the repair, or after the repair edits files but before the result is
 handled, RunWield does not replay the Agent turn and does not infer success from transcript text. A later validation

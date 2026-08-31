@@ -44,7 +44,6 @@ import { buildAgentHandoffRequest } from "./workflow-prompts.js";
 import {
     executePlan,
     extractAssistantOutput,
-    readLatestTaskCompletedOutcome,
     resolveExecutionOwner,
     runPlanningAgent,
     runSlicerAgent,
@@ -55,6 +54,7 @@ import type { LocalCIPort } from "./validation-local-ci.ts";
 import { createGitPort } from "../git-port.ts";
 import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../work-records/mnemosyne-port.ts";
 import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
+import { waitForWorkflowToolEvent } from "./workflow-tool-events.ts";
 
 export { runLocalCI, runMechanicalValidation } from "./validation.ts";
 
@@ -148,6 +148,43 @@ function refreshedQuickFixWorkflow(
     };
 }
 
+async function runRootTurnUntilTaskCompletion(args: {
+    hostedSession: import("../session/hosted-session.js").HostedSession;
+    agentName: string;
+    userRequest: string;
+    images?: import("../session/types.js").ImageAttachment[];
+    dispatchKind?: import("../session/request-dispatch.ts").RequestDispatchKind;
+}): Promise<AgentMessage[]> {
+    const waitController = new AbortController();
+    const turnController = new AbortController();
+    const turnId = args.hostedSession.getActiveTurnId?.() || undefined;
+    const eventPromise = waitForWorkflowToolEvent(args.hostedSession, {
+        kinds: ["task_completed"],
+        owningSession: args.hostedSession.getRootAgentSession() || null,
+        ...(turnId ? { turnId } : {}),
+        signal: waitController.signal,
+    });
+    const turnPromise = runRootTurn({
+        hostedSession: args.hostedSession,
+        agentName: args.agentName,
+        userRequest: args.userRequest,
+        images: args.images,
+        dispatchKind: args.dispatchKind,
+        signal: turnController.signal,
+    });
+    const first = await Promise.race([
+        eventPromise.then(() => ({ kind: "event" as const })),
+        turnPromise.then((messages) => ({ kind: "turn" as const, messages })),
+    ]);
+    if (first.kind === "event") {
+        turnController.abort(new DOMException("Workflow tool event accepted.", "AbortError"));
+        turnPromise.catch(() => undefined);
+        return [];
+    }
+    waitController.abort(new DOMException("Agent turn finished without workflow event.", "AbortError"));
+    return first.messages;
+}
+
 /**
  * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  * @param {string} projectRoot
@@ -224,6 +261,8 @@ function normalizeTriageOutcome(details: TriageOutcomeInput | null | undefined):
 
 /**
  * Read the latest triage_report tool result's details from a message stream.
+ * This is a compatibility helper for legacy tests and transcript display. Live
+ * routing uses accepted Workflow Tool Events.
  *
  * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
  * @param {number} [fromIndex]
@@ -298,11 +337,6 @@ export async function dispatchPostTriage({
     const activateAgent = async (agentName: string): Promise<void> => {
         await switchActiveAgent(hostedSession, { agentName });
     };
-    const getPreTurnMessageCount = (): number => {
-        const rootAgentSession = hostedSession.getRootAgentSession?.() as RootAgentSessionState | null;
-        return rootAgentSession?.agent?.state?.messages?.length ?? 0;
-    };
-
     applyAutoSessionName(sessionManager, normalizedTriage, hostedSession);
 
     const dispatchTarget = normalizedTriage.routingIntent === "INQUIRY"
@@ -350,14 +384,18 @@ export async function dispatchPostTriage({
         const operatorDisplay = getAgentDisplayName(AGENTS.OPERATOR, projectRoot);
         await activateAgent(AGENTS.OPERATOR);
 
-        const preTurnCount = getPreTurnMessageCount();
-        const messages = await runRootTurn({
+        await runRootTurnUntilTaskCompletion({
             hostedSession,
             agentName: AGENTS.OPERATOR,
             userRequest: decoratedRequest,
             images,
         });
-        const completed = readLatestTaskCompletedOutcome(messages, preTurnCount);
+        const acceptedCompletion = claimPendingTaskCompletion(
+            hostedSession,
+            hostedSession.getRootAgentSession() || null,
+        );
+        const completed = Boolean(acceptedCompletion);
+        if (acceptedCompletion) acknowledgeTaskCompletion(hostedSession, acceptedCompletion);
         await recordMetric({
             category: "execution",
             event: "operation_completed_observed",
@@ -402,15 +440,18 @@ export async function dispatchPostTriage({
             createQuickFixWorkflow(normalizedTriage, projectRoot, manualQaName, initialManualQaContext),
         );
 
-        const preTurnCount = getPreTurnMessageCount();
-        const messages = await runRootTurn({
+        const messages = await runRootTurnUntilTaskCompletion({
             hostedSession,
             agentName: AGENTS.ENGINEER,
             userRequest: decoratedRequest,
             images,
             dispatchKind: "quick_fix",
         });
-        const completed = readLatestTaskCompletedOutcome(messages, preTurnCount);
+        const acceptedCompletion = claimPendingTaskCompletion(
+            hostedSession,
+            hostedSession.getRootAgentSession() || null,
+        );
+        const completed = Boolean(acceptedCompletion);
         if (!completed) {
             await recordMetric({
                 category: "execution",
@@ -427,10 +468,6 @@ export async function dispatchPostTriage({
         }
 
         const manualQaContext = buildQuickFixManualQaContext(decoratedRequest, messages);
-        const acceptedCompletion = claimPendingTaskCompletion(
-            hostedSession,
-            hostedSession.getRootAgentSession() || null,
-        );
         const quickFixWorkflow = hostedSession.getActiveExecutionWorkflow();
         hostedSession.clearActiveExecutionWorkflow();
         const mechanicalResult = await runMechanicalValidation({
