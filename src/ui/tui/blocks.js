@@ -873,14 +873,16 @@ export class PromptSelectBlock {
         this.hintText = hint || "Type to search, arrows to navigate, Enter to select, Esc to cancel";
 
         // Header
-        this._headerText = new Text(theme.fg("text", theme.bold(this.promptTitle)), 0, 0);
+        this._headerText = new Text(theme.fg("text", this.promptTitle), 0, 0);
         this.header = new StyledBlock("selectedBg", 2, 1, this._headerText);
         this.container.addChild(this.header);
+        this.container.addChild(new StyledBlock("selectedBg", 0, 0, new Spacer(1)));
 
         // Search input
         this.input = new Input();
         this.searchBlock = new StyledBlock("selectedBg", 2, 0, this.input);
         this.container.addChild(this.searchBlock);
+        this.container.addChild(new StyledBlock("selectedBg", 0, 0, new Spacer(1)));
 
         // Body with SelectList
         this.list = new SearchableSelectList(items, Math.min(items.length, 10), getSelectListTheme(), layout);
@@ -958,7 +960,7 @@ export class PromptSelectBlock {
     invalidate() {
         // Re-bake header/hint with current theme so theme swaps recolor live.
         if (!this.settled) {
-            this._headerText.setText(theme.fg("text", theme.bold(this.promptTitle)));
+            this._headerText.setText(theme.fg("text", this.promptTitle));
             this._footerText.setText(theme.fg("dim", this.hintText));
         }
         this.container.invalidate();
@@ -986,7 +988,7 @@ export class PromptTextBlock {
         this.hintText = hint || "Enter text and press Enter, Esc to cancel";
 
         // Header
-        this._headerText = new Text(theme.fg("text", theme.bold(this.promptTitle)), 0, 0);
+        this._headerText = new Text(theme.fg("text", this.promptTitle), 0, 0);
         this.header = new StyledBlock("selectedBg", 2, 1, this._headerText);
         this.container.addChild(this.header);
 
@@ -1035,7 +1037,7 @@ export class PromptTextBlock {
 
     invalidate() {
         if (!this.settled) {
-            this._headerText.setText(theme.fg("text", theme.bold(this.promptTitle)));
+            this._headerText.setText(theme.fg("text", this.promptTitle));
             this._footerText.setText(theme.fg("dim", this.hintText));
         }
         this.container.invalidate();

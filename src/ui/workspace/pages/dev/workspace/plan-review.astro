@@ -5,7 +5,14 @@ import { ReviewDevSurface } from "../../../react/ReviewDevSurface.tsx";
 if (!import.meta.env.DEV) {
     return new Response("Not found", { status: 404 });
 }
+const variant = Astro.url.searchParams.get("variant") || "feature";
+const reviewTitle = variant === "project" ? "Fixture PROJECT Epic: Plan Review UI" : "Fixture Test Plan: Plan Review UI";
 ---
-<WorkspaceLayout title="Workspace Plan Review Dev · RunWield" selectedTab="projects" url={Astro.url.href}>
-    <ReviewDevSurface surface="plan" presentation="workspace" client:only="react" />
+<WorkspaceLayout
+    title="Workspace Plan Review Dev · RunWield"
+    surfaceTitle={`Plan Review — ${reviewTitle}`}
+    selectedTab="projects"
+    url={Astro.url.href}
+>
+    <ReviewDevSurface surface="plan" presentation="workspace" variant={variant} client:only="react" />
 </WorkspaceLayout>

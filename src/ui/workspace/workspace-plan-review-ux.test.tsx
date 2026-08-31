@@ -16,6 +16,44 @@ Deno.test("Phone Plan review keeps full editing annotations and actions reachabl
     assertStringIncludes(surface, "Feedback");
 });
 
+Deno.test("Workspace Plan Review uses the owner header and starts directly at the wide workbench", async () => {
+    const route = await Deno.readTextFile(ROUTE_PATH);
+    const surface = await Deno.readTextFile(SURFACE_PATH);
+    const layout = await Deno.readTextFile("src/ui/workspace/layouts/WorkspaceLayout.astro");
+    const shell = await Deno.readTextFile("src/ui/workspace/static/workspace-shell.ts");
+    const portal = await Deno.readTextFile("src/ui/workspace/react/WorkspaceHeaderActionsPortal.tsx");
+    const workspaceStyles = await Deno.readTextFile("src/ui/workspace/static/workspace.css");
+
+    assertStringIncludes(
+        route,
+        "surfaceTitle={reviewPayload ? `Plan Review — ${plan.title || plan.planName || planId}`",
+    );
+    assertStringIncludes(layout, 'class="workspace-main-session-name" data-workspace-surface-title');
+    assertStringIncludes(shell, 'header.querySelector("[data-workspace-main-session-name]")?.remove()');
+    assertStringIncludes(layout, "data-workspace-header-actions");
+    assertStringIncludes(portal, 'document.querySelector<HTMLElement>("[data-workspace-header-actions]")');
+    assertStringIncludes(workspaceStyles, "row-gap: var(--rw-space-panel);");
+    assertStringIncludes(surface, 'presentation === "workspace" ? "wide" : uiPreferences.planWidth');
+    assertStringIncludes(surface, "<WorkspaceHeaderActionsPortal>");
+    assertStringIncludes(surface, 'presentation === "workspace"');
+    if (surface.includes("ReviewContextBar")) {
+        throw new Error("Plan Review must not repeat Project and Session breadcrumbs inside the workbench");
+    }
+});
+
+Deno.test("Plan Review fixture navigation lives in the Surface Lab instead of the review page", async () => {
+    const devSurface = await Deno.readTextFile("src/ui/workspace/react/ReviewDevSurface.tsx");
+    const catalog = await Deno.readTextFile("src/ui/workspace/pages/dev/index.astro");
+
+    assertStringIncludes(catalog, 'id: "feature"');
+    assertStringIncludes(catalog, 'id: "read-work-record"');
+    assertStringIncludes(catalog, "/dev/plan-review?variant=${variant.id}");
+    assertStringIncludes(catalog, "/dev/workspace/plan-review?variant=${variant.id}");
+    if (devSurface.includes('"aria-label": "Plan Review dev fixtures"')) {
+        throw new Error("Plan Review fixture pages must not render a second navigation header");
+    }
+});
+
 Deno.test("Approve and Run opens stable Plan progress without changing other review outcomes", async () => {
     const route = await Deno.readTextFile(ROUTE_PATH);
     const surface = await Deno.readTextFile(SURFACE_PATH);

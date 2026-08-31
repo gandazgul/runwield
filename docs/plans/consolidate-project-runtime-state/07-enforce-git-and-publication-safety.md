@@ -20,6 +20,7 @@ parentPlan: "consolidate-project-runtime-state"
 order: 7
 dependencies:
     - "06-wire-project-entry-guards"
+planId: "6e195a92-3697-477e-b097-45ac5bd648d7"
 targetBranch: "epic/consolidate-project-runtime-state"
 ---
 

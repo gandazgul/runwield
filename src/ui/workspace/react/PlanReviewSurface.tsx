@@ -7,8 +7,8 @@ import { Viewer } from "@plannotator/ui/components/Viewer.tsx";
 import { MarkdownEditor } from "@plannotator/ui/components/MarkdownEditor.tsx";
 import { AnnotationPanel } from "@plannotator/ui/components/AnnotationPanel.tsx";
 import { RunWieldAnnotationToolstrip } from "./RunWieldAnnotationToolstrip.tsx";
-import { ReviewContextBar } from "./ReviewContextBar.tsx";
 import { ArtifactConversationSidebar } from "./ArtifactConversationSidebar.tsx";
+import { WorkspaceHeaderActionsPortal } from "./WorkspaceHeaderActionsPortal.tsx";
 import { FeedbackButton } from "@plannotator/ui/components/ToolbarButtons.tsx";
 import { PlanDiffViewer } from "@plannotator/ui/components/plan-diff/PlanDiffViewer.tsx";
 import { CompletionOverlay } from "@plannotator/ui/components/CompletionOverlay.tsx";
@@ -111,7 +111,7 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
     );
     const hasReviewFeedback = annotations.length > 0 || codeAnnotations.length > 0 || globalAttachments.length > 0 ||
         directlyEditedPlan !== null;
-    const planWidthMode = uiPreferences.planWidth;
+    const planWidthMode = presentation === "workspace" ? "wide" : uiPreferences.planWidth;
     const planMaxWidth = useMemo(
         () =>
             planWidthMode === "wide"
@@ -726,60 +726,50 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
                     data-review-mode={initialPayload.mode}
                     data-plan-width={planWidthMode}
                 >
-                    <header className="rw-plannotator-toolbar">
-                        <div className="rw-plan-review-heading">
-                            <PlanReviewOptionsMenu
-                                iconOnly
-                                onOpenExport={() => setExportOpen(true)}
-                                onOpenSettings={() => setSettingsOpen(true)}
-                                onPrint={() => globalThis.print?.()}
-                            />
-                            <img src="/brand/logo.svg" alt="" aria-hidden="true" />
-                            <h1>Plan Review</h1>
-                            {initialPayload.mode === "dev" && (
-                                <p className="rw-plan-review-dev-notice" role="status">
-                                    DEV MODE — Feedback and approval won’t go anywhere.
-                                </p>
-                            )}
-                        </div>
-                        <div className="rw-plannotator-actions">
-                            {showExecutionPolicyControls && (
-                                <ExecutionPolicyControls
+                    {presentation === "workspace"
+                        ? (
+                            <WorkspaceHeaderActionsPortal>
+                                <PlanReviewHeaderActions
+                                    showExecutionPolicyControls={showExecutionPolicyControls}
                                     executionAgent={executionAgent}
                                     collaborationRecommendation={collaborationRecommendation}
-                                    onAgentChange={(value) =>
-                                        setExecutionPolicy((current) =>
-                                            updatePlanReviewExecutionPolicy(current, {
-                                                field: "executionAgent",
-                                                value,
-                                            })
-                                        )}
-                                    onRecommendationChange={(value) =>
-                                        setExecutionPolicy((current) =>
-                                            updatePlanReviewExecutionPolicy(current, {
-                                                field: "collaborationRecommendation",
-                                                value,
-                                            })
-                                        )}
+                                    setExecutionPolicy={setExecutionPolicy}
                                     disabled={submitting !== null || plannerWorking}
+                                    primaryApprovalAction={primaryApprovalAction}
+                                    onApprove={submitApprove}
+                                    isLoading={submitting === "approve"}
                                 />
-                            )}
-                            <PlanApprovalSplitButton
-                                primaryAction={primaryApprovalAction}
-                                onApprove={submitApprove}
-                                disabled={submitting !== null || plannerWorking}
-                                isLoading={submitting === "approve"}
-                            />
-                        </div>
-                    </header>
-                    <ReviewContextBar
-                        context={initialPayload.reviewContext && {
-                            ...initialPayload.reviewContext,
-                            artifactLabel: initialPayload.reviewContext.planLabel || "Plan",
-                            statusLabel: initialPayload.reviewContext.planStatus || "Status unknown",
-                        }}
-                        artifactLabel="Plan review"
-                    />
+                            </WorkspaceHeaderActionsPortal>
+                        )
+                        : (
+                            <header className="rw-plannotator-toolbar">
+                                <div className="rw-plan-review-heading">
+                                    <PlanReviewOptionsMenu
+                                        iconOnly
+                                        onOpenExport={() => setExportOpen(true)}
+                                        onOpenSettings={() => setSettingsOpen(true)}
+                                        onPrint={() => globalThis.print?.()}
+                                    />
+                                    <img src="/brand/logo.svg" alt="" aria-hidden="true" />
+                                    <h1>Plan Review</h1>
+                                    {initialPayload.mode === "dev" && (
+                                        <p className="rw-plan-review-dev-notice" role="status">
+                                            DEV MODE — Feedback and approval won’t go anywhere.
+                                        </p>
+                                    )}
+                                </div>
+                                <PlanReviewHeaderActions
+                                    showExecutionPolicyControls={showExecutionPolicyControls}
+                                    executionAgent={executionAgent}
+                                    collaborationRecommendation={collaborationRecommendation}
+                                    setExecutionPolicy={setExecutionPolicy}
+                                    disabled={submitting !== null || plannerWorking}
+                                    primaryApprovalAction={primaryApprovalAction}
+                                    onApprove={submitApprove}
+                                    isLoading={submitting === "approve"}
+                                />
+                            </header>
+                        )}
                     {initialPayload.reviewNotice && (
                         <section
                             className={`rw-plan-review-notice state-${initialPayload.reviewNotice.state || "info"}`}
@@ -1330,6 +1320,49 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
         }
         return payload || { status: "accepted" };
     }
+}
+
+function PlanReviewHeaderActions({
+    showExecutionPolicyControls,
+    executionAgent,
+    collaborationRecommendation,
+    setExecutionPolicy,
+    disabled,
+    primaryApprovalAction,
+    onApprove,
+    isLoading,
+}) {
+    return (
+        <div className="rw-plannotator-actions rw-plan-review-header-actions">
+            {showExecutionPolicyControls && (
+                <ExecutionPolicyControls
+                    executionAgent={executionAgent}
+                    collaborationRecommendation={collaborationRecommendation}
+                    onAgentChange={(value) =>
+                        setExecutionPolicy((current) =>
+                            updatePlanReviewExecutionPolicy(current, {
+                                field: "executionAgent",
+                                value,
+                            })
+                        )}
+                    onRecommendationChange={(value) =>
+                        setExecutionPolicy((current) =>
+                            updatePlanReviewExecutionPolicy(current, {
+                                field: "collaborationRecommendation",
+                                value,
+                            })
+                        )}
+                    disabled={disabled}
+                />
+            )}
+            <PlanApprovalSplitButton
+                primaryAction={primaryApprovalAction}
+                onApprove={onApprove}
+                disabled={disabled}
+                isLoading={isLoading}
+            />
+        </div>
+    );
 }
 
 function PlanApprovalSplitButton({ primaryAction, onApprove, disabled, isLoading }) {
