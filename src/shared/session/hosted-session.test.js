@@ -493,6 +493,21 @@ Deno.test("HostedSession consumes pending task completion once and clears it on 
     assertEquals(session.consumePendingTaskCompletion(null), null);
 });
 
+Deno.test("HostedSession preserves steering received during an Agent transition", () => {
+    const session = new HostedSession({ id: "agent-transition-steering", cwd: "/tmp/agent-transition-steering" });
+    const transitionId = session.beginAgentTransition();
+    const images = [{ base64: "abc123", mimeType: "image/png" }];
+
+    assertEquals(session.isAgentTransitioning(), true);
+    assertEquals(session.queueAgentTransitionSteering("keep this direction", images), true);
+    session.completeAgentTransition(transitionId);
+
+    assertEquals(session.isAgentTransitioning(), false);
+    assertEquals(session.consumeAgentTransitionSteering(), [{ text: "keep this direction", images }]);
+    assertEquals(session.consumeAgentTransitionSteering(), []);
+    session.dispose();
+});
+
 Deno.test("two Hosted Sessions do not share workflow context", () => {
     const alpha = new HostedSession({ id: "workflow-alpha", sessionManager: makeSessionManager("workflow-alpha") });
     const beta = new HostedSession({ id: "workflow-beta", sessionManager: makeSessionManager("workflow-beta") });

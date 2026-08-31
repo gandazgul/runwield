@@ -3438,7 +3438,20 @@ export async function runRootTurn({
     }
     const sessionManager = isExecutionSession(session) ? session.session.sessionManager : session.sessionManager;
     const backend = isExecutionSession(session) ? session.kind : "pi";
-    const dispatch = prepareRequestDispatch(sessionManager, { userRequest, dispatchKind, backend });
+    const transitionSteering = targetHostedSession.consumeAgentTransitionSteering?.() || [];
+    const transitionText = transitionSteering.map((entry) => entry.text.trim()).filter(Boolean).join("\n\n");
+    const effectiveUserRequest = transitionText
+        ? `${userRequest}\n\nUser steering received during Agent handoff:\n${transitionText}`
+        : userRequest;
+    const dispatch = prepareRequestDispatch(sessionManager, {
+        userRequest: effectiveUserRequest,
+        dispatchKind,
+        backend,
+    });
+    const effectiveImages = [
+        ...(images || []),
+        ...transitionSteering.flatMap((entry) => entry.images || []),
+    ];
     meta.rootTurnCount += 1;
     const finalRequest = dispatch.promptMode === "continuation"
         ? dispatch.userRequest
@@ -3448,7 +3461,7 @@ export async function runRootTurn({
         if (isExecutionSession(session) && session.kind === "claude-cli") {
             messages = await session.session.runTurn({
                 userRequest: finalRequest,
-                images,
+                images: effectiveImages,
                 signal,
                 requestId: dispatch.requestId,
                 attemptId: dispatch.attemptId,
@@ -3460,7 +3473,7 @@ export async function runRootTurn({
                 agentName,
                 userRequest: finalRequest,
                 finalSystemPrompt: meta.promptState.text,
-                images,
+                images: effectiveImages,
                 subscriberState: meta.subscriberState,
                 signal,
             });

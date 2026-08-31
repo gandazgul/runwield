@@ -77,6 +77,7 @@ export async function switchActiveAgent(hostedSession, options) {
         hostedSession.getManagedOperationCapability?.() || undefined;
     const agentName = String(options?.agentName || "").trim();
     if (!agentName) throw new Error("switchActiveAgent requires an agentName");
+    const transitionId = hostedSession.beginAgentTransition();
 
     const previousAgentName = hostedSession.getRootAgentName();
     const previousHandler = hostedSession.getActiveOnMessage();
@@ -145,6 +146,7 @@ export async function switchActiveAgent(hostedSession, options) {
     );
 
     if (!shouldRebuildRoot && canReuseHandler) {
+        hostedSession.completeAgentTransition(transitionId);
         if (options.releaseActiveWorkflow) releaseActiveWorkflowAfterUserSwitch(hostedSession, agentName);
         return { ok: true, agentName, model: options.model, changed: false };
     }
@@ -152,26 +154,39 @@ export async function switchActiveAgent(hostedSession, options) {
     // Stage the matching handler before the root builder can commit a
     // replacement. A handler-factory failure therefore leaves the previous
     // root/handler pair untouched.
-    const handler = createAgentHandler(agentName, {
-        hostedSession,
-        customTools: options.customTools,
-    });
+    let handler;
+    try {
+        handler = createAgentHandler(agentName, {
+            hostedSession,
+            customTools: options.customTools,
+        });
+    } catch (error) {
+        hostedSession.completeAgentTransition(transitionId);
+        throw error;
+    }
     handlerMetadata.set(handler, {
         agentName,
     });
 
     if (shouldRebuildRoot) {
-        await ensureRootAgentSession({
-            hostedSession,
-            ...rootOptions,
-            activeHandler: handler,
-        });
+        try {
+            await ensureRootAgentSession({
+                hostedSession,
+                ...rootOptions,
+                activeHandler: handler,
+            });
+        } catch (error) {
+            hostedSession.completeAgentTransition(transitionId);
+            throw error;
+        }
         if (hostedSession.getActiveOnMessage() !== handler) {
+            hostedSession.completeAgentTransition(transitionId);
             throw new Error("switchActiveAgent: root builder did not atomically commit the staged Agent handler");
         }
     } else {
         hostedSession.setActiveOnMessage(handler);
     }
+    hostedSession.completeAgentTransition(transitionId);
     hostedSession.assertActive();
     // Clear only after a successful switch; a failed build must preserve the
     // previous Agent and its manual model selection.
