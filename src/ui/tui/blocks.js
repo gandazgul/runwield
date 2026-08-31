@@ -876,13 +876,11 @@ export class PromptSelectBlock {
         this._headerText = new Text(theme.fg("text", this.promptTitle), 0, 0);
         this.header = new StyledBlock("selectedBg", 2, 1, this._headerText);
         this.container.addChild(this.header);
-        this.container.addChild(new StyledBlock("selectedBg", 0, 0, new Spacer(1)));
 
         // Search input
         this.input = new Input();
         this.searchBlock = new StyledBlock("selectedBg", 2, 0, this.input);
         this.container.addChild(this.searchBlock);
-        this.container.addChild(new StyledBlock("selectedBg", 0, 0, new Spacer(1)));
 
         // Body with SelectList
         this.list = new SearchableSelectList(items, Math.min(items.length, 10), getSelectListTheme(), layout);
