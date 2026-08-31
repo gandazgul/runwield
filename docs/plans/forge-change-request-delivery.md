@@ -19,7 +19,7 @@ affectedPaths:
     - "src/ui/workspace/"
     - "src/testing/"
 createdAt: "2026-08-28T16:06:55-04:00"
-status: "ready_for_decomposition"
+status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "project/forge-change-request-delivery"
