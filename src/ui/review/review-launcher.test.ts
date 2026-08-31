@@ -180,14 +180,15 @@ reviewLauncherTest("standalone Plan conversation reuses one token page across ag
         }),
     });
     assertEquals(response.status, 200);
-    assertEquals(await firstDecision, {
+    const expectedDecision: Partial<PlanDecision> = {
         approved: false,
         conversationTurn: true,
         feedback: "Clarify the delivery boundary.",
         annotations: [],
         plan: undefined,
         savedPath: undefined,
-    });
+    };
+    assertEquals(await firstDecision, expectedDecision);
 
     conversation.events.push({
         type: "assistant_text_delta",

@@ -4,6 +4,8 @@ import { Dialog } from "./components/Dialog.jsx";
 import { RunWieldButton, RunWieldLink } from "./components/react/RunWieldPrimitives.jsx";
 import { renderRunWieldThemeCss } from "./theme-bridge.js";
 
+/** @typedef {{ href?: string, className?: string }} LinkProps */
+
 Deno.test("design-system actionClassName maps visual action variants", () => {
     assertEquals(actionClassName("primary"), "primary-action");
     assertEquals(actionClassName("secondary"), "secondary-action");
@@ -24,9 +26,10 @@ Deno.test("React action primitives preserve button and link semantics", () => {
     assertEquals(button.type, "button");
     assertEquals(button.props.type, "button");
     assertEquals(button.props.className, "secondary-action");
+    const linkProps = /** @type {LinkProps} */ (link.props);
     assertEquals(link.type, "a");
-    assertEquals(link.props.href, "/plans");
-    assertEquals(link.props.className, "primary-action");
+    assertEquals(linkProps.href, "/plans");
+    assertEquals(linkProps.className, "primary-action");
 });
 
 Deno.test("design-system exposes review action, modal, and segmented toggle styling", async () => {
