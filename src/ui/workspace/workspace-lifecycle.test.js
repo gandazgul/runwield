@@ -130,7 +130,7 @@ Deno.test("ArtifactReadSurface keeps the React read surface to Contents, notices
 
     assertStringIncludes(pageSource, 'payload.surface === "artifact-read"');
     assertStringIncludes(pageSource, '<ArtifactReadSurface payload={payload} client:only="react" />');
-    assertStringIncludes(surfaceSource, "Read-only {artifactLabel}");
+    assertStringIncludes(surfaceSource, "data-artifact-kind={artifactKind}");
     assertStringIncludes(surfaceSource, "aria-label={`${artifactLabel} notices`}");
     assertStringIncludes(surfaceSource, "{notices.map((notice) => <p key={notice}>{notice}</p>)}");
     const componentsCssSource = await Deno.readTextFile(new URL("../design-system/components.css", import.meta.url));
