@@ -6,6 +6,7 @@
 import { ProcessTerminal, type Terminal, type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
 import { createTuiCrashGuards } from "./tui-crash-guards.ts";
 import { createTuiManager } from "./tui-manager.ts";
+import { cleanupAgentBrowserSessionSync } from "../../shared/agent-browser-session.ts";
 
 export interface TuiPair {
     terminal: Terminal;
@@ -25,6 +26,7 @@ const crashGuards = createTuiCrashGuards({
     signalRuntime: Deno,
     os: Deno.build.os,
     exit: Deno.exit,
+    cleanup: cleanupAgentBrowserSessionSync,
 });
 
 /** Initialize the TUI singleton if it is not already running. */

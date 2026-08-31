@@ -113,6 +113,7 @@ Deno.test("createTuiCrashGuards signal handlers stop and exit with shell-compati
     /** @type {number[]} */
     const exits = [];
     let stops = 0;
+    let cleanups = 0;
     const guards = createTuiCrashGuards({
         stop: () => {
             stops++;
@@ -123,6 +124,9 @@ Deno.test("createTuiCrashGuards signal handlers stop and exit with shell-compati
         exit: (code) => {
             exits.push(code);
             throw new Error(`exit ${code}`);
+        },
+        cleanup: () => {
+            cleanups++;
         },
     });
 
@@ -137,6 +141,7 @@ Deno.test("createTuiCrashGuards signal handlers stop and exit with shell-compati
     }
 
     assertEquals(stops, 3);
+    assertEquals(cleanups, 3);
     assertEquals(exits, [130, 143, 129]);
 });
 
