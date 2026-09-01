@@ -16,7 +16,6 @@
 
 import { createRequire } from "node:module";
 import { parseArgs } from "@std/cli/parse-args";
-import { getCwd } from "./constants.js";
 import { cleanupAgentBrowserSessionSync, initializeAgentBrowserSession } from "./shared/agent-browser-session.ts";
 
 initializeAgentBrowserSession();
@@ -115,7 +114,9 @@ async function main(): Promise<void> {
     }
 
     if (firstPositional === "guided-review") {
-        await runGuidedReviewCommand();
+        const { createGuidedReviewCliIo, runGuidedReviewCommand } = await import("./cmd/guided-review/index.ts");
+        const code = await runGuidedReviewCommand(createGuidedReviewCliIo());
+        if (code !== 0) Deno.exit(code);
         return;
     }
 
@@ -153,29 +154,6 @@ async function main(): Promise<void> {
     await commandRegistry[COMMAND_NAMES.ROUTER].execute(normalizedArgs, {
         sessionStartMode: parsed.continue ? "continue" : "new",
     });
-}
-
-async function runGuidedReviewCommand(): Promise<void> {
-    const prompt = await new Response(Deno.stdin.readable).text();
-    if (!prompt.trim()) {
-        console.error("RunWield Guided Review requires a prompt on stdin.");
-        Deno.exit(1);
-    }
-    const { createSessionRuntime } = await import("./shared/session/session-runtime.js");
-    const runtime = createSessionRuntime({ ownerProcessKind: "workspace" });
-    const sessionId = await runtime.createPromptReadySession({ cwd: getCwd(), agentName: "guide" });
-    try {
-        const result = await runtime.promptSession(sessionId, {
-            initialRequest: prompt,
-            emitInitialEvents: false,
-        });
-        if (!result.ok) throw new Error(result.error || "Guided Review generation failed.");
-        const output = await runtime.getLastAssistantText(sessionId);
-        if (!output) throw new Error("RunWield Guided Review returned no assistant output.");
-        console.log(output);
-    } finally {
-        runtime.closeSession(sessionId);
-    }
 }
 
 try {

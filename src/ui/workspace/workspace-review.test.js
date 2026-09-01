@@ -1,4 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { join } from "@std/path";
 
 import { PLAN_UI_TOKEN_HEADER } from "../../constants.js";
 import { RUNWIELD_ROOT } from "../../../runtime-root.js";
@@ -30,8 +31,29 @@ import { makeToolProjectFixture, withWorkflowMetricsFixture } from "../../testin
 // directory.
 const TEST_PROJECT_ROOT = RUNWIELD_ROOT;
 const REVIEW_AGENT_PROJECT_ROOT = makeToolProjectFixture("runwield-workspace-review-agent-");
+const GUIDE_EVENT_PREFIX = "RUNWIELD_GUIDED_REVIEW_EVENT ";
 
 const UNUSED_GUIDE_COMMAND = () => Promise.reject(new Error("Fixture guide command should not run."));
+
+function makeGuideJson(title = "Fixture guide") {
+    return JSON.stringify({
+        schemaVersion: "1.0",
+        title,
+        sections: [{
+            title: "Core",
+            role: "core",
+            blocks: [{ type: "diff", file: "src/a.js", summary: "Review the changed export." }],
+        }],
+        everythingElse: [],
+    });
+}
+
+function makeGuideReviewPayload() {
+    return {
+        rawPatch:
+            "diff --git a/src/a.js b/src/a.js\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1 +1,2 @@\n export const a = 1;\n+export const b = 2;\n",
+    };
+}
 
 Deno.test("workspace token accepts query or header and rejects missing tokens", () => {
     assertEquals(hasWorkspaceToken(new Request("http://localhost/?token=abc"), "abc"), true);
@@ -369,6 +391,246 @@ Deno.test("review guide jobs prefer WLD over external agent host CLIs", async ()
             await Deno.remove(binDir, { recursive: true });
         }
     });
+});
+
+Deno.test("default review guide usage frames update a running job and remain after completion", async () => {
+    // Mutates PATH, which every concurrently-running test's subprocesses inherit.
+    await withProcessGlobalTestLock(async () => {
+        const previousPath = Deno.env.get("PATH");
+        const previousCommand = Deno.env.get("RUNWIELD_GUIDED_REVIEW_COMMAND");
+        const previousModel = Deno.env.get("RUNWIELD_GUIDED_REVIEW_MODEL");
+        const fixtureRoot = await Deno.makeTempDir({ prefix: "runwield-guide-usage-route-" });
+        const binDir = join(fixtureRoot, "bin");
+        const gatePath = join(fixtureRoot, "release");
+        const commandPath = join(binDir, "wld");
+        try {
+            await Deno.mkdir(binDir, { recursive: true });
+            const firstFrame = `${GUIDE_EVENT_PREFIX}${
+                JSON.stringify({
+                    version: 1,
+                    type: "usage",
+                    usage: {
+                        inputTokens: 1200,
+                        outputTokens: 200,
+                        cacheReadTokens: 30,
+                        cacheWriteTokens: 4,
+                        costUsd: 0.1,
+                    },
+                })
+            }`;
+            const secondFrame = `${GUIDE_EVENT_PREFIX}${
+                JSON.stringify({
+                    version: 1,
+                    type: "usage",
+                    usage: {
+                        inputTokens: 40,
+                        outputTokens: 50,
+                        cacheReadTokens: 70,
+                        cacheWriteTokens: 6,
+                        costUsd: 0.025,
+                    },
+                })
+            }`;
+            await Deno.writeTextFile(
+                commandPath,
+                [
+                    "#!/bin/sh",
+                    `echo '${firstFrame}' >&2`,
+                    `echo '${secondFrame}' >&2`,
+                    `while [ ! -f '${gatePath}' ]; do sleep 0.05; done`,
+                    `cat <<'JSON'`,
+                    makeGuideJson("Usage guide"),
+                    "JSON",
+                    "",
+                ].join("\n"),
+            );
+            await Deno.chmod(commandPath, 0o755);
+            Deno.env.set("PATH", previousPath ? `${binDir}:${previousPath}` : binDir);
+            Deno.env.delete("RUNWIELD_GUIDED_REVIEW_COMMAND");
+            Deno.env.delete("RUNWIELD_GUIDED_REVIEW_MODEL");
+
+            const state = createReviewAgentState({
+                cwd: REVIEW_AGENT_PROJECT_ROOT,
+                token: "usage-token",
+                reviewPayload: makeGuideReviewPayload(),
+                runGuideCommand: runConfiguredGuideCommand,
+            });
+            const launch = await reviewAgentApi(
+                new Request("http://localhost/api/agents/jobs", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ provider: "guide" }),
+                }),
+                new URL("http://localhost/api/agents/jobs"),
+                state,
+            );
+            assertEquals(launch?.status, 202);
+            if (!launch) throw new Error("expected job launch response");
+            const { job } = await launch.json();
+
+            let runningJob = null;
+            for (let attempt = 0; attempt < 20; attempt += 1) {
+                const jobsResponse = await reviewAgentApi(
+                    new Request("http://localhost/api/agents/jobs"),
+                    new URL("http://localhost/api/agents/jobs"),
+                    state,
+                );
+                const jobs = await jobsResponse?.json();
+                runningJob = jobs.jobs.find((candidate) => candidate.id === job.id);
+                if (runningJob?.usageState === "available") break;
+                await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+            assertEquals(runningJob?.status, "running");
+            assertEquals(runningJob?.usageState, "available");
+            assertEquals(runningJob?.tokens, {
+                inputTokens: 1240,
+                outputTokens: 250,
+                cacheReadTokens: 100,
+                cacheWriteTokens: 10,
+                costUsd: 0.125,
+            });
+            assertEquals(runningJob?.cost, { usd: 0.125 });
+
+            await Deno.writeTextFile(gatePath, "ok");
+            await state.jobs.get(job.id)?.done;
+            const doneJob = state.jobs.get(job.id)?.info;
+            assertEquals(doneJob?.status, "done");
+            assertEquals(doneJob?.usageState, "available");
+            assertEquals(doneJob?.tokens, runningJob?.tokens);
+            await state.widgets.cleanup();
+        } finally {
+            if (previousPath === undefined) Deno.env.delete("PATH");
+            else Deno.env.set("PATH", previousPath);
+            if (previousCommand === undefined) Deno.env.delete("RUNWIELD_GUIDED_REVIEW_COMMAND");
+            else Deno.env.set("RUNWIELD_GUIDED_REVIEW_COMMAND", previousCommand);
+            if (previousModel === undefined) Deno.env.delete("RUNWIELD_GUIDED_REVIEW_MODEL");
+            else Deno.env.set("RUNWIELD_GUIDED_REVIEW_MODEL", previousModel);
+            await Deno.remove(fixtureRoot, { recursive: true });
+        }
+    });
+});
+
+Deno.test("review guide jobs keep reported zero usage available", async () => {
+    const state = createReviewAgentState({
+        cwd: REVIEW_AGENT_PROJECT_ROOT,
+        token: "zero-usage-token",
+        reviewPayload: makeGuideReviewPayload(),
+        runGuideCommand: (_prompt, _signal, _cwd, progress) => {
+            progress?.onUsage?.({
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                costUsd: 0,
+            });
+            return Promise.resolve({ stdout: makeGuideJson("Zero usage guide"), provider: "wld", model: "wld" });
+        },
+    });
+    const launch = await reviewAgentApi(
+        new Request("http://localhost/api/agents/jobs", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ provider: "guide" }),
+        }),
+        new URL("http://localhost/api/agents/jobs"),
+        state,
+    );
+    if (!launch) throw new Error("expected job launch response");
+    const { job } = await launch.json();
+    await state.jobs.get(job.id)?.done;
+    const doneJob = state.jobs.get(job.id)?.info;
+    assertEquals(doneJob?.status, "done");
+    assertEquals(doneJob?.usageState, "available");
+    assertEquals(doneJob?.tokens, {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        costUsd: 0,
+    });
+    assertEquals(doneJob?.cost, { usd: 0 });
+    await state.widgets.cleanup();
+});
+
+Deno.test("custom review guide jobs without usage remain unavailable and still succeed", async () => {
+    const previousCommand = Deno.env.get("RUNWIELD_GUIDED_REVIEW_COMMAND");
+    Deno.env.set("RUNWIELD_GUIDED_REVIEW_COMMAND", "test-guide-command");
+    try {
+        const state = createReviewAgentState({
+            cwd: REVIEW_AGENT_PROJECT_ROOT,
+            token: "custom-no-usage-token",
+            reviewPayload: makeGuideReviewPayload(),
+            runGuideCommand: () =>
+                Promise.resolve({
+                    stdout: makeGuideJson("Custom guide"),
+                    stderr: `${GUIDE_EVENT_PREFIX}{"version":1,"type":"usage","usage":{"inputTokens":999}}\n`,
+                    provider: "custom",
+                    model: "configured-command",
+                }),
+        });
+        const launch = await reviewAgentApi(
+            new Request("http://localhost/api/agents/jobs", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ provider: "guide" }),
+            }),
+            new URL("http://localhost/api/agents/jobs"),
+            state,
+        );
+        if (!launch) throw new Error("expected job launch response");
+        const { job } = await launch.json();
+        await state.jobs.get(job.id)?.done;
+        const doneJob = state.jobs.get(job.id)?.info;
+        assertEquals(doneJob?.status, "done");
+        assertEquals(doneJob?.usageState, "unavailable");
+        assertEquals(doneJob?.tokens, null);
+        assertEquals(doneJob?.cost, null);
+        await state.widgets.cleanup();
+    } finally {
+        if (previousCommand === undefined) Deno.env.delete("RUNWIELD_GUIDED_REVIEW_COMMAND");
+        else Deno.env.set("RUNWIELD_GUIDED_REVIEW_COMMAND", previousCommand);
+    }
+});
+
+Deno.test("failed review guide jobs keep partial reported usage", async () => {
+    const state = createReviewAgentState({
+        cwd: REVIEW_AGENT_PROJECT_ROOT,
+        token: "failed-usage-token",
+        reviewPayload: makeGuideReviewPayload(),
+        runGuideCommand: (_prompt, _signal, _cwd, progress) => {
+            progress?.onUsage?.({
+                inputTokens: 5,
+                outputTokens: 6,
+                cacheReadTokens: 7,
+                cacheWriteTokens: 8,
+                costUsd: 0.009,
+            });
+            return Promise.reject(new Error("fixture provider failed"));
+        },
+    });
+    const launch = await reviewAgentApi(
+        new Request("http://localhost/api/agents/jobs", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ provider: "guide" }),
+        }),
+        new URL("http://localhost/api/agents/jobs"),
+        state,
+    );
+    if (!launch) throw new Error("expected job launch response");
+    const { job } = await launch.json();
+    await state.jobs.get(job.id)?.done;
+    const failedJob = state.jobs.get(job.id)?.info;
+    assertEquals(failedJob?.status, "failed");
+    assertEquals(failedJob?.usageState, "available");
+    assertEquals(failedJob?.tokens, {
+        inputTokens: 5,
+        outputTokens: 6,
+        cacheReadTokens: 7,
+        cacheWriteTokens: 8,
+        costUsd: 0.009,
+    });
+    assertEquals(failedJob?.cost, { usd: 0.009 });
 });
 
 Deno.test("review guide jobs ground provider prompt in Plan payload", async () => {
