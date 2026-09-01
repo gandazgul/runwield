@@ -55,6 +55,7 @@ export interface HandleEpicPlanOptions {
     uiAPI: UiAPI;
     runSlicerAgent: PlanSessionSurface["runSlicerAgent"];
     loadChildPlan: (childPlanName: string) => Promise<void>;
+    session: PlanSessionSurface;
 }
 
 /**
@@ -64,6 +65,7 @@ export interface HandleEpicPlanOptions {
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
  * @param {PlanSessionSurface["runSlicerAgent"]} opts.runSlicerAgent
  * @param {(childPlanName: string) => Promise<void>} opts.loadChildPlan
+ * @param {PlanSessionSurface} opts.session
  * @returns {Promise<"handled" | "continue" | "review" | "direct_review">}
  */
 export async function handleEpicPlan({
@@ -72,6 +74,7 @@ export async function handleEpicPlan({
     uiAPI,
     runSlicerAgent,
     loadChildPlan,
+    session,
 }: HandleEpicPlanOptions): Promise<"handled" | "continue" | "review" | "direct_review"> {
     if (!isEpicPlan(plan.attrs)) return "continue";
 
@@ -200,6 +203,7 @@ export async function handleEpicPlan({
 
         if (answer === "slicer") {
             if (!(await ensureEpicReadinessPassed())) return "handled";
+            await session.activateForPlan(plan.planName);
             await runSlicerAgent({
                 planName: plan.planName,
                 triageMeta: plan.attrs,

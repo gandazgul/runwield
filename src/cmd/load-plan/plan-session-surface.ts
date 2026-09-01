@@ -9,6 +9,7 @@
 
 import { AGENTS, CLI_BIN } from "../../constants.js";
 import { resolveActiveWorkflowRuntimeAgent } from "../../shared/workflow/execution-agent.ts";
+import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
 import {
     RuntimeInteractionOutcomes,
@@ -80,10 +81,12 @@ export function createPlanSessionSurface(
 ): PlanSessionSurface {
     const snapshot = runtime.getSessionSnapshot(sessionId);
     if (!snapshot) throw new Error("load-plan requires an active runtime session");
+    let activatedPlanName: string | null = null;
     return {
         id: sessionId,
         cwd: snapshot.cwd,
         getActiveAgentName: () => runtime.getRuntimeActiveAgentName(sessionId),
+        getEffectiveAgentName: () => runtime.getEffectiveAgentName(sessionId),
         switchAgent: (agentName, options = {}) => runtime.switchAgent(sessionId, { agentName, ...options }),
         executePlan: runners.executePlan,
         runPlanningAgent: runners.runPlanningAgent,
@@ -134,8 +137,14 @@ export function createPlanSessionSurface(
                 message: typeof response.message === "string" ? response.message : undefined,
             };
         },
-        rename: async (name) => {
-            await runtime.renameSession(sessionId, name);
+        activateForPlan: async (planName) => {
+            // One-shot: menus can loop many times before the user chooses to
+            // continue, and only the first continuation action should pay the
+            // durable Session rename (and its terminal-title companion).
+            if (activatedPlanName !== null) return;
+            activatedPlanName = planName;
+            setTerminalTitleForName(planName);
+            await runtime.renameSession(sessionId, planName);
         },
     };
 }
@@ -157,6 +166,14 @@ export async function restorePreviousAgentFlow(
         await session.switchAgent(executionAgent, {});
         return;
     }
+    // A restore that switches to the Agent the Session already has changes
+    // nothing but still costs a managed mutation: the switch hydrates and
+    // publishes a new Session generation. Menus that never continued work must
+    // exit without that durable side effect, so View/Cancel leaves the committed
+    // evidence exactly as it was. The effective Agent covers dormant managed
+    // Sessions too, where no runtime Agent is active but the persisted one is
+    // already the restore target.
+    if (session.getEffectiveAgentName() === agentName) return;
     await session.switchAgent(agentName);
 }
 

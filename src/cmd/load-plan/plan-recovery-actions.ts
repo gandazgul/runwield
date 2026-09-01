@@ -15,7 +15,11 @@ import {
     rehydrateActiveRecoveryWorkflow,
     reopenPlanForReview,
 } from "./plan-recovery-worktree.ts";
-import { executeReadyPlanWithRepair, validateCompletedExecution } from "./plan-execution.ts";
+import {
+    confirmAffectedPathChangesBeforeExecution,
+    executeReadyPlanWithRepair,
+    validateCompletedExecution,
+} from "./plan-execution.ts";
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { deleteMergedWorktreeBranch, removeWorktreeGitArtifacts } from "../../shared/worktree.js";
 import {
@@ -416,6 +420,16 @@ export async function continueRecoveryPlan(context: RecoveryActionContext): Prom
             context.worktreeContext = await context.refreshRecoveryWorktree();
         }
     }
+    const confirmed = await confirmAffectedPathChangesBeforeExecution({
+        projectRoot: context.projectRoot,
+        planName: context.plan.planName,
+        triageMeta: context.plan.attrs,
+        uiAPI: context.uiAPI,
+    });
+    if (!confirmed) {
+        await context.recordRecoveryResult("continue", "canceled");
+        return { kind: "handled" };
+    }
     if (
         !(await rehydrateActiveRecoveryWorkflow(
             context.projectRoot,
@@ -449,6 +463,7 @@ export async function continueRecoveryPlan(context: RecoveryActionContext): Prom
         executePlan: context.session.executePlan,
         continueWorkflowValidation: context.session.runValidation,
         session: context.session,
+        affectedPathsAlreadyConfirmed: true,
     });
     await context.recordRecoveryResult("continue", "handled");
     return { kind: "handled" };
@@ -565,6 +580,9 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
 }
 
 export async function reviewRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
+    // Reopening review hands the Plan back to the Planner in this Session; the
+    // Session is claimed right before that workflow work begins.
+    await context.session.activateForPlan(context.plan.planName);
     await reopenPlanForReview({
         projectRoot: context.projectRoot,
         plan: context.plan,

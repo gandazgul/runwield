@@ -96,7 +96,7 @@ export async function resolvePlanWithPrimaryRecovery(
     } catch {
         return { plan: await resolvePlan(projectRoot, planArg) };
     }
-    const location = await resolveWorkflowPlanLocation(projectRoot, name);
+    const location = await resolveWorkflowPlanLocation(projectRoot, name, { migrateRegistry: false });
     if (location.archived) {
         throw new Error(`This Plan is archived. Run wld plans archive restore ${name} before continuing it.`);
     }

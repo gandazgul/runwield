@@ -12,6 +12,7 @@ import { loadPlanStrict } from "../../plan-store.js";
 import { inspectWorktreeRegistry } from "../worktree-registry.js";
 import {
     type EffectProver,
+    listTransitionRecoveryRecords,
     reconcileTransitionRecoveryRecords,
     type TransitionReconciliation,
 } from "./state-transition.ts";
@@ -174,6 +175,15 @@ export async function healSettledTransitionRecords(
     options: { planName?: string; apply?: boolean; evidenceProjectRoot?: string } = {},
 ): Promise<{ closed: TransitionReconciliation[]; remaining: TransitionReconciliation[] }> {
     const evidenceProjectRoot = options.evidenceProjectRoot || projectRoot;
+    // A scoped heal starts from the journals, not from repository evidence: when
+    // the named Plan has no record, nothing below could close or report one, so
+    // the registry read and the Git worktree probe are skipped entirely.
+    if (options.planName !== undefined) {
+        const records = await listTransitionRecoveryRecords(projectRoot);
+        if (!records.some((record) => record.planName === options.planName)) {
+            return { closed: [], remaining: [] };
+        }
+    }
     const inspection = await inspectWorktreeRegistry(evidenceProjectRoot);
     const gitWorktreePaths = await listGitWorktreePaths(evidenceProjectRoot);
     const proveEffect = buildEffectProver(evidenceProjectRoot, {
@@ -183,6 +193,7 @@ export async function healSettledTransitionRecords(
     const reconciliations = await reconcileTransitionRecoveryRecords(projectRoot, {
         apply: options.apply !== false,
         proveEffect,
+        planName: options.planName,
     });
     const relevant = options.planName
         ? reconciliations.filter((entry) => entry.planName === options.planName)

@@ -925,9 +925,10 @@ export async function findByPlanName(projectRoot, planName) {
  *
  * @param {string} projectRoot
  * @param {string} planName
+ * @param {{ migrate?: boolean }} [options]
  */
-export async function findActiveByPlanName(projectRoot, planName) {
-    const entries = await listEntries(projectRoot);
+export async function findActiveByPlanName(projectRoot, planName, options = {}) {
+    const entries = await listEntries(projectRoot, options);
     const matches = entries.filter((entry) => entry.planName === planName && NONTERMINAL_STATUSES.has(entry.status));
     if (matches.length > 1) throw duplicateLiveAttemptError(planName, matches);
     return matches[0] || null;

@@ -1,6 +1,11 @@
 import { assertEquals } from "@std/assert";
 import { handlePlanRecovery } from "./plan-recovery-flow.ts";
-import { inspectRecoveryPlan, openFollowUpRecoveryPlan, settleRecoveryRecords } from "./plan-recovery-actions.ts";
+import {
+    continueRecoveryPlan,
+    inspectRecoveryPlan,
+    openFollowUpRecoveryPlan,
+    settleRecoveryRecords,
+} from "./plan-recovery-actions.ts";
 import { getStoredPlanPath, listPlans, loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { getTransitionJournalDir } from "../../shared/workflow/state-transition.ts";
 import { readControllerRecord, writeControllerState } from "../../shared/workflow/controller-registry.ts";
@@ -166,6 +171,7 @@ function makeOptions(
             id: "session-1",
             cwd: projectRoot,
             getActiveAgentName: () => null,
+            getEffectiveAgentName: () => null,
             switchAgent: () => Promise.resolve(null),
             executePlan: () => Promise.resolve({ result: "complete" }),
             runPlanningAgent: () => Promise.resolve({ kind: "done" }),
@@ -175,7 +181,7 @@ function makeOptions(
             setActiveExecutionWorkflow: () => {},
             clearActiveExecutionWorkflow: async () => {},
             reviewPlan: () => Promise.resolve({ action: "cancel" }),
-            rename: async () => {},
+            activateForPlan: async () => {},
         },
         ports: {
             recordWorkflowMetric: () => Promise.resolve(null),
@@ -243,6 +249,7 @@ function makeSession(projectRoot: string): PlanSessionSurface {
         id: "session-1",
         cwd: projectRoot,
         getActiveAgentName: () => "engineer",
+        getEffectiveAgentName: () => "engineer",
         switchAgent: () => Promise.resolve(null),
         executePlan: () => Promise.resolve({ result: "complete" }),
         runPlanningAgent: () => Promise.resolve({ kind: "done" }),
@@ -253,7 +260,7 @@ function makeSession(projectRoot: string): PlanSessionSurface {
         replaceWithExecutionSession: async () => {},
         clearActiveExecutionWorkflow: async () => {},
         reviewPlan: () => Promise.resolve({ canceled: true, approved: false }),
-        rename: async () => {},
+        activateForPlan: async () => {},
     };
 }
 
@@ -905,4 +912,142 @@ Deno.test("unregistered legacy recovery omits User Verification for failed plans
         "The worktree and branch are gone. The Plan says they should be here. What do you want to do?:reset,abandon,review,stop_lost",
     );
     assertEquals((await loadPlan(project.projectRoot, project.plan.planName))?.attrs.status, "ready_for_work");
+});
+
+Deno.test("continue recovery cancellation leaves the Session name and workflow untouched", async () => {
+    const project = await makeRealRecoveryProject({
+        affectedPaths: ["tracked.txt"],
+        createdAt: "2000-01-01T00:00:00.000Z",
+        updatedAt: "2000-01-01T00:00:00.000Z",
+    });
+    await Deno.writeTextFile(`${project.projectRoot}/tracked.txt`, "changed after Plan update\n");
+    await runGit(project.projectRoot, ["add", "tracked.txt"]);
+    await runGit(project.projectRoot, ["commit", "-m", "touch affected path"]);
+
+    const ui = makeUi(["cancel"]);
+    const context = makeActionContext(project.projectRoot, project.plan, ui);
+    let activationCount = 0;
+    let workflowCount = 0;
+    let executionCount = 0;
+    context.session = {
+        ...makeSession(project.projectRoot),
+        activateForPlan: () => {
+            activationCount += 1;
+            return Promise.resolve();
+        },
+        setActiveExecutionWorkflow: () => {
+            workflowCount += 1;
+            return Promise.resolve();
+        },
+        executePlan: () => {
+            executionCount += 1;
+            return Promise.resolve({ executionComplete: true });
+        },
+    };
+
+    const outcome = await continueRecoveryPlan(context);
+
+    assertEquals(outcome, { kind: "handled" });
+    assertEquals(activationCount, 0);
+    assertEquals(workflowCount, 0);
+    assertEquals(executionCount, 0);
+    assertEquals(ui.messages.includes("Execution canceled."), true);
+});
+
+Deno.test("recovery cancel at the first menu leaves unrelated repairable state untouched", async () => {
+    const project = await makeRealRecoveryProject();
+    // Unrelated repairable state: another Plan's document, worktree registry
+    // entry, and settled journal. A repository-wide `plans doctor --repair`
+    // would retire the journal and touch the rest; the selected-Plan recovery
+    // preflight must leave all of it alone.
+    await writeTransitionRecord(project.projectRoot, "unrelated-record", "unrelated-plan", "committed");
+    const journalPath = `${getTransitionJournalDir(project.projectRoot)}/unrelated-record.json`;
+    const journalBefore = await Deno.readFile(journalPath);
+    await savePlan(project.projectRoot, "unrelated-plan", "# Unrelated Plan\n", {
+        classification: "FEATURE",
+        status: "draft",
+        summary: "unrelated fixture plan",
+        affectedPaths: [],
+        planId: "unrelated-plan-1",
+    });
+    const unrelatedPlanPath = getStoredPlanPath(project.projectRoot, "unrelated-plan");
+    const unrelatedPlanBefore = await Deno.readFile(unrelatedPlanPath);
+    const registryPath = `${project.projectRoot}/.wld/worktrees.json`;
+    await Deno.mkdir(`${project.projectRoot}/.wld`, { recursive: true });
+    await Deno.writeTextFile(
+        registryPath,
+        `${
+            JSON.stringify(
+                {
+                    version: 2,
+                    entries: [{
+                        id: "unrelated-worktree",
+                        planName: "unrelated-plan",
+                        path: `${project.projectRoot}/unrelated-worktree`,
+                        branch: "rw/unrelated-plan",
+                        baseBranch: "main",
+                        baseRef: "main",
+                        baseCommit: await runGit(project.projectRoot, ["rev-parse", "HEAD"]),
+                        baseTree: project.baselineTree,
+                        status: "active",
+                        createdAt: "2026-01-01T00:00:00.000Z",
+                        updatedAt: "2026-01-01T00:00:00.000Z",
+                    }],
+                },
+                null,
+                2,
+            )
+        }\n`,
+    );
+    const registryBefore = await Deno.readFile(registryPath);
+
+    // Capture every Git command the preflight spawns.
+    const tracePath = `${project.projectRoot}${Deno.build.os === "windows" ? "\\" : "/"}git-trace2.log`;
+    const previousTrace = Deno.env.get("GIT_TRACE2");
+    Deno.env.set("GIT_TRACE2", tracePath);
+    const ui = makeUi([null]);
+    let result: string;
+    try {
+        const options = makeOptions(project.plan, ui);
+        options.projectRoot = project.projectRoot;
+        options.session.cwd = project.projectRoot;
+        result = await handlePlanRecovery(options);
+    } finally {
+        if (previousTrace === undefined) Deno.env.delete("GIT_TRACE2");
+        else Deno.env.set("GIT_TRACE2", previousTrace);
+    }
+
+    // The flow stopped at the first recovery menu without running any action.
+    assertEquals(result, "handled");
+    assertEquals(ui.prompts.length, 1);
+    // The unrelated state survived byte-for-byte: no repository-wide repair ran.
+    assertEquals(await Deno.readFile(journalPath), journalBefore);
+    assertEquals(await Deno.readFile(unrelatedPlanPath), unrelatedPlanBefore);
+    assertEquals(await Deno.readFile(registryPath), registryBefore);
+    // No repository-wide Doctor Git work and no publication ancestry work
+    // occurred before the menu. The selected-Plan snapshot is allowed its own
+    // `git worktree list` discovery and nothing else.
+    let trace = "";
+    try {
+        trace = await Deno.readTextFile(tracePath);
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+    for (
+        const forbidden of [
+            "for-each-ref",
+            "clone",
+            "fetch",
+            "merge-base",
+            "rev-list",
+            "--contains",
+            "show-ref",
+        ]
+    ) {
+        assertEquals(
+            trace.includes(forbidden),
+            false,
+            `unexpected repository-wide Git work before the menu: ${forbidden}`,
+        );
+    }
 });
