@@ -30,10 +30,10 @@ const PARAMETERS = Type.Object({
     summary: Type.String({
         description: "Brief summary of the request and why it should route there.",
     }),
-    sessionName: Type.String({
+    sessionName: Type.Optional(Type.String({
         description:
-            "Short 3-6 word Session Name suitable for /session display and the terminal tab title. Use concise noun phrases, not a sentence.",
-    }),
+            "Optional short 3-6 word Session Name. If omitted, the Agent can name the Session later via set_session_name.",
+    })),
     workKind: Type.Optional(StringEnum(WORK_KINDS, {
         description:
             "Optional Work Kind for PLANNED_CHANGE. BUG_FIX for planned bug fixes, FEATURE for new/enhanced functionality, REFACTOR for structural changes, MAINTENANCE for upkeep, DOCUMENTATION for documentation creation or substantial documentation updates.",
@@ -52,7 +52,7 @@ export interface TriageReportDetails {
     classification?: TriageClassification;
     complexity: TriageComplexity;
     summary: string;
-    sessionName: string;
+    sessionName?: string;
     workKind?: TriageWorkKind;
 }
 
@@ -62,8 +62,8 @@ interface TriageReportToolOptions {
     hostedSession?: HostedSession | null;
 }
 
-function normalizeSessionName(params: TriageParameters): string {
-    return sanitizeSessionName(params.sessionName) || sanitizeSessionName(params.summary) || "RunWield session";
+function normalizeSessionName(params: TriageParameters): string | undefined {
+    return sanitizeSessionName(params.sessionName || "") || undefined;
 }
 
 function normalizeTriageComplexity(value: string): TriageComplexity {
@@ -81,8 +81,9 @@ function normalizeTriageParams(params: TriageParameters): TriageReportDetails {
         routingIntent,
         complexity: normalizeTriageComplexity(params.complexity),
         summary: params.summary,
-        sessionName: normalizeSessionName(params),
     };
+    const sessionName = normalizeSessionName(params);
+    if (sessionName) details.sessionName = sessionName;
 
     if (routingIntent === "PLANNED_CHANGE") {
         details.classification = "PLANNED_CHANGE";
@@ -136,7 +137,6 @@ export function createTriageReportTool(
                         complexity,
                         classification: details.classification,
                         workKind: details.workKind,
-                        hasSessionName: Boolean(details.sessionName),
                     },
                 }, hostedSession.cwd);
                 publishWorkflowToolEvent({
