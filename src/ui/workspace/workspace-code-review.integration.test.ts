@@ -15,6 +15,7 @@ Deno.test("live Session Code Review uses the shared review surface inside Worksp
     assertStringIncludes(route, "CodeReviewSurface");
     assertStringIncludes(route, 'presentation="workspace"');
     assertStringIncludes(route, "getLiveCodeReview");
+    assertStringIncludes(route, 'artifactLabel: codeReview.planTitle || codeReview.planName || "Code changes"');
     assertFalse(route.includes("ReviewLayout"));
 });
 
@@ -25,6 +26,7 @@ Deno.test("Workspace Session projects code-review interactions to one stable in-
     const server = await Deno.readTextFile(SERVER_PATH);
 
     assertStringIncludes(continuation, 'request.type === "code_review"');
+    assertStringIncludes(continuation, 'const planTitle = typeof meta.planTitle === "string" && meta.planTitle.trim()');
     assertStringIncludes(continuation, "/review/code?operation=${encodeURIComponent(options.operationId)}");
     assertStringIncludes(continuation, "getLiveCodeReview(options)");
     assertStringIncludes(sessionSurface, 'isCodeReview ? "code-review"');

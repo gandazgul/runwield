@@ -182,6 +182,7 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
                 const meta = /** @type {any} */ (request._meta || {});
                 const result = await runCodeReview({
                     planName: meta.planName,
+                    planTitle: meta.planTitle,
                     diffText: meta.diffText,
                     planContent: meta.planContent,
                     planAttrs: meta.planAttrs,

@@ -142,12 +142,26 @@ Deno.test("Code Review options menu matches Plan Review header placement", async
 
     assertStringIncludes(surface, "function CodeReviewOptionsMenu({\n    iconOnly = false,");
     assertStringIncludes(surface, "!iconOnly && <span");
+    assertStringIncludes(surface, "const codeReviewHeading = `Code Review - ${codeReviewPlanTitle}`;");
+    assertStringIncludes(surface, "<h1 title={codeReviewHeading}>{codeReviewHeading}</h1>");
     if (headingIndex < 0 || optionsIndex < headingIndex || logoIndex < optionsIndex) {
         throw new Error("Code Review options must be icon-only before the logo, matching Plan Review");
     }
     if (actionsIndex < 0 || approveIndex < actionsIndex || misplacedOptionsIndex >= 0) {
         throw new Error("Code Review top-right actions must not contain the options menu");
     }
+});
+
+Deno.test("Code Review title ellipsizes without moving toolbar actions", async () => {
+    const styles = await Deno.readTextFile("src/ui/workspace/react/plannotator.css");
+
+    assertStringIncludes(styles, ".rw-code-review .rw-plan-review-heading {");
+    assertStringIncludes(styles, "flex: 1 1 auto;");
+    assertStringIncludes(styles, "overflow: hidden;");
+    assertStringIncludes(styles, ".rw-code-review .rw-plan-review-heading h1 {");
+    assertStringIncludes(styles, "text-overflow: ellipsis;");
+    assertStringIncludes(styles, ".rw-code-review .rw-plannotator-actions {");
+    assertStringIncludes(styles, "flex: none;");
 });
 
 Deno.test("Code Review uses the Plan Review card surface for review panels", async () => {

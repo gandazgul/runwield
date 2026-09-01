@@ -31,7 +31,7 @@ const payload = codeReview
             sessionHref,
             sessionLabel: runwieldSessionId,
             actingSession: runwieldSessionId,
-            artifactLabel: codeReview.planName || "Code changes",
+            artifactLabel: codeReview.planTitle || codeReview.planName || "Code changes",
             statusLabel: "Human code review",
             live: true,
         },
