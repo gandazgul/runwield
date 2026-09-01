@@ -17,9 +17,14 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-31"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "c867c635-9988-4610-8524-ef548b0fcb49"
+    path: "docs/work-records/2026-09-01-load-plan-menus-made-faster.md"
+    lastAttemptAt: "2026-09-01T19:22:16.042Z"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "load plan latency"
 targetBranch: "main"
