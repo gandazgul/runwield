@@ -405,10 +405,17 @@ async function readStreamText(stream) {
 }
 
 /**
+ * @typedef {Object} GuideStderrReadResult
+ * @property {string} stderr
+ * @property {GuideUsageTotals} [usage]
+ * @property {Error} [protocolError]
+ */
+
+/**
  * @param {ReadableStream<Uint8Array>} stream
  * @param {boolean} parseInternalFrames
  * @param {{ onUsage?: (usage: GuideUsageTotals) => void }} progress
- * @returns {Promise<{ stderr: string, usage?: GuideUsageTotals }>}
+ * @returns {Promise<GuideStderrReadResult>}
  */
 async function readGuideStderr(stream, parseInternalFrames, progress) {
     const reader = stream.getReader();
@@ -417,13 +424,21 @@ async function readGuideStderr(stream, parseInternalFrames, progress) {
     let stderr = "";
     /** @type {GuideUsageTotals | null} */
     let usage = null;
+    /** @type {Error | null} */
+    let protocolError = null;
     /** @param {string} line */
     function handleLine(line) {
         if (!parseInternalFrames) {
             stderr += `${line}\n`;
             return;
         }
-        const event = parseGuidedReviewUsageEventLine(line);
+        let event;
+        try {
+            event = parseGuidedReviewUsageEventLine(line);
+        } catch (error) {
+            protocolError = error instanceof Error ? error : new Error(String(error));
+            return;
+        }
         if (!event) {
             stderr += `${line}\n`;
             return;
@@ -451,9 +466,24 @@ async function readGuideStderr(stream, parseInternalFrames, progress) {
         }
         buffered += decoder.decode();
         if (buffered) handleLine(buffered.replace(/\r$/, ""));
-        return usage ? { stderr, usage } : { stderr };
+        return {
+            stderr,
+            ...(usage ? { usage } : {}),
+            ...(protocolError ? { protocolError } : {}),
+        };
     } finally {
         reader.releaseLock();
+    }
+}
+
+/** @param {WritableStream<Uint8Array>} stdin @param {string} prompt */
+async function writeGuidePrompt(stdin, prompt) {
+    const writer = stdin.getWriter();
+    try {
+        await writer.write(new TextEncoder().encode(prompt));
+        await writer.close();
+    } finally {
+        writer.releaseLock();
     }
 }
 
@@ -470,19 +500,29 @@ export async function runConfiguredGuideCommand(prompt, signal, cwd, progress = 
         cwd,
         signal,
     }).spawn();
-    const stdout = readStreamText(child.stdout);
-    const stderr = readGuideStderr(child.stderr, provider === "wld", progress);
-    const writer = child.stdin.getWriter();
-    await writer.write(new TextEncoder().encode(prompt));
-    await writer.close();
-    const [status, stdoutText, stderrResult] = await Promise.all([child.status, stdout, stderr]);
-    if (!status.success) throw new Error(stderrResult.stderr.trim() || `Guide provider exited with ${status.code}`);
+    const results = await Promise.allSettled([
+        child.status,
+        readStreamText(child.stdout),
+        readGuideStderr(child.stderr, provider === "wld", progress),
+        writeGuidePrompt(child.stdin, prompt),
+    ]);
+    const [statusResult, stdoutResult, stderrResult, inputResult] = results;
+    if (statusResult.status === "rejected") throw statusResult.reason;
+    if (stdoutResult.status === "rejected") throw stdoutResult.reason;
+    if (stderrResult.status === "rejected") throw stderrResult.reason;
+    if (stderrResult.value.protocolError) throw stderrResult.value.protocolError;
+    if (!statusResult.value.success) {
+        throw new Error(stderrResult.value.stderr.trim() || `Guide provider exited with ${statusResult.value.code}`);
+    }
+    if (inputResult.status === "rejected") throw inputResult.reason;
     return {
-        stdout: stdoutText,
-        stderr: stderrResult.stderr,
+        stdout: stdoutResult.value,
+        stderr: stderrResult.value.stderr,
         provider,
         model: Deno.env.get("RUNWIELD_GUIDED_REVIEW_MODEL") || (configured ? "configured-command" : "wld"),
-        ...(stderrResult.usage ? { usage: stderrResult.usage, cost: { usd: stderrResult.usage.costUsd } } : {}),
+        ...(stderrResult.value.usage
+            ? { usage: stderrResult.value.usage, cost: { usd: stderrResult.value.usage.costUsd } }
+            : {}),
     };
 }
 
