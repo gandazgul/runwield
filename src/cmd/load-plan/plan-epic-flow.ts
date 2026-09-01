@@ -22,7 +22,7 @@ import {
 } from "../../shared/work-records/auto-generation.js";
 import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../../shared/work-records/mnemosyne-port.ts";
 import { archiveEpicWithChildren } from "./plan-epic-archive.ts";
-import { buildPlanSummary } from "./plan-presentation.ts";
+import { buildPlanSummary } from "../../shared/plan-presentation.ts";
 import {
     buildEpicDoneEnoughSummary,
     buildEpicPlanSummary,

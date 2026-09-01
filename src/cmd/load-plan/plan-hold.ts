@@ -24,7 +24,8 @@ import {
     removeWorktreeGitArtifacts,
 } from "../../shared/worktree.js";
 import { updateEntry as updateWorktreeRegistryEntry } from "../../shared/worktree-registry.js";
-import { buildPlanSummary, formatCommitHeadsUp } from "./plan-presentation.ts";
+import { formatCommitHeadsUp } from "./plan-presentation.ts";
+import { buildPlanSummary } from "../../shared/plan-presentation.ts";
 import { formatEpicProgressSummary } from "./plan-epic-children.ts";
 import { confirmWorktreeAction, hasWorktreeContext, resolveRecoveryWorktree } from "./plan-recovery-worktree.ts";
 import { transitionFailureError } from "./transition-failure.ts";
