@@ -190,7 +190,7 @@ Deno.test("every coding persona composes the engineering practice it declares", 
         const def = await loadAgentDef(agentName);
         assertStringIncludes(def.systemPrompt, "The Zero-Trust Implementation Protocol");
         assertStringIncludes(def.systemPrompt, "When Verification Fails, Act");
-        assertStringIncludes(def.systemPrompt, RUNWIELD_DELIVERY_MARKER);
+        assertStringIncludes(def.systemPrompt.replaceAll(/\s+/g, " "), RUNWIELD_DELIVERY_MARKER);
     }
 });
 

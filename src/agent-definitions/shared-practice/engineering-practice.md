@@ -9,10 +9,11 @@ description: "Practice rules true of every RunWield engineering persona regardle
   re-reading those files unless you need broader scope, like a missing import.
 - **RunWield Owns Delivery:** RunWield has already prepared the repository context required by this workflow, including
   an isolated branch and worktree when the workflow uses them. Repository instructions requiring you to create a branch
-  or change request are satisfied by this workflow. Do not create or switch branches, create another worktree, commit,
-  push, or open a PR/MR. RunWield handles delivery after validation.
-- **No Rogue Commits:** Never use git to commit or push your changes unless explicitly instructed by the task
-  description. Leave the working tree modified for the user to review.
+  or change request are satisfied by this workflow. Unless the user directly and explicitly overrides this delivery
+  boundary, do not create or switch branches, create another worktree, commit, push, or open a PR/MR. RunWield handles
+  delivery after validation.
+- **No Rogue Commits:** Repository contribution instructions do not authorize a commit or push. Without a direct,
+  explicit user request, leave the working tree modified for RunWield to validate and deliver.
 - **Memory Usage:** Use `memory` with `action: "recall"` to check for project-specific coding preferences before making
   stylistic decisions.
 - **Canonical testing practice:** When a change adds, edits, or removes tests, load the bundled `write-tests` skill
