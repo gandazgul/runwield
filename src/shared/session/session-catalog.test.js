@@ -86,6 +86,8 @@ Deno.test("listPromptTemplates gives local templates precedence and parses metad
                 'description: "Local review override"',
                 'argument-hint: "<diff>"',
                 'model: "test/model"',
+                'agent: "operator"',
+                'thinkingLevel: "low"',
                 "---",
                 "Local body",
             ].join("\n"),
@@ -119,6 +121,8 @@ Deno.test("listPromptTemplates gives local templates precedence and parses metad
         assertEquals(codeReview?.description, "Local review override");
         assertEquals(codeReview?.argumentHint, "<diff>");
         assertEquals(codeReview?.model, "test/model");
+        assertEquals(codeReview?.agent, "operator");
+        assertEquals(codeReview?.thinkingLevel, "low");
         assertEquals(local?.description, "Describe local prompt from body.");
         assertEquals(Object.prototype.hasOwnProperty.call(adversarial || {}, "tools"), false);
     } finally {

@@ -283,7 +283,9 @@ Type `/` in the editor for completion.
 | `/share`         | Export and upload the session as a secret GitHub Gist.                          |
 | `/quit`, `/exit` | Exit.                                                                           |
 
-Prompt templates and skills can also appear as slash commands. See [Customization](customization.md).
+Prompt templates and skills can also appear as slash commands. Core resolves them the same way in TUI, Workspace, and
+ACP. Prompt Templates run one auxiliary turn and then restore the root profile; Skills expand into the current Agent's
+turn. See [Customization](customization.md).
 
 ## CLI commands
 

@@ -37,6 +37,7 @@ export const RuntimeEventTypes = Object.freeze({
     ATTENTION_REQUESTED: "attention_requested",
     KEYBOARD_HELP: "keyboard_help",
     MANAGED_SYNC_STATE_CHANGED: "managed_sync_state_changed",
+    COMMAND_CATALOG_CHANGED: "command_catalog_changed",
 });
 
 /**
@@ -232,7 +233,11 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeSessionLifecycleEvent | RuntimeSessionReplacedEvent | RuntimeUserMessageEvent | RuntimeAssistantTextDeltaEvent | RuntimeAssistantThinkingDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeBusyChangedEvent | RuntimeAgentChangedEvent | RuntimeModelChangedEvent | RuntimeThinkingLevelChangedEvent | RuntimeWorkflowContextChangedEvent | RuntimeSessionRenamedEvent | RuntimePresentationStateEvent | RuntimeQueuedMessageEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent | RuntimeAttentionRequestedEvent | RuntimeKeyboardHelpEvent | RuntimeManagedSyncStateEvent} SessionRuntimeEvent
+ * @typedef {RuntimeEventBase & { type: "command_catalog_changed", promptTemplates: import('./session.js').PromptTemplateMeta[], skills: import('./session.js').SkillMeta[] }} RuntimeCommandCatalogChangedEvent
+ */
+
+/**
+ * @typedef {RuntimeSessionLifecycleEvent | RuntimeSessionReplacedEvent | RuntimeUserMessageEvent | RuntimeAssistantTextDeltaEvent | RuntimeAssistantThinkingDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeBusyChangedEvent | RuntimeAgentChangedEvent | RuntimeModelChangedEvent | RuntimeThinkingLevelChangedEvent | RuntimeWorkflowContextChangedEvent | RuntimeSessionRenamedEvent | RuntimePresentationStateEvent | RuntimeQueuedMessageEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent | RuntimeAttentionRequestedEvent | RuntimeKeyboardHelpEvent | RuntimeManagedSyncStateEvent | RuntimeCommandCatalogChangedEvent} SessionRuntimeEvent
  */
 
 /** @type {Set<string>} */

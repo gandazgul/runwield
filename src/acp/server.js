@@ -389,16 +389,10 @@ function createRunWieldAcpServer(context) {
         };
 
         try {
-            const snapshot = runtime.getSessionSnapshot(runtimeSessionId);
-            const expectedGeneration = snapshot?.managed?.generation ?? snapshot?.managed?.acknowledgedGeneration ?? 0;
-            const promptMethod = runtime.promptManagedSession
-                ? runtime.promptManagedSession.bind(runtime)
-                : runtime.promptSession.bind(runtime);
-            const runtimePrompt = promptMethod(runtimeSessionId, {
+            const runtimePrompt = runtime.promptUserTurn(runtimeSessionId, {
                 initialRequest: promptText,
                 initialImages: [],
-                expectedGeneration,
-                onTurnStarted: ({ turnId }) => {
+                onTurnStarted: (/** @type {{ turnId: string }} */ { turnId }) => {
                     activePrompt = sessionMap.beginPrompt(
                         acpSessionId,
                         turnId,

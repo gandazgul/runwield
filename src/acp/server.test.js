@@ -5,7 +5,7 @@
 
 import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
-import { dirname, fromFileUrl, resolve } from "@std/path";
+import { dirname, fromFileUrl, join, resolve } from "@std/path";
 import { withRuntimeCommandFixture } from "../cmd/testing/runtime-command-fixture.ts";
 import { mapRuntimeEventToAcpUpdate } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
@@ -218,6 +218,42 @@ Deno.test("ACP session/new and session/prompt exercise the real Runtime and stre
             assert(messages.some((message) => message.params?.update?.sessionUpdate === "user_message_chunk"));
             assertStringIncludes(joinedAgentText(messages), "hello from the fixture model");
             assertEquals(response.result, { stopReason: "end_turn" });
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP session/prompt resolves Prompt Template invocations through Core", async () => {
+    await withRuntimeCommandFixture("runwield-acp-named-invocation-", async (fixture) => {
+        const promptDir = join(fixture.projectRoot, ".wld", "prompts");
+        await Deno.mkdir(promptDir, { recursive: true });
+        await Deno.writeTextFile(
+            join(promptDir, "acp-template.md"),
+            ["---", "agent: operator", "---", "ACP expanded request for {{input}}"].join("\n"),
+        );
+        /** @type {string[]} */
+        const modelRequests = [];
+        fixture.setModelResponseFactory((context) => {
+            modelRequests.push(JSON.stringify(context.messages));
+            return fauxAssistantMessage(fauxText("named ACP response"));
+        });
+        const handle = startTestServer();
+        try {
+            const created = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "named-prompt",
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "/acp-template evidence" }] },
+            });
+            const { response, messages } = await readThroughResponse(handle, "named-prompt");
+
+            assertEquals(response.result, { stopReason: "end_turn" });
+            assertStringIncludes(JSON.stringify(messages), "/acp-template evidence");
+            assertStringIncludes(modelRequests[0] || "", "ACP expanded request for {{input}}\\n\\nevidence");
+            assert(!modelRequests[0]?.includes("/acp-template evidence"));
+            assertStringIncludes(joinedAgentText(messages), "named ACP response");
         } finally {
             await closeTestServer(handle);
         }

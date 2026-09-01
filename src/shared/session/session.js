@@ -22,6 +22,7 @@ import { completeSimple } from "@earendil-works/pi-ai/compat";
 import { createEditWithFallbackToolDefinition } from "../../tools/edit-with-fallback.js";
 import { createEditDocsToolDefinition, createWriteDocsToolDefinition } from "../../tools/docs-file-tools.js";
 import { wrapPlanSafeFileTool } from "../../tools/plan-safe-file-tools.ts";
+import { WORKFLOW_ADVANCEMENT_TOOL_NAMES } from "../../tools/registry.js";
 import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { createRunWieldReadToolDefinition } from "../../tools/read.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
@@ -205,6 +206,43 @@ export function resolveEffectiveSessionToolNames(agentTools, toolNames, customTo
     return [...new Set(normalizedTools)];
 }
 
+/** @type {Set<string>} */
+const WORKFLOW_ADVANCEMENT_TOOL_NAME_SET = new Set(WORKFLOW_ADVANCEMENT_TOOL_NAMES);
+
+const NO_WORKFLOW_AUTHORITY_PROMPT = [
+    "This is a one-turn Prompt Template invocation.",
+    "You have no authority to start, complete, validate, repair, finalize, or advance a RunWield workflow.",
+    "Do not try to call workflow completion or lifecycle tools. Finish in ordinary assistant prose.",
+].join("\n");
+
+/** @param {string[]} toolNames @param {boolean} shouldFilter */
+function filterWorkflowAdvancementTools(toolNames, shouldFilter) {
+    if (!shouldFilter) return toolNames;
+    return toolNames.filter((toolName) => !WORKFLOW_ADVANCEMENT_TOOL_NAME_SET.has(toolName));
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} tools
+ * @param {boolean} shouldFilter
+ */
+function filterCustomWorkflowAdvancementTools(tools, shouldFilter) {
+    if (!shouldFilter) return [...tools];
+    return tools.filter((tool) => !WORKFLOW_ADVANCEMENT_TOOL_NAME_SET.has(tool.name));
+}
+
+/**
+ * @param {any} model
+ * @param {string} thinkingLevel
+ * @param {boolean} explicit
+ */
+function assertThinkingLevelSupportedForInvocation(model, thinkingLevel, explicit) {
+    if (!explicit || !thinkingLevel || thinkingLevel === "off") return;
+    if (model?.reasoning === true) return;
+    throw new Error(
+        `Model ${model?.provider || ""}/${model?.id || ""} does not support thinkingLevel "${thinkingLevel}".`,
+    );
+}
+
 /** @typedef {"local" | "home" | "bundled" | "package"} PromptTemplateSource */
 
 /** @type {Map<string, string | undefined>} */
@@ -216,6 +254,8 @@ const promptTemplateModelByName = new Map();
  * @property {string} description
  * @property {string | undefined} argumentHint
  * @property {string | undefined} model
+ * @property {string | undefined} agent
+ * @property {string | undefined} thinkingLevel
  * @property {string} path
  * @property {PromptTemplateSource} source
  * @property {string | undefined} [packageSource]
@@ -240,7 +280,7 @@ export function getPromptTemplatePaths(cwd) {
  * Parse prompt-template markdown metadata.
  *
  * @param {string} filePath
- * @returns {Promise<{ description: string, argumentHint?: string, model?: string }>}
+ * @returns {Promise<{ description: string, argumentHint?: string, model?: string, agent?: string, thinkingLevel?: string }>}
  */
 async function parsePromptTemplateMeta(filePath) {
     const raw = await Deno.readTextFile(filePath);
@@ -263,11 +303,17 @@ async function parsePromptTemplateMeta(filePath) {
         : undefined;
 
     const model = typeof attrs.model === "string" && attrs.model.trim() ? attrs.model.trim() : undefined;
+    const agent = typeof attrs.agent === "string" && attrs.agent.trim() ? attrs.agent.trim() : undefined;
+    const thinkingLevel = typeof attrs.thinkingLevel === "string" && attrs.thinkingLevel.trim()
+        ? attrs.thinkingLevel.trim()
+        : undefined;
 
     return {
         description: frontmatterDescription || inferredDescription,
         argumentHint,
         model,
+        agent,
+        thinkingLevel,
     };
 }
 
@@ -310,6 +356,8 @@ export async function listPromptTemplates(options = {}) {
                     description: meta.description,
                     argumentHint: meta.argumentHint,
                     model: meta.model,
+                    agent: meta.agent,
+                    thinkingLevel: meta.thinkingLevel,
                     path: filePath,
                     source: layer.source,
                 });
@@ -335,6 +383,8 @@ export async function listPromptTemplates(options = {}) {
                 description: meta.description,
                 argumentHint: meta.argumentHint,
                 model: meta.model,
+                agent: meta.agent,
+                thinkingLevel: meta.thinkingLevel,
                 path: resource.path,
                 source: "package",
                 packageSource: resource.metadata?.source,
@@ -1004,6 +1054,7 @@ function emitAgentModelFallback(hostedSession, agentName, displayName, engineerM
  * @param {ReturnType<typeof getModelRegistry>} [modelRegistry]
  * @param {import('./hosted-session.js').HostedSession} [hostedSession]
  * @param {string} [projectRoot]
+ * @param {{ ignoreManualModelOverride?: boolean }} [options]
  *
  * @returns {Promise<any>}
  */
@@ -1014,6 +1065,7 @@ async function resolveModel(
     modelRegistry = getModelRegistry(),
     hostedSession = undefined,
     projectRoot = hostedSession?.cwd,
+    options = {},
 ) {
     let resolvedModel = null;
     if (!projectRoot) throw new Error("resolveModel: projectRoot is required");
@@ -1034,7 +1086,10 @@ async function resolveModel(
         hostedSession?.getActiveAgentInfo?.()?.agentName;
     const sameAgent = !activeAgentName || !agentName ||
         normalizeAgentInternalName(activeAgentName) === normalizeAgentInternalName(agentName);
-    if (activeModelState.model && hostedSession?.isUserModelOverride?.() && sameAgent) {
+    if (
+        !options.ignoreManualModelOverride && activeModelState.model && hostedSession?.isUserModelOverride?.() &&
+        sameAgent
+    ) {
         candidateModels.push({
             model: formatProviderModelReference(activeModelState),
             source: "manual /model override",
@@ -1731,6 +1786,11 @@ export async function assembleFinalSystemPrompt(
  * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.
  * @param {string} [opts.projectStateContext] - Optional session-scoped project state note for the system prompt.
  * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
+ * @param {boolean} [opts.workflowAuthority] - False for one-turn auxiliary Prompt Template sessions.
+ * @param {boolean} [opts.ignoreManualModelOverride] - True when invocation policy must not borrow root /model state.
+ * @param {boolean} [opts.updateHostedThinkingLevel] - False when thinking is temporary and must not update root footer state.
+ * @param {boolean} [opts.persistModelChange] - False for temporary Claude CLI turns that must not append a root model marker.
+ * @param {boolean} [opts.disableAutoCompaction] - True when a temporary turn must fail instead of compacting root context.
  *
  * @returns {Promise<{
  *   session: import('@earendil-works/pi-coding-agent').AgentSession,
@@ -1760,6 +1820,9 @@ export async function buildAgentSession({
     debugLogPath,
     projectStateContext,
     includeEditFallback,
+    workflowAuthority,
+    ignoreManualModelOverride,
+    updateHostedThinkingLevel,
 }) {
     const targetHostedSession = hostedSession ? requireHostedSession(hostedSession, "buildAgentSession") : null;
     const sessionCwd = cwd || targetHostedSession?.cwd;
@@ -1780,6 +1843,7 @@ export async function buildAgentSession({
             modelRegistry,
             targetHostedSession || undefined,
             sessionCwd,
+            { ignoreManualModelOverride: ignoreManualModelOverride === true },
         ),
     );
     assertModelExecutionBackendSupported(resolvedModel);
@@ -1790,10 +1854,16 @@ export async function buildAgentSession({
     const effectiveSessionManager = sessionManager || SessionManager.inMemory(sessionCwd);
 
     const customToolNames = (customTools || []).map((t) => t.name);
-    const parentDelegableTools = resolveEffectiveSessionToolNames(agentDef.tools, toolNames, []);
-    let tools = resolveEffectiveSessionToolNames(agentDef.tools, toolNames, customToolNames);
+    const parentDelegableTools = filterWorkflowAdvancementTools(
+        resolveEffectiveSessionToolNames(agentDef.tools, toolNames, []),
+        workflowAuthority === false,
+    );
+    let tools = filterWorkflowAdvancementTools(
+        resolveEffectiveSessionToolNames(agentDef.tools, toolNames, customToolNames),
+        workflowAuthority === false,
+    );
 
-    const finalCustomTools = [...(customTools || [])];
+    const finalCustomTools = filterCustomWorkflowAdvancementTools(customTools || [], workflowAuthority === false);
     if (!activeModelSupportsImages && visionFallback && !tools.includes("see_image")) {
         tools = [...tools, "see_image"];
     }
@@ -1928,7 +1998,11 @@ export async function buildAgentSession({
                 sessionManager: effectiveSessionManager,
             },
         );
-    const promptState = { text: finalSystemPrompt };
+    const promptState = {
+        text: workflowAuthority === false
+            ? `${finalSystemPrompt}\n\n${NO_WORKFLOW_AUTHORITY_PROMPT}`
+            : finalSystemPrompt,
+    };
     const packagePromptResources = await resolveInstalledPackagePromptResources({ cwd: sessionCwd }).catch(() => []);
     const packageExtensionResources = await resolveInstalledWldExtensionResources({ cwd: sessionCwd }).catch(() => []);
     const extensionFactories = [
@@ -2023,13 +2097,20 @@ export async function buildAgentSession({
         if (resolvedThinkingLevel) thinkingLevelSource = "agent definition thinking level";
     }
     if (resolvedThinkingLevel) {
+        assertThinkingLevelSupportedForInvocation(
+            resolvedModel,
+            resolvedThinkingLevel,
+            Boolean(thinkingLevelOverride && workflowAuthority === false),
+        );
         session.setThinkingLevel(
             /** @type {import('@earendil-works/pi-agent-core').ThinkingLevel} */ (resolvedThinkingLevel),
         );
-        // Keep the HostedSession footer in sync with what the AgentSession is using.
-        targetHostedSession?.setThinkingLevel(
-            /** @type {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"|"max"} */ (resolvedThinkingLevel),
-        );
+        // Keep the HostedSession footer in sync with what the root AgentSession is using.
+        if (updateHostedThinkingLevel !== false) {
+            targetHostedSession?.setThinkingLevel(
+                /** @type {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"|"max"} */ (resolvedThinkingLevel),
+            );
+        }
     }
 
     // Ensure extension lifecycle hooks (e.g. session_start) are activated for this agent invocation.
@@ -2088,6 +2169,7 @@ export async function buildAgentSession({
  *   triageMeta: import('../../tools/plan-written.ts').TriageMeta | undefined,
  *   cwd: string,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
+ *   workflowAuthority?: boolean,
  * }} opts
  * @returns {Promise<import('@earendil-works/pi-coding-agent').ToolDefinition[]>}
  */
@@ -2098,13 +2180,17 @@ export async function composeClaudeCliBridgedTools({
     triageMeta,
     cwd,
     customTools = [],
+    workflowAuthority = true,
 }) {
     /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
-    const finalCustomTools = [...customTools];
-    const declaredTools = resolveEffectiveSessionToolNames(
-        agentDef.tools,
-        undefined,
-        customTools.map((tool) => tool.name),
+    const finalCustomTools = filterCustomWorkflowAdvancementTools(customTools, workflowAuthority === false);
+    const declaredTools = filterWorkflowAdvancementTools(
+        resolveEffectiveSessionToolNames(
+            agentDef.tools,
+            undefined,
+            finalCustomTools.map((tool) => tool.name),
+        ),
+        workflowAuthority === false,
     );
     const declared = new Set(declaredTools);
     /** @param {string} name */
@@ -2204,9 +2290,15 @@ export async function buildExecutionSession(opts) {
             modelRegistry,
             targetHostedSession || undefined,
             sessionCwd,
+            { ignoreManualModelOverride: opts.ignoreManualModelOverride === true },
         ),
     );
     assertModelExecutionBackendSupported(resolvedModel);
+    assertThinkingLevelSupportedForInvocation(
+        resolvedModel,
+        opts.thinkingLevelOverride || "",
+        Boolean(opts.thinkingLevelOverride && opts.workflowAuthority === false),
+    );
     const backend =
         /** @type {import('../models/model-registry.ts').RunWieldModel} */ (resolvedModel)?.executionBackend || "pi";
     if (backend === "pi") {
@@ -2225,12 +2317,16 @@ export async function buildExecutionSession(opts) {
         hostedSession: targetHostedSession,
         triageMeta: opts.triageMeta,
         cwd: sessionCwd,
-        customTools: opts.customTools || [],
+        customTools: filterCustomWorkflowAdvancementTools(opts.customTools || [], opts.workflowAuthority === false),
+        workflowAuthority: opts.workflowAuthority !== false,
     });
-    const rebuildToolNames = resolveEffectiveSessionToolNames(
-        agentDef.tools,
-        opts.toolNames,
-        finalCustomTools.map((tool) => tool.name),
+    const rebuildToolNames = filterWorkflowAdvancementTools(
+        resolveEffectiveSessionToolNames(
+            agentDef.tools,
+            opts.toolNames,
+            finalCustomTools.map((tool) => tool.name),
+        ),
+        opts.workflowAuthority === false,
     );
     const { prompt: finalSystemPrompt, projection: contextProjection } =
         await assembleFinalSystemPromptWithContextProjection(
@@ -2244,15 +2340,20 @@ export async function buildExecutionSession(opts) {
                 sessionManager: effectiveSessionManager,
             },
         );
-    const promptState = { text: finalSystemPrompt };
+    const promptState = {
+        text: opts.workflowAuthority === false
+            ? `${finalSystemPrompt}\n\n${NO_WORKFLOW_AUTHORITY_PROMPT}`
+            : finalSystemPrompt,
+    };
     const session = new ClaudeCliExecutionSession({
         cwd: sessionCwd,
         agentName: opts.agentName,
-        finalSystemPrompt,
+        finalSystemPrompt: promptState.text,
         model: resolvedModel,
         sessionManager: effectiveSessionManager,
         hostedSession: targetHostedSession || undefined,
         bridgedTools: finalCustomTools,
+        persistModelChange: opts.persistModelChange !== false,
     });
     await recordWorkflowMetric({
         category: "model_selection",
@@ -2967,6 +3068,7 @@ export function attachSessionEventSubscribers(
  * @param {string} [opts.cwd]
  * @param {string} [opts.debugLogPath]
  * @param {AbortSignal} [opts.signal]
+ * @param {boolean} [opts.disableAutoCompaction]
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
@@ -2983,6 +3085,7 @@ export async function runPrompt({
     cwd,
     debugLogPath,
     signal,
+    disableAutoCompaction = false,
 }) {
     subscriberState.resetTurn();
 
@@ -3042,10 +3145,12 @@ export async function runPrompt({
     try {
         signal?.throwIfAborted();
         signal?.addEventListener("abort", abortPrompt, { once: true });
-        await compactBeforePromptIfNeeded(session, {
-            text: preparedImages.text,
-            images: preparedImages.images,
-        }, agentName);
+        if (!disableAutoCompaction) {
+            await compactBeforePromptIfNeeded(session, {
+                text: preparedImages.text,
+                images: preparedImages.images,
+            }, agentName);
+        }
         signal?.throwIfAborted();
         await session.prompt(preparedImages.text, requestOptions);
         signal?.throwIfAborted();
@@ -3376,6 +3481,7 @@ export async function ensureRootAgentSession(opts) {
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {AbortSignal} [opts.signal]
  * @param {import('./request-dispatch.ts').RequestDispatchKind} [opts.dispatchKind]
+ * @param {boolean} [opts.disableAutoCompaction]
  * @param {import('./managed-operation.ts').ManagedOperationCapability} [opts.managedOperationCapability]
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
@@ -3387,6 +3493,7 @@ export async function runRootTurn({
     customTools,
     signal,
     dispatchKind = "interactive",
+    disableAutoCompaction = false,
 }) {
     const targetHostedSession = requireHostedSession(hostedSession, "runRootTurn");
     const session = /** @type {any} */ (targetHostedSession.getRootAgentSession());
@@ -3476,6 +3583,7 @@ export async function runRootTurn({
                 images: effectiveImages,
                 subscriberState: meta.subscriberState,
                 signal,
+                disableAutoCompaction,
             });
         }
         completeRequestDispatch(sessionManager, dispatch);
@@ -3571,6 +3679,11 @@ export async function runNonInteractiveAgentPrompt({
  * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.
  * @param {string} [opts.projectStateContext] - Optional session-scoped project state note for the system prompt.
  * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
+ * @param {boolean} [opts.workflowAuthority] - False for one-turn auxiliary Prompt Template sessions.
+ * @param {boolean} [opts.ignoreManualModelOverride] - True when invocation policy must not borrow root /model state.
+ * @param {boolean} [opts.updateHostedThinkingLevel] - False when thinking is temporary and must not update root footer state.
+ * @param {boolean} [opts.persistModelChange] - False for temporary Claude CLI turns that must not append a root model marker.
+ * @param {boolean} [opts.disableAutoCompaction] - True when a temporary turn must fail instead of compacting root context.
  * @param {AbortSignal} [opts.signal] - Optional cancellation signal for transient delegated sessions.
  * @param {import('./request-dispatch.ts').RequestDispatchKind} [opts.dispatchKind]
  * @param {import('./managed-operation.ts').ManagedOperationCapability} [opts.managedOperationCapability]
@@ -3659,6 +3772,7 @@ export async function runIsolatedAgentSession(opts) {
                     cwd: opts.cwd || hostedSession.cwd,
                     debugLogPath: opts.debugLogPath,
                     signal: opts.signal,
+                    disableAutoCompaction: opts.disableAutoCompaction === true,
                 });
             }
             completeRequestDispatch(session.sessionManager, dispatch);

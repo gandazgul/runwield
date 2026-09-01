@@ -28,7 +28,9 @@ If `~/.wld/settings.json` does not exist, RunWield imports `~/.pi/agent/settings
 reads and writes `~/.wld/settings.json`.
 
 Run `/reload` in an active TUI session after editing settings by hand. `/reload` refreshes settings, the active theme,
-the root agent model, the root agent thinking level, prompt templates, skills, and memories.
+the root agent model, the root agent thinking level, prompt templates, skills, and memories. Prompt Template and Skill
+catalogs are replaced only after reload succeeds, so removed names stop autocompleting and new or changed bodies are
+used by later invocations.
 
 ## Example
 
@@ -549,7 +551,7 @@ These keys come from the upstream `@earendil-works/pi-coding-agent` settings sch
 | `skills`                    | string array | default `[]`                                                                 | Local skill file paths or directories.                                                                                        |
 | `prompts`                   | string array | default `[]`                                                                 | Local prompt template file paths or directories.                                                                              |
 | `themes`                    | string array | default `[]`                                                                 | Local theme file paths or directories.                                                                                        |
-| `enableSkillCommands`       | boolean      | default `true`                                                               | Register skills as `/skill:name` commands.                                                                                    |
+| `enableSkillCommands`       | boolean      | default `true`                                                               | Register skills as Core-owned `/skill:name` named invocations.                                                                |
 | `enabledModels`             | string array | unset                                                                        | Model patterns for model cycling, using the same format as the `--models` CLI flag.                                           |
 | `doubleEscapeAction`        | string       | `fork`, `tree`, `none`; default `tree`                                       | Action for pressing Escape twice with an empty editor.                                                                        |
 | `treeFilterMode`            | string       | `default`, `no-tools`, `user-only`, `labeled-only`, `all`; default `default` | Default filter when opening the session tree.                                                                                 |
@@ -665,6 +667,8 @@ RunWield loads passive package prompt templates from `pi.prompts` without requir
 compatibility marker. Package prompts are appended after project, home, and bundled RunWield prompts, so they cannot
 silently replace those templates. If a package prompt name collides with a built-in slash command such as `/help`,
 `/agent`, or `/theme`, the built-in command wins and RunWield shows a startup warning for the blocked package prompt.
+When invoked, Prompt Template Front Matter can select `agent`, `model`, and `thinkingLevel` for that one auxiliary turn;
+invalid values fail before a model call.
 
 RunWield still ignores Pi package skills. When `wld install <source>` finds package skills, it reports them as ignored
 and prints `npx skills add <source>` guidance so users can install them through the external skills CLI instead.

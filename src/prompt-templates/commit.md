@@ -17,8 +17,8 @@ the docs changed.
    bullet points in the commit body. Also include in the body any clarifying details about the changes.
 4. Stage the modified files (e.g., `git add -A`) and execute the commit.
 5. Run `git push` to sync the changes upstream.
-6. Finish by calling `task_completed`. The `message` field must be exactly this report format, with no extra prose, no
-   verification details, and no missing list:
+6. Finish in ordinary assistant text. Use exactly this report format, with no extra prose, no verification details, and
+   no missing list:
 
    ```markdown
    Committed and pushed:
