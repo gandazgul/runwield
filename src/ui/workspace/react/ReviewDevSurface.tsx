@@ -606,6 +606,8 @@ const GUIDED_REVIEW_FIXTURE = {
 
 const GUIDE_DEV_VARIANTS = [
     { id: "ready", label: "Ready explainer + widget" },
+    { id: "pending-usage", label: "Running + usage pending" },
+    { id: "reported-usage", label: "Completed + reported usage" },
     { id: "no-provider", label: "No provider available" },
     { id: "failed", label: "Failed generation" },
 ];
@@ -652,6 +654,69 @@ function buildCodeReviewDevPayload(variant) {
                 providers: [{ id: "guide", provider: "fixture", model: "failure" }],
             },
             devGuideFailure: "Fixture provider failed while generating the Guided Review Explainer.",
+        };
+    }
+    if (variant === "pending-usage") {
+        return {
+            ...base,
+            devGuideCapabilities: {
+                available: true,
+                providers: [{ id: "guide", provider: "fixture", model: "pending" }],
+            },
+            devGuideJob: {
+                id: "dev-guide-pending",
+                provider: "guide",
+                status: "running",
+                engine: "wld",
+                model: "wld",
+                elapsedMs: 4200,
+                usageState: "pending",
+                tokens: null,
+                cost: null,
+            },
+        };
+    }
+    if (variant === "reported-usage") {
+        return {
+            ...base,
+            devGuideCapabilities: {
+                available: true,
+                providers: [{ id: "guide", provider: "fixture", model: "reported" }],
+            },
+            guidedReviewFixture: GUIDED_REVIEW_FIXTURE,
+            devGuideJob: {
+                id: "dev-guide-reported",
+                provider: "guide",
+                status: "done",
+                engine: "wld",
+                model: "wld",
+                elapsedMs: 9800,
+                usageState: "available",
+                tokens: {
+                    inputTokens: 1240,
+                    outputTokens: 250,
+                    cacheReadTokens: 800,
+                    cacheWriteTokens: 0,
+                    costUsd: 0.125,
+                },
+                cost: { usd: 0.125 },
+            },
+            devGuideJobDone: {
+                id: "dev-guide-reported",
+                provider: "guide",
+                status: "done",
+                engine: "wld",
+                model: "wld",
+                usageState: "available",
+                tokens: {
+                    inputTokens: 1240,
+                    outputTokens: 250,
+                    cacheReadTokens: 800,
+                    cacheWriteTokens: 0,
+                    costUsd: 0.125,
+                },
+                cost: { usd: 0.125 },
+            },
         };
     }
     return {
