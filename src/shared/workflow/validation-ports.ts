@@ -305,6 +305,15 @@ export type ValidationSessionPort = {
         level: "info" | "success" | "warning" | "error",
         progress?: ValidationProgressRecord,
     ): void;
+    emitAssistantMessage(
+        agentName: string,
+        text: string,
+        options?: {
+            messageKind?: "assistant" | "workflow" | "review_result";
+            workflowMessage?: string;
+            approved?: boolean;
+        },
+    ): void;
     /** User interactions (requestHostedSessionInteraction behind the port). */
     requestInteraction(request: ValidationInteractionRequest): Promise<ValidationInteractionResponse>;
     /** Escape-cancel registration for retry waits and other active validation work. */

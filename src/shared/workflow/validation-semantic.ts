@@ -687,6 +687,9 @@ export async function runReviewerRound(
     }
 
     const applied = applyRoundFindings(state.reviewLedger, latestOutcome.findings, state.semanticRound);
+    if (!latestOutcome.approved && openItems(applied.ledger).length > 0) {
+        emitReviewerLedgerReport(args, applied.ledger, applied.resolvedCount);
+    }
     return {
         kind: "complete",
         outcome: latestOutcome,
@@ -694,6 +697,25 @@ export async function runReviewerRound(
         resolvedCount: applied.resolvedCount,
         appendedCount: applied.appendedCount,
     };
+}
+
+function emitReviewerLedgerReport(
+    args: ValidationLoopArgs,
+    ledger: ReturnType<typeof applyRoundFindings>["ledger"],
+    resolvedCount: number,
+): void {
+    const openCount = openItems(ledger).length;
+    const openLabel = openCount === 1 ? "1 issue open" : `${openCount} issues open`;
+    const resolvedNote = resolvedCount > 0 ? `, ${resolvedCount} resolved this round` : "";
+    args.session.emitAssistantMessage(
+        AGENTS.REVIEWER,
+        `Semantic review rejected — ${openLabel}${resolvedNote}:\n${renderOpenItems(ledger)}`,
+        {
+            messageKind: "workflow",
+            workflowMessage: "review_report_update",
+            approved: false,
+        },
+    );
 }
 
 export function buildSemanticReviewAttempt(

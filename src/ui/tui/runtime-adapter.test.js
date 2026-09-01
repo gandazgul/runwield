@@ -359,6 +359,30 @@ Deno.test("TUI adapter clears active validation panel on terminal runtime errors
     adapter.dispose();
 });
 
+Deno.test("TUI adapter uses reviewer ledger report updates only for the validation panel", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("review-ledger-report", [], {
+        routingIntent: "FEATURE",
+        complexity: "LOW",
+    });
+    const { transcript, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+        messageId: "review-ledger-report",
+        delta: "Semantic review rejected — 1 issue open:\n[R1-1] Missing guard",
+        agentName: "Reviewer",
+        messageKind: "workflow",
+        workflowMessage: "review_report_update",
+        approved: false,
+    });
+
+    assertEquals(transcript, [
+        "report:reviewer:Reviewer:Semantic review rejected — 1 issue open:\n[R1-1] Missing guard",
+    ]);
+    adapter.dispose();
+});
+
 Deno.test("TUI adapter excludes OPERATION task_completed reports from later validation panels", () => {
     const { runtime, sessionId } = makeRuntimeHarness("operation-report-exclusion", [], {
         routingIntent: "OPERATION",
