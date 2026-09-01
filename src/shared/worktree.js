@@ -158,6 +158,30 @@ export async function hasExecutionChangesSince({
 }
 
 /**
+ * Detect a previously completed preparation checkpoint without mistaking it for
+ * Agent implementation. The original attempt base must remain an ancestor, and
+ * every committed path since it must be owned preparation state.
+ *
+ * @param {Object} opts
+ * @param {string} opts.worktreePath
+ * @param {string} opts.baseRef
+ * @param {string} [opts.targetRef]
+ * @returns {Promise<boolean>}
+ */
+export async function hasOnlyExecutionPreparationChangesSince({
+    worktreePath,
+    baseRef,
+    targetRef = "HEAD",
+}) {
+    const baseIsAncestor = await runGitResult(worktreePath, ["merge-base", "--is-ancestor", baseRef, targetRef]);
+    if (baseIsAncestor.code !== 0) return false;
+    const committed = parseNameOnlyPaths(
+        await runGit(worktreePath, ["diff", "--name-only", `${baseRef}..${targetRef}`]),
+    );
+    return committed.length > 0 && committed.every(isExecutionPreparationPath);
+}
+
+/**
  * @param {string} cwd
  * @param {string[]} paths
  */
@@ -528,14 +552,28 @@ export async function checkpointExecutionPreparation({
     planRelativePath,
     relatedPlanPaths = [],
 }) {
-    const headBefore = (await runGit(worktreePath, ["rev-parse", "HEAD"])).trim();
-    if (headBefore !== baseCommit) {
-        throw new Error(
-            `Cannot checkpoint execution preparation for ${planName}: branch ${branch} moved from ${baseCommit} to ${headBefore}.`,
-        );
-    }
     const preparationPaths = [...new Set([planRelativePath, ...relatedPlanPaths])];
     if (await pathExists(join(worktreePath, ".gitignore"))) preparationPaths.push(".gitignore");
+    const headBefore = (await runGit(worktreePath, ["rev-parse", "HEAD"])).trim();
+    if (headBefore !== baseCommit) {
+        const baseIsAncestor = await runGitResult(worktreePath, [
+            "merge-base",
+            "--is-ancestor",
+            baseCommit,
+            headBefore,
+        ]);
+        const committedPaths = baseIsAncestor.code === 0
+            ? parseNameOnlyPaths(await runGit(worktreePath, ["diff", "--name-only", `${baseCommit}..${headBefore}`]))
+            : [];
+        const unexpectedPaths = baseIsAncestor.code === 0
+            ? filterUserDirtyPaths(committedPaths, new Set(preparationPaths))
+            : ["branch history"];
+        if (unexpectedPaths.length > 0) {
+            throw new Error(
+                `Cannot checkpoint execution preparation for ${planName}: branch ${branch} moved from ${baseCommit} to ${headBefore}.`,
+            );
+        }
+    }
     await commitDirtyWorktreeState(
         worktreePath,
         branch,
@@ -543,7 +581,7 @@ export async function checkpointExecutionPreparation({
         preparationPaths,
     );
     const preparationCommit = (await runGit(worktreePath, ["rev-parse", "HEAD"])).trim();
-    if (preparationCommit === headBefore) {
+    if (preparationCommit === baseCommit) {
         throw new Error(`Execution preparation for ${planName} did not create its required Plan commit.`);
     }
     const committedPlan = await runGitResult(worktreePath, [

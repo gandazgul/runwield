@@ -15,6 +15,7 @@ async function savePlanForTest(cwd, planName, content, attrs) {
 import { GitRepositoryRequiredError } from "./git.js";
 
 import {
+    checkpointExecutionPreparation,
     checkpointExecutionWorktree,
     deleteMergedWorktreeBranch,
     deleteRemotelyPublishedWorktreeBranch,
@@ -98,6 +99,57 @@ Deno.test("mergeExecutionWorktree rejects post-seal implementation edits outside
                 }),
             Error,
             "changed after candidate sealing outside finalized Plan paths",
+        );
+    } finally {
+        if (worktree) {
+            await removeWorktreeGitArtifacts({
+                projectRoot,
+                path: worktree.path,
+                force: true,
+            }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("execution preparation retry still rejects branches containing implementation commits", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
+    /** @type {Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined} */
+    let worktree;
+    try {
+        worktree = await createTestWorktreeAttempt({
+            projectRoot,
+            planName: "Prepared retry",
+            worktreeRoot,
+        });
+        const activeWorktree = worktree;
+        await savePlanForTest(activeWorktree.path, "prepared-retry", "# Prepared retry", {
+            status: "ready_for_work",
+        });
+        await checkpointExecutionPreparation({
+            worktreePath: activeWorktree.path,
+            branch: activeWorktree.branch,
+            baseCommit: activeWorktree.baseCommit,
+            planName: "prepared-retry",
+            planRelativePath: "docs/plans/prepared-retry.md",
+        });
+        await Deno.writeTextFile(`${activeWorktree.path}/implementation.txt`, "Agent work\n");
+        await git(activeWorktree.path, ["add", "implementation.txt"]);
+        await git(activeWorktree.path, ["commit", "-m", "Implement feature"]);
+
+        await assertRejects(
+            () =>
+                checkpointExecutionPreparation({
+                    worktreePath: activeWorktree.path,
+                    branch: activeWorktree.branch,
+                    baseCommit: activeWorktree.baseCommit,
+                    planName: "prepared-retry",
+                    planRelativePath: "docs/plans/prepared-retry.md",
+                }),
+            Error,
+            "branch",
         );
     } finally {
         if (worktree) {
