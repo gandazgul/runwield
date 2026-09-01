@@ -19,6 +19,7 @@ import { SessionManager, type ToolDefinition } from "@earendil-works/pi-coding-a
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { HostedSession } from "../session/hosted-session.js";
 import { runIsolatedAgentSession } from "../session/session.js";
+import { emitAssistantMessage, type RuntimeValidationProgress } from "../session/session-runtime-events.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { requestHostedSessionInteraction } from "../session/session-runtime-interactions.js";
 import { getAgentDisplayName as getSessionAgentDisplayName } from "../session/agents.js";
@@ -37,7 +38,6 @@ import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../sessio
 import { createReviewDiffTool } from "./review-diff-tool.js";
 import { createQaChecklistGeneratedTool } from "../../tools/qa-checklist-generated.ts";
 import { claimWorkflowToolEvent, settleWorkflowToolEvent } from "./workflow-tool-events.ts";
-import type { RuntimeValidationProgress } from "../session/session-runtime-events.js";
 import type {
     AgentTurnOutcome,
     IsolatedAgentSessionOutcome,
@@ -418,6 +418,9 @@ export function createValidationSessionPort(
                 level,
                 progress as RuntimeValidationProgress | undefined,
             );
+        },
+        emitAssistantMessage: (agentName, text, options) => {
+            emitAssistantMessage(hostedSession, agentName, text, options);
         },
         requestInteraction: (request) =>
             requestHostedSessionInteraction(

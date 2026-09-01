@@ -170,6 +170,17 @@ export function attachTuiRuntimeAdapter({
                     });
                     hiddenValidationReportCached ||= !validationSessionActive;
                 }
+                if (value.workflowMessage === "review_report_update") {
+                    if (shouldCacheValidationReport()) {
+                        uiAPI.updateValidationReport?.("reviewer", {
+                            agentName: value.agentName,
+                            markdown: value.delta,
+                            approved: value.approved,
+                        });
+                        hiddenValidationReportCached ||= !validationSessionActive;
+                    }
+                    break;
+                }
                 if (value.messageKind === "review_result" && uiAPI.appendReviewResult) {
                     uiAPI.appendReviewResult(
                         value.agentName,
