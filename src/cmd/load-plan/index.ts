@@ -52,7 +52,6 @@ import { loadPlanActionEvidence } from "../../shared/workflow/plan-actions.ts";
 import { printCommandHelp } from "../help/index.js";
 import { startInteractiveSession } from "../../ui/tui/chat-session.ts";
 import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
-import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 import { resolvePlanWithPrimaryRecovery, resumePlanPublicationCleanup } from "./primary-plan-recovery.ts";
 import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
 import type { CommandContext } from "../registry.js";
@@ -97,6 +96,9 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
     }
 
     let [planArg] = parsedArgs._.map(String);
+    // The picker already runs the repository-wide publication-cleanup discovery
+    // before offering Plans; the selected Plan must not pay for it a second time.
+    let publicationCleanupDone = false;
     if (!planArg) {
         if (options.uiAPI && options.editor) {
             if (!sessionRuntime || !runtimeSessionId) {
@@ -109,6 +111,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 options.editor.disableSubmit = false;
                 return;
             }
+            publicationCleanupDone = true;
             const plans = await listPlans(activeSnapshot.cwd);
             if (plans.length === 0) {
                 options.uiAPI.appendSystemMessage(
@@ -197,7 +200,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
     let unresolvedLifecycleRecords: TransitionRecoveryRecord[] = [];
 
     try {
-        if (await finishSavedPublicationCleanup(projectRoot, uiAPI, planArg)) return;
+        if (!publicationCleanupDone && await finishSavedPublicationCleanup(projectRoot, uiAPI, planArg)) return;
         const resolved = await resolvePlanWithPrimaryRecovery(projectRoot, planArg);
         const plan = resolved.plan;
         loadedPlanName = plan.planName;
@@ -297,9 +300,10 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             "RunWield",
         );
 
-        // Set terminal title and session name to the plan's name
-        setTerminalTitleForName(plan.planName);
-        await session.rename(plan.planName);
+        // The Session keeps its current name until the user actually chooses to
+        // continue work on this Plan. Selecting, viewing, or canceling must not
+        // hydrate and rename a persisted Session; continuation actions call
+        // `session.activateForPlan` right before their workflow work begins.
 
         const triageMeta = plan.attrs;
         const agentName = triageMeta.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
@@ -349,6 +353,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 projectRoot,
                 plan,
                 uiAPI,
+                session,
             });
             if (result === "handled") return;
         }
@@ -359,9 +364,11 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             uiAPI,
             runSlicerAgent,
             loadChildPlan: loadAnotherPlan,
+            session,
         });
         if (epicResult === "direct_review") {
             restoreAgentName = planFlowRestoreAgent;
+            await session.activateForPlan(plan.planName);
             const reviewResult = await reviewLoadedPlanDirectly({
                 projectRoot,
                 plan,
@@ -455,6 +462,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                     if (nudge) uiAPI.appendSystemMessage(nudge, false, "RunWield");
                     return;
                 }
+                await session.activateForPlan(plan.planName);
                 await reopenPlanForReview({
                     projectRoot,
                     plan,
@@ -521,6 +529,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         }
                     }
 
+                    await session.activateForPlan(plan.planName);
                     await executeReadyPlanWithRepair({
                         projectRoot,
                         plan,
@@ -537,6 +546,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                     restoreAgentName = planFlowRestoreAgent;
                     const preReviewStatus = plan.attrs.status;
 
+                    await session.activateForPlan(plan.planName);
                     await reopenPlanForReview({
                         projectRoot,
                         plan,
@@ -573,6 +583,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
 
                 if (answer === "review") {
                     restoreAgentName = planFlowRestoreAgent;
+                    await session.activateForPlan(plan.planName);
                     const reviewResult = await reviewLoadedPlanDirectly({
                         projectRoot,
                         plan,
@@ -631,6 +642,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 }
                 if (answer === "review") {
                     restoreAgentName = planFlowRestoreAgent;
+                    await session.activateForPlan(plan.planName);
                     const reviewResult = await reviewLoadedPlanDirectly({
                         projectRoot,
                         plan,
@@ -653,6 +665,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
 
         uiAPI.appendSystemMessage(buildPlanSummary(plan), false, "Plan");
         restoreAgentName = planFlowRestoreAgent;
+        await session.activateForPlan(plan.planName);
         await switchPlanAgent(agentName);
 
         const outcome = await runPlanningAgent({

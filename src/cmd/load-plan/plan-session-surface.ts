@@ -9,6 +9,7 @@
 
 import { AGENTS, CLI_BIN } from "../../constants.js";
 import { resolveActiveWorkflowRuntimeAgent } from "../../shared/workflow/execution-agent.ts";
+import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
 import {
     RuntimeInteractionOutcomes,
@@ -80,6 +81,7 @@ export function createPlanSessionSurface(
 ): PlanSessionSurface {
     const snapshot = runtime.getSessionSnapshot(sessionId);
     if (!snapshot) throw new Error("load-plan requires an active runtime session");
+    let activatedPlanName: string | null = null;
     return {
         id: sessionId,
         cwd: snapshot.cwd,
@@ -134,8 +136,14 @@ export function createPlanSessionSurface(
                 message: typeof response.message === "string" ? response.message : undefined,
             };
         },
-        rename: async (name) => {
-            await runtime.renameSession(sessionId, name);
+        activateForPlan: async (planName) => {
+            // One-shot: menus can loop many times before the user chooses to
+            // continue, and only the first continuation action should pay the
+            // durable Session rename (and its terminal-title companion).
+            if (activatedPlanName !== null) return;
+            activatedPlanName = planName;
+            setTerminalTitleForName(planName);
+            await runtime.renameSession(sessionId, planName);
         },
     };
 }

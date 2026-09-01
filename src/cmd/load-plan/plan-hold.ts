@@ -30,6 +30,7 @@ import { confirmWorktreeAction, hasWorktreeContext, resolveRecoveryWorktree } fr
 import { transitionFailureError } from "./transition-failure.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { UiAPI } from "../../ui/tui/types.js";
+import type { PlanSessionSurface } from "./plan-session-types.ts";
 
 /** A Plan the hold flow reads Front Matter from. */
 export interface HoldablePlan {
@@ -77,6 +78,7 @@ export interface HandleOnHoldPlanOptions {
     projectRoot: string;
     plan: HeldPlanWithBody;
     uiAPI: UiAPI;
+    session: PlanSessionSurface;
 }
 
 /**
@@ -453,12 +455,14 @@ export async function resetHeldPlanToDraft({
  * @param {string} opts.projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter, body: string, markdown?: string }} opts.plan
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
+ * @param {PlanSessionSurface} opts.session
  * @returns {Promise<"resume" | "handled">}
  */
 export async function handleOnHoldPlan({
     projectRoot,
     plan,
     uiAPI,
+    session,
 }: HandleOnHoldPlanOptions): Promise<"resume" | "handled"> {
     while (plan.attrs.status === "on_hold") {
         const answer = await uiAPI.promptSelect("This plan is on hold. What would you like to do?", [
@@ -480,7 +484,10 @@ export async function handleOnHoldPlan({
                 plan,
                 uiAPI,
             });
-            if (reset) return "resume";
+            if (reset) {
+                await session.activateForPlan(plan.planName);
+                return "resume";
+            }
             continue;
         }
 
@@ -534,6 +541,7 @@ export async function handleOnHoldPlan({
                     uiAPI.appendSystemMessage(formatEpicProgressSummary(children), false, "RunWield");
                 }
             }
+            await session.activateForPlan(plan.planName);
             return "resume";
         }
     }

@@ -71,7 +71,12 @@ export interface PlanSessionSurface {
     replaceWithExecutionSession: (workflow: ActiveExecutionWorkflow) => Promise<void>;
     clearActiveExecutionWorkflow: () => Promise<void>;
     reviewPlan: (meta: PlanReviewRequest) => Promise<PlanReviewOutcome>;
-    rename: (name: string) => Promise<void>;
+    /**
+     * Claim the Session for continued work on a Plan: set the terminal title and
+     * durably rename the Session, once. Menus may loop many times before the user
+     * chooses to continue; only the first continuation action pays this cost.
+     */
+    activateForPlan: (planName: string) => Promise<void>;
 }
 
 /**

@@ -9,6 +9,8 @@ import {
     updatePlanFrontMatter,
 } from "../../plan-store.js";
 import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
+import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
+import { createPlanSessionSurface } from "./plan-session-surface.ts";
 import { addEntry, findById, removeEntry } from "../../shared/worktree-registry.js";
 import { executePlanAction, loadPlanActionEvidence } from "../../shared/workflow/plan-actions.ts";
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
@@ -1387,6 +1389,180 @@ Deno.test("load-plan hold recovery exits after one prompt and puts the failed Pl
 
             assertEquals((await loadPlan(projectRoot, "failed-hold"))?.attrs.status, "on_hold");
             assertEquals(ui.prompts.filter((prompt) => prompt === "Plan recovery (failed):").length, 1);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+/**
+ * The durable evidence for a managed Session: its committed generation and the
+ * transcript byte length/digest that generation pins. A rename hydrates the
+ * Session and publishes a new generation, so any hidden hydrating mutation shows
+ * up here even when the visible name does not change.
+ */
+interface SessionDurableEvidence {
+    name: string | null;
+    generation: number | null;
+    byteLength: number | null;
+    digestHex: string | null;
+}
+
+function captureSessionDurableEvidence(runtime: SessionRuntime, sessionId: string): SessionDurableEvidence {
+    const snapshot = runtime.getSessionSnapshot(sessionId);
+    if (!snapshot) throw new Error("load-plan fixture Session disappeared");
+    const runwieldSessionId = snapshot.managed?.runwieldSessionId;
+    if (!runwieldSessionId) throw new Error("load-plan fixture Session is not managed");
+    const store = openFileSessionStore();
+    try {
+        const control = store.inspectSessionActivation(runwieldSessionId);
+        return {
+            name: snapshot.name,
+            generation: control.generation?.generation ?? null,
+            byteLength: control.generation?.byteLength ?? null,
+            digestHex: control.generation?.digestHex ?? null,
+        };
+    } finally {
+        store.close();
+    }
+}
+
+/**
+ * Wrap the standard fixture UI so that every time the first post-selection
+ * action menu opens, the Session's committed durable evidence is captured before
+ * the scripted selection is returned. Capturing at the menu boundary — not after
+ * the command returns — isolates the hot path from the post-cancel agent restore,
+ * which legitimately switches the Agent and publishes a generation of its own.
+ */
+function makeUiCapturingActionMenu(
+    selections: Array<string | null>,
+    capture: () => SessionDurableEvidence,
+): LoadPlanUiFixture & { menuEvidence: SessionDurableEvidence[] } {
+    const ui = makeUi(selections);
+    const menuEvidence: SessionDurableEvidence[] = [];
+    const originalPromptSelect = ui.uiAPI.promptSelect;
+    ui.uiAPI.promptSelect = (title: string, options: SelectOption[]) => {
+        if (title === "What would you like to do?") menuEvidence.push(capture());
+        return originalPromptSelect(title, options);
+    };
+    return { ...ui, menuEvidence };
+}
+
+Deno.test("load-plan selecting and canceling a draft Plan leaves the Session durable evidence untouched", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "untouched-draft", { status: "draft" });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const before = captureSessionDurableEvidence(runtime, sessionId);
+        const ui = makeUiCapturingActionMenu(["cancel"], () => captureSessionDurableEvidence(runtime, sessionId));
+        try {
+            await runLoadPlanCommand(["untouched-draft"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+            // The first post-selection menu opened exactly once, and at that
+            // boundary the Session had not been hydrated, renamed, or republished.
+            assertEquals(ui.menuEvidence.length, 1);
+            assertEquals(ui.menuEvidence[0], before);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan viewing then canceling a draft Plan leaves the Session durable evidence untouched", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "viewed-draft", { status: "draft" });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const before = captureSessionDurableEvidence(runtime, sessionId);
+        const ui = makeUiCapturingActionMenu(
+            ["view", "cancel"],
+            () => captureSessionDurableEvidence(runtime, sessionId),
+        );
+        try {
+            await runLoadPlanCommand(["viewed-draft"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+            // Both the initial menu and the re-prompt after View see the same
+            // committed evidence: viewing never hydrates or renames the Session.
+            assertEquals(ui.menuEvidence.length, 2);
+            assertEquals(ui.menuEvidence[0], before);
+            assertEquals(ui.menuEvidence[1], before);
+            assertStringIncludes(ui.messages.join("\n"), "Plan loaded: viewed-draft");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan resuming a draft Plan renames the Session to the Plan", async () => {
+    await withRuntimeCommandFixture(
+        "runwield-load-plan-command-",
+        async ({ projectRoot, setModelMessages }) => {
+            await writePlan(projectRoot, "resumed-draft", { status: "draft" });
+            setModelMessages([
+                fauxAssistantMessage(fauxToolCall("plan_written", { planName: "resumed-draft" })),
+            ]);
+            const { runtime, sessionId } = await createRuntime(projectRoot);
+            runtime.setInteractionAdapter(sessionId, {
+                requestInteraction: async () => {
+                    const current = await loadPlan(projectRoot, "resumed-draft");
+                    if (!current) throw new Error("Fixture Plan disappeared before review");
+                    return {
+                        outcome: "accepted",
+                        _meta: {
+                            approved: true,
+                            approvalAction: "later",
+                            revision: current.revision,
+                            planAttrs: current.attrs,
+                        },
+                    };
+                },
+            });
+            const ui = makeUi(["resume"]);
+            try {
+                const before = captureSessionDurableEvidence(runtime, sessionId);
+                await runLoadPlanCommand(["resumed-draft"], {
+                    sessionRuntime: runtime,
+                    sessionId,
+                    uiAPI: ui.uiAPI,
+                    editor: ui.editor,
+                });
+                const after = captureSessionDurableEvidence(runtime, sessionId);
+                assertEquals(after.name, "resumed-draft");
+                // The continuation published durable work; the generation must have moved.
+                assertEquals(after.generation !== before.generation, true);
+            } finally {
+                runtime.closeAllSessions();
+            }
+        },
+    );
+});
+
+Deno.test("activateForPlan renames the Session exactly once across repeated continuation calls", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        try {
+            const surface = createPlanSessionSurface(runtime, sessionId, {
+                executePlan: () => Promise.resolve({ ok: true }),
+                runPlanningAgent: () => Promise.resolve({ ok: true }),
+                runValidation: () => Promise.resolve({ ok: true }),
+                runSlicerAgent: () => Promise.resolve({ ok: true }),
+            });
+            const baseline = captureSessionDurableEvidence(runtime, sessionId);
+            await surface.activateForPlan("claimed-plan");
+            const afterFirst = captureSessionDurableEvidence(runtime, sessionId);
+            assertEquals(afterFirst.name, "claimed-plan");
+            assertEquals(afterFirst.generation !== baseline.generation, true);
+            // Menus can loop and call activateForPlan again; the durable rename must not repeat.
+            await surface.activateForPlan("claimed-plan");
+            await surface.activateForPlan("some-other-plan");
+            const afterRepeat = captureSessionDurableEvidence(runtime, sessionId);
+            assertEquals(afterRepeat, afterFirst);
         } finally {
             runtime.closeAllSessions();
         }

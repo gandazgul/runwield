@@ -12,7 +12,6 @@ import {
     buildValidationUserMessage,
     validationUserMessage,
 } from "../../shared/workflow/validation-user-messages.ts";
-import { runPlansDoctor } from "../plans/doctor.ts";
 import { isInValidation } from "../../shared/workflow/plan-lifecycle.js";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
 import { healSettledTransitionRecords } from "../../shared/workflow/transition-recovery.ts";
@@ -94,8 +93,13 @@ interface RecoveryMenuOption extends Record<string, string> {
 
 export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promise<"handled" | "review" | "settled"> {
     const { projectRoot, plan, uiAPI } = opts;
+    // Recovery preflight is scoped to the selected Plan. It refreshes the
+    // authoritative Plan document and gathers only the evidence needed to build
+    // the first menu. It deliberately does not run the repository-wide
+    // `plans doctor`: that diagnosis is available through `wld plans doctor`, and
+    // running it here made every recovery menu wait on unrelated Plans,
+    // worktrees, journals, and branches.
     try {
-        await runPlansDoctor(projectRoot, true);
         const { plan: refreshed } = await resolveWorkflowPlanLocation(projectRoot, plan.planName);
         if (refreshed) {
             plan.path = refreshed.path;
@@ -147,7 +151,10 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
             details: { action, result, currentStatus: plan.attrs.status, hasWorktree, ...details },
         }, projectRoot);
     };
-    context.worktreeContext = await context.refreshRecoveryWorktree();
+    // Preflight resolves the recorded attempt read-only. Persisting discovered
+    // worktree metadata is a lifecycle mutation, so it waits for an action that
+    // actually needs it (`refreshRecoveryWorktree`), keeping the first menu cheap.
+    context.worktreeContext = await resolveRecoveryWorktree(projectRoot, plan);
     if (context.worktreeContext?.path && context.worktreeContext.path !== projectRoot) {
         const executionRecovery = await healSettledTransitionRecords(context.worktreeContext.path, {
             planName: plan.planName,
@@ -187,13 +194,27 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
         }
     }
 
+    // Git capability and physical-loss facts change only when a mutating action
+    // runs. Cache them across re-prompts so read-only browsing (Inspect, View)
+    // does not repeat the repository probes, and invalidate after any other
+    // action completes.
+    let gitProbeCache: Awaited<ReturnType<RecoveryFlowPorts["probeGitRepository"]>> | null = null;
+    let physicallyLostCache: boolean | null = null;
+    const getGitProbe = async () => gitProbeCache ??= await opts.ports.probeGitRepository(projectRoot);
+    const getPhysicallyLost = async () =>
+        physicallyLostCache ??= await isAttemptPhysicallyLost(projectRoot, context.worktreeContext);
+    const invalidateRecoveryFacts = () => {
+        gitProbeCache = null;
+        physicallyLostCache = null;
+    };
+
     while (true) {
         const hasWorktree = hasWorktreeContext(context.worktreeContext);
-        const gitProbe = await opts.ports.probeGitRepository(projectRoot);
+        const gitProbe = await getGitProbe();
         const hasGitRecoveryMetadata = hasWorktree ||
             (plan.attrs.executionMode !== "non_git_in_place" && Boolean(plan.attrs.executionBaselineTree));
         const gitRecoveryBlocked = !gitProbe.ok && hasGitRecoveryMetadata;
-        const physicallyLost = await isAttemptPhysicallyLost(projectRoot, context.worktreeContext);
+        const physicallyLost = await getPhysicallyLost();
         const answer = await promptRecoveryAction(
             context,
             gitRecoveryBlocked,
@@ -211,6 +232,8 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
             return "handled";
         }
         const outcome = await dispatchRecoveryAction(answer, context, gitRecoveryBlocked, gitProbe.state);
+        // Inspect is read-only; every other action can change what the probes see.
+        if (answer !== "inspect") invalidateRecoveryFacts();
         const terminal = translateRecoveryOutcome(outcome);
         if (terminal) {
             return terminal;
@@ -336,6 +359,20 @@ async function promptRecoveryAction(
     return answer as RecoveryMenuAnswer | null;
 }
 
+/**
+ * Recovery actions that continue or restart work on the Plan. Choosing one claims
+ * the Session for this Plan; inspect, settle, hold, verify, abandon, and cancel
+ * leave the Session name untouched.
+ */
+const RECOVERY_CONTINUATION_ACTIONS: ReadonlySet<RecoveryActionName> = new Set([
+    "continue",
+    "validate",
+    "follow_up",
+    "reset",
+    "restore_record",
+    "review",
+]);
+
 async function dispatchRecoveryAction(
     action: RecoveryActionName,
     context: RecoveryActionContext,
@@ -350,6 +387,9 @@ async function dispatchRecoveryAction(
         );
         await context.recordRecoveryResult(action, "blocked", { gitState });
         return { kind: "menu" };
+    }
+    if (RECOVERY_CONTINUATION_ACTIONS.has(action)) {
+        await context.session.activateForPlan(context.plan.planName);
     }
     switch (action) {
         case "settle_records":

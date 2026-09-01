@@ -1406,12 +1406,19 @@ export interface TransitionReconciliation {
  * @param proveEffect supplies repository evidence about journaled effects. Without
  * one, any recorded effect keeps the record open, because this module can see Plan
  * bytes but not Git refs or the worktree registry.
+ * @param planName limits reconciliation, including what `apply` removes, to records
+ * that name this Plan. Records without a Plan name stay untouched, so a scoped
+ * caller can never close another Plan's journal. Without it, reconciliation is
+ * repository-wide.
  */
 export async function reconcileTransitionRecoveryRecords(
     projectRoot: string,
-    { apply = false, proveEffect }: { apply?: boolean; proveEffect?: EffectProver } = {},
+    { apply = false, proveEffect, planName }: { apply?: boolean; proveEffect?: EffectProver; planName?: string } = {},
 ): Promise<TransitionReconciliation[]> {
-    const records = await listTransitionRecoveryRecords(projectRoot);
+    let records = await listTransitionRecoveryRecords(projectRoot);
+    if (planName !== undefined) {
+        records = records.filter((record) => record.planName === planName);
+    }
     const reconciliations: TransitionReconciliation[] = [];
     for (const record of records) {
         const transitionId = String(record.transitionId || "");
