@@ -70,6 +70,10 @@ interface AttachedWorktreeRecord {
     branch: string;
 }
 
+interface ResolveRecoveryWorktreeOptions {
+    migrateRegistry?: boolean;
+}
+
 async function canonicalPath(path: string): Promise<string | null> {
     try {
         return await Deno.realPath(path);
@@ -159,15 +163,18 @@ export interface ReopenPlanForReviewOptions {
 /**
  * @param {string} projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
+ * @param {{ migrateRegistry?: boolean }} [options]
  * @returns {Promise<RecoveryWorktreeContext | null>}
  */
 export async function resolveRecoveryWorktree(
     projectRoot: string,
     plan: RecoveryPlanRef,
+    options: ResolveRecoveryWorktreeOptions = {},
 ): Promise<RecoveryWorktreeContext | null> {
+    const registryReadOptions = options.migrateRegistry === false ? { migrate: false } : undefined;
     let entry = null;
-    if (plan.attrs.worktreeId) entry = await findWorktreeById(projectRoot, plan.attrs.worktreeId);
-    if (!entry) entry = await findWorktreeByPlanName(projectRoot, plan.planName);
+    if (plan.attrs.worktreeId) entry = await findWorktreeById(projectRoot, plan.attrs.worktreeId, registryReadOptions);
+    if (!entry) entry = await findWorktreeByPlanName(projectRoot, plan.planName, registryReadOptions);
     if (
         !entry && !plan.attrs.worktreePath && !plan.attrs.worktreeBranch && !plan.attrs.worktreeId
     ) {
@@ -447,6 +454,10 @@ export async function rehydrateActiveRecoveryWorkflow(
         workflow.worktreeBranch = resolvedContext.worktreeBranch || undefined;
         workflow.worktreeBaseBranch = resolvedContext.worktreeBaseBranch || undefined;
     }
+    // Workflow publication is a managed Session mutation. Claim the Session name
+    // after the non-mutating policy checks above and immediately before the
+    // workflow state is published.
+    await session.activateForPlan(plan.planName);
     await session.setActiveExecutionWorkflow(workflow);
     return workflow;
 }

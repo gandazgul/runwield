@@ -185,6 +185,9 @@ Deno.test("managed read sweep drives read paths without writable Pi calls or tra
             await run("getRuntimeActiveAgentName", () => {
                 runtime.getRuntimeActiveAgentName(adopted.sessionId);
             });
+            await run("getEffectiveAgentName", () => {
+                runtime.getEffectiveAgentName(adopted.sessionId);
+            });
             await run("getRuntimeActiveExecutionWorkflow", () => {
                 runtime.getRuntimeActiveExecutionWorkflow(adopted.sessionId);
             });

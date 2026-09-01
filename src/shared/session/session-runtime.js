@@ -623,6 +623,24 @@ export class SessionRuntime {
     }
 
     /**
+     * Return the Agent this Session will keep if no activation runs. For dormant
+     * managed Sessions, this is the committed projection, not a live runtime
+     * Agent.
+     *
+     * @param {string} sessionId
+     * @returns {string | null}
+     */
+    getEffectiveAgentName(sessionId) {
+        const session = this.#sessionHost.getSession(sessionId);
+        if (!session) return null;
+        const pendingAgentName = session.getPendingManagedTurnIntent?.()?.agentName || "";
+        if (pendingAgentName) return pendingAgentName;
+        const managed = session.getManagedMetadata?.() || null;
+        if (managed && !session.getRootSessionManager?.()) return managed.activeAgent || null;
+        return session.getRootAgentName() || null;
+    }
+
+    /**
      * Return the live execution workflow owned by Runtime, never a display
      * snapshot. Managed dormant sessions have no live execution workflow until
      * activation hydrates one explicitly.

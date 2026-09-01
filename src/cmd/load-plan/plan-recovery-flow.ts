@@ -71,6 +71,13 @@ export interface HandlePlanRecoveryOptions {
     uiAPI: UiAPI;
     unresolvedRecords?: UnresolvedTransitionRecord[];
     session: PlanSessionSurface;
+    /**
+     * The selected Plan's recorded worktree attempt, already resolved by the
+     * caller. Recovery builds its first menu on this snapshot instead of
+     * resolving again; legacy Plans would otherwise repeat attached-worktree
+     * discovery before the first menu.
+     */
+    recordedAttempt?: RecoveryWorktreeContext | null;
     ports: RecoveryFlowPorts;
 }
 
@@ -100,7 +107,9 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
     // running it here made every recovery menu wait on unrelated Plans,
     // worktrees, journals, and branches.
     try {
-        const { plan: refreshed } = await resolveWorkflowPlanLocation(projectRoot, plan.planName);
+        const { plan: refreshed } = await resolveWorkflowPlanLocation(projectRoot, plan.planName, {
+            migrateRegistry: false,
+        });
         if (refreshed) {
             plan.path = refreshed.path;
             plan.markdown = refreshed.markdown;
@@ -151,10 +160,15 @@ export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promi
             details: { action, result, currentStatus: plan.attrs.status, hasWorktree, ...details },
         }, projectRoot);
     };
-    // Preflight resolves the recorded attempt read-only. Persisting discovered
-    // worktree metadata is a lifecycle mutation, so it waits for an action that
-    // actually needs it (`refreshRecoveryWorktree`), keeping the first menu cheap.
-    context.worktreeContext = await resolveRecoveryWorktree(projectRoot, plan);
+    // The first menu is built on one selected-Plan snapshot. When the caller
+    // already resolved the recorded attempt, reuse it: re-resolving repeats the
+    // registry reads and can restart attached-worktree discovery for legacy
+    // Plans. Persisting discovered worktree metadata is a lifecycle mutation, so
+    // it still waits for an action that actually needs it
+    // (`refreshRecoveryWorktree`), keeping the first menu cheap.
+    context.worktreeContext = opts.recordedAttempt !== undefined
+        ? opts.recordedAttempt
+        : await resolveRecoveryWorktree(projectRoot, plan, { migrateRegistry: false });
     if (context.worktreeContext?.path && context.worktreeContext.path !== projectRoot) {
         const executionRecovery = await healSettledTransitionRecords(context.worktreeContext.path, {
             planName: plan.planName,
@@ -359,20 +373,6 @@ async function promptRecoveryAction(
     return answer as RecoveryMenuAnswer | null;
 }
 
-/**
- * Recovery actions that continue or restart work on the Plan. Choosing one claims
- * the Session for this Plan; inspect, settle, hold, verify, abandon, and cancel
- * leave the Session name untouched.
- */
-const RECOVERY_CONTINUATION_ACTIONS: ReadonlySet<RecoveryActionName> = new Set([
-    "continue",
-    "validate",
-    "follow_up",
-    "reset",
-    "restore_record",
-    "review",
-]);
-
 async function dispatchRecoveryAction(
     action: RecoveryActionName,
     context: RecoveryActionContext,
@@ -388,9 +388,11 @@ async function dispatchRecoveryAction(
         await context.recordRecoveryResult(action, "blocked", { gitState });
         return { kind: "menu" };
     }
-    if (RECOVERY_CONTINUATION_ACTIONS.has(action)) {
-        await context.session.activateForPlan(context.plan.planName);
-    }
+    // Session claiming lives in the action handlers, not here: each continuation
+    // action calls `session.activateForPlan` right before its workflow work
+    // begins, after every check that can still return to the menu. Bookkeeping
+    // actions (settle, restore record, hold, verify, abandon, cancel) never call
+    // it and leave the Session name untouched.
     switch (action) {
         case "settle_records":
             return await settleRecoveryRecords(context);

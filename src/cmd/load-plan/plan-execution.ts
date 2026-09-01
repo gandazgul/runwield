@@ -90,6 +90,7 @@ export interface ExecuteReadyPlanOptions {
     executePlan: PlanSessionSurface["executePlan"];
     continueWorkflowValidation: PlanSessionSurface["runValidation"];
     session: PlanSessionSurface;
+    affectedPathsAlreadyConfirmed?: boolean;
 }
 
 /**
@@ -261,6 +262,11 @@ export async function validateCompletedExecution(
         effectiveMeta.status !== "user_verified";
     if (needsImplementationCheckpoint) {
         const completionReport = (executionResult as { completionReport?: unknown }).completionReport;
+        // The Session is claimed only once validation work actually starts;
+        // every blocked check above returns without renaming anything. The
+        // operation is one-shot, so callers that already continued work (and
+        // activated then) pay nothing here.
+        await session.activateForPlan(planName);
         await session.setActiveExecutionWorkflow(initialWorkflow);
         try {
             await finalizePlanImplementation({
@@ -315,6 +321,9 @@ export async function validateCompletedExecution(
     }
     const resolvedContext = resolution.context;
     const workflow = buildWorkflow(resolvedContext);
+    // Same claim point as the checkpoint branch: only once the blocked checks
+    // are behind us and the Workflow Validation run begins.
+    await session.activateForPlan(planName);
     await session.setActiveExecutionWorkflow(workflow);
     await continueWorkflowValidation({
         planName,
@@ -508,6 +517,7 @@ export async function prepareApprovedPlanForWork(
  * @param {PlanSessionSurface["runPlanningAgent"]} opts.runPlanningAgent
  * @param {PlanSessionSurface["runValidation"]} opts.continueWorkflowValidation
  * @param {PlanSessionSurface} opts.session
+ * @param {boolean} [opts.affectedPathsAlreadyConfirmed]
  * @returns {Promise<void>}
  */
 export async function executeReadyPlanWithRepair({
@@ -518,8 +528,9 @@ export async function executeReadyPlanWithRepair({
     continueWorkflowValidation,
     session,
     uiAPI,
+    affectedPathsAlreadyConfirmed = false,
 }: ExecuteReadyPlanOptions): Promise<void> {
-    const confirmed = await confirmAffectedPathChangesBeforeExecution({
+    const confirmed = affectedPathsAlreadyConfirmed || await confirmAffectedPathChangesBeforeExecution({
         projectRoot,
         planName: plan.planName,
         triageMeta: plan.attrs,
@@ -527,6 +538,9 @@ export async function executeReadyPlanWithRepair({
     });
     if (!confirmed) return;
 
+    // The final execution confirmation is behind us. Claim the managed Session
+    // name immediately before Agent execution starts.
+    await session.activateForPlan(plan.planName);
     const execRes = await executePlan({
         planName: plan.planName,
         triageMeta: plan.attrs,
