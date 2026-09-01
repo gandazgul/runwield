@@ -15,7 +15,7 @@ Deno.test("createTriageReportTool exposes expected metadata", () => {
     assertEquals(typeof tool.parameters, "object");
     assert("classification" in tool.parameters.properties);
     assert(!tool.parameters.required.includes("routingIntent"));
-    assert(tool.parameters.required.includes("sessionName"));
+    assert(!tool.parameters.required.includes("sessionName"));
 });
 
 Deno.test("createTriageReportTool called with no opts produces valid tool shape", () => {
@@ -162,7 +162,7 @@ Deno.test("triage_report execute normalizes legacy classification params", async
     assertEquals(result.details.classification, "PROJECT");
 });
 
-Deno.test("triage_report execute sanitizes sessionName and falls back to summary", async () => {
+Deno.test("triage_report execute sanitizes sessionName when provided and omits it when absent", async () => {
     const tool = createTriageReportTool();
 
     const sanitized = await /** @type {any} */ (tool.execute)("call-1", {
@@ -171,15 +171,14 @@ Deno.test("triage_report execute sanitizes sessionName and falls back to summary
         summary: "explain routing",
         sessionName: " explain\n\trouting\u0007 ",
     });
-    const fallback = await /** @type {any} */ (tool.execute)("call-2", {
+    const omitted = await /** @type {any} */ (tool.execute)("call-2", {
         routingIntent: "INQUIRY",
         complexity: "LOW",
         summary: "explain routing",
-        sessionName: "\n",
     });
 
     assertEquals(sanitized.details.sessionName, "explain routing");
-    assertEquals(fallback.details.sessionName, "explain routing");
+    assertEquals(omitted.details.sessionName, undefined);
 });
 
 Deno.test("triage_report execute rejects params without canonical or legacy intent", async () => {

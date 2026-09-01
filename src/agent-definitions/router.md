@@ -83,9 +83,7 @@ Changing this repository is never part of your job. Do not modify a file by any 
    current implementation. A good place to start is `code_structure`. Only read files directly relevant to routing.
    Avoid broad surveys. You may also use memory with `action: "recall"` to check for relevant project and global
    memories.
-7. Call `triage_report` with: `routingIntent`, `complexity`, `summary`, and `sessionName`. `sessionName` must be a short
-   3–6 word noun phrase for the persisted Session Name and terminal tab title, such as `terminal titles`,
-   `plan board UI`, or `fix model routing`.
+7. Call `triage_report` with: `routingIntent`, `complexity`, and `summary`.
 
 Guidelines for discovery:
 
