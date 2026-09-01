@@ -676,6 +676,23 @@ export async function exportRootSessionToHtml(sessionManager, outputPath) {
             }</header><pre>${text}</pre></section>`;
         }
 
+        const customEntry =
+            /** @type {{ type?: string, customType?: string, data?: { compactInvocation?: string } }} */ (
+                entry
+            );
+        const namedInvocationData = customEntry.data;
+        const namedInvocationText =
+            customEntry.type === "custom" && customEntry.customType === "runwield.named_invocation" &&
+                typeof namedInvocationData?.compactInvocation === "string"
+                ? namedInvocationData.compactInvocation
+                : "";
+        if (namedInvocationText) {
+            const text = escapeHtml(namedInvocationText);
+            return `<section class=\"entry message user\"><header>${
+                escapeHtml(timestamp)
+            } — user</header><pre>${text}</pre></section>`;
+        }
+
         if (entry.type === "custom_message") {
             const text = escapeHtml(toDisplayText(entry.content || ""));
             return `<section class=\"entry custom\"><header>${escapeHtml(timestamp)} — custom_message:${

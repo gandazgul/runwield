@@ -34,6 +34,8 @@ interface TranscriptMessage {
 
 interface TranscriptEntry {
     type?: string;
+    customType?: string;
+    data?: { version?: number; compactInvocation?: string; expandedRequest?: string };
     message?: TranscriptMessage;
 }
 
@@ -51,6 +53,8 @@ export interface ClaudeCliExecutionSessionOptions {
     hostedSession?: HostedSession;
     /** Eligible RunWield Tool Definitions exposed over MCP this turn. */
     bridgedTools?: ToolDefinition[];
+    /** False for temporary turns that must not change the root model marker. */
+    persistModelChange?: boolean;
 }
 
 export interface ClaudeCliRunOptions {
@@ -96,6 +100,7 @@ export class ClaudeCliExecutionSession {
     private readonly cwd: string;
     private readonly hostedSession?: HostedSession;
     private readonly bridgedTools: ToolDefinition[];
+    private readonly persistModelChange: boolean;
     private readonly messages: AgentMessage[] = [];
     private turnAbortController: AbortController | null = null;
     isStreaming = false;
@@ -109,6 +114,7 @@ export class ClaudeCliExecutionSession {
         this.sessionManager = options.sessionManager;
         this.hostedSession = options.hostedSession;
         this.bridgedTools = [...(options.bridgedTools || [])];
+        this.persistModelChange = options.persistModelChange !== false;
         this.messages = this.readMessages();
     }
 
@@ -314,7 +320,7 @@ export class ClaudeCliExecutionSession {
                     message,
                 });
             }
-            this.sessionManager.appendModelChange(this.model.provider, this.model.id);
+            if (this.persistModelChange) this.sessionManager.appendModelChange(this.model.provider, this.model.id);
             const assistantMessage = makeAssistantMessage(parsed.text, this.model, parsed.metadata.usage);
             this.sessionManager.appendMessage(assistantMessage);
             this.sessionManager.appendCustomEntry("runwield.execution_backend", {
@@ -354,10 +360,33 @@ export class ClaudeCliExecutionSession {
     }
 
     private readConversation(): ConversationMessage[] {
-        return getRootSessionBranchEntries(this.sessionManager)
-            .map((entry) => normalizeTranscriptEntry(entry as TranscriptEntry))
-            .filter((message): message is ConversationMessage => Boolean(message));
+        const messages: ConversationMessage[] = [];
+        let skipNextCompactInvocation = "";
+        for (const entry of getRootSessionBranchEntries(this.sessionManager)) {
+            const expanded = readNamedInvocationExpandedText(entry as TranscriptEntry);
+            if (expanded) {
+                messages.push({ role: "user", text: expanded });
+                const compact = (entry as { data?: { compactInvocation?: string } }).data?.compactInvocation || "";
+                skipNextCompactInvocation = compact;
+                continue;
+            }
+            const message = normalizeTranscriptEntry(entry as TranscriptEntry);
+            if (!message) continue;
+            if (skipNextCompactInvocation && message.role === "user" && message.text === skipNextCompactInvocation) {
+                skipNextCompactInvocation = "";
+                continue;
+            }
+            skipNextCompactInvocation = "";
+            messages.push(message);
+        }
+        return messages;
     }
+}
+
+function readNamedInvocationExpandedText(entry: TranscriptEntry): string {
+    if (entry.type !== "custom" || entry.customType !== "runwield.named_invocation") return "";
+    if (entry.data?.version !== 1 || typeof entry.data.expandedRequest !== "string") return "";
+    return entry.data.expandedRequest;
 }
 
 function normalizeTranscriptEntry(entry: TranscriptEntry): ConversationMessage | null {
