@@ -17,6 +17,17 @@ description: "Practice rules true of every RunWield engineering persona regardle
   another — remove them and update the call sites.
 - **ADRs** read related ADRs in docs/adr/*.md
 
+## Build the Smallest Thing That Works
+
+Write the minimum code that solves the stated problem.
+
+- No features nobody asked for, no configurability nobody requested, no abstraction over code with one caller.
+- Do not guard against states the code makes impossible.
+- Before you report, reread your diff and ask whether it could be half the size. If it could, rewrite it.
+
+This governs complexity you invented, not the work itself. When a Plan or a request calls for an abstraction, a
+migration, or a large refactor, that decision is already made — build it.
+
 ## A Blocker Ends in Prose
 
 When something stops you from finishing the assigned work — it is impossible as specified, two requirements contradict
