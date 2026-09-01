@@ -6,7 +6,12 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { loadPlan, type PlanFrontMatter, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
-import { createWorktreeGitArtifacts, removeWorktreeGitArtifacts, settleWorktreeAttempt } from "../worktree.js";
+import {
+    checkpointExecutionPreparation,
+    createWorktreeGitArtifacts,
+    removeWorktreeGitArtifacts,
+    settleWorktreeAttempt,
+} from "../worktree.js";
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { executePlan, startActiveExecutionWorkflow } from "./workflow.js";
 import { createExecutionStartPorts } from "./execution-start.ts";
@@ -286,6 +291,80 @@ Deno.test("restart resumes a dirty ready-for-work worktree without repeating pre
         assertEquals(await Deno.stat(recoveryPath).then(() => true).catch(() => false), false);
     } finally {
         resumedSession?.dispose();
+        hostedSession.dispose();
+        if (executionCwd) {
+            await removeWorktreeGitArtifacts({ projectRoot, path: executionCwd, force: true }).catch(() => undefined);
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
+    }
+});
+
+Deno.test("restart accepts an existing Plan-only preparation commit", async () => {
+    const projectRoot = await makeWorkflowProject([{ name: "prepared-restart" }]);
+    const hostedSession = makeHostedSession("prepared-restart", projectRoot, []);
+    let executionCwd = "";
+    try {
+        const worktree = await settleWorktreeAttempt(
+            projectRoot,
+            await createWorktreeGitArtifacts({
+                projectRoot,
+                planName: "prepared-restart",
+                planId: PLAN_ID,
+            }),
+        );
+        executionCwd = worktree.path;
+        await savePlan(worktree.path, "prepared-restart", "# prepared-restart", {
+            classification: "PLANNED_CHANGE",
+            status: "ready_for_work",
+            summary: "prepared-restart",
+            affectedPaths: ["implemented.txt"],
+            planId: PLAN_ID,
+        });
+        const firstPreparation = await checkpointExecutionPreparation({
+            worktreePath: worktree.path,
+            branch: worktree.branch,
+            baseCommit: worktree.baseCommit,
+            planName: "prepared-restart",
+            planRelativePath: "docs/plans/prepared-restart.md",
+        });
+        await updateWorktreeRegistryEntry(projectRoot, worktree.id, {
+            status: "active",
+            executionBaselineTree: worktree.baseTree,
+        });
+
+        const workflow = await startActiveExecutionWorkflow({
+            planName: "prepared-restart",
+            triageMeta: {
+                planId: PLAN_ID,
+                classification: "PLANNED_CHANGE",
+                worktreeId: worktree.id,
+                worktreePath: worktree.path,
+                worktreeBranch: worktree.branch,
+                worktreeBaseBranch: worktree.baseBranch,
+                worktreeStatus: "active",
+            },
+            currentStatus: "ready_for_work",
+            hostedSession,
+            ports: createExecutionStartPorts(),
+        });
+
+        assertEquals((await loadPlan(worktree.path, "prepared-restart"))?.attrs.status, "in_progress");
+        assertEquals(workflow.baselineTree, worktree.baseTree);
+        assertEquals(
+            await git(worktree.path, [
+                "merge-base",
+                "--is-ancestor",
+                firstPreparation.preparationCommit,
+                "HEAD",
+            ]),
+            "",
+        );
+        assertEquals(
+            await git(worktree.path, ["diff", "--name-only", `${worktree.baseCommit}..HEAD`]),
+            "docs/plans/prepared-restart.md",
+        );
+        assertEquals(await git(worktree.path, ["status", "--porcelain"]), "");
+    } finally {
         hostedSession.dispose();
         if (executionCwd) {
             await removeWorktreeGitArtifacts({ projectRoot, path: executionCwd, force: true }).catch(() => undefined);

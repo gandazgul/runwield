@@ -14,6 +14,7 @@ import {
     deleteMergedWorktreeBranch,
     findReusableWorktree,
     hasExecutionChangesSince,
+    hasOnlyExecutionPreparationChangesSince,
     prepareTargetBranchRef,
     removeWorktreeGitArtifacts,
     resolveCurrentCheckoutBranch,
@@ -414,8 +415,13 @@ export async function startActiveExecutionWorkflow(
         baseRef: reusableBaseRef,
         includeWorkingTree: true,
     });
+    const reusableHasPreparationCheckpoint = Boolean(reusable && reusableBaseRef) &&
+        await hasOnlyExecutionPreparationChangesSince({
+            worktreePath: reusable.path,
+            baseRef: reusableBaseRef,
+        });
     const continuingReusableWorktree = Boolean(reusable) &&
-        (authorityStatus === "in_progress" || reusableHasExecutionChanges);
+        (authorityStatus === "in_progress" || reusableHasExecutionChanges || reusableHasPreparationCheckpoint);
     const needsExecutionStartedEvent = authorityStatus !== "in_progress";
     /** @type {Extract<Awaited<ReturnType<typeof loadCanonicalExecutionPlanSource>>, {kind:"loaded"}> | undefined} */
     let lockedCanonicalPlanSource;
@@ -666,7 +672,10 @@ export async function startActiveExecutionWorkflow(
                     worktreeId: worktree.id,
                 });
             }
-            if (!continuingReusableWorktree) {
+            if (
+                !continuingReusableWorktree ||
+                (reusableHasPreparationCheckpoint && !reusableHasExecutionChanges)
+            ) {
                 const preparation = await checkpointExecutionPreparation({
                     worktreePath: worktree.path,
                     branch: worktree.branch,
