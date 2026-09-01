@@ -4,10 +4,19 @@ import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { findActiveByPlanName } from "../worktree-registry.js";
 import { listControllerDocumentWorktrees } from "./controller-registry.ts";
 
-export async function resolveWorkflowPlanLocation(cwd: string, planName: string) {
+interface ResolveWorkflowPlanLocationOptions {
+    migrateRegistry?: boolean;
+}
+
+export async function resolveWorkflowPlanLocation(
+    cwd: string,
+    planName: string,
+    options: ResolveWorkflowPlanLocationOptions = {},
+) {
     planName = canonicalizeStoredPlanName(planName).name;
     const registryRoot = resolvePrimaryCheckoutRoot(cwd);
-    const attempt = await findActiveByPlanName(registryRoot, planName);
+    const registryReadOptions = options.migrateRegistry === false ? { migrate: false } : undefined;
+    const attempt = await findActiveByPlanName(registryRoot, planName, registryReadOptions);
     if (attempt) {
         const plan = await loadPlan(attempt.path, planName);
         if (plan) {

@@ -1080,6 +1080,7 @@ Deno.test("SessionRuntime keeps dormant managed projection separate from runtime
 
     assertEquals(runtime.isManagedSessionDormant(session.id), true);
     assertEquals(runtime.getRuntimeActiveAgentName(session.id), null);
+    assertEquals(runtime.getEffectiveAgentName(session.id), "router");
     assertEquals(runtime.getRuntimeActiveExecutionWorkflow(session.id), null);
     assertEquals(runtime.getSessionSnapshot(session.id)?.activeAgent, "router");
     assertEquals(runtime.getSessionSnapshot(session.id)?.activeModel, {

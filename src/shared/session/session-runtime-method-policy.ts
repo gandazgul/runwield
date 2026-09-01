@@ -28,6 +28,7 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     getQueuedMessages: "projection_adapter_local",
     getRuntimeActiveAgentName: "read_only",
     getRuntimeActiveExecutionWorkflow: "read_only",
+    getEffectiveAgentName: "read_only",
     getSessionContextReport: "read_only",
     getSessionInfo: "read_only",
     getSessionMemoryBackupDir: "read_only",
