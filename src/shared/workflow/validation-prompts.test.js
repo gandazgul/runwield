@@ -163,6 +163,7 @@ Deno.test("validation repair engineer keeps working-tree safety and engineering 
     assertStringIncludes(systemPrompt, "`git stash` is the last resort");
     assertStringIncludes(systemPrompt, "The Zero-Trust Implementation Protocol");
     assertStringIncludes(systemPrompt, "No Rogue Commits");
+    assertStringIncludes(systemPrompt.replace(/\s+/g, " "), "RunWield handles delivery after validation");
     assertStringIncludes(systemPrompt, "bundled `write-tests` skill");
     assertStringIncludes(systemPrompt, 'Do **NOT** dismiss errors as "pre-existing"');
     // Reached the repair agent for the first time via the shared layer.

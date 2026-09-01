@@ -67,11 +67,11 @@ State each step as an outcome that is either true or false when the step is done
 by attempting it. An empty file, a placeholder module, an alias, or a pass-through wrapper must not be able to satisfy
 any step.
 
-- [ ] `src/parser/tokens.ts` owns and exports `tokenize` and `TokenKind`; those declarations no longer exist in
-      `src/parser/index.ts`, which imports them from `tokens.ts`.
-- [ ] `src/parser/index.ts` is under 400 lines and contains no `@ts-nocheck`.
-- [ ] `src/parser/tokens.test.ts` covers <named behavior> against the real tokenizer and fails if `tokenize` returns a
-      pass-through result.
+- `src/parser/tokens.ts` owns and exports `tokenize` and `TokenKind`; those declarations no longer exist in
+  `src/parser/index.ts`, which imports them from `tokens.ts`.
+- `src/parser/index.ts` is under 400 lines and contains no `@ts-nocheck`.
+- `src/parser/tokens.test.ts` covers <named behavior> against the real tokenizer and fails if `tokenize` returns a
+  pass-through result.
 
 When applicable, include an explicit step that updates the applicable domain-language file in the same change as the
 behavior it describes.
