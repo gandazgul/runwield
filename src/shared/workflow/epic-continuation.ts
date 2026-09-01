@@ -17,6 +17,7 @@ import { buildTriageReport } from "./workflow-prompts.js";
 import { SYSTEM_SEMANTIC_REVIEW_PORT } from "./validation.ts";
 import { continueWorkflowValidation } from "./validation-supervisor.ts";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
+import { buildPlanSummary } from "../plan-presentation.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { HostedSession } from "../session/hosted-session.js";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -178,13 +179,15 @@ function buildResumeRequest(planName: string, attrs: PlanFrontMatter): string {
 }
 
 /**
- * Execute the resolved child workflow inside the supplied fresh HostedSession.
+ * Show the next child Plan the same way the manual load flow does: a loading
+ * notice followed by the Plan details summary. Returns the loaded Plan, or null
+ * when the child Plan is missing.
  */
-export async function runEpicChildContinuation(
-    { hostedSession, resolution, sessionManager }: RunEpicChildContinuationOptions,
-): Promise<WorkflowValidationResult | null> {
-    if (!["plan", "readiness_execute", "execute"].includes(resolution.kind) || !resolution.childPlanName) return null;
-    const planName = resolution.childPlanName;
+export async function presentEpicChildPlan(
+    hostedSession: HostedSession,
+    planName: string,
+): Promise<Awaited<ReturnType<typeof loadPlan>> | null> {
+    emitSystemStatus(hostedSession, `Loading Plan: ${planName}`, { header: "RunWield" });
     const plan = await loadPlan(hostedSession.cwd, planName);
     if (!plan) {
         emitSystemStatus(hostedSession, `Epic continuation stopped: child Plan not found: ${planName}`, {
@@ -193,6 +196,20 @@ export async function runEpicChildContinuation(
         });
         return null;
     }
+    emitSystemStatus(hostedSession, buildPlanSummary(plan), { header: "Plan" });
+    return plan;
+}
+
+/**
+ * Execute the resolved child workflow inside the supplied fresh HostedSession.
+ */
+export async function runEpicChildContinuation(
+    { hostedSession, resolution, sessionManager }: RunEpicChildContinuationOptions,
+): Promise<WorkflowValidationResult | null> {
+    if (!["plan", "readiness_execute", "execute"].includes(resolution.kind) || !resolution.childPlanName) return null;
+    const planName = resolution.childPlanName;
+    const plan = await presentEpicChildPlan(hostedSession, planName);
+    if (!plan) return null;
 
     if (resolution.kind === "plan") {
         const outcome = await runPlanningAgent({

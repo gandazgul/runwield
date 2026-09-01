@@ -23,7 +23,7 @@ import {
     findById as findWorktreeById,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../../shared/worktree-registry.js";
-import { buildPlanSummary } from "./plan-presentation.ts";
+import { buildPlanSummary } from "../../shared/plan-presentation.ts";
 import { transitionFailureError } from "./transition-failure.ts";
 import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
 

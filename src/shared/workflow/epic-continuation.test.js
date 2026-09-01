@@ -1,6 +1,6 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import { dirname, join } from "@std/path";
-import { resolveEpicContinuation } from "./epic-continuation.ts";
+import { presentEpicChildPlan, resolveEpicContinuation } from "./epic-continuation.ts";
 
 /**
  * @param {string} cwd
@@ -142,4 +142,74 @@ Deno.test("resolveEpicContinuation requires dependencies to be verified", async 
     const result = await resolveEpicContinuation({ cwd, completedPlanName: "epic/01-done" });
     assertEquals(result.kind, "blocked");
     assertEquals(result.reason, "dependency_missing");
+});
+
+/**
+ * @param {string} cwd
+ * @param {string[]} events
+ */
+function makeFakeHostedSession(cwd, events) {
+    return {
+        cwd,
+        getEventSink: () => (/** @type {any} */ event) => events.push(event),
+    };
+}
+
+Deno.test("presentEpicChildPlan shows the loading notice and the same details as the manual load flow", async () => {
+    const cwd = await makeProject();
+    const path = join(cwd, "docs", "plans", "epic", "02-next.md");
+    await Deno.writeTextFile(
+        path,
+        [
+            "---",
+            `classification: "FEATURE"`,
+            `complexity: "MEDIUM"`,
+            `status: "ready_for_work"`,
+            `parentPlan: "epic"`,
+            `order: 2`,
+            `createdAt: "2026-01-01T00:00:00.000Z"`,
+            "---",
+            "",
+            "# epic/02-next",
+            "",
+            "## Context",
+            "",
+            "Child context text.",
+            "",
+            "## Objective",
+            "",
+            "Child objective text.",
+            "",
+        ].join("\n"),
+    );
+
+    /** @type {any[]} */
+    const events = [];
+    const session = makeFakeHostedSession(cwd, events);
+    const plan = await presentEpicChildPlan(/** @type {any} */ (session), "epic/02-next");
+
+    assertEquals(Boolean(plan), true);
+    const statuses = events.filter((event) => event.type === "system_status");
+    assertEquals(statuses.length, 2);
+    assertEquals(statuses[0].header, "RunWield");
+    assertStringIncludes(statuses[0].message, "Loading Plan: epic/02-next");
+    assertEquals(statuses[1].header, "Plan");
+    assertStringIncludes(statuses[1].message, "Classification: PLANNED_CHANGE");
+    assertStringIncludes(statuses[1].message, "Summary:        Child context text.");
+    assertStringIncludes(statuses[1].message, "Child objective text.");
+});
+
+Deno.test("presentEpicChildPlan warns and returns null when the child Plan is missing", async () => {
+    const cwd = await makeProject();
+    /** @type {any[]} */
+    const events = [];
+    const session = makeFakeHostedSession(cwd, events);
+    const plan = await presentEpicChildPlan(/** @type {any} */ (session), "epic/99-missing");
+
+    assertEquals(plan, null);
+    const statuses = events.filter((event) => event.type === "system_status");
+    assertEquals(statuses.length, 2);
+    assertStringIncludes(statuses[0].message, "Loading Plan: epic/99-missing");
+    assertEquals(statuses[1].level, "warning");
+    assertStringIncludes(statuses[1].message, "child Plan not found");
 });
