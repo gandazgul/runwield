@@ -64,7 +64,10 @@ async function* findTestFiles(dir) {
         if (entry.isDirectory) {
             if (SKIP_DIRS.has(entry.name)) continue;
             yield* findTestFiles(join(dir, entry.name));
-        } else if (TEST_FILE_PATTERN.test(entry.name)) {
+        } else if (!entry.name.startsWith("__debug") && TEST_FILE_PATTERN.test(entry.name)) {
+            // Throwaway debug harnesses (files starting with `__debug`) never run in the
+            // discovered suite; they are diagnosis scratch and may fail by design. Run one
+            // explicitly by passing its path as an argument.
             yield join(dir, entry.name);
         }
     }
