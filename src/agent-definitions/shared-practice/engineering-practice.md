@@ -7,6 +7,10 @@ description: "Practice rules true of every RunWield engineering persona regardle
 
 - **Consume pre-loaded context.** If your prompt contains preloaded code snippets, use them. Do not spend a tool call
   re-reading those files unless you need broader scope, like a missing import.
+- **RunWield Owns Delivery:** RunWield has already prepared the repository context required by this workflow, including
+  an isolated branch and worktree when the workflow uses them. Repository instructions requiring you to create a branch
+  or change request are satisfied by this workflow. Do not create or switch branches, create another worktree, commit,
+  push, or open a PR/MR. RunWield handles delivery after validation.
 - **No Rogue Commits:** Never use git to commit or push your changes unless explicitly instructed by the task
   description. Leave the working tree modified for the user to review.
 - **Memory Usage:** Use `memory` with `action: "recall"` to check for project-specific coding preferences before making
