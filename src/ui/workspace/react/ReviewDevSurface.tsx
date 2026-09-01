@@ -608,6 +608,7 @@ const GUIDE_DEV_VARIANTS = [
     { id: "ready", label: "Ready explainer + widget" },
     { id: "no-provider", label: "No provider available" },
     { id: "failed", label: "Failed generation" },
+    { id: "long-title", label: "Long title" },
 ];
 
 const PLAN_DEV_VARIANTS = ["feature", "project", "stale", "expired", "recovery", "read-plan", "read-work-record"];
@@ -617,6 +618,10 @@ function buildCodeReviewDevPayload(variant) {
         rawPatch: CODE_REVIEW_FIXTURE,
         gitRef: "Fixture Code Review",
         agentCwd: "workspace-dev/fixture-code-review",
+        planName: "fixture-code-review",
+        planTitle: variant === "long-title"
+            ? "Review a Very Long Code Review Plan Title That Must Stay Readable Without Pushing Approval Controls Out of the Toolbar"
+            : "Fixture Code Review Plan",
         token: `dev-code-review-${variant}`,
         mode: "dev",
         guidedReview: { mode: "auto", autoStart: false, manualAvailable: true, reasons: ["dev fixture"] },
@@ -760,15 +765,16 @@ export function ReviewDevSurface({ surface, presentation = "standalone", variant
         artifactPath: "docs/work-records/fixture-browser-read-work-record.md",
         notices: ["NOTICE: superseded Work Record; newer planning guidance may exist."],
     };
+    const codePayload = buildCodeReviewDevPayload(guideVariant);
     const payload = isPlan ? planPayload : {
-        ...buildCodeReviewDevPayload(guideVariant),
+        ...codePayload,
         ...(presentation === "workspace" && {
             reviewContext: {
                 projectLabel: "RunWield Dev Project",
                 sessionHref: "/projects/dev-project/sessions/choose-terraform-folder-name",
                 sessionLabel: "Choose Terraform folder name",
                 actingSession: "Choose Terraform folder name",
-                artifactLabel: "Fixture Code Review",
+                artifactLabel: codePayload.planTitle,
                 statusLabel: "Human code review",
                 live: true,
             },

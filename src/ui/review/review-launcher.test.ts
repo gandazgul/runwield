@@ -232,6 +232,7 @@ reviewLauncherTest(
                 rawPatch: "diff --git a/change.ts b/change.ts\n+change",
                 gitRef: "fixture diff",
                 agentCwd: projectRoot,
+                planTitle: "Readable Plan Title",
                 guidedReview: {
                     mode: "auto",
                     autoStart: true,
@@ -254,6 +255,7 @@ reviewLauncherTest(
             const decision = server.waitForDecision();
             await server.stop();
 
+            assertStringIncludes(html, '"planTitle":"Readable Plan Title"');
             assertStringIncludes(html, '"autoStart":true');
             assertStringIncludes(html, '"untrackedFiles":["change.ts"]');
             assertEquals(await decision, {

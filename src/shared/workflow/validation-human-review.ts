@@ -22,6 +22,12 @@ import { buildValidationUserMessage } from "./validation-user-messages.ts";
 
 type HumanReviewAnnotations = Array<{ file?: string; line?: number; text?: string; body?: string }>;
 
+export function codeReviewPlanTitle(planContent: string, planName: string): string {
+    const heading = planContent.split(/\r?\n/).find((line) => /^#\s+\S/.test(line));
+    const title = heading ? heading.replace(/^#\s+/, "").trim() : "";
+    return title || planName.trim();
+}
+
 export async function runHumanReviewPhase(
     args: ValidationLoopArgs,
     context: PhaseContext,
@@ -72,6 +78,7 @@ export async function runHumanReviewPhase(
 
     const diffText = context.nonGitInPlace ? "" : await getDiffText(context.baselineTree, context.executionCwd);
     const planAttrs = getPlanAttrs(args.planContent);
+    const planTitle = codeReviewPlanTitle(args.planContent, args.planName);
     const guidedReview = {
         mode: getGuidedReviewMode(context.projectRoot),
         autoStart: false,
@@ -109,6 +116,7 @@ export async function runHumanReviewPhase(
             prompt: buildValidationUserMessage({ kind: "human_review_prompt", planName: args.planName }),
             _meta: {
                 planName: args.planName,
+                planTitle,
                 planContent: args.planContent,
                 planAttrs,
                 diffText,
