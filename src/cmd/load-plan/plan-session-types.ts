@@ -56,6 +56,13 @@ export interface PlanSessionSurface {
     id: string;
     cwd: string;
     getActiveAgentName: () => string | null;
+    /**
+     * The Agent the Session will have if no switch runs: the runtime-active
+     * Agent, or the persisted Agent of a dormant managed Session. Restore uses
+     * this to skip a switch that would change nothing, because even a no-op
+     * switch hydrates and publishes a new Session generation.
+     */
+    getEffectiveAgentName: () => string | null;
     switchAgent: (agentName: string, options?: SwitchAgentOptions) => Promise<unknown>;
     // deno-lint-ignore no-explicit-any
     executePlan: (options: Record<string, any>) => Promise<any>;

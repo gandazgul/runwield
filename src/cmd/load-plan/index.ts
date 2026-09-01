@@ -193,7 +193,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
     const switchPlanAgent = session.switchAgent;
 
     let skipRouterRestore = false;
-    const initialAgentName = session.getActiveAgentName() || AGENTS.ROUTER;
+    const initialAgentName = session.getEffectiveAgentName() || AGENTS.ROUTER;
     let restoreAgentName = initialAgentName;
 
     let loadedPlanName = null;
@@ -252,7 +252,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 "RunWield",
             );
         }
-        const recordedAttempt = await resolveRecoveryWorktree(projectRoot, plan);
+        const recordedAttempt = await resolveRecoveryWorktree(projectRoot, plan, { migrateRegistry: false });
         if (recordedAttempt?.path) {
             const executionPlan = await loadPlan(recordedAttempt.path, plan.planName).catch(() => null);
             if (executionPlan) {
@@ -270,7 +270,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
         // Plan with a durable identity, so the rest of this flow has something to
         // record lifecycle state on.
         if (plan.hasFrontMatter === false) {
-            const location = await resolveWorkflowPlanLocation(projectRoot, plan.planName);
+            const location = await resolveWorkflowPlanLocation(projectRoot, plan.planName, { migrateRegistry: false });
             const adopted = await onboardExternalPlan(location.documentRoot, plan.planName);
             if (adopted.onboarded) {
                 plan.attrs = adopted.resource.attrs;
@@ -286,7 +286,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             }
         }
         if (!plan.attrs.planId) {
-            const location = await resolveWorkflowPlanLocation(projectRoot, plan.planName);
+            const location = await resolveWorkflowPlanLocation(projectRoot, plan.planName, { migrateRegistry: false });
             const identified = await ensurePlanIdentity(location.documentRoot, plan.planName);
             plan.attrs = identified.attrs;
             plan.markdown = identified.markdown;
@@ -409,6 +409,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 uiAPI,
                 unresolvedRecords: unresolvedLifecycleRecords,
                 session,
+                recordedAttempt,
                 ports: SYSTEM_RECOVERY_FLOW_PORTS,
             });
             if (result === "handled") return;
@@ -529,7 +530,6 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         }
                     }
 
-                    await session.activateForPlan(plan.planName);
                     await executeReadyPlanWithRepair({
                         projectRoot,
                         plan,

@@ -1,5 +1,11 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { type Context, fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import {
+    type Context,
+    fauxAssistantMessage,
+    type FauxResponseFactory,
+    fauxText,
+    fauxToolCall,
+} from "@earendil-works/pi-ai";
 import {
     loadArchivedPlan,
     loadPlan,
@@ -1397,14 +1403,15 @@ Deno.test("load-plan hold recovery exits after one prompt and puts the failed Pl
 
 /**
  * The durable evidence for a managed Session: its committed generation and the
- * transcript byte length/digest that generation pins. A rename hydrates the
- * Session and publishes a new generation, so any hidden hydrating mutation shows
- * up here even when the visible name does not change.
+ * transcript byte length/terminal entry/digest that generation pins. A rename
+ * hydrates the Session and publishes a new generation, so any hidden hydrating
+ * mutation shows up here even when the visible name does not change.
  */
 interface SessionDurableEvidence {
     name: string | null;
     generation: number | null;
     byteLength: number | null;
+    terminalEntryId: string | null;
     digestHex: string | null;
 }
 
@@ -1420,6 +1427,7 @@ function captureSessionDurableEvidence(runtime: SessionRuntime, sessionId: strin
             name: snapshot.name,
             generation: control.generation?.generation ?? null,
             byteLength: control.generation?.byteLength ?? null,
+            terminalEntryId: control.generation?.terminalEntryId ?? null,
             digestHex: control.generation?.digestHex ?? null,
         };
     } finally {
@@ -1428,11 +1436,27 @@ function captureSessionDurableEvidence(runtime: SessionRuntime, sessionId: strin
 }
 
 /**
+ * Give the fixture Session one real committed turn. The Plan's acceptance
+ * scenario is a long persisted Session; a turn-less Session would let the
+ * post-command agent restore hide its own first hydration inside the evidence
+ * being measured. With a committed turn behind it, View/Cancel must leave the
+ * committed evidence byte-for-byte unchanged.
+ */
+async function warmSessionTurn(
+    runtime: SessionRuntime,
+    sessionId: string,
+    setModelResponseFactory: (factory: FauxResponseFactory) => void,
+): Promise<void> {
+    setModelResponseFactory(() => fauxAssistantMessage(fauxText("Warm turn reply.")));
+    await runtime.promptSession(sessionId, { initialRequest: "Warm the persisted Session." });
+}
+
+/**
  * Wrap the standard fixture UI so that every time the first post-selection
  * action menu opens, the Session's committed durable evidence is captured before
- * the scripted selection is returned. Capturing at the menu boundary — not after
- * the command returns — isolates the hot path from the post-cancel agent restore,
- * which legitimately switches the Agent and publishes a generation of its own.
+ * the scripted selection is returned. The menu boundary is where the user sees
+ * their next choice, so evidence captured there proves everything that happened
+ * before it did not mutate the Session.
  */
 function makeUiCapturingActionMenu(
     selections: Array<string | null>,
@@ -1449,20 +1473,28 @@ function makeUiCapturingActionMenu(
 }
 
 Deno.test("load-plan selecting and canceling a draft Plan leaves the Session durable evidence untouched", async () => {
-    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot, setModelResponseFactory }) => {
         await writePlan(projectRoot, "untouched-draft", { status: "draft" });
         const { runtime, sessionId } = await createRuntime(projectRoot);
+        await warmSessionTurn(runtime, sessionId, setModelResponseFactory);
         const before = captureSessionDurableEvidence(runtime, sessionId);
-        const ui = makeUiCapturingActionMenu(["cancel"], () => captureSessionDurableEvidence(runtime, sessionId));
+        const ui = makeUiCapturingActionMenu(
+            ["untouched-draft", "cancel"],
+            () => captureSessionDurableEvidence(runtime, sessionId),
+        );
         try {
-            await runLoadPlanCommand(["untouched-draft"], {
+            await runLoadPlanCommand([], {
                 sessionRuntime: runtime,
                 sessionId,
                 uiAPI: ui.uiAPI,
                 editor: ui.editor,
             });
-            // The first post-selection menu opened exactly once, and at that
-            // boundary the Session had not been hydrated, renamed, or republished.
+            // The Plan was chosen in the picker; the first post-selection menu is
+            // the second prompt.
+            assertEquals(ui.prompts[0], "Load plan:");
+            assertEquals(ui.prompts[1], "What would you like to do?");
+            // That menu opened exactly once, and at that boundary the Session had
+            // not been hydrated, renamed, or republished.
             assertEquals(ui.menuEvidence.length, 1);
             assertEquals(ui.menuEvidence[0], before);
         } finally {
@@ -1472,42 +1504,49 @@ Deno.test("load-plan selecting and canceling a draft Plan leaves the Session dur
 });
 
 Deno.test("load-plan viewing then canceling a draft Plan leaves the Session durable evidence untouched", async () => {
-    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot, setModelResponseFactory }) => {
         await writePlan(projectRoot, "viewed-draft", { status: "draft" });
         const { runtime, sessionId } = await createRuntime(projectRoot);
+        await warmSessionTurn(runtime, sessionId, setModelResponseFactory);
         const before = captureSessionDurableEvidence(runtime, sessionId);
         const ui = makeUiCapturingActionMenu(
-            ["view", "cancel"],
+            ["viewed-draft", "view", "cancel"],
             () => captureSessionDurableEvidence(runtime, sessionId),
         );
         try {
-            await runLoadPlanCommand(["viewed-draft"], {
+            await runLoadPlanCommand([], {
                 sessionRuntime: runtime,
                 sessionId,
                 uiAPI: ui.uiAPI,
                 editor: ui.editor,
             });
-            // Both the initial menu and the re-prompt after View see the same
+            assertEquals(ui.prompts[0], "Load plan:");
+            // The second prompt and the re-prompt after View both see the same
             // committed evidence: viewing never hydrates or renames the Session.
             assertEquals(ui.menuEvidence.length, 2);
             assertEquals(ui.menuEvidence[0], before);
             assertEquals(ui.menuEvidence[1], before);
             assertStringIncludes(ui.messages.join("\n"), "Plan loaded: viewed-draft");
+            // After View then Cancel the command has returned: the Session name,
+            // generation, transcript byte length, terminal entry, and digest are
+            // all exactly as they were before Plan selection.
+            assertEquals(captureSessionDurableEvidence(runtime, sessionId), before);
         } finally {
             runtime.closeAllSessions();
         }
     });
 });
 
-Deno.test("load-plan resuming a draft Plan renames the Session to the Plan", async () => {
+Deno.test("load-plan resuming a draft Plan publishes exactly one Plan-named generation before Agent work", async () => {
     await withRuntimeCommandFixture(
         "runwield-load-plan-command-",
-        async ({ projectRoot, setModelMessages }) => {
+        async ({ projectRoot, setModelResponseFactory }) => {
             await writePlan(projectRoot, "resumed-draft", { status: "draft" });
-            setModelMessages([
-                fauxAssistantMessage(fauxToolCall("plan_written", { planName: "resumed-draft" })),
-            ]);
             const { runtime, sessionId } = await createRuntime(projectRoot);
+            await warmSessionTurn(runtime, sessionId, setModelResponseFactory);
+            setModelResponseFactory(() =>
+                fauxAssistantMessage(fauxToolCall("plan_written", { planName: "resumed-draft" }))
+            );
             runtime.setInteractionAdapter(sessionId, {
                 requestInteraction: async () => {
                     const current = await loadPlan(projectRoot, "resumed-draft");
@@ -1523,20 +1562,36 @@ Deno.test("load-plan resuming a draft Plan renames the Session to the Plan", asy
                     };
                 },
             });
-            const ui = makeUi(["resume"]);
+            // Capture the committed evidence at every Agent-switch boundary. The
+            // continuation must claim the Session before the switch that opens the
+            // Planner: at that boundary exactly one new generation may exist, and
+            // it must carry the Plan name.
+            const switchEvidence: SessionDurableEvidence[] = [];
+            const originalSwitchAgent = runtime.switchAgent.bind(runtime);
+            runtime.switchAgent = (switchSessionId, options) => {
+                if (switchSessionId === sessionId) {
+                    switchEvidence.push(captureSessionDurableEvidence(runtime, sessionId));
+                }
+                return originalSwitchAgent(switchSessionId, options);
+            };
+            const ui = makeUi(["resumed-draft", "resume"]);
             try {
                 const before = captureSessionDurableEvidence(runtime, sessionId);
-                await runLoadPlanCommand(["resumed-draft"], {
+                await runLoadPlanCommand([], {
                     sessionRuntime: runtime,
                     sessionId,
                     uiAPI: ui.uiAPI,
                     editor: ui.editor,
                 });
+                assertEquals(ui.prompts[0], "Load plan:");
+                assertEquals(ui.prompts[1], "What would you like to do?");
+                assertEquals(switchEvidence.length >= 1, true, "the Planner switch never ran");
+                assertEquals(switchEvidence[0].name, "resumed-draft");
+                assertEquals(switchEvidence[0].generation, (before.generation ?? 0) + 1);
                 const after = captureSessionDurableEvidence(runtime, sessionId);
                 assertEquals(after.name, "resumed-draft");
-                // The continuation published durable work; the generation must have moved.
-                assertEquals(after.generation !== before.generation, true);
             } finally {
+                runtime.switchAgent = originalSwitchAgent;
                 runtime.closeAllSessions();
             }
         },

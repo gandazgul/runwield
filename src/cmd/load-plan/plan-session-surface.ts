@@ -86,6 +86,7 @@ export function createPlanSessionSurface(
         id: sessionId,
         cwd: snapshot.cwd,
         getActiveAgentName: () => runtime.getRuntimeActiveAgentName(sessionId),
+        getEffectiveAgentName: () => runtime.getEffectiveAgentName(sessionId),
         switchAgent: (agentName, options = {}) => runtime.switchAgent(sessionId, { agentName, ...options }),
         executePlan: runners.executePlan,
         runPlanningAgent: runners.runPlanningAgent,
@@ -165,6 +166,14 @@ export async function restorePreviousAgentFlow(
         await session.switchAgent(executionAgent, {});
         return;
     }
+    // A restore that switches to the Agent the Session already has changes
+    // nothing but still costs a managed mutation: the switch hydrates and
+    // publishes a new Session generation. Menus that never continued work must
+    // exit without that durable side effect, so View/Cancel leaves the committed
+    // evidence exactly as it was. The effective Agent covers dormant managed
+    // Sessions too, where no runtime Agent is active but the persisted one is
+    // already the restore target.
+    if (session.getEffectiveAgentName() === agentName) return;
     await session.switchAgent(agentName);
 }
 
