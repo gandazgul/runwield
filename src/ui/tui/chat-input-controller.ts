@@ -11,6 +11,8 @@ import type { ImageAttachment } from "../../shared/session/types.js";
 import type { UiAPI } from "./types.js";
 import { ClaudeCliBackendError } from "../../shared/session/backends/claude-cli/failure.ts";
 
+type ThinkingLevel = Parameters<typeof persistThinkingLevel>[0];
+
 export interface QueuedInput {
     text: string;
     images: ImageAttachment[];
@@ -48,7 +50,7 @@ export interface ChatInputController {
     forceResetUI(): void;
     restoreQueuedItemToEditor(item: QueuedInput): void;
     processSubmissions(initialItem?: QueuedInput | null): Promise<void>;
-    dispose(): void;
+    dispose(): Promise<void>;
 }
 
 function getPreflightWarning(result: Awaited<ReturnType<SessionRuntime["preflightSessionImages"]>>): string {
@@ -81,7 +83,33 @@ export function createChatInputController(options: ChatInputControllerOptions): 
     const pendingImagePastes = new WeakMap<ImageAttachment, Promise<ImageAttachment | null>>();
     let isProcessingSubmission = false;
     let shouldDrainQueuedAfterProcessing = false;
+    let pendingThinkingLevel: ThinkingLevel | null = null;
+    let pendingThinkingLevelTimer: ReturnType<typeof setTimeout> | null = null;
+    let thinkingLevelPersistenceQueue: Promise<void> = Promise.resolve();
     let originalHandleInput: (data: string) => void | Promise<void> = (data: string) => editor.handleInput(data);
+
+    function flushPendingThinkingLevelPersistence(): Promise<void> {
+        const level = pendingThinkingLevel;
+        if (!level) return thinkingLevelPersistenceQueue;
+        pendingThinkingLevel = null;
+        if (pendingThinkingLevelTimer !== null) {
+            clearTimeout(pendingThinkingLevelTimer);
+            pendingThinkingLevelTimer = null;
+        }
+        thinkingLevelPersistenceQueue = thinkingLevelPersistenceQueue
+            .then(() => persistThinkingLevel(level, options.getProjectRoot()))
+            .catch((error) => console.error(`[RunWield] thinking_level_persist_failed ${error}`));
+        return thinkingLevelPersistenceQueue;
+    }
+
+    function scheduleThinkingLevelPersistence(level: ThinkingLevel): void {
+        pendingThinkingLevel = level;
+        if (pendingThinkingLevelTimer !== null) clearTimeout(pendingThinkingLevelTimer);
+        pendingThinkingLevelTimer = setTimeout(() => {
+            pendingThinkingLevelTimer = null;
+            void flushPendingThinkingLevelPersistence();
+        }, 50);
+    }
 
     function forceResetUI(): void {
         editor.disableSubmit = false;
@@ -195,6 +223,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         if (isProcessingSubmission) return;
         isProcessingSubmission = true;
         try {
+            await flushPendingThinkingLevelPersistence();
             let item = initialItem || runtime.takeNextTurnMessage(options.getSessionId()).message;
             while (item) {
                 await executeUserRequest(item.text, item.images);
@@ -331,11 +360,11 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         }
         await processSubmissions({ text, images });
     };
-    async function cycleThinkingLevel(): Promise<void> {
+    function cycleThinkingLevel(): void {
         const result = runtime.cycleSessionThinkingLevel(options.getSessionId());
         if (!result.ok || !result.thinkingLevel) return;
-        await persistThinkingLevel(result.thinkingLevel, options.getProjectRoot());
         view.requestRender();
+        scheduleThinkingLevelPersistence(result.thinkingLevel);
     }
     originalHandleInput = installKeybindings({
         editor,
@@ -362,6 +391,8 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         forceResetUI,
         restoreQueuedItemToEditor,
         processSubmissions,
-        dispose: () => {},
+        dispose: async () => {
+            await flushPendingThinkingLevelPersistence();
+        },
     };
 }

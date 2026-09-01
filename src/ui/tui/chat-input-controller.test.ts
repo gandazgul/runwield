@@ -5,6 +5,7 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
 import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
+import { getSettingsManager } from "../../shared/settings.js";
 import { createInteractiveTuiComposition, type InteractiveTuiComposition } from "./interactive-tui-composition.ts";
 import { createInteractiveCompositionHarness } from "./testing/interactive-composition-fixture.ts";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
@@ -150,6 +151,33 @@ Deno.test("chat input controller sends accepted editor input through the real co
             await waitFor(() => modelRequests.some((request) => request.includes("hello from tui")), "model request");
             await composition.waitForIdle();
             assert(modelRequests.some((request) => request.includes("hello from tui")));
+        } finally {
+            await composition.dispose();
+        }
+    });
+});
+
+Deno.test("Shift+Tab updates thinking level immediately and persists it later", async () => {
+    await withRuntimeCommandFixture("chat-input-thinking-level-", async ({ setModelResponseFactory, settingsPath }) => {
+        setModelResponseFactory(() => fauxAssistantMessage(fauxText("Fixture response.")));
+        const { composition, terminal } = await startComposition();
+        try {
+            const projectRoot = composition.runtime.getSessionSnapshot(composition.sessionId)?.cwd;
+            if (!projectRoot) throw new Error("Composed Session root is unavailable");
+            const settingsManager = getSettingsManager(projectRoot);
+            assertEquals(settingsManager.getDefaultThinkingLevel(), undefined);
+
+            terminal.input("\x1b[Z");
+
+            assertEquals(composition.runtime.getSessionSnapshot(composition.sessionId)?.thinkingLevel, "minimal");
+            assertEquals(settingsManager.getDefaultThinkingLevel(), undefined);
+            await waitFor(
+                () => settingsManager.getDefaultThinkingLevel() === "minimal",
+                "deferred thinking-level persistence",
+            );
+            await settingsManager.flush();
+            const persistedSettings = JSON.parse(await Deno.readTextFile(settingsPath));
+            assertEquals(persistedSettings.defaultThinkingLevel, "minimal");
         } finally {
             await composition.dispose();
         }
