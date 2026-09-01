@@ -175,7 +175,7 @@ function makeOptions(
             setActiveExecutionWorkflow: () => {},
             clearActiveExecutionWorkflow: async () => {},
             reviewPlan: () => Promise.resolve({ action: "cancel" }),
-            rename: async () => {},
+            activateForPlan: async () => {},
         },
         ports: {
             recordWorkflowMetric: () => Promise.resolve(null),
@@ -253,7 +253,7 @@ function makeSession(projectRoot: string): PlanSessionSurface {
         replaceWithExecutionSession: async () => {},
         clearActiveExecutionWorkflow: async () => {},
         reviewPlan: () => Promise.resolve({ canceled: true, approved: false }),
-        rename: async () => {},
+        activateForPlan: async () => {},
     };
 }
 
@@ -905,4 +905,50 @@ Deno.test("unregistered legacy recovery omits User Verification for failed plans
         "The worktree and branch are gone. The Plan says they should be here. What do you want to do?:reset,abandon,review,stop_lost",
     );
     assertEquals((await loadPlan(project.projectRoot, project.plan.planName))?.attrs.status, "ready_for_work");
+});
+
+Deno.test("recovery cancel at the first menu leaves unrelated repairable state untouched", async () => {
+    const project = await makeRealRecoveryProject();
+    // Unrelated repairable state: a settled journal owned by a different Plan. A
+    // repository-wide `plans doctor --repair` would retire it; the selected-Plan
+    // recovery preflight must not.
+    await writeTransitionRecord(project.projectRoot, "unrelated-record", "unrelated-plan", "committed");
+    const journalPath = `${getTransitionJournalDir(project.projectRoot)}/unrelated-record.json`;
+    const journalBefore = await Deno.readFile(journalPath);
+
+    // Capture every Git command the preflight spawns.
+    const tracePath = `${project.projectRoot}${Deno.build.os === "windows" ? "\\" : "/"}git-trace2.log`;
+    const previousTrace = Deno.env.get("GIT_TRACE2");
+    Deno.env.set("GIT_TRACE2", tracePath);
+    const ui = makeUi([null]);
+    let result: string;
+    try {
+        const options = makeOptions(project.plan, ui);
+        options.projectRoot = project.projectRoot;
+        options.session.cwd = project.projectRoot;
+        result = await handlePlanRecovery(options);
+    } finally {
+        if (previousTrace === undefined) Deno.env.delete("GIT_TRACE2");
+        else Deno.env.set("GIT_TRACE2", previousTrace);
+    }
+
+    // The flow stopped at the first recovery menu without running any action.
+    assertEquals(result, "handled");
+    assertEquals(ui.prompts.length, 1);
+    // The unrelated journal survived byte-for-byte: no repository-wide repair ran.
+    assertEquals(await Deno.readFile(journalPath), journalBefore);
+    // No repository-wide Doctor Git work occurred before the menu.
+    let trace = "";
+    try {
+        trace = await Deno.readTextFile(tracePath);
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+    for (const forbidden of ["for-each-ref", "clone", "fetch"]) {
+        assertEquals(
+            trace.includes(forbidden),
+            false,
+            `unexpected repository-wide Git work before the menu: ${forbidden}`,
+        );
+    }
 });
