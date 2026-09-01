@@ -1,9 +1,25 @@
 /** Review-surface Guided Review agent/job routes. */
 
+import { parseGuidedReviewUsageEventLine } from "../../../../cmd/guided-review/protocol.ts";
 import { buildGuidedReviewPrompt, validateGuidedReviewExplainer } from "../../../../shared/workflow/guided-review.js";
 import { recordWorkflowMetric } from "../../../../shared/workflow/metrics.js";
 import { parseDiffFiles } from "../../../../shared/workflow/review-diff-tool.js";
 import { createReviewWidgetStore } from "./review-widget-handlers.js";
+
+/**
+ * @typedef {Object} GuideUsageTotals
+ * @property {number} inputTokens
+ * @property {number} outputTokens
+ * @property {number} cacheReadTokens
+ * @property {number} cacheWriteTokens
+ * @property {number} costUsd
+ * @property {number} [contextWindow]
+ */
+
+/**
+ * @typedef {Object} GuideCostTotals
+ * @property {number} usd
+ */
 
 /**
  * @typedef {Object} ReviewGuideJobEntry
@@ -22,7 +38,7 @@ import { createReviewWidgetStore } from "./review-widget-handlers.js";
  * @property {Map<string, ReviewGuideJobEntry>} jobs
  * @property {Set<ReadableStreamDefaultController<Uint8Array>>} streams
  * @property {ReturnType<typeof createReviewWidgetStore>} widgets
- * @property {(prompt: string, signal: AbortSignal, cwd: string) => Promise<{ stdout: string, stderr?: string, provider: string, model?: string, usage?: Record<string, unknown>, cost?: Record<string, unknown> }>} runGuideCommand
+ * @property {(prompt: string, signal: AbortSignal, cwd: string, progress?: { onUsage?: (usage: GuideUsageTotals) => void }) => Promise<{ stdout: string, stderr?: string, provider: string, model?: string, usage?: GuideUsageTotals, cost?: GuideCostTotals }>} runGuideCommand
  */
 
 /**
@@ -152,6 +168,7 @@ function createGuideJob(state, provider) {
         cwd: state.cwd,
         engine: provider?.provider || "fixture",
         model: provider?.model || "unknown",
+        usageState: provider?.provider === "wld" ? "pending" : "unavailable",
         tokens: null,
         cost: null,
         costUnavailable: true,
@@ -162,6 +179,59 @@ function createGuideJob(state, provider) {
     broadcastJobs(state);
     entry.done = runGuideJob(state, entry, changedFiles);
     return entry;
+}
+
+/** @returns {GuideUsageTotals} */
+function emptyGuideUsageTotals() {
+    return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 };
+}
+
+/** @param {Record<string, unknown> | null} tokens */
+function readGuideUsageTotals(tokens) {
+    if (!tokens) return emptyGuideUsageTotals();
+    return {
+        inputTokens: Number(tokens.inputTokens || 0),
+        outputTokens: Number(tokens.outputTokens || 0),
+        cacheReadTokens: Number(tokens.cacheReadTokens || 0),
+        cacheWriteTokens: Number(tokens.cacheWriteTokens || 0),
+        costUsd: Number(tokens.costUsd || 0),
+        ...(typeof tokens.contextWindow === "number" ? { contextWindow: tokens.contextWindow } : {}),
+    };
+}
+
+/** @param {ReviewAgentState} state @param {ReviewGuideJobEntry} entry @param {GuideUsageTotals} usage */
+function addGuideJobUsage(state, entry, usage) {
+    const current = readGuideUsageTotals(
+        entry.info.tokens && typeof entry.info.tokens === "object"
+            ? /** @type {Record<string, unknown>} */ (entry.info.tokens)
+            : null,
+    );
+    const next = {
+        inputTokens: current.inputTokens + usage.inputTokens,
+        outputTokens: current.outputTokens + usage.outputTokens,
+        cacheReadTokens: current.cacheReadTokens + usage.cacheReadTokens,
+        cacheWriteTokens: current.cacheWriteTokens + usage.cacheWriteTokens,
+        costUsd: current.costUsd + usage.costUsd,
+        ...(typeof usage.contextWindow === "number" ? { contextWindow: usage.contextWindow } : {}),
+    };
+    setGuideJobUsage(state, entry, next);
+}
+
+/** @param {ReviewAgentState} state @param {ReviewGuideJobEntry} entry @param {GuideUsageTotals} usage */
+function setGuideJobUsage(state, entry, usage) {
+    entry.info.usageState = "available";
+    entry.info.tokens = usage;
+    entry.info.cost = { usd: usage.costUsd };
+    entry.info.costUnavailable = false;
+    broadcastJobs(state);
+}
+
+/** @param {ReviewGuideJobEntry} entry */
+function finishGuideJobUsage(entry) {
+    if (entry.info.usageState === "pending") {
+        entry.info.usageState = "unavailable";
+        entry.info.costUnavailable = true;
+    }
 }
 
 /** @param {ReviewAgentState} state @param {ReviewGuideJobEntry} entry @param {string[]} changedFiles */
@@ -185,13 +255,14 @@ async function runGuideJob(state, entry, changedFiles) {
                     ? /** @type {Record<string, unknown>} */ (state.reviewPayload.planAttrs)
                     : {},
             });
-            const result = await state.runGuideCommand(prompt, entry.abortController.signal, state.cwd);
+            const result = await state.runGuideCommand(prompt, entry.abortController.signal, state.cwd, {
+                onUsage: (usage) => addGuideJobUsage(state, entry, usage),
+            });
             raw = result.stdout;
             meta = result;
-            entry.info.tokens = result.usage || null;
-            entry.info.cost = result.cost || null;
-            entry.info.costUnavailable = !result.cost;
+            if (result.usage && entry.info.usageState !== "available") setGuideJobUsage(state, entry, result.usage);
         }
+        finishGuideJobUsage(entry);
         const parsed = parseJsonFromModel(raw);
         const validation = validateGuidedReviewExplainer(parsed, { changedFiles });
         if (!validation.ok) throw new Error(validation.errors.join("; "));
@@ -207,7 +278,11 @@ async function runGuideJob(state, entry, changedFiles) {
             confidence: 1,
         };
     } catch (error) {
-        if (entry.abortController.signal.aborted && entry.info.status === "killed") return;
+        if (entry.abortController.signal.aborted && entry.info.status === "killed") {
+            finishGuideJobUsage(entry);
+            return;
+        }
+        finishGuideJobUsage(entry);
         entry.info.status = entry.abortController.signal.aborted ? "killed" : "failed";
         entry.info.error = error instanceof Error ? error.message : String(error);
         entry.info.endedAt = Date.now();
@@ -311,10 +386,112 @@ function detectGuideProvider() {
     return { provider: "wld", model: Deno.env.get("RUNWIELD_GUIDED_REVIEW_MODEL") || "wld" };
 }
 
-/** @param {string} prompt @param {AbortSignal} signal @param {string} cwd */
-export async function runConfiguredGuideCommand(prompt, signal, cwd) {
+/** @param {ReadableStream<Uint8Array>} stream */
+async function readStreamText(stream) {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            text += decoder.decode(value, { stream: true });
+        }
+        text += decoder.decode();
+        return text;
+    } finally {
+        reader.releaseLock();
+    }
+}
+
+/**
+ * @typedef {Object} GuideStderrReadResult
+ * @property {string} stderr
+ * @property {GuideUsageTotals} [usage]
+ * @property {Error} [protocolError]
+ */
+
+/**
+ * @param {ReadableStream<Uint8Array>} stream
+ * @param {boolean} parseInternalFrames
+ * @param {{ onUsage?: (usage: GuideUsageTotals) => void }} progress
+ * @returns {Promise<GuideStderrReadResult>}
+ */
+async function readGuideStderr(stream, parseInternalFrames, progress) {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let buffered = "";
+    let stderr = "";
+    /** @type {GuideUsageTotals | null} */
+    let usage = null;
+    /** @type {Error | null} */
+    let protocolError = null;
+    /** @param {string} line */
+    function handleLine(line) {
+        if (!parseInternalFrames) {
+            stderr += `${line}\n`;
+            return;
+        }
+        let event;
+        try {
+            event = parseGuidedReviewUsageEventLine(line);
+        } catch (error) {
+            protocolError = error instanceof Error ? error : new Error(String(error));
+            return;
+        }
+        if (!event) {
+            stderr += `${line}\n`;
+            return;
+        }
+        usage = usage || emptyGuideUsageTotals();
+        usage.inputTokens += event.usage.inputTokens;
+        usage.outputTokens += event.usage.outputTokens;
+        usage.cacheReadTokens += event.usage.cacheReadTokens;
+        usage.cacheWriteTokens += event.usage.cacheWriteTokens;
+        usage.costUsd += event.usage.costUsd;
+        if (typeof event.usage.contextWindow === "number") usage.contextWindow = event.usage.contextWindow;
+        progress.onUsage?.(event.usage);
+    }
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffered += decoder.decode(value, { stream: true });
+            let newlineIndex = buffered.indexOf("\n");
+            while (newlineIndex >= 0) {
+                handleLine(buffered.slice(0, newlineIndex).replace(/\r$/, ""));
+                buffered = buffered.slice(newlineIndex + 1);
+                newlineIndex = buffered.indexOf("\n");
+            }
+        }
+        buffered += decoder.decode();
+        if (buffered) handleLine(buffered.replace(/\r$/, ""));
+        return {
+            stderr,
+            ...(usage ? { usage } : {}),
+            ...(protocolError ? { protocolError } : {}),
+        };
+    } finally {
+        reader.releaseLock();
+    }
+}
+
+/** @param {WritableStream<Uint8Array>} stdin @param {string} prompt */
+async function writeGuidePrompt(stdin, prompt) {
+    const writer = stdin.getWriter();
+    try {
+        await writer.write(new TextEncoder().encode(prompt));
+        await writer.close();
+    } finally {
+        writer.releaseLock();
+    }
+}
+
+/** @param {string} prompt @param {AbortSignal} signal @param {string} cwd @param {{ onUsage?: (usage: GuideUsageTotals) => void }} [progress] */
+export async function runConfiguredGuideCommand(prompt, signal, cwd, progress = {}) {
     const configured = Deno.env.get("RUNWIELD_GUIDED_REVIEW_COMMAND");
     const command = configured ? shellCommand(configured) : await resolveRunWieldGuideCommand(cwd);
+    const provider = configured ? "custom" : "wld";
     const child = new Deno.Command(command.command, {
         args: command.args,
         stdin: "piped",
@@ -323,18 +500,29 @@ export async function runConfiguredGuideCommand(prompt, signal, cwd) {
         cwd,
         signal,
     }).spawn();
-    const writer = child.stdin.getWriter();
-    await writer.write(new TextEncoder().encode(prompt));
-    await writer.close();
-    const output = await child.output();
-    const stdout = new TextDecoder().decode(output.stdout);
-    const stderr = new TextDecoder().decode(output.stderr);
-    if (!output.success) throw new Error(stderr.trim() || `Guide provider exited with ${output.code}`);
+    const results = await Promise.allSettled([
+        child.status,
+        readStreamText(child.stdout),
+        readGuideStderr(child.stderr, provider === "wld", progress),
+        writeGuidePrompt(child.stdin, prompt),
+    ]);
+    const [statusResult, stdoutResult, stderrResult, inputResult] = results;
+    if (statusResult.status === "rejected") throw statusResult.reason;
+    if (stdoutResult.status === "rejected") throw stdoutResult.reason;
+    if (stderrResult.status === "rejected") throw stderrResult.reason;
+    if (stderrResult.value.protocolError) throw stderrResult.value.protocolError;
+    if (!statusResult.value.success) {
+        throw new Error(stderrResult.value.stderr.trim() || `Guide provider exited with ${statusResult.value.code}`);
+    }
+    if (inputResult.status === "rejected") throw inputResult.reason;
     return {
-        stdout,
-        stderr,
-        provider: configured ? "custom" : "wld",
+        stdout: stdoutResult.value,
+        stderr: stderrResult.value.stderr,
+        provider,
         model: Deno.env.get("RUNWIELD_GUIDED_REVIEW_MODEL") || (configured ? "configured-command" : "wld"),
+        ...(stderrResult.value.usage
+            ? { usage: stderrResult.value.usage, cost: { usd: stderrResult.value.usage.costUsd } }
+            : {}),
     };
 }
 

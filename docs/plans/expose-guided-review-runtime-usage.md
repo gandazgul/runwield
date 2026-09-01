@@ -1,4 +1,5 @@
 ---
+planId: "4046a097-b84d-42f8-9d3c-9c1841dd89fc"
 classification: "PLANNED_CHANGE"
 workKind: "BUG_FIX"
 complexity: "MEDIUM"
@@ -12,14 +13,22 @@ affectedPaths:
     - "src/ui/workspace/react/ReviewDevSurface.tsx"
     - "src/ui/workspace/workspace-review.test.js"
     - "src/ui/workspace/react/guided-review-status.test.ts"
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173/dev/code-review"
 devServerHmr: true
 createdAt: "2026-09-01T12:38:58-04:00"
-status: "draft"
-executionAgent: "engineer"
-collaborationRecommendation: "autonomous"
-planId: "4046a097-b84d-42f8-9d3c-9c1841dd89fc"
+status: "validated"
+origin: "internal"
+userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "99d0a618-adb5-461f-b344-1c2980fd08ae"
+    path: "docs/work-records/2026-09-01-guided-review-usage-reporting.md"
+    lastAttemptAt: "2026-09-01T23:07:44.426Z"
+routingIntent: "PLANNED_CHANGE"
+targetBranch: "main"
 ---
 
 # Expose Guided Review Runtime Usage
