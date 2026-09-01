@@ -52,6 +52,7 @@ const PLAN_EDIT_DEFAULT_MARKER = "Never initiate or make an unrequested Plan edi
 const PLAN_EDIT_USER_OVERRIDE_MARKER = "If the user explicitly asks you to revise the active Plan";
 const SHOW_THE_WORK_MARKER = "Explain the work the way you would at a whiteboard with a coworker";
 const WORKING_TREE_MARKER = "`git stash` is the last resort when you genuinely cannot proceed";
+const RUNWIELD_DELIVERY_MARKER = "RunWield handles delivery after validation";
 const WORK_RECORD_MARKER = "do not call it ritualistically on every turn";
 
 interface ProjectAgentFile {
@@ -189,6 +190,7 @@ Deno.test("every coding persona composes the engineering practice it declares", 
         const def = await loadAgentDef(agentName);
         assertStringIncludes(def.systemPrompt, "The Zero-Trust Implementation Protocol");
         assertStringIncludes(def.systemPrompt, "When Verification Fails, Act");
+        assertStringIncludes(def.systemPrompt, RUNWIELD_DELIVERY_MARKER);
     }
 });
 
