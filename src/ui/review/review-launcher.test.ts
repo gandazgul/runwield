@@ -2,6 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import type { BrowserPort } from "../../shared/browser-port.ts";
 import { defineCommittedGitFixture } from "../../shared/git-test-fixture.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
+import { createTuiInteractionAdapter } from "../tui/runtime-interaction-adapter.js";
 import {
     type ReviewDecisionValue,
     type ReviewServerOutput,
@@ -223,47 +224,81 @@ reviewLauncherTest("standalone Plan conversation reuses one token page across ag
 });
 
 reviewLauncherTest(
-    "Code Review exposes guided-review and Git status payload through the real server",
+    "TUI Code Review interaction keeps planTitle through the real Workspace payload",
     async () => {
         const projectRoot = await codeReviewGitFixture.checkout({ prefix: "runwield-code-review-" });
         try {
             await Deno.writeTextFile(`${projectRoot}/change.ts`, "export const changed = true;\n");
-            const server = await startCodeReviewSurface<CodeDecision>({
-                rawPatch: "diff --git a/change.ts b/change.ts\n+change",
-                gitRef: "fixture diff",
-                agentCwd: projectRoot,
-                planTitle: "Readable Plan Title",
-                guidedReview: {
-                    mode: "auto",
-                    autoStart: true,
-                    manualAvailable: true,
-                    reasons: ["fixture"],
-                    stats: {
-                        changedFiles: 1,
-                        changedLines: 1,
-                        addedLines: 1,
-                        removedLines: 0,
-                        meaningfulAreas: ["src"],
-                        lowSignalOnly: false,
-                        paths: ["change.ts"],
-                    },
-                    score: 4,
+            const abort = new AbortController();
+            let inspectPayload = Promise.resolve();
+            const browser: BrowserPort = {
+                open(url) {
+                    inspectPayload = (async () => {
+                        try {
+                            const token = new URL(url).searchParams.get("token") || "";
+                            const html = await (await fetch(url)).text();
+                            assertStringIncludes(html, '"planTitle":"Readable Plan Title"');
+                            assertStringIncludes(html, '"autoStart":true');
+                            assertStringIncludes(html, '"untrackedFiles":["change.ts"]');
+                            const response = await fetch(
+                                `${new URL(url).origin}/api/review/deny?token=${encodeURIComponent(token)}`,
+                                {
+                                    method: "POST",
+                                    headers: {
+                                        "content-type": "application/json",
+                                        "x-runwield-review-token": token,
+                                    },
+                                    body: JSON.stringify({ feedback: "Not yet." }),
+                                },
+                            );
+                            assertEquals(response.status, 200);
+                        } catch (error) {
+                            abort.abort();
+                            throw error;
+                        }
+                    })();
+                    return Promise.resolve(false);
                 },
-                browser: recordingBrowser(false),
-            });
-            const html = await (await fetch(server.url)).text();
-            const decision = server.waitForDecision();
-            await server.stop();
-
-            assertStringIncludes(html, '"planTitle":"Readable Plan Title"');
-            assertStringIncludes(html, '"autoStart":true');
-            assertStringIncludes(html, '"untrackedFiles":["change.ts"]');
-            assertEquals(await decision, {
-                approved: false,
-                feedback: "",
-                annotations: [],
-                exit: true,
-                canceled: true,
+            };
+            const adapter = createTuiInteractionAdapter({
+                appendSystemMessage: () => {},
+                appendAgentMessageStart: () => ({ appendText: () => {} }),
+                requestRender: () => {},
+                promptSelect: () => Promise.resolve(null),
+                promptText: () => Promise.resolve(null),
+                showModelSelector: () => {},
+                abortActivePrompt: () => {},
+            }, { browser });
+            const response = await adapter.requestInteraction({
+                type: "code_review",
+                prompt: "Review the code changes.",
+                _meta: {
+                    planName: "show-plan-title",
+                    planTitle: "Readable Plan Title",
+                    diffText: "diff --git a/change.ts b/change.ts\n+change",
+                    executionCwd: projectRoot,
+                    guidedReview: {
+                        mode: "auto",
+                        autoStart: true,
+                        manualAvailable: true,
+                        reasons: ["fixture"],
+                        stats: {
+                            changedFiles: 1,
+                            changedLines: 1,
+                            addedLines: 1,
+                            removedLines: 0,
+                            meaningfulAreas: ["src"],
+                            lowSignalOnly: false,
+                            paths: ["change.ts"],
+                        },
+                        score: 4,
+                    },
+                },
+            }, abort.signal);
+            await inspectPayload;
+            assertEquals(response, {
+                outcome: "selected",
+                _meta: { approved: false, feedback: "Not yet.", annotations: [], canceled: false, exit: false },
             });
         } finally {
             await Deno.remove(projectRoot, { recursive: true }).catch(() => {});

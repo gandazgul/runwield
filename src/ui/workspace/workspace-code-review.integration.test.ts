@@ -1,5 +1,6 @@
 // @ts-nocheck: Deno test imports are checked by scripts/run-tests.js, not Astro check.
-import { assertFalse, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertFalse, assertStringIncludes } from "@std/assert";
+import { WorkspaceSessionContinuationService } from "./server/session-continuation.js";
 
 const ROUTE_PATH = "src/ui/workspace/pages/projects/[projectId]/sessions/[runwieldSessionId]/review/code.astro";
 const SESSION_CONTINUATION_PATH = "src/ui/workspace/server/session-continuation.js";
@@ -33,6 +34,41 @@ Deno.test("Workspace Session projects code-review interactions to one stable in-
     assertStringIncludes(timeline, 'item.kind === "code-review"');
     assertStringIncludes(timeline, "Review Code");
     assertStringIncludes(server, '"/projects/:projectId/sessions/:runwieldSessionId/review/code"');
+});
+
+Deno.test("Workspace Code Review live interaction keeps planTitle in its payload", async () => {
+    const service = new WorkspaceSessionContinuationService({ store: {} });
+    try {
+        service.operations.set("operation-1", {
+            status: "running",
+            projectId: "project-1",
+            runwieldSessionId: "session-1",
+            events: [],
+        });
+        const interaction = service.createInteractionAdapter({ operationId: "operation-1" }).requestInteraction({
+            id: "interaction-1",
+            type: "code_review",
+            prompt: "Review the code changes.",
+            _meta: {
+                diffText: "diff --git a/change.ts b/change.ts\n+change",
+                planName: "show-plan-title",
+                planTitle: "Readable Plan Title",
+            },
+        });
+        const liveReview = service.getLiveCodeReview({
+            projectId: "project-1",
+            runwieldSessionId: "session-1",
+            operationId: "operation-1",
+            interactionId: "interaction-1",
+        });
+
+        assertEquals(liveReview?.request?.codeReview?.planTitle, "Readable Plan Title");
+        assertEquals(liveReview?.request?.codeReview?.planName, "show-plan-title");
+        service.operations.get("operation-1")?.answer?.resolve({ outcome: "canceled" });
+        await interaction;
+    } finally {
+        service.close();
+    }
 });
 
 Deno.test("Workspace Code Review returns decisions to its live Session interaction", async () => {
