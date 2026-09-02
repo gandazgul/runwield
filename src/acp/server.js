@@ -44,6 +44,13 @@ function throwAuthenticationRequired(cwd) {
     );
 }
 
+/** @param {string} message */
+function isAuthenticationSetupFailure(message) {
+    return /^Unknown .*model:/.test(message) || /^Invalid .*model:/.test(message) ||
+        /^No configured model found/.test(message) || /^No API key configured for /.test(message) ||
+        /^No configured auth for provider /.test(message) || message.includes("missing_auth");
+}
+
 /** @typedef {import('@agentclientprotocol/sdk').AgentApp} AgentApp */
 /** @typedef {import('@agentclientprotocol/sdk').AgentConnection} AgentConnection */
 /** @typedef {import('../shared/session/session-runtime.js').SessionRuntime} SessionRuntime */
@@ -352,6 +359,7 @@ function createRunWieldAcpServer(context) {
             if (message.includes("already exists")) {
                 throw new RequestError(ACP_INVALID_STATE, message, { sessionId: request.sessionId });
             }
+            if (isAuthenticationSetupFailure(message)) throwAuthenticationRequired(request.cwd);
             throw new RequestError(ACP_NOT_FOUND, `Unable to load ACP session: ${request.sessionId}`, {
                 sessionId: request.sessionId,
                 cwd: request.cwd,

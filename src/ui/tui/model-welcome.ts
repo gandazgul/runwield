@@ -21,6 +21,7 @@ import {
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import type { Editor, TUI } from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.js";
+import { runSharedModelSetup } from "./model-setup.ts";
 import type { UiAPI } from "./types.js";
 
 export {
@@ -81,12 +82,6 @@ export async function maybeShowModelWelcome(options: MaybeShowModelWelcomeOption
     options.editor.disableSubmit = true;
     options.tui.requestRender();
 
-    let afterLoginAvailability = initialAvailability;
-    const providerAvailability = getConfiguredProviderAvailability();
-    if (!afterLoginAvailability.available && providerAvailability.available) {
-        afterLoginAvailability = { available: true, error: null };
-    }
-
     const title = [
         theme.bold("Welcome to RunWield"),
         "",
@@ -95,57 +90,33 @@ export async function maybeShowModelWelcome(options: MaybeShowModelWelcomeOption
         initialAvailability.error ? `Model registry note: ${initialAvailability.error}` : "",
     ].filter(Boolean).join("\n");
 
-    let modelSelectorAlreadyShown = false;
-    while (!afterLoginAvailability.available) {
-        const choice = await options.uiAPI.promptSelect(
-            title,
-            [
-                {
-                    value: "claude-cli",
-                    label: "Use Claude Code CLI",
-                    description:
-                        "Select a Claude CLI alias. Requires Claude Code installed and signed in; no RunWield API key login.",
-                },
-                {
-                    value: "subscription",
-                    label: "Use a subscription login",
-                    description: "Sign in with a supported provider account.",
-                },
-                {
-                    value: "api-key",
-                    label: "Use an API key",
-                    description: "Paste a provider API key and store it in RunWield config.",
-                },
-            ],
-            { hint: "↑↓ Navigate  Enter Select  Esc Quit" },
-        );
+    const setupResult = await runSharedModelSetup({
+        uiAPI: options.uiAPI,
+        projectRoot: options.projectRoot,
+        title,
+        retryLoginFailures: true,
+        forceModelSelection: options.forceModelSelection,
+        commandContext: {
+            sessionId: options.sessionId,
+            sessionRuntime: options.sessionRuntime,
+        },
+    });
 
-        if (!choice) {
-            options.uiAPI.appendSystemMessage("Model setup cancelled. Exiting RunWield.", false, "RunWield");
-            await commandRegistry[COMMAND_NAMES.QUIT].execute([], runCommandContext(options));
-            return { shown: true, suppressBootBanner: true, noModel: true, setupCompleted: false };
-        }
-
-        if (choice === "claude-cli") {
-            if (options.uiAPI.showModelSelector) await options.uiAPI.showModelSelector("claude-cli/sonnet");
-            else await commandRegistry[COMMAND_NAMES.MODEL].execute([], runCommandContext(options));
-            modelSelectorAlreadyShown = true;
-            afterLoginAvailability = getConfiguredModelAvailability();
-            break;
-        }
-
-        const loginArg = choice === "subscription" ? "subscription" : "api-key";
-        await commandRegistry[COMMAND_NAMES.LOGIN].execute([loginArg], {
-            ...runCommandContext(options),
-            skipPostLoginSetup: true,
-        });
-
-        afterLoginAvailability = getConfiguredModelAvailability();
+    if (setupResult.status === "canceled" && !setupResult.modelSelectionShown) {
+        options.uiAPI.appendSystemMessage("Model setup cancelled. Exiting RunWield.", false, "RunWield");
+        await commandRegistry[COMMAND_NAMES.QUIT].execute([], runCommandContext(options));
+        return { shown: true, suppressBootBanner: true, noModel: true, setupCompleted: false };
     }
 
-    if (!modelSelectorAlreadyShown) await commandRegistry[COMMAND_NAMES.MODEL].execute([], runCommandContext(options));
-
     const afterSelectionAvailability = getSelectedDefaultModelAvailability(options.projectRoot);
+    if (setupResult.status !== "ready" && afterSelectionAvailability.available) {
+        options.uiAPI.appendSystemMessage(setupResult.message, setupResult.status === "failed", "RunWield");
+        options.editor.disableSubmit = false;
+        options.tui.setFocus(options.editor);
+        options.tui.requestRender();
+        return { shown: true, suppressBootBanner: true, noModel: false, setupCompleted: false };
+    }
+
     if (!afterSelectionAvailability.available) {
         options.uiAPI.appendSystemMessage(
             "No model was selected. Run /model to choose a default model, run /login to configure credentials, or quit with /quit.",
