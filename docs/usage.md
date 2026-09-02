@@ -66,6 +66,25 @@ configure [`visionFallback.model`](settings.md#visionfallback) to let RunWield s
 and expose the `see_image` tool to the active agent. Without a configured fallback, image paste/submission is blocked
 with a link back to the `visionFallback` settings section.
 
+## Authentication and model setup
+
+Run this in a project directory to configure RunWield before a Session starts:
+
+```bash
+wld login
+```
+
+The command opens the terminal UI on the Login screen. Choose a subscription provider or API-key provider, then choose a
+usable default model. It exits with success only after both credentials and the default model are ready. If you cancel
+provider login or model selection, it exits with failure and keeps any existing valid credentials.
+
+Inside an interactive Session, `/login` uses the same provider login flow, then stays in the TUI and switches the live
+Session to the selected model.
+
+ACP Clients that support Terminal Auth can ask RunWield to open the same setup flow. The Client starts `wld acp`, sees a
+Terminal Auth method with `args: ["login"]`, opens the appended command, waits for it to finish, and then reconnects to
+`wld acp`. Credentials stay in `~/.wld/auth.json`; they are not sent to the ACP Client.
+
 ## Agents
 
 List agents:
@@ -295,6 +314,7 @@ wld help <command>               # command help
 wld version                      # version and platform architecture
 wld router "request"             # explicit routing
 wld agent [name] [request]       # list or use agents
+wld login                        # configure credentials and choose a default model
 wld model <provider>/<model_id>  # switch model
 wld plans                        # list plans
 wld plans share <plan>           # publish an encrypted Shared Space

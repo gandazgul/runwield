@@ -137,6 +137,35 @@ Deno.test("createInitializeResponse advertises only implemented ACP capabilities
     assertEquals(response.agentInfo?.name, "RunWield");
 });
 
+Deno.test("createInitializeResponse advertises Terminal Auth only to capable clients", () => {
+    const terminalMethod = {
+        id: "runwield-terminal-login",
+        name: "RunWield Login",
+        description: "Open a terminal to configure RunWield credentials and choose a default model.",
+        type: "terminal",
+        args: ["login"],
+    };
+
+    assertEquals(
+        createInitializeResponse({ protocolVersion: 1, clientCapabilities: { auth: { terminal: true } } }).authMethods,
+        [terminalMethod],
+    );
+    assertEquals(
+        createInitializeResponse({ protocolVersion: 1, clientCapabilities: { _meta: { "terminal-auth": true } } })
+            .authMethods,
+        [terminalMethod],
+    );
+    assertEquals(createInitializeResponse({ protocolVersion: 1, clientCapabilities: {} }).authMethods, []);
+    assertEquals(
+        createInitializeResponse({ protocolVersion: 1, clientCapabilities: { auth: { terminal: false } } }).authMethods,
+        [],
+    );
+    assertEquals(
+        createInitializeResponse({ protocolVersion: 1, clientCapabilities: { terminal: true } }).authMethods,
+        [],
+    );
+});
+
 Deno.test("ACP server handles initialize without mixing diagnostics into protocol output", async () => {
     const handle = startTestServer();
     try {
@@ -197,6 +226,24 @@ Deno.test("CLI --mode acp routes to ACP stdio without stdout diagnostics", async
     assertEquals(response.result.agentInfo.name, "RunWield");
     assert(!stdoutText.includes("RunWield ACP"), "stdout should contain protocol JSON only");
     assertStringIncludes(decoder.decode(stderr), "RunWield ACP");
+});
+
+Deno.test("ACP session/new requires login and a usable default model", async () => {
+    await withRuntimeCommandFixture("runwield-acp-auth-required-", async (fixture) => {
+        const handle = startTestServer();
+        try {
+            const response = await request(handle, {
+                jsonrpc: "2.0",
+                id: "new-without-model",
+                method: "session/new",
+                params: { cwd: fixture.projectRoot, mcpServers: [] },
+            });
+            assertEquals(response.error.code, -32000);
+            assertStringIncludes(response.error.message, "login and default model setup");
+        } finally {
+            await closeTestServer(handle);
+        }
+    }, { providerState: "none" });
 });
 
 Deno.test("ACP session/new and session/prompt exercise the real Runtime and stream canonical updates", async () => {

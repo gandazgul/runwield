@@ -1131,7 +1131,7 @@ export class SessionRuntime {
             ? this.#sessionStore.listQueuedSessionMessages(managed.runwieldSessionId).at(-1) || null
             : null;
         const transient = queue.at(-1) || null;
-        if (durable && (!transient || durable.queuedAt >= transient.queuedAt)) {
+        if (managed && durable && (!transient || durable.queuedAt >= transient.queuedAt)) {
             const selectedDurable = this.#sessionStore?.dequeueLastQueuedSessionMessage(managed.runwieldSessionId) ||
                 null;
             if (!selectedDurable) return { ok: true, message: null };
