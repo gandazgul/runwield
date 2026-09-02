@@ -29,6 +29,7 @@ import type {
     FileSessionManifest,
     FileSessionStore,
     HeldFileLock,
+    SessionArtifactReference,
 } from "./file-session-store-types.ts";
 
 interface FileSessionControlOptions {
@@ -42,6 +43,7 @@ type FileSessionControl = Pick<
     | "inspectSessionActivation"
     | "acquireSessionActivation"
     | "changeSessionActivationPhase"
+    | "registerSessionArtifact"
     | "publishGenerationAndRelease"
     | "releaseUnchangedActivation"
     | "recoverSessionControl"
@@ -194,6 +196,29 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
             manifest.activation.phase = nextPhase;
             writeManifest(manifest, held.manifestPath);
             return { ...proof, phase: nextPhase };
+        },
+
+        registerSessionArtifact(proof, artifactOptions) {
+            const held = requireHeldLock(locks, proof);
+            const manifest = readJson<FileSessionManifest>(held.manifestPath);
+            assertProof(manifest, proof);
+            const artifacts = manifest.artifacts || [];
+            const existing = artifacts.find((artifact) =>
+                artifact.kind === artifactOptions.kind && artifact.path === artifactOptions.path
+            );
+            if (existing) return { ...existing };
+            const artifact: SessionArtifactReference = {
+                artifactId: artifactOptions.idFactory ? artifactOptions.idFactory() : crypto.randomUUID(),
+                kind: artifactOptions.kind,
+                path: artifactOptions.path,
+                title: artifactOptions.title,
+                registeredAt: isoNow(artifactOptions.now || options.now),
+                registeredBy: artifactOptions.registeredBy,
+                sourceSegmentId: artifactOptions.sourceSegmentId ?? manifest.currentSegmentId,
+            };
+            manifest.artifacts = [...artifacts, artifact];
+            writeManifest(manifest, held.manifestPath);
+            return { ...artifact };
         },
 
         publishGenerationAndRelease(proof, evidence) {

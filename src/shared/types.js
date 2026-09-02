@@ -85,6 +85,7 @@
  * @property {string | null} activeTurnId
  * @property {import('./session/session-runtime-events.js').RuntimeQueuedMessage[]} queuedMessages
  * @property {import('./session/workflow-context-session.js').WorkflowContext | null} workflowContext
+ * @property {import('./session/file-session-store-types.ts').SessionArtifactReference[]} artifacts
  * @property {Record<string, unknown> | null} activeExecutionWorkflow
  * @property {ContextUsageSnapshot | null} contextUsage
  * @property {boolean | null} autoCompactionEnabled

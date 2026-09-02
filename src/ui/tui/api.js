@@ -93,6 +93,7 @@ export function createFooterOnlyUiApi(parentUiAPI) {
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, children: any[] }} [inputAccessoryContainer]
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear?: () => void, children: any[] }} [validationPanelContainer]
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear?: () => void, children: any[] }} [activeInteractionContainer]
+ * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear?: () => void, children: any[] }} [queuedInputContainer]
  * @returns {import('./types.js').UiAPI}
  */
 export function createUiApi(
@@ -102,6 +103,7 @@ export function createUiApi(
     inputAccessoryContainer,
     validationPanelContainer,
     activeInteractionContainer,
+    queuedInputContainer,
 ) {
     const activeToolBlocks = new Map();
     /** @type {Map<string, { block: SystemMessageBlock, spacer: Spacer }>} */
@@ -322,8 +324,9 @@ export function createUiApi(
             const block = new SystemMessageBlock(text, false, "Steering:");
             const spacer = new Spacer(1);
             queuedMessageBlocks.set(id, { block, spacer });
-            messageList.addChild(block);
-            messageList.addChild(spacer);
+            const queueContainer = queuedInputContainer || messageList;
+            queueContainer.addChild(block);
+            queueContainer.addChild(spacer);
             tui.requestRender();
         },
 
@@ -331,8 +334,9 @@ export function createUiApi(
         removeQueuedMessage: (id) => {
             const queued = queuedMessageBlocks.get(id);
             if (!queued) return;
-            messageList.removeChild(queued.block);
-            messageList.removeChild(queued.spacer);
+            const queueContainer = queuedInputContainer || messageList;
+            queueContainer.removeChild(queued.block);
+            queueContainer.removeChild(queued.spacer);
             queuedMessageBlocks.delete(id);
             tui.requestRender();
         },

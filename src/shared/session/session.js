@@ -2052,6 +2052,14 @@ export async function buildAgentSession({
         );
     }
 
+    if (
+        tools.includes("artifact_written") && targetHostedSession &&
+        !finalCustomTools.find((t) => t.name === "artifact_written")
+    ) {
+        const { createArtifactWrittenTool } = await import("../../tools/artifact-written.ts");
+        finalCustomTools.push(createArtifactWrittenTool({ hostedSession: targetHostedSession, agentName }));
+    }
+
     if (tools.includes("triage_report") && !finalCustomTools.find((t) => t.name === "triage_report")) {
         const { createTriageReportTool } = await import("../../tools/triage-report.ts");
         finalCustomTools.push(createTriageReportTool({ hostedSession: targetHostedSession || undefined }));
@@ -2362,6 +2370,10 @@ export async function composeClaudeCliBridgedTools({
     if (declared.has("plan_written") && hostedSession && !hasTool("plan_written")) {
         const { createPlanWrittenTool } = await import("../../tools/plan-written.ts");
         finalCustomTools.push(createPlanWrittenTool({ triageMeta, agentName, hostedSession }));
+    }
+    if (declared.has("artifact_written") && hostedSession && !hasTool("artifact_written")) {
+        const { createArtifactWrittenTool } = await import("../../tools/artifact-written.ts");
+        finalCustomTools.push(createArtifactWrittenTool({ hostedSession, agentName }));
     }
     if (declared.has("task_completed") && hostedSession && !hasTool("task_completed")) {
         const { createTaskCompletedTool } = await import("../../tools/task-completed.ts");

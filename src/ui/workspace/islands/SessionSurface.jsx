@@ -2,10 +2,19 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 // New Session chat structure is adapted from OpenChamber's ChatContainer/ChatInput UI.
 // OpenChamber is MIT licensed: Copyright (c) 2025 Bohdan Triapitsyn.
-import { RunWieldButton, RunWieldLink } from "../../design-system/components/react/RunWieldPrimitives.jsx";
+import {
+    RunWieldButton,
+    RunWieldLink,
+    RunWieldThinkingDots,
+} from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { SessionList } from "../components/SessionList.jsx";
 import { deriveSessionAvailability, SessionActivationStatus } from "../components/SessionActivationStatus.jsx";
 import { reduceSessionEvents, SessionTimeline } from "../components/SessionTimeline.jsx";
+import {
+    defaultSessionSidebarTab,
+    SESSION_SIDEBAR_TABS,
+    sessionArtifactKindLabel,
+} from "../../../shared/session/session-sidebar.ts";
 
 export const SESSION_PAGE_SIZE = 30;
 const TIMELINE_PAGE_LIMIT = 200;
@@ -275,7 +284,7 @@ function sessionSurfaceLabel(value) {
 function SessionBusyPanel({ surface, canRecover = false, recovering = false, onRecover }) {
     return (
         <section className="session-busy-panel" role="status" aria-live="polite" aria-busy="true">
-            <div className="session-busy-loader" aria-hidden="true" />
+            <RunWieldThinkingDots label="Session busy" />
             <p>This Session is busy in {sessionSurfaceLabel(surface)}.</p>
             {canRecover
                 ? (
@@ -395,8 +404,12 @@ function SessionComposer({
                     disabled={!canSend || submitting}
                     aria-label={submitting ? "Sending" : "Send"}
                 >
-                    <PaperAirplaneIcon />
-                    <span>{submitting ? "Sending" : "Send"}</span>
+                    {submitting ? <RunWieldThinkingDots label="Sending" /> : (
+                        <>
+                            <PaperAirplaneIcon />
+                            <span>Send</span>
+                        </>
+                    )}
                 </button>
             </div>
         </form>
@@ -415,6 +428,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [transientItems, setTransientItems] = useState(/** @type {Array<Record<string, any>>} */ ([]));
     const [workflowProgress, setWorkflowProgress] = useState(/** @type {any} */ (null));
     const [workflowProgressError, setWorkflowProgressError] = useState("");
+    const [sessionSidebarTab, setSessionSidebarTab] = useState("session");
+    const sidebarSessionRef = useRef("");
     const [detailError, setDetailError] = useState("");
     const [loadingDetail, setLoadingDetail] = useState(mode === "detail");
     const [draft, setDraft] = useState("");
@@ -637,6 +652,12 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             truncated: timeline?.truncated,
             localOperationActive: Boolean(operation && !["completed", "failed", "unknown"].includes(operation.status)),
         }), [listData, timeline, operation]);
+
+    useEffect(() => {
+        if (!timeline || !runwieldSessionId || sidebarSessionRef.current === runwieldSessionId) return;
+        sidebarSessionRef.current = runwieldSessionId;
+        setSessionSidebarTab(defaultSessionSidebarTab(Boolean(activePlanId(timeline.snapshot))));
+    }, [timeline, runwieldSessionId]);
 
     async function createSession() {
         const text = draft;
@@ -1208,7 +1229,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     return (
         <section className="session-surface session-surface-detail" aria-label="RunWield Session chat">
             {loadingDetail && !timeline
-                ? <p className="session-list-state" aria-busy="true">Loading committed Session timeline…</p>
+                ? (
+                    <p className="session-list-state" aria-busy="true">
+                        <RunWieldThinkingDots label="Loading committed Session timeline" />
+                    </p>
+                )
                 : null}
             {detailError
                 ? (
@@ -1221,7 +1246,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 : null}
             {timeline
                 ? (
-                    <div className={`session-detail-layout${hasActivePlan ? "" : " session-detail-layout--chat-only"}`}>
+                    <div className="session-detail-layout">
                         <main className="session-stream-panel" aria-label="Session stream">
                             <div
                                 className="session-timeline-scroll"
@@ -1231,8 +1256,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                 {loadingDetail
                                     ? (
                                         <div className="session-inline-loader" aria-live="polite" aria-busy="true">
-                                            <span className="session-busy-loader" aria-hidden="true" />
-                                            <span>Updating committed Session timeline…</span>
+                                            <RunWieldThinkingDots label="Updating committed Session timeline" />
                                         </div>
                                     )
                                     : message
@@ -1301,63 +1325,152 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                     : <option value={displayedThinking}>{displayedThinking}</option>}
                             />
                         </main>
-                        {hasActivePlan
-                            ? (
-                                <aside className="session-workflow-sidebar" aria-label="Workflow state">
-                                    <p className="kicker">Workflow state</p>
-                                    <SessionActivationStatus availability={availability} compact />
-                                    <dl>
-                                        <div>
-                                            <dt>Session</dt>
-                                            <dd>{timeline.state || "unknown"}</dd>
-                                        </div>
-                                        <div>
-                                            <dt>Plan</dt>
-                                            <dd>
-                                                {workflowContext.planName || workflowContext.planId || "No active Plan"}
-                                            </dd>
-                                        </div>
-                                    </dl>
-                                    {workflowProgress
-                                        ? (
-                                            <ol
-                                                className="session-workflow-stage-list"
-                                                aria-label="Canonical workflow progress stages"
-                                            >
-                                                {workflowStages.map((stage) => (
-                                                    <li key={stage.id} data-state={stage.state}>
-                                                        <span>{stage.label}</span>
-                                                        <strong>
-                                                            {String(stage.state || "unknown").replaceAll("_", " ")}
-                                                        </strong>
-                                                        <p>{stage.detail}</p>
-                                                    </li>
-                                                ))}
-                                            </ol>
-                                        )
-                                        : workflowProgressError
-                                        ? null
-                                        : (
-                                            <p className="notice muted">
-                                                {progressUrl
-                                                    ? "Loading canonical workflow progress…"
-                                                    : "No active Plan progress is recorded for this Session."}
-                                            </p>
-                                        )}
-                                    {progressUrl && !workflowProgressError
-                                        ? (
-                                            <RunWieldLink
-                                                variant="primary"
-                                                className="rw-plan-review-link"
-                                                href={progressUrl}
-                                            >
-                                                Open progress
-                                            </RunWieldLink>
-                                        )
-                                        : null}
-                                </aside>
-                            )
-                            : null}
+                        <aside
+                            className="session-workflow-sidebar session-context-sidebar"
+                            aria-label="Session context"
+                        >
+                            <div className="session-context-tabs" role="tablist" aria-label="Session context views">
+                                {SESSION_SIDEBAR_TABS.map((tab) => (
+                                    <button
+                                        key={tab}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={sessionSidebarTab === tab}
+                                        onClick={() => setSessionSidebarTab(tab)}
+                                    >
+                                        {tab[0].toUpperCase() + tab.slice(1)}
+                                        {tab === "artifacts" && Array.isArray(timeline.artifacts) &&
+                                                timeline.artifacts.length
+                                            ? <span>{timeline.artifacts.length}</span>
+                                            : null}
+                                    </button>
+                                ))}
+                            </div>
+                            {sessionSidebarTab === "workflow"
+                                ? (
+                                    <div className="session-context-panel" role="tabpanel">
+                                        <p className="kicker">Workflow state</p>
+                                        {hasActivePlan
+                                            ? (
+                                                <>
+                                                    <dl>
+                                                        <div>
+                                                            <dt>Plan</dt>
+                                                            <dd>
+                                                                {workflowContext.planName || workflowContext.planId}
+                                                            </dd>
+                                                        </div>
+                                                    </dl>
+                                                    {workflowProgress
+                                                        ? (
+                                                            <ol
+                                                                className="session-workflow-stage-list"
+                                                                aria-label="Canonical workflow progress stages"
+                                                            >
+                                                                {workflowStages.map((stage) => (
+                                                                    <li key={stage.id} data-state={stage.state}>
+                                                                        <span>{stage.label}</span>
+                                                                        <strong>
+                                                                            {String(stage.state || "unknown")
+                                                                                .replaceAll(
+                                                                                    "_",
+                                                                                    " ",
+                                                                                )}
+                                                                        </strong>
+                                                                        <p>{stage.detail}</p>
+                                                                    </li>
+                                                                ))}
+                                                            </ol>
+                                                        )
+                                                        : (
+                                                            <p className="notice muted">
+                                                                {workflowProgressError
+                                                                    ? "Workflow progress is temporarily unavailable."
+                                                                    : "Loading canonical workflow progress…"}
+                                                            </p>
+                                                        )}
+                                                    {progressUrl && !workflowProgressError
+                                                        ? (
+                                                            <RunWieldLink
+                                                                variant="primary"
+                                                                className="rw-plan-review-link"
+                                                                href={progressUrl}
+                                                            >
+                                                                Open progress
+                                                            </RunWieldLink>
+                                                        )
+                                                        : null}
+                                                </>
+                                            )
+                                            : (
+                                                <p className="session-context-empty">
+                                                    This Session does not have an active Plan workflow.
+                                                </p>
+                                            )}
+                                    </div>
+                                )
+                                : sessionSidebarTab === "session"
+                                ? (
+                                    <div className="session-context-panel" role="tabpanel">
+                                        <p className="kicker">Session</p>
+                                        <SessionActivationStatus availability={availability} compact />
+                                        <dl>
+                                            <div>
+                                                <dt>State</dt>
+                                                <dd>{timeline.state || "unknown"}</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Agent</dt>
+                                                <dd>{timeline.snapshot?.activeAgent || "Not recorded"}</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Model</dt>
+                                                <dd>{activeModelId || "Project default"}</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Thinking</dt>
+                                                <dd>{displayedThinking}</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Generation</dt>
+                                                <dd>{timeline.generation ?? "Not committed"}</dd>
+                                            </div>
+                                        </dl>
+                                    </div>
+                                )
+                                : (
+                                    <div className="session-context-panel" role="tabpanel">
+                                        <p className="kicker">Artifacts</p>
+                                        {Array.isArray(timeline.artifacts) && timeline.artifacts.length
+                                            ? (
+                                                <ul className="session-artifact-list">
+                                                    {timeline.artifacts.map((artifact) => (
+                                                        <li key={artifact.artifactId}>
+                                                            <a
+                                                                href={`/projects/${
+                                                                    encodeURIComponent(projectId)
+                                                                }/sessions/${
+                                                                    encodeURIComponent(runwieldSessionId)
+                                                                }/artifacts/${encodeURIComponent(artifact.artifactId)}`}
+                                                            >
+                                                                <span>{artifact.title}</span>
+                                                                <small>
+                                                                    {sessionArtifactKindLabel(artifact.kind)}
+                                                                </small>
+                                                            </a>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            )
+                                            : (
+                                                <p className="session-context-empty">
+                                                    Meaningful Markdown outputs will appear here when an agent declares
+                                                    them.
+                                                </p>
+                                            )}
+                                    </div>
+                                )}
+                        </aside>
                     </div>
                 )
                 : null}

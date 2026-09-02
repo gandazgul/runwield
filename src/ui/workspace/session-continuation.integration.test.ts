@@ -3,7 +3,7 @@ import { assertEquals, assertRejects } from "@std/assert";
 import { AGENTS } from "../../constants.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { makeManagedSessionFixture } from "../../testing/managed-session-fixture.ts";
-import { WorkspaceSessionContinuationService } from "./server/session-continuation.js";
+import { readSessionName, WorkspaceSessionContinuationService } from "./server/session-continuation.js";
 
 async function waitForOperation(service, operationId) {
     for (let index = 0; index < 400; index++) {
@@ -13,6 +13,36 @@ async function waitForOperation(service, operationId) {
     }
     return service.getOperation(operationId);
 }
+
+Deno.test("Workspace Session names prefer real metadata before first-message fallback", async () => {
+    const namedPath = await Deno.makeTempFile({ prefix: "runwield-named-session-", suffix: ".jsonl" });
+    const fallbackPath = await Deno.makeTempFile({ prefix: "runwield-fallback-session-", suffix: ".jsonl" });
+    try {
+        await Deno.writeTextFile(
+            namedPath,
+            [
+                { type: "session", id: "pi-1", name: "Real Session Name", timestamp: "2026-01-01T00:00:00.000Z" },
+                { type: "message", message: { role: "user", content: "first message text" } },
+            ].map((entry) => JSON.stringify(entry)).join("\n"),
+        );
+        await Deno.writeTextFile(
+            fallbackPath,
+            [
+                { type: "session", id: "pi-2", timestamp: "2026-01-01T00:00:00.000Z" },
+                {
+                    type: "message",
+                    message: { role: "user", content: [{ type: "text", text: "fallback first message" }] },
+                },
+            ].map((entry) => JSON.stringify(entry)).join("\n"),
+        );
+
+        assertEquals(await readSessionName(namedPath), "Real Session Name");
+        assertEquals(await readSessionName(fallbackPath), "fallback first message");
+    } finally {
+        await Deno.remove(namedPath).catch(() => undefined);
+        await Deno.remove(fallbackPath).catch(() => undefined);
+    }
+});
 
 Deno.test("Workspace continuation publishes once and a TUI observer resumes from the new cursor", async () => {
     await withRuntimeCommandFixture(

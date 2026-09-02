@@ -68,6 +68,13 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {ReturnType<typeof openFileSessionStore>['listProjectSessions']} listProjectSessions
  * @property {ReturnType<typeof openFileSessionStore>['catalogProjectSessions']} catalogProjectSessions
  * @property {ReturnType<typeof openFileSessionStore>['listSessionTranscriptSegments']} listSessionTranscriptSegments
+ * @property {ReturnType<typeof openFileSessionStore>['listSessionArtifacts']} listSessionArtifacts
+ * @property {ReturnType<typeof openFileSessionStore>['listQueuedSessionMessages']} listQueuedSessionMessages
+ * @property {ReturnType<typeof openFileSessionStore>['enqueueSessionMessage']} enqueueSessionMessage
+ * @property {ReturnType<typeof openFileSessionStore>['claimNextQueuedSessionMessage']} claimNextQueuedSessionMessage
+ * @property {ReturnType<typeof openFileSessionStore>['completeQueuedSessionMessage']} completeQueuedSessionMessage
+ * @property {ReturnType<typeof openFileSessionStore>['releaseQueuedSessionMessage']} releaseQueuedSessionMessage
+ * @property {ReturnType<typeof openFileSessionStore>['dequeueLastQueuedSessionMessage']} dequeueLastQueuedSessionMessage
  * @property {ReturnType<typeof openFileSessionStore>['getCurrentSessionSegment']} getCurrentSessionSegment
  * @property {ReturnType<typeof openFileSessionStore>['appendSessionTranscriptSegment']} appendSessionTranscriptSegment
  * @property {ReturnType<typeof openFileSessionStore>['validateSuccessorSegmentLocator']} validateSuccessorSegmentLocator
@@ -87,6 +94,7 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {ReturnType<typeof openFileSessionStore>['inspectSessionActivation']} inspectSessionActivation
  * @property {ReturnType<typeof openFileSessionStore>['acquireSessionActivation']} acquireSessionActivation
  * @property {ReturnType<typeof openFileSessionStore>['changeSessionActivationPhase']} changeSessionActivationPhase
+ * @property {ReturnType<typeof openFileSessionStore>['registerSessionArtifact']} registerSessionArtifact
  * @property {ReturnType<typeof openFileSessionStore>['publishGenerationAndRelease']} publishGenerationAndRelease
  * @property {ReturnType<typeof openFileSessionStore>['commitSegmentRolloverAndPublish']} commitSegmentRolloverAndPublish
  * @property {ReturnType<typeof openFileSessionStore>['releaseUnchangedActivation']} releaseUnchangedActivation
@@ -179,6 +187,18 @@ export function openOwnerCoordinationStore(options = {}) {
         },
         listSessionTranscriptSegments: (runwieldSessionId) =>
             sessionStore.listSessionTranscriptSegments(runwieldSessionId),
+        listSessionArtifacts: (runwieldSessionId) => sessionStore.listSessionArtifacts(runwieldSessionId),
+        listQueuedSessionMessages: (runwieldSessionId) => sessionStore.listQueuedSessionMessages(runwieldSessionId),
+        enqueueSessionMessage: (runwieldSessionId, messageOptions) =>
+            sessionStore.enqueueSessionMessage(runwieldSessionId, messageOptions),
+        claimNextQueuedSessionMessage: (runwieldSessionId, claimOptions) =>
+            sessionStore.claimNextQueuedSessionMessage(runwieldSessionId, claimOptions),
+        completeQueuedSessionMessage: (runwieldSessionId, messageId, ownerInstanceId) =>
+            sessionStore.completeQueuedSessionMessage(runwieldSessionId, messageId, ownerInstanceId),
+        releaseQueuedSessionMessage: (runwieldSessionId, messageId, ownerInstanceId) =>
+            sessionStore.releaseQueuedSessionMessage(runwieldSessionId, messageId, ownerInstanceId),
+        dequeueLastQueuedSessionMessage: (runwieldSessionId) =>
+            sessionStore.dequeueLastQueuedSessionMessage(runwieldSessionId),
         getCurrentSessionSegment: (runwieldSessionId) => sessionStore.getCurrentSessionSegment(runwieldSessionId),
         appendSessionTranscriptSegment: (segment) => sessionStore.appendSessionTranscriptSegment(segment),
         validateSuccessorSegmentLocator: (locator) => {
@@ -205,6 +225,8 @@ export function openOwnerCoordinationStore(options = {}) {
         acquireSessionActivation: (activationOptions) => sessionStore.acquireSessionActivation(activationOptions),
         changeSessionActivationPhase: (proof, nextPhase, activationOptions) =>
             sessionStore.changeSessionActivationPhase(proof, nextPhase, activationOptions),
+        registerSessionArtifact: (proof, artifactOptions) =>
+            sessionStore.registerSessionArtifact(proof, artifactOptions),
         publishGenerationAndRelease: (proof, evidence, activationOptions) =>
             sessionStore.publishGenerationAndRelease(proof, evidence, activationOptions),
         commitSegmentRolloverAndPublish: (proof, rolloverOptions) =>

@@ -17,6 +17,7 @@ import { projectAggregateTranscript } from "../../../shared/session/session-tran
 import {
     captureTranscriptEvidence,
     getCommittedTranscriptAuthorityFacts,
+    summarizeProjectedEntries,
     validateExpiredControlTranscriptEvidence,
 } from "../../../shared/session/session-transcript-projection.js";
 import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
@@ -122,6 +123,19 @@ function safeCodeReviewReference(request) {
     };
 }
 
+/** @param {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} request */
+function safeArtifactReviewReference(request) {
+    const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
+    const artifactId = typeof meta.artifactId === "string" ? meta.artifactId.trim() : "";
+    if (!artifactId) return null;
+    return {
+        artifactId,
+        title: typeof meta.title === "string" && meta.title.trim() ? meta.title.trim() : "Session artifact",
+        kind: typeof meta.artifactKind === "string" ? meta.artifactKind : "report",
+        path: typeof meta.artifactPath === "string" ? meta.artifactPath : "",
+    };
+}
+
 /** @param {unknown} response */
 function readPlanReviewDecisionMeta(response) {
     if (!response || typeof response !== "object") return {};
@@ -141,23 +155,41 @@ function acceptedInteractionResponse(response) {
     return { outcome: "unsupported", message: "Workspace interaction response is invalid." };
 }
 
+/** @param {string} value */
+function compactSessionName(value) {
+    return value.trim().replace(/\s+/g, " ").slice(0, 120);
+}
+
+/** @param {Record<string, unknown>} entry */
+function firstUserMessageText(entry) {
+    if (entry.type === "user_message") return typeof entry.text === "string" ? entry.text : "";
+    if (entry.type !== "message") return "";
+    const message = /** @type {{ role?: string, content?: unknown }} */ (entry.message || {});
+    if (message.role !== "user") return "";
+    if (typeof message.content === "string") return message.content;
+    if (!Array.isArray(message.content)) return "";
+    const textPart = message.content.find(
+        /** @param {TranscriptContentPart} part */
+        (part) => part?.type === "text" && typeof part.text === "string",
+    );
+    return typeof textPart?.text === "string" ? textPart.text : "";
+}
+
 /** @param {string} transcriptPath */
-async function readSessionName(transcriptPath) {
+export async function readSessionName(transcriptPath) {
     try {
+        const entries = [];
+        let firstUserText = "";
         const transcript = await Deno.readTextFile(transcriptPath);
         for (const line of transcript.split("\n")) {
             if (!line.trim()) continue;
             const entry = JSON.parse(line);
-            const text = entry.type === "user_message"
-                ? entry.text
-                : entry.type === "message" && entry.message?.role === "user"
-                ? entry.message.content?.find(
-                    /** @param {TranscriptContentPart} part */
-                    (part) => part?.type === "text",
-                )?.text
-                : null;
-            if (typeof text === "string" && text.trim()) return text.trim().replace(/\s+/g, " ").slice(0, 120);
+            entries.push(entry);
+            if (!firstUserText) firstUserText = firstUserMessageText(entry);
         }
+        const name = summarizeProjectedEntries(entries).name;
+        if (typeof name === "string" && name.trim()) return compactSessionName(name);
+        if (firstUserText.trim()) return compactSessionName(firstUserText);
     } catch {
         // A damaged transcript remains identifiable by its Session id.
     }
@@ -385,6 +417,7 @@ export class WorkspaceSessionContinuationService {
                 generation: null,
                 complete: true,
                 events: [],
+                artifacts: this.store.listSessionArtifacts(runwieldSessionId),
             };
         }
         const projection = await projectAggregateTranscript({
@@ -401,6 +434,7 @@ export class WorkspaceSessionContinuationService {
             activeSurface,
             recoveryCategory: state || "idle",
             bootstrapRequired: false,
+            artifacts: this.store.listSessionArtifacts(runwieldSessionId),
             ...browserTimelineProjection(projection),
         };
     }
@@ -652,6 +686,9 @@ export class WorkspaceSessionContinuationService {
                     }
                     const planReview = request.type === "plan_review" ? safePlanReviewReference(request) : null;
                     const codeReview = request.type === "code_review" ? safeCodeReviewReference(request) : null;
+                    const artifactReview = request.type === "artifact_review"
+                        ? safeArtifactReviewReference(request)
+                        : null;
                     if (codeReview) {
                         const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
                         const executionCwd = typeof meta.executionCwd === "string" ? meta.executionCwd.trim() : "";
@@ -674,6 +711,10 @@ export class WorkspaceSessionContinuationService {
                         }/review/code?operation=${encodeURIComponent(options.operationId)}&interaction=${
                             encodeURIComponent(interactionId)
                         }`
+                        : artifactReview
+                        ? `/projects/${encodeURIComponent(current.projectId)}/sessions/${
+                            encodeURIComponent(current.runwieldSessionId || "")
+                        }/artifacts/${encodeURIComponent(artifactReview.artifactId)}`
                         : null;
                     this.setOperation(options.operationId, {
                         ...current,
@@ -699,6 +740,7 @@ export class WorkspaceSessionContinuationService {
                                 allowEmpty: request.allowEmpty === true,
                                 ...(planReview && { planReview, reviewUrl }),
                                 ...(codeReview && { codeReview, reviewUrl }),
+                                ...(artifactReview && { artifactReview, reviewUrl }),
                             },
                         },
                         answer: { resolve, reject },

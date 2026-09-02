@@ -100,6 +100,12 @@ Primitive visual components such as buttons, cards, badges, notices, tabs, input
 RunWield-owned without a headless interaction dependency unless they require non-trivial keyboard, focus, portal, or
 ARIA behavior.
 
+### Shared loaders
+
+Use `RunWieldThinkingDots` for short waiting states such as thinking, sending, refreshing, or loading a compact panel.
+It shows a plain label plus three pulsing dots, follows `prefers-reduced-motion`, and uses `--rw-text-muted` by default.
+Do not add separate spinners for Session timeline waits.
+
 ### Session timeline and control patterns
 
 Session detail surfaces use one ordered timeline for committed history. Live Workspace-owned waits appear as temporary
@@ -127,6 +133,26 @@ technical entries stay visible as normal timeline rows.
 
 Session scrolling follows new live content only while the reader is near the live edge. If the reader scrolls away, keep
 the viewport stable and show a **Latest activity** action that returns to the live edge.
+
+### Session context sidebar
+
+Every persisted Session has one durable context sidebar beside its transcript. Do not show the sidebar for the
+unsubmitted New Session composer. The sidebar has three peer tabs in this order: **Workflow**, **Session**, and
+**Artifacts**. Default to Workflow when the Session has an active workflow; otherwise default to Session. Preserve the
+reader's selected tab while the same Session remains open.
+
+Workflow shows canonical workflow stages and their state, not a second transcript. Session shows compact identity and
+runtime facts such as availability, state, agent, model, thinking, and generation. Artifacts lists only explicitly
+registered, Project-relative Markdown artifacts; never infer an artifact by scraping transcript text. Each artifact
+opens in the shared read-only artifact surface and returns to the owning Session.
+
+Use the `.session-context-*` classes and `--rw-*` semantic tokens for the tab rail, fields, workflow rows, and artifact
+links. The sidebar is a flat adjacent pane with dividers, not a stack of floating cards. At narrow browser widths it
+moves above the transcript without changing its information model.
+
+The TUI uses the same Session projection. Wide terminals show the context pane on the right and cycle the three tabs
+with **Ctrl+]**; narrow terminals retain the existing transcript-only layout. If a TUI user opens an artifact, prefer
+the configured Workspace reader and fall back to the short-lived local read-only reader.
 
 ## Token model
 

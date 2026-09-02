@@ -14,7 +14,20 @@ if (!payload) {
     return new Response("Review token required.", { status: 401 });
 }
 const isArtifactRead = payload.surface === "artifact-read";
-const artifactLabel = payload.artifactKind === "work-record" ? "Work Record" : "Plan";
+const artifactKind = typeof payload.artifactKind === "string" ? payload.artifactKind : "";
+const artifactLabel = artifactKind === "plan"
+    ? "Plan"
+    : artifactKind === "prd"
+    ? "PRD"
+    : artifactKind === "adr"
+    ? "ADR"
+    : artifactKind === "work-record"
+    ? "Work Record"
+    : artifactKind === "epic-artifact"
+    ? "Epic Artifact"
+    : artifactKind === "report"
+    ? "Report"
+    : "Artifact";
 const pageTitle = isArtifactRead ? `${artifactLabel} · RunWield Workspace` : "Plan Review · RunWield Workspace";
 ---
 <ReviewLayout title={pageTitle}>

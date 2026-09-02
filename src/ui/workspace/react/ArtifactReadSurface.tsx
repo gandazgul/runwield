@@ -23,14 +23,25 @@ const DEFAULT_READ_PAYLOAD = {
     notices: [],
 };
 
+const ARTIFACT_LABELS = {
+    plan: "Plan",
+    prd: "PRD",
+    adr: "ADR",
+    "work-record": "Work Record",
+    "epic-artifact": "Epic Artifact",
+    report: "Report",
+};
+
 export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
     usePrintMode();
     const initialPayload = useMemo(() => payload || readEmbeddedPayload("review-payload") || DEFAULT_READ_PAYLOAD, [
         payload,
     ]);
     const markdown = initialPayload.markdown || initialPayload.plan || "";
-    const artifactKind = initialPayload.artifactKind === "work-record" ? "work-record" : "plan";
-    const artifactLabel = artifactKind === "work-record" ? "Work Record" : "Plan";
+    const artifactKind = Object.hasOwn(ARTIFACT_LABELS, initialPayload.artifactKind)
+        ? initialPayload.artifactKind
+        : "report";
+    const artifactLabel = ARTIFACT_LABELS[artifactKind];
     const title = initialPayload.title || `Untitled ${artifactLabel}`;
     const notices = Array.isArray(initialPayload.notices) ? initialPayload.notices.filter(Boolean) : [];
     const [activeSection, setActiveSection] = useState(null);
@@ -55,6 +66,10 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
 
     async function closeReadSurface() {
         if (closing || closed) return;
+        if (presentation === "workspace" && initialPayload.returnHref) {
+            globalThis.location.assign(initialPayload.returnHref);
+            return;
+        }
         setClosing(true);
         setError("");
         try {
@@ -118,7 +133,13 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                                 onClick={closeReadSurface}
                                 disabled={closing || closed}
                             >
-                                {closing ? "Closing…" : closed ? "Closed" : "Close"}
+                                {presentation === "workspace"
+                                    ? "Back to Session"
+                                    : closing
+                                    ? "Closing…"
+                                    : closed
+                                    ? "Closed"
+                                    : "Close"}
                             </button>
                         </div>
                     </header>

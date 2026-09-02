@@ -32,12 +32,13 @@ export type ArtifactReadOptions = {
     surface: "artifact-read";
     markdown: string;
     token: string;
-    artifactKind: "plan" | "work-record";
+    artifactKind: "plan" | "prd" | "adr" | "work-record" | "epic-artifact" | "report";
     title: string;
     artifactPath?: string;
     notices?: string[];
     mode: "workflow" | "dev";
     imageBaseDir?: string;
+    returnHref?: string;
 };
 
 export type CodeReviewOptions = {

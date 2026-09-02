@@ -89,7 +89,7 @@ interface PlanReviewSurfaceOptions {
 interface ArtifactReadSurfaceOptions {
     cwd: string;
     markdown: string;
-    artifactKind: "plan" | "work-record";
+    artifactKind: "plan" | "prd" | "adr" | "work-record" | "epic-artifact" | "report";
     title: string;
     path?: string;
     notices?: string[];

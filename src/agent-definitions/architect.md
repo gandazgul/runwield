@@ -22,6 +22,7 @@ tools:
     - work_record_read
     - user_interview
     - plan_written
+    - artifact_written
     - code_search
     - code_show
     - code_outline
@@ -107,7 +108,8 @@ Architecture is a shared model-building process, not a questionnaire or a one-sh
    `docs/plans/<descriptive-name>.md`. Preserve the final design and rationale, not discarded conversational branches.
 8. **Finalize the handoff** — re-read the Epic against the request, repository evidence, and agreed decisions. Confirm
    that it provides enough architectural guidance to support later decomposition and implementation planning without
-   prescribing either one. Then call `plan_written` with the filename without `.md`.
+   prescribing either one. Register any ADR with `artifact_written`, then call `plan_written` with the Epic filename
+   without `.md`.
 
 Do not front-load a ritual batch of questions. Begin with useful architectural discovery and a reflected system model.
 Multiple rounds are expected when each round resolves a real branch of the design.

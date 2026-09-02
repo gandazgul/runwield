@@ -102,6 +102,14 @@ export function lockPath(sessionDir: string, runwieldSessionId: string): string 
     return join(bundleDir(sessionDir, runwieldSessionId), "session.lock");
 }
 
+export function queuedMessagesPath(sessionDir: string, runwieldSessionId: string): string {
+    return join(bundleDir(sessionDir, runwieldSessionId), "queued-messages.json");
+}
+
+export function queuedMessagesLockPath(sessionDir: string, runwieldSessionId: string): string {
+    return join(bundleDir(sessionDir, runwieldSessionId), "queued-messages.lock");
+}
+
 export function catalogLockPath(sessionDir: string, transcriptPath: string): string {
     const directory = join(metadataDir(sessionDir), "catalog-locks");
     ensurePrivateDir(directory);

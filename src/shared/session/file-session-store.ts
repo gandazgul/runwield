@@ -7,6 +7,7 @@
 import { resolve } from "@std/path";
 import { createHash } from "node:crypto";
 import { createFileSessionControl } from "./file-session-control.ts";
+import { createFileSessionMessageQueue } from "./file-session-message-queue.ts";
 import {
     getRunWieldSessionsBaseDir,
     listCatalogSafeRootSessionLocators,
@@ -40,6 +41,7 @@ import type {
     HeldFileLock,
     LocatedSegmentLineage,
     OpenFileSessionStoreOptions,
+    SessionArtifactReference,
     SessionTranscriptSegment,
 } from "./file-session-store-types.ts";
 
@@ -139,6 +141,7 @@ export function openFileSessionStore(options: OpenFileSessionStoreOptions = {}):
                         },
                         generation: null,
                         segments: [segment],
+                        artifacts: [],
                     };
                     writeManifest(manifest, manifestPath(sessionDir, runwieldSessionId));
                     session = catalogedSession(manifest);
@@ -378,6 +381,11 @@ export function openFileSessionStore(options: OpenFileSessionStoreOptions = {}):
             const found = findManifestById(baseDir, runwieldSessionId);
             return found ? found.manifest.segments.map((segment) => ({ ...segment })) : [];
         },
+        listSessionArtifacts(runwieldSessionId) {
+            const found = findManifestById(baseDir, runwieldSessionId);
+            if (!found) return [];
+            return (found.manifest.artifacts || []).map((artifact: SessionArtifactReference) => ({ ...artifact }));
+        },
         getCurrentSessionSegment(runwieldSessionId) {
             const found = findManifestById(baseDir, runwieldSessionId);
             if (!found) return null;
@@ -585,6 +593,7 @@ export function openFileSessionStore(options: OpenFileSessionStoreOptions = {}):
                 sessionPath: locator.transcriptPath,
             });
         },
+        ...createFileSessionMessageQueue({ baseDir, now: options.now }),
         ...createFileSessionControl({ baseDir, locks, now: options.now }),
     };
     return store;

@@ -1,0 +1,47 @@
+---
+import WorkspaceLayout from "../../../../../../layouts/WorkspaceLayout.astro";
+import { ArtifactReadSurface } from "../../../../../../react/ArtifactReadSurface.tsx";
+import { loadOwnerSessionArtifact } from "../../../../../../server/astro-owner-data.js";
+
+const projectId = Astro.params.projectId ?? "";
+const runwieldSessionId = Astro.params.runwieldSessionId ?? "";
+const artifactId = Astro.params.artifactId ?? "";
+let artifact = null;
+let error = "";
+try {
+    artifact = await loadOwnerSessionArtifact(projectId, runwieldSessionId, artifactId);
+} catch (caught) {
+    error = caught instanceof Error ? caught.message : String(caught);
+    Astro.response.status = error.includes("not found") ? 404 : 409;
+}
+const returnHref = `/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(runwieldSessionId)}`;
+const payload = artifact
+    ? {
+        surface: "artifact-read",
+        markdown: artifact.markdown,
+        artifactKind: artifact.kind,
+        title: artifact.title,
+        artifactPath: artifact.path,
+        imageBaseDir: artifact.imageBaseDir,
+        returnHref,
+        mode: "dev",
+        token: "",
+    }
+    : null;
+---
+<WorkspaceLayout
+    title={artifact ? `${artifact.title} · RunWield Workspace` : "Session Artifact · RunWield Workspace"}
+    surfaceTitle={artifact ? artifact.title : "Session Artifact"}
+    selectedTab="projects"
+    url={Astro.url.href}
+>
+    {error ? (
+        <section class="error-panel">
+            <h2>Session artifact could not be opened</h2>
+            <p>{error}</p>
+            <a href={returnHref}>Back to Session</a>
+        </section>
+    ) : (
+        <ArtifactReadSurface payload={payload} presentation="workspace" client:only="react" />
+    )}
+</WorkspaceLayout>

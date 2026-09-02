@@ -250,7 +250,7 @@ async function resolvePersistedRootConfiguration(agentName, sessionManager, cwd)
  * @property {string} id
  * @property {string} text
  * @property {import('./types.js').ImageAttachment[]} images
- * @property {"steer" | "next_turn"} delivery
+ * @property {"steer" | "next_turn" | "lease"} delivery
  * @property {string} queuedAt
  * @property {import('@earendil-works/pi-coding-agent').AgentSession} [sourceSession]
  */
@@ -279,17 +279,20 @@ export class SessionTurnInProgressError extends Error {
 
 class ManagedOperationCapability {
     /**
-     * @param {{ runtimeSessionId: string, runwieldSessionId: string, operationId: string, proof: import('../owner-coordination/session-activations.js').ActivationProof }} options
+     * @param {{ runtimeSessionId: string, runwieldSessionId: string, operationId: string, proof: import('../owner-coordination/session-activations.js').ActivationProof, sessionStore: import('./file-session-store-types.ts').FileSessionStore }} options
      */
     constructor(options) {
         this.runtimeSessionId = options.runtimeSessionId;
         this.runwieldSessionId = options.runwieldSessionId;
         this.operationId = options.operationId;
         this.#proof = options.proof;
+        this.#sessionStore = options.sessionStore;
     }
 
     /** @type {import('../owner-coordination/session-activations.js').ActivationProof} */
     #proof;
+    /** @type {import('./file-session-store-types.ts').FileSessionStore} */
+    #sessionStore;
     #settled = false;
     #abortController = new AbortController();
 
@@ -308,6 +311,12 @@ class ManagedOperationCapability {
     cancel() {
         this.assertLive();
         this.#abortController.abort();
+    }
+
+    /** @param {import('./file-session-store-types.ts').RegisterSessionArtifactOptions} options */
+    registerArtifact(options) {
+        this.assertLive();
+        return this.#sessionStore.registerSessionArtifact(this.#proof, options);
     }
 
     /** @param {import('../owner-coordination/session-activations.js').ActivationProof} proof */
@@ -492,6 +501,8 @@ export class SessionRuntime {
     #queuedMessages;
     /** @type {Map<string, Map<import('@earendil-works/pi-coding-agent').AgentSession, QueueSourceSubscription>>} */
     #queueSourceSubscriptions;
+    /** @type {Map<string, Promise<void>>} */
+    #queuedMessageDrainTasks;
     /** @type {Map<string, number>} */
     #busyOperationDepths;
     /** @type {Map<string, import('../owner-coordination/session-activations.js').ActivationProof>} */
@@ -520,6 +531,7 @@ export class SessionRuntime {
         this.#turnSettlements = new Map();
         this.#queuedMessages = new Map();
         this.#queueSourceSubscriptions = new Map();
+        this.#queuedMessageDrainTasks = new Map();
         this.#busyOperationDepths = new Map();
         this.#pendingManagedCreations = new Map();
         this.#currentManagedOperations = new Map();
@@ -573,6 +585,9 @@ export class SessionRuntime {
         const managedModel = managedDormant ? managed?.model || "" : "";
         const managedProvider = managedDormant ? managed?.provider || "" : "";
         const managedThinkingLevel = managedDormant ? managed?.thinkingLevel || "" : "";
+        const artifacts = managed && this.#sessionStore
+            ? this.#sessionStore.listSessionArtifacts(managed.runwieldSessionId)
+            : [];
         return {
             id: session.id,
             cwd: session.cwd,
@@ -615,6 +630,7 @@ export class SessionRuntime {
             activeTurnId: session.getActiveTurnId(),
             queuedMessages: this.getQueuedMessages(session.id),
             workflowContext: workflowContext ? { ...workflowContext } : null,
+            artifacts,
             activeExecutionWorkflow: activeExecutionWorkflow ? { ...activeExecutionWorkflow } : null,
             ...contextCapacity,
         };
@@ -706,7 +722,130 @@ export class SessionRuntime {
      * @returns {import('./session-runtime-events.js').RuntimeQueuedMessage[]}
      */
     getQueuedMessages(sessionId) {
-        return (this.#queuedMessages.get(sessionId) || []).map(toRuntimeQueuedMessage);
+        const transient = (this.#queuedMessages.get(sessionId) || []).map(toRuntimeQueuedMessage);
+        const managed = this.#sessionHost.getSession(sessionId)?.getManagedMetadata?.() || null;
+        if (!managed || !this.#sessionStore) return transient;
+        try {
+            const durable = this.#sessionStore.listQueuedSessionMessages(managed.runwieldSessionId);
+            const transientIds = new Set(transient.map((message) => message.id));
+            return [...transient, ...durable.filter((message) => !transientIds.has(message.id))]
+                .sort((left, right) => left.queuedAt.localeCompare(right.queuedAt));
+        } catch {
+            return transient;
+        }
+    }
+
+    /**
+     * Persist a user message that must wait for another surface to release
+     * Session Control. The queue has its own tiny lock, so enqueueing never
+     * writes the active transcript or manifest.
+     *
+     * @param {string} sessionId
+     * @param {string} text
+     * @param {import('./types.js').ImageAttachment[]} [images]
+     * @returns {SteerSessionResult}
+     */
+    enqueueManagedSessionMessage(sessionId, text, images = []) {
+        const hostedSession = this.#sessionHost.getSession(sessionId);
+        const managed = hostedSession?.getManagedMetadata?.() || null;
+        if (!hostedSession || !managed || !this.#sessionStore) {
+            return { ok: false, queued: false, error: "managed_session_required" };
+        }
+        const message = this.#sessionStore.enqueueSessionMessage(managed.runwieldSessionId, {
+            text,
+            images,
+            queuedBy: this.#ownerProcessKind,
+        });
+        this.#emitSessionEvent(sessionId, {
+            type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
+            status: "queued",
+            message,
+        });
+        this.#scheduleQueuedMessageDrain(sessionId);
+        return { ok: true, queued: true, message };
+    }
+
+    /** @param {string} sessionId */
+    startQueuedMessageDelivery(sessionId) {
+        const hostedSession = this.#sessionHost.getSession(sessionId);
+        if (!hostedSession?.getManagedMetadata?.()) return { ok: false, error: "managed_session_required" };
+        this.#scheduleQueuedMessageDrain(sessionId);
+        return { ok: true };
+    }
+
+    /** @param {string} sessionId */
+    #scheduleQueuedMessageDrain(sessionId) {
+        if (this.#queuedMessageDrainTasks.has(sessionId)) return;
+        const task = this.#drainQueuedMessages(sessionId).finally(() => {
+            if (this.#queuedMessageDrainTasks.get(sessionId) === task) {
+                this.#queuedMessageDrainTasks.delete(sessionId);
+            }
+        });
+        this.#queuedMessageDrainTasks.set(sessionId, task);
+    }
+
+    /** @param {string} sessionId */
+    async #drainQueuedMessages(sessionId) {
+        while (this.#sessionHost.getSession(sessionId)) {
+            const hostedSession = this.#sessionHost.getSession(sessionId);
+            const managed = hostedSession?.getManagedMetadata?.() || null;
+            if (!hostedSession || !managed || !this.#sessionStore) return;
+            const queued = this.#sessionStore.listQueuedSessionMessages(managed.runwieldSessionId);
+            if (queued.length === 0) return;
+            const state = this.#sessionStore.inspectSessionActivation(managed.runwieldSessionId);
+            if (state.activation?.state !== "idle") {
+                await new Promise((resolve) => setTimeout(resolve, 300));
+                continue;
+            }
+            await this.synchronizeManagedSession(sessionId, { emitEvents: false });
+            const claimed = this.#sessionStore.claimNextQueuedSessionMessage(managed.runwieldSessionId, {
+                ownerInstanceId: this.#ownerInstanceId,
+                ownerProcessKind: this.#ownerProcessKind,
+            });
+            if (!claimed) {
+                await new Promise((resolve) => setTimeout(resolve, 100));
+                continue;
+            }
+            this.#emitSessionEvent(sessionId, {
+                type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
+                status: "consumed",
+                message: claimed,
+                reason: "session_control_available",
+            });
+            try {
+                await this.synchronizeManagedSession(sessionId, { emitEvents: false });
+                await this.promptUserTurn(sessionId, {
+                    initialRequest: claimed.text,
+                    initialImages: claimed.images,
+                });
+                if (
+                    !this.#sessionStore.completeQueuedSessionMessage(
+                        managed.runwieldSessionId,
+                        claimed.id,
+                        this.#ownerInstanceId,
+                    )
+                ) {
+                    this.#sessionStore.releaseQueuedSessionMessage(
+                        managed.runwieldSessionId,
+                        claimed.id,
+                        this.#ownerInstanceId,
+                    );
+                }
+            } catch {
+                this.#sessionStore.releaseQueuedSessionMessage(
+                    managed.runwieldSessionId,
+                    claimed.id,
+                    this.#ownerInstanceId,
+                );
+                this.#emitSessionEvent(sessionId, {
+                    type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
+                    status: "queued",
+                    message: claimed,
+                    reason: "delivery_retry",
+                });
+                await new Promise((resolve) => setTimeout(resolve, 300));
+            }
+        }
     }
 
     /**
@@ -987,7 +1126,24 @@ export class SessionRuntime {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, message: null, error: "not_found" };
         const queue = this.#queuedMessages.get(hostedSession.id) || [];
-        const selected = queue.at(-1);
+        const managed = hostedSession.getManagedMetadata?.() || null;
+        const durable = managed && this.#sessionStore
+            ? this.#sessionStore.listQueuedSessionMessages(managed.runwieldSessionId).at(-1) || null
+            : null;
+        const transient = queue.at(-1) || null;
+        if (durable && (!transient || durable.queuedAt >= transient.queuedAt)) {
+            const selectedDurable = this.#sessionStore?.dequeueLastQueuedSessionMessage(managed.runwieldSessionId) ||
+                null;
+            if (!selectedDurable) return { ok: true, message: null };
+            this.#emitSessionEvent(hostedSession.id, {
+                type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
+                status: "dequeued",
+                message: selectedDurable,
+                reason: "user_recall",
+            });
+            return { ok: true, message: selectedDurable };
+        }
+        const selected = transient;
         if (!selected) return { ok: true, message: null };
 
         if (selected.delivery === "next_turn") {
@@ -2878,6 +3034,7 @@ export class SessionRuntime {
             runwieldSessionId: managed.runwieldSessionId,
             operationId: activeProof.operationId,
             proof: activeProof,
+            sessionStore: this.#sessionStore,
         });
         this.#currentManagedOperations.set(hostedSession.id, capability);
         /** @type {() => void} */
@@ -3317,6 +3474,7 @@ export class SessionRuntime {
             cwd: hostedSession.cwd,
             _meta: { managed: true, runwieldSessionId: cataloged.runwieldSessionId },
         });
+        queueMicrotask(() => this.#scheduleQueuedMessageDrain(hostedSession.id));
         return { sessionId: hostedSession.id, cwd: hostedSession.cwd, runwieldSessionId: cataloged.runwieldSessionId };
     }
 
@@ -3666,6 +3824,7 @@ export class SessionRuntime {
             runwieldSessionId: managed.runwieldSessionId,
             operationId: activeProof.operationId,
             proof: activeProof,
+            sessionStore: this.#sessionStore,
         });
         this.#currentManagedOperations.set(sessionId, capability);
         /** @type {() => void} */
