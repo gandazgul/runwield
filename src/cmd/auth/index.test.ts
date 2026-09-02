@@ -5,6 +5,7 @@ import {
     withRuntimeCommandFixture,
 } from "../testing/runtime-command-fixture.ts";
 import { getModelRegistry, type RunWieldModelRegistry } from "../../shared/models/model-registry.ts";
+import { runLoginCommand } from "./index.ts";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import {
     createInteractiveCompositionHarness,
@@ -150,4 +151,26 @@ Deno.test("cancelling API-key input leaves the fixture credential store unchange
         await harness.waitForIdle(3_000);
         assertEquals(await registry.getStoredCredentialType(FIXTURE_PROVIDER), undefined);
     });
+});
+
+Deno.test("API-key login rejects whitespace-only keys and reports failure", async () => {
+    await withRuntimeCommandFixture("auth-api-key-blank-", async () => {
+        const registry = getModelRegistry();
+        await registry.logoutProvider(FIXTURE_PROVIDER);
+        const messages: string[] = [];
+        const outcome = await runLoginCommand(["api-key", FIXTURE_PROVIDER], {
+            uiAPI: {
+                abortActivePrompt: () => {},
+                appendSystemMessage: (message) => messages.push(message),
+                promptSelect: () => Promise.resolve(null),
+                promptText: () => Promise.resolve("   "),
+                showModelSelector: () => {},
+            },
+        });
+
+        if (outcome.status !== "failed") throw new Error(`Expected failed outcome, got ${outcome.status}`);
+        assertStringIncludes(outcome.message, "API key cannot be empty");
+        assertEquals(await registry.getStoredCredentialType(FIXTURE_PROVIDER), undefined);
+        assertEquals(messages.some((message) => message.includes("Failed to login")), true);
+    }, { providerState: "provider-no-model" });
 });

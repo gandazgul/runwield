@@ -17,10 +17,14 @@ interface ModelSelectItem {
     label: string;
 }
 
+interface ModelSelectorResult {
+    selected: boolean;
+}
+
 interface ModelsCommandUi {
     appendSystemMessage(message: string, isError?: boolean): void;
     promptSelect(title: string, options: ModelSelectItem[]): Promise<string | null>;
-    showModelSelector?(): Promise<void> | void;
+    showModelSelector?(): Promise<ModelSelectorResult | void> | ModelSelectorResult | void;
 }
 
 interface ModelsCommandEditor {

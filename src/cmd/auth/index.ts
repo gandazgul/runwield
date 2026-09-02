@@ -23,6 +23,11 @@ interface AuthCommandOptions {
     skipPostLoginSetup?: boolean;
 }
 
+export type AuthCommandOutcome =
+    | { status: "authenticated"; providerId: string; providerName: string }
+    | { status: "canceled" }
+    | { status: "failed"; providerId?: string; providerName?: string; message: string };
+
 interface AuthProviderOption {
     id: string;
     name: string;
@@ -211,21 +216,27 @@ async function loginWithApiKey(
         persistResult: false,
     });
     if (apiKey === null) throw new Error("Login cancelled");
-    await setProviderApiKey(registry, provider.id, apiKey.trim());
+    const trimmedApiKey = apiKey.trim();
+    if (!trimmedApiKey) throw new Error("API key cannot be empty");
+    await setProviderApiKey(registry, provider.id, trimmedApiKey);
 }
 
 async function configureInteractiveSessionAfterLogin(
     options: AuthCommandOptions,
     registry: RunWieldModelRegistry,
+    providerId: string,
 ): Promise<void> {
     const availableModels = registry.getAvailable();
-    if (availableModels.length > 0) await options.uiAPI.showModelSelector();
+    const initialSearchInput = availableModels.some((model) => model.provider === providerId)
+        ? `${providerId}/`
+        : undefined;
+    if (availableModels.length > 0) await options.uiAPI.showModelSelector(initialSearchInput);
     if (options.sessionId && options.sessionRuntime) {
         await options.sessionRuntime.switchAgent(options.sessionId, { agentName: AGENTS.ROUTER });
     }
 }
 
-export async function runLoginCommand(argv: string[], options: AuthCommandOptions): Promise<void> {
+export async function runLoginCommand(argv: string[], options: AuthCommandOptions): Promise<AuthCommandOutcome> {
     const { uiAPI } = options;
 
     const registry = getModelRegistry();
@@ -240,14 +251,15 @@ export async function runLoginCommand(argv: string[], options: AuthCommandOption
 
     while (true) {
         if (!authType) authType = await promptForAuthType(uiAPI);
-        if (!authType) return;
+        if (!authType) return { status: "canceled" };
 
         const providers = getLoginProviderOptions(registry, authType);
         if (providers.length === 0) {
-            uiAPI.appendSystemMessage(
-                authType === "oauth" ? "No subscription providers available." : "No API key providers available.",
-            );
-            return;
+            const message = authType === "oauth"
+                ? "No subscription providers available."
+                : "No API key providers available.";
+            uiAPI.appendSystemMessage(message);
+            return { status: "failed", message };
         }
 
         let provider = providerArg ? providers.find((candidate) => candidate.id === providerArg) : null;
@@ -259,20 +271,24 @@ export async function runLoginCommand(argv: string[], options: AuthCommandOption
             }
             provider = selectedProvider;
         }
-        if (!provider) return;
+        if (!provider) return { status: "canceled" };
 
         try {
             if (provider.authType === "oauth") await loginWithSubscription(uiAPI, provider, registry);
             else await loginWithApiKey(uiAPI, provider, registry);
             uiAPI.appendSystemMessage(`Logged in to ${provider.name}.`);
-            if (!options.skipPostLoginSetup) await configureInteractiveSessionAfterLogin(options, registry);
+            if (!options.skipPostLoginSetup) {
+                await configureInteractiveSessionAfterLogin(options, registry, provider.id);
+            }
+            return { status: "authenticated", providerId: provider.id, providerName: provider.name };
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (message !== "Login cancelled") {
                 uiAPI.appendSystemMessage(`Failed to login to ${provider.name}: ${message}`, true);
+                return { status: "failed", providerId: provider.id, providerName: provider.name, message };
             }
+            return { status: "canceled" };
         }
-        return;
     }
 }
 
