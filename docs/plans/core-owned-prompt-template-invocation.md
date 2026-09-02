@@ -18,9 +18,14 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-31"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "2444044e-afd6-4b15-8879-dc8681200e07"
+    path: "docs/work-records/2026-09-02-core-owned-named-invocation.md"
+    lastAttemptAt: "2026-09-02T01:46:43.210Z"
 targetBranch: "main"
 ---
 
