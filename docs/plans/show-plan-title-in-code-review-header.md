@@ -17,9 +17,14 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173/dev/code-review"
 devServerHmr: true
 createdAt: "2026-09-01"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "dee1a319-065d-4a51-b87e-8e6bc99e44dd"
+    path: "docs/work-records/2026-09-02-code-review-header-shows-plan-title.md"
+    lastAttemptAt: "2026-09-02T01:29:41.500Z"
 targetBranch: "main"
 ---
 
