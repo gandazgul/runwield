@@ -345,6 +345,72 @@ Deno.test("Retry reopens the code review that was closed without an answer", asy
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.humanReviewDecision, "approved");
 });
 
+Deno.test("Code Review chat repairs files and republishes a fresh diff without ending review", async () => {
+    const { projectRoot, hostedSession } = await makeAwaitingReview();
+    const sourcePath = `${projectRoot}/review-chat.ts`;
+    await Deno.writeTextFile(sourcePath, "export const label = 'base';\n");
+    await git(projectRoot, ["add", "review-chat.ts"]);
+    await git(projectRoot, ["commit", "-m", "review chat fixture"]);
+    const baselineTree = await git(projectRoot, ["rev-parse", "HEAD"]);
+    await Deno.writeTextFile(sourcePath, "export const label = 'first';\n");
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        executionMode: "worktree",
+        baselineTree,
+        worktreeId: "review-chat-worktree",
+        worktreeBranch: "review-chat-branch",
+    });
+
+    /** @type {string[]} */
+    const patches = [];
+    /** @type {any[]} */
+    const conversations = [];
+    let reviewRound = 0;
+    setInteraction(hostedSession, (request) => {
+        if (request.type !== "code_review") return Promise.resolve({ outcome: "canceled" });
+        reviewRound += 1;
+        patches.push(String(request._meta?.diffText || ""));
+        conversations.push(request._meta?.reviewConversation);
+        if (reviewRound === 1) {
+            return Promise.resolve({
+                outcome: "selected",
+                _meta: {
+                    approved: false,
+                    feedback: "Rename the exported label.",
+                    annotations: [],
+                    conversationTurn: true,
+                },
+            });
+        }
+        return Promise.resolve({ outcome: "selected", _meta: { approved: true, feedback: "" } });
+    });
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
+        semanticReviewPort: {
+            runIsolatedAgentSession: async () => {
+                await Deno.writeTextFile(sourcePath, "export const label = 'second';\n");
+                return completedRepairMessages();
+            },
+        },
+    });
+
+    assertEquals(reviewRound, 2);
+    assertStringIncludes(patches[0], "+export const label = 'first';");
+    assertStringIncludes(patches[1], "+export const label = 'second';");
+    assertEquals(conversations[0], conversations[1]);
+    assertStringIncludes(conversations[1].events[0].delta, "Renamed the helper");
+    assertEquals(result.kind, "paused");
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.humanReviewDecision, "approved");
+});
+
 Deno.test("human code-review annotations are not duplicated in the engineer repair request", async () => {
     const { hostedSession } = await makeAwaitingReview();
     let capturedRequest = "";

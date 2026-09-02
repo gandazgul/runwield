@@ -170,6 +170,18 @@ Deno.test("committed projection rejects mismatched evidence", async () => {
     });
 });
 
+Deno.test("projection resolves active agent machine names to display names", () => {
+    const events = createReplayEvents("projection", [
+        { type: "custom", id: "agent", customType: "runwield.active_agent", data: { agentName: "frontend-engineer" } },
+        {
+            type: "message",
+            id: "reply",
+            message: { role: "assistant", content: [{ type: "text", text: "Done." }] },
+        },
+    ], { projectRoot: Deno.cwd() });
+    assertEquals(events.find((event) => event.type === "assistant_text_delta")?.agentName, "Frontend Engineer");
+});
+
 Deno.test("projection cursor selection returns only later events and advances summary-only generations", () => {
     const events = [
         { type: "user_message", eventId: "one" },

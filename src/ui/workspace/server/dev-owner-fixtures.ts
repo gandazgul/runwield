@@ -304,7 +304,7 @@ function devOwnerShowcaseEvents(session: typeof DEV_OWNER_SESSIONS[number]) {
             type: "assistant_text_delta",
             messageId: "showcase-assistant-after-activity",
             agentName: "Engineer",
-            delta: "That was the compact Activity block with success, error, thinking, and usage rows.",
+            delta: "That was the compact Activity block with success, error, and thinking rows.",
             timestamp: "2026-08-29T15:00:36.000Z",
         },
         {

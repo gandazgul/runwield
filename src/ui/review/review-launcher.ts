@@ -35,8 +35,8 @@ interface ReviewSurfaceServer<TDecision> {
     waitForDecision(): Promise<TDecision>;
     stop(): void | Promise<void>;
     beginReviewRound?(options: {
-        reviewPayload: PlanReviewPayload;
-        reviewConversation?: PlanReviewConversation;
+        reviewPayload: PlanReviewPayload | CodeReviewPayload;
+        reviewConversation?: ReviewConversation;
     }): void;
 }
 
@@ -57,18 +57,18 @@ interface ReviewSurfaceReady {
     opened: boolean;
 }
 
-interface PlanReviewConversationEvent {
+export interface ReviewConversationEvent {
     type: "assistant_text_delta";
     delta: string;
     messageId: string;
     agentName: string;
 }
 
-interface PlanReviewConversation {
+export interface ReviewConversation {
     id: string;
     agentLabel: string;
     revision: number;
-    events: PlanReviewConversationEvent[];
+    events: ReviewConversationEvent[];
 }
 
 interface PlanReviewSurfaceOptions {
@@ -77,7 +77,7 @@ interface PlanReviewSurfaceOptions {
     planPath?: string;
     previousPlan?: string;
     planVersions?: Array<{ plan: string; timestamp: string }>;
-    reviewConversation?: PlanReviewConversation;
+    reviewConversation?: ReviewConversation;
     agentLabel?: string;
     token?: string;
     browser: BrowserPort;
@@ -102,17 +102,39 @@ interface CodeReviewSurfaceOptions {
     rawPatch: string;
     gitRef: string;
     agentCwd: string;
+    baselineTree?: string;
     planName?: string;
     planTitle?: string;
     planContent?: string;
     planAttrs?: { [key: string]: ReviewDecisionValue };
     guidedReview?: GuidedReviewPolicy;
+    reviewConversation?: ReviewConversation;
+    agentLabel?: string;
     token?: string;
     browser: BrowserPort;
 }
 
+interface CodeReviewPayload extends Record<string, unknown> {
+    rawPatch: string;
+    gitRef: string;
+    agentCwd: string;
+    baselineTree?: string;
+    planName?: string;
+    planTitle?: string;
+    reviewStatus: CodeReviewStatus;
+    planContent?: string;
+    planAttrs?: { [key: string]: ReviewDecisionValue };
+    guidedReview?: GuidedReviewPolicy;
+    agentLabel?: string;
+    conversationStatusUrl?: string;
+}
+
 const activeReviewSurfaces = new Set<{ stop(): void | Promise<void> }>();
 const activePlanReviewConversations = new Map<
+    string,
+    { server: ReviewSurfaceServer<ReviewDecisionValue>; pageUrl: string }
+>();
+const activeCodeReviewConversations = new Map<
     string,
     { server: ReviewSurfaceServer<ReviewDecisionValue>; pageUrl: string }
 >();
@@ -126,6 +148,7 @@ export async function stopActiveReviewSurfaces(): Promise<void> {
     const surfaces = Array.from(activeReviewSurfaces);
     activeReviewSurfaces.clear();
     activePlanReviewConversations.clear();
+    activeCodeReviewConversations.clear();
 
     try {
         await Promise.all(surfaces.map(async (surface) => {
@@ -376,33 +399,72 @@ export async function startCodeReviewSurface<TDecision = ReviewDecisionValue>({
     rawPatch,
     gitRef,
     agentCwd,
+    baselineTree,
     planName,
     planTitle,
     planContent,
     planAttrs,
     guidedReview,
+    reviewConversation,
+    agentLabel,
     token = crypto.randomUUID(),
     browser,
 }: CodeReviewSurfaceOptions): Promise<ReviewSurface<TDecision>> {
     if (!agentCwd) throw new Error("startCodeReviewSurface: agentCwd is required");
     const reviewStatus = await loadCodeReviewStatus(agentCwd);
+    const resolvedAgentLabel = agentLabel || reviewConversation?.agentLabel || "Reviewer Feedback Engineer";
+    const reviewPayload: CodeReviewPayload = {
+        rawPatch,
+        gitRef,
+        agentCwd,
+        baselineTree,
+        planName,
+        planTitle,
+        reviewStatus,
+        planContent,
+        planAttrs,
+        guidedReview,
+        ...(reviewConversation && {
+            agentLabel: resolvedAgentLabel,
+            conversationStatusUrl: "/api/review/conversation",
+        }),
+    };
+    const existing = reviewConversation ? activeCodeReviewConversations.get(reviewConversation.id) : null;
+    if (reviewConversation && existing?.server.beginReviewRound) {
+        const conversationId = reviewConversation.id;
+        existing.server.beginReviewRound({ reviewPayload, reviewConversation });
+        return {
+            url: existing.pageUrl,
+            opened: false,
+            waitForDecision: () => existing.server.waitForDecision() as Promise<TDecision>,
+            stop: async () => {
+                activeCodeReviewConversations.delete(conversationId);
+                await existing.server.stop();
+            },
+        };
+    }
     const server = workspaceServer<TDecision>({
         cwd: agentCwd,
         token,
-        reviewPayload: {
-            rawPatch,
-            gitRef,
-            agentCwd,
-            planName,
-            planTitle,
-            reviewStatus,
-            planContent,
-            planAttrs,
-            guidedReview,
-        },
+        reviewPayload,
         reviewType: "code",
+        reviewConversation,
     });
     const url = `${server.url}/review/code?token=${encodeURIComponent(token)}`;
     const opened = await browser.open(url);
-    return { ...server, url, opened };
+    if (reviewConversation) {
+        activeCodeReviewConversations.set(reviewConversation.id, {
+            server: server as ReviewSurfaceServer<ReviewDecisionValue>,
+            pageUrl: url,
+        });
+    }
+    return {
+        ...server,
+        url,
+        opened,
+        stop: async () => {
+            if (reviewConversation) activeCodeReviewConversations.delete(reviewConversation.id);
+            await server.stop();
+        },
+    };
 }

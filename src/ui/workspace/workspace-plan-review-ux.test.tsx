@@ -131,6 +131,24 @@ Deno.test("Code feedback action matches the Plan annotation sidebar treatment", 
     }
 });
 
+Deno.test("Code Review reuses artifact chat and reloads the republished file diff", async () => {
+    const route = await Deno.readTextFile(
+        "src/ui/workspace/pages/projects/[projectId]/sessions/[runwieldSessionId]/review/code.astro",
+    );
+    const surface = await Deno.readTextFile(CODE_SURFACE_PATH);
+
+    assertStringIncludes(route, "operationStatusUrl");
+    assertStringIncludes(route, "interactionAnswerBaseUrl");
+    assertStringIncludes(surface, "<ArtifactConversationSidebar");
+    assertStringIncludes(surface, "Add to {agentLabel} chat");
+    assertStringIncludes(surface, 'artifactKind: "code"');
+    assertStringIncludes(surface, "waitForStandaloneCodeReview");
+    assertStringIncludes(surface, "waitForWorkspaceCodeReview");
+    assertStringIncludes(surface, "setActiveRawPatch(options.rawPatch)");
+    assertStringIncludes(surface, "conversationTurn: true");
+    assertStringIncludes(surface, 'label="Send Annotations"');
+});
+
 Deno.test("Code Review options menu matches Plan Review header placement", async () => {
     const surface = await Deno.readTextFile(CODE_SURFACE_PATH);
     const headingIndex = surface.indexOf('className="rw-plan-review-heading"');

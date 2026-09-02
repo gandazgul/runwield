@@ -164,12 +164,12 @@ export function renderResolvedItems(ledger: ReviewLedger): string {
     const items = resolvedItems(ledger);
     if (items.length === 0) return "(none)";
     return items
-        .map((item) => `- [${item.id}] ${item.title} (resolved in round ${item.resolvedInRound})`)
+        .map((item) => `- ${item.id} — ${item.title} (resolved in round ${item.resolvedInRound})`)
         .join("\n");
 }
 
 function formatItem(item: LedgerItem): string {
-    const lines = [`[${item.id}] ${item.title}`];
+    const lines = [`${item.id} — ${item.title}`];
     if (item.requirement) lines.push(`  Plan requirement: ${item.requirement}`);
     if (item.evidence) lines.push(`  Evidence: ${item.evidence}`);
     lines.push(`  Opened in round ${item.openedInRound}`);

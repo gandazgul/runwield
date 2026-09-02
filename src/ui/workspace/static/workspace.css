@@ -2464,6 +2464,16 @@
     margin-bottom: 0.35rem;
 }
 
+.session-message-footer {
+    align-items: center;
+    color: var(--rw-text-muted);
+    display: flex;
+    font-size: 0.78rem;
+    gap: 0.35rem;
+    justify-content: flex-end;
+    margin-top: 0.5rem;
+}
+
 .session-message.role-user {
     background: color-mix(in srgb, var(--rw-accent) 7%, transparent);
     box-shadow: inset 2px 0 color-mix(in srgb, var(--rw-accent) 70%, transparent);

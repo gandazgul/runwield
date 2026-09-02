@@ -9,6 +9,12 @@ const TIMELINE_PATH = "src/ui/workspace/components/SessionTimeline.jsx";
 const CODE_REVIEW_SURFACE_PATH = "src/ui/workspace/react/CodeReviewSurface.tsx";
 const SERVER_PATH = "src/ui/workspace/server.js";
 
+async function runGit(cwd: string, args: string[]): Promise<string> {
+    const result = await new Deno.Command("git", { cwd, args, stdout: "piped", stderr: "piped" }).output();
+    if (!result.success) throw new Error(new TextDecoder().decode(result.stderr));
+    return new TextDecoder().decode(result.stdout).trim();
+}
+
 Deno.test("live Session Code Review uses the shared review surface inside Workspace", async () => {
     const route = await Deno.readTextFile(ROUTE_PATH);
 
@@ -55,7 +61,7 @@ Deno.test("Workspace Code Review live interaction keeps planTitle in its payload
                 planTitle: "Readable Plan Title",
             },
         });
-        const liveReview = service.getLiveCodeReview({
+        const liveReview = await service.getLiveCodeReview({
             projectId: "project-1",
             runwieldSessionId: "session-1",
             operationId: "operation-1",
@@ -68,6 +74,54 @@ Deno.test("Workspace Code Review live interaction keeps planTitle in its payload
         await interaction;
     } finally {
         service.close();
+    }
+});
+
+Deno.test("Workspace Code Review reload reads the latest files against the original baseline", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-workspace-code-reload-" });
+    const service = new WorkspaceSessionContinuationService({ store: {} });
+    try {
+        await runGit(projectRoot, ["init", "-b", "main"]);
+        await runGit(projectRoot, ["config", "user.email", "runwield@example.com"]);
+        await runGit(projectRoot, ["config", "user.name", "RunWield Test"]);
+        await Deno.writeTextFile(`${projectRoot}/review.ts`, "export const label = 'base';\n");
+        await runGit(projectRoot, ["add", "review.ts"]);
+        await runGit(projectRoot, ["commit", "-m", "fixture base"]);
+        const baselineTree = await runGit(projectRoot, ["rev-parse", "HEAD"]);
+        await Deno.writeTextFile(`${projectRoot}/review.ts`, "export const label = 'first';\n");
+        service.operations.set("operation-reload", {
+            status: "running",
+            projectId: "project-1",
+            runwieldSessionId: "session-1",
+            events: [],
+        });
+        const interaction = service.createInteractionAdapter({ operationId: "operation-reload" }).requestInteraction({
+            id: "interaction-reload",
+            type: "code_review",
+            prompt: "Review the code changes.",
+            _meta: {
+                diffText: "stale patch",
+                planName: "reload-code-review",
+                executionCwd: projectRoot,
+                baselineTree,
+            },
+        });
+
+        await Deno.writeTextFile(`${projectRoot}/review.ts`, "export const label = 'second';\n");
+        const liveReview = await service.getLiveCodeReview({
+            projectId: "project-1",
+            runwieldSessionId: "session-1",
+            operationId: "operation-reload",
+            interactionId: "interaction-reload",
+        });
+
+        assertStringIncludes(String(liveReview?.request?.codeReview?.rawPatch), "+export const label = 'second';");
+        assertFalse(JSON.stringify(liveReview).includes(projectRoot));
+        service.operations.get("operation-reload")?.answer?.resolve({ outcome: "canceled" });
+        await interaction;
+    } finally {
+        service.close();
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
     }
 });
 

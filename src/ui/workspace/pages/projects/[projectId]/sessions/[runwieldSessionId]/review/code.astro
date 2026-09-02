@@ -8,7 +8,7 @@ const runwieldSessionId = Astro.params.runwieldSessionId ?? "";
 const operationId = Astro.url.searchParams.get("operation") || "";
 const interactionId = Astro.url.searchParams.get("interaction") || "";
 const liveReview = operationId && interactionId
-    ? getAstroOwnerWorkspaceSessionContinuation()?.getLiveCodeReview?.({
+    ? await getAstroOwnerWorkspaceSessionContinuation()?.getLiveCodeReview?.({
         projectId,
         runwieldSessionId,
         operationId,
@@ -38,6 +38,11 @@ const payload = codeReview
         interactionAnswerUrl: `/api/owner/projects/${encodeURIComponent(projectId)}/session-operations/${
             encodeURIComponent(operationId)
         }/interactions/${encodeURIComponent(interactionId)}/answer`,
+        interactionAnswerBaseUrl: `/api/owner/projects/${encodeURIComponent(projectId)}/session-operations/${
+            encodeURIComponent(operationId)
+        }/interactions`,
+        interactionId,
+        operationStatusUrl: `/api/owner/session-operations/${encodeURIComponent(operationId)}`,
     }
     : null;
 ---

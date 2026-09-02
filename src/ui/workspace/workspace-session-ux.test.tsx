@@ -15,6 +15,8 @@ import {
 } from "./islands/SessionSurface.jsx";
 import { deriveSessionAvailability } from "./components/SessionActivationStatus.jsx";
 import {
+    displayAgentName,
+    formatSessionTimelineTime,
     reduceSessionEvents,
     sessionInteractionChoiceResponse,
     sessionInteractionTypedResponse,
@@ -154,15 +156,60 @@ Deno.test("Session availability refreshes only while another surface is active",
     assertEquals(shouldRefreshSessionAvailability({ mode: "new", state: "active" }), false);
 });
 
+Deno.test("Session availability refreshes when a busy page becomes active again", async () => {
+    const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
+    assertEquals(surface.includes('globalThis.addEventListener("focus", refresh)'), true);
+    assertEquals(surface.includes('document.addEventListener("visibilitychange", refreshWhenVisible)'), true);
+});
+
 Deno.test("Workspace-owned Session operations use live updates instead of browser polling", async () => {
     const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
     const server = await Deno.readTextFile(new URL("./server.js", import.meta.url));
+    assertEquals(surface.includes("const freshTimeline = await loadTimeline();"), true);
+    assertEquals(surface.includes("expectedGeneration: freshTimeline.generation"), true);
+    assertEquals(surface.includes("pending-user:${envelope.requestId}"), true);
+    assertEquals(
+        surface.indexOf("if (status === 409 || status === 503) await loadTimeline();") <
+            surface.indexOf("? `${errorMessage(error)} Refreshing; resubmit explicitly when ready.`"),
+        true,
+    );
     assertEquals(surface.includes("new EventSource("), true);
     assertEquals(
         surface.includes("/api/owner/session-operations/${encodeURIComponent(operation.operationId)}/stream"),
         true,
     );
+    assertEquals(surface.includes("setOperationStreamFailed(true)"), true);
+    assertEquals(surface.includes("/api/owner/session-operations/${encodeURIComponent(current.operationId)}"), true);
+    assertEquals(surface.includes("Recover stale Session"), true);
+    assertEquals(surface.includes("/force-recovery"), true);
     assertEquals(server.includes("/api/owner/session-operations/:operationId/stream"), true);
+});
+
+Deno.test("Session timeline puts usage and stop time on the assistant block", () => {
+    const completedAt = new Date(2026, 8, 1, 21, 56).toISOString();
+    const items = reduceSessionEvents([
+        { type: "user_message", eventId: "u1", messageId: "u1", text: "Do it", timestamp: "2026-09-01T01:54:00.000Z" },
+        {
+            type: "assistant_text_delta",
+            eventId: "a1",
+            messageId: "a1",
+            delta: "Done.",
+            agentName: "frontend-engineer",
+            timestamp: "2026-09-01T01:55:00.000Z",
+        },
+        {
+            type: "usage",
+            eventId: "usage-1",
+            messageId: "a1:usage",
+            usage: { inputTokens: 1569, outputTokens: 74 },
+            timestamp: completedAt,
+        },
+    ]);
+    assertEquals(items.map((item) => item.kind), ["message", "message"]);
+    assertEquals(displayAgentName(items[1]?.agentName), "Frontend Engineer");
+    assertEquals(items[1]?.footerText, "Usage: 1569 in / 74 out tokens");
+    assertEquals(items[1]?.completedTimestamp, completedAt);
+    assertEquals(formatSessionTimelineTime(completedAt), "9:56pm");
 });
 
 Deno.test("Session timeline groups completed technical activity after agent content resumes", () => {

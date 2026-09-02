@@ -23,5 +23,5 @@ export function sanitizeSessionName(value) {
 /** @param {unknown} name @returns {string} */
 export function formatSessionTerminalTitle(name) {
     const sanitized = sanitizeSessionName(name);
-    return sanitized ? `wld - ${sanitized}` : "wld";
+    return sanitized ? `W. - ${sanitized}` : "W.";
 }

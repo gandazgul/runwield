@@ -11,6 +11,7 @@ import { describeRuntimeTool } from "./tool-event-title.js";
 import { formatTaskCompletedMarkdown, readManualQaChecklistMessage } from "./workflow-messages.js";
 import { isPathInside, readCatalogSafeRootSessionLocator } from "./root-session.js";
 import { namedInvocationDisplayText, namedInvocationImageReferences } from "./named-invocation.ts";
+import { getAgentDisplayName } from "./agents.js";
 
 /** @param {unknown} value @returns {string} */
 function toReplayText(value) {
@@ -35,6 +36,16 @@ function normalizeReplayTimestamp(timestamp) {
     if (typeof timestamp === "number" && Number.isFinite(timestamp)) return new Date(timestamp).toISOString();
     if (timestamp instanceof Date && !Number.isNaN(timestamp.getTime())) return timestamp.toISOString();
     return undefined;
+}
+
+/** @param {string} agentName @param {string | undefined} projectRoot */
+function replayAgentDisplayName(agentName, projectRoot) {
+    if (!projectRoot) return agentName;
+    try {
+        return getAgentDisplayName(agentName, projectRoot);
+    } catch (_error) {
+        return agentName;
+    }
 }
 
 /** @param {unknown} entry @param {string | null} [segmentId] */
@@ -72,11 +83,12 @@ function claudeBackendStatusLevel(kind) {
 /**
  * @param {string} sessionId
  * @param {unknown[]} entries
- * @param {{ segmentId?: string | null }} [options]
+ * @param {{ segmentId?: string | null, projectRoot?: string }} [options]
  * @returns {Array<Record<string, any> & { type: string, eventId: string }>}
  */
 export function createReplayEvents(sessionId, entries, options = {}) {
     const segmentId = options.segmentId || null;
+    const projectRoot = typeof options.projectRoot === "string" ? options.projectRoot : undefined;
     /** @type {Array<Record<string, any> & { type: string, eventId: string }>} */
     const events = [];
     /** @type {string | null} */
@@ -314,7 +326,7 @@ export function createReplayEvents(sessionId, entries, options = {}) {
         }
         if (value.type === "custom" && value.customType === ACTIVE_AGENT_CUSTOM_TYPE) {
             const agentName = typeof value.data?.agentName === "string" ? value.data.agentName.trim() : "";
-            if (agentName) replayAgentName = agentName;
+            if (agentName) replayAgentName = replayAgentDisplayName(agentName, projectRoot);
             continue;
         }
         if (value.type === "custom" && value.customType === "runwield.backend_status") {
@@ -570,7 +582,9 @@ export async function projectCommittedTranscript(options) {
     if (evidence.terminalEntryId !== options.terminalEntryId) {
         throw new Error("Committed transcript terminal entry does not match published evidence");
     }
-    const allEvents = createReplayEvents(options.runtimeSessionId || "committed", evidence.entries);
+    const allEvents = createReplayEvents(options.runtimeSessionId || "committed", evidence.entries, {
+        projectRoot: options.cwd,
+    });
     const selected = selectProjectedEventsAfterCursor({
         events: allEvents,
         cursorEventId: options.cursorEventId,

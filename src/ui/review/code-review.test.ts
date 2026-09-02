@@ -26,6 +26,22 @@ Deno.test("normalizeCodeReviewDecision handles approvals, annotations, and cance
         exit: true,
         canceled: true,
     });
+    assertEquals(
+        normalizeCodeReviewDecision({
+            approved: false,
+            feedback: "Revise this.",
+            annotations: [],
+            conversationTurn: true,
+        }),
+        {
+            approved: false,
+            feedback: "Revise this.",
+            annotations: [],
+            exit: false,
+            canceled: false,
+            conversationTurn: true,
+        },
+    );
 });
 
 Deno.test("formatCodeReviewAnnotations renders file, line, and text", () => {

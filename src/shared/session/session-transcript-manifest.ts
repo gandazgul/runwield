@@ -184,7 +184,7 @@ export async function projectAggregateTranscript(
                 ...createReplayEvents(
                     options.runtimeSessionId || options.runwieldSessionId,
                     evidence.entries,
-                    { segmentId: segment.segmentId },
+                    { segmentId: segment.segmentId, projectRoot: segment.transcriptCwd || options.cwd },
                 ).map((event) => ({
                     ...event,
                     segmentOrdinal: segment.ordinal,

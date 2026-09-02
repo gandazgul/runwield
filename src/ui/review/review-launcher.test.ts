@@ -54,6 +54,12 @@ function reviewLauncherTest(name: string, run: (projectRoot: string) => Promise<
         }));
 }
 
+async function runGit(cwd: string, args: string[]): Promise<string> {
+    const result = await new Deno.Command("git", { cwd, args, stdout: "piped", stderr: "piped" }).output();
+    if (!result.success) throw new Error(new TextDecoder().decode(result.stderr));
+    return new TextDecoder().decode(result.stdout).trim();
+}
+
 reviewLauncherTest("Plan Review reports its real Workspace URL before opening the browser", async (projectRoot) => {
     const surfaces: Array<{ url: string; opened: boolean }> = [];
     let browserCalls = 0;
@@ -221,6 +227,120 @@ reviewLauncherTest("standalone Plan conversation reuses one token page across ag
     const revisedDecision = revised.waitForDecision();
     await revised.stop();
     assertEquals(await revisedDecision, { approved: false, feedback: "", exit: true, canceled: true });
+});
+
+reviewLauncherTest(
+    "standalone Code Review conversation reloads a revised patch in one token page",
+    async (projectRoot) => {
+        const browser = recordingBrowser(true);
+        const conversation = {
+            id: "code-conversation-fixture",
+            agentLabel: "Reviewer Feedback Engineer",
+            revision: 0,
+            events: [] as Array<{
+                type: "assistant_text_delta";
+                delta: string;
+                messageId: string;
+                agentName: string;
+            }>,
+        };
+        const first = await startCodeReviewSurface<CodeDecision>({
+            rawPatch: "diff --git a/a.ts b/a.ts\n+first",
+            gitRef: "fixture diff",
+            agentCwd: projectRoot,
+            reviewConversation: conversation,
+            browser,
+        });
+        const token = new URL(first.url).searchParams.get("token") || "";
+        const firstDecision = first.waitForDecision();
+        const response = await fetch(
+            `${new URL(first.url).origin}/api/review/deny?token=${encodeURIComponent(token)}`,
+            {
+                method: "POST",
+                headers: { "content-type": "application/json", "x-runwield-review-token": token },
+                body: JSON.stringify({
+                    approved: false,
+                    conversationTurn: true,
+                    feedback: "Rename the helper.",
+                    annotations: [],
+                }),
+            },
+        );
+        assertEquals(response.status, 200);
+        const actualFirstDecision: Partial<CodeDecision> = await firstDecision;
+        assertEquals(actualFirstDecision, {
+            approved: false,
+            conversationTurn: true,
+            feedback: "Rename the helper.",
+            annotations: [],
+            plan: undefined,
+            savedPath: undefined,
+        });
+
+        conversation.events.push({
+            type: "assistant_text_delta",
+            delta: "I renamed the helper.",
+            messageId: "engineer-reply",
+            agentName: "Reviewer Feedback Engineer",
+        });
+        const revisedPatch = "diff --git a/a.ts b/a.ts\n-first\n+renamed";
+        const revised = await startCodeReviewSurface<CodeDecision>({
+            rawPatch: revisedPatch,
+            gitRef: "fixture diff",
+            agentCwd: projectRoot,
+            reviewConversation: conversation,
+            browser,
+        });
+        const status = await (await fetch(
+            `${new URL(first.url).origin}/api/review/conversation?token=${encodeURIComponent(token)}`,
+            { headers: { "x-runwield-review-token": token } },
+        )).json();
+
+        assertEquals(revised.url, first.url);
+        assertEquals(revised.opened, false);
+        assertEquals(browser.urls, [first.url]);
+        assertEquals(status.revision, 1);
+        assertEquals(status.rawPatch, revisedPatch);
+        assertEquals(status.events[0].delta, "I renamed the helper.");
+
+        const revisedDecision = revised.waitForDecision();
+        await revised.stop();
+        assertEquals(await revisedDecision, {
+            approved: false,
+            feedback: "",
+            annotations: [],
+            exit: true,
+            canceled: true,
+        });
+    },
+);
+
+reviewLauncherTest("reloading Code Review recomputes the diff from its workflow baseline", async (projectRoot) => {
+    await runGit(projectRoot, ["init", "-b", "main"]);
+    await runGit(projectRoot, ["config", "user.email", "runwield@example.com"]);
+    await runGit(projectRoot, ["config", "user.name", "RunWield Test"]);
+    await Deno.writeTextFile(`${projectRoot}/review.ts`, "export const label = 'base';\n");
+    await runGit(projectRoot, ["add", "review.ts"]);
+    await runGit(projectRoot, ["commit", "-m", "fixture base"]);
+    const baselineTree = await runGit(projectRoot, ["rev-parse", "HEAD"]);
+    await Deno.writeTextFile(`${projectRoot}/review.ts`, "export const label = 'first';\n");
+
+    const server = await startCodeReviewSurface<CodeDecision>({
+        rawPatch: "stale patch",
+        gitRef: "fixture diff",
+        agentCwd: projectRoot,
+        baselineTree,
+        browser: recordingBrowser(false),
+    });
+    await Deno.writeTextFile(`${projectRoot}/review.ts`, "export const label = 'second';\n");
+    const response = await fetch(server.url);
+    const html = await response.text();
+
+    assertEquals(response.status, 200);
+    assertStringIncludes(html, "+export const label = 'second';");
+    assertEquals(html.includes("stale patch"), false);
+    assertEquals(html.includes(baselineTree), false);
+    await server.stop();
 });
 
 reviewLauncherTest(

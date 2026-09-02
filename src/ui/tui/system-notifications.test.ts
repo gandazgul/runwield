@@ -120,7 +120,7 @@ Deno.test("detectTerminalIdentity captures terminal environment without subproce
     });
 
     assertEquals(identity.sessionLabel, "demo");
-    assertEquals(identity.terminalTitle, "wld - demo");
+    assertEquals(identity.terminalTitle, "W. - demo");
     assertEquals(identity.termProgram, "iTerm.app");
     assertEquals(identity.itermSessionId, "w0t0p0");
     assertEquals(identity.pid, 42);
@@ -128,30 +128,30 @@ Deno.test("detectTerminalIdentity captures terminal environment without subproce
 
 Deno.test("selectNativeNotificationProtocol maps supported terminal families conservatively", () => {
     assertEquals(
-        selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "wld - s", term: "xterm-kitty" }),
+        selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "W. - s", term: "xterm-kitty" }),
         "osc99",
     );
     assertEquals(
-        selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "wld - s", termProgram: "WezTerm" }),
+        selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "W. - s", termProgram: "WezTerm" }),
         "osc777",
     );
     assertEquals(
-        selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "wld - s", termProgram: "Ghostty" }),
+        selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "W. - s", termProgram: "Ghostty" }),
         "osc777",
     );
     assertEquals(
-        selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "wld - s", termProgram: "iTerm.app" }),
+        selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "W. - s", termProgram: "iTerm.app" }),
         "osc9",
     );
     assertEquals(
         selectNativeNotificationProtocol({
             sessionLabel: "s",
-            terminalTitle: "wld - s",
+            terminalTitle: "W. - s",
             termProgram: "Apple_Terminal",
         }),
         "unsupported",
     );
-    assertEquals(selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "wld - s" }), "unsupported");
+    assertEquals(selectNativeNotificationProtocol({ sessionLabel: "s", terminalTitle: "W. - s" }), "unsupported");
 });
 
 Deno.test("shouldSuppressAttentionNotification suppresses only known focused terminals by default", () => {
@@ -295,7 +295,7 @@ Deno.test("notifyRunWieldEvent preserves per-event settings and compaction finis
     assertEquals(sent.sent, true);
     assertStringIncludes(sent.title, "Compaction finished");
     assertStringIncludes(sent.message, "The /compact command finished. Return to view the result.");
-    assertStringIncludes(sent.message, "wld - compact session");
+    assertStringIncludes(sent.message, "W. - compact session");
 });
 
 Deno.test("notifyRunWieldEvent skips bell and OSC for disabled or unknown events", async () => {

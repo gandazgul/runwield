@@ -203,12 +203,12 @@ Deno.test("buildReAnchorMessage carries open review issues for a repair turn", (
         agentName: "reviewer-feedback-engineer",
         planName: "some-plan",
         planBody: "# Repair body",
-        openReviewItems: "[R1-1] Seam check never runs\n  Plan requirement: Verification Plan step 3",
+        openReviewItems: "R1-1 — Seam check never runs\n  Plan requirement: Verification Plan step 3",
     }));
 
     assertStringIncludes(message, "# Repair body");
     assertStringIncludes(message, "## Open Review Issue Ledger");
-    assertStringIncludes(message, "[R1-1] Seam check never runs");
+    assertStringIncludes(message, "R1-1 — Seam check never runs");
 });
 
 Deno.test("buildReAnchorMessage omits an empty Review Issue Ledger", () => {

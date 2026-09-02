@@ -26,9 +26,9 @@ Deno.test("sanitizeSessionName truncates to a tab-friendly length", () => {
     assertEquals(sanitizeSessionName("a".repeat(50)), "a".repeat(40));
 });
 
-Deno.test("formatTerminalTitle prefixes sanitized names and falls back to wld", () => {
-    assertEquals(formatTerminalTitle(" terminal titles "), "wld - terminal titles");
-    assertEquals(formatTerminalTitle("\n\t"), "wld");
+Deno.test("formatTerminalTitle prefixes sanitized names and falls back to W.", () => {
+    assertEquals(formatTerminalTitle(" terminal titles "), "W. - terminal titles");
+    assertEquals(formatTerminalTitle("\n\t"), "W.");
 });
 
 Deno.test("setTerminalTitleForName updates the active terminal", () => {
@@ -36,8 +36,8 @@ Deno.test("setTerminalTitleForName updates the active terminal", () => {
     const tui = new TuiMainScreen(terminal);
     initTUIWithPair({ terminal, tui });
     try {
-        assertEquals(setTerminalTitleForName("  plan\nboard  "), "wld - plan board");
-        assertEquals(terminal.title, "wld - plan board");
+        assertEquals(setTerminalTitleForName("  plan\nboard  "), "W. - plan board");
+        assertEquals(terminal.title, "W. - plan board");
     } finally {
         stopTUI();
     }
@@ -45,5 +45,5 @@ Deno.test("setTerminalTitleForName updates the active terminal", () => {
 
 Deno.test("setTerminalTitleForName ignores an unavailable terminal", () => {
     stopTUI();
-    assertEquals(setTerminalTitleForName("safe"), "wld - safe");
+    assertEquals(setTerminalTitleForName("safe"), "W. - safe");
 });
