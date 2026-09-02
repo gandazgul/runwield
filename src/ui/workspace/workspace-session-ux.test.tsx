@@ -154,6 +154,17 @@ Deno.test("Session availability refreshes only while another surface is active",
     assertEquals(shouldRefreshSessionAvailability({ mode: "new", state: "active" }), false);
 });
 
+Deno.test("Workspace-owned Session operations use live updates instead of browser polling", async () => {
+    const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
+    const server = await Deno.readTextFile(new URL("./server.js", import.meta.url));
+    assertEquals(surface.includes("new EventSource("), true);
+    assertEquals(
+        surface.includes("/api/owner/session-operations/${encodeURIComponent(operation.operationId)}/stream"),
+        true,
+    );
+    assertEquals(server.includes("/api/owner/session-operations/:operationId/stream"), true);
+});
+
 Deno.test("Session timeline groups completed technical activity after agent content resumes", () => {
     const items = reduceSessionEvents([
         { type: "user_message", eventId: "u1", messageId: "u1", text: "Do it" },

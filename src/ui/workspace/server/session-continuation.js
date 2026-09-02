@@ -190,12 +190,54 @@ export class WorkspaceSessionContinuationService {
         });
         /** @type {Map<string, WorkspaceOperationRecord>} */
         this.operations = new Map();
+        /** @type {Map<string, Set<(snapshot: Record<string, unknown>) => void>>} */
+        this.operationListeners = new Map();
         /** @type {Map<string, { requestHash: string, operationId: string }>} */
         this.createRequests = new Map();
     }
 
     close() {
         this.runtime.closeAllSessionsWhenIdle?.();
+        this.operationListeners.clear();
+    }
+
+    /** @param {string} operationId */
+    notifyOperation(operationId) {
+        const listeners = this.operationListeners.get(operationId);
+        if (!listeners) return;
+        const snapshot = this.getOperation(operationId);
+        for (const listener of [...listeners]) listener(snapshot);
+    }
+
+    /** @param {string} operationId @param {WorkspaceOperationRecord} record */
+    setOperation(operationId, record) {
+        this.operations.set(operationId, record);
+        this.notifyOperation(operationId);
+    }
+
+    /** @param {string} operationId @param {unknown} event */
+    appendOperationEvent(operationId, event) {
+        const record = this.operations.get(operationId);
+        if (!record || record.events.length >= 500) return;
+        record.events.push(event);
+        this.notifyOperation(operationId);
+    }
+
+    /** @param {string} operationId @param {(snapshot: Record<string, unknown>) => void} listener */
+    subscribeOperation(operationId, listener) {
+        let listeners = this.operationListeners.get(operationId);
+        if (!listeners) {
+            listeners = new Set();
+            this.operationListeners.set(operationId, listeners);
+        }
+        listeners.add(listener);
+        listener(this.getOperation(operationId));
+        return () => {
+            const current = this.operationListeners.get(operationId);
+            if (!current) return;
+            current.delete(listener);
+            if (!current.size) this.operationListeners.delete(operationId);
+        };
     }
 
     /**
@@ -460,7 +502,7 @@ export class WorkspaceSessionContinuationService {
                 if (!result?.ok) throw new Error(result?.error || "Selected thinking level could not be applied.");
             }
             const hasPendingConfiguration = Object.keys(pendingConfiguration).length > 0;
-            this.operations.set(activeOperation.operationId, {
+            this.setOperation(activeOperation.operationId, {
                 ...activeOperation.record,
                 pendingConfiguration: hasPendingConfiguration ? pendingConfiguration : undefined,
             });
@@ -616,7 +658,7 @@ export class WorkspaceSessionContinuationService {
                             encodeURIComponent(interactionId)
                         }`
                         : null;
-                    this.operations.set(options.operationId, {
+                    this.setOperation(options.operationId, {
                         ...current,
                         liveInteraction: {
                             interactionId,
@@ -696,7 +738,7 @@ export class WorkspaceSessionContinuationService {
         }
         const operationId = crypto.randomUUID();
         this.createRequests.set(createKey, { requestHash, operationId });
-        this.operations.set(operationId, {
+        this.setOperation(operationId, {
             status: "running",
             projectId: options.projectId,
             events: [],
@@ -712,15 +754,14 @@ export class WorkspaceSessionContinuationService {
                     deferManagedActivationUntilAgentReady: true,
                 });
                 sessionId = created.sessionId;
-                this.operations.set(operationId, {
+                this.setOperation(operationId, {
                     ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
                     status: "running",
                     runtimeSessionId: sessionId,
                 });
                 this.runtime.setInteractionAdapter(sessionId, this.createInteractionAdapter({ operationId }));
                 unsubscribe = this.runtime.subscribeSessionEvents(sessionId, (event) => {
-                    const record = this.operations.get(operationId);
-                    if (record && record.events.length < 500) record.events.push(event);
+                    this.appendOperationEvent(operationId, event);
                 });
                 if (launch.model) {
                     const modelResult = await this.runtime.reconfigureSessionModel(
@@ -743,7 +784,7 @@ export class WorkspaceSessionContinuationService {
                 const snapshot = this.runtime.getSessionSnapshot(sessionId);
                 const runwieldSessionId = snapshot?.managed?.runwieldSessionId || null;
                 const generation = snapshot?.managed?.generation ?? (result.ok ? 1 : 0);
-                this.operations.set(operationId, {
+                this.setOperation(operationId, {
                     ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
                     status: result.ok ? "completed" : "failed",
                     generation,
@@ -751,7 +792,7 @@ export class WorkspaceSessionContinuationService {
                     error: result.error,
                 });
             } catch (error) {
-                this.operations.set(operationId, {
+                this.setOperation(operationId, {
                     ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
                     status: "failed",
                     error: codeFromError(error),
@@ -836,7 +877,7 @@ export class WorkspaceSessionContinuationService {
             return { operationId: receipt.operationId, status: receipt.status, generation: receipt.resultGeneration };
         }
         this.store.updateOperationReceipt(receipt.operationId, { status: "running" });
-        this.operations.set(receipt.operationId, {
+        this.setOperation(receipt.operationId, {
             status: "running",
             projectId: options.projectId,
             events: [],
@@ -854,7 +895,7 @@ export class WorkspaceSessionContinuationService {
                 /** @type {import('../../../shared/session/workflow-context-session.js').WorkflowContext | null} */ (committedFacts
                     .workflowContext || null),
         });
-        this.operations.set(receipt.operationId, {
+        this.setOperation(receipt.operationId, {
             ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
             status: "running",
             runtimeSessionId: adopted.sessionId,
@@ -864,8 +905,7 @@ export class WorkspaceSessionContinuationService {
             this.createInteractionAdapter({ operationId: receipt.operationId }),
         );
         const unsubscribe = this.runtime.subscribeSessionEvents(adopted.sessionId, (event) => {
-            const record = this.operations.get(receipt.operationId);
-            if (record && record.events.length < 500) record.events.push(event);
+            this.appendOperationEvent(receipt.operationId, event);
         });
         queueMicrotask(async () => {
             try {
@@ -897,7 +937,7 @@ export class WorkspaceSessionContinuationService {
                     errorCode: error || null,
                     errorMessage: error || null,
                 });
-                this.operations.set(receipt.operationId, {
+                this.setOperation(receipt.operationId, {
                     ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
                     status,
                     generation,
@@ -911,7 +951,7 @@ export class WorkspaceSessionContinuationService {
                     errorCode,
                     errorMessage: error instanceof Error ? error.message : String(error),
                 });
-                this.operations.set(receipt.operationId, {
+                this.setOperation(receipt.operationId, {
                     ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
                     status: "failed",
                     error: errorCode,
@@ -1025,7 +1065,7 @@ export class WorkspaceSessionContinuationService {
                     const message = actionResult.feedback ||
                         "Plan review evidence is stale. Reload the Plan and review again.";
                     operation.answer.reject(new Error(message));
-                    this.operations.set(options.operationId, {
+                    this.setOperation(options.operationId, {
                         ...operation,
                         liveInteraction: undefined,
                         answer: null,
@@ -1035,7 +1075,7 @@ export class WorkspaceSessionContinuationService {
                 runtimeResponse = { outcome: "accepted", _meta: actionResult };
             }
             operation.answer.resolve(runtimeResponse);
-            this.operations.set(options.operationId, { ...operation, liveInteraction: undefined, answer: null });
+            this.setOperation(options.operationId, { ...operation, liveInteraction: undefined, answer: null });
             const result = { status: "accepted" };
             this.store.updateOperationReceipt(receipt.operationId, { status: "completed", resultBody: result });
             return result;

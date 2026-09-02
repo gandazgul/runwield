@@ -790,9 +790,90 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }
     }
 
+    async function applyOperationSnapshot(current, payload) {
+        const events = Array.isArray(payload.events) ? payload.events : [];
+        let items = reduceOperationTransientItems(events);
+        if (payload.liveInteraction?.interactionId) {
+            const request = payload.liveInteraction.request || {};
+            const isPlanReview = request.type === "plan_review";
+            const isCodeReview = request.type === "code_review";
+            items = [...items, {
+                kind: isPlanReview ? "plan-review" : isCodeReview ? "code-review" : "interaction",
+                key: `interaction:${payload.liveInteraction.interactionId}`,
+                interactionId: payload.liveInteraction.interactionId,
+                operationId: current.operationId,
+                request,
+                reviewUrl: request.reviewUrl,
+                source: "transient",
+            }];
+        }
+        setTransientItems(items);
+        const next = {
+            operationId: current.operationId,
+            status: payload.status || "unknown",
+            observed: events.length,
+            attempts: current.attempts + 1,
+        };
+        setOperation(next);
+        setPendingConfiguration(payload.pendingConfiguration || null);
+        if (!["completed", "failed", "unknown"].includes(next.status)) return;
+        if (mode === "new" && payload.runwieldSessionId) {
+            localStorage.removeItem(requestKey);
+            globalThis.location.replace(
+                `/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(payload.runwieldSessionId)}`,
+            );
+            return;
+        }
+        if (next.status === "completed") {
+            localStorage.removeItem(requestKey);
+            setMessage("Operation completed. Reconciled committed timeline.");
+        } else {
+            if (next.status === "unknown") setInterruptedOperation(true);
+            setMessage(
+                next.status === "unknown"
+                    ? "Operation is unknown after reconnect. Reloaded committed state; do not replay automatically."
+                    : payload.error || "Operation failed. Committed state reloaded.",
+            );
+        }
+        setPendingConfiguration(null);
+        await loadTimeline();
+        setOperation(null);
+    }
+
     useEffect(() => {
         if (!operation?.operationId) return undefined;
         let cancelled = false;
+        const observeSnapshot = async (current, payload) => {
+            if (
+                !shouldApplyOperationPoll({
+                    cancelled,
+                    currentOperationId: operationRef.current?.operationId,
+                    polledOperationId: current.operationId,
+                })
+            ) return;
+            await applyOperationSnapshot(current, payload);
+        };
+        if (typeof EventSource !== "undefined") {
+            const source = new EventSource(
+                `/api/owner/session-operations/${encodeURIComponent(operation.operationId)}/stream`,
+            );
+            source.onmessage = (event) => {
+                const current = operationRef.current;
+                if (!current || cancelled) return;
+                try {
+                    void observeSnapshot(current, JSON.parse(event.data));
+                } catch (error) {
+                    setMessage(`Observation interrupted: ${errorMessage(error)}.`);
+                }
+            };
+            source.onerror = () => {
+                if (!cancelled) setMessage("Waiting for live Session updates to resume.");
+            };
+            return () => {
+                cancelled = true;
+                source.close();
+            };
+        }
         const tick = async () => {
             const current = operationRef.current;
             if (!current || cancelled || current.attempts >= MAX_POLL_ATTEMPTS) return;
@@ -801,77 +882,13 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                     `/api/owner/session-operations/${encodeURIComponent(current.operationId)}`,
                     { method: "GET" },
                 );
-                if (
-                    !shouldApplyOperationPoll({
-                        cancelled,
-                        currentOperationId: operationRef.current?.operationId,
-                        polledOperationId: current.operationId,
-                    })
-                ) return;
-                const events = Array.isArray(payload.events) ? payload.events : [];
-                const nextEvents = events.slice(current.observed);
-                let items = reduceOperationTransientItems(events);
-                if (payload.liveInteraction?.interactionId) {
-                    const request = payload.liveInteraction.request || {};
-                    const isPlanReview = request.type === "plan_review";
-                    const isCodeReview = request.type === "code_review";
-                    items = [...items, {
-                        kind: isPlanReview ? "plan-review" : isCodeReview ? "code-review" : "interaction",
-                        key: `interaction:${payload.liveInteraction.interactionId}`,
-                        interactionId: payload.liveInteraction.interactionId,
-                        operationId: current.operationId,
-                        request,
-                        reviewUrl: request.reviewUrl,
-                        source: "transient",
-                    }];
-                }
-                if (nextEvents.length || payload.liveInteraction?.interactionId) {
-                    setTransientItems(items);
-                }
-                const next = {
-                    operationId: current.operationId,
-                    status: payload.status || "unknown",
-                    observed: events.length,
-                    attempts: current.attempts + 1,
-                };
-                setOperation(next);
-                setPendingConfiguration(payload.pendingConfiguration || null);
-                if (["completed", "failed", "unknown"].includes(next.status)) {
-                    if (mode === "new" && payload.runwieldSessionId) {
-                        localStorage.removeItem(requestKey);
-                        globalThis.location.replace(
-                            `/projects/${encodeURIComponent(projectId)}/sessions/${
-                                encodeURIComponent(payload.runwieldSessionId)
-                            }`,
-                        );
-                        return;
-                    }
-                    if (next.status === "completed") {
-                        localStorage.removeItem(requestKey);
-                        setMessage("Operation completed. Reconciled committed timeline.");
-                    } else {
-                        if (next.status === "unknown") setInterruptedOperation(true);
-                        setMessage(
-                            next.status === "unknown"
-                                ? "Operation is unknown after reconnect. Reloaded committed state; do not replay automatically."
-                                : payload.error || "Operation failed. Committed state reloaded.",
-                        );
-                    }
-                    setPendingConfiguration(null);
-                    await loadTimeline();
-                    return;
-                }
+                await observeSnapshot(current, payload);
             } catch (error) {
-                if (
-                    !shouldApplyOperationPoll({
-                        cancelled,
-                        currentOperationId: operationRef.current?.operationId,
-                        polledOperationId: current.operationId,
-                    })
-                ) return;
-                setMessage(
-                    `Observation interrupted: ${errorMessage(error)}. The server-owned operation was not canceled.`,
-                );
+                if (!cancelled) {
+                    setMessage(
+                        `Observation interrupted: ${errorMessage(error)}. The server-owned operation was not canceled.`,
+                    );
+                }
             }
         };
         const id = setInterval(tick, POLL_INTERVAL_MS);
@@ -1100,7 +1117,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const busySurface = timeline?.activeSurface || (operation?.operationId ? "workspace" : null);
     return (
         <section className="session-surface session-surface-detail" aria-label="RunWield Session chat">
-            {loadingDetail
+            {loadingDetail && !timeline
                 ? <p className="session-list-state" aria-busy="true">Loading committed Session timeline…</p>
                 : null}
             {detailError
@@ -1121,6 +1138,16 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                 ref={timelineScrollRef}
                                 onScroll={updateScrollFollowState}
                             >
+                                {loadingDetail
+                                    ? (
+                                        <div className="session-inline-loader" aria-live="polite" aria-busy="true">
+                                            <span className="session-busy-loader" aria-hidden="true" />
+                                            <span>Updating committed Session timeline…</span>
+                                        </div>
+                                    )
+                                    : message
+                                    ? <div className="session-surface-status" aria-live="polite">{message}</div>
+                                    : null}
                                 {showBusyPanel ? <SessionBusyPanel surface={busySurface} /> : null}
                                 {latestActivityAvailable
                                     ? (

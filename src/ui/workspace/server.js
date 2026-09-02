@@ -70,6 +70,7 @@ import {
     ownerSessionInteractionAnswerApi,
     ownerSessionOperationCancelApi,
     ownerSessionOperationStatusApi,
+    ownerSessionOperationStreamApi,
     ownerSessionOptionsApi,
     ownerSessionTimelineApi,
 } from "./routes/owner-session-api.js";
@@ -306,6 +307,7 @@ export function createOwnerWorkspaceApp(options) {
         ownerSessionInteractionAnswerApi,
     );
     app.post("/api/owner/session-operations/:operationId/cancel", ownerSessionOperationCancelApi);
+    app.get("/api/owner/session-operations/:operationId/stream", ownerSessionOperationStreamApi);
     app.get("/api/owner/session-operations/:operationId", ownerSessionOperationStatusApi);
     app.get("/api/owner/devices", devicesApi);
     app.post("/api/owner/devices/:deviceId/revoke", revokeDeviceApi);
