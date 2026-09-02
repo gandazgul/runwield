@@ -18,6 +18,7 @@ import { exportReviewFeedback } from "../../../../third_party/plannotator/packag
 import { PlanReviewSettings } from "./PlanReviewSettings.tsx";
 import { ReviewContextBar } from "./ReviewContextBar.tsx";
 import { useCodeReviewHighlighting } from "./code-review-highlighting.ts";
+import { formatGuidedReviewUsageStatus } from "./guided-review-status.ts";
 import "./plannotator.css";
 
 const DEFAULT_CODE_PAYLOAD = {
@@ -122,7 +123,7 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
     const [fileNavigationTarget, setFileNavigationTarget] = useState(null);
     const [allFilesContentFits, setAllFilesContentFits] = useState(false);
     const [guideOpen, setGuideOpen] = useState(false);
-    const [guideJob, setGuideJob] = useState(null);
+    const [guideJob, setGuideJob] = useState(initialPayload.devGuideJob || null);
     const [guideCapabilities, setGuideCapabilities] = useState(
         initialPayload.devGuideCapabilities ||
             (initialPayload.mode === "workspace" ? { available: false, providers: [] } : null),
@@ -213,7 +214,14 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                 if (initialPayload.devGuideFailure) throw new Error(initialPayload.devGuideFailure);
                 if (!initialPayload.guidedReviewFixture) throw new Error("No dev Guided Review fixture is configured.");
                 setGuide(initialPayload.guidedReviewFixture);
-                setGuideJob({ id: "dev-guide", provider: "guide", status: "done", label: "Guided Review Explainer" });
+                setGuideJob(
+                    initialPayload.devGuideJobDone || {
+                        id: "dev-guide",
+                        provider: "guide",
+                        status: "done",
+                        label: "Guided Review Explainer",
+                    },
+                );
                 return;
             }
             const response = await fetch(`/api/agents/jobs?token=${encodeURIComponent(initialPayload.token)}`, {
@@ -1029,9 +1037,8 @@ function formatGuideStatus(job, capabilities, policy) {
         const elapsed = typeof job.elapsedMs === "number" ? `${(job.elapsedMs / 1000).toFixed(1)}s` : "elapsed pending";
         const model = [job.providerName || job.engine || job.provider, job.model].filter(Boolean).join("/") ||
             "provider unknown";
-        const tokens = job.tokens ? `tokens ${JSON.stringify(job.tokens)}` : "tokens unavailable";
-        const cost = job.cost ? `cost ${JSON.stringify(job.cost)}` : "cost unavailable";
-        return `${job.status} · ${model} · ${elapsed} · ${tokens} · ${cost}`;
+        const usage = formatGuidedReviewUsageStatus(job);
+        return `${job.status} · ${model} · ${elapsed} · ${usage.tokens} · ${usage.cost}`;
     }
     if (capabilities && !capabilities.available) {
         return "Guided Review provider unavailable · configure provider to make the extra LLM call";
