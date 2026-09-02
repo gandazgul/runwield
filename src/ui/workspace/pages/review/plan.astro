@@ -2,6 +2,7 @@
 import ReviewLayout from "../../layouts/ReviewLayout.astro";
 import { ArtifactReadSurface } from "../../react/ArtifactReadSurface.tsx";
 import { PlanReviewSurface } from "../../react/PlanReviewSurface.tsx";
+import { escapeReviewPayloadJson } from "../../server/review-payload-json.ts";
 
 const payloadHeader = Astro.request.headers.get("x-runwield-review-payload") || "";
 let payload = null;
@@ -16,9 +17,10 @@ if (!payload) {
 const isArtifactRead = payload.surface === "artifact-read";
 const artifactLabel = payload.artifactKind === "work-record" ? "Work Record" : "Plan";
 const pageTitle = isArtifactRead ? `${artifactLabel} · RunWield Workspace` : "Plan Review · RunWield Workspace";
+const embeddedPayload = escapeReviewPayloadJson(JSON.stringify(payload));
 ---
 <ReviewLayout title={pageTitle}>
-    <script is:inline type="application/json" data-review-payload set:html={JSON.stringify(payload)} />
+    <script is:inline type="application/json" data-review-payload set:html={embeddedPayload} />
     {isArtifactRead
         ? <ArtifactReadSurface payload={payload} client:only="react" />
         : <PlanReviewSurface payload={payload} client:only="react" />}
