@@ -7,6 +7,7 @@ import { getModelRegistry } from "../../../shared/models/model-registry.ts";
 import { getSettingsManager } from "../../../shared/settings.js";
 import { listAvailableAgents } from "../../../shared/session/agents.js";
 import { applySharedPlanReviewDecision } from "../../../shared/workflow/plan-review-actions.ts";
+import { getWorkflowDiff } from "../../../shared/workflow/git-snapshot.js";
 import {
     createSessionRuntime,
     deriveManagedSessionContinuationDecision,
@@ -115,6 +116,9 @@ function safeCodeReviewReference(request) {
         gitRef: `RunWield workflow diff: ${planName}`,
         planName,
         planTitle,
+        agentLabel: typeof meta.agentLabel === "string" && meta.agentLabel.trim()
+            ? meta.agentLabel.trim()
+            : "Reviewer Feedback Engineer",
     };
 }
 
@@ -194,11 +198,14 @@ export class WorkspaceSessionContinuationService {
         this.operationListeners = new Map();
         /** @type {Map<string, { requestHash: string, operationId: string }>} */
         this.createRequests = new Map();
+        /** @type {Map<string, { cwd: string, baselineTree?: string }>} */
+        this.codeReviewRefreshContexts = new Map();
     }
 
     close() {
         this.runtime.closeAllSessionsWhenIdle?.();
         this.operationListeners.clear();
+        this.codeReviewRefreshContexts.clear();
     }
 
     /** @param {string} operationId */
@@ -645,6 +652,16 @@ export class WorkspaceSessionContinuationService {
                     }
                     const planReview = request.type === "plan_review" ? safePlanReviewReference(request) : null;
                     const codeReview = request.type === "code_review" ? safeCodeReviewReference(request) : null;
+                    if (codeReview) {
+                        const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
+                        const executionCwd = typeof meta.executionCwd === "string" ? meta.executionCwd.trim() : "";
+                        if (executionCwd) {
+                            this.codeReviewRefreshContexts.set(`${options.operationId}:${interactionId}`, {
+                                cwd: executionCwd,
+                                ...(typeof meta.baselineTree === "string" && { baselineTree: meta.baselineTree }),
+                            });
+                        }
+                    }
                     const reviewUrl = planReview
                         ? `/projects/${encodeURIComponent(current.projectId)}/plans/${
                             encodeURIComponent(planReview.planId)
@@ -1075,6 +1092,7 @@ export class WorkspaceSessionContinuationService {
                 runtimeResponse = { outcome: "accepted", _meta: actionResult };
             }
             operation.answer.resolve(runtimeResponse);
+            this.codeReviewRefreshContexts.delete(`${options.operationId}:${options.interactionId}`);
             this.setOperation(options.operationId, { ...operation, liveInteraction: undefined, answer: null });
             const result = { status: "accepted" };
             this.store.updateOperationReceipt(receipt.operationId, { status: "completed", resultBody: result });
@@ -1111,7 +1129,7 @@ export class WorkspaceSessionContinuationService {
     /**
      * @param {{ projectId: string, operationId: string, interactionId: string, runwieldSessionId: string }} options
      */
-    getLiveCodeReview(options) {
+    async getLiveCodeReview(options) {
         const operation = this.operations.get(options.operationId);
         if (!operation || operation.status !== "running" || operation.projectId !== options.projectId) return null;
         if (operation.runwieldSessionId !== options.runwieldSessionId) return null;
@@ -1124,7 +1142,20 @@ export class WorkspaceSessionContinuationService {
             ? /** @type {Record<string, unknown>} */ (request.codeReview)
             : null;
         if (!codeReview || typeof codeReview.rawPatch !== "string") return null;
-        return { operationId: options.operationId, interactionId: options.interactionId, request };
+        const refresh = this.codeReviewRefreshContexts.get(`${options.operationId}:${options.interactionId}`);
+        let rawPatch = String(codeReview.rawPatch);
+        if (refresh) {
+            try {
+                rawPatch = await getWorkflowDiff(refresh.cwd, refresh.baselineTree);
+            } catch {
+                // Keep the last complete interaction patch while the checkout is temporarily unreadable.
+            }
+        }
+        return {
+            operationId: options.operationId,
+            interactionId: options.interactionId,
+            request: { ...request, codeReview: { ...codeReview, rawPatch } },
+        };
     }
 
     /**

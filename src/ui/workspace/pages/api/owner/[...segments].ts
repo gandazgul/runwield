@@ -24,6 +24,26 @@ function routeSegments(context: { params: { segments?: string } }) {
     return String(context.params.segments || "").split("/").filter(Boolean);
 }
 
+function devOperationSnapshot(operationId: string) {
+    return {
+        operationId,
+        status: "completed",
+        events: [],
+        pendingConfiguration: null,
+        liveInteraction: null,
+        runwieldSessionId: null,
+    };
+}
+
+function eventStream(body: string) {
+    return new Response(body, {
+        headers: {
+            "cache-control": "no-store",
+            "content-type": "text/event-stream",
+        },
+    });
+}
+
 export const GET = ({ request, params }: { request: Request; params: { segments?: string } }) => {
     if (!import.meta.env.DEV) return json({ error: "Not found." }, 404);
     const segments = routeSegments({ params });
@@ -36,6 +56,11 @@ export const GET = ({ request, params }: { request: Request; params: { segments?
     }
     if (segments.join("/") === "pairing/status") {
         return json({ state: "pending", expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString() });
+    }
+    if (segments[0] === "session-operations" && segments[1]) {
+        const snapshot = devOperationSnapshot(segments[1]);
+        if (segments[2] === "stream") return eventStream(`data: ${JSON.stringify(snapshot)}\n\n`);
+        return json(snapshot);
     }
 
     if (segments[0] === "projects" && segments[1] === DEV_OWNER_PROJECT.projectId) {

@@ -31,6 +31,27 @@ function text(value) {
     return typeof value === "string" ? value : value === undefined || value === null ? "" : String(value);
 }
 
+/** @param {string} agentName */
+export function displayAgentName(agentName) {
+    const trimmed = agentName.trim();
+    if (!trimmed) return "Ideator";
+    const pinned = {
+        "frontend-engineer": "Frontend Engineer",
+        "plan-engineer": "Plan Engineer",
+        "reviewer-feedback-engineer": "Validation Repair Engineer",
+    }[trimmed];
+    if (pinned) return pinned;
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(trimmed)) return trimmed;
+    return trimmed.split("-").map((part) => part ? `${part[0].toUpperCase()}${part.slice(1)}` : "").join(" ");
+}
+
+/** @param {unknown} timestamp */
+export function formatSessionTimelineTime(timestamp) {
+    const date = new Date(text(timestamp));
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).toLowerCase().replace(" ", "");
+}
+
 /**
  * @param {Array<Record<string, any>>} events
  * @param {{ source?: "committed" | "transient", startIndex?: number }} [options]
@@ -44,6 +65,8 @@ export function reduceSessionEvents(events, options = {}) {
     const source = options.source || "committed";
     const startIndex = options.startIndex || 0;
     let lastSegmentKey = null;
+    /** @type {Record<string, any> | null} */
+    let lastAssistantMessage = null;
     const ensure = (/** @type {string} */ key, /** @type {Record<string, any>} */ item) => {
         const existing = byKey.get(key);
         if (existing) return existing;
@@ -143,6 +166,7 @@ export function reduceSessionEvents(events, options = {}) {
                 timestamp,
                 source,
             });
+            lastAssistantMessage = null;
             return;
         }
         if (type === "assistant_text_delta") {
@@ -157,6 +181,7 @@ export function reduceSessionEvents(events, options = {}) {
             });
             item.text += text(event.delta);
             if (timestamp) item.timestamp = timestamp;
+            lastAssistantMessage = item;
             return;
         }
         if (type === "assistant_thinking_delta" || type === "assistant_thinking_end") {
@@ -256,14 +281,12 @@ export function reduceSessionEvents(events, options = {}) {
         }
         if (type === "usage") {
             const usage = asRecord(event.usage);
-            const tokens = [usage.inputTokens, usage.outputTokens].filter((value) => typeof value === "number");
-            ensure(`usage:${id}:${index}`, {
-                kind: "usage",
-                key: event.eventId || `usage:${id}:${index}`,
-                text: tokens.length ? `Usage: ${tokens.join(" in / ")} out tokens` : "Usage recorded",
-                timestamp,
-                source,
-            });
+            const inputTokens = typeof usage.inputTokens === "number" ? usage.inputTokens : null;
+            const outputTokens = typeof usage.outputTokens === "number" ? usage.outputTokens : null;
+            if (lastAssistantMessage && inputTokens !== null && outputTokens !== null) {
+                lastAssistantMessage.footerText = `Usage: ${inputTokens} in / ${outputTokens} out tokens`;
+                lastAssistantMessage.completedTimestamp = timestamp;
+            }
         }
     });
     return compactCompletedActivity(items.filter((item) => MESSAGE_TYPES.has(item.kind)));
@@ -472,12 +495,26 @@ export function SessionTimeline({ items, events, emptyMessage = "" }) {
                         ? (
                             <article className={`session-message role-${item.role}`}>
                                 <header>
-                                    <strong>{item.role === "user" ? "You" : item.agentName || "Ideator"}</strong>
-                                    {item.timestamp ? <time>{item.timestamp}</time> : null}
+                                    <strong>
+                                        {item.role === "user" ? "You" : displayAgentName(item.agentName || "Ideator")}
+                                    </strong>
                                 </header>
                                 {item.role === "assistant"
                                     ? <MarkdownView markdown={item.text || ""} />
                                     : <p>{item.text}</p>}
+                                {item.footerText || item.completedTimestamp
+                                    ? (
+                                        <footer className="session-message-footer">
+                                            {item.footerText ? <span>{item.footerText}</span> : null}
+                                            {item.footerText && item.completedTimestamp
+                                                ? <span aria-hidden="true">-</span>
+                                                : null}
+                                            {item.completedTimestamp
+                                                ? <time>{formatSessionTimelineTime(item.completedTimestamp)}</time>
+                                                : null}
+                                        </footer>
+                                    )
+                                    : null}
                             </article>
                         )
                         : item.kind === "thinking"
@@ -486,7 +523,8 @@ export function SessionTimeline({ items, events, emptyMessage = "" }) {
                                 <summary>
                                     <ActivityChevronIcon />
                                     <span>
-                                        {item.agentName || "Ideator"} thinking {item.done ? "complete" : "in progress"}
+                                        {displayAgentName(item.agentName || "Ideator")} thinking{" "}
+                                        {item.done ? "complete" : "in progress"}
                                     </span>
                                 </summary>
                                 <p>{item.text || "Thinking details hidden."}</p>
@@ -580,7 +618,6 @@ export function SessionTimeline({ items, events, emptyMessage = "" }) {
                             <article className={`session-system-event level-${item.level || "info"}`}>
                                 <header>
                                     <strong>{item.header || "System"}</strong>
-                                    {item.timestamp ? <time>{item.timestamp}</time> : null}
                                 </header>
                                 {Array.isArray(item.lines) && item.lines.length > 1
                                     ? (

@@ -5,6 +5,7 @@
  */
 
 import { getCodeReviewMode, getGuidedReviewMode } from "../settings.js";
+import { AGENTS } from "../../constants.js";
 import { runPlanFrontMatterTransition } from "./state-transition.ts";
 import { type ValidationInteractionResponse, ValidationInteractionTypes } from "./validation-ports.ts";
 import type {
@@ -76,9 +77,22 @@ export async function runHumanReviewPhase(
         }
     }
 
-    const diffText = context.nonGitInPlace ? "" : await getDiffText(context.baselineTree, context.executionCwd);
+    let diffText = context.nonGitInPlace ? "" : await getDiffText(context.baselineTree, context.executionCwd);
     const planAttrs = getPlanAttrs(args.planContent);
     const planTitle = codeReviewPlanTitle(args.planContent, args.planName);
+    const agentLabel = args.session.getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, context.projectRoot);
+    const reviewConversation = {
+        id: crypto.randomUUID(),
+        agentLabel,
+        revision: 0,
+        events: [] as Array<{
+            type: "assistant_text_delta";
+            delta: string;
+            messageId: string;
+            agentName: string;
+        }>,
+    };
+    const conversationHistory: Array<{ role: "user" | "agent"; text: string }> = [];
     const guidedReview = {
         mode: getGuidedReviewMode(context.projectRoot),
         autoStart: false,
@@ -93,6 +107,7 @@ export async function runHumanReviewPhase(
             checks: { humanReview: "running" },
         });
         const outcome = await requestHumanReviewDecision();
+        if (outcome.kind === "conversation") continue;
         if (outcome.kind === "decided") return outcome.result;
         // The review window closed with no answer in it. That is not a rejection, so
         // it must not throw the work back to the start — ask what the user meant.
@@ -109,7 +124,9 @@ export async function runHumanReviewPhase(
     }
 
     async function requestHumanReviewDecision(): Promise<
-        { kind: "decided"; result: ValidationPhaseResult } | { kind: "no_answer"; pause: UserActionPause }
+        | { kind: "conversation" }
+        | { kind: "decided"; result: ValidationPhaseResult }
+        | { kind: "no_answer"; pause: UserActionPause }
     > {
         const humanReviewResponse = await requestInteraction(args, {
             type: ValidationInteractionTypes.CODE_REVIEW,
@@ -120,8 +137,11 @@ export async function runHumanReviewPhase(
                 planContent: args.planContent,
                 planAttrs,
                 diffText,
+                baselineTree: context.baselineTree,
                 executionCwd: context.executionCwd,
                 guidedReview,
+                reviewConversation,
+                agentLabel,
             },
         });
         const humanReview = normalizeHumanReview(humanReviewResponse);
@@ -147,15 +167,43 @@ export async function runHumanReviewPhase(
         }
         if (humanReview.feedback || humanReview.annotations.length || humanReview.images.length) {
             const feedbackText = buildHumanReviewFeedbackText(humanReview.feedback, humanReview.annotations);
+            const conversationContext = humanReview.conversationTurn && conversationHistory.length > 0
+                ? [
+                    "Prior Code Review conversation:",
+                    ...conversationHistory.map((entry) =>
+                        `${entry.role === "user" ? "User" : agentLabel}: ${entry.text}`
+                    ),
+                    "",
+                    "Current message:",
+                    feedbackText,
+                ].join("\n")
+                : feedbackText;
             const repair = await dispatchReviewFeedbackRepair(args, context, {
                 diffText,
-                findingsSection: feedbackText,
+                findingsSection: conversationContext,
                 repairKind: "human_feedback",
                 images: humanReview.images,
                 reason:
                     `User code review returned feedback. Dispatching repair...\nUser Code Review Feedback:\n${feedbackText}`,
             });
             if (repair.completed) {
+                if (humanReview.conversationTurn) {
+                    const reply = repair.report.trim() || "I applied the requested changes and refreshed the diff.";
+                    conversationHistory.push(
+                        { role: "user", text: feedbackText },
+                        { role: "agent", text: reply },
+                    );
+                    reviewConversation.events.push({
+                        type: "assistant_text_delta",
+                        delta: reply,
+                        messageId: `code-review-${crypto.randomUUID()}`,
+                        agentName: agentLabel,
+                    });
+                    diffText = context.nonGitInPlace
+                        ? ""
+                        : await getDiffText(context.baselineTree, context.executionCwd);
+                    return { kind: "conversation" };
+                }
                 // The user owns this review from here. Recorded before the status
                 // moves, so the phase that picks the Plan up next can see it and hand
                 // the diff straight back rather than starting another sweep.
@@ -214,6 +262,7 @@ export function normalizeHumanReview(response: ValidationInteractionResponse): {
     images: Array<{ base64: string; mimeType: string }>;
     exit: boolean;
     canceled: boolean;
+    conversationTurn: boolean;
 } {
     const meta = response._meta && typeof response._meta === "object"
         ? response._meta as {
@@ -223,6 +272,7 @@ export function normalizeHumanReview(response: ValidationInteractionResponse): {
             images?: Array<{ base64: string; mimeType: string }>;
             exit?: boolean;
             canceled?: boolean;
+            conversationTurn?: boolean;
         }
         : {};
     return {
@@ -232,6 +282,7 @@ export function normalizeHumanReview(response: ValidationInteractionResponse): {
         images: Array.isArray(meta.images) ? meta.images : [],
         exit: meta.exit === true,
         canceled: meta.canceled === true || response.outcome === "canceled",
+        conversationTurn: meta.conversationTurn === true,
     };
 }
 

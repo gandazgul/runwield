@@ -271,12 +271,19 @@ function sessionSurfaceLabel(value) {
     }
 }
 
-/** @param {{ surface?: string | null }} props */
-function SessionBusyPanel({ surface }) {
+/** @param {{ surface?: string | null, canRecover?: boolean, recovering?: boolean, onRecover?: () => void }} props */
+function SessionBusyPanel({ surface, canRecover = false, recovering = false, onRecover }) {
     return (
         <section className="session-busy-panel" role="status" aria-live="polite" aria-busy="true">
             <div className="session-busy-loader" aria-hidden="true" />
             <p>This Session is busy in {sessionSurfaceLabel(surface)}.</p>
+            {canRecover
+                ? (
+                    <RunWieldButton type="button" onClick={onRecover} disabled={recovering}>
+                        {recovering ? "Recovering…" : "Recover stale Session"}
+                    </RunWieldButton>
+                )
+                : null}
         </section>
     );
 }
@@ -404,6 +411,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [loadingList, setLoadingList] = useState(mode === "list");
     const [timeline, setTimeline] = useState(/** @type {any} */ (null));
     const [timelineItems, setTimelineItems] = useState(/** @type {Array<Record<string, any>>} */ ([]));
+    const [pendingUserMessages, setPendingUserMessages] = useState(/** @type {Array<Record<string, any>>} */ ([]));
     const [transientItems, setTransientItems] = useState(/** @type {Array<Record<string, any>>} */ ([]));
     const [workflowProgress, setWorkflowProgress] = useState(/** @type {any} */ (null));
     const [workflowProgressError, setWorkflowProgressError] = useState("");
@@ -425,7 +433,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [selectedModelKey, setSelectedModelKey] = useState("");
     const [selectedThinking, setSelectedThinking] = useState("default");
     const [submitting, setSubmitting] = useState(false);
+    const [recoveringSession, setRecoveringSession] = useState(false);
     const [interruptedOperation, setInterruptedOperation] = useState(false);
+    const [operationStreamFailed, setOperationStreamFailed] = useState(false);
     const operationRef = useRef(operation);
     operationRef.current = operation;
     const timelineEndRef = useRef(/** @type {HTMLDivElement | null} */ (null));
@@ -483,55 +493,74 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }
     }
 
+    async function fetchTimeline() {
+        let cursor = "";
+        /** @type {Array<Record<string, any>>} */
+        const events = [];
+        let pageCount = 0;
+        let payload = null;
+        while (pageCount < TIMELINE_MAX_PAGES && events.length <= TIMELINE_MAX_EVENTS) {
+            const qs = new URLSearchParams({ limit: String(TIMELINE_PAGE_LIMIT) });
+            if (cursor) qs.set("cursorEventId", cursor);
+            payload = await ownerFetch(
+                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                    encodeURIComponent(runwieldSessionId)
+                }/timeline?${qs}`,
+                { method: "GET" },
+            );
+            events.push(...(Array.isArray(payload.events) ? payload.events : []));
+            pageCount += 1;
+            if (payload.complete !== false) break;
+            if (!payload.nextCursor || payload.nextCursor === cursor) {
+                throw new Error("Timeline cursor did not advance.");
+            }
+            cursor = payload.nextCursor;
+        }
+        const truncated = Boolean(
+            payload?.complete === false || pageCount >= TIMELINE_MAX_PAGES || events.length > TIMELINE_MAX_EVENTS,
+        );
+        return {
+            ...(payload || {}),
+            events,
+            complete: !truncated && payload?.complete !== false,
+            truncated,
+        };
+    }
+
+    function applyTimeline(nextTimeline) {
+        const events = Array.isArray(nextTimeline.events) ? nextTimeline.events : [];
+        setTimeline(nextTimeline);
+        setTimelineItems(reduceSessionEvents(events, { source: "committed" }));
+        setPendingUserMessages((messages) => {
+            const committedUserText = new Set(
+                events
+                    .filter((event) => event?.type === "user_message" && typeof event.text === "string")
+                    .map((event) => event.text),
+            );
+            return messages.filter((item) => !committedUserText.has(item.text));
+        });
+        setTransientItems([]);
+        setPendingConfiguration(null);
+        setLiveThinkingLevel("");
+        if (nextTimeline.truncated) {
+            setMessage(
+                "Timeline budget exceeded. Reload this Session to continue from the complete committed timeline.",
+            );
+        }
+    }
+
     async function loadTimeline() {
-        if (!runwieldSessionId) return;
+        if (!runwieldSessionId) return null;
         setLoadingDetail(true);
         setDetailError("");
         setMessage("");
         try {
-            let cursor = "";
-            /** @type {Array<Record<string, any>>} */
-            const events = [];
-            let pageCount = 0;
-            let payload = null;
-            while (pageCount < TIMELINE_MAX_PAGES && events.length <= TIMELINE_MAX_EVENTS) {
-                const qs = new URLSearchParams({ limit: String(TIMELINE_PAGE_LIMIT) });
-                if (cursor) qs.set("cursorEventId", cursor);
-                payload = await ownerFetch(
-                    `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
-                        encodeURIComponent(runwieldSessionId)
-                    }/timeline?${qs}`,
-                    { method: "GET" },
-                );
-                events.push(...(Array.isArray(payload.events) ? payload.events : []));
-                pageCount += 1;
-                if (payload.complete !== false) break;
-                if (!payload.nextCursor || payload.nextCursor === cursor) {
-                    throw new Error("Timeline cursor did not advance.");
-                }
-                cursor = payload.nextCursor;
-            }
-            const truncated = Boolean(
-                payload?.complete === false || pageCount >= TIMELINE_MAX_PAGES || events.length > TIMELINE_MAX_EVENTS,
-            );
-            const nextTimeline = {
-                ...(payload || {}),
-                events,
-                complete: !truncated && payload?.complete !== false,
-                truncated,
-            };
-            setTimeline(nextTimeline);
-            setTimelineItems(reduceSessionEvents(events, { source: "committed" }));
-            setTransientItems([]);
-            setPendingConfiguration(null);
-            setLiveThinkingLevel("");
-            if (truncated) {
-                setMessage(
-                    "Timeline budget exceeded. Reload this Session to continue from the complete committed timeline.",
-                );
-            }
+            const nextTimeline = await fetchTimeline();
+            applyTimeline(nextTimeline);
+            return nextTimeline;
         } catch (error) {
             setDetailError(errorMessage(error));
+            return null;
         } finally {
             setLoadingDetail(false);
         }
@@ -550,6 +579,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         if (mode === "new") {
             setTimeline(null);
             setTimelineItems([]);
+            setPendingUserMessages([]);
             setTransientItems([]);
             setDetailError("");
             setLoadingDetail(false);
@@ -576,7 +606,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 observed: 0,
                 attempts: 0,
             });
-            setMessage("Reconnected to an accepted Session operation. Polling without replaying the request.");
+            setMessage(
+                "Reconnected to an accepted Session operation. Watching progress without replaying the request.",
+            );
         } else if (storedRequest.requestId && storedRequest.status === "network-error") {
             setMessage("Previous response was lost. Send will retry the exact same request envelope.");
         }
@@ -733,10 +765,16 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }
         setSubmitting(true);
         setMessage("");
+        const freshTimeline = await loadTimeline();
+        if (!freshTimeline || freshTimeline.truncated || freshTimeline.complete === false) {
+            setSubmitting(false);
+            setMessage("Could not refresh the Session state before sending. Try again.");
+            return;
+        }
         const existing = asRecord(readStored(requestKey));
         const envelope = existing.requestId && existing.status === "network-error" ? existing : {
             requestId: crypto.randomUUID(),
-            expectedGeneration: timeline.generation,
+            expectedGeneration: freshTimeline.generation,
             text,
             images: imageAttachments.map(serializeSessionImageForRequest),
             status: "pending",
@@ -760,6 +798,17 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             );
             setDraft("");
             setImageAttachments([]);
+            setPendingUserMessages((messages) => [
+                ...messages,
+                {
+                    kind: "message",
+                    role: "user",
+                    key: `pending-user:${envelope.requestId}`,
+                    text: envelope.text,
+                    timestamp: envelope.createdAt,
+                    source: "transient",
+                },
+            ]);
             const stored = {
                 ...envelope,
                 status: payload.status || "running",
@@ -767,6 +816,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 responseAccepted: true,
             };
             localStorage.setItem(requestKey, JSON.stringify(stored));
+            setOperationStreamFailed(false);
             setOperation({
                 operationId: payload.operationId,
                 status: payload.status || "running",
@@ -779,12 +829,12 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             const status = Number(errorRecord.status || 0);
             const nextStatus = status === 409 ? "conflict" : status === 503 ? "unavailable" : "network-error";
             localStorage.setItem(requestKey, JSON.stringify({ ...envelope, status: nextStatus }));
+            if (status === 409 || status === 503) await loadTimeline();
             setMessage(
                 status === 409
                     ? `${errorMessage(error)} Refreshing; resubmit explicitly when ready.`
                     : errorMessage(error),
             );
-            if (status === 409 || status === 503) await loadTimeline();
         } finally {
             setSubmitting(false);
         }
@@ -836,8 +886,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             );
         }
         setPendingConfiguration(null);
-        await loadTimeline();
+        setOperationStreamFailed(false);
         setOperation(null);
+        await loadTimeline();
     }
 
     useEffect(() => {
@@ -853,7 +904,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             ) return;
             await applyOperationSnapshot(current, payload);
         };
-        if (typeof EventSource !== "undefined") {
+        if (typeof EventSource !== "undefined" && !operationStreamFailed) {
             const source = new EventSource(
                 `/api/owner/session-operations/${encodeURIComponent(operation.operationId)}/stream`,
             );
@@ -867,7 +918,10 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 }
             };
             source.onerror = () => {
-                if (!cancelled) setMessage("Waiting for live Session updates to resume.");
+                if (cancelled) return;
+                setMessage("Live Session updates paused. Checking operation status safely.");
+                setOperationStreamFailed(true);
+                source.close();
             };
             return () => {
                 cancelled = true;
@@ -897,7 +951,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             cancelled = true;
             clearInterval(id);
         };
-    }, [operation?.operationId, requestKey, mode, projectId]);
+    }, [operation?.operationId, operationStreamFailed, requestKey, mode, projectId]);
 
     useEffect(() => {
         if (
@@ -907,10 +961,20 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 localOperationActive: Boolean(operation?.operationId),
             })
         ) return undefined;
-        const id = setInterval(() => {
+        const refresh = () => {
             void loadTimeline();
-        }, AVAILABILITY_REFRESH_INTERVAL_MS);
-        return () => clearInterval(id);
+        };
+        const refreshWhenVisible = () => {
+            if (document.visibilityState === "visible") refresh();
+        };
+        globalThis.addEventListener("focus", refresh);
+        document.addEventListener("visibilitychange", refreshWhenVisible);
+        const id = setInterval(refresh, AVAILABILITY_REFRESH_INTERVAL_MS);
+        return () => {
+            globalThis.removeEventListener("focus", refresh);
+            document.removeEventListener("visibilitychange", refreshWhenVisible);
+            clearInterval(id);
+        };
     }, [mode, timeline?.state, operation?.operationId, projectId, runwieldSessionId]);
 
     useEffect(() => {
@@ -983,6 +1047,30 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         globalThis.addEventListener("keydown", onKeyDown);
         return () => globalThis.removeEventListener("keydown", onKeyDown);
     }, [operation?.operationId]);
+
+    async function recoverSessionControl() {
+        if (!timeline || typeof timeline.generation !== "number" || recoveringSession) return;
+        const confirmed = globalThis.confirm?.(
+            "RunWield will recover this Session only if the other surface stopped renewing its lock. Continue?",
+        );
+        if (!confirmed) return;
+        setRecoveringSession(true);
+        setMessage("");
+        try {
+            await ownerFetch(
+                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                    encodeURIComponent(runwieldSessionId)
+                }/force-recovery`,
+                { method: "POST", body: JSON.stringify({ expectedGeneration: timeline.generation }) },
+            );
+            await loadTimeline();
+            setMessage("Recovered stale Session control. You can send now.");
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setRecoveringSession(false);
+        }
+    }
 
     async function answerInteraction(operationId, interactionId, response) {
         try {
@@ -1078,6 +1166,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
 
     const allItems = [
         ...timelineItems,
+        ...pendingUserMessages,
         ...transientItems.map((item) =>
             item.kind === "interaction"
                 ? {
@@ -1114,6 +1203,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         : activeModelKey;
     const displayedThinking = liveThinkingLevel || activeThinking;
     const showBusyPanel = ["active", "workspace-running", "execution-workflow"].includes(availability.key);
+    const canRecoverBusySession = availability.key === "active" && typeof timeline?.generation === "number";
     const busySurface = timeline?.activeSurface || (operation?.operationId ? "workspace" : null);
     return (
         <section className="session-surface session-surface-detail" aria-label="RunWield Session chat">
@@ -1148,7 +1238,16 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                     : message
                                     ? <div className="session-surface-status" aria-live="polite">{message}</div>
                                     : null}
-                                {showBusyPanel ? <SessionBusyPanel surface={busySurface} /> : null}
+                                {showBusyPanel
+                                    ? (
+                                        <SessionBusyPanel
+                                            surface={busySurface}
+                                            canRecover={canRecoverBusySession}
+                                            recovering={recoveringSession}
+                                            onRecover={recoverSessionControl}
+                                        />
+                                    )
+                                    : null}
                                 {latestActivityAvailable
                                     ? (
                                         <div className="session-scroll-offer" role="status">

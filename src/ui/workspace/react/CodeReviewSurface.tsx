@@ -17,6 +17,8 @@ import { parseDiffToFiles } from "../../../../third_party/plannotator/packages/r
 import { exportReviewFeedback } from "../../../../third_party/plannotator/packages/review-editor/utils/exportFeedback.ts";
 import { PlanReviewSettings } from "./PlanReviewSettings.tsx";
 import { ReviewContextBar } from "./ReviewContextBar.tsx";
+import { ArtifactConversationSidebar } from "./ArtifactConversationSidebar.tsx";
+import { buildArtifactConversationFeedback, collectArtifactConversationReply } from "./artifact-conversation.ts";
 import { useCodeReviewHighlighting } from "./code-review-highlighting.ts";
 import { formatGuidedReviewUsageStatus } from "./guided-review-status.ts";
 import "./plannotator.css";
@@ -104,7 +106,9 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
         () => payload || readEmbeddedPayload("code-review-payload") || DEFAULT_CODE_PAYLOAD,
         [payload],
     );
-    const files = useMemo(() => parseDiffToFiles(initialPayload.rawPatch || ""), [initialPayload.rawPatch]);
+    const [activeRawPatch, setActiveRawPatch] = useState(initialPayload.rawPatch || "");
+    const [activeReviewStatus, setActiveReviewStatus] = useState(initialPayload.reviewStatus || null);
+    const files = useMemo(() => parseDiffToFiles(activeRawPatch), [activeRawPatch]);
     const codeReviewPlanTitle = typeof initialPayload.planTitle === "string" && initialPayload.planTitle.trim()
         ? initialPayload.planTitle.trim()
         : typeof initialPayload.planName === "string" && initialPayload.planName.trim()
@@ -124,6 +128,7 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
     const [filePanelWidth, setFilePanelWidth] = useState(FILE_PANEL_DEFAULT_WIDTH);
     const [resizingFilePanel, setResizingFilePanel] = useState(false);
     const [annotationsOpen, setAnnotationsOpen] = useState(true);
+    const [rightSidebarView, setRightSidebarView] = useState("annotations");
     const [submitting, setSubmitting] = useState(null);
     const [submitted, setSubmitted] = useState(null);
     const [error, setError] = useState("");
@@ -139,6 +144,15 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
     const [guide, setGuide] = useState(initialPayload.guidedReviewFixture || null);
     const [guideGenerating, setGuideGenerating] = useState(false);
     const [guideError, setGuideError] = useState("");
+    const [conversationMessages, setConversationMessages] = useState([]);
+    const [conversationComposer, setConversationComposer] = useState("");
+    const [conversationContextAttached, setConversationContextAttached] = useState(false);
+    const [agentWorking, setAgentWorking] = useState(false);
+    const [agentError, setAgentError] = useState("");
+    const [activeInteractionId, setActiveInteractionId] = useState(initialPayload.interactionId || "");
+    const [activeInteractionAnswerUrl, setActiveInteractionAnswerUrl] = useState(
+        initialPayload.interactionAnswerUrl || "",
+    );
     const autoGuideStartedRef = useRef(false);
     const filePanelResizeRef = useRef(null);
     const globalCommentButtonRef = useRef(null);
@@ -166,8 +180,8 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
     }, []);
     const currentFile = files[activeFileIndex] || files[0] || null;
     const sections = useMemo(
-        () => buildReviewSections(files, initialPayload.reviewStatus),
-        [files, initialPayload.reviewStatus],
+        () => buildReviewSections(files, activeReviewStatus),
+        [files, activeReviewStatus],
     );
     const stagedFiles = useMemo(() =>
         new Set(
@@ -183,6 +197,12 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
         () => annotations.length > 0 ? exportReviewFeedbackWithImages(annotations) : "",
         [annotations],
     );
+    const agentLabel = initialPayload.agentLabel || "Reviewer Feedback Engineer";
+    const conversationEnabled = initialPayload.mode === "dev" || Boolean(initialPayload.conversationStatusUrl) ||
+        Boolean(initialPayload.operationStatusUrl && initialPayload.interactionAnswerBaseUrl);
+    const attachedContextLabel = conversationContextAttached && annotations.length > 0
+        ? `${annotations.length} code ${annotations.length === 1 ? "annotation" : "annotations"} attached`
+        : undefined;
     const guidePolicy = initialPayload.guidedReview ||
         { mode: "auto", autoStart: false, manualAvailable: true, reasons: [] };
     const guideReady = Boolean(guide);
@@ -194,6 +214,11 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
     useEffect(() => {
         if (!readStoredDiffStyle()) setLocalDiffStyle(configuredDiffStyle);
     }, [configuredDiffStyle]);
+
+    useEffect(() => {
+        if (activeFileIndex < files.length) return;
+        setActiveFileIndex(Math.max(0, files.length - 1));
+    }, [activeFileIndex, files.length]);
 
     useEffect(() => {
         let canceled = false;
@@ -573,6 +598,195 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
         }
     }
 
+    function attachReviewContextToConversation() {
+        if (annotations.length === 0) return;
+        setConversationContextAttached(true);
+        setRightSidebarView("agent");
+        setAgentError("");
+    }
+
+    async function sendAgentMessage() {
+        const message = conversationComposer.trim();
+        if (!message || agentWorking) return;
+        const attachedFeedback = conversationContextAttached && annotations.length > 0 ? feedbackMarkdown : "";
+        const userMessageId = `user-${crypto.randomUUID()}`;
+        const agentMessageId = `agent-${crypto.randomUUID()}`;
+        let eventStartIndex = 0;
+        let conversationRevision = 0;
+
+        setAgentWorking(true);
+        setAgentError("");
+        setError("");
+        setConversationComposer("");
+        setConversationMessages((items) => [...items, {
+            id: userMessageId,
+            role: "user",
+            body: message,
+            ...(attachedContextLabel && { contextLabel: attachedContextLabel }),
+        }]);
+
+        try {
+            if (initialPayload.mode !== "dev") {
+                const statusResponse = await fetch(
+                    initialPayload.conversationStatusUrl || initialPayload.operationStatusUrl,
+                );
+                const statusPayload = await statusResponse.json().catch(() => ({}));
+                if (!statusResponse.ok) throw new Error(statusPayload.error || `${agentLabel} status is unavailable.`);
+                eventStartIndex = Array.isArray(statusPayload.events) ? statusPayload.events.length : 0;
+                conversationRevision = Number.isInteger(statusPayload.revision) ? statusPayload.revision : 0;
+            }
+
+            await submit("deny", {
+                approved: false,
+                feedback: buildArtifactConversationFeedback({
+                    message,
+                    attachedFeedback,
+                    agentLabel,
+                    artifactKind: "code",
+                }),
+                annotations: attachedFeedback ? toWorkflowAnnotations(annotations) : [],
+                conversationTurn: true,
+            });
+
+            if (initialPayload.mode === "dev") {
+                await pause(600);
+                const revisedRawPatch = initialPayload.agentConversation?.revisedRawPatch || activeRawPatch;
+                applyAgentRevision({
+                    rawPatch: revisedRawPatch,
+                    reviewStatus: activeReviewStatus,
+                    interactionId: `dev-${crypto.randomUUID()}`,
+                    reply: initialPayload.agentConversation?.reply ||
+                        "I applied the request. Code Review has reloaded the current file changes.",
+                    agentMessageId,
+                    clearAttachedContext: Boolean(attachedFeedback),
+                });
+                return;
+            }
+
+            if (initialPayload.conversationStatusUrl) {
+                await waitForStandaloneCodeReview({
+                    previousRevision: conversationRevision,
+                    eventStartIndex,
+                    agentMessageId,
+                    clearAttachedContext: Boolean(attachedFeedback),
+                });
+                return;
+            }
+
+            await waitForWorkspaceCodeReview({
+                previousInteractionId: activeInteractionId,
+                eventStartIndex,
+                agentMessageId,
+                clearAttachedContext: Boolean(attachedFeedback),
+            });
+        } catch (caught) {
+            setAgentError(caught instanceof Error ? caught.message : String(caught));
+        } finally {
+            setAgentWorking(false);
+        }
+    }
+
+    async function waitForStandaloneCodeReview(options) {
+        const deadline = Date.now() + 180_000;
+        while (Date.now() < deadline) {
+            const response = await fetch(initialPayload.conversationStatusUrl);
+            const conversation = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(conversation.error || `${agentLabel} status is unavailable.`);
+            const events = Array.isArray(conversation.events) ? conversation.events : [];
+            const reply = collectArtifactConversationReply(events, options.eventStartIndex);
+            if (reply.text) upsertAgentReply(options.agentMessageId, reply.text);
+            if (Number.isInteger(conversation.revision) && conversation.revision > options.previousRevision) {
+                if (typeof conversation.rawPatch !== "string") {
+                    throw new Error("The refreshed Code Review response is incomplete.");
+                }
+                applyAgentRevision({
+                    rawPatch: conversation.rawPatch,
+                    reviewStatus: conversation.reviewStatus || null,
+                    interactionId: `conversation-${conversation.revision}`,
+                    reply: reply.text || "I updated the working files. Code Review has reloaded the current diff.",
+                    agentMessageId: options.agentMessageId,
+                    clearAttachedContext: options.clearAttachedContext,
+                });
+                return;
+            }
+            await pause(750);
+        }
+        throw new Error(`${agentLabel} is still working. Check the terminal Session for progress.`);
+    }
+
+    async function waitForWorkspaceCodeReview(options) {
+        const deadline = Date.now() + 180_000;
+        while (Date.now() < deadline) {
+            const response = await fetch(initialPayload.operationStatusUrl);
+            const operation = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(operation.error || `${agentLabel} status is unavailable.`);
+            const events = Array.isArray(operation.events) ? operation.events : [];
+            const reply = collectArtifactConversationReply(events, options.eventStartIndex);
+            if (reply.text) upsertAgentReply(options.agentMessageId, reply.text);
+
+            const interaction = operation.liveInteraction;
+            const codeReview = interaction?.request?.codeReview;
+            if (
+                interaction?.interactionId && interaction.interactionId !== options.previousInteractionId &&
+                interaction.request?.type === "code_review" && typeof codeReview?.rawPatch === "string"
+            ) {
+                applyAgentRevision({
+                    rawPatch: codeReview.rawPatch,
+                    reviewStatus: codeReview.reviewStatus || null,
+                    interactionId: interaction.interactionId,
+                    reply: reply.text || "I updated the working files. Code Review has reloaded the current diff.",
+                    agentMessageId: options.agentMessageId,
+                    clearAttachedContext: options.clearAttachedContext,
+                });
+                return;
+            }
+            if (["failed", "canceled", "completed"].includes(operation.status)) {
+                throw new Error(operation.error || `${agentLabel} ended without reopening Code Review.`);
+            }
+            await pause(750);
+        }
+        throw new Error(`${agentLabel} is still working. Return to the Session to check its progress.`);
+    }
+
+    function applyAgentRevision(options) {
+        upsertAgentReply(options.agentMessageId, options.reply);
+        setActiveRawPatch(options.rawPatch);
+        setActiveReviewStatus(options.reviewStatus);
+        setActiveInteractionId(options.interactionId);
+        if (initialPayload.interactionAnswerBaseUrl) {
+            setActiveInteractionAnswerUrl(
+                `${initialPayload.interactionAnswerBaseUrl}/${encodeURIComponent(options.interactionId)}/answer`,
+            );
+            try {
+                const nextUrl = new URL(globalThis.location.href);
+                nextUrl.searchParams.set("interaction", options.interactionId);
+                globalThis.history.replaceState(globalThis.history.state, "", nextUrl);
+            } catch {
+                // In-place diff refresh remains usable when browser history is unavailable.
+            }
+        }
+        setGuide(null);
+        setGuideOpen(false);
+        setGuideJob(null);
+        setActiveFileIndex(0);
+        setViewedFiles(new Set());
+        setFileNavigationTarget(null);
+        if (options.clearAttachedContext) {
+            setAnnotations([]);
+            setSelectedAnnotationId(null);
+            setConversationContextAttached(false);
+        }
+    }
+
+    function upsertAgentReply(messageId, body) {
+        setConversationMessages((items) => {
+            const existing = items.findIndex((item) => item.id === messageId);
+            const message = { id: messageId, role: "agent", body };
+            if (existing < 0) return [...items, message];
+            return items.map((item, index) => index === existing ? message : item);
+        });
+    }
+
     return (
         <ThemeProvider
             defaultTheme="dark"
@@ -608,7 +822,7 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                         <div className="rw-plannotator-actions">
                             <ApproveButton
                                 onClick={submitApprove}
-                                disabled={submitting !== null}
+                                disabled={submitting !== null || agentWorking}
                                 isLoading={submitting === "approve"}
                             />
                         </div>
@@ -839,36 +1053,98 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                                         <PanelCollapseIcon side="right" />
                                     </button>
                                 </div>
-                                <div className="rw-review-feedback-action rw-review-action">
-                                    <FeedbackButton
-                                        onClick={submitFeedback}
-                                        disabled={annotations.length === 0 || submitting !== null}
-                                        isLoading={submitting === "feedback"}
-                                        label="Send Annotations"
-                                        loadingLabel="Sending Annotations…"
-                                        title={annotations.length === 0
-                                            ? "Add an annotation before sending annotations"
-                                            : "Send annotations"}
-                                    />
-                                </div>
-                                <ReviewSidebar
-                                    isOpen
-                                    width={352}
-                                    onClose={() => setAnnotationsOpen(false)}
-                                    activeTab="annotations"
-                                    annotations={annotations}
-                                    files={files}
-                                    selectedAnnotationId={selectedAnnotationId}
-                                    onSelectAnnotation={setSelectedAnnotationId}
-                                    onNavigateToAnnotation={(id) => {
-                                        setSelectedAnnotationId(id);
-                                        if (id) setScrollTargetAnnotation({ id, token: Date.now() });
-                                    }}
-                                    onDeleteAnnotation={(id) =>
-                                        setAnnotations((items) => items.filter((item) => item.id !== id))}
-                                    feedbackMarkdown={feedbackMarkdown}
-                                    activeFilePath={currentFile?.path}
-                                />
+                                {conversationEnabled && (
+                                    <div
+                                        className="rw-review-sidebar-tabs rw-segmented-toggle"
+                                        role="tablist"
+                                        aria-label="Review sidebar"
+                                    >
+                                        <button
+                                            className={rightSidebarView === "annotations" ? "active" : ""}
+                                            type="button"
+                                            role="tab"
+                                            aria-selected={rightSidebarView === "annotations"}
+                                            onClick={() => setRightSidebarView("annotations")}
+                                            title="Annotations"
+                                        >
+                                            <CommentIcon />
+                                            <span>Annotations</span>
+                                        </button>
+                                        <button
+                                            className={rightSidebarView === "agent" ? "active" : ""}
+                                            type="button"
+                                            role="tab"
+                                            aria-selected={rightSidebarView === "agent"}
+                                            onClick={() => setRightSidebarView("agent")}
+                                            title={agentLabel}
+                                        >
+                                            <CommentIcon />
+                                            <span>{agentLabel}</span>
+                                        </button>
+                                    </div>
+                                )}
+                                {rightSidebarView === "annotations"
+                                    ? (
+                                        <>
+                                            <div className="rw-review-feedback-action rw-review-action">
+                                                <FeedbackButton
+                                                    onClick={submitFeedback}
+                                                    disabled={annotations.length === 0 || submitting !== null ||
+                                                        agentWorking}
+                                                    isLoading={submitting === "feedback"}
+                                                    label="Send Annotations"
+                                                    loadingLabel="Sending Annotations…"
+                                                    title={annotations.length === 0
+                                                        ? "Add an annotation before sending annotations"
+                                                        : "Send annotations"}
+                                                />
+                                                {conversationEnabled && (
+                                                    <button
+                                                        className="rw-review-context-to-chat"
+                                                        type="button"
+                                                        disabled={annotations.length === 0 || agentWorking}
+                                                        onClick={attachReviewContextToConversation}
+                                                    >
+                                                        <CommentIcon />
+                                                        Add to {agentLabel} chat
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <ReviewSidebar
+                                                isOpen
+                                                width={352}
+                                                onClose={() => setAnnotationsOpen(false)}
+                                                activeTab="annotations"
+                                                annotations={annotations}
+                                                files={files}
+                                                selectedAnnotationId={selectedAnnotationId}
+                                                onSelectAnnotation={setSelectedAnnotationId}
+                                                onNavigateToAnnotation={(id) => {
+                                                    setSelectedAnnotationId(id);
+                                                    if (id) setScrollTargetAnnotation({ id, token: Date.now() });
+                                                }}
+                                                onDeleteAnnotation={(id) =>
+                                                    setAnnotations((items) => items.filter((item) => item.id !== id))}
+                                                feedbackMarkdown={feedbackMarkdown}
+                                                activeFilePath={currentFile?.path}
+                                            />
+                                        </>
+                                    )
+                                    : (
+                                        <ArtifactConversationSidebar
+                                            agentLabel={agentLabel}
+                                            artifactLabel="code changes"
+                                            messages={conversationMessages}
+                                            composer={conversationComposer}
+                                            attachedContextLabel={attachedContextLabel}
+                                            working={agentWorking}
+                                            disabled={submitting !== null}
+                                            error={agentError}
+                                            onComposerChange={setConversationComposer}
+                                            onSend={sendAgentMessage}
+                                            onDetachContext={() => setConversationContextAttached(false)}
+                                        />
+                                    )}
                             </div>
                         )}
                     </div>
@@ -904,7 +1180,7 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
             console.log("Code review dev decision", { endpoint, body });
             return;
         }
-        const targetUrl = initialPayload.interactionAnswerUrl ||
+        const targetUrl = activeInteractionAnswerUrl ||
             `/api/review/${endpoint}?token=${encodeURIComponent(initialPayload.token)}`;
         const headers = {
             "content-type": "application/json",
@@ -1052,6 +1328,10 @@ function formatGuideStatus(job, capabilities, policy) {
         return "Guided Review provider unavailable · configure provider to make the extra LLM call";
     }
     return `extra LLM call · ${policy.reasons?.join(", ") || policy.mode || "manual"} · cost unavailable until run`;
+}
+
+function pause(milliseconds) {
+    return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
 }
 
 function GuidedReviewExplainer({ guide, files, token, jobId, diffProps }) {

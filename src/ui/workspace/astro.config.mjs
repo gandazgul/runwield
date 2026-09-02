@@ -51,6 +51,8 @@ export default defineConfig({
         optimizeDeps: {
             exclude: STD_EXTERNALS,
             include: [
+                "react",
+                "react-dom/client",
                 "@codemirror/lang-javascript",
                 "@codemirror/lang-json",
                 "@codemirror/lang-markdown",

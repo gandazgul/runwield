@@ -3,7 +3,7 @@
  * Launches the browser code-review surface for a completed workflow diff.
  */
 
-import { type ReviewDecisionValue, startCodeReviewSurface } from "./review-launcher.ts";
+import { type ReviewConversation, type ReviewDecisionValue, startCodeReviewSurface } from "./review-launcher.ts";
 import { isAbsolute, resolve } from "node:path";
 import { mimeTypeForImagePath } from "../../shared/session/image-attachments.js";
 import type { GuidedReviewPolicy } from "../../shared/workflow/guided-review.js";
@@ -44,6 +44,7 @@ export interface CodeReviewDecision {
     annotations: CodeReviewAnnotation[];
     exit: boolean;
     canceled: boolean;
+    conversationTurn?: boolean;
     images?: Array<ReviewImageAttachment | LoadedReviewImage>;
 }
 
@@ -54,7 +55,10 @@ interface RunCodeReviewOptions {
     planContent?: string;
     planAttrs?: Record<string, ReviewData>;
     executionCwd: string;
+    baselineTree?: string;
     guidedReview?: GuidedReviewPolicy;
+    reviewConversation?: ReviewConversation;
+    agentLabel?: string;
     signal?: AbortSignal;
     browser: BrowserPort;
 }
@@ -98,6 +102,7 @@ export function normalizeCodeReviewDecision(decision: ReviewData): CodeReviewDec
         annotations,
         exit: explicitlyExited || noDecision,
         canceled,
+        ...(decision.conversationTurn === true && { conversationTurn: true }),
         ...(images.length > 0 && { images }),
     };
 }
@@ -160,7 +165,10 @@ export async function runCodeReview({
     planContent,
     planAttrs,
     executionCwd,
+    baselineTree,
     guidedReview,
+    reviewConversation,
+    agentLabel,
     signal,
     browser,
 }: RunCodeReviewOptions): Promise<CodeReviewDecision> {
@@ -168,14 +176,18 @@ export async function runCodeReview({
         rawPatch: diffText,
         gitRef: `RunWield workflow diff: ${planName}`,
         agentCwd: executionCwd,
+        baselineTree,
         planName,
         planTitle: typeof planTitle === "string" && planTitle.trim() ? planTitle.trim() : planName.trim(),
         planContent,
         planAttrs,
         guidedReview,
+        reviewConversation,
+        agentLabel,
         browser,
     });
 
+    let keepSurfaceOpen = false;
     try {
         const canceled = new Promise<ReviewDataRecord>((resolveCanceled) => {
             if (signal?.aborted) {
@@ -190,11 +202,13 @@ export async function runCodeReview({
         const decision = normalizeCodeReviewDecision(
             rawDecision,
         );
+        keepSurfaceOpen = decision.conversationTurn === true;
         if (!decision.images?.length) return decision;
         const attachments = decision.images.filter((image): image is ReviewImageAttachment => "path" in image);
         const images = await loadCodeReviewImages(attachments, executionCwd);
         return { ...decision, images };
     } finally {
-        await server.stop();
+        // Conversation turns keep the token page alive until the refreshed diff is published.
+        if (!keepSurfaceOpen) await server.stop();
     }
 }

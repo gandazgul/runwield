@@ -1351,6 +1351,40 @@ Deno.test("SessionRuntime prompt-ready metadata is limited to unpersisted new-se
  * @property {string} model
  */
 
+Deno.test("SessionRuntime releases managed activation after a completed TUI turn", async () => {
+    await withRuntimeCommandFixture(
+        "runtime-managed-turn-release-",
+        async ({ projectRoot, setModelResponseFactory }) => {
+            const sessionHost = new SessionHost();
+            const store = openFileSessionStore();
+            const runtime = new SessionRuntime({
+                sessionHost,
+                sessionStore: store,
+                ownsSessionStore: false,
+                ownerProcessKind: "tui",
+                ownerInstanceId: crypto.randomUUID(),
+            });
+            try {
+                const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "guide" });
+                const managed = runtime.getSessionSnapshot(sessionId)?.managed;
+                assert(managed);
+                const before = store.inspectSessionActivation(managed.runwieldSessionId);
+                setModelResponseFactory(() => fauxAssistantMessage(fauxText("The TUI turn finished.")));
+
+                const result = await runtime.promptUserTurn(sessionId, { initialRequest: "Continue from TUI." });
+
+                assertEquals(result.ok, true);
+                const inspected = store.inspectSessionActivation(managed.runwieldSessionId);
+                assertEquals(inspected.activation?.state, "idle");
+                assertEquals(inspected.generation?.generation, (before.generation?.generation ?? 0) + 1);
+            } finally {
+                await runtime.closeAllSessionsWhenIdle();
+                store.close();
+            }
+        },
+    );
+});
+
 Deno.test("SessionRuntime managed operation prefers persisted active agent over stale catalog summary", async () => {
     await withRuntimeCommandFixture(
         "runtime-stale-agent-summary-",

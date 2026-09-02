@@ -10,6 +10,7 @@
 import { extname, join, toFileUrl } from "@std/path";
 import { RUNWIELD_ROOT, RUNWIELD_SOURCE_ROOT } from "../../../runtime-root.js";
 import { PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../../constants.js";
+import { getWorkflowDiff } from "../../shared/workflow/git-snapshot.js";
 import {
     boardApi,
     lifecycleActionApi,
@@ -393,6 +394,9 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
                         agentLabel: reviewConversation.agentLabel,
                         revision: reviewConversation.revision,
                         plan: typeof reviewPayload.plan === "string" ? reviewPayload.plan : "",
+                        rawPatch: typeof reviewPayload.rawPatch === "string" ? reviewPayload.rawPatch : "",
+                        gitRef: typeof reviewPayload.gitRef === "string" ? reviewPayload.gitRef : "",
+                        reviewStatus: reviewPayload.reviewStatus || null,
                         events: reviewConversation.events.map((event) => ({ ...event })),
                     }, { headers: { "cache-control": "no-store" } });
                 }
@@ -431,7 +435,7 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
                 if (!hasWorkspaceToken(request, token)) return new Response("Review token required.", { status: 401 });
                 const expectedPath = reviewType === "plan" ? "/review/plan" : "/review/code";
                 if (url.pathname === expectedPath) {
-                    const payload = { ...reviewPayload, token, mode: "workflow" };
+                    const payload = await currentReviewPagePayload({ cwd, reviewPayload, reviewType, token });
                     const astroResponse = await renderAstroReviewPage(request, cwd, payload);
                     if (astroResponse) return astroResponse;
                     return renderStaticReviewFallback(reviewType, payload);
@@ -440,6 +444,26 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
             };
         },
     };
+}
+
+/**
+ * Refresh Code Review from the working tree on every document request. The
+ * workflow baseline remains stable, so browser reload never changes what the
+ * user is comparing against.
+ *
+ * @param {{ cwd: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code", token: string }} options
+ */
+async function currentReviewPagePayload({ cwd, reviewPayload, reviewType, token }) {
+    const payload = { ...reviewPayload, token, mode: "workflow" };
+    if (reviewType === "code" && typeof reviewPayload.baselineTree === "string") {
+        try {
+            payload.rawPatch = await getWorkflowDiff(cwd, reviewPayload.baselineTree);
+        } catch {
+            // Keep the last complete patch if the checkout is temporarily unreadable.
+        }
+    }
+    delete payload.baselineTree;
+    return payload;
 }
 
 /** @param {Request} request @param {string} token */

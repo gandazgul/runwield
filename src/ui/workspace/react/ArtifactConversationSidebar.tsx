@@ -10,6 +10,7 @@ export interface ArtifactConversationMessage {
 
 export interface ArtifactConversationSidebarProps {
     agentLabel: string;
+    artifactLabel?: string;
     messages: ArtifactConversationMessage[];
     composer: string;
     attachedContextLabel?: string;
@@ -24,6 +25,7 @@ export interface ArtifactConversationSidebarProps {
 export function ArtifactConversationSidebar(props: ArtifactConversationSidebarProps) {
     const transcriptRef = useRef<HTMLDivElement>(null);
     const canSend = props.composer.trim().length > 0 && !props.working && !props.disabled;
+    const artifactLabel = props.artifactLabel || "Plan";
 
     useEffect(() => {
         const transcript = transcriptRef.current;
@@ -44,11 +46,10 @@ export function ArtifactConversationSidebar(props: ArtifactConversationSidebarPr
                         <span className="rw-artifact-conversation-avatar" aria-hidden="true">
                             {props.agentLabel.slice(0, 1).toUpperCase()}
                         </span>
-                        <h3>Talk through the Plan</h3>
+                        <h3>Talk through the {artifactLabel}</h3>
                         <p>
-                            Ask {props.agentLabel}{" "}
-                            to clarify or revise something. The updated Plan will appear here with its changes
-                            highlighted.
+                            Ask {props.agentLabel} to clarify or revise something. The updated {artifactLabel}{" "}
+                            will appear here with its changes highlighted.
                         </p>
                     </div>
                 )}
@@ -65,7 +66,7 @@ export function ArtifactConversationSidebar(props: ArtifactConversationSidebarPr
                 {props.working && (
                     <div className="rw-artifact-conversation-working" role="status">
                         <span aria-hidden="true" />
-                        {props.agentLabel} is reviewing the Plan…
+                        {props.agentLabel} is reviewing the {artifactLabel}…
                     </div>
                 )}
             </div>

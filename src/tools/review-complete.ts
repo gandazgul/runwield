@@ -211,7 +211,7 @@ function normalizeAdvisories(value: ReviewAdvisoryParam[] | undefined): ReviewAd
 function formatFindingsProjection(openFindings: ReviewFinding[]): string {
     return openFindings
         .map((finding) => {
-            const parts = [`- ${finding.id ? `[${finding.id}] ` : ""}${finding.title}`];
+            const parts = [`- ${finding.id ? `${finding.id} — ` : ""}${finding.title}`];
             if (finding.requirement) parts.push(`  Plan: ${finding.requirement}`);
             if (finding.evidence) parts.push(`  Evidence: ${finding.evidence}`);
             return parts.join("\n");

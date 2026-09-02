@@ -370,7 +370,7 @@ Deno.test("TUI adapter uses reviewer ledger report updates only for the validati
     runtime.emitSessionEvent(sessionId, {
         type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
         messageId: "review-ledger-report",
-        delta: "Semantic review rejected — 1 issue open:\n[R1-1] Missing guard",
+        delta: "Semantic review rejected — 1 issue open:\nR1-1 — Missing guard",
         agentName: "Reviewer",
         messageKind: "workflow",
         workflowMessage: "review_report_update",
@@ -378,7 +378,7 @@ Deno.test("TUI adapter uses reviewer ledger report updates only for the validati
     });
 
     assertEquals(transcript, [
-        "report:reviewer:Reviewer:Semantic review rejected — 1 issue open:\n[R1-1] Missing guard",
+        "report:reviewer:Reviewer:Semantic review rejected — 1 issue open:\nR1-1 — Missing guard",
     ]);
     adapter.dispose();
 });
