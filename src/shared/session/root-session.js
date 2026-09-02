@@ -664,16 +664,25 @@ export async function exportRootSessionToHtml(sessionManager, outputPath) {
     ensureDir(dirname(filePath));
 
     const entries = sessionManager.getBranch();
-    const rows = entries.map((entry) => {
+    let skipNextNamedInvocation = "";
+    const rows = entries.flatMap((entry) => {
         const timestamp = entry.timestamp || "";
 
         if (entry.type === "message") {
             const role = entry.message?.role || "unknown";
             const message = /** @type {{ content?: unknown }} */ (entry.message);
-            const text = escapeHtml(toDisplayText(message.content || ""));
-            return `<section class=\"entry message ${escapeHtml(role)}\"><header>${escapeHtml(timestamp)} — ${
-                escapeHtml(role)
-            }</header><pre>${text}</pre></section>`;
+            const textValue = toDisplayText(message.content || "");
+            if (skipNextNamedInvocation && role === "user" && textValue === skipNextNamedInvocation) {
+                skipNextNamedInvocation = "";
+                return [];
+            }
+            skipNextNamedInvocation = "";
+            const text = escapeHtml(textValue);
+            return [
+                `<section class=\"entry message ${escapeHtml(role)}\"><header>${escapeHtml(timestamp)} — ${
+                    escapeHtml(role)
+                }</header><pre>${text}</pre></section>`,
+            ];
         }
 
         const customEntry =
@@ -687,6 +696,7 @@ export async function exportRootSessionToHtml(sessionManager, outputPath) {
                 ? namedInvocationData.compactInvocation
                 : "";
         if (namedInvocationText) {
+            skipNextNamedInvocation = namedInvocationText;
             const text = escapeHtml(namedInvocationText);
             return `<section class=\"entry message user\"><header>${
                 escapeHtml(timestamp)

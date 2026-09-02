@@ -100,6 +100,19 @@ import { AsyncLocalStorage } from "node:async_hooks";
 const ACTIVE_MANAGED_OPERATION = new AsyncLocalStorage();
 
 /**
+ * @param {import('./types.js').ImageAttachment[]} images
+ * @returns {import('./named-invocation.ts').ImageReference[]}
+ */
+function imageReferencesForNamedInvocation(images) {
+    return images.map((image) => ({
+        ...(image.ref ? { ref: image.ref } : {}),
+        ...(image.path ? { path: image.path } : {}),
+        ...(image.base64 ? { base64: image.base64 } : {}),
+        ...(image.mimeType ? { mimeType: image.mimeType } : {}),
+    }));
+}
+
+/**
  * Rebuild the workflow-owned root configuration that an active-agent marker
  * alone cannot describe. Slicer needs both its hidden definition and the
  * finalize tool bound to the current Epic.
@@ -3307,7 +3320,34 @@ export class SessionRuntime {
         const previousUserModelOverride = hostedSession.isUserModelOverride?.() === true;
         const previousThinkingLevel = hostedSession.getThinkingLevel?.() || "off";
         const previousWorkflow = hostedSession.getActiveExecutionWorkflow?.() || null;
+        const previousPendingTaskCompletion = hostedSession.getPendingTaskCompletionForRestore?.() || null;
+        let temporaryProfilePublished = false;
+        let restored = false;
+        const emitActiveProfile = () => {
+            const activeAgent = hostedSession.getActiveAgentInfo?.() || null;
+            if (activeAgent?.agentName) {
+                this.#emitSessionEvent(sessionId, {
+                    type: RuntimeEventTypes.AGENT_CHANGED,
+                    agentName: activeAgent.agentName,
+                    model: activeAgent.model || undefined,
+                });
+            }
+            const activeModel = hostedSession.getActiveModelState?.() || { model: "", provider: "" };
+            if (activeModel.model) {
+                this.#emitSessionEvent(sessionId, {
+                    type: RuntimeEventTypes.MODEL_CHANGED,
+                    model: activeModel.model,
+                    provider: activeModel.provider,
+                });
+            }
+            this.#emitSessionEvent(sessionId, {
+                type: RuntimeEventTypes.THINKING_LEVEL_CHANGED,
+                thinkingLevel: hostedSession.getThinkingLevel?.() || "off",
+            });
+        };
         const restorePromptInvocationState = () => {
+            if (restored) return;
+            restored = true;
             if (previousAgentInfo) {
                 hostedSession.resetAgentInfoStack(
                     previousAgentInfo.displayName,
@@ -3323,8 +3363,8 @@ export class SessionRuntime {
                 hostedSession.setActiveModelState(previousModelState.model, previousModelState.provider, false);
             }
             hostedSession.setThinkingLevel?.(previousThinkingLevel);
-            if (previousWorkflow) hostedSession.setActiveExecutionWorkflow(previousWorkflow);
-            else hostedSession.clearActiveExecutionWorkflow?.();
+            hostedSession.restoreActiveExecutionWorkflow?.(previousWorkflow, previousPendingTaskCompletion);
+            if (temporaryProfilePublished) emitActiveProfile();
         };
         try {
             return await this.#runManagedOperation(
@@ -3340,6 +3380,7 @@ export class SessionRuntime {
                             hostedSession,
                             options.initialImages || [],
                         );
+                        invocation.payload.imageReferences = imageReferencesForNamedInvocation(images);
                         if (hasPendingImages && options.emitInitialEvents !== false) {
                             this.#emitSessionEvent(hostedSession.id, {
                                 type: RuntimeEventTypes.USER_MESSAGE,
@@ -3378,6 +3419,23 @@ export class SessionRuntime {
                                     disableAutoCompaction: true,
                                     managedOperationCapability: capability,
                                     signal: capability.signal,
+                                    onExecutionSessionBuilt: (built) => {
+                                        const resolvedModel = built.resolvedModel
+                                            ? `${built.resolvedModel.provider}/${built.resolvedModel.id}`
+                                            : invocation.model;
+                                        const resolvedThinkingLevel = normalizeThinkingLevel(
+                                            built.resolvedThinkingLevel,
+                                        );
+                                        invocation.payload.profile = {
+                                            agentName: invocation.agentName,
+                                            ...(resolvedModel ? { model: resolvedModel } : {}),
+                                            thinkingLevel: resolvedThinkingLevel,
+                                        };
+                                        hostedSession.clearUserModelOverride?.();
+                                        hostedSession.setThinkingLevel?.(resolvedThinkingLevel);
+                                        temporaryProfilePublished = true;
+                                        emitActiveProfile();
+                                    },
                                 }),
                             { persistModelChange: false },
                         );
@@ -4601,6 +4659,9 @@ export class SessionRuntime {
             const cleanup = options.onTurnStarted?.({ turnId });
             if (typeof cleanup === "function") cleanupTurn = cleanup;
             images = await this.#persistPendingPromptImages(hostedSession, images);
+            if (options.namedInvocationPayload) {
+                options.namedInvocationPayload.imageReferences = imageReferencesForNamedInvocation(images);
+            }
             if (emitInitialEvents) {
                 this.#emitSessionEvent(hostedSession.id, {
                     type: RuntimeEventTypes.USER_MESSAGE,

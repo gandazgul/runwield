@@ -10,7 +10,7 @@ import { normalizeRuntimeToolResult, normalizeRuntimeUsage, RuntimeEventTypes } 
 import { describeRuntimeTool } from "./tool-event-title.js";
 import { formatTaskCompletedMarkdown, readManualQaChecklistMessage } from "./workflow-messages.js";
 import { isPathInside, readCatalogSafeRootSessionLocator } from "./root-session.js";
-import { namedInvocationDisplayText } from "./named-invocation.ts";
+import { namedInvocationDisplayText, namedInvocationImageReferences } from "./named-invocation.ts";
 
 /** @param {unknown} value @returns {string} */
 function toReplayText(value) {
@@ -100,6 +100,7 @@ export function createReplayEvents(sessionId, entries, options = {}) {
         const value = /** @type {any} */ (entry);
         const namedInvocationText = namedInvocationDisplayText(value);
         if (namedInvocationText) {
+            const namedInvocationImages = namedInvocationImageReferences(value);
             const meta = replayMeta(value, segmentId);
             events.push({
                 timestamp: normalizeReplayTimestamp(value.timestamp),
@@ -108,7 +109,7 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                 eventId: makeEventId(value, RuntimeEventTypes.USER_MESSAGE, 0, segmentId),
                 messageId: entryMessageId(value, `${sessionId}:named-invocation`, segmentId),
                 text: namedInvocationText,
-                images: [],
+                images: namedInvocationImages,
             });
             skipNextCompactNamedInvocation = namedInvocationText;
             continue;
@@ -809,15 +810,24 @@ export async function exportProjectedTranscript(entries, options, outputPath) {
             .replaceAll(">", "&gt;")
             .replaceAll('"', "&quot;")
             .replaceAll("'", "&#39;");
-    const rows = entries.map((entry) => {
+    let skipNextNamedInvocation = "";
+    const rows = entries.flatMap((entry) => {
         const value = /** @type {any} */ (entry || {});
-        const text = escapeHtml(
-            namedInvocationDisplayText(value) ||
-                projectedDisplayText(value.message?.content ?? value.content ?? JSON.stringify(value)),
-        );
-        return `<section class="entry"><header>${
-            escapeHtml(value.type || "entry")
-        }</header><pre>${text}</pre></section>`;
+        const namedInvocationText = namedInvocationDisplayText(value);
+        const displayText = namedInvocationText ||
+            projectedDisplayText(value.message?.content ?? value.content ?? JSON.stringify(value));
+        if (
+            skipNextNamedInvocation && value.type === "message" && value.message?.role === "user" &&
+            displayText === skipNextNamedInvocation
+        ) {
+            skipNextNamedInvocation = "";
+            return [];
+        }
+        skipNextNamedInvocation = namedInvocationText || "";
+        const text = escapeHtml(displayText);
+        return [
+            `<section class="entry"><header>${escapeHtml(value.type || "entry")}</header><pre>${text}</pre></section>`,
+        ];
     }).join("\n");
     await Deno.writeTextFile(
         filePath,

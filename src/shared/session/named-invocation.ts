@@ -1,9 +1,15 @@
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
-import { AGENTS } from "../../constants.js";
+import { basename, dirname, join } from "@std/path";
+import { AGENTS, getHomeDir, SKILLS_DIR } from "../../constants.js";
+import { directoryExists, fileExists } from "../helpers.js";
+import { getCustomSetting } from "../settings.js";
 import { parseProviderModel } from "../models/model-validation.ts";
+import { resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { isWorkflowOnlyAgent, loadAgentDef, normalizeAgentInternalName } from "./agents.js";
-import { expandPromptTemplate, expandSkillCommand, listPromptTemplates, listSkills } from "./session.js";
+import { extractBundledSkills } from "./agent-assets.js";
+import { getPromptTemplatePaths } from "./session.js";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 
 export const NAMED_INVOCATION_CUSTOM_TYPE = "runwield.named_invocation";
 export const NAMED_INVOCATION_VERSION = 1;
@@ -15,6 +21,7 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
 export interface ImageReference {
     ref?: string;
     path?: string;
+    base64?: string;
     mimeType?: string;
 }
 
@@ -68,8 +75,22 @@ export type ResolvedNamedInvocation = OrdinaryInvocation | SkillInvocation | Pro
 type PromptTemplateFrontMatterValue = string | number | boolean | string[] | null;
 type PromptTemplateFrontMatter = Partial<Record<string, PromptTemplateFrontMatterValue>>;
 
-type ParsedPromptTemplate = {
+type ParsedMarkdown = {
     attrs: PromptTemplateFrontMatter;
+    body: string;
+};
+
+type PromptTemplateResource = {
+    path: string;
+    source: NamedInvocationSource;
+    packageSource?: string;
+};
+
+type SkillResource = {
+    name: string;
+    path: string;
+    source: NamedInvocationSource;
+    raw: string;
     body: string;
 };
 
@@ -102,10 +123,9 @@ export async function resolveNamedInvocation(options: { cwd: string; text: strin
     if (command.startsWith("skill:")) {
         const skillName = command.slice("skill:".length).trim();
         if (!skillName) return { kind: "ordinary", text: options.text } satisfies OrdinaryInvocation;
-        const skills = await listSkills({ cwd: options.cwd });
-        const skill = skills.find((candidate) => candidate.name === skillName);
+        const skill = await findSkillResource(options.cwd, skillName);
         if (!skill) return { kind: "ordinary", text: options.text } satisfies OrdinaryInvocation;
-        const expandedRequest = await expandSkillCommand(skill.name, instructions || undefined, options.cwd);
+        const expandedRequest = expandSkillResource(skill, instructions || undefined);
         const payload = await createPayload({
             kind: "skill",
             compactInvocation: options.text,
@@ -126,14 +146,13 @@ export async function resolveNamedInvocation(options: { cwd: string; text: strin
         } satisfies SkillInvocation;
     }
 
-    const templates = await listPromptTemplates({ cwd: options.cwd });
-    const template = templates.find((candidate) => candidate.name === command);
+    const template = await findPromptTemplateResource(options.cwd, command);
     if (!template) return { kind: "ordinary", text: options.text } satisfies OrdinaryInvocation;
-    const parsedTemplate = await readPromptTemplateForInvocation(template.path, template.name);
-    const agentName = await resolvePromptTemplateAgent(parsedTemplate.agent, template.name, options.cwd);
-    const thinkingLevel = resolveThinkingLevel(parsedTemplate.thinkingLevel, template.name);
-    const model = resolvePromptTemplateModel(parsedTemplate.model, template.name);
-    const expandedRequest = await expandPromptTemplate(template.path, instructions || undefined);
+    const parsedTemplate = await readPromptTemplateForInvocation(template.path, command);
+    const agentName = await resolvePromptTemplateAgent(parsedTemplate.agent, command, options.cwd);
+    const thinkingLevel = resolveThinkingLevel(parsedTemplate.thinkingLevel, command);
+    const model = resolvePromptTemplateModel(parsedTemplate.model, command);
+    const expandedRequest = expandPromptTemplateBody(parsedTemplate.body, instructions || undefined);
     const payload = await createPayload({
         kind: "prompt_template",
         compactInvocation: options.text,
@@ -141,7 +160,7 @@ export async function resolveNamedInvocation(options: { cwd: string; text: strin
         images: options.images || [],
         source: {
             layer: template.source,
-            name: template.name,
+            name: command,
             ...(template.packageSource ? { packageSource: template.packageSource } : {}),
         },
         profile: {
@@ -152,7 +171,7 @@ export async function resolveNamedInvocation(options: { cwd: string; text: strin
     });
     return {
         kind: "prompt_template",
-        name: template.name,
+        name: command,
         additionalInstructions: instructions,
         expandedRequest,
         agentName,
@@ -186,6 +205,12 @@ export function namedInvocationExpandedText(
     return readNamedInvocationPayload(entry)?.expandedRequest || "";
 }
 
+export function namedInvocationImageReferences(
+    entry: { type?: string; customType?: string; data?: NamedInvocationPayload },
+): ImageReference[] {
+    return readNamedInvocationPayload(entry)?.imageReferences.map((image) => ({ ...image })) || [];
+}
+
 export async function createPayload(options: {
     kind: NamedInvocationKind;
     compactInvocation: string;
@@ -202,6 +227,7 @@ export async function createPayload(options: {
         imageReferences: options.images.map((image) => ({
             ...(image.ref ? { ref: image.ref } : {}),
             ...(image.path ? { path: image.path } : {}),
+            ...(image.base64 ? { base64: image.base64 } : {}),
             ...(image.mimeType ? { mimeType: image.mimeType } : {}),
         })),
         source: options.source,
@@ -245,6 +271,70 @@ export async function withNamedInvocationDisplayMessage<T>(
     }
 }
 
+async function findPromptTemplateResource(cwd: string, name: string): Promise<PromptTemplateResource | null> {
+    if (!isResourceBaseName(name)) return null;
+    const layers = getPromptTemplatePaths(cwd).map((path, index) => ({
+        dir: path,
+        source: index === 0 ? "local" as const : index === 1 ? "home" as const : "bundled" as const,
+    }));
+    const fileName = `${name}.md`;
+    for (const layer of layers) {
+        const path = join(layer.dir, fileName);
+        if (await fileExists(path)) return { path, source: layer.source };
+    }
+    const packagePromptResources = await resolveInstalledPackagePromptResources({ cwd }).catch(() => []);
+    for (const resource of packagePromptResources) {
+        if (basename(resource.path) !== fileName) continue;
+        return {
+            path: resource.path,
+            source: "package",
+            ...(resource.metadata?.source ? { packageSource: resource.metadata.source } : {}),
+        };
+    }
+    return null;
+}
+
+async function findSkillResource(cwd: string, commandName: string): Promise<SkillResource | null> {
+    const extractedBundledDir = await extractBundledSkills();
+    const bundledDirs = extractedBundledDir && extractedBundledDir !== SKILLS_DIR
+        ? [extractedBundledDir, SKILLS_DIR]
+        : [SKILLS_DIR];
+    const homeDir = getHomeDir();
+    const enableExternalSkills = getCustomSetting("enableExternalSkills", "global") ?? true;
+    const layers = [
+        { dir: join(cwd, ".wld", "skills"), source: "local" as const },
+        ...(homeDir ? [{ dir: join(homeDir, ".wld", "skills"), source: "home" as const }] : []),
+        ...bundledDirs.map((dir) => ({ dir, source: "bundled" as const })),
+        ...(enableExternalSkills && homeDir
+            ? [{ dir: join(homeDir, ".agents", "skills"), source: "external" as const }]
+            : []),
+    ];
+    const seen = new Set<string>();
+    for (const layer of layers) {
+        if (!(await directoryExists(layer.dir))) continue;
+        for await (const entry of Deno.readDir(layer.dir)) {
+            if (!entry.isDirectory || seen.has(entry.name)) continue;
+            const skillPath = join(layer.dir, entry.name, "SKILL.md");
+            if (!(await fileExists(skillPath))) continue;
+            seen.add(entry.name);
+            const byDirectoryName = entry.name === commandName;
+            const raw = await Deno.readTextFile(skillPath);
+            const parsed = parseMarkdown(raw);
+            const frontMatterName = readOptionalStringField(parsed.attrs.name, "Skill", entry.name, "name") ||
+                entry.name;
+            if (!byDirectoryName && frontMatterName !== commandName) continue;
+            return {
+                name: frontMatterName,
+                path: skillPath,
+                source: layer.source,
+                raw,
+                body: parsed.body,
+            };
+        }
+    }
+    return null;
+}
+
 async function readPromptTemplateForInvocation(path: string, templateName: string) {
     let raw = "";
     try {
@@ -253,20 +343,22 @@ async function readPromptTemplateForInvocation(path: string, templateName: strin
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Failed to read prompt template "${templateName}": ${message}`);
     }
-    let attrs: PromptTemplateFrontMatter = {};
-    if (hasFrontMatter(raw)) {
-        const parsed = extractYaml(raw) as ParsedPromptTemplate;
-        attrs = parsed.attrs || {};
-    }
-    for (const key of Object.keys(attrs)) {
+    const parsed = parseMarkdown(raw);
+    for (const key of Object.keys(parsed.attrs)) {
         if (!ALLOWED_PROMPT_FRONT_MATTER.has(key)) {
             throw new Error(`Prompt template "${templateName}" has unsupported Front Matter field "${key}".`);
         }
     }
     return {
-        agent: stringField(attrs.agent),
-        model: stringField(attrs.model),
-        thinkingLevel: stringField(attrs.thinkingLevel),
+        agent: readOptionalStringField(parsed.attrs.agent, "Prompt template", templateName, "agent"),
+        model: readOptionalStringField(parsed.attrs.model, "Prompt template", templateName, "model"),
+        thinkingLevel: readOptionalStringField(
+            parsed.attrs.thinkingLevel,
+            "Prompt template",
+            templateName,
+            "thinkingLevel",
+        ),
+        body: parsed.body,
     };
 }
 
@@ -307,8 +399,48 @@ function resolveThinkingLevel(value: string | undefined, templateName: string): 
     return value as ThinkingLevel;
 }
 
-function stringField(value: PromptTemplateFrontMatterValue | undefined) {
-    return typeof value === "string" && value.trim() ? value.trim() : undefined;
+function parseMarkdown(raw: string): ParsedMarkdown {
+    if (!hasFrontMatter(raw)) return { attrs: {}, body: raw };
+    const parsed = extractYaml(raw) as ParsedMarkdown;
+    return { attrs: parsed.attrs || {}, body: parsed.body || "" };
+}
+
+function isResourceBaseName(name: string): boolean {
+    if (!name || name === "." || name === "..") return false;
+    if (name.includes("/") || name.includes("\\")) return false;
+    return basename(name) === name;
+}
+
+function readOptionalStringField(
+    value: PromptTemplateFrontMatterValue | undefined,
+    resourceKind: string,
+    resourceName: string,
+    fieldName: string,
+) {
+    if (value === undefined) return undefined;
+    if (typeof value !== "string") {
+        throw new Error(`${resourceKind} "${resourceName}" declares non-string ${fieldName}.`);
+    }
+    const trimmed = value.trim();
+    if (!trimmed) throw new Error(`${resourceKind} "${resourceName}" declares blank ${fieldName}.`);
+    return trimmed;
+}
+
+function expandPromptTemplateBody(body: string, additionalInstructions: string | undefined) {
+    const trimmed = body.trim();
+    if (additionalInstructions) return `${trimmed}\n\n${additionalInstructions}`;
+    return trimmed;
+}
+
+function expandSkillResource(skill: SkillResource, additionalInstructions: string | undefined) {
+    const body = skill.body.trim();
+    const skillBlock = `<skill name="${skill.name}" location="${skill.path}">\nReferences are relative to ${
+        dirname(skill.path)
+    }.\n\n${body}\n</skill>`;
+    const header = `The user has invoked the "${skill.name}" skill. Follow the instructions below:`;
+    const expanded = `${header}\n\n${skillBlock}`;
+    if (additionalInstructions) return `${expanded}\n\n${additionalInstructions}`;
+    return expanded;
 }
 
 async function sha256Hex(text: string) {
@@ -317,17 +449,21 @@ async function sha256Hex(text: string) {
     return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function isUserMessage(message: Parameters<SessionManager["appendMessage"]>[0]) {
+type AppendableMessage = Parameters<SessionManager["appendMessage"]>[0];
+type AppendableUserMessage = Extract<AppendableMessage, { role: "user" }>;
+
+function isUserMessage(message: AppendableMessage): message is AppendableUserMessage {
     return typeof message === "object" && message !== null && "role" in message && message.role === "user";
 }
 
 function toCompactUserMessage(
-    message: Parameters<SessionManager["appendMessage"]>[0],
+    message: AppendableUserMessage,
     text: string,
-): Parameters<SessionManager["appendMessage"]>[0] {
+): AppendableUserMessage {
     const cloned = structuredClone(message);
-    if (typeof cloned === "object" && cloned !== null && "content" in cloned) {
-        cloned.content = [{ type: "text", text }];
-    }
+    const content = Array.isArray(cloned.content) ? cloned.content : [];
+    const nonTextContent = content.filter((block): block is ImageContent => block.type !== "text");
+    const textContent: TextContent = { type: "text", text };
+    cloned.content = [textContent, ...nonTextContent];
     return cloned;
 }
