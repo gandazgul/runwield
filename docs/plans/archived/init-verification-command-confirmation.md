@@ -1,8 +1,8 @@
 ---
+planId: "b2208e8a-cdf1-459a-a5cb-32904282528d"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
-summary: "Make Init infer, confirm, and safely persist each project's verification command."
 affectedPaths:
     - "src/agent-definitions/subagent-definitions/init-agent-prompt.md"
     - "src/cmd/init/index.ts"
@@ -12,63 +12,23 @@ affectedPaths:
     - "src/tools/init-verification-command.ts"
     - "src/tools/init-verification-command.test.ts"
     - "docs/settings.md"
-objectiveChecks:
-    - id: "OC1"
-      command: "out=$(deno run -A scripts/run-tests.js src/cmd/init/init-verification-confirmation.integration.test.ts 2>&1) && printf '%s' \"$out\" | grep -q 'init confirms and saves verification through the real interaction flow'"
-      rationale: "The required real-runtime interaction test does not exist today and must exercise the named Init confirmation flow rather than passing through the existing Init suite."
-    - id: "OC2"
-      command: "deno eval 'import {createInitVerificationCommandOperation as c} from \"./src/tools/init-verification-command.ts\"; const r=await Deno.makeTempDir(); const o=c({projectRoot:r}); await o.tool.execute(\"oc\",{verificationNotImplemented:true}); const s=JSON.parse(await Deno.readTextFile(r+\"/.wld/settings.json\")); if(s.verification_command!==`echo \"verification not implemented yet\"`||o.getConfirmedCommand()!==s.verification_command) Deno.exit(1)'"
-      rationale: "This executes the new operation and can pass only when the explicit no-verification outcome persists the exact project setting and emits the completion receipt used to gate Init success."
-    - id: "OC3"
-      command: "deno eval 'import {loadSubAgentDefinition as l} from \"./src/shared/session/subagent-definitions.ts\"; import {SUBAGENTS} from \"./src/constants.js\"; const d=await l(SUBAGENTS.INIT); for(const t of [\"user_interview\",\"init_save_verification_command\"]) if(!d.tools.includes(t)) Deno.exit(1); for(const s of [\"No verification command\",\"verification not implemented yet\",\"cancels\"]) if(!d.systemPrompt.includes(s)) Deno.exit(1)'"
-      rationale: "The current effective Init Agent lacks both interaction tools and the required confirmation, placeholder, and cancellation contract."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-20T19:59:44-04:00"
 status: "user_verified"
 origin: "internal"
-implementedAt: "2026-08-24T12:28:52.000Z"
 userVerifiedAt: "2026-08-24T12:28:52.000Z"
 userVerificationNote: "Recovered, integrated, and accepted by the user with Codex before the publication state-machine migration."
-executionReport: "Init now discovers verification-command candidates, confirms the choice with the user, persists it through RunWield-owned settings authority, and covers the real interaction and no-verification paths."
-routingIntent: "PLANNED_CHANGE"
-sessionName: "init verification command"
-planId: "b2208e8a-cdf1-459a-a5cb-32904282528d"
-objectiveChecksBaseline:
-    recordedAt: "2026-08-21T00:15:13.418Z"
-    head: "e8aaa4dfd210c0b193ca22124217bd07e1b92227"
-    results:
-        - id: "OC1"
-          command: "out=$(deno run -A scripts/run-tests.js src/cmd/init/init-verification-confirmation.integration.test.ts 2>&1) && printf '%s' \"$out\" | grep -q 'init confirms and saves verification through the real interaction flow'"
-          rationale: "The required real-runtime interaction test does not exist today and must exercise the named Init confirmation flow rather than passing through the existing Init suite."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 61
-          output: "\n"
-        - id: "OC2"
-          command: "deno eval 'import {createInitVerificationCommandOperation as c} from \"./src/tools/init-verification-command.ts\"; const r=await Deno.makeTempDir(); const o=c({projectRoot:r}); await o.tool.execute(\"oc\",{verificationNotImplemented:true}); const s=JSON.parse(await Deno.readTextFile(r+\"/.wld/settings.json\")); if(s.verification_command!==`echo \"verification not implemented yet\"`||o.getConfirmedCommand()!==s.verification_command) Deno.exit(1)'"
-          rationale: "This executes the new operation and can pass only when the explicit no-verification outcome persists the exact project setting and emits the completion receipt used to gate Init success."
-          status: "unmet"
-          stdout: ""
-          stderr: "\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Module not found \"file:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-init-verification-command-confirmation-a7e25652/src/tools/init-verification-command.ts\".\n"
-          exitCode: 1
-          durationMs: 34
-          output: "\n\u001b[0m\u001b[1m\u001b[31merror\u001b[0m: Module not found \"file:///Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-init-verification-command-confirmation-a7e25652/src/tools/init-verification-command.ts\".\n"
-        - id: "OC3"
-          command: "deno eval 'import {loadSubAgentDefinition as l} from \"./src/shared/session/subagent-definitions.ts\"; import {SUBAGENTS} from \"./src/constants.js\"; const d=await l(SUBAGENTS.INIT); for(const t of [\"user_interview\",\"init_save_verification_command\"]) if(!d.tools.includes(t)) Deno.exit(1); for(const s of [\"No verification command\",\"verification not implemented yet\",\"cancels\"]) if(!d.systemPrompt.includes(s)) Deno.exit(1)'"
-          rationale: "The current effective Init Agent lacks both interaction tools and the required confirmation, placeholder, and cancellation contract."
-          status: "unmet"
-          stdout: ""
-          stderr: ""
-          exitCode: 1
-          durationMs: 62
-          output: "\n"
-updatedAt: "2026-08-24T21:23:28.348Z"
+workRecord:
+    status: "generated"
+    recordId: "2822fb2c-a9e5-4a1d-917b-5a5728955740"
+    path: "docs/work-records/2026-09-02-init-verification-command-confirmation.md"
+    lastAttemptAt: "2026-09-02T01:30:46.949Z"
 archivedAt: "2026-08-24T21:23:28.348Z"
 archivedFromStatus: "user_verified"
 archivedFromPath: "docs/plans/init-verification-command-confirmation.md"
+routingIntent: "PLANNED_CHANGE"
+sessionName: "init verification command"
 ---
 
 # Confirm the Project Verification Command During Init

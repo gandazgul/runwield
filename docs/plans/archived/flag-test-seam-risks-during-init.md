@@ -10,23 +10,17 @@ affectedPaths:
     - "src/agent-definitions/subagent-definitions/init-agent-prompt.md"
     - "src/shared/session/subagent-definitions.test.ts"
     - "src/skills/write-tests/"
-objectiveChecks:
-    - id: "OC1"
-      command: "grep -q 'Possible test-seam risks' src/agent-definitions/subagent-definitions/init-agent-prompt.md && deno run -A scripts/run-tests.js src/shared/session/subagent-definitions.test.ts"
-      rationale: "The Init Agent must explicitly report uncertain seam findings instead of silently classifying or fixing them, and the subagent contract tests must pass with that text present."
-    - id: "OC2"
-      command: "grep -q 'write-tests' src/agent-definitions/subagent-definitions/init-agent-prompt.md && grep -q 'product-owned machinery' src/agent-definitions/subagent-definitions/init-agent-prompt.md"
-      rationale: "Initialization must name the shared testing practice and state the ownership rule in language-neutral terms."
-    - id: "OC3"
-      command: "grep -q 'Deno.test(\"Init prompt teaches seam-risk guidance without leaking RunWield internals\"' src/shared/session/subagent-definitions.test.ts && deno eval 'import {SUBAGENTS as S} from \"./src/constants.js\";import {loadSubAgentDefinition as l} from \"./src/shared/session/subagent-definitions.ts\";const p=(await l(S.INIT)).systemPrompt;for(const s of [\"write-tests\",\"product-owned machinery\",\"Possible test-seam risks\",\"exact file\",\"fixture\",\"confidence\",\"uncertain\",\"bounded\",\"no candidates\",\"dismiss\",\"unpersisted\"])if(!p.includes(s))Deno.exit(1);for(const s of [\"check-injection-seams\",\"seams:check\",\"injection-seam-baseline\",\"ValidationSessionPort\",\"ExecutionStartPorts\",\"src/\",\"scripts/\"])if(p.includes(s))Deno.exit(1)' && deno run -A scripts/run-tests.js src/shared/session/subagent-definitions.test.ts --filter '^Init prompt teaches seam-risk guidance without leaking RunWield internals$'"
-      rationale: "The check loads the composed Init prompt itself and verifies its required guidance and forbidden identifiers, then requires and runs the named contract test. Prompt metadata, inert strings, an empty forbidden list, or a test that never loads the composed prompt cannot satisfy it."
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-04T23:55:00-0400"
 status: "validated"
 origin: "user"
 userVerifiedAt: null
-validationObjectiveCheckAttempts: 0
+workRecord:
+    status: "generated"
+    recordId: "a715bd4c-dbf4-4cb8-93a0-c2e86d548a79"
+    path: "docs/work-records/2026-08-24-init-reports-possible-test-seam-risks.md"
+    lastAttemptAt: "2026-09-02T01:30:45.763Z"
 archivedAt: "2026-08-28T15:09:55.548Z"
 archivedFromStatus: "validated"
 archivedFromPath: "docs/plans/flag-test-seam-risks-during-init.md"

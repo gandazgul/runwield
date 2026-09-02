@@ -3,7 +3,6 @@ planId: "49e20ce4-692f-42fb-b5a9-ecb3766640cc"
 classification: "PLANNED_CHANGE"
 workKind: "BUG_FIX"
 complexity: "MEDIUM"
-summary: "Prove that independent validation repairs resume through the durable validation checkpoint without competing for root Task Completion events."
 affectedPaths:
     - "src/shared/workflow/validation-supervisor.ts"
     - "src/shared/workflow/validation-checkpoint.ts"
@@ -14,50 +13,22 @@ affectedPaths:
     - "src/shared/session/task-completion-session.test.ts"
     - "docs/validation-authority.md"
     - "docs/workflows.md"
-objectiveChecks:
-    - id: "OC1"
-      command: "deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-resume.integration.test.ts --filter 'human-review CI repair completion resumes through isolated result'"
-      rationale: "The reported sequence must complete after one isolated repair Task Completion without a stale lifecycle write, a root-journal claim, or a second user prompt."
-    - id: "OC2"
-      command: "deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-resume.integration.test.ts --filter 'root handler cannot consume an isolated validation repair completion'"
-      rationale: "Independent repair completion belongs to the repair turn result. The root Agent Handler must never observe or acknowledge it."
-    - id: "OC3"
-      command: "deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-resume.integration.test.ts --filter 'interrupted mechanical repair resumes from checkpoint and reruns checks'"
-      rationale: "After process loss there is no live repair result to consume. Recovery must use the durable checkpoint and current worktree, rerun Mechanical Validation, and continue without replaying the old Agent turn."
-objectiveCheckWaivers:
-    []
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-03T17:01:39-04:00"
 status: "verified"
 origin: "internal"
-implementedAt: "2026-08-17T21:24:22.196Z"
-verifiedAt: "2026-08-18T00:32:49.746Z"
 userVerifiedAt: null
-executionReport: "- Implemented durable Mechanical Validation repair recovery: failure events now preserve the validation checkpoint before CI/Object repair dispatch, and live repair completion loops into fresh checks without root Task Completion journal ownership.\n- Removed recovery authority from in-memory validation position: `validation.ts` no longer reads it, and `validation-position.ts`/ports now mark it as presentation-only.\n- Added `validation-repair-resume.integration.test.ts` with 6 new regression tests for the human-review/CI repair sequence, root-journal isolation, process-loss before/during/after repair, and no-`task_completed` retry behavior.\n- Updated existing coverage: replaced the old in-memory position rerun test with a durable-checkpoint rerun test, strengthened isolated task completion journal assertions, and made the dirty-stop-resume golden scenario deterministic. No tests were removed.\n- Updated `docs/validation-authority.md` and `docs/workflows.md` to distinguish live isolated repair results from restart recovery.\n- Verification passed: `deno run -A scripts/run-tests.js src/shared/workflow/validation-repair-resume.integration.test.ts`; validation completion/human-review/repair test group; task-completion/agent-handler test group; `deno task seams:check`; `deno task check`; focused golden reruns for `dirty-stop-resume` and `broken-objective-stop`.\n- Verification did not fully pass: `deno task ci` failed after 330 files passed with two golden scenario failures (`validation-workflow-broken-objective.test.ts`, `validation-workflow-publication.test.ts`), but both failed scenarios passed when rerun individually. Mutation checks were not performed as manual source mutations."
 workRecord:
-    status: "failed"
-    lastAttemptAt: "2026-08-18T00:32:56.432Z"
-    error: "No API key found for claude-cli. Use /login to log into a provider via OAuth or API key. See: /var/folders/hw/zrm0bqr90xz63nflnb2g_qqr0000gn/T/deno-compile-wld/docs/providers.md /var/folders/hw/zrm0bqr90xz63nflnb2g_qqr0000gn/T/deno-compile-"
-humanReviewMode: "ask"
-humanReviewDecision: "skipped"
-validationCheckpoint: null
-executionMode: "worktree"
-deliveryEvidence:
-    version: 1
-    mode: "worktree_merge"
-    executionCommit: "9a3c97219dd92e61698eb4bf2703dddbba950987"
-    targetBranch: "main"
-    targetHeadBeforeMerge: "601ccba85aceb31ba4332a7655a0f3c4776d5c3f"
-routingIntent: "PLANNED_CHANGE"
-sessionName: "validation repair resume"
-validationCiAttempts: 0
-validationObjectiveCheckAttempts: 0
-validationSemanticRounds: 1
-updatedAt: "2026-08-19T19:35:52.245Z"
+    status: "generated"
+    recordId: "f519c2b7-e432-44b2-b7c6-7cf2ef6ba777"
+    path: "docs/work-records/2026-09-02-mechanical-validation-repair-resume-is-durable.md"
+    lastAttemptAt: "2026-09-02T01:30:55.953Z"
 archivedAt: "2026-08-19T19:35:52.245Z"
 archivedFromStatus: "verified"
 archivedFromPath: "docs/plans/resume-validation-after-repair-completion.md"
+routingIntent: "PLANNED_CHANGE"
+sessionName: "validation repair resume"
 ---
 
 # Resume Validation After Repair Completion
