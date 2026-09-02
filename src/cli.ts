@@ -108,8 +108,18 @@ async function main(): Promise<void> {
     }
 
     if (parsed.mode === "acp") {
+        const acpModeCommandArgs = parsed._.map(String);
+        if (acpModeCommandArgs[0] === COMMAND_NAMES.LOGIN) {
+            await commandRegistry[COMMAND_NAMES.LOGIN].execute(acpModeCommandArgs.slice(1));
+            return;
+        }
         const { runAcpCommand } = await import("./cmd/acp/index.js");
         await runAcpCommand([]);
+        return;
+    }
+
+    if (firstPositional === COMMAND_NAMES.ACP && normalizedArgs[1] === COMMAND_NAMES.LOGIN) {
+        await commandRegistry[COMMAND_NAMES.LOGIN].execute(normalizedArgs.slice(2));
         return;
     }
 

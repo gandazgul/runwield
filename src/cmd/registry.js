@@ -30,6 +30,7 @@ import { runSettingsCommand } from "./settings/index.ts";
 import { runCopyCommand } from "./copy/index.js";
 import { runReloadCommand } from "./reload/index.js";
 import { runVersionCommand } from "./version/index.js";
+import { runTerminalAuthSetup } from "../ui/tui/terminal-auth-setup.ts";
 import {
     runUpdateCommand,
     SYSTEM_INSTALLER_PROCESS_PORT,
@@ -217,6 +218,10 @@ export const commandRegistry = {
         description: "Configure model authentication",
         summary: "Sign in with a subscription or save an API key for a model provider.",
         usage: [
+            `${bin("login")}`,
+            `${bin("login <provider>")}`,
+            `${bin("login subscription openai-codex")}`,
+            `${bin("login api-key openai")}`,
             "/login",
             "/login <provider>",
             "/login subscription openai-codex",
@@ -225,11 +230,21 @@ export const commandRegistry = {
         notes: [
             "Without arguments, prompts for authentication type and provider.",
             "When only a provider is supplied, subscription-capable providers use subscription login; other providers use API key login.",
+            "The CLI command exits after credentials and a usable default model are configured.",
             "Credentials are stored in RunWield config at ~/.wld/auth.json.",
             "Use /status to inspect configured providers.",
         ],
-        execute: (argv, options) => runLoginCommand(argv, requireInteractiveCommandContext(options)),
-        surfaces: ["slash"],
+        execute: async (argv, options) => {
+            if (options?.uiAPI) {
+                await runLoginCommand(argv, requireInteractiveCommandContext(options));
+                return;
+            }
+            const result = await runTerminalAuthSetup(argv);
+            if (result.status === "ready") return;
+            console.error(result.message);
+            Deno.exit(1);
+        },
+        surfaces: ["cli", "slash"],
     },
     [COMMAND_NAMES.LOGOUT]: {
         name: COMMAND_NAMES.LOGOUT,
