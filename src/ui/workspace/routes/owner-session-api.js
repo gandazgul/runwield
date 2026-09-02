@@ -1,6 +1,7 @@
 /* @module ui/workspace/routes/owner-session-api */
 
 import { ownerErrorJson, ownerJson, sanitizeOwnerError } from "./owner-api.js";
+import { ownerSecurityHeaders } from "../server/owner-origin.js";
 import { requireOwnerProjectRoot } from "../server/owner-projects.js";
 
 const MAX_JSON_BYTES = 12 * 1024 * 1024;
@@ -275,4 +276,28 @@ export function ownerSessionOperationCancelApi(ctx) {
 export function ownerSessionOperationStatusApi(ctx) {
     const result = ctx.state.sessionContinuation.getOperation(ctx.params.operationId);
     return ownerJson({ ...result, events: (result.events || []).map(safeEvent) });
+}
+
+/** @param {any} ctx */
+export function ownerSessionOperationStreamApi(ctx) {
+    const encoder = new TextEncoder();
+    let unsubscribe = () => {};
+    const body = new ReadableStream({
+        start(controller) {
+            unsubscribe = ctx.state.sessionContinuation.subscribeOperation(ctx.params.operationId, (
+                /** @type {Record<string, unknown>} */ result,
+            ) => {
+                const events = Array.isArray(result.events) ? result.events : [];
+                const safe = { ...result, events: events.map(safeEvent) };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(safe)}\n\n`));
+            });
+        },
+        cancel() {
+            unsubscribe();
+        },
+    });
+    const headers = ownerSecurityHeaders(new Headers());
+    headers.set("content-type", "text/event-stream");
+    headers.set("connection", "keep-alive");
+    return new Response(body, { headers });
 }
