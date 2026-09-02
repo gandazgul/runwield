@@ -568,6 +568,17 @@ export class HostedSession {
         return completion;
     }
 
+    getPendingTaskCompletionForRestore() {
+        return this.pendingTaskCompletion ? { ...this.pendingTaskCompletion } : null;
+    }
+
+    /** @param {ActiveExecutionWorkflow | null} workflow @param {PendingTaskCompletion | null} pendingTaskCompletion */
+    restoreActiveExecutionWorkflow(workflow, pendingTaskCompletion) {
+        this.assertActive();
+        this.activeExecutionWorkflow = workflow;
+        this.pendingTaskCompletion = pendingTaskCompletion ? { ...pendingTaskCompletion } : null;
+    }
+
     /** @param {DisposableLike} session @param {import('./managed-operation.ts').ManagedOperationCapability | null} [capability] */
     addSubAgentSession(session, capability = null) {
         this.assertActive();

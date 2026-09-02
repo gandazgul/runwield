@@ -243,6 +243,51 @@ function assertThinkingLevelSupportedForInvocation(model, thinkingLevel, explici
     );
 }
 
+/** @param {import('../models/model-registry.ts').RunWieldModel | undefined} model @param {string | undefined} thinkingLevel */
+function assertThinkingLevelBackendSupportedForInvocation(model, thinkingLevel) {
+    if (!thinkingLevel || thinkingLevel === "off") return;
+    if (model?.executionBackend !== "claude-cli") return;
+    throw new Error(
+        `Model ${model?.provider || ""}/${
+            model?.id || ""
+        } uses Claude CLI, which does not support thinkingLevel "${thinkingLevel}" for RunWield named invocations.`,
+    );
+}
+
+/** @param {{ provider?: string, id?: string } | undefined} model @param {number} totalTokens @param {number} contextWindow */
+function contextCapacityGuidance(model, totalTokens, contextWindow) {
+    const modelLabel = `${model?.provider || ""}/${model?.id || ""}`.replace(/^\//, "") || "the selected model";
+    return `The current Session history does not fit ${modelLabel}. Estimated input: ${totalTokens} tokens; context window: ${contextWindow} tokens. Compact the Session, start a fresh Session, or choose a larger model.`;
+}
+
+/**
+ * @param {{ agentName: string, cwd: string, agentDef: import('./types.js').AgentDefinition, thinkingLevelOverride?: string }} options
+ */
+function resolveExecutionThinkingLevel(options) {
+    let thinkingLevelSource = undefined;
+    let resolvedThinkingLevel = options.thinkingLevelOverride;
+    if (resolvedThinkingLevel) {
+        thinkingLevelSource = "invocation thinking level override";
+    }
+    if (!resolvedThinkingLevel) {
+        resolvedThinkingLevel = options.agentName
+            ? getConfiguredAgentThinkingLevel(options.agentName, options.cwd)
+            : undefined;
+        if (resolvedThinkingLevel) {
+            thinkingLevelSource = "settings agent thinking level";
+        }
+    }
+    if (!resolvedThinkingLevel) {
+        resolvedThinkingLevel = getSettingsManager(options.cwd).getDefaultThinkingLevel();
+        if (resolvedThinkingLevel) thinkingLevelSource = "settings default thinking level";
+    }
+    if (!resolvedThinkingLevel) {
+        resolvedThinkingLevel = options.agentDef.thinkingLevel;
+        if (resolvedThinkingLevel) thinkingLevelSource = "agent definition thinking level";
+    }
+    return { resolvedThinkingLevel, thinkingLevelSource };
+}
+
 /** @typedef {"local" | "home" | "bundled" | "package"} PromptTemplateSource */
 
 /** @type {Map<string, string | undefined>} */
@@ -371,7 +416,7 @@ export async function listPromptTemplates(options = {}) {
 
     const packagePromptResources = Array.isArray(options.packagePromptResources)
         ? options.packagePromptResources
-        : await resolveInstalledPackagePromptResources().catch(() => []);
+        : await resolveInstalledPackagePromptResources({ cwd }).catch(() => []);
 
     for (const resource of packagePromptResources || []) {
         const name = resource.path.split(/[\\/]/).pop()?.replace(/\.md$/, "") || "";
@@ -1766,6 +1811,127 @@ export async function assembleFinalSystemPrompt(
 }
 
 /**
+ * @param {unknown} entry
+ * @returns {{ version: number, compactInvocation: string, expandedRequest: string } | null}
+ */
+function readNamedInvocationContextEntry(entry) {
+    if (!entry || typeof entry !== "object") return null;
+    const value =
+        /** @type {{ type?: string, customType?: string, data?: { version?: number, compactInvocation?: string, expandedRequest?: string } }} */ (entry);
+    if (value.type !== "custom" || value.customType !== "runwield.named_invocation") return null;
+    if (value.data?.version !== 1) return null;
+    if (typeof value.data.compactInvocation !== "string" || typeof value.data.expandedRequest !== "string") return null;
+    return {
+        version: value.data.version,
+        compactInvocation: value.data.compactInvocation,
+        expandedRequest: value.data.expandedRequest,
+    };
+}
+
+/**
+ * @typedef {Object} TextMessageContentBlock
+ * @property {string} [type]
+ * @property {string} [text]
+ */
+
+/**
+ * @typedef {Object} MessageWithEditableContent
+ * @property {string | TextMessageContentBlock[]} [content]
+ */
+
+/** @param {MessageWithEditableContent | undefined} message */
+function messageText(message) {
+    const content = message?.content;
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return "";
+    return content.filter((block) => block?.type === "text").map((block) => block.text || "").join("");
+}
+
+/**
+ * @param {MessageWithEditableContent | undefined} message
+ * @param {string} text
+ */
+function replaceMessageText(message, text) {
+    if (!message || typeof message !== "object") return;
+    const content = message.content;
+    if (!Array.isArray(content)) {
+        message.content = [{ type: "text", text }];
+        return;
+    }
+    const nonText = content.filter((block) => block?.type !== "text");
+    message.content = [{ type: "text", text }, ...nonText];
+}
+
+/**
+ * @typedef {Object} NamedInvocationContextEntry
+ * @property {string} [id]
+ * @property {string} [type]
+ * @property {string} [firstKeptEntryId]
+ * @property {{ role?: string }} [message]
+ */
+
+/**
+ * @param {NamedInvocationContextEntry[]} entries
+ * @returns {NamedInvocationContextEntry[]}
+ */
+function namedInvocationExpansionEntries(entries) {
+    const compactionIndex = entries.findLastIndex((entry) => entry.type === "compaction");
+    if (compactionIndex < 0) return entries;
+
+    const compaction = entries[compactionIndex];
+    const contextEntries = [compaction];
+    let foundFirstKept = false;
+    for (let index = 0; index < compactionIndex; index += 1) {
+        const entry = entries[index];
+        if (entry.id === compaction.firstKeptEntryId) foundFirstKept = true;
+        if (foundFirstKept) contextEntries.push(entry);
+    }
+    contextEntries.push(...entries.slice(compactionIndex + 1));
+    return contextEntries;
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager
+ */
+function applyNamedInvocationExpansionToPiSession(session, sessionManager) {
+    const stateMessages = session?.agent?.state?.messages;
+    if (!Array.isArray(stateMessages)) return;
+    const entries = sessionManager?.getBranch?.() || sessionManager?.getEntries?.() || [];
+    if (!Array.isArray(entries)) return;
+    const activeEntries = namedInvocationExpansionEntries(/** @type {NamedInvocationContextEntry[]} */ (entries));
+    /** @type {{ version: number, compactInvocation: string, expandedRequest: string } | null} */
+    let pending = null;
+    let stateIndex = 0;
+    for (const entry of activeEntries) {
+        const named = readNamedInvocationContextEntry(entry);
+        if (named) {
+            pending = named;
+            continue;
+        }
+        if (entry.type !== "message") continue;
+        if (!pending || entry.message?.role !== "user") {
+            pending = null;
+            continue;
+        }
+        const currentPending = pending;
+        const matchIndex = stateMessages.findIndex((message, index) =>
+            index >= stateIndex && message?.role === "user" &&
+            messageText(/** @type {MessageWithEditableContent | undefined} */ (message)) ===
+                currentPending.compactInvocation
+        );
+        if (matchIndex >= 0) {
+            replaceMessageText(
+                /** @type {MessageWithEditableContent | undefined} */ (stateMessages[matchIndex]),
+                currentPending.expandedRequest,
+            );
+            stateIndex = matchIndex + 1;
+        }
+        pending = null;
+    }
+}
+
+/**
  * Build a configured AgentSession for the given agent without running a prompt.
  *
  * Used by:
@@ -2051,6 +2217,7 @@ export async function buildAgentSession({
         sessionManager: effectiveSessionManager,
         ...(resolvedModel ? { model: resolvedModel } : {}),
     });
+    applyNamedInvocationExpansionToPiSession(session, effectiveSessionManager);
     /** @type {any} */ (session).runWieldModelRegistry = modelRegistry;
     installEarlySteeringInterruption(/** @type {any} */ (session));
     installEngineerAutoCompactionThreshold(session, agentName);
@@ -2076,26 +2243,12 @@ export async function buildAgentSession({
     }
 
     // Apply thinking level — invocation overrides take priority for isolated delegated sessions.
-    let thinkingLevelSource = undefined;
-    /** @type {string | undefined} */
-    let resolvedThinkingLevel = thinkingLevelOverride;
-    if (resolvedThinkingLevel) {
-        thinkingLevelSource = "invocation thinking level override";
-    }
-    if (!resolvedThinkingLevel) {
-        resolvedThinkingLevel = agentName ? getConfiguredAgentThinkingLevel(agentName, sessionCwd) : undefined;
-        if (resolvedThinkingLevel) {
-            thinkingLevelSource = "settings agent thinking level";
-        }
-    }
-    if (!resolvedThinkingLevel) {
-        resolvedThinkingLevel = getSettingsManager(sessionCwd).getDefaultThinkingLevel();
-        if (resolvedThinkingLevel) thinkingLevelSource = "settings default thinking level";
-    }
-    if (!resolvedThinkingLevel) {
-        resolvedThinkingLevel = agentDef.thinkingLevel;
-        if (resolvedThinkingLevel) thinkingLevelSource = "agent definition thinking level";
-    }
+    const { resolvedThinkingLevel, thinkingLevelSource } = resolveExecutionThinkingLevel({
+        agentName,
+        cwd: sessionCwd,
+        agentDef,
+        thinkingLevelOverride,
+    });
     if (resolvedThinkingLevel) {
         assertThinkingLevelSupportedForInvocation(
             resolvedModel,
@@ -2294,6 +2447,12 @@ export async function buildExecutionSession(opts) {
         ),
     );
     assertModelExecutionBackendSupported(resolvedModel);
+    const backendThinking = resolveExecutionThinkingLevel({
+        agentName: opts.agentName,
+        cwd: sessionCwd,
+        agentDef,
+        thinkingLevelOverride: opts.thinkingLevelOverride,
+    }).resolvedThinkingLevel;
     assertThinkingLevelSupportedForInvocation(
         resolvedModel,
         opts.thinkingLevelOverride || "",
@@ -2301,6 +2460,7 @@ export async function buildExecutionSession(opts) {
     );
     const backend =
         /** @type {import('../models/model-registry.ts').RunWieldModel} */ (resolvedModel)?.executionBackend || "pi";
+    if (backend !== "pi") assertThinkingLevelBackendSupportedForInvocation(resolvedModel, backendThinking);
     if (backend === "pi") {
         const built = await buildAgentSession(opts);
         return { ...built, executionSession: createPiExecutionSession(built.session) };
@@ -2372,6 +2532,7 @@ export async function buildExecutionSession(opts) {
                 : undefined,
             imageMode: "blocked",
             hasVisionFallback: false,
+            resolvedThinkingLevel: backendThinking,
         },
     }, sessionCwd);
     return {
@@ -2382,7 +2543,7 @@ export async function buildExecutionSession(opts) {
         tools: rebuildToolNames,
         finalCustomTools,
         resolvedModel,
-        resolvedThinkingLevel: undefined,
+        resolvedThinkingLevel: backendThinking,
         resolvedTemperature: undefined,
         contextProjection,
         imageMode: "blocked",
@@ -2614,6 +2775,49 @@ function installTaskCompletedAutoCompactionExclusion(session) {
  * prepared user message, then delegates to Pi's auto-compaction path so normal
  * compaction events and extension hooks still fire with reason "threshold".
  *
+ * @param {PreparedPromptContent} prepared
+ * @returns {number}
+ */
+function estimatePendingPromptTokens(prepared) {
+    const pendingUserMessage = {
+        role: "user",
+        content: [
+            { type: "text", text: prepared.text },
+            ...(prepared.images || []),
+        ],
+        timestamp: Date.now(),
+    };
+    return estimateTokens(/** @type {any} */ (pendingUserMessage));
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ * @returns {number}
+ */
+function estimateCurrentContextTokens(session) {
+    const usage = session.getContextUsage?.();
+    let currentTokens = typeof usage?.tokens === "number" ? usage.tokens : 0;
+    const contextMessages = session.sessionManager?.buildSessionContext?.().messages;
+    if (Array.isArray(contextMessages)) {
+        currentTokens = Math.max(currentTokens, estimateAgentMessagesTokens(contextMessages));
+    }
+    return currentTokens;
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ * @param {PreparedPromptContent} prepared
+ * @param {import('../models/model-registry.ts').RunWieldModel | undefined} model
+ */
+function assertPreparedPromptFitsContext(session, prepared, model) {
+    const contextWindow = model?.contextWindow ?? session.model?.contextWindow ?? 0;
+    if (typeof contextWindow !== "number" || contextWindow <= 0) return;
+    const totalTokens = estimateCurrentContextTokens(session) + estimatePendingPromptTokens(prepared);
+    if (totalTokens <= contextWindow) return;
+    throw new Error(contextCapacityGuidance(model || session.model, totalTokens, contextWindow));
+}
+
+/**
  * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
  * @param {PreparedPromptContent} prepared
  * @param {string} agentName
@@ -2627,22 +2831,8 @@ async function compactBeforePromptIfNeeded(session, prepared, agentName) {
     const contextWindow = session.model?.contextWindow ?? 0;
     if (typeof contextWindow !== "number" || contextWindow <= 0) return false;
 
-    const usage = session.getContextUsage?.();
-    let currentTokens = typeof usage?.tokens === "number" ? usage.tokens : 0;
-    const contextMessages = session.sessionManager?.buildSessionContext?.().messages;
-    if (Array.isArray(contextMessages)) {
-        currentTokens = Math.max(currentTokens, estimateAgentMessagesTokens(contextMessages));
-    }
-
-    const pendingUserMessage = {
-        role: "user",
-        content: [
-            { type: "text", text: prepared.text },
-            ...(prepared.images || []),
-        ],
-        timestamp: Date.now(),
-    };
-    const totalTokens = currentTokens + estimateTokens(/** @type {any} */ (pendingUserMessage));
+    const currentTokens = estimateCurrentContextTokens(session);
+    const totalTokens = currentTokens + estimatePendingPromptTokens(prepared);
     const engineerThreshold = getEngineerCompactionThreshold(agentName, contextWindow);
     const needsCompaction = engineerThreshold === null
         ? shouldCompact(totalTokens, contextWindow, settings)
@@ -3150,6 +3340,11 @@ export async function runPrompt({
                 text: preparedImages.text,
                 images: preparedImages.images,
             }, agentName);
+        } else {
+            assertPreparedPromptFitsContext(session, {
+                text: preparedImages.text,
+                images: preparedImages.images,
+            }, resolvedModel);
         }
         signal?.throwIfAborted();
         await session.prompt(preparedImages.text, requestOptions);
@@ -3661,6 +3856,10 @@ export async function runNonInteractiveAgentPrompt({
  * Run a disposable isolated Agent invocation. Interactive root Agents must be
  * activated through switchActiveAgent/runActiveAgentTurn instead.
  *
+ * @callback ExecutionSessionBuiltCallback
+ * @param {Awaited<ReturnType<typeof buildExecutionSession>>} built
+ * @returns {void}
+ *
  * @param {Object} opts
  * @param {import('./hosted-session.js').HostedSession} [opts.hostedSession]
  * @param {string} opts.agentName
@@ -3687,6 +3886,7 @@ export async function runNonInteractiveAgentPrompt({
  * @param {AbortSignal} [opts.signal] - Optional cancellation signal for transient delegated sessions.
  * @param {import('./request-dispatch.ts').RequestDispatchKind} [opts.dispatchKind]
  * @param {import('./managed-operation.ts').ManagedOperationCapability} [opts.managedOperationCapability]
+ * @param {ExecutionSessionBuiltCallback} [opts.onExecutionSessionBuilt]
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runIsolatedAgentSession(opts) {
@@ -3739,6 +3939,7 @@ export async function runIsolatedAgentSession(opts) {
             resolvedModel?.provider || "",
             opts.agentName,
         );
+        opts.onExecutionSessionBuilt?.(built);
         steeringTargetId = hostedSession.pushSteeringTargetSession(steeringTarget);
         opts.signal?.addEventListener("abort", abortChild, { once: true });
         opts.signal?.throwIfAborted();
@@ -3751,6 +3952,12 @@ export async function runIsolatedAgentSession(opts) {
         try {
             let messages;
             if (executionSession?.kind === "claude-cli") {
+                if (opts.disableAutoCompaction === true) {
+                    assertPreparedPromptFitsContext(session, {
+                        text: dispatch.userRequest,
+                        images: opts.images || [],
+                    }, resolvedModel);
+                }
                 messages = await executionSession.session.runTurn({
                     userRequest: dispatch.userRequest,
                     images: opts.images,

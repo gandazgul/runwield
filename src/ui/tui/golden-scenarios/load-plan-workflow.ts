@@ -510,6 +510,7 @@ export const loadPlanAbandonProgressScenario = {
         { type: "enter" },
         { type: "enter" },
         { type: "sleep", ms: 1000 },
+        { type: "waitForScreen", text: "The worktree is gone. The work is stopped.", timeoutMs: 40000 },
         { type: "waitForIdle", timeoutMs: 40000 },
         { type: "captureProjectState", planNames: ["recover-abandon"] },
     ],

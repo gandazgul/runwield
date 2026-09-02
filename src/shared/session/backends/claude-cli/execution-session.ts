@@ -20,16 +20,45 @@ import { type ClaudeCliProcessResult, DenoClaudeCliProcessPort } from "./process
 import { type ClaudeCliUsage, parseClaudeCliStream } from "./stream-parser.ts";
 import { mcpAliasFor, type RunWieldMcpBridgeHandle, startRunWieldMcpBridge } from "./mcp-bridge.ts";
 
+type JsonValue = string | number | boolean | null | JsonValue[] | JsonRecord;
+
+interface JsonRecord {
+    [key: string]: JsonValue;
+}
+
 interface TextBlock {
     type: "text";
     text: string;
 }
 
+interface ToolUseBlock {
+    type: "tool_use" | "toolCall";
+    name?: string;
+    arguments?: JsonRecord;
+    input?: JsonRecord;
+}
+
+interface ToolResultBlock {
+    type: "tool_result";
+    text?: string;
+    content?: string | TextBlock[];
+    tool_use_id?: string;
+    toolUseId?: string;
+    is_error?: boolean;
+    isError?: boolean;
+}
+
+type TranscriptContentBlock = TextBlock | ToolUseBlock | ToolResultBlock;
+
 type SessionAppendMessage = Parameters<SessionManager["appendMessage"]>[0];
 
 interface TranscriptMessage {
     role: string;
-    content?: string | TextBlock[];
+    content?: string | TranscriptContentBlock[];
+    toolName?: string;
+    tool_name?: string;
+    isError?: boolean;
+    is_error?: boolean;
 }
 
 interface TranscriptEntry {
@@ -370,14 +399,17 @@ export class ClaudeCliExecutionSession {
                 skipNextCompactInvocation = compact;
                 continue;
             }
-            const message = normalizeTranscriptEntry(entry as TranscriptEntry);
-            if (!message) continue;
-            if (skipNextCompactInvocation && message.role === "user" && message.text === skipNextCompactInvocation) {
+            const normalizedMessages = normalizeTranscriptEntry(entry as TranscriptEntry);
+            for (const message of normalizedMessages) {
+                if (
+                    skipNextCompactInvocation && message.role === "user" && message.text === skipNextCompactInvocation
+                ) {
+                    skipNextCompactInvocation = "";
+                    continue;
+                }
                 skipNextCompactInvocation = "";
-                continue;
+                messages.push(message);
             }
-            skipNextCompactInvocation = "";
-            messages.push(message);
         }
         return messages;
     }
@@ -389,18 +421,49 @@ function readNamedInvocationExpandedText(entry: TranscriptEntry): string {
     return entry.data.expandedRequest;
 }
 
-function normalizeTranscriptEntry(entry: TranscriptEntry): ConversationMessage | null {
-    if (entry.type !== "message" || !entry.message) return null;
-    if (entry.message.role !== "user" && entry.message.role !== "assistant") return null;
+function normalizeTranscriptEntry(entry: TranscriptEntry): ConversationMessage[] {
+    if (entry.type !== "message" || !entry.message) return [];
     const text = extractText(entry.message.content);
-    if (!text) return null;
-    return { role: entry.message.role, text };
+    if (!text) return [];
+    if (entry.message.role === "user" || entry.message.role === "assistant") {
+        return [{ role: entry.message.role, text }];
+    }
+    if (entry.message.role === "toolResult" || entry.message.role === "tool_result") {
+        const toolName = entry.message.toolName || entry.message.tool_name || "tool";
+        const suffix = entry.message.isError || entry.message.is_error ? " (error)" : "";
+        return [{ role: "user", text: `Tool result ${toolName}${suffix}: ${text}` }];
+    }
+    return [];
 }
 
-function extractText(content: string | TextBlock[] | undefined): string {
+function extractText(content: string | TranscriptContentBlock[] | undefined): string {
     if (typeof content === "string") return content;
     if (!Array.isArray(content)) return "";
-    return content.filter((block) => block.type === "text").map((block) => block.text).join("");
+    return content.map((block) => transcriptContentBlockText(block)).filter(Boolean).join("\n");
+}
+
+function isToolUseBlock(block: TranscriptContentBlock): block is ToolUseBlock {
+    return block.type === "tool_use" || block.type === "toolCall";
+}
+
+function isToolResultBlock(block: TranscriptContentBlock): block is ToolResultBlock {
+    return block.type === "tool_result";
+}
+
+function transcriptContentBlockText(block: TranscriptContentBlock): string {
+    if (block.type === "text") return block.text;
+    if (isToolUseBlock(block)) {
+        const toolName = block.name || "tool";
+        const args = block.arguments || block.input || {};
+        return `Tool call ${toolName}: ${JSON.stringify(args)}`;
+    }
+    if (isToolResultBlock(block)) {
+        const toolText = extractText(block.content) || block.text || "";
+        const toolCallId = block.tool_use_id || block.toolUseId || "tool";
+        const suffix = block.is_error || block.isError ? " (error)" : "";
+        return `Tool result ${toolCallId}${suffix}: ${toolText}`;
+    }
+    return "";
 }
 
 function makeUserMessage(text: string): SessionAppendMessage {
