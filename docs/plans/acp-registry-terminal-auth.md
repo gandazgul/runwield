@@ -19,9 +19,14 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-02T13:47:43-04:00"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "bf95aaac-2076-40f5-9d08-d74b018d380c"
+    path: "docs/work-records/2026-09-02-acp-terminal-auth-shipped.md"
+    lastAttemptAt: "2026-09-02T22:05:05.789Z"
 targetBranch: "main"
 ---
 
