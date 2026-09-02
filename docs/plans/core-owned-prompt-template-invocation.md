@@ -1,4 +1,5 @@
 ---
+planId: "a5983252-78d4-466f-879e-17d27b749ade"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
@@ -17,10 +18,15 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-31"
-status: "ready_for_work"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
-planId: "a5983252-78d4-466f-879e-17d27b749ade"
+workRecord:
+    status: "generated"
+    recordId: "2444044e-afd6-4b15-8879-dc8681200e07"
+    path: "docs/work-records/2026-09-02-core-owned-named-invocation.md"
+    lastAttemptAt: "2026-09-02T01:46:43.210Z"
+targetBranch: "main"
 ---
 
 # Core-Owned Prompt Template Invocation

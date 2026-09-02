@@ -48,3 +48,20 @@ export const PROTECTED_TOOL_NAMES = Object.freeze([
     "work_record_search",
     "work_record_read",
 ]);
+
+/**
+ * Tools that advance or finalize a RunWield workflow. Prompt Template
+ * auxiliary turns never receive these capabilities.
+ *
+ * @type {readonly string[]}
+ */
+export const WORKFLOW_ADVANCEMENT_TOOL_NAMES = Object.freeze([
+    "triage_report",
+    "plan_written",
+    "task_completed",
+    "review_complete",
+    "qa_checklist_generated",
+    "pair_checkpoint",
+    "slicer_finalize",
+    "slicer_finalize_decomposition",
+]);

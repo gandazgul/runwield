@@ -35,6 +35,7 @@ import {
 import { isProjectInitComplete } from "../../cmd/init/init-completion.ts";
 import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { setActiveSessionModel } from "../../shared/session/model-selection.ts";
+import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { renderBootBanner } from "./boot-banner.ts";
 import { getSelectedDefaultModelAvailability, maybeShowModelWelcome } from "./model-welcome.ts";
 import { createChatFooterController } from "./chat-footer.ts";
@@ -245,10 +246,10 @@ export async function startInteractiveSession(
             await ensureCymbalBinary();
             await ensureKetchBinary();
         }
-        const promptTemplates = options.skipModelWelcome
+        let promptTemplates = options.skipModelWelcome
             ? []
             : await sessionRuntime.listSessionPromptTemplates(sessionId);
-        const skills = options.skipModelWelcome ? [] : await sessionRuntime.listSessionSkills(sessionId);
+        let skills = options.skipModelWelcome ? [] : await sessionRuntime.listSessionSkills(sessionId);
         let builtinSlashInvocationNames = new Set<string>();
         let invokablePromptTemplates = promptTemplates;
         let blockedPromptTemplates = promptTemplates.slice(0, 0);
@@ -264,6 +265,18 @@ export async function startInteractiveSession(
                 builtinSlashInvocationNames.has(template.name)
             );
             promptTemplateByName = new Map(invokablePromptTemplates.map((template) => [template.name, template]));
+        };
+        let unsubscribeCommandCatalog: (() => void) | null = null;
+        const subscribeCommandCatalog = (): void => {
+            unsubscribeCommandCatalog?.();
+            unsubscribeCommandCatalog = sessionRuntime.subscribeSessionEvents(sessionId, (event) => {
+                if (event.type !== RuntimeEventTypes.COMMAND_CATALOG_CHANGED) return;
+                promptTemplates = event.promptTemplates;
+                skills = event.skills;
+                refreshPromptTemplateCommandGroups();
+                installAutocompleteProvider();
+                view.requestRender();
+            });
         };
         const replaceRuntimeSession = (nextSessionId: string, replaceOptions: { oldRetired?: boolean } = {}): void => {
             const previousSessionId = sessionId;
@@ -282,6 +295,7 @@ export async function startInteractiveSession(
                 notifyRunWieldEvent: notifyRunWieldEventQuietly,
                 onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
             });
+            subscribeCommandCatalog();
             view.resetForSessionReplacement();
             tui.requestRender();
         };
@@ -352,28 +366,30 @@ export async function startInteractiveSession(
             }
         }
         refreshPromptTemplateCommandGroups();
-        const autocompleteProvider = new CombinedAutocompleteProvider(
-            [
-                ...Array.from(chatBuiltinSlashNames).map((name) => ({
-                    name,
-                    description: name === "init" && !initCommandAvailable
-                        ? "Already initialized for this project"
-                        : commandRegistry[name].description,
-                    getArgumentCompletions: commandRegistry[name].getArgumentCompletions,
-                })),
-                ...invokablePromptTemplates.map((template) => ({
-                    name: template.name,
-                    argumentHint: template.argumentHint,
-                    description: template.description,
-                })),
-                ...skills.filter((skill) => skill.description && skill.description !== "No description provided").map((
-                    skill,
-                ) => ({ name: `skill:${skill.name}`, description: skill.description })),
-            ],
-            runtimeSnapshot().cwd,
-            "fd",
-        );
-        view.installAutocompleteProvider(autocompleteProvider);
+        const installAutocompleteProvider = (): void => {
+            const autocompleteProvider = new CombinedAutocompleteProvider(
+                [
+                    ...Array.from(chatBuiltinSlashNames).map((name) => ({
+                        name,
+                        description: name === "init" && !initCommandAvailable
+                            ? "Already initialized for this project"
+                            : commandRegistry[name].description,
+                        getArgumentCompletions: commandRegistry[name].getArgumentCompletions,
+                    })),
+                    ...invokablePromptTemplates.map((template) => ({
+                        name: template.name,
+                        argumentHint: template.argumentHint,
+                        description: template.description,
+                    })),
+                    ...skills.filter((skill) => skill.description && skill.description !== "No description provided")
+                        .map((skill) => ({ name: `skill:${skill.name}`, description: skill.description })),
+                ],
+                runtimeSnapshot().cwd,
+                "fd",
+            );
+            view.installAutocompleteProvider(autocompleteProvider);
+        };
+        installAutocompleteProvider();
         const inputController = createChatInputController({
             view,
             uiAPI,
@@ -393,6 +409,8 @@ export async function startInteractiveSession(
             isCtrlCPendingExit: footer.isCtrlCPendingExit,
         });
         disposables.push(() => inputController.dispose());
+        subscribeCommandCatalog();
+        disposables.push(() => unsubscribeCommandCatalog?.());
         inputControllerForPause = inputController;
         const settingsManager = getSettingsManager(runtimeSnapshot().cwd);
         const savedThinkingLevel = settingsManager.getDefaultThinkingLevel();

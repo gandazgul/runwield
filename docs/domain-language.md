@@ -627,8 +627,13 @@ indexer
 **Snip**: The external command-output compression proxy RunWield uses as an optional, fail-open runtime optimization for
 eligible agent shell commands. _Avoid_: Required tool, agent tool, search tool
 
-**Prompt Template**: A layered markdown template that defines a slash command available in the TUI. _Avoid_: Slash
-command definition, prompt command
+**Prompt Template**: A layered markdown template that defines a Core-owned named invocation available in TUI, Workspace,
+and ACP Sessions. Its Front Matter can select one auxiliary-turn Agent, model, and thinking level; missing Agent means
+Operator. _Avoid_: TUI command definition, prompt command
+
+**Named Invocation**: A raw user slash request that Core resolves to a Prompt Template or Skill. RunWield displays the
+compact slash request but stores the exact resolved expansion for resume and model context. _Avoid_: TUI expansion,
+client-side dispatch
 
 **Sealed Session Transcript Segment**: A Session Transcript Segment that is no longer writable and has recorded byte
 length, digest, and terminal-entry evidence for its final JSONL contents. _Avoid_: Archived transcript, old session,

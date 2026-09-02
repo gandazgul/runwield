@@ -41,7 +41,10 @@ Use agent overrides when you want to change prompts, role behavior, or tool acce
 
 ## Prompt templates
 
-Prompt templates can become slash commands when they do not collide with built-in commands.
+Prompt templates can become slash commands when they do not collide with built-in commands. RunWield Core resolves and
+runs these commands for TUI, Workspace, and ACP sessions. The surface sends the raw slash text, such as
+`/commit staged
+changes`, and Core stores that compact command while sending the resolved template body to the model.
 
 RunWield loads prompts from:
 
@@ -49,6 +52,21 @@ RunWield loads prompts from:
 2. `~/.wld/prompts/`
 3. bundled `src/prompt-templates/`
 4. installed Pi package `pi.prompts` resources
+
+Prompt Template Front Matter can include:
+
+```yaml
+description: "Explain the current diff"
+argument-hint: "<focus>"
+agent: operator
+model: anthropic/claude-sonnet-4
+thinkingLevel: low
+```
+
+`agent` defaults to `operator`. `model` and `thinkingLevel` are one-turn overrides. If they are omitted, RunWield uses
+the selected Agent's normal model and thinking settings. Invalid Agents, models, or thinking levels fail before a model
+call. Prompt Templates run one auxiliary turn, then the root Agent, model, thinking level, workflow owner, and workflow
+checkpoint are restored. File changes made by that turn are not rolled back.
 
 Installed package prompts are passive Markdown templates. They do not need the code-extension compatibility marker, but
 they cannot override built-in slash command names. RunWield warns at startup when a package prompt is blocked by a
@@ -64,7 +82,9 @@ RunWield loads skills from:
 4. external ecosystem skills: `~/.agents/skills/`
 
 Each skill lives in a directory with a `SKILL.md` file. Skills are advertised by name and description, and full
-instructions are loaded when invoked.
+instructions are loaded when invoked with `/skill:<name>`. A Skill invocation expands into the current Agent's ordinary
+turn. It does not select another Agent, and it keeps the current model, thinking level, workflow tools, and active
+workflow working directory.
 
 Bundled skills include `documentation` (Markdown project docs), `diagnose` (disciplined bug diagnosis), `prototype`
 (throwaway prototypes to validate design), `improve-codebase-architecture` (visual architecture review and deepening),
@@ -92,4 +112,6 @@ See [Themes](themes.md).
 
 ## Reloading changes
 
-Use `/reload` in the TUI after changing settings, instructions, prompts, skills, models, themes, or memories.
+Use `/reload` in the TUI after changing settings, instructions, prompts, skills, models, themes, or memories. Reload
+re-scans Prompt Template and Skill layers, rebuilds the active Agent, and replaces the TUI autocomplete and collision
+data only after the reload succeeds.

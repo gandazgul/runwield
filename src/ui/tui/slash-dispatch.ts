@@ -11,8 +11,6 @@ import { basename } from "@std/path";
 import { setTerminalTitleForName } from "./terminal-title.ts";
 import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
 
-const OPERATOR_AGENT = "operator";
-
 const IMMEDIATE_BUILTIN_SLASH_COMMANDS_WHILE_STREAMING = new Set([
     "context",
     "copy",
@@ -194,17 +192,12 @@ async function dispatchExpandedInput(
 
 async function dispatchSkill(
     ctx: SlashContext,
-    skill: SkillMeta,
-    additionalInstructions: string,
+    _skill: SkillMeta,
+    _additionalInstructions: string,
     thisGen: number,
 ): Promise<void> {
     try {
-        const expandedText = await ctx.sessionRuntime.expandSessionSkillCommand(
-            ctx.sessionId,
-            skill.name,
-            additionalInstructions || undefined,
-        );
-        await dispatchExpandedInput(ctx, expandedText, ctx.savedImages);
+        await dispatchExpandedInput(ctx, ctx.userRequest, ctx.savedImages);
     } catch (error) {
         if (ctx.generationGuard.isCurrent(thisGen)) {
             ctx.uiAPI.appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -214,29 +207,12 @@ async function dispatchSkill(
 
 async function dispatchTemplate(
     ctx: SlashContext,
-    template: PromptTemplateMeta,
-    additionalInstructions: string,
+    _template: PromptTemplateMeta,
+    _additionalInstructions: string,
     thisGen: number,
 ): Promise<void> {
-    let expandedText = "";
     try {
-        if (!template.path) throw new Error(`Prompt template "${template.name}" has no source path.`);
-        expandedText = await ctx.sessionRuntime.expandSessionPromptTemplate(
-            template.path,
-            additionalInstructions || undefined,
-        );
-    } catch (error) {
-        if (ctx.generationGuard.isCurrent(thisGen)) {
-            ctx.uiAPI.appendSystemMessage(
-                `Error expanding template: ${error instanceof Error ? error.message : String(error)}`,
-            );
-        }
-        return;
-    }
-
-    try {
-        await ctx.sessionRuntime.switchAgent(ctx.sessionId, { agentName: OPERATOR_AGENT });
-        await dispatchExpandedInput(ctx, expandedText, ctx.savedImages);
+        await dispatchExpandedInput(ctx, ctx.userRequest, ctx.savedImages);
     } catch (error) {
         if (ctx.generationGuard.isCurrent(thisGen)) {
             ctx.uiAPI.appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
