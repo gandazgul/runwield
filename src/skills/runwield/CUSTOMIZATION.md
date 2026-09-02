@@ -23,7 +23,11 @@ instead.
 ## Prompt templates
 
 Put user prompt templates in `~/.wld/prompts/` or project templates in `.wld/prompts/`. The filename becomes the slash
-command name. A prompt template is passive Markdown that expands when the slash command runs.
+command name. RunWield Core resolves the slash command in TUI, Workspace, and ACP sessions.
+
+Prompt Template Front Matter can set `agent`, `model`, and `thinkingLevel` for one auxiliary turn. Missing `agent`
+defaults to Operator. Invalid execution fields fail before a model call. The compact slash command stays visible in the
+Session, while Core stores the exact resolved expansion for resume.
 
 A prompt template cannot override a built-in slash command name. RunWield warns at startup when an installed package
 prompt is blocked by a built-in command collision. Use `/reload` after editing prompt files in an active TUI.
@@ -32,9 +36,10 @@ Copy bundled templates for examples: `code-optimizer`, `code-review`, `commit`, 
 
 ## Skills
 
-A skill is a directory with `SKILL.md`. If the user wants to write one, point them to the bundled `write-a-skill` skill
-instead of improvising authoring advice. That skill explains invocation, descriptions, progressive disclosure, and
-pruning.
+A skill is a directory with `SKILL.md`. A user invokes it with `/skill:<name>`. The Skill expands into the current
+Agent's normal turn and keeps that Agent, model, thinking level, workflow tools, and active workflow working directory.
+If the user wants to write one, point them to the bundled `write-a-skill` skill instead of improvising authoring advice.
+That skill explains invocation, descriptions, progressive disclosure, and pruning.
 
 Bundled skills:
 
@@ -63,4 +68,5 @@ instructions are read from `RUNWIELD.md` or `AGENTS.md` in the project root. Glo
 ## Themes and reload
 
 Themes are selected with `/theme` or `wld theme`. Package themes can be installed with `wld install` and removed with
-`wld remove`. Use `/reload` after changing settings, instructions, prompts, skills, models, themes, or memories.
+`wld remove`. Use `/reload` after changing settings, instructions, prompts, skills, models, themes, or memories. Reload
+re-scans Prompt Template and Skill layers, rebuilds the active Agent, and replaces autocomplete data only after success.

@@ -29,6 +29,7 @@ import {
 } from "./session.js";
 import { SessionHost } from "./session-host.js";
 import { buildActiveConversationSubmissionMessage } from "./session-user-messages.ts";
+import { resolveNamedInvocation, withNamedInvocationDisplayMessage } from "./named-invocation.ts";
 import {
     classifyRootSessionLocator,
     createRootSessionManager,
@@ -97,6 +98,19 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 /** @type {AsyncLocalStorage<ManagedOperationContext>} */
 const ACTIVE_MANAGED_OPERATION = new AsyncLocalStorage();
+
+/**
+ * @param {import('./types.js').ImageAttachment[]} images
+ * @returns {import('./named-invocation.ts').ImageReference[]}
+ */
+function imageReferencesForNamedInvocation(images) {
+    return images.map((image) => ({
+        ...(image.ref ? { ref: image.ref } : {}),
+        ...(image.path ? { path: image.path } : {}),
+        ...(image.base64 ? { base64: image.base64 } : {}),
+        ...(image.mimeType ? { mimeType: image.mimeType } : {}),
+    }));
+}
 
 /**
  * Rebuild the workflow-owned root configuration that an active-agent marker
@@ -188,6 +202,8 @@ async function resolvePersistedRootConfiguration(agentName, sessionManager, cwd)
  * @property {string} [turnId]
  * @property {boolean} [emitInitialEvents]
  * @property {boolean} [suppressEpicContinuation]
+ * @property {string} [modelRequest]
+ * @property {import('./named-invocation.ts').NamedInvocationPayload} [namedInvocationPayload]
  * @property {AbortSignal} [signal]
  */
 
@@ -2234,6 +2250,7 @@ export class SessionRuntime {
                 agentName,
             );
             const refreshed = this.markPromptReadyAgent(sessionId, { agentName });
+            if (refreshed.ok) await this.#emitCommandCatalogChanged(sessionId, promptReadySession);
             return refreshed.ok ? { ok: true, deferred: true } : refreshed;
         }
         return await this.#runManagedStandaloneMutation(sessionId, "reload", async (session, capability) => {
@@ -2247,6 +2264,7 @@ export class SessionRuntime {
                 forceRebuild: true,
                 managedOperationCapability: capability,
             });
+            await this.#emitCommandCatalogChanged(sessionId, session);
             return { ok: true };
         }, { activateAgent: true });
     }
@@ -2669,6 +2687,22 @@ export class SessionRuntime {
                 // crash an in-flight RunWield prompt.
             }
         }
+    }
+
+    /**
+     * @param {string} sessionId
+     * @param {import('./hosted-session.js').HostedSession} hostedSession
+     */
+    async #emitCommandCatalogChanged(sessionId, hostedSession) {
+        const [promptTemplates, skills] = await Promise.all([
+            listPromptTemplates({ cwd: hostedSession.cwd }),
+            listSkills({ cwd: hostedSession.cwd }),
+        ]);
+        this.#emitSessionEvent(sessionId, {
+            type: RuntimeEventTypes.COMMAND_CATALOG_CHANGED,
+            promptTemplates,
+            skills,
+        });
     }
 
     /** @param {import('./hosted-session.js').HostedSession} hostedSession */
@@ -3287,6 +3321,181 @@ export class SessionRuntime {
     }
 
     /**
+     * @param {string} sessionId
+     * @param {import('./named-invocation.ts').PromptTemplateInvocation} invocation
+     * @param {PromptSessionOptions & { expectedGeneration: number | null }} options
+     * @returns {Promise<{ ok: boolean, turns: number, error?: string, namedInvocation?: Record<string, unknown> }>}
+     */
+    async #promptNamedTemplateTurn(sessionId, invocation, options) {
+        const hostedSession = this.#sessionHost.getSession(sessionId);
+        if (!hostedSession) throw new Error("SessionRuntime.promptNamedTemplateTurn: session not found");
+        const managed = hostedSession.getManagedMetadata?.();
+        if (!managed) {
+            throw new Error("SessionRuntime.promptNamedTemplateTurn: segmented Session metadata is unavailable");
+        }
+        const previousAgentInfo = hostedSession.getActiveAgentInfo?.() || null;
+        const previousModelState = hostedSession.getActiveModelState?.() || { model: "", provider: "" };
+        const previousUserModelOverride = hostedSession.isUserModelOverride?.() === true;
+        const previousThinkingLevel = hostedSession.getThinkingLevel?.() || "off";
+        const previousWorkflow = hostedSession.getActiveExecutionWorkflow?.() || null;
+        const previousPendingTaskCompletion = hostedSession.getPendingTaskCompletionForRestore?.() || null;
+        let temporaryProfilePublished = false;
+        let restored = false;
+        const emitActiveProfile = () => {
+            const activeAgent = hostedSession.getActiveAgentInfo?.() || null;
+            if (activeAgent?.agentName) {
+                this.#emitSessionEvent(sessionId, {
+                    type: RuntimeEventTypes.AGENT_CHANGED,
+                    agentName: activeAgent.agentName,
+                    model: activeAgent.model || undefined,
+                });
+            }
+            const activeModel = hostedSession.getActiveModelState?.() || { model: "", provider: "" };
+            if (activeModel.model) {
+                this.#emitSessionEvent(sessionId, {
+                    type: RuntimeEventTypes.MODEL_CHANGED,
+                    model: activeModel.model,
+                    provider: activeModel.provider,
+                });
+            }
+            this.#emitSessionEvent(sessionId, {
+                type: RuntimeEventTypes.THINKING_LEVEL_CHANGED,
+                thinkingLevel: hostedSession.getThinkingLevel?.() || "off",
+            });
+        };
+        const restorePromptInvocationState = () => {
+            if (restored) return;
+            restored = true;
+            if (previousAgentInfo) {
+                hostedSession.resetAgentInfoStack(
+                    previousAgentInfo.displayName,
+                    previousAgentInfo.model,
+                    previousAgentInfo.provider,
+                    previousAgentInfo.agentName || "",
+                );
+            }
+            if (previousUserModelOverride) {
+                hostedSession.setActiveModelState(previousModelState.model, previousModelState.provider, true);
+            } else {
+                hostedSession.clearUserModelOverride?.();
+                hostedSession.setActiveModelState(previousModelState.model, previousModelState.provider, false);
+            }
+            hostedSession.setThinkingLevel?.(previousThinkingLevel);
+            hostedSession.restoreActiveExecutionWorkflow?.(previousWorkflow, previousPendingTaskCompletion);
+            if (temporaryProfilePublished) emitActiveProfile();
+        };
+        try {
+            return await this.#runManagedOperation(
+                sessionId,
+                { name: "prompt", options, emitPromptEvents: options.emitInitialEvents === false ? false : undefined },
+                async ({ acceptedTurnId, hasPendingImages, capability }) => {
+                    const turnId = acceptedTurnId;
+                    let ok = false;
+                    let result = null;
+                    if (!hostedSession.beginTurn(turnId)) throw new SessionTurnInProgressError(hostedSession.id);
+                    try {
+                        const images = await this.#persistPendingPromptImages(
+                            hostedSession,
+                            options.initialImages || [],
+                        );
+                        invocation.payload.imageReferences = imageReferencesForNamedInvocation(images);
+                        if (hasPendingImages && options.emitInitialEvents !== false) {
+                            this.#emitSessionEvent(hostedSession.id, {
+                                type: RuntimeEventTypes.USER_MESSAGE,
+                                turnId,
+                                text: invocation.payload.compactInvocation,
+                                images: images.map((image) => ({ ...image })),
+                            });
+                            this.#emitSessionEvent(hostedSession.id, { type: RuntimeEventTypes.TURN_START, turnId });
+                        }
+                        const sessionManager =
+                            /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (
+                                hostedSession.getRootSessionManager?.() || null
+                            );
+                        if (!sessionManager) {
+                            result = { ok: false, turns: 0, error: "missing_active_session_manager" };
+                            return result;
+                        }
+                        const cwd = hostedSession.getActiveExecutionCwd?.() || hostedSession.cwd;
+                        const messages = await withNamedInvocationDisplayMessage(
+                            sessionManager,
+                            invocation.payload,
+                            async () =>
+                                await runIsolatedAgentSession({
+                                    hostedSession,
+                                    agentName: invocation.agentName,
+                                    userRequest: invocation.expandedRequest,
+                                    images,
+                                    sessionManager,
+                                    cwd,
+                                    modelOverride: invocation.model,
+                                    thinkingLevelOverride: invocation.thinkingLevel,
+                                    workflowAuthority: false,
+                                    ignoreManualModelOverride: true,
+                                    updateHostedThinkingLevel: false,
+                                    persistModelChange: false,
+                                    disableAutoCompaction: true,
+                                    managedOperationCapability: capability,
+                                    signal: capability.signal,
+                                    onExecutionSessionBuilt: (built) => {
+                                        const resolvedModel = built.resolvedModel
+                                            ? `${built.resolvedModel.provider}/${built.resolvedModel.id}`
+                                            : invocation.model;
+                                        const resolvedThinkingLevel = normalizeThinkingLevel(
+                                            built.resolvedThinkingLevel,
+                                        );
+                                        invocation.payload.profile = {
+                                            agentName: invocation.agentName,
+                                            ...(resolvedModel ? { model: resolvedModel } : {}),
+                                            thinkingLevel: resolvedThinkingLevel,
+                                        };
+                                        hostedSession.clearUserModelOverride?.();
+                                        hostedSession.setThinkingLevel?.(resolvedThinkingLevel);
+                                        temporaryProfilePublished = true;
+                                        emitActiveProfile();
+                                    },
+                                }),
+                            { persistModelChange: false },
+                        );
+                        ok = true;
+                        result = {
+                            ok: true,
+                            turns: 1,
+                            namedInvocation: {
+                                kind: invocation.kind,
+                                name: invocation.name,
+                                expansionDigest: invocation.payload.expansionDigest,
+                                profile: invocation.payload.profile,
+                                messageCount: Array.isArray(messages) ? messages.length : 0,
+                            },
+                        };
+                        return result;
+                    } catch (error) {
+                        this.#emitSessionEvent(hostedSession.id, {
+                            type: RuntimeEventTypes.TERMINAL_ERROR,
+                            turnId,
+                            message: getRuntimeErrorMessage(error),
+                            error,
+                        });
+                        throw error;
+                    } finally {
+                        this.#emitSessionEvent(hostedSession.id, {
+                            type: RuntimeEventTypes.TURN_END,
+                            turnId,
+                            ok,
+                            result: result || { turns: 0 },
+                        });
+                        hostedSession.endTurn(turnId);
+                        restorePromptInvocationState();
+                    }
+                },
+            );
+        } finally {
+            restorePromptInvocationState();
+        }
+    }
+
+    /**
      * Submit one user turn through the Runtime-owned authority path. Consumers
      * provide the user's raw editor text; Runtime applies the current generation
      * fence before the active root receives it.
@@ -3298,6 +3507,15 @@ export class SessionRuntime {
     async promptUserTurn(sessionId, options) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) throw new Error("SessionRuntime.promptUserTurn: session not found");
+        const namedInvocation = await resolveNamedInvocation({
+            cwd: hostedSession.cwd,
+            text: options.initialRequest,
+            images: options.initialImages || [],
+        });
+        const submittedRequest = options.initialRequest;
+        const displayRequest = namedInvocation.kind === "ordinary"
+            ? submittedRequest
+            : namedInvocation.payload.compactInvocation;
         let managed = hostedSession.getManagedMetadata?.() || null;
         const isDeferredFirstTurn = !managed && this.#pendingManagedCreationProjects.has(sessionId);
         const deferredFirstTurnId = isDeferredFirstTurn ? crypto.randomUUID() : "";
@@ -3306,7 +3524,7 @@ export class SessionRuntime {
             this.#emitSessionEvent(hostedSession.id, {
                 type: RuntimeEventTypes.USER_MESSAGE,
                 turnId: deferredFirstTurnId,
-                text: options.initialRequest,
+                text: displayRequest,
                 images: (options.initialImages || []).map((image) => ({ ...image })),
             });
             this.#emitSessionEvent(hostedSession.id, {
@@ -3337,10 +3555,9 @@ export class SessionRuntime {
             }
         }
         if (!managed) throw new Error("SessionRuntime.promptUserTurn: segmented Session metadata is unavailable");
-        const submittedRequest = options.initialRequest;
         const requestOptions = deferredFirstTurnId
-            ? { ...options, initialRequest: submittedRequest, turnId: deferredFirstTurnId, emitInitialEvents: false }
-            : { ...options, initialRequest: submittedRequest };
+            ? { ...options, initialRequest: displayRequest, turnId: deferredFirstTurnId, emitInitialEvents: false }
+            : { ...options, initialRequest: displayRequest };
         const buildResult = (
             /** @type {{ ok: boolean, turns: number, error?: string }} */ result,
         ) => ({
@@ -3356,10 +3573,24 @@ export class SessionRuntime {
             ? /** @type {number} */ (expectedGenerationSource)
             : null;
         try {
+            if (namedInvocation.kind === "prompt_template") {
+                return buildResult(
+                    await this.#promptNamedTemplateTurn(sessionId, namedInvocation, {
+                        ...requestOptions,
+                        expectedGeneration,
+                    }),
+                );
+            }
             return buildResult(
                 await this.promptManagedSession(sessionId, {
                     ...requestOptions,
                     expectedGeneration,
+                    ...(namedInvocation.kind === "skill"
+                        ? {
+                            modelRequest: namedInvocation.expandedRequest,
+                            namedInvocationPayload: namedInvocation.payload,
+                        }
+                        : {}),
                 }),
             );
         } finally {
@@ -4429,6 +4660,7 @@ export class SessionRuntime {
         });
         this.#turnSettlements.set(hostedSession.id, turnSettlement);
         const request = options.initialRequest;
+        const modelRequest = options.modelRequest || request;
         let images = options.initialImages || [];
         let turns = 0;
         let ok = false;
@@ -4445,6 +4677,9 @@ export class SessionRuntime {
             const cleanup = options.onTurnStarted?.({ turnId });
             if (typeof cleanup === "function") cleanupTurn = cleanup;
             images = await this.#persistPendingPromptImages(hostedSession, images);
+            if (options.namedInvocationPayload) {
+                options.namedInvocationPayload.imageReferences = imageReferencesForNamedInvocation(images);
+            }
             if (emitInitialEvents) {
                 this.#emitSessionEvent(hostedSession.id, {
                     type: RuntimeEventTypes.USER_MESSAGE,
@@ -4496,12 +4731,23 @@ export class SessionRuntime {
                 return result;
             }
 
-            const turnResult = await handler(
-                request,
-                images,
-                hostedSession.getRootSessionManager() || undefined,
-                options.signal || managedCapability?.signal,
+            const rootSessionManager = /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (
+                hostedSession.getRootSessionManager() || null
             );
+            const runHandler = async () =>
+                await handler(
+                    modelRequest,
+                    images,
+                    rootSessionManager || undefined,
+                    options.signal || managedCapability?.signal,
+                );
+            const turnResult = options.namedInvocationPayload && rootSessionManager
+                ? await withNamedInvocationDisplayMessage(
+                    rootSessionManager,
+                    options.namedInvocationPayload,
+                    runHandler,
+                )
+                : await runHandler();
             turns++;
             validationResult = /** @type {any} */ (turnResult)?.validationResult || null;
             ok = true;

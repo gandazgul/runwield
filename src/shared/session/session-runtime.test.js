@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertRejects, assertStrictEquals } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertStrictEquals, assertStringIncludes } from "@std/assert";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -2188,6 +2188,83 @@ Deno.test("SessionRuntime allows independent session ids to run concurrently", a
         await runtime.closeAllSessionsWhenIdle();
     }
     assertEquals((await Promise.all(prompts)).map((result) => result.ok), [true, true]);
+});
+
+Deno.test("SessionRuntime /reload publishes replacement Prompt Template and Skill catalogs", async () => {
+    await withRuntimeCommandFixture("runtime-reload-catalogs-", async ({ projectRoot, setModelResponseFactory }) => {
+        const promptDir = join(projectRoot, ".wld", "prompts");
+        const skillRoot = join(projectRoot, ".wld", "skills");
+        const changedSkillDir = join(skillRoot, "reload-fixture");
+        const removedSkillDir = join(skillRoot, "removed-fixture");
+        await Deno.mkdir(promptDir, { recursive: true });
+        await Deno.mkdir(changedSkillDir, { recursive: true });
+        await Deno.mkdir(removedSkillDir, { recursive: true });
+        await Deno.writeTextFile(
+            join(promptDir, "reload-prompt.md"),
+            ["---", 'description: "before reload"', "---", "before body"].join("\n"),
+        );
+        await Deno.writeTextFile(
+            join(changedSkillDir, "SKILL.md"),
+            ["---", 'name: "reload-fixture"', 'description: "before skill"', "---", "before skill body"].join("\n"),
+        );
+        await Deno.writeTextFile(
+            join(removedSkillDir, "SKILL.md"),
+            ["---", 'name: "removed-fixture"', 'description: "remove me"', "---", "removed skill body"].join("\n"),
+        );
+        /** @type {string[]} */
+        const modelRequests = [];
+        setModelResponseFactory((context) => {
+            modelRequests.push(JSON.stringify(context.messages));
+            return fauxAssistantMessage(fauxText("Ready."));
+        });
+        const runtime = createSessionRuntime();
+        const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+        /** @type {Array<import('./session-runtime-events.js').SessionRuntimeEvent>} */
+        const catalogEvents = [];
+        runtime.subscribeSessionEvents(created.sessionId, (event) => {
+            if (event.type === RuntimeEventTypes.COMMAND_CATALOG_CHANGED) catalogEvents.push(event);
+        });
+
+        await Deno.writeTextFile(
+            join(promptDir, "reload-prompt.md"),
+            ["---", 'description: "after reload"', "---", "after body"].join("\n"),
+        );
+        await Deno.writeTextFile(
+            join(promptDir, "added-prompt.md"),
+            ["---", 'description: "added prompt"', "---", "added body"].join("\n"),
+        );
+        await Deno.writeTextFile(
+            join(changedSkillDir, "SKILL.md"),
+            ["---", 'name: "reload-fixture"', 'description: "after skill"', "---", "after skill body"].join("\n"),
+        );
+        await Deno.remove(removedSkillDir, { recursive: true });
+
+        assertEquals(await runtime.reloadSession(created.sessionId), { ok: true });
+        assertEquals(catalogEvents.length, 1);
+        const catalogEvent =
+            /** @type {import('./session-runtime-events.js').RuntimeCommandCatalogChangedEvent} */ (catalogEvents[0]);
+        assertEquals(
+            catalogEvent.promptTemplates.find((template) => template.name === "reload-prompt")?.description,
+            "after reload",
+        );
+        assertEquals(catalogEvent.promptTemplates.some((template) => template.name === "added-prompt"), true);
+        assertEquals(catalogEvent.skills.find((skill) => skill.name === "reload-fixture")?.description, "after skill");
+        assertEquals(catalogEvent.skills.some((skill) => skill.name === "removed-fixture"), false);
+        assertEquals(await runtime.expandSessionPromptTemplate(join(promptDir, "reload-prompt.md")), "after body");
+        await assertRejects(
+            () => runtime.expandSessionSkillCommand(created.sessionId, "removed-fixture"),
+            Error,
+            "Unknown skill: removed-fixture",
+        );
+
+        await runtime.promptUserTurn(created.sessionId, {
+            initialRequest: "/skill:reload-fixture use the changed body",
+            initialImages: [],
+        });
+        assertStringIncludes(modelRequests[0] || "", "after skill body");
+        assertStringIncludes(modelRequests[0] || "", "use the changed body");
+        runtime.closeAllSessions();
+    });
 });
 
 Deno.test("SessionRuntime ignores synthetic switch-requesting tool results", async () => {

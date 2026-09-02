@@ -120,7 +120,7 @@ async function withSlashFixture(
                 chatPromptAgentName: "operator",
                 resolveTemplateModel: () => ({ ok: false }),
                 dispatchExpandedUserRequest: async (text, images) => {
-                    await runtime.promptSession(created.sessionId, {
+                    await runtime.promptUserTurn(created.sessionId, {
                         initialRequest: text,
                         initialImages: images,
                     });
@@ -176,16 +176,15 @@ Deno.test("handleSlashCommand keeps hidden init reserved instead of dispatching 
     });
 });
 
-Deno.test("handleSlashCommand expands a real prompt template and submits a real Operator turn", async () => {
-    await withSlashFixture({ promptTemplate: true }, async ({ context, runtime, sessionId, submittedRequests }) => {
+Deno.test("handleSlashCommand submits prompt template slash text through the Core runtime", async () => {
+    await withSlashFixture({ promptTemplate: true }, async ({ context, submittedRequests }) => {
         assertEquals(await handleSlashCommand(context("/review focus on tests")), true);
-        assertEquals(submittedRequests, ["Review the fixture carefully.\n\nfocus on tests"]);
-        assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "operator");
+        assertEquals(submittedRequests, ["/review focus on tests"]);
     });
 });
 
-Deno.test("handleSlashCommand reports a real missing prompt-template source", async () => {
-    await withSlashFixture({}, async ({ context, messages }) => {
+Deno.test("handleSlashCommand does not read prompt-template files in the TUI", async () => {
+    await withSlashFixture({}, async ({ context, messages, submittedRequests }) => {
         const slashContext = context("/missing-template");
         slashContext.promptTemplateByName.set("missing-template", {
             name: "missing-template",
@@ -193,29 +192,26 @@ Deno.test("handleSlashCommand reports a real missing prompt-template source", as
         });
 
         assertEquals(await handleSlashCommand(slashContext), true);
-        assertEquals(messages.length, 1);
-        assertStringIncludes(messages[0], "Error expanding template:");
-        assertStringIncludes(messages[0], "Failed to read prompt template");
+        assertEquals(messages, []);
+        assertEquals(submittedRequests, ["/missing-template"]);
     });
 });
 
-Deno.test("handleSlashCommand expands a real local skill and submits it through the active runtime", async () => {
+Deno.test("handleSlashCommand submits skill slash text through the active runtime", async () => {
     await withSlashFixture({ skill: true }, async ({ context, runtime, sessionId, submittedRequests }) => {
         await runtime.switchAgent(sessionId, { agentName: "operator" });
 
         assertEquals(await handleSlashCommand(context("/skill:diagnose-fixture inspect the failure")), true);
-        assertEquals(submittedRequests.length, 1);
-        assertStringIncludes(submittedRequests[0], 'The user has invoked the "diagnose-fixture" skill.');
-        assertStringIncludes(submittedRequests[0], "Inspect the fixture evidence before answering.");
-        assertStringIncludes(submittedRequests[0], "inspect the failure");
+        assertEquals(submittedRequests, ["/skill:diagnose-fixture inspect the failure"]);
     });
 });
 
-Deno.test("handleSlashCommand reports when a cataloged skill disappears before expansion", async () => {
-    await withSlashFixture({ skill: true }, async ({ context, messages }, projectRoot) => {
+Deno.test("handleSlashCommand does not read skill files in the TUI", async () => {
+    await withSlashFixture({ skill: true }, async ({ context, messages, submittedRequests }, projectRoot) => {
         await Deno.remove(join(projectRoot, ".wld", "skills", "diagnose-fixture"), { recursive: true });
 
         assertEquals(await handleSlashCommand(context("/skill:diagnose-fixture")), true);
-        assertEquals(messages, ["Error: Unknown skill: diagnose-fixture"]);
+        assertEquals(messages, []);
+        assertEquals(submittedRequests, ["/skill:diagnose-fixture"]);
     });
 });

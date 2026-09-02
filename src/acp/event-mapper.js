@@ -139,6 +139,30 @@ export function mapRuntimeEventToAcpUpdate(event) {
                 }),
             };
         }
+        case RuntimeEventTypes.MODEL_CHANGED: {
+            const model = event.provider && !event.model.includes("/")
+                ? `${event.provider}/${event.model}`
+                : event.model;
+            return {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: `Model changed: ${model}` },
+                _meta: runtimeMeta(event, {
+                    type: event.type,
+                    model: event.model,
+                    provider: event.provider,
+                }),
+            };
+        }
+        case RuntimeEventTypes.THINKING_LEVEL_CHANGED: {
+            return {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: `Thinking level changed: ${event.thinkingLevel}` },
+                _meta: runtimeMeta(event, {
+                    type: event.type,
+                    thinkingLevel: event.thinkingLevel,
+                }),
+            };
+        }
         case RuntimeEventTypes.SYSTEM_STATUS:
         case RuntimeEventTypes.CANCELLATION:
         case RuntimeEventTypes.TERMINAL_ERROR: {
