@@ -88,6 +88,8 @@ import {
 import { executePlanAction } from "../workflow/plan-actions.ts";
 import { dirname, isAbsolute } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { resolveMcpConfig } from "../mcp/config.ts";
+import { startMcpToolPool } from "../mcp/pool.ts";
 
 /**
  * @typedef {Object} ManagedOperationContext
@@ -183,6 +185,7 @@ async function resolvePersistedRootConfiguration(agentName, sessionManager, cwd)
  * @property {string} cwd
  * @property {string} [agentName]
  * @property {boolean} [deferPersistenceUntilFirstMessage]
+ * @property {import('../mcp/config.ts').McpServerDefinition[]} [mcpServers]
  */
 
 /**
@@ -213,6 +216,7 @@ async function resolvePersistedRootConfiguration(agentName, sessionManager, cwd)
  * @property {string} sessionId
  * @property {string} [sessionPath]
  * @property {string} [modelOverride]
+ * @property {import('../mcp/config.ts').McpServerDefinition[]} [mcpServers]
  */
 
 /**
@@ -1131,7 +1135,7 @@ export class SessionRuntime {
             ? this.#sessionStore.listQueuedSessionMessages(managed.runwieldSessionId).at(-1) || null
             : null;
         const transient = queue.at(-1) || null;
-        if (durable && (!transient || durable.queuedAt >= transient.queuedAt)) {
+        if (managed && durable && (!transient || durable.queuedAt >= transient.queuedAt)) {
             const selectedDurable = this.#sessionStore?.dequeueLastQueuedSessionMessage(managed.runwieldSessionId) ||
                 null;
             if (!selectedDurable) return { ok: true, message: null };
@@ -2874,6 +2878,39 @@ export class SessionRuntime {
     }
 
     /**
+     * @param {import('./hosted-session.js').HostedSession} hostedSession
+     * @param {import('../mcp/config.ts').McpServerDefinition[]} [requestServers]
+     */
+    async #refreshMcpTools(hostedSession, requestServers, forceReload = false) {
+        if (requestServers) hostedSession.setMcpRequestServers(requestServers);
+        if (!forceReload && !requestServers && hostedSession.getMcpToolPool?.()) return;
+        const resolved = await resolveMcpConfig({
+            cwd: hostedSession.cwd,
+            requestServers: hostedSession.getMcpRequestServers?.() || [],
+        });
+        for (const item of resolved.warnings) {
+            emitSystemStatus(
+                hostedSession,
+                `[RunWield] MCP warning (${item.stage}${
+                    item.serverName ? `/${item.serverName}` : ""
+                }): ${item.message}`,
+                { level: "warning" },
+            );
+        }
+        const started = await startMcpToolPool({ cwd: hostedSession.cwd, servers: resolved.servers });
+        for (const item of started.warnings) {
+            emitSystemStatus(
+                hostedSession,
+                `[RunWield] MCP warning (${item.stage}${
+                    item.serverName ? `/${item.serverName}` : ""
+                }): ${item.message}`,
+                { level: "warning" },
+            );
+        }
+        hostedSession.setMcpToolPool(started.pool);
+    }
+
+    /**
      * Create and lock the durable Session state shared by deferred prompt and
      * Agent-activation paths. The caller decides whether to retain or release
      * the activation proof.
@@ -3024,6 +3061,7 @@ export class SessionRuntime {
             this.#pendingManagedCreationProjects.delete(hostedSession.id);
             this.#pendingManagedCreations.set(hostedSession.id, pendingCreation);
         }
+        await this.#refreshMcpTools(hostedSession, options.mcpServers, options.forceRebuild === true);
         if (!pendingCreation) return await switchActiveAgent(hostedSession, options);
         if (!this.#sessionStore) throw new Error("Session coordination is unavailable");
         let activeProof = pendingCreation;
@@ -4334,10 +4372,11 @@ export class SessionRuntime {
         });
         const hostedSession = this.#sessionHost.getSession(created.sessionId);
         if (!hostedSession) throw new Error("SessionRuntime failed to retain the new session");
+        if (options.mcpServers) hostedSession.setMcpRequestServers(options.mcpServers);
         try {
             const activated = deferPersistence
                 ? this.markPromptReadyAgent(hostedSession.id, { agentName })
-                : await this.switchAgent(hostedSession.id, { agentName });
+                : await this.switchAgent(hostedSession.id, { agentName, mcpServers: options.mcpServers });
             if (!activated.ok) throw new Error(activated.error || "The Session could not start");
             return hostedSession.id;
         } catch (error) {
@@ -4374,6 +4413,7 @@ export class SessionRuntime {
         const newSession = this.#sessionHost.getSession(newSessionId);
         if (!newSession) throw new Error("Execution follow-up replacement session was not retained");
         try {
+            oldSession.transferMcpStateTo?.(newSession);
             newSession.setInteractionAdapter(oldSession.getInteractionAdapter());
             await this.#activateSessionAgent(newSession, { agentName: executionAgent });
             newSession.setActiveExecutionWorkflow(workflow);
@@ -4529,6 +4569,7 @@ export class SessionRuntime {
             await this.#activateSessionAgent(hostedSession, {
                 agentName,
                 model: options.modelOverride,
+                mcpServers: options.mcpServers,
             });
             const replayEvents = createProjectedReplayEvents(
                 hostedSession.id,
@@ -4632,6 +4673,7 @@ export class SessionRuntime {
             const newSessionId = created.sessionId;
             const newSession = this.#sessionHost.getSession(newSessionId);
             if (!newSession) throw new Error("Epic continuation replacement session was not retained");
+            currentOldSession.transferMcpStateTo?.(newSession);
             newSession.setInteractionAdapter(adapter);
             await this.#activateSessionAgent(newSession, {
                 agentName: action === "plan" ? AGENTS.PLANNER : AGENTS.ENGINEER,
@@ -4673,7 +4715,7 @@ export class SessionRuntime {
 
     /**
      * @param {string} sessionId
-     * @param {{ agentName: string, model?: string, releaseActiveWorkflow?: boolean, customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], toolNames?: string[] }} options
+     * @param {{ agentName: string, model?: string, releaseActiveWorkflow?: boolean, customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], toolNames?: string[], mcpServers?: import('../mcp/config.ts').McpServerDefinition[] }} options
      */
     async switchAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);

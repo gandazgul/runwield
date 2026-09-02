@@ -2030,6 +2030,12 @@ export async function buildAgentSession({
     );
 
     const finalCustomTools = filterCustomWorkflowAdvancementTools(customTools || [], workflowAuthority === false);
+    if (targetHostedSession && !subAgentDefinition && workflowAuthority !== false) {
+        for (const tool of targetHostedSession.getMcpRootTools?.() || []) {
+            if (!finalCustomTools.find((existing) => existing.name === tool.name)) finalCustomTools.push(tool);
+            if (!tools.includes(tool.name)) tools.push(tool.name);
+        }
+    }
     if (!activeModelSupportsImages && visionFallback && !tools.includes("see_image")) {
         tools = [...tools, "see_image"];
     }
@@ -2412,6 +2418,11 @@ export async function composeClaudeCliBridgedTools({
     if (declared.has("multi_file_edit") && !hasTool("multi_file_edit")) {
         const { createMultiFileEditTool } = await import("../../tools/multi_file_edit.ts");
         finalCustomTools.push(createMultiFileEditTool(cwd));
+    }
+    if (hostedSession && workflowAuthority !== false) {
+        for (const tool of hostedSession.getMcpRootTools?.() || []) {
+            if (!hasTool(tool.name)) finalCustomTools.push(tool);
+        }
     }
 
     return finalCustomTools.filter((tool) => tool.name !== "delegate_agent");

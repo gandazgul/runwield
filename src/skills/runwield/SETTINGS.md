@@ -12,6 +12,9 @@ RunWield reads JSONC settings from `~/.wld/settings.json` and project `.wld/sett
 global settings. RunWield merges custom object keys `agents` and `modelPresets` by top-level object key instead of
 replacing them wholesale.
 
+MCP servers use separate files, not settings: `~/.wld/mcp.json` and optional project `.wld/mcp.json`. The project MCP
+file must be local-only: regular file, untracked, not staged, and ignored by Git. See `docs/mcp.md`.
+
 If a user asks what their setup does, read these files before answering.
 
 ## Per-Agent model overrides

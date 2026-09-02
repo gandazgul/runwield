@@ -39,6 +39,7 @@ const handlerMetadata = new WeakMap();
  * @property {string} [debugLogPath]
  * @property {boolean} [releaseActiveWorkflow]
  * @property {import('./managed-operation.ts').ManagedOperationCapability} [managedOperationCapability]
+ * @property {import('../mcp/config.ts').McpServerDefinition[]} [mcpServers]
  */
 
 /**

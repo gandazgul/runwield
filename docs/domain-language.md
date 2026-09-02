@@ -561,10 +561,17 @@ search
 with the pinned docs backend. If credentials are missing, it returns setup guidance from the helper. _Avoid_: General
 web search, local docs grep, package install lookup
 
+**MCP Server Configuration**: A trusted server declaration in `~/.wld/mcp.json`, project `.wld/mcp.json`, or an ACP
+Session request. RunWield starts stdio MCP servers from this configuration and exposes their tools to root Agents only.
+_Avoid_: settings key, Custom Tool definition
+
+**MCP Tool**: A tool discovered from a trusted MCP server. RunWield gives it a stable `mcp_<server>_<tool>` name and
+keeps the original server and tool names in the description. _Avoid_: RunWield built-in tool, Custom Tool
+
 **Bridged Tool**: A RunWield Tool exposed to one Claude CLI turn over the authenticated loopback MCP bridge. Lifecycle
 Bridged Tools can advance workflow state and keep the legacy `runwield_` aliases for `plan_written`, `task_completed`,
 `review_complete`, and `triage_report`. Capability Bridged Tools do memory, Cymbal code intelligence, web access, Work
-Record, interview, edit, or caller-supplied work and use their internal names, avoiding new aliases such as
+Record, interview, edit, MCP, or caller-supplied work and use their internal names, avoiding new aliases such as
 `runwield_memory` or `runwield_code_search`. _Avoid_: Claude native tool, MCP plugin
 
 **Memory Tool**: The `memory` Custom Tool that recalls, stores, or deletes Mnemosyne memories through an explicit

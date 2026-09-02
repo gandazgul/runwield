@@ -389,6 +389,23 @@ Deno.test("ACP session/close disposes a real Runtime session and rejects later p
 Deno.test("ACP validates new/load inputs and maps missing persisted Sessions", async () => {
     assertThrows(() => validateNewSessionParams({ cwd: "relative", mcpServers: [] }));
     assertThrows(() => validateNewSessionParams({ cwd: REPO_ROOT, mcpServers: { local: { command: "secret" } } }));
+    assertThrows(() =>
+        validateNewSessionParams({
+            cwd: REPO_ROOT,
+            mcpServers: [{ type: "http", name: "web", url: "https://example.test", headers: [] }],
+        })
+    );
+    const validMcp = validateNewSessionParams({
+        cwd: REPO_ROOT,
+        mcpServers: [{ name: "stdio", command: "/bin/echo", args: ["ok"], env: [{ name: "TOKEN", value: "secret" }] }],
+    });
+    assertEquals(validMcp.runwieldMcpServers, [{
+        name: "stdio",
+        command: "/bin/echo",
+        args: ["ok"],
+        env: { TOKEN: "secret" },
+        source: "request",
+    }]);
 
     await withRuntimeCommandFixture("runwield-acp-invalid-", async (fixture) => {
         const handle = startTestServer();

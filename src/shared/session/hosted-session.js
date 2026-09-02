@@ -236,6 +236,10 @@ export class HostedSession {
         this.managedOperationCapability = null;
         /** @type {PendingManagedTurnIntent} */
         this.pendingManagedTurnIntent = {};
+        /** @type {import('../mcp/pool.ts').McpToolPool | null} */
+        this.mcpToolPool = null;
+        /** @type {import('../mcp/config.ts').McpServerDefinition[]} */
+        this.mcpRequestServers = [];
     }
 
     assertActive() {
@@ -484,6 +488,47 @@ export class HostedSession {
 
     getInteractionAdapter() {
         return this.interactionAdapter;
+    }
+
+    /** @param {import('../mcp/config.ts').McpServerDefinition[]} servers */
+    setMcpRequestServers(servers) {
+        this.assertActive();
+        this.mcpRequestServers = servers.map((server) => ({ ...server }));
+    }
+
+    getMcpRequestServers() {
+        return this.mcpRequestServers.map((server) => ({ ...server }));
+    }
+
+    /** @param {import('../mcp/pool.ts').McpToolPool | null} pool */
+    setMcpToolPool(pool) {
+        this.assertActive();
+        const previous = this.mcpToolPool;
+        this.mcpToolPool = pool;
+        if (previous && previous !== pool) void previous.close().catch(() => {});
+    }
+
+    getMcpToolPool() {
+        return this.mcpToolPool;
+    }
+
+    getMcpRootTools() {
+        return this.mcpToolPool?.getTools?.() || [];
+    }
+
+    /** @param {HostedSession} targetHostedSession */
+    transferMcpStateTo(targetHostedSession) {
+        this.assertActive();
+        targetHostedSession.assertActive();
+        targetHostedSession.mcpToolPool = this.mcpToolPool;
+        targetHostedSession.mcpRequestServers = this.getMcpRequestServers();
+        this.mcpToolPool = null;
+    }
+
+    async closeMcpToolPool() {
+        const pool = this.mcpToolPool;
+        this.mcpToolPool = null;
+        if (pool) await pool.close();
     }
 
     /** @param {string} id @param {ActiveInteractionRecord} record */
@@ -913,6 +958,8 @@ export class HostedSession {
         this.steeringTargetStack = [];
         this.agentTransitionId = null;
         this.agentTransitionSteering = [];
+        void this.closeMcpToolPool().catch(() => {});
+        this.mcpRequestServers = [];
         this.managed = null;
         this.disposed = true;
     }
