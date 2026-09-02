@@ -454,6 +454,16 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 );
             }
 
+            const managedCapability = hostedSession.getManagedOperationCapability?.() || null;
+            if (managedCapability) {
+                managedCapability.registerArtifact({
+                    kind: "plan",
+                    path: `${PLANS_DIR_NAME}/${planName}.md`,
+                    title: planName.replaceAll("-", " "),
+                    registeredBy: agentName,
+                });
+            }
+
             const planDetails = {
                 planName,
                 planPath,

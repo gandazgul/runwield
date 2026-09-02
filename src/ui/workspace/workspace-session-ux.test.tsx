@@ -15,6 +15,7 @@ import {
 } from "./islands/SessionSurface.jsx";
 import { deriveSessionAvailability } from "./components/SessionActivationStatus.jsx";
 import {
+    compactToolLine,
     displayAgentName,
     formatSessionTimelineTime,
     reduceSessionEvents,
@@ -185,6 +186,17 @@ Deno.test("Workspace-owned Session operations use live updates instead of browse
     assertEquals(server.includes("/api/owner/session-operations/:operationId/stream"), true);
 });
 
+Deno.test("Workspace Session UI uses the shared thinking dots loader", async () => {
+    const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
+    const timeline = await Deno.readTextFile(new URL("./components/SessionTimeline.jsx", import.meta.url));
+    const css = await Deno.readTextFile(new URL("../design-system/components.css", import.meta.url));
+    const docs = await Deno.readTextFile(new URL("../../../docs/design-system.md", import.meta.url));
+    assertEquals(surface.includes("RunWieldThinkingDots"), true);
+    assertEquals(timeline.includes("RunWieldThinkingDots"), true);
+    assertEquals(css.includes(".rw-thinking-dots"), true);
+    assertEquals(docs.includes("Use `RunWieldThinkingDots`"), true);
+});
+
 Deno.test("Session timeline puts usage and stop time on the assistant block", () => {
     const completedAt = new Date(2026, 8, 1, 21, 56).toISOString();
     const items = reduceSessionEvents([
@@ -230,17 +242,19 @@ Deno.test("Session timeline groups completed technical activity after agent cont
 
 Deno.test("Session timeline keeps trailing or running technical activity visible", () => {
     const trailing = reduceSessionEvents([
-        { type: "tool_start", eventId: "t1s", toolCallId: "t1", toolName: "bash", title: "Run command" },
-        { type: "tool_end", eventId: "t1e", toolCallId: "t1", toolName: "bash", output: "still latest" },
+        { type: "tool_start", eventId: "t1s", toolCallId: "t1", toolName: "read", title: "read src/app.js" },
+        { type: "tool_end", eventId: "t1e", toolCallId: "t1", toolName: "read", output: "full file output" },
     ]);
     assertEquals(trailing.map((item) => item.kind), ["tool"]);
+    assertEquals(compactToolLine(trailing[0]), "read src/app.js");
 
     const running = reduceSessionEvents([
-        { type: "tool_start", eventId: "t2s", toolCallId: "t2", toolName: "bash", title: "Run command" },
+        { type: "tool_start", eventId: "t2s", toolCallId: "t2", toolName: "edit", title: "edit src/app.js" },
         { type: "assistant_text_delta", eventId: "a1", messageId: "a1", delta: "Working." },
     ]);
     assertEquals(running.map((item) => item.kind), ["tool", "message"]);
     assertEquals(running[0]?.status, "running");
+    assertEquals(compactToolLine(running[0]), "edit src/app.js running");
 });
 
 Deno.test("Session scroll follows only while the reader stays near the live edge", () => {
@@ -279,6 +293,14 @@ Deno.test("Session workflow sidebar uses canonical progress stages", async () =>
     );
     assertEquals(surface.includes('ownerFetch(apiUrl, { method: "GET" })'), true);
     assertEquals(surface.includes("Canonical workflow progress stages"), true);
+});
+
+Deno.test("Persisted Sessions expose the shared context sidebar tabs", async () => {
+    const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
+    assertEquals(surface.includes("SESSION_SIDEBAR_TABS.map"), true);
+    assertEquals(surface.includes("session-context-tabs"), true);
+    assertEquals(surface.includes("session-artifact-list"), true);
+    assertEquals(surface.includes("defaultSessionSidebarTab"), true);
 });
 
 Deno.test("Session image attachments use a Session-scoped draft key and request payload", () => {

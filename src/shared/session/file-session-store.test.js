@@ -178,6 +178,66 @@ Deno.test("new Session catalog publication acquires its writer lock atomically",
     }
 });
 
+Deno.test("active Session turns register durable artifact references without changing the writer phase", async () => {
+    const fixture = await makeFixture();
+    try {
+        const transcriptPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "artifact-session");
+        const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
+        const acquired = await store.ensureSessionCatalogRecordAndAcquire({
+            locator: {
+                projectId: project.projectId,
+                piSessionId: "artifact-session",
+                transcriptPath,
+                transcriptCwd: fixture.projectRoot,
+                source: "created",
+            },
+            activation: {
+                ownerInstanceId: "artifact-writer",
+                ownerProcessKind: "test",
+                operationId: "artifact-operation",
+            },
+        });
+
+        const artifact = store.registerSessionArtifact(acquired.proof, {
+            kind: "prd",
+            path: "docs/prd/session-sidebar.md",
+            title: "Session Sidebar",
+            registeredBy: "Ideator",
+            idFactory: () => "artifact-1",
+            now: () => TIMESTAMP,
+        });
+        const duplicate = store.registerSessionArtifact(acquired.proof, {
+            kind: "prd",
+            path: "docs/prd/session-sidebar.md",
+            title: "Changed title",
+            registeredBy: "Ideator",
+            idFactory: () => "artifact-2",
+        });
+
+        assertEquals(artifact, {
+            artifactId: "artifact-1",
+            kind: "prd",
+            path: "docs/prd/session-sidebar.md",
+            title: "Session Sidebar",
+            registeredAt: TIMESTAMP,
+            registeredBy: "Ideator",
+            sourceSegmentId: acquired.segment.segmentId,
+        });
+        assertEquals(duplicate, artifact);
+        assertEquals(store.listSessionArtifacts(acquired.session.runwieldSessionId), [artifact]);
+        assertEquals(store.inspectSessionActivation(acquired.session.runwieldSessionId).activation?.phase, "preparing");
+
+        store.releaseUnchangedActivation(acquired.proof);
+        store.close();
+        const reopened = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        assertEquals(reopened.listSessionArtifacts(acquired.session.runwieldSessionId), [artifact]);
+        reopened.close();
+    } finally {
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});
+
 Deno.test("concurrent legacy migration converges on one Session identity", async () => {
     const fixture = await makeFixture();
     try {

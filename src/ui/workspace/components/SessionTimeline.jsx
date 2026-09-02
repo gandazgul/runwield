@@ -5,7 +5,7 @@ import {
     RuntimeInteractionTypes,
 } from "../../../shared/session/session-runtime-interactions.js";
 import { MarkdownView } from "./MarkdownView.jsx";
-import { RunWieldLink } from "../../design-system/components/react/RunWieldPrimitives.jsx";
+import { RunWieldLink, RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 const MESSAGE_TYPES = new Set([
     "message",
@@ -353,19 +353,19 @@ function activityRowLabel(activityItem) {
     return "Usage";
 }
 
+export function compactToolLine(activityItem) {
+    const title = text(activityItem.title || activityItem.toolName || "Tool activity").trim();
+    const status = text(activityItem.status || "running");
+    return status === "running" ? `${title} running` : title;
+}
+
 function activityRowSummary(activityItem) {
-    if (activityItem.kind === "tool") {
-        const command = activityItem.title && activityItem.title !== activityItem.toolName ? activityItem.title : "";
-        const label = activityRowLabel(activityItem);
-        return command && command !== label ? `${label} ${command}` : label;
-    }
+    if (activityItem.kind === "tool") return compactToolLine(activityItem);
     return activityRowLabel(activityItem);
 }
 
 function activityRowDetail(activityItem) {
-    if (activityItem.kind === "tool") {
-        return `${activityItem.status || "completed"}${activityItem.output ? ` · ${activityItem.output}` : ""}`;
-    }
+    if (activityItem.kind === "tool") return activityItem.output || activityItem.status || "No output.";
     if (activityItem.kind === "thinking") return activityItem.text || "Thinking complete.";
     return activityItem.text || "Usage recorded";
 }
@@ -393,6 +393,18 @@ function SessionInteractionCard({ item }) {
         <article className="session-live-interaction">
             <strong>{requestType === "approval" ? "Approval needed" : "Agent needs input"}</strong>
             <p>{item.request?.prompt || "The agent is waiting for your answer."}</p>
+            {item.request?.artifactReview && item.reviewUrl
+                ? (
+                    <RunWieldLink
+                        variant="primary"
+                        className="rw-plan-review-link"
+                        href={item.reviewUrl}
+                        target="_blank"
+                    >
+                        Open {String(item.request.artifactReview.kind || "artifact").toUpperCase()}
+                    </RunWieldLink>
+                )
+                : null}
             {choices.length
                 ? (
                     <div className="session-interaction-choice-row">
@@ -465,7 +477,11 @@ function SessionInteractionCard({ item }) {
                             />
                         </label>
                         <button type="submit" disabled={submitting || (!value.trim() && !item.request?.allowEmpty)}>
-                            {submitting ? "Sending…" : choices.length ? "Send other" : "Send"}
+                            {submitting
+                                ? <RunWieldThinkingDots label="Sending" />
+                                : choices.length
+                                ? "Send other"
+                                : "Send"}
                         </button>
                     </form>
                 )
@@ -523,8 +539,13 @@ export function SessionTimeline({ items, events, emptyMessage = "" }) {
                                 <summary>
                                     <ActivityChevronIcon />
                                     <span>
-                                        {displayAgentName(item.agentName || "Ideator")} thinking{" "}
-                                        {item.done ? "complete" : "in progress"}
+                                        {item.done
+                                            ? `${displayAgentName(item.agentName || "Ideator")} thinking complete`
+                                            : (
+                                                <RunWieldThinkingDots
+                                                    label={`${displayAgentName(item.agentName || "Ideator")} thinking`}
+                                                />
+                                            )}
                                     </span>
                                 </summary>
                                 <p>{item.text || "Thinking details hidden."}</p>
@@ -532,10 +553,13 @@ export function SessionTimeline({ items, events, emptyMessage = "" }) {
                         )
                         : item.kind === "tool"
                         ? (
-                            <article className={`session-tool status-${item.status}`}>
-                                <strong>{item.title}</strong>
-                                <p>{item.status}{item.output ? ` · ${item.output}` : ""}</p>
-                            </article>
+                            <details className={`session-tool status-${item.status}`}>
+                                <summary>
+                                    <ActivityChevronIcon />
+                                    <span>{compactToolLine(item)}</span>
+                                </summary>
+                                <p>{activityRowDetail(item)}</p>
+                            </details>
                         )
                         : item.kind === "activity"
                         ? (

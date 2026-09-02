@@ -1,4 +1,4 @@
-import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
+import { RunWieldButton, RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 /** @param {string} projectId @param {string} sessionId */
 function sessionHref(projectId, sessionId) {
@@ -35,7 +35,9 @@ export function SessionList({
     if (loading) {
         return (
             <section className="session-list-state" aria-busy="true">
-                <p>Loading Project Sessions…</p>
+                <p>
+                    <RunWieldThinkingDots label="Loading Project Sessions" />
+                </p>
             </section>
         );
     }

@@ -67,10 +67,11 @@ Deno.test("TUI interaction adapter maps approval prompts to accepted outcome", a
     assertEquals(response.value, true);
 });
 
-Deno.test("TUI interaction adapter advertises only Pair checkpoint capability", () => {
+Deno.test("TUI interaction adapter advertises browser-backed review capabilities", () => {
     const adapter = createTuiInteractionAdapter(makeUi(null));
 
     assertEquals(adapter.supportsInteraction?.("pair_checkpoint"), true);
+    assertEquals(adapter.supportsInteraction?.("artifact_review"), true);
     assertEquals(adapter.supportsInteraction?.("select"), false);
     assertEquals(adapter.supportsInteraction?.("text"), false);
 });

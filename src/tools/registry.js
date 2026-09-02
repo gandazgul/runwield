@@ -41,6 +41,7 @@ export const PROTECTED_TOOL_NAMES = Object.freeze([
     // workflow tools
     "triage_report",
     "plan_written",
+    "artifact_written",
     "review_complete",
     "qa_checklist_generated",
     "task_completed",

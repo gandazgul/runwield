@@ -2,6 +2,7 @@
 
 import { devOwnerProjects } from "./dev-owner-fixtures.ts";
 import { currentWorkspaceCwd } from "./cwd.js";
+import { dirname, relative, resolve, SEPARATOR } from "@std/path";
 
 export const OWNER_WORKSPACE_STORE_KEY = Symbol.for("runwield.workspace.owner-store");
 export const OWNER_WORKSPACE_SESSION_CONTINUATION_KEY = Symbol.for("runwield.workspace.session-continuation");
@@ -72,4 +73,31 @@ export async function loadOwnerProjectPlanProgress(projectId, planId, runwieldSe
     if (!store) throw new Error("Owner Workspace store is not available.");
     const { loadOwnerPlanProgress } = await import("./owner-plan-progress.ts");
     return await loadOwnerPlanProgress(store, { projectId, planId, runwieldSessionId });
+}
+
+/** @param {string} projectId @param {string} runwieldSessionId @param {string} artifactId */
+export async function loadOwnerSessionArtifact(projectId, runwieldSessionId, artifactId) {
+    const store = getAstroOwnerWorkspaceStore();
+    if (!store) throw new Error("Owner Workspace store is not available.");
+    const { requireOwnerProjectRoot, sessionBelongsToOwnerProject } = await import("./owner-projects.js");
+    const root = requireOwnerProjectRoot(store, projectId);
+    const session = store.getSessionById(runwieldSessionId);
+    if (!session || !sessionBelongsToOwnerProject(store, session, projectId)) throw new Error("Session not found.");
+    const artifact = store.listSessionArtifacts(runwieldSessionId)
+        .find(
+            /** @param {import('../../../shared/session/file-session-store-types.ts').SessionArtifactReference} candidate */
+            (candidate) => candidate.artifactId === artifactId,
+        );
+    if (!artifact) throw new Error("Session artifact not found.");
+    const canonicalRoot = await Deno.realPath(root);
+    const absolutePath = await Deno.realPath(resolve(canonicalRoot, artifact.path));
+    const artifactRelativePath = relative(canonicalRoot, absolutePath);
+    if (!artifactRelativePath || artifactRelativePath === ".." || artifactRelativePath.startsWith(`..${SEPARATOR}`)) {
+        throw new Error("Session artifact is outside its Project.");
+    }
+    return {
+        ...artifact,
+        markdown: await Deno.readTextFile(absolutePath),
+        imageBaseDir: dirname(absolutePath),
+    };
 }

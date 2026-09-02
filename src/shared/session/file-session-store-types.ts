@@ -8,6 +8,60 @@ export type SessionSegmentLineageEvidence = import("../types.js").SessionSegment
 export type SessionPhase = "bootstrap" | "preparing" | "hydrated" | "turning" | "checkpointing";
 export type ProcessKind = "workspace" | "tui" | "acp" | "test";
 
+export type SessionArtifactKind = "plan" | "prd" | "adr" | "work-record" | "epic-artifact" | "report";
+
+export interface SessionArtifactReference {
+    artifactId: string;
+    kind: SessionArtifactKind;
+    path: string;
+    title: string;
+    registeredAt: string;
+    registeredBy: string;
+    sourceSegmentId: string | null;
+}
+
+export interface RegisterSessionArtifactOptions {
+    kind: SessionArtifactKind;
+    path: string;
+    title: string;
+    registeredBy: string;
+    sourceSegmentId?: string | null;
+    idFactory?: () => string;
+    now?: () => string;
+}
+
+export interface QueuedSessionMessageClaim {
+    ownerInstanceId: string;
+    ownerProcessKind: ProcessKind;
+    claimedAt: string;
+    expectedGeneration: number | null;
+    resultGeneration: number;
+}
+
+export interface QueuedSessionMessage {
+    id: string;
+    text: string;
+    images: import("./types.js").ImageAttachment[];
+    delivery: "lease";
+    queuedAt: string;
+    queuedBy: ProcessKind;
+    claim?: QueuedSessionMessageClaim;
+}
+
+export interface EnqueueSessionMessageOptions {
+    text: string;
+    images?: import("./types.js").ImageAttachment[];
+    queuedBy: ProcessKind;
+    idFactory?: () => string;
+    now?: () => string;
+}
+
+export interface ClaimSessionMessageOptions {
+    ownerInstanceId: string;
+    ownerProcessKind: ProcessKind;
+    now?: () => string;
+}
+
 export interface FileSessionProject {
     projectId: string;
     displayName: string;
@@ -37,6 +91,7 @@ export interface FileSessionManifest {
     activation: FileSessionActivation;
     generation: FileSessionGeneration | null;
     segments: SessionTranscriptSegment[];
+    artifacts?: SessionArtifactReference[];
 }
 
 export interface FileSessionActivation {
@@ -350,6 +405,27 @@ export interface FileSessionStore {
     listProjectSessions(projectId: string, options?: ListSessionOptions): Promise<SessionListResult>;
     catalogProjectSessions(projectId: string, options?: ListSessionOptions): Promise<SessionCatalogResult>;
     listSessionTranscriptSegments(runwieldSessionId: string): SessionTranscriptSegment[];
+    listSessionArtifacts(runwieldSessionId: string): SessionArtifactReference[];
+    listQueuedSessionMessages(runwieldSessionId: string): QueuedSessionMessage[];
+    enqueueSessionMessage(
+        runwieldSessionId: string,
+        options: EnqueueSessionMessageOptions,
+    ): QueuedSessionMessage;
+    claimNextQueuedSessionMessage(
+        runwieldSessionId: string,
+        options: ClaimSessionMessageOptions,
+    ): QueuedSessionMessage | null;
+    completeQueuedSessionMessage(
+        runwieldSessionId: string,
+        messageId: string,
+        ownerInstanceId: string,
+    ): boolean;
+    releaseQueuedSessionMessage(
+        runwieldSessionId: string,
+        messageId: string,
+        ownerInstanceId: string,
+    ): boolean;
+    dequeueLastQueuedSessionMessage(runwieldSessionId: string): QueuedSessionMessage | null;
     getCurrentSessionSegment(runwieldSessionId: string): SessionTranscriptSegment | null;
     appendSessionTranscriptSegment(options: SegmentAppendOptions): Promise<SessionTranscriptSegment>;
     sealSessionTranscriptSegment(options: SegmentSealOptions): SessionTranscriptSegment;
@@ -364,6 +440,10 @@ export interface FileSessionStore {
         nextPhase: SessionPhase,
         options?: { now?: () => string },
     ): FileActivationProof;
+    registerSessionArtifact(
+        proof: FileActivationProof,
+        options: RegisterSessionArtifactOptions,
+    ): SessionArtifactReference;
     publishGenerationAndRelease(
         proof: FileActivationProof,
         evidence: TranscriptEvidence & { generation: number },

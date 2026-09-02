@@ -10,6 +10,7 @@ import {
 } from "../../shared/session/session-runtime-interactions.js";
 import { runCodeReview } from "../review/code-review.ts";
 import { submitPlanForReview } from "../review/plan-review.ts";
+import { startArtifactReadSurface } from "../review/review-launcher.ts";
 
 /**
  * @typedef {Object} TuiInteractionPorts
@@ -38,7 +39,8 @@ function formatPairPromptValue(value) {
 export function createTuiInteractionAdapter(uiAPI, ports) {
     return {
         supportsInteraction(type) {
-            return type === RuntimeInteractionTypes.PAIR_CHECKPOINT;
+            return type === RuntimeInteractionTypes.PAIR_CHECKPOINT ||
+                type === RuntimeInteractionTypes.ARTIFACT_REVIEW;
         },
         async requestInteraction(request, signal) {
             if (request.type === RuntimeInteractionTypes.SELECT || request.type === RuntimeInteractionTypes.APPROVAL) {
@@ -76,6 +78,31 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
                 });
                 if (value === null) return { outcome: RuntimeInteractionOutcomes.CANCELED };
                 return { outcome: RuntimeInteractionOutcomes.TEXT, value };
+            }
+            if (request.type === RuntimeInteractionTypes.ARTIFACT_REVIEW) {
+                const meta = /** @type {any} */ (request._meta || {});
+                const supportedKinds = new Set(["plan", "prd", "adr", "work-record", "epic-artifact", "report"]);
+                const artifactKind = supportedKinds.has(meta.artifactKind) ? meta.artifactKind : "report";
+                uiAPI.setBusy?.(false);
+                const surface = await startArtifactReadSurface({
+                    cwd: meta.cwd,
+                    markdown: meta.markdown,
+                    artifactKind,
+                    title: meta.title,
+                    path: meta.artifactPath,
+                    browser: ports.browser,
+                });
+                try {
+                    const feedback = await uiAPI.promptText(request.prompt, {
+                        placeholder: request.placeholder,
+                        allowEmpty: true,
+                    });
+                    if (feedback === null) return { outcome: RuntimeInteractionOutcomes.CANCELED };
+                    return { outcome: RuntimeInteractionOutcomes.TEXT, value: feedback };
+                } finally {
+                    await surface.stop();
+                    uiAPI.setBusy?.(true);
+                }
             }
             if (request.type === RuntimeInteractionTypes.PAIR_CHECKPOINT) {
                 const meta = /** @type {any} */ (request._meta || {});

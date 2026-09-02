@@ -33,11 +33,17 @@ import type { Component } from "@earendil-works/pi-tui";
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { ImageAttachment } from "../../shared/session/types.js";
 import type { UiAPI } from "./types.js";
+import { TuiSessionSidebar, type TuiSessionSidebarSnapshot } from "./session-sidebar.ts";
+
+const SESSION_SIDEBAR_MIN_WIDTH = 132;
+
+export interface ChatViewSessionSnapshot extends TuiSessionSidebarSnapshot {
+    cwd: string;
+    activeModel: { model?: string | null; provider?: string | null };
+}
 
 export interface ChatViewRuntime {
-    getSessionSnapshot(
-        sessionId: string,
-    ): { cwd: string; activeModel: { model?: string | null; provider?: string | null } } | null;
+    getSessionSnapshot(sessionId: string): ChatViewSessionSnapshot | null;
 }
 export interface ChatViewOptions {
     tui: TUI;
@@ -145,6 +151,8 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     container.addChild(activeInteractionContainer);
     const inputAccessoryContainer = new Container();
     container.addChild(inputAccessoryContainer);
+    const queuedInputContainer = new Container();
+    container.addChild(queuedInputContainer);
     const pastedImages: ImageAttachment[] = [];
     let clipboardImageAvailable = false;
     const previewImages = new Container();
@@ -156,11 +164,43 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     container.addChild(clipboardImageHint);
     const editor = new Editor(tui, getEditorTheme());
     container.addChild(editor);
+    const sessionSidebar = new TuiSessionSidebar(
+        options.getSessionId,
+        () => options.sessionRuntime.getSessionSnapshot(options.getSessionId()),
+    );
+    const padLine = (line: string, width: number): string => {
+        const clipped = truncateToWidth(line, width);
+        return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
+    };
     const rootWrapper: Component = {
-        invalidate: () => container.invalidate(),
-        render: (w: number) => container.render(Math.max(10, w - 2)),
+        invalidate: () => {
+            container.invalidate();
+            sessionSidebar.invalidate();
+        },
+        render: (w: number) => {
+            const availableWidth = Math.max(10, w - 2);
+            const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+            if (!snapshot?.managed || availableWidth < SESSION_SIDEBAR_MIN_WIDTH) {
+                return container.render(availableWidth);
+            }
+            const sidebarWidth = Math.min(34, Math.max(28, Math.floor(availableWidth * 0.28)));
+            const mainWidth = Math.max(48, availableWidth - sidebarWidth - 1);
+            const mainLines = container.render(mainWidth);
+            const sidebarLines = sessionSidebar.render(sidebarWidth);
+            const lineCount = Math.max(mainLines.length, sidebarLines.length);
+            return Array.from(
+                { length: lineCount },
+                (_, index) => `${padLine(mainLines[index] || "", mainWidth)} ${sidebarLines[index] || ""}`,
+            );
+        },
     };
     tui.addChild(rootWrapper);
+    const removeSidebarKeyListener = tui.addInputListener((data) => {
+        if (data !== "\x1d") return undefined;
+        sessionSidebar.cycleTab();
+        tui.requestRender();
+        return { consume: true };
+    });
     tui.setFocus(editor);
     const uiAPI = createUiApi(
         tui,
@@ -169,12 +209,12 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         inputAccessoryContainer,
         validationPanelContainer,
         activeInteractionContainer,
+        queuedInputContainer,
     );
     const baseSetManagedSyncStatus = uiAPI.setManagedSyncStatus?.bind(uiAPI);
     uiAPI.setManagedSyncStatus = (state) => {
         baseSetManagedSyncStatus?.(state);
-        editor.disableSubmit = state.status === "blocked" || state.status === "degraded" ||
-            state.status === "active_elsewhere";
+        editor.disableSubmit = state.status === "blocked" || state.status === "degraded";
     };
     installUiApiOverrides({
         uiAPI,
@@ -295,6 +335,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
             tui.requestRender();
         },
         dispose() {
+            removeSidebarKeyListener();
             clearInterval(clipboardPollingInterval);
             unsubscribeThemeChange();
             endBlink();

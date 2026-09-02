@@ -11,6 +11,7 @@ export const RuntimeInteractionTypes = Object.freeze({
     APPROVAL: "approval",
     LINK: "link",
     PLAN_REVIEW: "plan_review",
+    ARTIFACT_REVIEW: "artifact_review",
     CODE_REVIEW: "code_review",
     PAIR_CHECKPOINT: "pair_checkpoint",
 });
@@ -35,7 +36,7 @@ export const RuntimeInteractionOutcomes = Object.freeze({
 /**
  * @typedef {Object} RuntimeInteractionRequest
  * @property {string} [id]
- * @property {"select"|"text"|"approval"|"link"|"plan_review"|"code_review"|"pair_checkpoint"} type
+ * @property {"select"|"text"|"approval"|"link"|"plan_review"|"artifact_review"|"code_review"|"pair_checkpoint"} type
  * @property {string} prompt
  * @property {RuntimeInteractionOption[]} [options]
  * @property {string} [defaultValue]

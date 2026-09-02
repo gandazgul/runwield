@@ -55,6 +55,9 @@ export type ManagedOperationCapability = {
     readonly proof: ActivationProof;
     readonly settled: boolean;
     readonly signal?: AbortSignal;
+    registerArtifact(
+        options: import("./file-session-store-types.ts").RegisterSessionArtifactOptions,
+    ): import("./file-session-store-types.ts").SessionArtifactReference;
     cancel?(): void;
     updateProof(proof: ActivationProof): void;
     assertLive(): void;
