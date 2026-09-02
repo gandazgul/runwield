@@ -50,20 +50,18 @@ use.
 
 ## Authenticate
 
-Start RunWield in a project directory:
+Configure login in a project directory:
 
 ```bash
 cd /path/to/project
-wld
+wld login
 ```
 
-Then run:
+Choose a subscription provider or API-key provider, then choose a default model. The command exits after setup is
+complete. RunWield stores credentials in `~/.wld/auth.json`.
 
-```text
-/login
-```
-
-Choose a subscription provider or API-key provider. RunWield stores credentials in `~/.wld/auth.json`.
+You can also start the interactive TUI with `wld` and run `/login`. In a live Session, `/login` keeps you in the TUI and
+switches the Session to the selected model.
 
 You can also use provider API keys through environment variables where supported by Pi's provider system. See
 [Pi Providers](https://pi.dev/docs/latest/providers) for provider-specific setup.
@@ -112,6 +110,7 @@ wld "your request"                  # route through triage
 wld router "your request"           # explicit router form
 wld agent                           # list available agents
 wld agent engineer "implement X"    # start with Engineer instead of Router
+wld login                           # configure credentials and choose a default model
 wld plans                           # list saved plans
 wld load-plan <name-or-path>        # review, execute, or continue a plan
 wld init                            # bootstrap project context

@@ -9,37 +9,28 @@
  */
 
 import { COMMAND_NAMES, commandRegistry } from "../../cmd/registry.js";
-import { getModelRegistry } from "../../shared/models/model-registry.ts";
-import { getSettingsManager } from "../../shared/settings.js";
+import {
+    detectModelAvailability,
+    getConfiguredModelAvailability,
+    getConfiguredProviderAvailability,
+    getSelectedDefaultModelAvailability,
+    type ModelAvailability,
+    type ModelAvailabilitySource,
+    type ModelSummary,
+} from "../../shared/session/model-readiness.ts";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import type { Editor, TUI } from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.js";
+import { runSharedModelSetup } from "./model-setup.ts";
 import type { UiAPI } from "./types.js";
 
-export interface ModelAvailability {
-    available: boolean;
-    error: string | null;
-}
-
-/**
- * A model-summary shape sufficient for availability classification. The real
- * `RunWieldModelRegistry` satisfies it structurally; tests may hand a plain
- * value to the pure `detectModelAvailability` contract.
- */
-export interface ModelSummary {
-    id: string;
-    provider: string;
-    executionBackend?: string;
-}
-
-/**
- * The read surface availability checks need from a model registry *value* —
- * never a replaceable authority.
- */
-export interface ModelAvailabilitySource {
-    getAvailable(): readonly ModelSummary[];
-    find?(provider: string, id: string): ModelSummary | undefined;
-}
+export {
+    detectModelAvailability,
+    getConfiguredModelAvailability,
+    getConfiguredProviderAvailability,
+    getSelectedDefaultModelAvailability,
+};
+export type { ModelAvailability, ModelAvailabilitySource, ModelSummary };
 
 export interface MaybeShowModelWelcomeOptions {
     uiAPI: UiAPI;
@@ -61,80 +52,6 @@ export interface ModelWelcomeResult {
     noModel: boolean;
     setupCompleted: boolean;
     availabilityError?: string | null;
-}
-
-function isRegistryModelSummary(value: ModelSummary | undefined): value is ModelSummary {
-    return Boolean(value && typeof value === "object");
-}
-
-/**
- * Pure value contract: classify a registry snapshot's available-model count.
- *
- * @param registry A registry value (never an injected authority).
- */
-export function detectModelAvailability(registry: ModelAvailabilitySource): ModelAvailability {
-    try {
-        return { available: (registry.getAvailable?.() || []).length > 0, error: null };
-    } catch (error) {
-        return { available: false, error: error instanceof Error ? error.message : String(error) };
-    }
-}
-
-/** @returns {ModelAvailability} */
-export function getConfiguredModelAvailability(): ModelAvailability {
-    try {
-        return detectModelAvailability(getModelRegistry());
-    } catch (error) {
-        return { available: false, error: error instanceof Error ? error.message : String(error) };
-    }
-}
-
-/** @returns {ModelAvailability} */
-export function getConfiguredProviderAvailability(): ModelAvailability {
-    try {
-        return { available: (getModelRegistry().getRegisteredProviderIds?.() || []).length > 0, error: null };
-    } catch (error) {
-        return { available: false, error: error instanceof Error ? error.message : String(error) };
-    }
-}
-
-/**
- * Whether the persisted default model is runnable right now. Registry or
- * settings failures become `{ available: false, error }` — this never throws.
- *
- * @param projectRoot Project root that scopes the settings manager.
- * @returns {ModelAvailability}
- */
-export function getSelectedDefaultModelAvailability(projectRoot: string): ModelAvailability {
-    try {
-        const settingsManager = getSettingsManager(projectRoot);
-        const defaultModel = settingsManager.getDefaultModel?.()?.trim();
-        const defaultProvider = settingsManager.getDefaultProvider?.()?.trim();
-        if (!defaultModel) {
-            return { available: false, error: "No default model is selected." };
-        }
-
-        const registry = getModelRegistry();
-        if (!registry.find) return { available: true, error: null };
-        const found = registry.find(defaultProvider || "", defaultModel);
-        const foundModel = isRegistryModelSummary(found) ? found : null;
-        if (foundModel && registry.isSelectable?.(foundModel)) return { available: true, error: null };
-        const availableModels = registry.getAvailable?.() || [];
-        const runnable = availableModels.some((model) =>
-            model.provider === (defaultProvider || foundModel?.provider) &&
-            model.id === (foundModel?.id || defaultModel)
-        );
-        if (foundModel && runnable) return { available: true, error: null };
-
-        return {
-            available: false,
-            error: defaultProvider
-                ? `Selected default model is unavailable: ${defaultProvider}/${defaultModel}`
-                : `Selected default model is unavailable: ${defaultModel}`,
-        };
-    } catch (error) {
-        return { available: false, error: error instanceof Error ? error.message : String(error) };
-    }
 }
 
 function runCommandContext(options: MaybeShowModelWelcomeOptions) {
@@ -165,12 +82,6 @@ export async function maybeShowModelWelcome(options: MaybeShowModelWelcomeOption
     options.editor.disableSubmit = true;
     options.tui.requestRender();
 
-    let afterLoginAvailability = initialAvailability;
-    const providerAvailability = getConfiguredProviderAvailability();
-    if (!afterLoginAvailability.available && providerAvailability.available) {
-        afterLoginAvailability = { available: true, error: null };
-    }
-
     const title = [
         theme.bold("Welcome to RunWield"),
         "",
@@ -179,57 +90,33 @@ export async function maybeShowModelWelcome(options: MaybeShowModelWelcomeOption
         initialAvailability.error ? `Model registry note: ${initialAvailability.error}` : "",
     ].filter(Boolean).join("\n");
 
-    let modelSelectorAlreadyShown = false;
-    while (!afterLoginAvailability.available) {
-        const choice = await options.uiAPI.promptSelect(
-            title,
-            [
-                {
-                    value: "claude-cli",
-                    label: "Use Claude Code CLI",
-                    description:
-                        "Select a Claude CLI alias. Requires Claude Code installed and signed in; no RunWield API key login.",
-                },
-                {
-                    value: "subscription",
-                    label: "Use a subscription login",
-                    description: "Sign in with a supported provider account.",
-                },
-                {
-                    value: "api-key",
-                    label: "Use an API key",
-                    description: "Paste a provider API key and store it in RunWield config.",
-                },
-            ],
-            { hint: "↑↓ Navigate  Enter Select  Esc Quit" },
-        );
+    const setupResult = await runSharedModelSetup({
+        uiAPI: options.uiAPI,
+        projectRoot: options.projectRoot,
+        title,
+        retryLoginFailures: true,
+        forceModelSelection: options.forceModelSelection,
+        commandContext: {
+            sessionId: options.sessionId,
+            sessionRuntime: options.sessionRuntime,
+        },
+    });
 
-        if (!choice) {
-            options.uiAPI.appendSystemMessage("Model setup cancelled. Exiting RunWield.", false, "RunWield");
-            await commandRegistry[COMMAND_NAMES.QUIT].execute([], runCommandContext(options));
-            return { shown: true, suppressBootBanner: true, noModel: true, setupCompleted: false };
-        }
-
-        if (choice === "claude-cli") {
-            if (options.uiAPI.showModelSelector) await options.uiAPI.showModelSelector("claude-cli/sonnet");
-            else await commandRegistry[COMMAND_NAMES.MODEL].execute([], runCommandContext(options));
-            modelSelectorAlreadyShown = true;
-            afterLoginAvailability = getConfiguredModelAvailability();
-            break;
-        }
-
-        const loginArg = choice === "subscription" ? "subscription" : "api-key";
-        await commandRegistry[COMMAND_NAMES.LOGIN].execute([loginArg], {
-            ...runCommandContext(options),
-            skipPostLoginSetup: true,
-        });
-
-        afterLoginAvailability = getConfiguredModelAvailability();
+    if (setupResult.status === "canceled" && !setupResult.modelSelectionShown) {
+        options.uiAPI.appendSystemMessage("Model setup cancelled. Exiting RunWield.", false, "RunWield");
+        await commandRegistry[COMMAND_NAMES.QUIT].execute([], runCommandContext(options));
+        return { shown: true, suppressBootBanner: true, noModel: true, setupCompleted: false };
     }
 
-    if (!modelSelectorAlreadyShown) await commandRegistry[COMMAND_NAMES.MODEL].execute([], runCommandContext(options));
-
     const afterSelectionAvailability = getSelectedDefaultModelAvailability(options.projectRoot);
+    if (setupResult.status !== "ready" && afterSelectionAvailability.available) {
+        options.uiAPI.appendSystemMessage(setupResult.message, setupResult.status === "failed", "RunWield");
+        options.editor.disableSubmit = false;
+        options.tui.setFocus(options.editor);
+        options.tui.requestRender();
+        return { shown: true, suppressBootBanner: true, noModel: false, setupCompleted: false };
+    }
+
     if (!afterSelectionAvailability.available) {
         options.uiAPI.appendSystemMessage(
             "No model was selected. Run /model to choose a default model, run /login to configure credentials, or quit with /quit.",

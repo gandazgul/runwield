@@ -8,6 +8,7 @@ https://github.com/gandazgul/runwield/blob/main/docs/usage.md for full usage.
 - `wld router`: triage a request through Router; default when no command is given.
 - `wld acp` or `wld --mode acp`: start the Agent Client Protocol stdio server for external clients.
 - `wld agent`: list Agents, or start a request with a selected Agent.
+- `wld login`: configure provider credentials and choose a usable default model, then exit.
 - `wld model`: set the default model from a `provider/model_id` value.
 - `wld load-plan`: load a saved Plan by name or path and continue its lifecycle.
 - `wld plans`: list active Plans and open Plan management subcommands.
@@ -55,7 +56,7 @@ Global flags:
 
 ## Slash commands
 
-- `/login`: configure subscription or API-key credentials.
+- `/login`: configure subscription or API-key credentials and switch the live Session model.
 - `/logout`: remove stored credentials.
 - `/status`: show configured providers and available models.
 - `/model`: switch the active model for the current Session.
@@ -92,6 +93,8 @@ Prompt templates and skills can also appear as slash commands when they do not c
 
 ## Session management
 
+- Use `wld login` for setup before a Session starts. ACP Terminal Auth appends `login` to `wld acp` and runs the same
+  setup flow.
 - Use `/new`, `/resume`, `/session`, `/context`, `/compact`, `/export`, and `/share` to manage Sessions in the TUI.
 - Use `--continue` to resume the most recent Session from the CLI.
 - RunWield stores Sessions under `~/.wld/sessions/`, separate from Pi's `~/.pi/agent/sessions/`.
