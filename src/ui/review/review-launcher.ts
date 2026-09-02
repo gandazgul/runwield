@@ -102,6 +102,8 @@ interface CodeReviewSurfaceOptions {
     rawPatch: string;
     gitRef: string;
     agentCwd: string;
+    planName?: string;
+    planTitle?: string;
     planContent?: string;
     planAttrs?: { [key: string]: ReviewDecisionValue };
     guidedReview?: GuidedReviewPolicy;
@@ -374,6 +376,8 @@ export async function startCodeReviewSurface<TDecision = ReviewDecisionValue>({
     rawPatch,
     gitRef,
     agentCwd,
+    planName,
+    planTitle,
     planContent,
     planAttrs,
     guidedReview,
@@ -389,6 +393,8 @@ export async function startCodeReviewSurface<TDecision = ReviewDecisionValue>({
             rawPatch,
             gitRef,
             agentCwd,
+            planName,
+            planTitle,
             reviewStatus,
             planContent,
             planAttrs,

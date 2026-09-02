@@ -285,6 +285,21 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     white-space: nowrap;
 }
 
+.rw-code-review .rw-plan-review-heading {
+    flex: 1 1 auto;
+    overflow: hidden;
+}
+
+.rw-code-review .rw-plan-review-heading h1 {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rw-code-review .rw-plannotator-actions {
+    flex: none;
+}
+
 .rw-plan-review-dev-notice {
     color: var(--destructive, #f87171);
     font-size: 0.72rem;
@@ -1487,4 +1502,28 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 .rw-remote-review-closed .annotation-toolbar,
 .rw-remote-review-closed [data-comment-popover="true"] {
     display: none !important;
+}
+
+@media (min-width: 760px) and (max-width: 980px) {
+    .rw-code-review .rw-plannotator-toolbar {
+        align-items: center;
+        flex-direction: row;
+    }
+
+    .rw-code-review .rw-plan-review-heading {
+        flex-wrap: nowrap;
+    }
+
+    .rw-code-review .rw-plannotator-actions {
+        position: static;
+        right: auto;
+        bottom: auto;
+        left: auto;
+        z-index: auto;
+        justify-content: flex-end;
+        padding: 0;
+        border-top: 0;
+        background: transparent;
+        box-shadow: none;
+    }
 }

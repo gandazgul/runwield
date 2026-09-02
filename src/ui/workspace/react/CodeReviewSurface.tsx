@@ -25,6 +25,8 @@ const DEFAULT_CODE_PAYLOAD = {
     rawPatch: "",
     gitRef: "",
     agentCwd: "",
+    planName: "",
+    planTitle: "",
     token: "",
     mode: "dev",
     reviewStatus: null,
@@ -103,6 +105,12 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
         [payload],
     );
     const files = useMemo(() => parseDiffToFiles(initialPayload.rawPatch || ""), [initialPayload.rawPatch]);
+    const codeReviewPlanTitle = typeof initialPayload.planTitle === "string" && initialPayload.planTitle.trim()
+        ? initialPayload.planTitle.trim()
+        : typeof initialPayload.planName === "string" && initialPayload.planName.trim()
+        ? initialPayload.planName.trim()
+        : "Code changes";
+    const codeReviewHeading = `Code Review - ${codeReviewPlanTitle}`;
     const highlightingReady = useCodeReviewHighlighting(files);
     const [activeFileIndex, setActiveFileIndex] = useState(0);
     const [annotations, setAnnotations] = useState([]);
@@ -590,7 +598,7 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                                 onToggleFileTree={() => setFileTreeOpen((open) => !open)}
                             />
                             <img src="/brand/logo.svg" alt="" aria-hidden="true" />
-                            <h1>Code Review</h1>
+                            <h1 title={codeReviewHeading}>{codeReviewHeading}</h1>
                             {initialPayload.mode === "dev" && (
                                 <p className="rw-plan-review-dev-notice" role="status">
                                     DEV MODE — Feedback and approval won’t go anywhere.

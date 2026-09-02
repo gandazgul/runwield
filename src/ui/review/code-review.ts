@@ -49,6 +49,7 @@ export interface CodeReviewDecision {
 
 interface RunCodeReviewOptions {
     planName: string;
+    planTitle?: string;
     diffText: string;
     planContent?: string;
     planAttrs?: Record<string, ReviewData>;
@@ -154,6 +155,7 @@ export function formatCodeReviewAnnotations(annotations: CodeReviewAnnotation[])
  */
 export async function runCodeReview({
     planName,
+    planTitle,
     diffText,
     planContent,
     planAttrs,
@@ -166,6 +168,8 @@ export async function runCodeReview({
         rawPatch: diffText,
         gitRef: `RunWield workflow diff: ${planName}`,
         agentCwd: executionCwd,
+        planName,
+        planTitle: typeof planTitle === "string" && planTitle.trim() ? planTitle.trim() : planName.trim(),
         planContent,
         planAttrs,
         guidedReview,

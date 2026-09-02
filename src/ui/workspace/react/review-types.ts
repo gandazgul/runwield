@@ -44,6 +44,8 @@ export type CodeReviewOptions = {
     rawPatch: string;
     gitRef: string;
     agentCwd: string;
+    planName?: string;
+    planTitle?: string;
     token: string;
     reviewStatus?: {
         stagedFiles: string[];

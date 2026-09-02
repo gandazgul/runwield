@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
-import { loadPlan } from "../../plan-store.js";
+import { loadPlan, savePlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import {
     attachRecorder,
@@ -22,6 +22,74 @@ function makeValidationUi() {
 function setInteraction(hostedSession, requestInteraction) {
     hostedSession.setInteractionAdapter({ requestInteraction });
 }
+
+Deno.test("human Code Review metadata uses the Plan heading as the review title", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-human-review-title-" });
+    await savePlan(projectRoot, "filename-fallback", "# Readable Plan Title\n\nBody.", {
+        classification: "QUICK_FIX",
+        status: "validated_reviewer",
+        humanReviewMode: "always",
+        humanReviewDecision: null,
+    });
+    const { hostedSession } = makeValidationUi();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "filename-fallback",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: true,
+    });
+    let planTitle = "";
+    setInteraction(hostedSession, (request) => {
+        planTitle = request._meta?.planTitle || "";
+        return Promise.resolve({ outcome: "selected", _meta: { approved: true, feedback: "" } });
+    });
+
+    await runValidationPhase({
+        hostedSession,
+        planName: "filename-fallback",
+        planContent: "# stale caller body",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+    });
+
+    assertEquals(planTitle, "Readable Plan Title");
+});
+
+Deno.test("human Code Review metadata falls back to the Plan filename when no title heading exists", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-human-review-title-" });
+    await savePlan(projectRoot, "filename-fallback", "## Ignored Section\n\n#\n", {
+        classification: "QUICK_FIX",
+        status: "validated_reviewer",
+        humanReviewMode: "always",
+        humanReviewDecision: null,
+    });
+    const { hostedSession } = makeValidationUi();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "filename-fallback",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: true,
+    });
+    let planTitle = "";
+    setInteraction(hostedSession, (request) => {
+        planTitle = request._meta?.planTitle || "";
+        return Promise.resolve({ outcome: "selected", _meta: { approved: true, feedback: "" } });
+    });
+
+    await runValidationPhase({
+        hostedSession,
+        planName: "filename-fallback",
+        planContent: "# stale caller body",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+    });
+
+    assertEquals(planTitle, "filename-fallback");
+});
 
 Deno.test("runValidationLoop runs always human review after semantic approval and before merge", async () => {
     const projectRoot = await makeValidationProjectRoot("p", {
