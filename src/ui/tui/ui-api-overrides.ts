@@ -116,7 +116,7 @@ export function installUiApiOverrides({
             let selector: RunWieldModelSelectorComponent;
             let settled = false;
 
-            const restoreSelector = () => {
+            const restoreSelector = (selected: boolean) => {
                 if (settled) return;
                 settled = true;
                 const selectorIndex = container.children.indexOf(selector);
@@ -124,7 +124,7 @@ export function installUiApiOverrides({
                 else container.addChild(editor);
                 tui.setFocus(editor);
                 tui.requestRender();
-                resolve();
+                resolve({ selected });
             };
 
             try {
@@ -143,13 +143,13 @@ export function installUiApiOverrides({
                                 false,
                                 "RunWield",
                             );
-                            restoreSelector();
+                            restoreSelector(true);
                         } catch (error) {
-                            restoreSelector();
+                            restoreSelector(false);
                             reject(error);
                         }
                     },
-                    onCancel: restoreSelector,
+                    onCancel: () => restoreSelector(false),
                     initialSearchInput,
                 });
 

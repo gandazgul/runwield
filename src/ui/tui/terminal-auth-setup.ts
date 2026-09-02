@@ -3,12 +3,11 @@
  * Setup-only terminal authentication flow for ACP Terminal Auth and `wld login`.
  */
 
-import { runLoginCommand } from "../../cmd/auth/index.ts";
 import { getCwd } from "../../constants.js";
 import { setDefaultModelSelection } from "../../shared/session/model-selection.ts";
 import { getSettingsManager } from "../../shared/settings.js";
-import { getSelectedDefaultModelAvailability } from "../../shared/session/model-readiness.ts";
-import { createChatView } from "./chat-view.ts";
+import { type ChatView, createChatView } from "./chat-view.ts";
+import { runSharedModelSetup } from "./model-setup.ts";
 import { initTUI, stopTUI } from "./tui.ts";
 
 export type TerminalAuthSetupStatus = "ready" | "canceled" | "failed";
@@ -32,10 +31,9 @@ function getActiveDefaultModel(projectRoot: string): { model: string; provider?:
 export async function runTerminalAuthSetup(argv: string[] = []): Promise<TerminalAuthSetupResult> {
     const projectRoot = getCwd();
     const tui = initTUI();
-    let modelSelectorOpened = false;
-    let modelSelected = false;
+    let view: ChatView | null = null;
     try {
-        const view = await createChatView({
+        view = await createChatView({
             tui,
             sessionRuntime: {
                 getSessionSnapshot: () => ({
@@ -48,36 +46,28 @@ export async function runTerminalAuthSetup(argv: string[] = []): Promise<Termina
             suppressStartupHeader: false,
             setActiveModel: async (model, provider) => {
                 await setDefaultModelSelection(projectRoot, model, provider);
-                modelSelected = true;
                 return {
                     status: "deferred",
                     message: `Saved ${provider ? `${provider}/${model}` : model} as the default model.`,
                 };
             },
         });
-        const baseShowModelSelector = view.uiAPI.showModelSelector.bind(view.uiAPI);
-        view.uiAPI.showModelSelector = async (initialSearchInput?: string) => {
-            modelSelectorOpened = true;
-            await baseShowModelSelector(initialSearchInput);
-        };
-        const outcome = await runLoginCommand(argv, { uiAPI: view.uiAPI });
-        if (outcome.status === "canceled") {
-            return { status: "canceled", message: "Login canceled." };
-        }
-        if (outcome.status === "failed") {
-            return { status: "failed", message: outcome.message };
-        }
-        const readiness = getSelectedDefaultModelAvailability(projectRoot);
-        if (!readiness.available) {
-            return { status: "failed", message: readiness.error || "No usable default model is selected." };
-        }
-        if (modelSelectorOpened && !modelSelected) {
-            return { status: "canceled", message: "Model selection canceled." };
-        }
-        return { status: "ready", message: "RunWield login complete." };
+        const result = await runSharedModelSetup({
+            uiAPI: view.uiAPI,
+            projectRoot,
+            argv,
+            title: [
+                "Welcome to RunWield",
+                "",
+                "Choose how you'd like to connect your model.",
+                "RunWield needs a configured model before chat submissions can run.",
+            ].join("\n"),
+        });
+        return { status: result.status, message: result.message };
     } catch (error) {
         return { status: "failed", message: error instanceof Error ? error.message : String(error) };
     } finally {
+        view?.dispose();
         stopTUI();
     }
 }

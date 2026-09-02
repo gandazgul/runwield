@@ -7,6 +7,8 @@ import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/a
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { dirname, fromFileUrl, join, resolve } from "@std/path";
 import { withRuntimeCommandFixture } from "../cmd/testing/runtime-command-fixture.ts";
+import { openFileSessionStore } from "../shared/session/file-session-store.ts";
+import { createRootSessionManager, resolveCreatedRootSessionPath } from "../shared/session/root-session.js";
 import { mapRuntimeEventToAcpUpdate } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
 import { createInitializeResponse, startRunWieldAcpServer, validateNewSessionParams } from "./server.js";
@@ -22,6 +24,23 @@ import { createInitializeResponse, startRunWieldAcpServer, validateNewSessionPar
 const REPO_ROOT = resolve(dirname(fromFileUrl(import.meta.url)), "../..");
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const TERMINAL_AUTH_METHOD = {
+    id: "runwield-terminal-login",
+    name: "RunWield Login",
+    description: "Open a terminal to configure RunWield credentials and choose a default model.",
+    type: "terminal",
+    args: ["login"],
+};
+const ACP_REGISTRY_INITIALIZE_REQUEST = {
+    jsonrpc: "2.0",
+    id: "registry-initialize",
+    method: "initialize",
+    params: {
+        protocolVersion: 1,
+        clientCapabilities: { _meta: { "terminal-auth": true } },
+        clientInfo: { name: "ACP Registry" },
+    },
+};
 
 /** @returns {TestServerHandle} */
 function startTestServer() {
@@ -118,6 +137,76 @@ async function createSession(handle, cwd) {
     };
 }
 
+/**
+ * @param {string} directory
+ * @param {string} runwieldSessionId
+ * @returns {Promise<string | null>}
+ */
+async function findManifestPath(directory, runwieldSessionId) {
+    for await (const entry of Deno.readDir(directory)) {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory) {
+            const found = await findManifestPath(path, runwieldSessionId);
+            if (found) return found;
+            continue;
+        }
+        if (entry.name !== "manifest.json") continue;
+        const manifest = JSON.parse(await Deno.readTextFile(path));
+        if (manifest.runwieldSessionId === runwieldSessionId) return path;
+    }
+    return null;
+}
+
+/**
+ * @param {ReturnType<typeof openFileSessionStore>} store
+ * @param {string} runwieldSessionId
+ */
+async function forceActivationToRequireHydration(store, runwieldSessionId) {
+    const path = await findManifestPath(store.path, runwieldSessionId);
+    assert(path, `manifest not found for ${runwieldSessionId}`);
+    const manifest = JSON.parse(await Deno.readTextFile(path));
+    manifest.activation.state = "idle";
+    await Deno.writeTextFile(path, `${JSON.stringify(manifest, null, 4)}\n`);
+}
+
+/** @param {string} cwd */
+async function createIdleUngeneratedPersistedSession(cwd) {
+    const store = openFileSessionStore();
+    const manager = await createRootSessionManager("new", cwd);
+    try {
+        const project = store.ensureRuntimeProject({ root: cwd });
+        const piSessionId = manager.getSessionId();
+        assert(typeof piSessionId === "string" && piSessionId.length > 0);
+        const transcriptPath = await resolveCreatedRootSessionPath(cwd, manager);
+        manager.appendCustomEntry("runwield.active_agent", { agentName: "router" });
+        manager.appendMessage({
+            role: "user",
+            timestamp: Date.now(),
+            content: [{ type: "text", text: "load this session" }],
+        });
+        const acquired = await store.ensureSessionCatalogRecordAndAcquire({
+            locator: {
+                projectId: project.projectId,
+                piSessionId,
+                transcriptPath,
+                transcriptCwd: cwd,
+                source: "created",
+            },
+            activation: {
+                ownerInstanceId: "acp-load-auth-test",
+                ownerProcessKind: "test",
+                phase: "preparing",
+            },
+        });
+        store.releaseUnchangedActivation(acquired.proof);
+        await forceActivationToRequireHydration(store, acquired.session.runwieldSessionId);
+        return { piSessionId, transcriptPath };
+    } finally {
+        await Promise.resolve((/** @type {{ dispose?: () => void | Promise<void> }} */ (manager)).dispose?.());
+        store.close();
+    }
+}
+
 Deno.test("createInitializeResponse advertises only implemented ACP capabilities", () => {
     const response = createInitializeResponse({ protocolVersion: 1 });
     const capabilities = /** @type {any} */ (response.agentCapabilities);
@@ -138,22 +227,14 @@ Deno.test("createInitializeResponse advertises only implemented ACP capabilities
 });
 
 Deno.test("createInitializeResponse advertises Terminal Auth only to capable clients", () => {
-    const terminalMethod = {
-        id: "runwield-terminal-login",
-        name: "RunWield Login",
-        description: "Open a terminal to configure RunWield credentials and choose a default model.",
-        type: "terminal",
-        args: ["login"],
-    };
-
     assertEquals(
         createInitializeResponse({ protocolVersion: 1, clientCapabilities: { auth: { terminal: true } } }).authMethods,
-        [terminalMethod],
+        [TERMINAL_AUTH_METHOD],
     );
     assertEquals(
         createInitializeResponse({ protocolVersion: 1, clientCapabilities: { _meta: { "terminal-auth": true } } })
             .authMethods,
-        [terminalMethod],
+        [TERMINAL_AUTH_METHOD],
     );
     assertEquals(createInitializeResponse({ protocolVersion: 1, clientCapabilities: {} }).authMethods, []);
     assertEquals(
@@ -166,18 +247,14 @@ Deno.test("createInitializeResponse advertises Terminal Auth only to capable cli
     );
 });
 
-Deno.test("ACP server handles initialize without mixing diagnostics into protocol output", async () => {
+Deno.test("ACP server handles the registry initialize request with one Terminal Auth method", async () => {
     const handle = startTestServer();
     try {
         assertEquals(handle.diagnostics, ["RunWield ACP stdio server started"]);
-        const response = await request(handle, {
-            jsonrpc: "2.0",
-            id: 1,
-            method: "initialize",
-            params: { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: "test" } },
-        });
-        assertEquals(response.id, 1);
+        const response = await request(handle, ACP_REGISTRY_INITIALIZE_REQUEST);
+        assertEquals(response.id, "registry-initialize");
         assertEquals(response.result.agentInfo.name, "RunWield");
+        assertEquals(response.result.authMethods, [TERMINAL_AUTH_METHOD]);
     } finally {
         await closeTestServer(handle);
     }
@@ -209,14 +286,7 @@ Deno.test("CLI --mode acp routes to ACP stdio without stdout diagnostics", async
         stderr: "piped",
     }).spawn();
     const writer = child.stdin.getWriter();
-    await writer.write(encoder.encode(`${
-        JSON.stringify({
-            jsonrpc: "2.0",
-            id: 7,
-            method: "initialize",
-            params: { protocolVersion: 1, clientCapabilities: {} },
-        })
-    }\n`));
+    await writer.write(encoder.encode(`${JSON.stringify(ACP_REGISTRY_INITIALIZE_REQUEST)}\n`));
     await writer.close();
 
     const { code, stdout, stderr } = await child.output();
@@ -224,6 +294,7 @@ Deno.test("CLI --mode acp routes to ACP stdio without stdout diagnostics", async
     const response = JSON.parse(stdoutText);
     assertEquals(code, 0);
     assertEquals(response.result.agentInfo.name, "RunWield");
+    assertEquals(response.result.authMethods, [TERMINAL_AUTH_METHOD]);
     assert(!stdoutText.includes("RunWield ACP"), "stdout should contain protocol JSON only");
     assertStringIncludes(decoder.decode(stderr), "RunWield ACP");
 });
@@ -459,6 +530,30 @@ Deno.test("ACP validates new/load inputs and maps missing persisted Sessions", a
             await closeTestServer(handle);
         }
     });
+});
+
+Deno.test("ACP session/load maps a persisted Session with no configured model to authentication required", async () => {
+    await withRuntimeCommandFixture("runwield-acp-load-no-model-", async (fixture) => {
+        const persisted = await createIdleUngeneratedPersistedSession(fixture.projectRoot);
+        const handle = startTestServer();
+        try {
+            const response = await request(handle, {
+                jsonrpc: "2.0",
+                id: "load-auth-required",
+                method: "session/load",
+                params: {
+                    sessionId: persisted.piSessionId,
+                    cwd: fixture.projectRoot,
+                    mcpServers: [],
+                    _meta: { runwield: { sessionPath: persisted.transcriptPath } },
+                },
+            });
+            assertEquals(response.error.code, -32000);
+            assertStringIncludes(response.error.message, "login and default model setup");
+        } finally {
+            await closeTestServer(handle);
+        }
+    }, { providerState: "none" });
 });
 
 Deno.test("ACP event mapper forwards canonical Runtime tool metadata", () => {
