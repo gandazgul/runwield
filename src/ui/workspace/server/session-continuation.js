@@ -109,10 +109,12 @@ function safeCodeReviewReference(request) {
     const planName = typeof meta.planName === "string" && meta.planName.trim()
         ? meta.planName.trim()
         : "Workspace changes";
+    const planTitle = typeof meta.planTitle === "string" && meta.planTitle.trim() ? meta.planTitle.trim() : planName;
     return {
         rawPatch,
         gitRef: `RunWield workflow diff: ${planName}`,
         planName,
+        planTitle,
     };
 }
 
