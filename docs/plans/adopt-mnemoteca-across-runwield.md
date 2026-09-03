@@ -1,4 +1,5 @@
 ---
+planId: "5a315cc8-5abc-4fb2-a7ad-31b32795d36a"
 classification: "PLANNED_CHANGE"
 workKind: "MAINTENANCE"
 complexity: "HIGH"
@@ -19,10 +20,10 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-03"
-status: "ready_for_work"
+status: "in_progress"
 origin: "internal"
 userVerifiedAt: null
-planId: "5a315cc8-5abc-4fb2-a7ad-31b32795d36a"
+targetBranch: "main"
 ---
 
 # Adopt Mnemoteca Across RunWield
