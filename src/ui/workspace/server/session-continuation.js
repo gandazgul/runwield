@@ -330,10 +330,11 @@ export class WorkspaceSessionContinuationService {
             diagnostics: result.diagnostics || [],
             sessions: await Promise.all(result.sessions.map(async (session) => {
                 const inspected = this.store.inspectSessionActivation(session.runwieldSessionId);
+                const transcriptName = session.transcriptPath ? await readSessionName(session.transcriptPath) : "";
                 return {
                     runwieldSessionId: session.runwieldSessionId,
                     projectId,
-                    displayName: session.displayName || await readSessionName(session.transcriptPath),
+                    displayName: transcriptName || session.displayName || "Untitled Session",
                     headerTimestamp: session.headerTimestamp,
                     lastCatalogedAt: session.lastCatalogedAt,
                     state: inspected.activation?.state || "missing_activation",

@@ -2,6 +2,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { AGENTS } from "../../constants.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { manifestPath } from "../../shared/session/file-session-storage.ts";
 import { makeManagedSessionFixture } from "../../testing/managed-session-fixture.ts";
 import { readSessionName, WorkspaceSessionContinuationService } from "./server/session-continuation.js";
 
@@ -41,6 +42,24 @@ Deno.test("Workspace Session names prefer real metadata before first-message fal
     } finally {
         await Deno.remove(namedPath).catch(() => undefined);
         await Deno.remove(fallbackPath).catch(() => undefined);
+    }
+});
+
+Deno.test("Workspace Session list prefers transcript name before stale catalog fallback", async () => {
+    const fixture = await makeManagedSessionFixture();
+    const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+    try {
+        const path = manifestPath(fixture.sessionDir, fixture.session.runwieldSessionId);
+        const manifest = JSON.parse(await Deno.readTextFile(path));
+        manifest.displayName = "Hello";
+        await Deno.writeTextFile(path, `${JSON.stringify(manifest, null, 2)}\n`);
+
+        const result = await service.listSessions(fixture.project.projectId);
+        assertEquals(result.sessions[0].displayName, "Managed fixture");
+    } finally {
+        service.close();
+        service.store.close();
+        await fixture.cleanup();
     }
 });
 
