@@ -122,7 +122,8 @@
         "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^6.0.5",
         "react/jsx-runtime": "npm:react@^19.2.7/jsx-runtime",
         "react/jsx-dev-runtime": "npm:react@^19.2.7/jsx-dev-runtime",
-        "@xterm/headless": "npm:@xterm/headless@5.5.0"
+        "@xterm/headless": "npm:@xterm/headless@5.5.0",
+        "@modelcontextprotocol/sdk/client/stdio": "npm:@modelcontextprotocol/sdk@^1.30.0/client/stdio.js"
     },
     "tasks": {
         "ci": "deno run -A scripts/run-ci.ts",

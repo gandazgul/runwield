@@ -236,6 +236,10 @@ export class HostedSession {
         this.managedOperationCapability = null;
         /** @type {PendingManagedTurnIntent} */
         this.pendingManagedTurnIntent = {};
+        /** @type {import('../mcp/pool.ts').McpToolPool | null} */
+        this.mcpToolPool = null;
+        /** @type {import('../mcp/config.ts').McpServerDefinition[]} */
+        this.mcpRequestServers = [];
     }
 
     assertActive() {
@@ -484,6 +488,47 @@ export class HostedSession {
 
     getInteractionAdapter() {
         return this.interactionAdapter;
+    }
+
+    /** @param {import('../mcp/config.ts').McpServerDefinition[]} servers */
+    setMcpRequestServers(servers) {
+        this.assertActive();
+        this.mcpRequestServers = servers.map((server) => ({ ...server }));
+    }
+
+    getMcpRequestServers() {
+        return this.mcpRequestServers.map((server) => ({ ...server }));
+    }
+
+    /** @param {import('../mcp/pool.ts').McpToolPool | null} pool */
+    async setMcpToolPool(pool) {
+        this.assertActive();
+        const previous = this.mcpToolPool;
+        this.mcpToolPool = pool;
+        if (previous && previous !== pool) await previous.close().catch(() => {});
+    }
+
+    getMcpToolPool() {
+        return this.mcpToolPool;
+    }
+
+    getMcpRootTools() {
+        return this.mcpToolPool?.getTools?.() || [];
+    }
+
+    /** @param {HostedSession} targetHostedSession */
+    moveMcpStateTo(targetHostedSession) {
+        this.assertActive();
+        targetHostedSession.assertActive();
+        targetHostedSession.mcpToolPool = this.mcpToolPool;
+        targetHostedSession.mcpRequestServers = this.getMcpRequestServers();
+        this.mcpToolPool = null;
+    }
+
+    async closeMcpToolPool() {
+        const pool = this.mcpToolPool;
+        this.mcpToolPool = null;
+        if (pool) await pool.close();
     }
 
     /** @param {string} id @param {ActiveInteractionRecord} record */
@@ -883,7 +928,7 @@ export class HostedSession {
         return Boolean(this.activeTurnId);
     }
 
-    dispose() {
+    async dispose() {
         if (this.disposed) return;
         disposeIfPresent(this.rootAgentSession);
         for (const session of this.subAgentSessions) disposeIfPresent(session);
@@ -913,7 +958,9 @@ export class HostedSession {
         this.steeringTargetStack = [];
         this.agentTransitionId = null;
         this.agentTransitionSteering = [];
-        this.managed = null;
         this.disposed = true;
+        await this.closeMcpToolPool();
+        this.mcpRequestServers = [];
+        this.managed = null;
     }
 }

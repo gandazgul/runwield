@@ -22,6 +22,7 @@ import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { savePlan } from "../../plan-store.js";
 import { rememberNonGitExecutionConsent } from "../git.js";
+import { McpToolPool } from "../mcp/pool.ts";
 import { loadPlanActionEvidence } from "../workflow/plan-actions.ts";
 import { getHomeDir, SUBAGENTS } from "../../constants.js";
 
@@ -2944,11 +2945,32 @@ Deno.test("SessionRuntime close operations dispose sessions by id", async () => 
     const first = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
     const second = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
 
-    assertEquals(runtime.closeSession(first.sessionId), { ok: true, closed: true });
+    assertEquals(await runtime.closeSession(first.sessionId), { ok: true, closed: true });
     assertEquals(runtime.getSessionSnapshot(first.sessionId), null);
     assertEquals(await runtime.closeAllSessionsWhenIdle(), { ok: true, closed: 1 });
     assertEquals(runtime.getSessionSnapshot(second.sessionId), null);
     assertEquals(runtime.listSessions(), []);
+});
+
+Deno.test("SessionRuntime close settles cleanup when MCP pool close fails", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot() });
+    const hostedSession = sessionHost.requireSession(sessionId);
+    /** @type {string[]} */
+    const events = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        events.push(event.type);
+    });
+    const pool = new McpToolPool([], []);
+    pool.close = () => Promise.reject(new Error("fixture MCP close failed"));
+    await hostedSession.setMcpToolPool(pool);
+
+    assertEquals(await runtime.closeSession(sessionId), { ok: true, closed: true });
+
+    assertEquals(runtime.getSessionSnapshot(sessionId), null);
+    assertEquals(runtime.listSessions(), []);
+    assertEquals(events.includes(RuntimeEventTypes.SESSION_CLOSED), true);
 });
 
 Deno.test("SessionRuntime snapshot derives workflow context from active execution workflow fallback", async () => {

@@ -7,8 +7,9 @@ import { __resetSettingsForTests } from "../../settings.js";
 import { loadAgentDef, resolveSessionToolNames } from "../agents.js";
 import { HostedSession } from "../hosted-session.js";
 import { loadSubAgentDefinition, REVIEWER_SUBAGENT_TOOLS } from "../subagent-definitions.ts";
-import { buildAgentSession, resolveEffectiveSessionToolNames } from "../session.js";
+import { buildAgentSession, composeClaudeCliBridgedTools, resolveEffectiveSessionToolNames } from "../session.js";
 import { createReviewDiffTool } from "../../workflow/review-diff-tool.js";
+import { startMcpToolPool } from "../../mcp/pool.ts";
 
 // Anchored to this file, not Deno.cwd(): test realms share one process, so a
 // concurrent test file's chdir would otherwise point these at its temp dir.
@@ -19,6 +20,28 @@ const REPO_ROOT = fromFileUrl(new URL("../../../..", import.meta.url));
  */
 function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const MCP_FIXTURE_SERVER = fromFileUrl(new URL("../../mcp/fixture-server.ts", import.meta.url));
+
+/**
+ * @param {string} cwd
+ * @returns {Promise<{ pool: import('../../mcp/pool.ts').McpToolPool, tools: import('@earendil-works/pi-coding-agent').ToolDefinition[], logPath: string }>}
+ */
+async function startRealMcpFixtureTools(cwd) {
+    const logPath = await Deno.makeTempFile({ prefix: "runwield-real-mcp-policy-" });
+    const result = await startMcpToolPool({
+        cwd,
+        servers: [{
+            name: "fixture",
+            command: Deno.execPath(),
+            args: ["run", "-A", MCP_FIXTURE_SERVER],
+            env: { RUNWIELD_MCP_FIXTURE_LOG: logPath },
+            source: "request",
+        }],
+    });
+    assertEquals(result.warnings, []);
+    return { pool: result.pool, tools: result.pool.getTools(), logPath };
 }
 
 /** @param {string} path */
@@ -294,6 +317,101 @@ Deno.test("resolveEffectiveSessionToolNames normalizes legacy multi replace tool
         resolveEffectiveSessionToolNames(["read", "edit", "multi_replace_file_content"], undefined, []),
         ["read", "edit", "multi_file_edit"],
     );
+});
+
+Deno.test("root Pi Agent builds keep MCP tools when using a subagent definition", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-root-mcp-subagent-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
+        let session;
+        /** @type {Awaited<ReturnType<typeof startRealMcpFixtureTools>> | undefined} */
+        let mcpFixture;
+        try {
+            Deno.env.set("HOME", tempHome);
+            __resetSettingsForTests();
+            await writeVisionModelConfig(tempHome);
+            const hostedSession = new HostedSession({ id: "root-mcp-subagent", cwd: tempHome });
+            mcpFixture = await startRealMcpFixtureTools(tempHome);
+            const mcpTool = mcpFixture.tools[0];
+            const built = await buildAgentSession({
+                hostedSession,
+                agentName: AGENTS.PLANNER,
+                modelOverride: "test/text",
+                subAgentDefinition: { id: SUBAGENTS.SLICER },
+                mcpRootTools: [mcpTool],
+            });
+            session = built.session;
+
+            assert(built.tools.includes(mcpTool.name));
+            assert(built.finalCustomTools.some((tool) => tool.name === mcpTool.name));
+        } finally {
+            session?.dispose();
+            await mcpFixture?.pool.close();
+            if (mcpFixture) await Deno.remove(mcpFixture.logPath).catch(() => {});
+            if (originalHome) Deno.env.set("HOME", originalHome);
+            else Deno.env.delete("HOME");
+            __resetSettingsForTests();
+            await removeTempDir(tempHome);
+        }
+    });
+});
+
+Deno.test("bounded Pi and Claude subagent builds do not inherit root MCP tools", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-subagent-mcp-exclusion-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
+        let session;
+        /** @type {Awaited<ReturnType<typeof startRealMcpFixtureTools>> | undefined} */
+        let mcpFixture;
+        try {
+            Deno.env.set("HOME", tempHome);
+            __resetSettingsForTests();
+            await writeVisionModelConfig(tempHome);
+            const hostedSession = new HostedSession({ id: "subagent-mcp-exclusion", cwd: tempHome });
+            mcpFixture = await startRealMcpFixtureTools(tempHome);
+            const mcpTool = mcpFixture.tools[0];
+            const built = await buildAgentSession({
+                hostedSession,
+                agentName: AGENTS.REVIEWER,
+                modelOverride: "test/text",
+                subAgentDefinition: { id: SUBAGENTS.REVIEWER },
+                mcpRootTools: [],
+            });
+            session = built.session;
+            assertEquals(built.tools.includes(mcpTool.name), false);
+            assertEquals(built.finalCustomTools.some((tool) => tool.name === mcpTool.name), false);
+
+            const agentDef = await loadAgentDef(AGENTS.GUIDE, tempHome);
+            const rootClaudeTools = await composeClaudeCliBridgedTools({
+                agentDef,
+                agentName: AGENTS.GUIDE,
+                hostedSession,
+                triageMeta: undefined,
+                cwd: tempHome,
+                mcpRootTools: [mcpTool],
+            });
+            const isolatedClaudeTools = await composeClaudeCliBridgedTools({
+                agentDef,
+                agentName: AGENTS.GUIDE,
+                hostedSession,
+                triageMeta: undefined,
+                cwd: tempHome,
+                mcpRootTools: [],
+            });
+            assert(rootClaudeTools.some((tool) => tool.name === mcpTool.name));
+            assertEquals(isolatedClaudeTools.some((tool) => tool.name === mcpTool.name), false);
+        } finally {
+            session?.dispose();
+            await mcpFixture?.pool.close();
+            if (mcpFixture) await Deno.remove(mcpFixture.logPath).catch(() => {});
+            if (originalHome) Deno.env.set("HOME", originalHome);
+            else Deno.env.delete("HOME");
+            __resetSettingsForTests();
+            await removeTempDir(tempHome);
+        }
+    });
 });
 
 Deno.test("buildAgentSession auto-wires Guide docs-only tools when requested", async () => {

@@ -169,6 +169,73 @@ function isNonEmptyArray(value) {
     return Array.isArray(value) && value.length > 0;
 }
 
+/** @param {unknown} value */
+function isPlainRecord(value) {
+    return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+/**
+ * @param {unknown} value
+ * @returns {Record<string, string>}
+ */
+function validateAcpMcpEnv(value) {
+    if (!Array.isArray(value)) {
+        throwInvalidParams("ACP stdio MCP server env must be an array", { field: "mcpServers.env" });
+    }
+    /** @type {Record<string, string>} */
+    const env = {};
+    for (const entry of value) {
+        if (!isPlainRecord(entry) || typeof entry.name !== "string" || typeof entry.value !== "string") {
+            throwInvalidParams("ACP stdio MCP server env entries require string name and value", {
+                field: "mcpServers.env",
+            });
+        }
+        env[entry.name] = entry.value;
+    }
+    return env;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {import('../shared/mcp/config.ts').McpServerDefinition[]}
+ */
+function validateAcpMcpServers(value) {
+    if (!Array.isArray(value)) throwInvalidParams("ACP mcpServers must be an array", { field: "mcpServers" });
+    /** @type {import('../shared/mcp/config.ts').McpServerDefinition[]} */
+    const servers = [];
+    for (const server of value) {
+        if (!isPlainRecord(server)) throwInvalidParams("ACP MCP server must be an object", { field: "mcpServers" });
+        if (server.type === "http" || server.type === "sse" || server.type === "acp") {
+            throwInvalidParams(`RunWield supports only stdio MCP servers, not ${server.type}`, {
+                field: "mcpServers.type",
+                transport: server.type,
+            });
+        }
+        if (server.type !== undefined && server.type !== "stdio") {
+            throwInvalidParams("Unsupported ACP MCP server transport", { field: "mcpServers.type" });
+        }
+        if (typeof server.name !== "string" || !server.name.trim()) {
+            throwInvalidParams("ACP stdio MCP server requires a name", { field: "mcpServers.name" });
+        }
+        if (typeof server.command !== "string" || !isAbsolute(server.command)) {
+            throwInvalidParams("ACP stdio MCP server requires an absolute command path", {
+                field: "mcpServers.command",
+            });
+        }
+        if (!Array.isArray(server.args) || server.args.some((/** @type {unknown} */ arg) => typeof arg !== "string")) {
+            throwInvalidParams("ACP stdio MCP server args must be an array of strings", { field: "mcpServers.args" });
+        }
+        servers.push({
+            name: server.name,
+            command: server.command,
+            args: server.args,
+            env: validateAcpMcpEnv(server.env),
+            source: "request",
+        });
+    }
+    return servers;
+}
+
 /**
  * @param {Array<Record<string, any>>} blocks
  * @returns {string}
@@ -205,12 +272,7 @@ export function validateNewSessionParams(params) {
     if (!request.cwd || typeof request.cwd !== "string" || !isAbsolute(request.cwd)) {
         throwInvalidParams("session/new requires an absolute cwd", { cwd: request.cwd });
     }
-    if (
-        isNonEmptyArray(request.mcpServers) ||
-        (request.mcpServers && typeof request.mcpServers === "object" && Object.keys(request.mcpServers).length > 0)
-    ) {
-        throwInvalidParams("RunWield ACP MVP does not support MCP servers yet", { field: "mcpServers" });
-    }
+    const mcpServers = validateAcpMcpServers(request.mcpServers);
     if (
         isNonEmptyArray(request.additionalDirectories) ||
         (request.additionalDirectories && typeof request.additionalDirectories === "object" &&
@@ -220,14 +282,14 @@ export function validateNewSessionParams(params) {
             field: "additionalDirectories",
         });
     }
-    return request;
+    return { ...request, mcpServers: request.mcpServers, runwieldMcpServers: mcpServers };
 }
 
 /** @param {unknown} params */
 function validateLoadSessionParams(params) {
     const request = /** @type {import('@agentclientprotocol/sdk').LoadSessionRequest & { _meta?: { runwield?: { sessionPath?: unknown } } }} */
         (params || {});
-    validateNewSessionParams(request);
+    const validated = validateNewSessionParams(request);
     if (!request.sessionId || typeof request.sessionId !== "string") {
         throwInvalidParams("session/load requires sessionId", { sessionId: request.sessionId });
     }
@@ -235,7 +297,7 @@ function validateLoadSessionParams(params) {
     if (sessionPath !== undefined && typeof sessionPath !== "string") {
         throwInvalidParams("session/load _meta.runwield.sessionPath must be a string", { field: "sessionPath" });
     }
-    return { ...request, sessionPath };
+    return { ...request, runwieldMcpServers: validated.runwieldMcpServers, sessionPath };
 }
 
 /** @param {unknown} params */
@@ -266,7 +328,7 @@ async function closeMappedSession(runtime, sessionMap, acpSessionId) {
             } catch {
                 // Close should still dispose mapping if cancellation fails.
             }
-            runtime.closeSession(runtimeSessionId);
+            await runtime.closeSession(runtimeSessionId);
         }
     }
     sessionMap.deleteRecord(acpSessionId);
@@ -278,6 +340,30 @@ async function closeAllMappedSessions(runtime, sessionMap) {
     for (const record of sessionMap.listRecords()) await closeMappedSession(runtime, sessionMap, record.acpSessionId);
     if (runtime.closeAllSessionsWhenIdle) await runtime.closeAllSessionsWhenIdle();
     else runtime.closeAllSessions?.();
+}
+
+/**
+ * @param {{ client?: { notify?: Function }, notify?: Function }} context
+ * @param {SessionRuntime} runtime
+ * @param {string} runtimeSessionId
+ * @param {string} acpSessionId
+ */
+async function replaySetupEvents(context, runtime, runtimeSessionId, acpSessionId) {
+    /** @type {Promise<unknown>[]} */
+    const pendingNotifications = [];
+    const unsubscribe = runtime.subscribeSessionEvents(runtimeSessionId, (event) => {
+        const notification = mapRuntimeEventToAcpSessionNotification(acpSessionId, event);
+        if (!notification) return;
+        const pending = notifyClient(context, methods.client.session.update, notification);
+        pendingNotifications.push(pending);
+        return pending;
+    });
+    try {
+        await runtime.replaySession(runtimeSessionId);
+        await Promise.allSettled(pendingNotifications);
+    } finally {
+        unsubscribe();
+    }
 }
 
 /**
@@ -301,7 +387,10 @@ function createRunWieldAcpServer(context) {
         const request = validateNewSessionParams(context.params);
         const readiness = getSelectedDefaultModelAvailability(request.cwd);
         if (!readiness.available) throwAuthenticationRequired(request.cwd);
-        const runtimeSessionId = await runtime.createPromptReadySession({ cwd: request.cwd });
+        const runtimeSessionId = await runtime.createPromptReadySession({
+            cwd: request.cwd,
+            mcpServers: request.runwieldMcpServers,
+        });
         const snapshot = runtime.getSessionSnapshot(runtimeSessionId);
         if (!snapshot) throwUnknownSession(runtimeSessionId);
         const persistedSessionId = snapshot.sessionManagerId || runtimeSessionId;
@@ -309,6 +398,7 @@ function createRunWieldAcpServer(context) {
             { sessionId: runtimeSessionId, cwd: snapshot.cwd },
             { persistedSessionId },
         );
+        await replaySetupEvents(context, runtime, runtimeSessionId, record.acpSessionId);
         return {
             sessionId: record.acpSessionId,
             _meta: {
@@ -329,6 +419,7 @@ function createRunWieldAcpServer(context) {
                 cwd: request.cwd,
                 sessionId: persistedSessionId,
                 sessionPath: request.sessionPath,
+                mcpServers: request.runwieldMcpServers,
             });
             const snapshot = runtime.getSessionSnapshot(result.sessionId);
             const stablePersistedSessionId = snapshot?.managed?.runwieldSessionId || result.sessionManagerId;
@@ -554,8 +645,13 @@ export function startRunWieldAcpServer(input, output, options = {}) {
             sessionStore.close();
         }
     };
-    connection.closed.then(closeMachinery, closeMachinery);
+    const closed = connection.closed.then(closeMachinery, closeMachinery);
     const diagnostics = options.diagnostic;
     if (diagnostics) diagnostics("RunWield ACP stdio server started");
-    return connection;
+    return {
+        signal: connection.signal,
+        client: connection.client,
+        close: (error) => connection.close(error),
+        closed,
+    };
 }

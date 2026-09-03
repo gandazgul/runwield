@@ -29,16 +29,19 @@ const handlerMetadata = new WeakMap();
  * @property {string} [model]
  * @property {string} [cwd]
  * @property {boolean} [forceRebuild]
+ * @property {boolean} [reloadMcpTools]
  * @property {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  * @property {import('../../tools/plan-written.ts').TriageMeta} [triageMeta]
  * @property {{ id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }} [subAgentDefinition]
  * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [customTools]
+ * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [mcpRootTools]
  * @property {string[]} [toolNames]
  * @property {string} [projectStateContext]
  * @property {boolean} [includeEditFallback]
  * @property {string} [debugLogPath]
  * @property {boolean} [releaseActiveWorkflow]
  * @property {import('./managed-operation.ts').ManagedOperationCapability} [managedOperationCapability]
+ * @property {import('../mcp/config.ts').McpServerDefinition[]} [mcpServers]
  */
 
 /**
@@ -111,7 +114,8 @@ export async function switchActiveAgent(hostedSession, options) {
     const effectiveCwd = rootSwitchState?.cwd ?? previousSwitch?.cwd ?? hostedSession.cwd;
     const cwdChanged = cwdProvided && options.cwd !== effectiveCwd;
     const customRootConfigurationProvided = Boolean(
-        options.subAgentDefinition || options.customTools || options.toolNames || options.triageMeta ||
+        options.subAgentDefinition || options.customTools || options.mcpRootTools || options.toolNames ||
+            options.triageMeta ||
             options.projectStateContext !== undefined || options.includeEditFallback !== undefined ||
             options.debugLogPath,
     );
@@ -123,6 +127,7 @@ export async function switchActiveAgent(hostedSession, options) {
         triageMeta: options.triageMeta,
         subAgentDefinition: options.subAgentDefinition,
         customTools: options.customTools,
+        mcpRootTools: options.mcpRootTools,
         toolNames: options.toolNames,
         projectStateContext: options.projectStateContext,
         includeEditFallback: options.includeEditFallback,

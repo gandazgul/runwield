@@ -17,6 +17,7 @@ import { ClaudeCliBackendError } from "./backends/claude-cli/failure.ts";
 import { CLAUDE_CLI_MCP_PROVENANCE } from "./backends/claude-cli/mcp-bridge.ts";
 import { readLatestTaskCompletedOutcome } from "../workflow/workflow-results.js";
 import { readLatestTriageOutcome } from "../workflow/orchestrator.ts";
+import { startMcpToolPool } from "../mcp/pool.ts";
 
 interface ToolResultDetails {
     outcome?: string;
@@ -178,6 +179,55 @@ Deno.test("Claude CLI root turn advertises RunWield skills and project tool perm
         assertEquals(allowedTools.includes("mcp__runwield__web_docs_search"), true);
         assertStringIncludes(log.promptText, "web_search");
         assertStringIncludes(log.promptText, "Search the public web");
+    });
+});
+
+Deno.test("Claude CLI root turn can invoke an external MCP tool through the bridge", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd, logPath) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        const externalLogPath = join(cwd, "external-mcp.jsonl");
+        const fixtureServer = new URL("../mcp/fixture-server.ts", import.meta.url).pathname;
+        const poolResult = await startMcpToolPool({
+            cwd,
+            servers: [{
+                name: "fixture",
+                command: Deno.execPath(),
+                args: ["run", "-A", fixtureServer],
+                env: { RUNWIELD_MCP_FIXTURE_LOG: externalLogPath },
+                source: "request",
+            }],
+        });
+        assertEquals(poolResult.warnings, []);
+        const callsPath = join(cwd, "mcp-calls-external.json");
+        await Deno.writeTextFile(
+            callsPath,
+            JSON.stringify([{ name: "mcp_fixture_fixture_echo", arguments: { marker: "claude-external" } }]),
+        );
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", callsPath);
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_TEXT", "external mcp done");
+        try {
+            await ensureRootAgentSession({
+                hostedSession,
+                agentName: AGENTS.GUIDE,
+                mcpRootTools: poolResult.pool.getTools(),
+            });
+            const messages = await runRootTurn({
+                hostedSession,
+                agentName: AGENTS.GUIDE,
+                userRequest: "call external",
+            });
+
+            const lines = (await Deno.readTextFile(logPath)).trim().split("\n").map((line) => JSON.parse(line));
+            const toolsLine = lines.find((line) => line.mcp?.tools);
+            assertEquals(toolsLine.mcp.tools.includes("mcp_fixture_fixture_echo"), true);
+            const callsLine = lines.find((line) => line.mcp?.calls);
+            assertEquals(callsLine.mcp.calls[0].isError, false);
+            assertStringIncludes(await Deno.readTextFile(externalLogPath), '"marker":"claude-external"');
+            assertEquals(messages.some((message) => message.role === "toolResult"), true);
+        } finally {
+            await poolResult.pool.close();
+        }
     });
 });
 

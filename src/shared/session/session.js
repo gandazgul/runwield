@@ -1943,6 +1943,7 @@ function applyNamedInvocationExpansionToPiSession(session, sessionManager) {
  * @param {string} opts.agentName
  * @param {string[]} [opts.toolNames]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
+ * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.mcpRootTools]
  * @param {string} [opts.modelOverride]
  * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
@@ -1977,6 +1978,7 @@ export async function buildAgentSession({
     agentName,
     toolNames,
     customTools,
+    mcpRootTools,
     modelOverride,
     thinkingLevelOverride,
     sessionManager,
@@ -2030,6 +2032,13 @@ export async function buildAgentSession({
     );
 
     const finalCustomTools = filterCustomWorkflowAdvancementTools(customTools || [], workflowAuthority === false);
+    const effectiveMcpRootTools = mcpRootTools || targetHostedSession?.getMcpRootTools?.() || [];
+    if (workflowAuthority !== false) {
+        for (const tool of effectiveMcpRootTools) {
+            if (!finalCustomTools.find((existing) => existing.name === tool.name)) finalCustomTools.push(tool);
+            if (!tools.includes(tool.name)) tools.push(tool.name);
+        }
+    }
     if (!activeModelSupportsImages && visionFallback && !tools.includes("see_image")) {
         tools = [...tools, "see_image"];
     }
@@ -2330,6 +2339,7 @@ export async function buildAgentSession({
  *   triageMeta: import('../../tools/plan-written.ts').TriageMeta | undefined,
  *   cwd: string,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
+ *   mcpRootTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
  *   workflowAuthority?: boolean,
  * }} opts
  * @returns {Promise<import('@earendil-works/pi-coding-agent').ToolDefinition[]>}
@@ -2342,6 +2352,7 @@ export async function composeClaudeCliBridgedTools({
     cwd,
     customTools = [],
     workflowAuthority = true,
+    mcpRootTools,
 }) {
     /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
     const finalCustomTools = filterCustomWorkflowAdvancementTools(customTools, workflowAuthority === false);
@@ -2412,6 +2423,12 @@ export async function composeClaudeCliBridgedTools({
     if (declared.has("multi_file_edit") && !hasTool("multi_file_edit")) {
         const { createMultiFileEditTool } = await import("../../tools/multi_file_edit.ts");
         finalCustomTools.push(createMultiFileEditTool(cwd));
+    }
+    const effectiveMcpRootTools = mcpRootTools || hostedSession?.getMcpRootTools?.() || [];
+    if (workflowAuthority !== false) {
+        for (const tool of effectiveMcpRootTools) {
+            if (!hasTool(tool.name)) finalCustomTools.push(tool);
+        }
     }
 
     return finalCustomTools.filter((tool) => tool.name !== "delegate_agent");
@@ -2491,6 +2508,7 @@ export async function buildExecutionSession(opts) {
         cwd: sessionCwd,
         customTools: filterCustomWorkflowAdvancementTools(opts.customTools || [], opts.workflowAuthority === false),
         workflowAuthority: opts.workflowAuthority !== false,
+        mcpRootTools: opts.mcpRootTools,
     });
     const rebuildToolNames = filterWorkflowAdvancementTools(
         resolveEffectiveSessionToolNames(
@@ -3424,7 +3442,7 @@ export function applyAttentionNudge(agentName, userRequest, rootTurnCount) {
     ].join("\n");
 }
 
-/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, subAgentDefinition?: { id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, cwd: string, model?: string, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string, steeringTargetId?: string }>} */
+/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, subAgentDefinition?: { id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], mcpToolNames?: string[], rootTurnCount: number, projectStateContext: string, cwd: string, model?: string, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string, steeringTargetId?: string }>} */
 const rootSessionMetadata = new WeakMap();
 
 /** @type {WeakMap<import('./hosted-session.js').HostedSession, { agentName: string, debugLogPath?: string }>} */
@@ -3482,11 +3500,12 @@ export function getRootSessionRebuildOptions(hostedSession) {
     if (!session) return {};
     const meta = rootSessionMetadata.get(session);
     if (!meta) return {};
+    const mcpToolNames = new Set(meta.mcpToolNames || []);
     return {
         cwd: meta.cwd,
         subAgentDefinition: meta.subAgentDefinition,
-        customTools: meta.finalCustomTools,
-        toolNames: meta.tools,
+        customTools: (meta.finalCustomTools || []).filter((tool) => !mcpToolNames.has(tool.name)),
+        toolNames: (meta.tools || []).filter((name) => !mcpToolNames.has(name)),
         projectStateContext: meta.projectStateContext,
     };
 }
@@ -3552,6 +3571,7 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
  * @param {string} opts.agentName  Internal name (matches agent definition filename).
  * @param {string[]} [opts.toolNames]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
+ * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.mcpRootTools]
  * @param {string} [opts.modelOverride]
  * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
@@ -3663,6 +3683,7 @@ export async function ensureRootAgentSession(opts) {
         agentName: opts.agentName,
         tools,
         finalCustomTools,
+        mcpToolNames: (opts.mcpRootTools || hostedSession.getMcpRootTools?.() || []).map((tool) => tool.name),
         rootTurnCount: 0,
         projectStateContext: rootProjectStateContext,
         cwd: opts.cwd || hostedSession.cwd,
@@ -3686,6 +3707,7 @@ export async function ensureRootAgentSession(opts) {
  * @param {string} opts.userRequest
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
+ * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.mcpRootTools]
  * @param {AbortSignal} [opts.signal]
  * @param {import('./request-dispatch.ts').RequestDispatchKind} [opts.dispatchKind]
  * @param {boolean} [opts.disableAutoCompaction]
@@ -3877,6 +3899,7 @@ export async function runNonInteractiveAgentPrompt({
  * @param {string} opts.agentName
  * @param {string[]} [opts.toolNames] - Optional explicit tool override; defaults to agent frontmatter tools.
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
+ * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.mcpRootTools]
  * @param {string} [opts.modelOverride] - Optional explicit model override in provider/id format.
  * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {string} opts.userRequest - The user-facing request/instruction to send to the agent
@@ -3912,6 +3935,7 @@ export async function runIsolatedAgentSession(opts) {
         hostedSession,
         cwd: opts.cwd || hostedSession.cwd,
         projectStateContext,
+        mcpRootTools: [],
     });
     const { session, agentDef, promptState, resolvedModel, resolvedThinkingLevel } = built;
     const executionSession = built.executionSession || null;
