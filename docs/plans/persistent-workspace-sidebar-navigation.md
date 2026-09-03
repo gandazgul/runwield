@@ -1,4 +1,5 @@
 ---
+planId: "2a7837a7-c3da-4ba5-b374-8f5afcfbfb50"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
@@ -21,11 +22,11 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-09-03T16:51:05-04:00"
-status: "ready_for_work"
+status: "in_progress"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
-planId: "2a7837a7-c3da-4ba5-b374-8f5afcfbfb50"
+targetBranch: "main"
 ---
 
 # Keep the Workspace Sidebar Mounted During Navigation
