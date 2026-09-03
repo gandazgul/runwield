@@ -28,6 +28,7 @@ parentPlan: "personal-remote-workspace-v2"
 order: 4
 dependencies:
     - "03-plan-centered-workspace-home-and-navigation"
+planId: "8923c678-c0ac-477b-8129-a2473a51c3b9"
 ---
 
 # Unified Workspace Search and Artifact Reading

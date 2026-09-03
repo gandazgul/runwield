@@ -30,6 +30,7 @@ order: 3
 dependencies:
     - "01-durable-plan-to-session-continuity"
     - "02-durable-session-attention-and-browser-tab-notifications"
+planId: "1d9a226c-defb-4475-bbea-abfbb64bb691"
 ---
 
 # Plan-Centered Workspace Home and Navigation

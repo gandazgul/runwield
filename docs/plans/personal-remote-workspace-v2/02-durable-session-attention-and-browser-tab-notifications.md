@@ -24,6 +24,7 @@ parentPlan: "personal-remote-workspace-v2"
 order: 2
 dependencies:
     []
+planId: "46942300-8b9c-4af5-bdaf-1b69ea39be34"
 ---
 
 # Durable Session Attention and Browser Tab Notifications

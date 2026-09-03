@@ -22,6 +22,7 @@ parentPlan: "personal-remote-workspace-v2"
 order: 1
 dependencies:
     []
+planId: "98b12e58-4960-4b5d-8f72-835ec7804dbf"
 ---
 
 # Durable Plan-to-Session Continuity
