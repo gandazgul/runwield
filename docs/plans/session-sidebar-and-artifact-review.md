@@ -1,7 +1,7 @@
 ---
+planId: "0b483511-219a-42ea-a8b5-e21ed838f394"
 classification: "PROJECT"
 complexity: "HIGH"
-summary: "Give every persisted RunWield Session a shared TUI and Workspace sidebar for workflow state, Session information, and explicitly registered canonical Markdown artifacts, then add optional PRD and ADR review without giving Session metadata document authority."
 affectedPaths:
     - "src/shared/session/"
     - "src/shared/workflow/"
@@ -18,9 +18,15 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-09-02T10:21:37-04:00"
-status: "draft"
+status: "user_verified"
 origin: "internal"
-planId: "0b483511-219a-42ea-a8b5-e21ed838f394"
+userVerifiedAt: "2026-09-03T19:45:53.869Z"
+userVerificationNote: "done with codex"
+workRecord:
+    status: "generated"
+    recordId: "eb1899c4-dfe2-4a27-affc-69fa6d1dc485"
+    path: "docs/work-records/2026-09-03-shared-session-sidebar-and-artifact-catalog-completed.md"
+    lastAttemptAt: "2026-09-03T19:45:54.010Z"
 ---
 
 # Shared Session Sidebar and Artifact Review

@@ -11,15 +11,16 @@ affectedPaths:
     - "src/cmd/auth/"
     - "src/cmd/models/"
     - "src/cmd/resume/"
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
 createdAt: "2026-08-23T20:02:05.454Z"
-status: "feedback"
+status: "ready_for_work"
 origin: "internal"
 parentPlan: "agy-cli-execution-backend"
 order: 2
 dependencies:
     - "01-prove-agy-custom-agent-execution-spike"
-executionAgent: "engineer"
-collaborationRecommendation: "autonomous"
+userVerifiedAt: null
 targetBranch: "feature/agy-cli-execution-backend"
 ---
 
