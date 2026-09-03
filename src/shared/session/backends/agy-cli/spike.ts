@@ -28,19 +28,12 @@ export function previewAgyCustomAgentProof(agentName: string): AgyCustomAgentPre
         agentName,
         definitionPath: paths.definitionPath,
         plannedOperation:
-            `Create temporary Antigravity custom agent ${agentName}, verify it with /agents, run one conflicting request, then remove ${paths.definitionPath}`,
+            `Create temporary Antigravity custom agent ${agentName}, verify it with /agents, run one conflicting request, then remove ${paths.agentDirectoryPath}`,
     };
 }
 
 function textStreamToString(stream: ReadableStream<Uint8Array>): Promise<string> {
     return new Response(stream).text();
-}
-
-function jsonContainsExactString(value: JsonValue, expected: string): boolean {
-    if (typeof value === "string") return value === expected;
-    if (!value || typeof value !== "object") return false;
-    if (Array.isArray(value)) return value.some((item) => jsonContainsExactString(item, expected));
-    return Object.values(value).some((item) => jsonContainsExactString(item, expected));
 }
 
 type JsonScalar = string | number | boolean | null;
@@ -49,6 +42,27 @@ interface JsonRecord {
     [key: string]: JsonValue;
 }
 type JsonValue = JsonScalar | JsonArray | JsonRecord;
+
+function isJsonRecord(value: JsonValue | undefined): value is JsonRecord {
+    return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function readAgentList(value: JsonValue): JsonArray | null {
+    if (Array.isArray(value)) return value;
+    if (isJsonRecord(value) && Array.isArray(value.agents)) return value.agents;
+    return null;
+}
+
+function agentEntryMatchesName(value: JsonValue, expected: string): boolean {
+    if (typeof value === "string") return value === expected;
+    if (!isJsonRecord(value)) return false;
+    return value.name === expected;
+}
+
+function agentListContainsExactName(value: JsonValue, expected: string): boolean {
+    const agents = readAgentList(value);
+    return Boolean(agents?.some((agent) => agentEntryMatchesName(agent, expected)));
+}
 
 export async function verifyAgyCustomAgentListed(agentName: string): Promise<string> {
     const processPort = new DenoAgyCliProcessPort();
@@ -63,7 +77,7 @@ export async function verifyAgyCustomAgentListed(agentName: string): Promise<str
     } catch {
         throw new Error(`agy /agents did not return JSON: ${stdoutText}`);
     }
-    if (!jsonContainsExactString(parsed, agentName)) {
+    if (!agentListContainsExactName(parsed, agentName)) {
         throw new Error(`agy /agents did not list exact custom agent ${agentName}`);
     }
     return stdoutText;
@@ -96,10 +110,7 @@ export async function proveAgyCustomAgentExecution(
         const stderrText = await result.stderrText;
         const status = await result.completed;
         if (!status.success) throw new Error(`agy execution failed with code ${status.code}: ${stderrText}`);
-        if (
-            parsed.rawResultText.trim() !== agentMarker || parsed.text.trim() !== agentMarker ||
-            parsed.text.trim() === userMarker
-        ) {
+        if (parsed.rawResultText !== agentMarker || parsed.text !== agentMarker || parsed.text === userMarker) {
             throw new Error(
                 `Agy custom-agent instruction did not win over conflicting user text; raw result was ${
                     JSON.stringify(parsed.rawResultText)
@@ -114,7 +125,7 @@ export async function proveAgyCustomAgentExecution(
             agentMarker,
             userMarker,
             rawResultText: parsed.rawResultText,
-            parsedFinalText: parsed.text.trim(),
+            parsedFinalText: parsed.text,
             cleanupCompleted: true,
         };
     } catch (error) {

@@ -3,6 +3,7 @@ import { getHomeDir } from "../../../../constants.js";
 
 export interface AgyCustomAgentPaths {
     agentsRootPath: string;
+    agentDirectoryPath: string;
     definitionPath: string;
 }
 
@@ -10,7 +11,9 @@ export interface AgyCustomAgentOwnership {
     name: string;
     definition: string;
     agentsRootPath: string;
+    agentDirectoryPath: string;
     definitionPath: string;
+    createdAgentDirectory: boolean;
     createdDefinition: boolean;
 }
 
@@ -23,7 +26,8 @@ export function assertRunWieldAgentName(name: string): void {
 export function resolveAgyCustomAgentPaths(name: string): AgyCustomAgentPaths {
     assertRunWieldAgentName(name);
     const agentsRootPath = join(getHomeDir(), ".gemini", "config", "agents");
-    return { agentsRootPath, definitionPath: join(agentsRootPath, `${name}.md`) };
+    const agentDirectoryPath = join(agentsRootPath, name);
+    return { agentsRootPath, agentDirectoryPath, definitionPath: join(agentDirectoryPath, "agent.md") };
 }
 
 async function lstatOrNull(path: string): Promise<Deno.FileInfo | null> {
@@ -32,6 +36,14 @@ async function lstatOrNull(path: string): Promise<Deno.FileInfo | null> {
     } catch (error) {
         if (error instanceof Deno.errors.NotFound) return null;
         throw error;
+    }
+}
+
+async function chmodBestEffort(path: string, mode: number): Promise<void> {
+    try {
+        await Deno.chmod(path, mode);
+    } catch {
+        // Best effort on platforms without chmod support.
     }
 }
 
@@ -48,11 +60,18 @@ export async function materializeAgyCustomAgent(
         throw new Error(`Agy agents path is not a directory: ${paths.agentsRootPath}`);
     }
     await Deno.mkdir(paths.agentsRootPath, { recursive: true, mode: 0o700 });
-    try {
-        await Deno.chmod(paths.agentsRootPath, 0o700);
-    } catch {
-        // Best effort on platforms without chmod support.
+    await chmodBestEffort(paths.agentsRootPath, 0o700);
+
+    const existingAgentDirectory = await lstatOrNull(paths.agentDirectoryPath);
+    if (existingAgentDirectory?.isSymlink) {
+        throw new Error(`Refusing symbolic link agent directory: ${paths.agentDirectoryPath}`);
     }
+    if (existingAgentDirectory && !existingAgentDirectory.isDirectory) {
+        throw new Error(`Agy custom agent path is not a directory: ${paths.agentDirectoryPath}`);
+    }
+    const createdAgentDirectory = !existingAgentDirectory;
+    if (createdAgentDirectory) await Deno.mkdir(paths.agentDirectoryPath, { mode: 0o700 });
+    await chmodBestEffort(paths.agentDirectoryPath, 0o700);
 
     const existingDefinition = await lstatOrNull(paths.definitionPath);
     if (existingDefinition?.isSymlink) {
@@ -70,38 +89,53 @@ export async function materializeAgyCustomAgent(
             name,
             definition,
             agentsRootPath: paths.agentsRootPath,
+            agentDirectoryPath: paths.agentDirectoryPath,
             definitionPath: paths.definitionPath,
+            createdAgentDirectory,
             createdDefinition: false,
         };
     }
 
     await Deno.writeTextFile(paths.definitionPath, definition, { createNew: true, mode: 0o600 });
-    try {
-        await Deno.chmod(paths.definitionPath, 0o600);
-    } catch {
-        // Best effort on platforms without chmod support.
-    }
+    await chmodBestEffort(paths.definitionPath, 0o600);
     return {
         name,
         definition,
         agentsRootPath: paths.agentsRootPath,
+        agentDirectoryPath: paths.agentDirectoryPath,
         definitionPath: paths.definitionPath,
+        createdAgentDirectory,
         createdDefinition: true,
     };
 }
 
 export async function cleanupAgyCustomAgent(ownership: AgyCustomAgentOwnership): Promise<void> {
-    if (!ownership.createdDefinition) return;
-    const definitionInfo = await lstatOrNull(ownership.definitionPath);
-    if (!definitionInfo) return;
-    if (definitionInfo.isSymlink || !definitionInfo.isFile) {
+    if (ownership.createdDefinition) {
+        const definitionInfo = await lstatOrNull(ownership.definitionPath);
+        if (definitionInfo) {
+            if (definitionInfo.isSymlink || !definitionInfo.isFile) {
+                throw new Error(
+                    `Refusing cleanup because agent definition is no longer the owned file: ${ownership.definitionPath}`,
+                );
+            }
+            const currentText = await Deno.readTextFile(ownership.definitionPath);
+            if (currentText !== ownership.definition) {
+                throw new Error(`Refusing cleanup because agent definition changed: ${ownership.definitionPath}`);
+            }
+            await Deno.remove(ownership.definitionPath);
+        }
+    }
+
+    if (!ownership.createdAgentDirectory) return;
+    const directoryInfo = await lstatOrNull(ownership.agentDirectoryPath);
+    if (!directoryInfo) return;
+    if (directoryInfo.isSymlink || !directoryInfo.isDirectory) {
         throw new Error(
-            `Refusing cleanup because agent definition is no longer the owned file: ${ownership.definitionPath}`,
+            `Refusing cleanup because agent directory is no longer the owned directory: ${ownership.agentDirectoryPath}`,
         );
     }
-    const currentText = await Deno.readTextFile(ownership.definitionPath);
-    if (currentText !== ownership.definition) {
-        throw new Error(`Refusing cleanup because agent definition changed: ${ownership.definitionPath}`);
+    for await (const _entry of Deno.readDir(ownership.agentDirectoryPath)) {
+        throw new Error(`Refusing cleanup because agent directory changed: ${ownership.agentDirectoryPath}`);
     }
-    await Deno.remove(ownership.definitionPath);
+    await Deno.remove(ownership.agentDirectoryPath);
 }
