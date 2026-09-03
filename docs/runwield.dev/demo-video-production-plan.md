@@ -1,199 +1,106 @@
 # RunWield Demo Video Production Plan
 
-## Recorded cut
+## Captured story
 
-The current silent cut is 3:39 at 1920×1080. It uses the disposable `wld_demo` authentication fixture and two real
-RunWield Sessions: a short account-lockout Router-to-Planner example, followed by the completed authentication endpoint
-workflow used for the Plan, execution, Workspace, and validation sections:
+The replacement source is a single real account-lockout workflow in the disposable `wld_demo` repository:
 
 ```text
-account-lockout request -> Router -> Planner
-protected-endpoint Plan -> execution -> Workspace -> validated Plan
+request
+  -> Router
+  -> Planner questions
+  -> Plannotator Plan Review
+  -> review feedback
+  -> revised Plan + approval
+  -> isolated execution
+  -> failed Mechanical Validation
+  -> repair
+  -> semantic review finding
+  -> second repair
+  -> Plannotator Guided Code Review
+  -> human approval
+  -> Work Record + merge
+  -> same Session in Workspace
+  -> validated Plan Board
 ```
 
-The footage was captured without the user's personal browser, browser chrome, bookmarks, extensions, notifications, or
-desktop. Workspace frames came only from the dedicated `RunWield` Chrome profile. TUI frames came from terminal casts.
+The source master is intentionally long. Do not shorten it at capture time. The thinking and command activity can be
+cut, time-remapped, or sped up later without losing any lifecycle transition.
 
-Generated files live in `docs/runwield.dev/demo-media/`:
+## Source files
 
-- `runwield-overview-demo.mp4` — silent 1080p master, ready for voice-over.
-- `runwield-overview-poster.jpg` — poster frame.
-- `router-to-plan.webm`, `router-to-plan.mp4`, and `router-to-plan.gif` — Router-to-Planner website loop.
-- `tui-to-workspace.webm`, `tui-to-workspace.mp4`, and `tui-to-workspace.gif` — terminal-to-Workspace website loop.
+- `demo-media/runwield-complete-demo-source.mp4` — canonical 53:58 source master.
+- `demo-media/runwield-full-workflow-source.mp4` — synchronized TUI + both Plannotator reviews.
+- `demo-media/source/runwield-tui-full-flow.mp4` — uninterrupted terminal safety master.
+- `demo-media/source/runwield-tui-full-flow.cast` — editable terminal event source.
+- `demo-media/source/plan-review-feedback-loop-full.mp4` — clean Plan Review select.
+- `demo-media/source/code-review-guided-full.mp4` — clean Code Review select.
+- `demo-media/source/workspace-same-session-full.mp4` — clean Workspace select.
 
-The matching narration is in `demo-voiceover-script.md`.
+The old 3:39 overview and its loops are superseded.
 
-## Goal
+## Story-edit priorities
 
-Show one believable piece of work moving through RunWield, with the user in control at the important moments:
+1. Make Plannotator the star. Spend real time on affected-file inspection, the concurrency annotation, Planner's
+   revision, the Changes view, and approval.
+2. Keep both validation loops. The first proves failed checks trigger repair; the second proves semantic review checks
+   the implementation against the Plan instead of merely rerunning tests.
+3. Keep Guided Code Review. Show at least the login sequence, state machine, concurrency ordering, direct diff, reviewer
+   note, and approval.
+4. Make the surface switch unmistakable. Use the `Add Account Lockout Policy` title in both TUI and Workspace, then show
+   the same repair result and completed Plan.
+5. Use Guide, Ideator, and Operator as a short overview. The Workspace controls are captured; dedicated role sessions
+   can be added later only if the edit needs more than a spoken explanation.
 
-```text
-request -> Router -> Plan -> human review -> execution -> validation -> durable record
-```
+## Suggested edit shape
 
-The demo should also prove that TUI and Workspace are two views of the same Session, then give Guide, Ideator, and
-Operator a short overview without turning the video into a feature catalog.
+Do not lock duration until the first story edit exists. A useful initial pass is roughly five to seven minutes:
 
-## Deliverables
+| Section             | Editorial treatment                                                                             |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| Opening and request | Real time; establish the policy change clearly.                                                 |
+| Router              | Keep classification and handoff; trim repository inspection.                                    |
+| Planner             | Keep the policy questions and answers; accelerate the rest.                                     |
+| Plan Review         | Mostly real time. This is the main product proof.                                               |
+| Execution           | Montage or 4–8× speed with a few readable implementation milestones.                            |
+| Validation          | Real time around each failure, finding, repair handoff, and passing result.                     |
+| Code Review         | Keep Guided Review and approval readable; trim generation wait if needed.                       |
+| Finalization        | Show Work Record, merge, cleanup, and `on main`.                                                |
+| Workspace           | Show the same title, same validation record, role controls, artifact, and validated board card. |
 
-1. **Full narrated demo:** 3:30-4:30, 16:9, uploaded as the canonical walkthrough.
-2. **Website loop 1 — Plan before code:** 8-12 seconds, silent, Router/Plan review/approval into execution.
-3. **Website loop 2 — One Session, two surfaces:** 8-12 seconds, silent, a committed message appearing in Workspace and
-   the already-open TUI.
-4. **Fallback stills:** one poster frame for the full video and one poster for each loop.
-5. **Captions/transcript:** edited from the final narration, not generated from the rough recording.
+Use hard cuts or short dissolves. The product already provides enough motion; decorative transitions would weaken the
+evidence.
 
-Export the website loops as WebM and MP4 for normal playback. Also make GIF versions for places that require GIF, but do
-not use the GIF as the primary website asset; it will be larger and less clear.
+## Website cuts
 
-## Story and demo repository
+### Plan Review loop
 
-Use a clean, disposable repository made specifically for the demo. It should look like a credible small product, have
-fast deterministic tests, and contain no personal paths, tokens, customer data, or unrelated work.
+Use the dedicated Plan Review clip. Start with affected files, add the atomic fifth-failure annotation, cut to Planner's
+accepted revision, show the Changes view, and end on `Approved & Run`.
 
-Recommended example: a small incident dashboard with a few cards and tests.
+Suggested copy: “Review intent before the Agent touches your code.”
 
-Main request:
+### Validation and Code Review loop
 
-> Add a severity filter to the incident board, preserve the selected filter after refresh, and cover the behavior with
-> tests.
+Start on the failed validation state, cut to the focused repair, then show the Guided Review concurrency diagram and
+human approval.
 
-This is understandable without explanation, visible in a browser, and large enough to justify a Plan. Keep the demo
-repository small enough that planning, execution, and validation finish predictably.
+Suggested copy: “A failed check starts a repair loop. Completion has evidence.”
 
-Prepare the repository at a clean tagged baseline. Do not stage fake Agent output. It is fine to remove waits and use
-jump cuts, but every shown result should come from a real RunWield Session.
+### Same Session loop
 
-## Full video
+Start on the TUI `on main` state, cut to `Add Account Lockout Policy` in Workspace, reveal the validation repair report,
+then end on the validated Plan Board card.
 
-| Time      | Picture                                                                                                           | Narration / point                                                                                                       |
-| --------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| 0:00-0:12 | Finished incident filter, then one fast flash of the reviewed Plan                                                | "Most coding agents start changing files immediately. RunWield first decides how much process the request deserves."    |
-| 0:12-0:35 | TUI: submit the main request; Router publishes the Triage Report and hands off to Planner                         | Router scales ceremony with risk. This request is a Planned Change, so implementation cannot start yet.                 |
-| 0:35-1:05 | TUI: Planner investigates; show the compact activity rather than every tool call; Plan artifact becomes available | The Planner grounds the proposal in the repository and writes a durable Markdown Plan.                                  |
-| 1:05-1:42 | Open Plan Review in Workspace; scan the Plan, add one useful inline comment, receive the revision, approve it     | The user reviews intent while changing direction is still cheap. Make the comment substantive, not cosmetic.            |
-| 1:42-2:15 | Return to the same Session in TUI; show execution starting in an isolated worktree and the current Plan step      | Approval authorizes execution. The implementation owner works from the approved Plan.                                   |
-| 2:15-2:45 | Workspace: open that same Session and continue with one short message; show execution/validation progress         | Workspace is not a separate chat. It is the same durable Session and workflow viewed from the browser.                  |
-| 2:45-3:15 | Show Mechanical Validation and semantic review progressing; reveal the finished UI change                         | "Done" is a proven lifecycle outcome, not the moment the Agent stops typing.                                            |
-| 3:15-3:42 | Fast three-card montage: Guide, Ideator, Operator                                                                 | Guide answers, Ideator sharpens an unclear idea, and Operator performs direct non-code work. Router chooses among them. |
-| 3:42-4:05 | Workspace Plan Board plus Work Record/artifact link                                                               | Plans and outcomes remain as readable project knowledge instead of disappearing into chat history.                      |
-| 4:05-4:15 | Logo and URL                                                                                                      | "Review the Plan. Steer the work. Prove the result."                                                                    |
+Suggested copy: “Start in the terminal. Continue in Workspace. Keep one durable Session.”
 
-Do not show the entire model wait. Keep enough real activity to establish that the work happened, then cut on a clear
-state change. Use simple hard cuts; the product already supplies the visual motion.
+Export WebM and MP4 as the normal website assets. Export one or two GIF fallbacks only after the final crops and loop
+points are approved.
 
-## Same-Session handoff shot
+## Voice-over and finishing
 
-This is the proof shot and should be unmistakable:
+Record narration after the first story edit. Use `demo-voiceover-script.md` as practice copy, then rewrite it against
+the actual cut so every sentence lands on visible evidence. Preserve two seconds of stillness around review annotations,
+approval, validation findings, and the final board card.
 
-1. Keep the TUI open on the named Session and wait until it is idle.
-2. Open the same Session from the registered Project in Workspace.
-3. Send a short continuation from Workspace: `Show me which Plan step is active now.`
-4. Let the response commit fully.
-5. Switch back to the already-open TUI and show the committed turn synchronize into the same transcript.
-6. Keep the Session title visible in both surfaces so the viewer can verify continuity without narration.
-
-Do not imply simultaneous writing. The visual story is safe continuation and synchronization between surfaces.
-
-## Guide, Ideator, and Operator montage
-
-Record these as separate short Sessions, then cut them into the full video. Each shot needs only the request, Router's
-Triage Report, the specialist name, and the first useful part of the response.
-
-### Guide
-
-> How does this app decide which incidents are critical?
-
-Show `INQUIRY -> Guide` and a grounded answer. Do not wait for a long explanation.
-
-### Ideator
-
-> I am considering incident snoozing, but I am not sure what the safest user experience should be. Help me shape it.
-
-Show `IDEATION -> Ideator` followed by one sharp interview question. A finished PRD is not necessary in this montage.
-
-### Operator
-
-> Run the production build and report the final bundle size. Do not change source files.
-
-Show `OPERATION -> Operator`, the command activity, and the verified result. Use a repository whose build is fast and
-stable.
-
-## Website loops
-
-### Loop 1: Plan before code
-
-Start on the Router's Planned Change decision. Cut to the Plan Review comment/approval. End on the visible transition to
-execution. The loop should communicate the core value even with no sound or surrounding text.
-
-Suggested nearby copy:
-
-> Review what the Agent plans to do before it touches your code.
-
-### Loop 2: One Session, two surfaces
-
-Start with the Session title in TUI, switch to the same title in Workspace, submit the short continuation, then return
-to TUI as the committed turn appears. End on the matching Session title so the loop joins cleanly.
-
-Suggested nearby copy:
-
-> Start in the terminal. Continue in Workspace. Keep one durable Session.
-
-If one loop is substantially stronger, ship only that one. Two average loops are worse than one clear proof.
-
-## Recording setup
-
-- Capture the application area at 2560x1440 or 1920x1080 and 60 fps. Deliver the full video at 1080p.
-- Make terminal and browser text readable at normal website width. Increase font/zoom before recording instead of
-  digitally zooming in post.
-- Use one theme, one window size, and the same Session title across the TUI/Workspace continuity sequence.
-- Hide browser bookmarks, extensions, notifications, menu-bar clutter, shell usernames, tokens, and irrelevant tabs.
-- Use a large, calm pointer and deliberate clicks. Do not circle the cursor while waiting.
-- Record system audio only if it contributes something. Record narration afterward for clean pacing.
-- Leave two seconds of stillness before and after every important action. This makes cuts and loops much easier.
-- Capture each important interaction twice: one natural take and one slower safety take.
-
-## Edit and export
-
-1. Build the full cut first. Add chapter markers for Router, Plan Review, Execution, Workspace, Validation, and Roles.
-2. Record the narration against that cut.
-3. Add captions and only a few short callouts where the UI label is too small to carry the point.
-4. Extract website loops from the clean source recording, not from the compressed uploaded video.
-5. Crop loops around the relevant surface, remove dead frames, and make the final frame connect naturally to the first.
-6. Export full video, WebM/MP4 loops, GIF fallbacks, and poster images from the same timeline.
-
-Keep loop files small by shortening the clip and cropping before reducing quality. Never shrink terminal text until it
-is unreadable merely to hit a file-size target.
-
-## Publishing
-
-- Upload the full narrated demo to the primary video channel for sharing and discovery.
-- Put a poster image and click-to-play full-video embed on the website so the initial page load does not pay for the
-  player immediately.
-- Self-host the short WebM/MP4 loops with `autoplay muted loop playsinline`, a poster image, and reduced-motion behavior
-  that shows the poster instead of autoplaying.
-- Place the strongest loop near the primary value proposition. Put the second beside the TUI/Workspace continuity
-  section rather than stacking both near the hero.
-- Link the full transcript below the video. Reuse it for launch posts and accessibility.
-
-## Pre-recording gate
-
-Record the publishable take after all of the following are true:
-
-- The shared Session sidebar and artifact links are visually stable in TUI and Workspace.
-- The real same-Session TUI/Workspace continuation path has been rehearsed end to end.
-- The demo repository starts from a clean resettable baseline.
-- The selected Plan path reaches validation reliably without manual repair of the demo environment.
-- Every visible label uses current product language: Router, Guide, Ideator, Operator, Planner, Plan Review, Workspace,
-  Session, Mechanical Validation, semantic review, and Work Record.
-- A scratch recording has been reviewed once at normal laptop size and once at website-column size for readability.
-
-## Recording-day checklist
-
-- Reset the demo repository to its tagged baseline.
-- Restart TUI and Workspace from clean application state.
-- Disable notifications and close private tabs/windows.
-- Confirm the microphone track is not clipping, even if it is only a sync/reference track.
-- Record the main workflow first, then the three role montage clips, then clean B-roll and poster frames.
-- Write down the source-video timecodes for approval, execution start, cross-surface sync, validation, and Work Record.
-- Preserve the untouched source recording until every web asset and caption file is published.
+Add captions from the final narration. Keep the untouched source files until the upload, website loops, posters, and
+captions are all published.

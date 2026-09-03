@@ -1,82 +1,100 @@
-# RunWield Demo Voiceover — Rough Script
+# RunWield Demo Voice-over — Rough Script
 
-Target length: 3 minutes 39 seconds. Read calmly and leave a little air at each cut. The video is intentionally silent
-so this can be recorded as a clean voice-over track.
+This is written for a future story edit, not the full 53-minute source. Read it naturally and leave pauses around the
+Plan Review, validation failure, and Code Review. Those are the moments worth seeing rather than talking over.
 
-## 0:00 — Intent before action
+## Opening
 
-Most coding agents begin by changing files.
+Most coding agents begin by changing files. RunWield begins by deciding what kind of work this is, how much process it
+deserves, and where a human decision will have the most leverage.
 
-RunWield begins one step earlier: it decides what kind of work this is, and how much process the request actually
-deserves.
+For this demo, I am asking for an account-lockout policy: five failed logins, a fixed fifteen-minute lock, generic error
+messages, documentation, and deterministic tests. Because this changes authentication policy, I have explicitly asked
+for a Plan before any code changes.
 
-That keeps small tasks small, while changes with a larger blast radius slow down where human judgment matters.
+## Router and Planner
 
-## 0:15 — Router to Planner
+Router reads the request in the context of the repository. It classifies the work as a medium Planned Change and hands
+the Session to Planner.
 
-First, I am asking for account lockout after repeated failed logins. Because this changes authentication policy, I have
-also asked for a Plan before any code is touched.
+Planner inspects the real authentication code and asks the policy questions that the request did not answer: whether a
+locked request extends the window, whether a correct password should be denied during the lock, whether a successful
+login resets prior failures, and whether existing tokens should remain valid.
 
-Router reads the request in the context of the repository. It inspects the relevant authentication code and tests,
-classifies the work as a medium Planned Change, and hands the Session to Planner.
+Those answers become a concrete, durable Plan. This is important: RunWield is not asking me to approve a vague promise.
+It gives me the objective, change surface, implementation steps, edge cases, and verification plan before implementation
+begins.
 
-Router is not choosing another chat application. It is choosing the workflow this request deserves.
+## Plannotator Plan Review
 
-## 0:51 — A durable Plan
+This is the center of the workflow: Plannotator's Plan Review.
 
-To see the rest of the lifecycle without waiting through a full model run, I am switching to another real authentication
-Session that has already completed. Planner turned this request into a concrete implementation contract.
+I can read the Plan as a document, inspect every affected file beside it, and check the proposed verification work. I am
+not reviewing generated code yet. I am reviewing intent while changing direction is still cheap.
 
-The Plan records the objective, the affected files, the intended approach, important edge cases, and the checks that
-must prove the result. Here, the approved Plan adds a protected current-user endpoint while keeping every expected
-authentication failure generic and safe.
+Here I catch a concurrency detail. The fifth failed login must be atomic; two requests cannot both read the same stale
+counter. I leave that as a review annotation and send it back.
 
-Because the Plan is stored with the project, it is durable project knowledge—not reasoning trapped in a temporary
-conversation. This is also the cheapest place to correct direction, before there is a large diff to unwind.
+Planner accepts the feedback, revises the Plan to require `BEGIN IMMEDIATE`, and adds a deterministic two-connection
+race test. In the Changes view I can see exactly what moved. Once the contract is right, I approve it and authorize
+execution.
 
-## 1:19 — Execution with evidence
+## Execution
 
-Approval authorizes execution. RunWield gives the implementation Agent the approved Plan and an isolated place to work.
+RunWield creates an isolated worktree and gives the implementation Agent the approved Plan. The Agent changes the real
+repository, expands the test suite from eighteen tests to twenty-nine, updates the policy documentation, and reports the
+evidence it collected.
 
-The Agent changes the real repository, expands the test suite, and performs the manual authentication checks described
-by the Plan. The activity remains visible, but I do not have to watch every raw command to know what is happening.
+The useful distinction is that execution remains anchored to reviewed intent. The Plan is not a preamble that gets
+forgotten once code starts moving.
 
-The important point is that execution stays anchored to intent I could review first.
+## Validation and repair loops
 
-## 1:44 — The same Session in Workspace
+The first validation run fails. RunWield does not hide that or rename the work complete. It sends the precise failure to
+a focused repair Agent, applies the fix, and runs the checks again.
 
-I started in the terminal, and now I am looking at the same Session in Workspace.
+Then semantic review catches a subtler problem: the concurrency test itself uses polling and wall-clock delays, which
+violates the Plan's deterministic-test requirement. A second repair replaces polling with worker-ready messages and
+documents the remaining system-clock limitation. The full twenty-nine-test suite passes again.
 
-This is not a copied transcript or a second conversation. The approved Plan, implementation report, Agent state, and
-Operator checklist are all part of the same durable Session.
+This is what completion means here: not that an Agent stopped typing, but that the work survived the repository's real
+checks and a review against the approved contract.
+
+## Plannotator Code Review
+
+Before merge, the same review surface opens for code.
+
+Plannotator can show the direct diff, but it can also generate a Guided Review. The guide explains the login decision
+sequence, the repository-owned lockout state machine, the migration, the two-worker concurrency ordering, and the
+external no-disclosure behavior.
+
+I can move from that explanation directly into the changed files, switch between unified and side-by-side diff, leave a
+final review note, and approve the change. That approval returns to the live TUI Session, where RunWield creates the
+Work Record, merges the validated commits, and cleans up the worktree.
+
+## The same Session in Workspace
+
+Now I switch surfaces. This is the same `Add Account Lockout Policy` Session in Workspace, not a copied transcript and
+not a second run.
+
+The routed request, Planner decisions, review feedback, implementation activity, validation findings, repair report,
+Operator checklist, and Plan artifact are all still together. The completed Plan also appears on the project's validated
+board.
 
 The terminal is ideal when I am working directly in the repository. Workspace gives me a wider view of Sessions, Plans,
-artifacts, and progress. I can move between them without abandoning context or starting over.
+artifacts, and role controls without abandoning context.
 
-## 2:23 — Validation is a lifecycle result
+## Guide, Ideator, and Operator
 
-RunWield does not treat the implementation Agent saying “done” as proof.
+Not every request needs this entire workflow.
 
-The repository's real test command runs, semantic review checks the implementation against the approved Plan, and manual
-verification remains visible. Only after that evidence exists does the Plan move into the validated column.
+Guide answers questions about the repository without changing it. Ideator helps shape an unclear product idea before it
+becomes implementation work. Operator performs direct environment work and focused verification. Router chooses the
+right starting point and keeps the ceremony proportional to the request.
 
-If a check fails or the implementation misses the intent, the work returns through a bounded repair loop instead of
-quietly being called complete.
+## Close
 
-## 2:45 — Guide, Ideator, and Operator
-
-Not every request needs a Plan.
-
-Ideator helps explore an unclear product idea before anybody commits to an implementation. Guide answers questions about
-the repository and gives grounded next steps without changing it. Operator handles direct environment work and focused
-verification.
-
-The active role, model, and thinking level remain visible in the same Workspace. Router keeps the ceremony proportional
-to the work.
-
-## 3:27 — Close
-
-At the end, RunWield leaves behind more than a finished diff. The approved Plan, validation outcome, Manual QA guidance,
-and Session history become durable context for whatever comes next.
+RunWield leaves behind more than a diff. It leaves a reviewed Plan, the decisions that shaped it, validation evidence, a
+human code-review decision, and a durable Session that can continue in either interface.
 
 Plan clearly. Execute confidently.
