@@ -20,6 +20,7 @@ import {
     getConfiguredAgentModel,
     getRootSessionContextProjection,
     getRootSessionRebuildOptions,
+    getRootSessionStaticContextTokens,
     listLoadedAgentMdFiles,
     listPromptTemplates,
     listSkills,
@@ -374,11 +375,11 @@ function getRuntimeContextCapacity(session) {
 
     const rawUsage = activeSession.getContextUsage?.();
     const contextWindow = Number(rawUsage?.contextWindow ?? activeSession.model?.contextWindow ?? 0) || 0;
-    const contextUsage = rawUsage
+    const contextUsage = contextWindow > 0
         ? {
-            tokens: typeof rawUsage.tokens === "number" ? rawUsage.tokens : null,
+            tokens: typeof rawUsage?.tokens === "number" ? rawUsage.tokens : null,
             contextWindow,
-            percent: typeof rawUsage.percent === "number" ? rawUsage.percent : null,
+            percent: typeof rawUsage?.percent === "number" ? rawUsage.percent : null,
         }
         : null;
     const compactionSettings = activeSession.settingsManager?.getCompactionSettings?.();
@@ -614,6 +615,7 @@ export class SessionRuntime {
         const workflowContext = session.getWorkflowContext() || (managedDormant ? managed?.workflowContext : null) ||
             deriveWorkflowContextFromExecutionWorkflow(activeExecutionWorkflow) || null;
         const contextCapacity = getRuntimeContextCapacity(session);
+        const systemContextTokens = getRootSessionStaticContextTokens(session);
         const activeModelState = session.getActiveModelState();
         const activeAgentInfo = session.getActiveAgentInfo();
         const managedModel = managedDormant ? managed?.model || "" : "";
@@ -674,6 +676,7 @@ export class SessionRuntime {
             workflowContext: workflowContext ? { ...workflowContext } : null,
             artifacts,
             activeExecutionWorkflow: activeExecutionWorkflow ? { ...activeExecutionWorkflow } : null,
+            systemContextTokens,
             ...contextCapacity,
         };
     }
@@ -2424,13 +2427,11 @@ export class SessionRuntime {
                 })
                 : { ok: false, error: projected.error, message: projected.message };
         }
-        const info = manager
-            ? { ...this.#getActiveSessionInfo(session, manager) }
-            : buildProjectedSessionInfo([], {
-                sessionId: session.id,
-                cwd: session.cwd,
-                transcriptPath: "In-memory",
-            });
+        const info = manager ? { ...this.#getActiveSessionInfo(session, manager) } : buildProjectedSessionInfo([], {
+            sessionId: session.id,
+            cwd: session.cwd,
+            transcriptPath: "In-memory",
+        });
         const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
         info.compactionSettings = rootAgentSession?.settingsManager?.getCompactionSettings?.() || null;
         info.contextUsage = rootAgentSession?.getContextUsage?.() || null;

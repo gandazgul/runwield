@@ -11,6 +11,7 @@ import { SessionList } from "../components/SessionList.jsx";
 import { deriveSessionAvailability, SessionActivationStatus } from "../components/SessionActivationStatus.jsx";
 import { reduceSessionEvents, SessionTimeline } from "../components/SessionTimeline.jsx";
 import {
+    buildSessionSidebarProjection,
     defaultSessionSidebarTab,
     SESSION_SIDEBAR_TABS,
     sessionArtifactKindLabel,
@@ -1324,9 +1325,28 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         ),
         ...(interruptedOperation ? [{ kind: "interruption", key: "interruption:lost-workspace-operation" }] : []),
     ];
-    const workflowContext = asRecord(
-        timeline?.snapshot?.activeExecutionWorkflow || timeline?.snapshot?.workflowContext || {},
-    );
+    const activeExecutionWorkflow = asRecord(timeline?.snapshot?.activeExecutionWorkflow || {});
+    const persistedWorkflowContext = asRecord(timeline?.snapshot?.workflowContext || {});
+    const workflowContext = Object.keys(activeExecutionWorkflow).length
+        ? activeExecutionWorkflow
+        : persistedWorkflowContext;
+    const activeWorkflowTriageMeta = asRecord(activeExecutionWorkflow.triageMeta || {});
+    const workflowEpic = activeExecutionWorkflow.planName
+        ? typeof activeWorkflowTriageMeta.parentPlan === "string" ? activeWorkflowTriageMeta.parentPlan : ""
+        : typeof persistedWorkflowContext.parentPlan === "string"
+        ? persistedWorkflowContext.parentPlan
+        : "";
+    const workflowSidebar = buildSessionSidebarProjection({
+        workflowPlan: typeof workflowContext.planName === "string"
+            ? workflowContext.planName
+            : typeof workflowContext.planId === "string"
+            ? workflowContext.planId
+            : "",
+        workflowEpic,
+        workflowIntent: typeof persistedWorkflowContext.routingIntent === "string"
+            ? persistedWorkflowContext.routingIntent
+            : "",
+    }).workflow;
     const progressUrl = timeline ? activePlanProgressUrl(projectId, runwieldSessionId, timeline.snapshot) : "";
     const agents = Array.isArray(sessionOptions?.agents) ? sessionOptions.agents : [];
     const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
@@ -1482,11 +1502,17 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                             ? (
                                                 <>
                                                     <dl>
+                                                        {workflowSidebar.epic
+                                                            ? (
+                                                                <div>
+                                                                    <dt>Epic</dt>
+                                                                    <dd>{workflowSidebar.epic}</dd>
+                                                                </div>
+                                                            )
+                                                            : null}
                                                         <div>
                                                             <dt>Plan</dt>
-                                                            <dd>
-                                                                {workflowContext.planName || workflowContext.planId}
-                                                            </dd>
+                                                            <dd>{workflowSidebar.plan}</dd>
                                                         </div>
                                                     </dl>
                                                     {workflowProgress

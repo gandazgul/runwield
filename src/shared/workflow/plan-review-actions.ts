@@ -3,7 +3,10 @@ import {
     getStoredPlanPath,
     injectFrontMatter,
     loadPlan,
+    loadPlanFileStrict,
     parsePlanFrontMatter,
+    planDocumentMarkdown,
+    splitPlanMarkdownBody,
     StalePlanWriteError,
     writePlanMarkdownWithRevision,
 } from "../../plan-store.js";
@@ -73,6 +76,26 @@ function reviewRejected(message: string): SharedPlanReviewActionResult {
     return { approved: false, feedback: message, cancellationReason: "stale_plan_review" };
 }
 
+/**
+ * Compare what the user reviewed with the current human-owned Plan document.
+ *
+ * A revision hashes the exact bytes, so YAML formatting alone makes it stale.
+ * Review approval cares about meaning: canonicalize document Front Matter, omit
+ * controller-owned projections, and compare the body separately. The eventual
+ * write still uses the current byte revision as its atomic compare-and-set.
+ */
+function reviewSourceStillMatches(
+    current: { attrs: PlanFrontMatter; body: string },
+    originalAttrs: PlanFrontMatter,
+    originalBody: string,
+): boolean {
+    const canonicalAttrs = (attrs: PlanFrontMatter) =>
+        planDocumentMarkdown(injectFrontMatter("", stripRuntimeFields(attrs)));
+    const canonicalBody = (body: string) => body.replace(/^\r?\n/, "");
+    return canonicalBody(current.body) === canonicalBody(originalBody) &&
+        canonicalAttrs(current.attrs) === canonicalAttrs(originalAttrs);
+}
+
 function validatedClassification(
     classification: PlanFrontMatter["classification"] | undefined,
 ): "PROJECT" | "PLANNED_CHANGE" | null {
@@ -95,7 +118,6 @@ function sameWorktreeEvidence(left: PlanWorktreeExpectation, right: PlanWorktree
 async function validateReviewEvidence(
     cwd: string,
     planName: string,
-    planRevision: string,
     reviewEvidence?: SharedPlanReviewEvidence,
 ): Promise<SharedPlanReviewActionResult | null> {
     if (!reviewEvidence) return null;
@@ -111,9 +133,9 @@ async function validateReviewEvidence(
     if (evidence.evidence.planName !== planName || evidence.evidence.planId !== reviewEvidence.planId) {
         return reviewRejected("Live review Plan evidence does not match this Plan. Reload the Plan and review again.");
     }
-    if (evidence.evidence.revision !== planRevision) {
-        return reviewRejected("Plan changed after review opened; reload the review before applying this decision.");
-    }
+    // The locked decision transaction below compares the current Plan document
+    // semantically. A byte revision can change solely because RunWield or a
+    // formatter normalized YAML, which is not a reason to discard approval.
     if (evidence.evidence.status !== reviewEvidence.status) {
         return reviewRejected("Plan Status changed after review opened. Reload the Plan and review again.");
     }
@@ -160,7 +182,7 @@ export async function applySharedPlanReviewDecision({
     ) {
         return reviewRejected("Plan review execution policy is not valid.");
     }
-    const evidenceIssue = await validateReviewEvidence(cwd, planName, planRevision, reviewEvidence);
+    const evidenceIssue = await validateReviewEvidence(cwd, planName, reviewEvidence);
     if (evidenceIssue) return evidenceIssue;
 
     let reviewedPlan = typeof decision.plan === "string" ? decision.plan : planWithFrontMatter;
@@ -183,6 +205,7 @@ export async function applySharedPlanReviewDecision({
     }
     reviewedPlan = injectFrontMatter(reviewedPlan, canonicalReviewOverrides);
     const reviewedAttrs = parsePlanFrontMatter(reviewedPlan).attrs;
+    const reviewBaseBody = splitPlanMarkdownBody(planWithFrontMatter).body;
     const canonicalPlanPath = getStoredPlanPath(cwd, planName);
     let lifecycleMeta: PlanFrontMatter = reviewedAttrs;
     let committedRevision: string | undefined;
@@ -195,10 +218,12 @@ export async function applySharedPlanReviewDecision({
             planName,
             approved,
             worktreeId: reopenWorktreeId,
-            expectedRevision: planRevision,
             decide: async ({ beforePlan, markEffect, registerRollback }) => {
                 if (!beforePlan) throw new Error(`Plan not found: ${planName}`);
-                if (beforePlan.revision !== planRevision) {
+                if (
+                    beforePlan.revision !== planRevision &&
+                    !reviewSourceStillMatches(beforePlan, originalAttrs, reviewBaseBody)
+                ) {
                     throw new Error(
                         "Plan changed after review opened; reload the review before applying this decision.",
                     );
@@ -263,7 +288,17 @@ export async function applySharedPlanReviewDecision({
         committedRevision = transitionValue?.revision;
     } else {
         try {
-            committedRevision = await writePlanMarkdownWithRevision(planPath, reviewedPlan, planRevision);
+            const current = await loadPlanFileStrict(planPath);
+            if (current.kind !== "loaded") {
+                return reviewRejected("Plan could not be read after review. Reload the Plan and review again.");
+            }
+            if (
+                current.revision !== planRevision &&
+                !reviewSourceStillMatches(current, originalAttrs, reviewBaseBody)
+            ) {
+                return reviewRejected("Plan changed while review was open. Reload the Plan and review again.");
+            }
+            committedRevision = await writePlanMarkdownWithRevision(planPath, reviewedPlan, current.revision);
         } catch (error) {
             if (error instanceof StalePlanWriteError) {
                 return {

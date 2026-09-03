@@ -114,6 +114,7 @@ interface PlanReviewMeta {
     spaceId?: string;
     serverUrl?: string;
     reused?: boolean;
+    cancellationReason?: string;
 }
 
 interface PlanWrittenOptions {
@@ -143,6 +144,7 @@ function parsePlanReviewMeta(meta: InteractionMeta | undefined): PlanReviewMeta 
         spaceId: typeof source.spaceId === "string" ? source.spaceId : undefined,
         serverUrl: typeof source.serverUrl === "string" ? source.serverUrl : undefined,
         reused: typeof source.reused === "boolean" ? source.reused : undefined,
+        cancellationReason: typeof source.cancellationReason === "string" ? source.cancellationReason : undefined,
     };
 }
 
@@ -412,6 +414,11 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             let effectiveMeta = await resolveTriageMeta(triageMeta, planName, cwd);
             const policyOverrides = collectExecutionPolicyOverrides(params);
             effectiveMeta = { ...effectiveMeta, ...policyOverrides };
+            try {
+                hostedSession?.setWorkflowExecutionContext?.({ planName, triageMeta: effectiveMeta });
+            } catch (_e) {
+                // Workflow-context persistence is fail-open and must not block Plan review.
+            }
             // Resolve policy before anything is persisted, so a Plan rejected for repair
             // still has the Front Matter it arrived with.
             const policy = resolvePlanExecutionPolicy(effectiveMeta);
@@ -580,6 +587,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 approvalAction: reviewMeta.approvalAction,
                 planAttrs: reviewMeta.planAttrs,
                 revision: typeof reviewMeta.revision === "string" ? reviewMeta.revision : undefined,
+                cancellationReason: reviewMeta.cancellationReason,
             };
 
             if (reviewMeta.remoteReview === true) {
@@ -614,7 +622,11 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             }
 
             if (reviewResult.canceled) {
-                emitSystemStatus(hostedSession, "Plan review canceled. Returning control to user.", {
+                const canceledMessage = reviewResult.cancellationReason === "stale_plan_review"
+                    ? reviewResult.feedback ||
+                        "The Plan changed while review was open. Open the current Plan and review it again."
+                    : "Plan review canceled. Returning control to user.";
+                emitSystemStatus(hostedSession, canceledMessage, {
                     header: "RunWield",
                 });
                 await recordWorkflowMetricFn({
@@ -627,10 +639,31 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 const details = { ...params, outcome: "canceled" as const };
                 publishAcceptedPlanOutcome(details);
                 return textResult(
-                    "Plan review canceled by the user.",
+                    canceledMessage,
                     details,
                     true,
                 );
+            }
+
+            if (reviewResult.cancellationReason === "stale_plan_review") {
+                const message = reviewResult.feedback ||
+                    "The Plan changed while review was open. Open the current Plan and review it again.";
+                emitSystemStatus(hostedSession, message, { header: "RunWield" });
+                await recordWorkflowMetricFn({
+                    category: "planning",
+                    event: "review_outcome",
+                    agentName,
+                    planName,
+                    details: { outcome: "canceled", classification: effectiveMeta.classification },
+                });
+                const details = {
+                    ...params,
+                    outcome: "canceled" as const,
+                    planName,
+                    reason: "stale_plan_review",
+                };
+                publishAcceptedPlanOutcome(details);
+                return textResult(message, details, true);
             }
 
             if (!reviewResult.approved) {

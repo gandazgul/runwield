@@ -3531,6 +3531,21 @@ export function getRootSessionContextProjection(hostedSession) {
 }
 
 /**
+ * Return the stable prompt/setup portion of the root Agent Session context
+ * without rebuilding or estimating its conversation messages. This is safe to
+ * use from lightweight Runtime snapshots read frequently by consumers.
+ *
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
+ * @returns {number | null}
+ */
+export function getRootSessionStaticContextTokens(hostedSession) {
+    const session = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
+    if (!session) return null;
+    const projection = rootSessionMetadata.get(session)?.contextProjection;
+    return projection ? Math.max(0, Number(projection.staticTokens) || 0) : null;
+}
+
+/**
  * Dispose and clear the active root AgentSession for an explicit fresh-session
  * boundary. This is intentionally separate from ensureRootAgentSession() so
  * agent switches, model switches, and reloads cannot accidentally kill root

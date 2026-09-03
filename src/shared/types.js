@@ -88,6 +88,7 @@
  * @property {import('./session/workflow-context-session.js').WorkflowContext | null} workflowContext
  * @property {import('./session/file-session-store-types.ts').SessionArtifactReference[]} artifacts
  * @property {Record<string, unknown> | null} activeExecutionWorkflow
+ * @property {number | null} systemContextTokens
  * @property {ContextUsageSnapshot | null} contextUsage
  * @property {boolean | null} autoCompactionEnabled
  */

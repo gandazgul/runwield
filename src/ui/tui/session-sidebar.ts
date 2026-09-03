@@ -1,4 +1,4 @@
-import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { isKeyRelease, isKeyRepeat, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
     buildSessionSidebarProjection,
     SESSION_SIDEBAR_TABS,
@@ -15,7 +15,16 @@ export interface TuiSessionSidebarSnapshot {
     activeAgent?: string | null;
     activeModel?: { model?: string | null; provider?: string | null };
     thinkingLevel?: string | null;
-    workflowContext?: { routingIntent?: string | null; planId?: string | null; planName?: string | null } | null;
+    workflowContext?: {
+        routingIntent?: string | null;
+        planId?: string | null;
+        planName?: string | null;
+        parentPlan?: string | null;
+    } | null;
+    activeExecutionWorkflow?: {
+        planName?: string | null;
+        triageMeta?: { parentPlan?: string | null } | null;
+    } | null;
     managed?: { generation?: number | null } | null;
     sessionStats?: {
         userMessages: number;
@@ -24,11 +33,18 @@ export interface TuiSessionSidebarSnapshot {
         compactionCount: number;
     } | null;
     queuedMessages?: readonly { id?: string }[];
+    contextUsage?: { tokens?: number | null; contextWindow?: number; percent?: number | null } | null;
+    systemContextTokens?: number | null;
     artifacts?: SessionArtifactReference[];
 }
 
 export function tuiSessionSidebarProjection(snapshot: TuiSessionSidebarSnapshot): SessionSidebarProjection {
-    const plan = snapshot.workflowContext?.planName || snapshot.workflowContext?.planId || "";
+    const activeWorkflow = snapshot.activeExecutionWorkflow;
+    const plan = activeWorkflow?.planName || snapshot.workflowContext?.planName || snapshot.workflowContext?.planId ||
+        "";
+    const epic = activeWorkflow?.planName
+        ? activeWorkflow.triageMeta?.parentPlan || ""
+        : snapshot.workflowContext?.parentPlan || "";
     return buildSessionSidebarProjection({
         sessionName: snapshot.name,
         sessionState: snapshot.busy ? "active" : "idle",
@@ -42,7 +58,12 @@ export function tuiSessionSidebarProjection(snapshot: TuiSessionSidebarSnapshot)
         toolCalls: snapshot.sessionStats?.toolCalls,
         compactionCount: snapshot.sessionStats?.compactionCount,
         queuedMessages: snapshot.queuedMessages?.length,
+        contextUsedTokens: snapshot.contextUsage?.tokens,
+        contextWindowTokens: snapshot.contextUsage?.contextWindow,
+        contextPercent: snapshot.contextUsage?.percent,
+        systemContextTokens: snapshot.systemContextTokens,
         workflowPlan: plan,
+        workflowEpic: epic,
         workflowIntent: snapshot.workflowContext?.routingIntent,
         artifacts: snapshot.artifacts,
     });
@@ -72,11 +93,21 @@ export function composePinnedSessionSidebar(
 }
 
 export function isSessionSidebarCycleKey(data: string): boolean {
-    return matchesKey(data, Key.ctrl("]"));
+    return !isKeyRelease(data) && !isKeyRepeat(data) && matchesKey(data, Key.ctrl("]"));
 }
 
 function field(label: string, value: string, width: number): string[] {
     return [theme.fg("dim", fit(label.toUpperCase(), width)), fit(value, width)];
+}
+
+function formatTokens(tokens: number | null): string {
+    return tokens === null ? "Unknown" : tokens.toLocaleString();
+}
+
+function formatShare(tokens: number | null, usedTokens: number | null): string {
+    if (tokens === null) return "Unknown";
+    if (usedTokens === null || usedTokens <= 0) return `~${formatTokens(tokens)}`;
+    return `~${formatTokens(tokens)} · ${((tokens / usedTokens) * 100).toFixed(1)}% of used`;
 }
 
 export class TuiSessionSidebar {
@@ -111,6 +142,10 @@ export class TuiSessionSidebar {
         }).join(" · ");
         const content = [tabLine, ""];
         if (this.#activeTab === "workflow") {
+            if (projection.workflow.epic) {
+                content.push(...field("Epic", projection.workflow.epic, inner));
+                content.push("");
+            }
             content.push(...field("Plan", projection.workflow.plan, inner));
             content.push("");
             content.push(...field("Workflow", projection.workflow.intent.replaceAll("_", " "), inner));
@@ -141,6 +176,30 @@ export class TuiSessionSidebar {
                 if (stats.queuedMessages > 0) {
                     content.push("", ...field("Queued prompts", String(stats.queuedMessages), inner));
                 }
+            }
+            const context = projection.session.context;
+            if (context) {
+                const percent = context.percent === null ? "" : ` · ${context.percent.toFixed(1)}%`;
+                content.push(
+                    "",
+                    ...field(
+                        "Context",
+                        `${formatTokens(context.usedTokens)} / ${formatTokens(context.contextWindow)}${percent}`,
+                        inner,
+                    ),
+                );
+                content.push(
+                    "",
+                    ...field("System & setup", formatShare(context.systemTokens, context.usedTokens), inner),
+                );
+                content.push(
+                    "",
+                    ...field(
+                        "Conversation",
+                        formatShare(context.conversationTokens, context.usedTokens),
+                        inner,
+                    ),
+                );
             }
         } else if (projection.artifacts.length === 0) {
             content.push(theme.fg("dim", fit("No declared artifacts yet.", inner)));

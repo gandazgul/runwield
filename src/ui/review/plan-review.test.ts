@@ -46,6 +46,33 @@ function approvedDecision(overrides: ReviewDecisionBody = {}): ReviewDecisionBod
     };
 }
 
+function decisionBrowserAfter(
+    beforeDecision: () => Promise<void>,
+    body: ReviewDecisionBody,
+): BrowserPort {
+    return {
+        async open(url: string): Promise<boolean> {
+            await beforeDecision();
+            const reviewUrl = new URL(url);
+            const token = reviewUrl.searchParams.get("token");
+            if (!token) throw new Error("Review URL did not contain a token.");
+            const response = await fetch(
+                new URL(`/api/review/decision?token=${encodeURIComponent(token)}`, reviewUrl.origin),
+                {
+                    method: "POST",
+                    headers: {
+                        "content-type": "application/json",
+                        "x-runwield-review-token": token,
+                    },
+                    body: JSON.stringify(body),
+                },
+            );
+            if (!response.ok) throw new Error(`Review decision failed: ${response.status}`);
+            return true;
+        },
+    };
+}
+
 Deno.test("submitPlanForReview serves a real review and records approval metadata", async () => {
     const { dir, planPath } = await makePlanFile();
     const scriptedBrowser = createScriptedReviewBrowser("decision", approvedDecision());
@@ -73,6 +100,43 @@ Deno.test("submitPlanForReview serves a real review and records approval metadat
         assertEquals(savedPlan?.attrs.classification, "PLANNED_CHANGE");
         assertEquals(savedPlan?.attrs.workKind, "DOCUMENTATION");
         assertStringIncludes(scriptedBrowser.urls[0], "/review/plan?token=");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("submitPlanForReview accepts approval after a formatting-only Plan rewrite", async () => {
+    const { dir, planPath } = await makePlanFile();
+    const browser = decisionBrowserAfter(async () => {
+        const before = await Deno.readTextFile(planPath);
+        const reformatted = before.replace('status: "draft"', "status: draft");
+        if (reformatted === before) throw new Error("Fixture did not contain quoted draft status.");
+        await Deno.writeTextFile(planPath, reformatted);
+    }, approvedDecision());
+    try {
+        const result = await submitPlanForReview({ cwd: dir, planName: "plan", planPath, browser });
+
+        assertEquals(result.approved, true);
+        assertEquals(result.cancellationReason, undefined);
+        assertEquals((await loadPlan(dir, "plan"))?.attrs.status, "approved");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("submitPlanForReview still rejects a substantive Plan edit made during review", async () => {
+    const { dir, planPath } = await makePlanFile();
+    const browser = decisionBrowserAfter(async () => {
+        const before = await Deno.readTextFile(planPath);
+        await Deno.writeTextFile(planPath, before.replace("Do the thing.", "Do a different thing."));
+    }, approvedDecision());
+    try {
+        const result = await submitPlanForReview({ cwd: dir, planName: "plan", planPath, browser });
+
+        assertEquals(result.approved, false);
+        assertEquals(result.cancellationReason, "stale_plan_review");
+        assertEquals((await loadPlan(dir, "plan"))?.attrs.status, "draft");
+        assertStringIncludes(await Deno.readTextFile(planPath), "Do a different thing.");
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
