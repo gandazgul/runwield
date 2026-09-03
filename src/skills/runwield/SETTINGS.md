@@ -98,8 +98,10 @@ paste/submission non-destructively.
 
 ## Providers and authentication
 
-Use `/login` to configure subscription or API-key credentials. Use `/status` to show configured providers and available
-models. RunWield stores credentials in `~/.wld/auth.json`.
+Use `wld login` to configure subscription or API-key credentials before a Session starts. It also requires a usable
+default model before it exits successfully. Use `/login` inside the TUI to configure credentials and switch the live
+Session model. Use `/status` to show configured providers and available models. RunWield stores credentials in
+`~/.wld/auth.json`.
 
 `~/.wld/models.json` is the model registry for custom or self-hosted models such as Ollama, LM Studio, vLLM, API
 proxies, or OpenAI-compatible servers. Explicit settings use `provider/model_id` values from that registry.

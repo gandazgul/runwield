@@ -155,8 +155,8 @@ export class VirtualTerminal {
         this.write("\x1b[2J\x1b[H");
     }
 
-    /** @param {number} row @param {number} col */
-    moveBy(row, col) {
+    /** @param {number} row @param {number} [col] */
+    moveBy(row, col = 0) {
         if (row > 0) this.write(`\x1b[${row}B`);
         if (row < 0) this.write(`\x1b[${Math.abs(row)}A`);
         if (col > 0) this.write(`\x1b[${col}C`);
@@ -176,7 +176,7 @@ export class VirtualTerminal {
         this.title = title;
     }
 
-    /** @param {number | null} progress */
+    /** @param {boolean | number | null} progress */
     setProgress(progress) {
         this.progress = progress;
     }
@@ -186,7 +186,7 @@ export class VirtualTerminal {
         return false;
     }
 
-    drainInput() {}
+    async drainInput() {}
     enableModifyOtherKeys() {
         this.modifyOtherKeysActive = true;
     }

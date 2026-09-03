@@ -44,6 +44,11 @@ external hosts. _Avoid_: TUI mode, batch wrapper, remote UI
 **Agent Client Protocol (ACP)**: The editor-oriented JSON-RPC protocol RunWield implements for IDEs and external hosts.
 _Avoid_: Agent Control Protocol, Agent Communication Protocol
 
+**Terminal Auth**: An ACP Client-launched setup process that opens `wld login` in a terminal so the user can configure
+model-provider credentials and choose a default model before the Client reconnects to `wld acp`. Credentials stay in
+`~/.wld/auth.json`; Terminal Auth is not Agent Auth, does not use ACP `authenticate`, and does not move the coding
+Session into the terminal. _Avoid_: Slash Login, ACP token exchange, provider login session
+
 **Session Host**: The non-TUI runtime boundary that owns one or more live RunWield Sessions and exposes them to external
 clients. _Avoid_: TUI backend, daemon, adapter
 

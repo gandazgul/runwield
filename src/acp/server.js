@@ -6,15 +6,50 @@
 import { agent, methods, ndJsonStream, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk";
 import { isAbsolute } from "@std/path";
 import { openFileSessionStore } from "../shared/session/file-session-store.ts";
+import { getSelectedDefaultModelAvailability } from "../shared/session/model-readiness.ts";
 import { createSessionRuntime, SessionTurnInProgressError } from "../shared/session/session-runtime.js";
 import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.js";
 import { mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
 
+const ACP_AUTH_REQUIRED = -32000;
 const ACP_NOT_IMPLEMENTED = -32004;
 const ACP_INVALID_PARAMS = -32602;
 const ACP_NOT_FOUND = -32001;
 const ACP_INVALID_STATE = -32002;
+
+/** @param {unknown} value */
+function isRecord(value) {
+    return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+/** @param {unknown} clientCapabilities */
+function supportsTerminalAuth(clientCapabilities) {
+    if (!isRecord(clientCapabilities)) return false;
+    const capabilities = /** @type {Record<string, unknown>} */ (clientCapabilities);
+    const auth = capabilities.auth;
+    if (isRecord(auth) && /** @type {Record<string, unknown>} */ (auth).terminal === true) return true;
+    const meta = capabilities._meta;
+    return isRecord(meta) && /** @type {Record<string, unknown>} */ (meta)["terminal-auth"] === true;
+}
+
+/** @param {string} cwd */
+function throwAuthenticationRequired(cwd) {
+    throw new RequestError(
+        ACP_AUTH_REQUIRED,
+        "RunWield login and default model setup are required before starting ACP.",
+        {
+            cwd,
+        },
+    );
+}
+
+/** @param {string} message */
+function isAuthenticationSetupFailure(message) {
+    return /^Unknown .*model:/.test(message) || /^Invalid .*model:/.test(message) ||
+        /^No configured model found/.test(message) || /^No API key configured for /.test(message) ||
+        /^No configured auth for provider /.test(message) || message.includes("missing_auth");
+}
 
 /** @typedef {import('@agentclientprotocol/sdk').AgentApp} AgentApp */
 /** @typedef {import('@agentclientprotocol/sdk').AgentConnection} AgentConnection */
@@ -38,6 +73,15 @@ const ACP_INVALID_STATE = -32002;
  * @returns {import('@agentclientprotocol/sdk').InitializeResponse}
  */
 export function createInitializeResponse(request) {
+    const authMethods = supportsTerminalAuth(request?.clientCapabilities)
+        ? [{
+            id: "runwield-terminal-login",
+            name: "RunWield Login",
+            description: "Open a terminal to configure RunWield credentials and choose a default model.",
+            type: "terminal",
+            args: ["login"],
+        }]
+        : [];
     return {
         protocolVersion: request?.protocolVersion || PROTOCOL_VERSION,
         agentCapabilities: {
@@ -61,7 +105,7 @@ export function createInitializeResponse(request) {
                 },
             },
         },
-        authMethods: [],
+        authMethods,
         agentInfo: { name: "RunWield", version: "0.0.0-acp-mvp" },
     };
 }
@@ -255,6 +299,8 @@ function createRunWieldAcpServer(context) {
 
     app.onRequest(methods.agent.session.new, async (context) => {
         const request = validateNewSessionParams(context.params);
+        const readiness = getSelectedDefaultModelAvailability(request.cwd);
+        if (!readiness.available) throwAuthenticationRequired(request.cwd);
         const runtimeSessionId = await runtime.createPromptReadySession({ cwd: request.cwd });
         const snapshot = runtime.getSessionSnapshot(runtimeSessionId);
         if (!snapshot) throwUnknownSession(runtimeSessionId);
@@ -313,6 +359,7 @@ function createRunWieldAcpServer(context) {
             if (message.includes("already exists")) {
                 throw new RequestError(ACP_INVALID_STATE, message, { sessionId: request.sessionId });
             }
+            if (isAuthenticationSetupFailure(message)) throwAuthenticationRequired(request.cwd);
             throw new RequestError(ACP_NOT_FOUND, `Unable to load ACP session: ${request.sessionId}`, {
                 sessionId: request.sessionId,
                 cwd: request.cwd,

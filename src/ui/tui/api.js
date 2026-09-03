@@ -59,7 +59,7 @@ export function createSilentUiApi() {
         clearMessages: () => {},
         promptSelect: () => Promise.resolve(null),
         promptText: () => Promise.resolve(null),
-        showModelSelector: () => {},
+        showModelSelector: () => ({ selected: false }),
         disableInput: () => {},
         enableInput: () => {},
         isOutputSuppressed: () => true,
@@ -767,7 +767,7 @@ export function createUiApi(
         // Stubs that chat-session sets dynamically
         disableInput: () => {},
         enableInput: () => {},
-        showModelSelector: () => {},
+        showModelSelector: () => ({ selected: false }),
         appendImage: () => {}, // chat-session implements this currently
     };
 }
