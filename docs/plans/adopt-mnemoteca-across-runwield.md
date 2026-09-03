@@ -1,4 +1,5 @@
 ---
+planId: "5a315cc8-5abc-4fb2-a7ad-31b32795d36a"
 classification: "PLANNED_CHANGE"
 workKind: "MAINTENANCE"
 complexity: "HIGH"
@@ -16,11 +17,13 @@ affectedPaths:
     - "README.md"
     - "docs/domain-language.md"
     - "docs/"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
 createdAt: "2026-09-03"
-status: "draft"
+status: "in_progress"
+origin: "internal"
+userVerifiedAt: null
+targetBranch: "main"
 ---
 
 # Adopt Mnemoteca Across RunWield
@@ -155,17 +158,22 @@ Git object history and untracked `.git/` recovery objects are outside scope. Do 
   `WLD_INSTALL_DIR` without fetching the upstream installer. If absent, it downloads and executes Mnemoteca's official
   installer with RunWield's resolved install directory and `WLD_MNEMOTECA_REPO`, then fails closed unless the new
   executable is usable. The old repository override and direct old-asset branch no longer exist.
-- Installer fixtures prove three distinct results: a missing helper executes the official installer into a custom path;
-  an existing helper causes no Mnemoteca installer request; and an upstream installer failure or missing resulting
-  executable aborts RunWield installation. The pseudo-terminal fixture also proves that interactive input reaches the
-  delegated installer so its upgrade offer is not swallowed by RunWield.
+- Installer fixtures prove distinct results with `MNEMOTECA_DB_PATH` both present and explicitly absent: a missing
+  helper executes the official installer into a custom path; an existing helper causes no Mnemoteca installer request;
+  and an upstream installer failure or missing resulting executable aborts RunWield installation. A fixture with only a
+  pre-rename compatibility executable still invokes upstream rather than treating that executable as current. Construct
+  its name from fragments at test runtime so the regression test does not preserve the obsolete spelling. The
+  pseudo-terminal fixture also proves that interactive input reaches the delegated installer so its upgrade offer is not
+  swallowed by RunWield.
 - Clean-user and continuous integration environments provide `mnemoteca`, and both UX container targets execute
   `mnemoteca version`. They contain no dependency on a compatibility executable.
 - `src/extensions/mnemoteca/` exports `createMnemotecaTools`, `MnemotecaToolHost`, and the Mnemoteca extension. Memory
   recall, store, scoped delete, Core tags, project/global precedence, collection resolution, error behavior, and Claude
   CLI bridging execute `mnemoteca` with the same supported arguments and results as before.
 - `ensureMnemotecaBinary` is the only memory-helper preflight. TUI and Agent Session construction call it,
-  missing-helper messages name Mnemoteca, and a PATH containing only a valid `mnemoteca` fixture passes.
+  missing-helper messages name Mnemoteca, and a PATH containing only a valid `mnemoteca` fixture passes. A PATH that
+  contains only a pre-rename compatibility executable, with its name assembled from fragments inside the test, is
+  rejected; this proves there is no dynamically hidden runtime fallback.
 - Core Memory prompt assembly executes `mnemoteca list -t core -f plain`, keeps its fail-open behavior, and records
   `mnemoteca` as the context projection source. A behavioral test fails if this path calls another executable or omits
   the returned Core Memory text.
@@ -237,10 +245,14 @@ does not materially replace the decisions or outcomes of prior Work Records.
   recognition of the pre-rename executable and environment contract inside RunWield.
 
 - Mnemoteca installer integration:
-  - A fixture with no `mnemoteca` must record one request for the official installer, receive the resolved custom
-    `INSTALL_DIR`, produce the executable there, and let RunWield complete.
+  - A fixture with no `mnemoteca` must record exactly one request for the official installer, receive the resolved
+    custom `INSTALL_DIR`, produce the executable there, and let RunWield complete. Run this case once with a sandbox
+    `MNEMOTECA_DB_PATH` and once with that variable explicitly removed from the child environment.
   - A fixture with `mnemoteca` already on `PATH` and a second fixture with it only in `WLD_INSTALL_DIR` must complete
     without requesting the official installer.
+  - A fixture whose PATH contains only the pre-rename executable, named from runtime string fragments, must still
+    request the official installer. A matching runtime-preflight fixture must reject that PATH. These tests fail any
+    hidden compatibility fallback even when the obsolete spelling does not appear literally in source.
   - Failure and false-success fixtures must leave RunWield installation failed, not report a complete install.
   - A pseudo-terminal fixture must show that the delegated installer's upgrade prompt can be answered.
   - Inspect the published upstream installer used for the release and confirm that release-archive checksum verification
