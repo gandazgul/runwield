@@ -132,12 +132,6 @@ export const slashSleepScenario = {
     terminal: { columns: 100, rows: 30 },
     script: [
         {
-            id: "persist-before-sleep",
-            agent: "guide",
-            phase: "inquiry",
-            text: "The session is now persisted for sleep mode.",
-        },
-        {
             id: "sleep-engineer-maintenance",
             agent: "engineer",
             phase: "engineer",
@@ -145,9 +139,6 @@ export const slashSleepScenario = {
         },
     ],
     actions: [
-        { type: "type", text: "persist this session before sleep" },
-        { type: "enter" },
-        { type: "waitForIdle" },
         { type: "type", text: "/sleep" },
         { type: "enter" },
         { type: "waitForEvent", event: "runtime:agent:engineer" },
