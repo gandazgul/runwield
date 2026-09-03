@@ -2,7 +2,8 @@
 set -euo pipefail
 
 REPO="${WLD_REPO:-gandazgul/runwield}"
-MNEMOSYNE_REPO="${WLD_MNEMOSYNE_REPO:-gandazgul/mnemosyne}"
+MNEMOTECA_REPO="${WLD_MNEMOTECA_REPO:-gandazgul/mnemoteca}"
+MNEMOTECA_INSTALLER_URL="${WLD_MNEMOTECA_INSTALLER_URL:-https://raw.githubusercontent.com/${MNEMOTECA_REPO}/main/install.sh}"
 CYMBAL_REPO="${WLD_CYMBAL_REPO:-1broseidon/cymbal}"
 KETCH_REPO="${WLD_KETCH_REPO:-1broseidon/ketch}"
 SNIP_REPO="${WLD_SNIP_REPO:-edouard-claude/snip}"
@@ -214,7 +215,6 @@ helper_asset_name() {
   local arch="$WLD_ARCH"
 
   case "$helper" in
-    mnemosyne) echo "mnemosyne_${version_no_v}_${WLD_OS}_${arch}.tar.gz" ;;
     cymbal)
       [[ "$arch" == "amd64" ]] && arch="x86_64"
       echo "cymbal_${version}_${WLD_OS}_${arch}.tar.gz"
@@ -373,6 +373,39 @@ find_executable() {
   local root="$1"
   local exe="$2"
   find "$root" -type f -name "$exe" -perm -u+x | head -n 1
+}
+
+install_mnemoteca() {
+  local existing work_dir installer_path
+
+  if existing="$(helper_existing_path mnemoteca)"; then
+    PRESERVED_HELPERS+=("mnemoteca:${existing}")
+    echo "[wld installer] Preserving existing mnemoteca: ${existing}"
+    return 0
+  fi
+
+  work_dir="${TMP_DIR}/mnemoteca-installer"
+  mkdir -p "$work_dir"
+  installer_path="${work_dir}/install.sh"
+
+  echo "[wld installer] Installing mnemoteca with the official Mnemoteca installer ..."
+  if ! download "$MNEMOTECA_INSTALLER_URL" "$installer_path"; then
+    echo "[wld installer] Failed to download Mnemoteca installer from ${MNEMOTECA_INSTALLER_URL}." >&2
+    return 1
+  fi
+  chmod 700 "$installer_path"
+
+  if ! INSTALL_DIR="$INSTALL_DIR" MNEMOTECA_REPO="$MNEMOTECA_REPO" /bin/sh "$installer_path"; then
+    echo "[wld installer] Mnemoteca installer failed." >&2
+    return 1
+  fi
+  if [[ ! -x "${INSTALL_DIR}/mnemoteca" ]]; then
+    echo "[wld installer] Mnemoteca installer completed but did not produce executable '${INSTALL_DIR}/mnemoteca'." >&2
+    return 1
+  fi
+
+  INSTALLED_HELPERS+=("mnemoteca:${INSTALL_DIR}/mnemoteca")
+  echo "[wld installer] Installed mnemoteca to ${INSTALL_DIR}/mnemoteca"
 }
 
 install_helper() {
@@ -574,8 +607,8 @@ fi
 install -m 755 "${TMP_DIR}/wld" "${INSTALL_DIR}/wld"
 echo "[wld installer] Installed wld to ${INSTALL_DIR}/wld"
 
-if ! install_helper mnemosyne "$MNEMOSYNE_REPO" required; then
-  echo "[wld installer] Required helper Mnemosyne could not be installed. Rerun this installer after fixing the error above." >&2
+if ! install_mnemoteca; then
+  echo "[wld installer] Required helper Mnemoteca could not be installed. Rerun this installer after fixing the error above." >&2
   exit 1
 fi
 if ! install_helper cymbal "$CYMBAL_REPO" required; then

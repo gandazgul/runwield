@@ -236,7 +236,7 @@ RunWield's domain is software engineering. Its current shape already contains ma
   different cognitive postures.
 - **Durable artifacts:** Plans, PRDs, ADRs, lifecycle state, and future work records make work inspectable.
 - **Execution loop:** Feature work moves from plan to review to execution to validation.
-- **External tools:** Shell, git, tests, code search, project files, browser workspace, Mnemosyne, Cymbal, and Snip
+- **External tools:** Shell, git, tests, code search, project files, browser workspace, Mnemoteca, Cymbal, and Snip
   extend the model's reach.
 - **Validation:** Mechanical validation, semantic review, and merge-back create a stronger feedback loop than chat-only
   coding.
@@ -473,3 +473,5 @@ extended-mind environments where humans and models share memory, tools, represen
 
 RunWield is the software engineering instance of that thesis. The broader opportunity is to learn which parts of its
 loop generalize, then build new harnesses with domain experts who know what good cognition looks like in their field.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

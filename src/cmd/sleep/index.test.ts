@@ -4,9 +4,9 @@ import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts
 import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import {
-    exportMnemosyneCollection,
+    exportMnemotecaCollection,
     type InteractiveSessionPort,
-    type MnemosynePort,
+    type MnemotecaPort,
     runSleepCommand,
     SLEEP_PROMPT,
 } from "./index.ts";
@@ -16,16 +16,16 @@ interface ExportInvocation {
     outputPath: string;
 }
 
-interface MnemosyneFixture {
-    port: MnemosynePort;
+interface MnemotecaFixture {
+    port: MnemotecaPort;
     ensureCalls: number;
     exports: ExportInvocation[];
 }
 
-function createMnemosyneFixture(
+function createMnemotecaFixture(
     options: { exitCode?: number; omitOutput?: boolean; beforeExport?: () => void } = {},
-): MnemosyneFixture {
-    const fixture: MnemosyneFixture = {
+): MnemotecaFixture {
+    const fixture: MnemotecaFixture = {
         ensureCalls: 0,
         exports: [],
         port: {
@@ -38,7 +38,7 @@ function createMnemosyneFixture(
                 const outputPath = args.at(-1) || "";
                 fixture.exports.push({ args: [...args], outputPath });
                 if (!options.omitOutput && !options.exitCode) {
-                    await Deno.writeTextFile(outputPath, '{"type":"mnemosyne-export"}\n');
+                    await Deno.writeTextFile(outputPath, '{"type":"mnemoteca-export"}\n');
                 }
                 const exitCode = options.exitCode || 0;
                 return {
@@ -76,7 +76,7 @@ async function captureConsole(run: () => void | Promise<void>): Promise<{ logs: 
 Deno.test("sleep help uses the real command registry", async () => {
     const output = await captureConsole(() =>
         runSleepCommand(["--help"], {
-            mnemosynePort: createMnemosyneFixture().port,
+            mnemotecaPort: createMnemotecaFixture().port,
             sessionPort: UNEXPECTED_SESSION_PORT,
         })
     );
@@ -88,7 +88,7 @@ Deno.test("standalone sleep delegates only interactive session startup", async (
     let request: string | null = null;
     let agentName = "";
     await runSleepCommand([], {
-        mnemosynePort: createMnemosyneFixture().port,
+        mnemotecaPort: createMnemotecaFixture().port,
         sessionPort: {
             startInteractiveSession: (nextRequest, options) => {
                 request = nextRequest;
@@ -102,12 +102,12 @@ Deno.test("standalone sleep delegates only interactive session startup", async (
     assertEquals(agentName, "engineer");
 });
 
-Deno.test("Mnemosyne export creates its real fixture directory and verifies the subprocess output", async () => {
+Deno.test("Mnemoteca export creates its real fixture directory and verifies the subprocess output", async () => {
     const tempDir = await Deno.makeTempDir({ prefix: "runwield-sleep-export-" });
     const outputPath = join(tempDir, "nested", "backup.jsonl");
-    const fixture = createMnemosyneFixture();
+    const fixture = createMnemotecaFixture();
     try {
-        await exportMnemosyneCollection("project", outputPath, fixture.port);
+        await exportMnemotecaCollection("project", outputPath, fixture.port);
 
         assertEquals(fixture.exports, [{
             args: ["export", "--name", "project", "--no-embeddings", "--output", outputPath],
@@ -119,25 +119,25 @@ Deno.test("Mnemosyne export creates its real fixture directory and verifies the 
     }
 });
 
-Deno.test("Mnemosyne export rejects subprocess failure and false success", async () => {
+Deno.test("Mnemoteca export rejects subprocess failure and false success", async () => {
     const tempDir = await Deno.makeTempDir({ prefix: "runwield-sleep-export-failure-" });
     try {
         await assertRejects(
             () =>
-                exportMnemosyneCollection(
+                exportMnemotecaCollection(
                     "project",
                     join(tempDir, "failed.jsonl"),
-                    createMnemosyneFixture({ exitCode: 7 }).port,
+                    createMnemotecaFixture({ exitCode: 7 }).port,
                 ),
             Error,
             "export refused",
         );
         await assertRejects(
             () =>
-                exportMnemosyneCollection(
+                exportMnemotecaCollection(
                     "project",
                     join(tempDir, "missing.jsonl"),
-                    createMnemosyneFixture({ omitOutput: true }).port,
+                    createMnemotecaFixture({ omitOutput: true }).port,
                 ),
             Error,
             "did not create the backup",
@@ -155,7 +155,7 @@ Deno.test("sleep backs up fixture memory before a real Runtime switches and runs
         const messages: string[] = [];
         const requests: string[] = [];
         const agentsAtBackup: Array<string | null> = [];
-        const mnemosyne = createMnemosyneFixture({
+        const mnemoteca = createMnemotecaFixture({
             beforeExport: () => agentsAtBackup.push(runtime.getSessionSnapshot(sessionId)?.activeAgent || null),
         });
         runtime.subscribeSessionEvents(sessionId, (event) => {
@@ -166,17 +166,17 @@ Deno.test("sleep backs up fixture memory before a real Runtime switches and runs
                 sessionId,
                 sessionRuntime: runtime,
                 uiAPI: { appendSystemMessage: (message) => messages.push(message) },
-                mnemosynePort: mnemosyne.port,
+                mnemotecaPort: mnemoteca.port,
                 sessionPort: UNEXPECTED_SESSION_PORT,
             });
 
-            assertEquals(mnemosyne.ensureCalls, 1);
-            assertEquals(mnemosyne.exports.length, 1);
+            assertEquals(mnemoteca.ensureCalls, 1);
+            assertEquals(mnemoteca.exports.length, 1);
             assertEquals(agentsAtBackup, ["router"]);
-            const backupPath = mnemosyne.exports[0].outputPath;
+            const backupPath = mnemoteca.exports[0].outputPath;
             assert(backupPath.startsWith(join(homeDir, ".wld")));
             assertMatch(backupPath, /project\.sleep-backup-.*\.jsonl$/);
-            assertEquals(await Deno.readTextFile(backupPath), '{"type":"mnemosyne-export"}\n');
+            assertEquals(await Deno.readTextFile(backupPath), '{"type":"mnemoteca-export"}\n');
             assertEquals(messages, [`[RunWield] Memory backup created before sleep mode: ${backupPath}`]);
             assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "engineer");
             assertEquals(requests.length, 1);
@@ -200,7 +200,7 @@ Deno.test("sleep can be the first prompt in a new deferred-persistence Session",
                 agentName: "router",
                 deferPersistenceUntilFirstMessage: true,
             });
-            const mnemosyne = createMnemosyneFixture();
+            const mnemoteca = createMnemotecaFixture();
             try {
                 assertEquals(runtime.getSessionSnapshot(sessionId)?.sessionManagerId, null);
 
@@ -208,14 +208,14 @@ Deno.test("sleep can be the first prompt in a new deferred-persistence Session",
                     sessionId,
                     sessionRuntime: runtime,
                     uiAPI: { appendSystemMessage: () => {} },
-                    mnemosynePort: mnemosyne.port,
+                    mnemotecaPort: mnemoteca.port,
                     sessionPort: UNEXPECTED_SESSION_PORT,
                 });
 
                 assertEquals(typeof runtime.getSessionSnapshot(sessionId)?.sessionManagerId, "string");
                 assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "engineer");
-                assertEquals(mnemosyne.exports.length, 1);
-                assert(mnemosyne.exports[0].outputPath.startsWith(join(homeDir, ".wld")));
+                assertEquals(mnemoteca.exports.length, 1);
+                assert(mnemoteca.exports[0].outputPath.startsWith(join(homeDir, ".wld")));
             } finally {
                 await runtime.closeSession(sessionId);
             }
@@ -227,7 +227,7 @@ Deno.test("sleep leaves a real Runtime on its current Agent when external backup
     await withRuntimeCommandFixture("sleep-command-failure-", async ({ projectRoot }) => {
         const runtime = createSessionRuntime();
         const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
-        const mnemosyne = createMnemosyneFixture({ exitCode: 7 });
+        const mnemoteca = createMnemotecaFixture({ exitCode: 7 });
         const messages: string[] = [];
         try {
             await assertRejects(
@@ -236,7 +236,7 @@ Deno.test("sleep leaves a real Runtime on its current Agent when external backup
                         sessionId,
                         sessionRuntime: runtime,
                         uiAPI: { appendSystemMessage: (message) => messages.push(message) },
-                        mnemosynePort: mnemosyne.port,
+                        mnemotecaPort: mnemoteca.port,
                         sessionPort: UNEXPECTED_SESSION_PORT,
                     }),
                 Error,
@@ -250,21 +250,21 @@ Deno.test("sleep leaves a real Runtime on its current Agent when external backup
     });
 });
 
-Deno.test("sleep rejects missing Runtime state before touching Mnemosyne", async () => {
-    const mnemosyne = createMnemosyneFixture();
+Deno.test("sleep rejects missing Runtime state before touching Mnemoteca", async () => {
+    const mnemoteca = createMnemotecaFixture();
     await assertRejects(
         () =>
             runSleepCommand([], {
                 sessionId: "missing",
                 sessionRuntime: createSessionRuntime(),
                 uiAPI: { appendSystemMessage: () => {} },
-                mnemosynePort: mnemosyne.port,
+                mnemotecaPort: mnemoteca.port,
                 sessionPort: UNEXPECTED_SESSION_PORT,
             }),
         Error,
         "active runtime session",
     );
-    assertEquals(mnemosyne.ensureCalls, 0);
+    assertEquals(mnemoteca.ensureCalls, 0);
 });
 
 Deno.test("inlined sleep prompt stays synchronized with prompt.md", async () => {

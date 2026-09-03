@@ -54,7 +54,7 @@ flowchart TB
         Pi["Pi AgentSession and SessionManager"]
         Files["Project and ~/.wld files"]
         Git["Git"]
-        Mnemosyne["Mnemosyne"]
+        Mnemoteca["Mnemoteca"]
         Cymbal["Cymbal"]
         Snip["Snip optional"]
         ModelAPI["Configured model providers"]
@@ -84,7 +84,7 @@ flowchart TB
     PlanDomain <--> Files
     Hosted <--> Pi
     Worktrees <--> Git
-    AgentFactory --> Mnemosyne
+    AgentFactory --> Mnemoteca
     AgentFactory --> Cymbal
     AgentFactory --> Snip
     AgentFactory <--> ModelAPI
@@ -554,7 +554,7 @@ flowchart LR
         Home["~/.wld agent and settings overrides"]
         Local["Project .wld overrides"]
         Instructions["RUNWIELD.md or AGENTS.md"]
-        Memories["Core Mnemosyne memories"]
+        Memories["Core Mnemoteca memories"]
         Skills["Discovered skills and prompt templates"]
     end
 
@@ -607,7 +607,7 @@ Model selection uses RunWield-owned settings and model/auth files under `~/.wld`
 presets, provider defaults, thinking levels, temperatures, and a vision fallback. Model/provider state is mirrored onto
 the hosted session for adapters, while Pi owns the active model on each `AgentSession`.
 
-Mnemosyne and Cymbal are hard preflight requirements for agent construction. Snip is optional and its extension is
+Mnemoteca and Cymbal are hard preflight requirements for agent construction. Snip is optional and its extension is
 registered only when available. The resource loader disables Pi's implicit context/prompt discovery so RunWield can
 apply its own explicit precedence and policy.
 
@@ -861,7 +861,7 @@ rebuilds the active Agent and emits replacement Prompt Template and Skill catalo
 
 Workflow metrics are opt-in JSONL under `~/.wld/workflow-metrics/<encoded-cwd>/metrics.jsonl`. They hash cwd, redact
 prompts, output, secrets, and paths, and fail open so telemetry cannot stop a workflow. Session footer-context markers,
-event listeners, extension warnings, and selected cleanup paths are also fail-open. In contrast, missing Mnemosyne or
+event listeners, extension warnings, and selected cleanup paths are also fail-open. In contrast, missing Mnemoteca or
 Cymbal is a hard agent-construction failure, and invalid lifecycle/worktree gates are hard workflow failures.
 
 ## Persistence map
@@ -1082,3 +1082,5 @@ The highest-value cross-boundary paths for later confidence analysis are visible
 | ACP adapter                               | `src/acp/server.js`, `src/acp/session-map.js`, mapper modules in `src/acp/`   |
 | Workspace Plan adapter                    | `src/ui/workspace/server/plan-adapter.js`                                     |
 | Review consumer surface                   | `src/ui/review/review-launcher.js`, `src/review-workspace-server.js`          |
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

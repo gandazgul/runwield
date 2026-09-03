@@ -7,10 +7,10 @@
  * is visible to every other file — and a module-scope snapshot taken during that
  * window keeps the wrong value for the life of the realm. That is the root of
  * every flake and every stray write this runner exists to prevent, including
- * test runs rewriting the developer's real ~/.wld and mnemosyne database.
+ * test runs rewriting the developer's real ~/.wld and mnemoteca database.
  *
  * One process per file removes the sharing instead of policing it, and no child
- * can reach the real HOME or the real mnemosyne database.
+ * can reach the real HOME or the real mnemoteca database.
  *
  * Sandboxes are per worker slot rather than per file. A sandbox HOME shared by
  * concurrent processes is not safe — extractBundledAgentDefs() deletes and
@@ -100,7 +100,7 @@ async function createSandboxEnv(sandboxRoot, name, denoDir) {
     return {
         HOME: home,
         WLD_TEST_SANDBOX_HOME: home,
-        MNEMOSYNE_DB_PATH: join(home, "mnemosyne-test.db"),
+        MNEMOTECA_DB_PATH: join(home, "mnemoteca-test.db"),
         SNIP_DB_PATH: join(home, "snip-tracking.db"),
         DENO_DIR: denoDir,
     };

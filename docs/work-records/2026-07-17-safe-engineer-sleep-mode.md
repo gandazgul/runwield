@@ -15,11 +15,13 @@ provenance:
 
 ## Summary
 
-Updated sleep mode to create and validate a session-scoped Mnemosyne JSONL backup before memory maintenance, announce
+Updated sleep mode to create and validate a session-scoped Mnemoteca JSONL backup before memory maintenance, announce
 its absolute path, and fail closed if export fails. Sleep now runs through a persistent Engineer root session for both
 `/sleep` and standalone `wld sleep`, keeps generated artifacts outside the repository, preserves conservative cleanup
 safeguards, and includes updated help and automated coverage.
 
 ## Future Planning Notes
 
-Backups intentionally omit embeddings; restoration relies on Mnemosyne re-embedding imported memory documents.
+Backups intentionally omit embeddings; restoration relies on Mnemoteca re-embedding imported memory documents.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

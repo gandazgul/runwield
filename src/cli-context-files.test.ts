@@ -65,7 +65,7 @@ Deno.test("CLI commands leave repository CONTEXT files untouched", async () => {
             cwd: projectRoot,
             env: {
                 HOME: homeDir,
-                MNEMOSYNE_DB_PATH: join(homeDir, "m.db"),
+                MNEMOTECA_DB_PATH: join(homeDir, "m.db"),
             },
             stdout: "piped",
             stderr: "piped",

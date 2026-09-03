@@ -683,7 +683,7 @@ export async function runPostVerificationHandoffs(args: ValidationLoopArgs, proj
         planName: args.planName,
         planContent: args.planContent,
         projectRoot,
-        mnemosynePort: args.workRecordMnemosynePort,
+        mnemotecaPort: args.workRecordMnemotecaPort,
     });
 }
 

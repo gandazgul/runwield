@@ -48,7 +48,7 @@ command the GitHub PR workflow runs. `deno task test:golden-tui:extensive` is th
 
 Interactive RunWield sessions expect these helper binaries in `PATH`:
 
-- [`mnemosyne`](https://github.com/gandazgul/mnemosyne) for memory-backed agent behavior.
+- [`mnemoteca`](https://github.com/gandazgul/mnemoteca) for memory-backed agent behavior.
 - [`cymbal`](https://github.com/1broseidon/cymbal) for code intelligence.
 - [`agent-browser`](https://github.com/vercel-labs/agent-browser) for browser-driven UI/UX verification.
 - [`snip`](https://github.com/edouard-claude/snip) for compact command-output rewriting. Snip is optional at runtime and
@@ -78,7 +78,7 @@ Use this as an orientation map, not a directory inventory:
   work records, and runtime preflight helpers.
 - `src/agent-definitions/`, `src/prompt-templates/`, and `src/skills/` are the bundled agent, slash-prompt, and skill
   layers. Project `.wld/` overrides home `~/.wld/`, which overrides these bundled defaults.
-- `src/extensions/` contains runtime integrations for Mnemosyne, Cymbal, and Snip. Keep integration-specific tools,
+- `src/extensions/` contains runtime integrations for Mnemoteca, Cymbal, and Snip. Keep integration-specific tools,
   hooks, and tests isolated there when practical.
 - `src/tools/` contains RunWield-specific agent tools that are not better owned by an extension package.
 - `src/ui/tui/` is the terminal adapter. `src/ui/workspace/`, `src/review-workspace-server.js`, and `src/ui/review/` are
@@ -134,7 +134,7 @@ startup/raw-terminal layer rather than replacing these deterministic scenarios.
 
 Runtime integrations live under `src/extensions/`. They are loaded as Pi extension factories during Agent Session setup.
 
-- `src/extensions/mnemosyne/` adds memory recall, storage, and deletion tools backed by Mnemosyne.
+- `src/extensions/mnemoteca/` adds memory recall, storage, and deletion tools backed by Mnemoteca.
 - `src/extensions/cymbal/` adds code search, symbol lookup, impact analysis, and tracing tools backed by Cymbal.
 - `src/extensions/snip/` adds a fail-open `tool_call` hook that prefixes eligible agent `bash` commands with Snip.
 

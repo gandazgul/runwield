@@ -549,13 +549,13 @@ export function createValidationSessionPort(
             }
         },
         getAgentDisplayName: (agentName, projectRoot) => getSessionAgentDisplayName(agentName, projectRoot),
-        runPostVerificationHandoffs: async ({ planName, planContent, projectRoot, mnemosynePort }) => {
+        runPostVerificationHandoffs: async ({ planName, planContent, projectRoot, mnemotecaPort }) => {
             await runFeaturePostVerificationHandoffs({
                 hostedSession,
                 planName,
                 planContent,
                 projectRoot,
-                mnemosynePort,
+                mnemotecaPort,
             });
         },
     };

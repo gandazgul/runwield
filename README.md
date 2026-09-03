@@ -162,7 +162,7 @@ RunWield is built on [Pi](https://pi.dev) and ships as a single compiled binary.
 - **CLI + TUI** — Deno, pure JavaScript with JSDoc typing -> Moving to TypeScript.
 - **Plan review** — a browser UI powered by [Plannotator](https://plannotator.ai).
 - **Code intelligence** — [Cymbal](https://github.com/1broseidon/cymbal).
-- **Memory** — [Mnemosyne](https://github.com/gandazgul/mnemosyne) for project and global memory.
+- **Memory** — [Mnemoteca](https://github.com/gandazgul/mnemoteca) for project and global memory.
 - **Workspace UI** — Astro + React, local-first (binds to `127.0.0.1` with a per-server token by default).
 - **Extensible** — layered agent definitions, prompt templates, skills, and themes, overridable per project or per user.
 - **ACP-compatible**, so external clients can drive sessions.

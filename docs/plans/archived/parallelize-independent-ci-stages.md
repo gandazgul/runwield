@@ -149,7 +149,7 @@ Plan changes only the scheduling before the existing test task starts.
 - Expected failure behavior is covered in focused tests rather than by damaging a real repository gate: multiple
   pre-test failures are all returned, test is absent, and a failed test exit code becomes the CI exit code.
 - Existing test behavior that must remain protected: `deno task test` still invokes `write-version.js` and
-  `scripts/run-tests.js`, each test file remains process-isolated with sandboxed `HOME` and `MNEMOSYNE_DB_PATH`, and no
+  `scripts/run-tests.js`, each test file remains process-isolated with sandboxed `HOME` and `MNEMOTECA_DB_PATH`, and no
   direct `deno test` invocation is introduced. No existing behavior is expected to stop except sequential pre-test
   execution and first-failure short-circuiting inside that wave.
 

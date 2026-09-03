@@ -489,12 +489,12 @@ shared CI tier, mirroring this repository's `deno task ci` versus `deno task rel
 
 ### 7.1 Memory and Indexing
 
-- **Mnemosyne Integration:** project/global persistent memory for user preferences, project facts, and critical context.
+- **Mnemoteca Integration:** project/global persistent memory for user preferences, project facts, and critical context.
 - **Memory Maintenance:** cleanup and organization flows through built-in commands.
 - **Code Intelligence:** structural and semantic project search through local tooling.
 - **Project Brief:** compressed project context injected where useful without flooding every prompt.
 
-RunWield should distinguish Mnemosyne-style operational memory from Work Records. Mnemosyne stores recallable agent
+RunWield should distinguish Mnemoteca-style operational memory from Work Records. Mnemoteca stores recallable agent
 memory; Work Records are durable planning artifacts owned by the project/team.
 
 ### 7.2 Agent Specialization
@@ -553,7 +553,7 @@ explicitly by the host.
 - **Language:** pure JavaScript with JSDoc types.
 - **Local UI:** Fresh/Vite/Preact Workspace app where applicable.
 - **Core persistence:** repo-local markdown artifacts plus local RunWield state under `~/.wld/`.
-- **Memory:** Mnemosyne for project/global agent memory.
+- **Memory:** Mnemoteca for project/global agent memory.
 - **Code intelligence:** local search/indexing tools such as Cymbal and structural search.
 - **Collaboration:** local-first Plan Workspace and future remote Shared Spaces.
 - **External integration:** Session Host and ACP as the strategic boundary.
@@ -589,3 +589,5 @@ Workspace metrics:
 - cross-project retrieval usefulness as rated by users
 - Work Record edit/override rate after Recorder generation
 - team retention driven by planning memory and collaboration value
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

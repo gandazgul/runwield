@@ -31,7 +31,7 @@ Work Records should make it easy for humans and planning Agents to answer questi
 
 - Work Records are canonical repo-local Markdown artifacts under `docs/work-records/`.
 - The Markdown file is the source of truth.
-- Mnemosyne or any future index is derived/cache state only.
+- Mnemoteca or any future index is derived/cache state only.
 - V1 stores files flat under `docs/work-records/`.
 - V1 filenames use creation-date-prefixed slugs, for example:
 
@@ -500,7 +500,7 @@ query-intent detection.
 
 ### Indexing
 
-Use a separate derived Mnemosyne collection for Work Records:
+Use a separate derived Mnemoteca collection for Work Records:
 
 ```text
 <projectName>:work-records
@@ -508,7 +508,7 @@ Use a separate derived Mnemosyne collection for Work Records:
 
 Do not mix Work Records into the normal project memory collection.
 
-The index is derived from Markdown and rebuildable. Mnemosyne IDs are cache/index implementation details and must not be
+The index is derived from Markdown and rebuildable. Mnemoteca IDs are cache/index implementation details and must not be
 stored in committed Markdown.
 
 Index entries should include compact searchable text, not the full body:
@@ -562,10 +562,10 @@ The derived index should sync automatically on:
 - archive
 - restore
 
-Creation is generally add-only. Archive/supersede/edit may require delete + add unless Mnemosyne gains
+Creation is generally add-only. Archive/supersede/edit may require delete + add unless Mnemoteca gains
 update/upsert/tag-update support.
 
-Preferred future Mnemosyne capability:
+Preferred future Mnemoteca capability:
 
 - stable external keys or upsert support keyed by Work Record `recordId`
 - tag updates or better tag filtering if needed
@@ -677,7 +677,7 @@ this automation setting.
 - Automatic age-based rot/decay.
 - Silent agent-driven supersession/archive without user confirmation.
 - Generating Work Records for every no-plan QUICK_FIX by default.
-- Writing Mnemosyne document IDs into Markdown.
+- Writing Mnemoteca document IDs into Markdown.
 - Requiring code evidence for every external record.
 - Date-folder storage; v1 remains flat.
 
@@ -698,9 +698,9 @@ Use these to continue the design conversation later.
    - Resolved recommendation: closed-without-verification records always display a verification-skipped warning and
      closure reason.
 
-3. **Mnemosyne improvements**
-   - Should Mnemosyne add external keys/upsert to make Work Record index sync cleaner?
-   - Should Mnemosyne add tag update/retag support?
+3. **Mnemoteca improvements**
+   - Should Mnemoteca add external keys/upsert to make Work Record index sync cleaner?
+   - Should Mnemoteca add tag update/retag support?
    - Should tag filtering evolve beyond “must match all tags” for Work Record search?
 
 4. **Backfill command UX**
@@ -760,3 +760,5 @@ Use these to continue the design conversation later.
 - Superseded, archived, and draft records do not pollute default planning retrieval.
 - Work Records remain small, human-readable, and durable in Git.
 - The derived search index can be rebuilt from Markdown without losing canonical information.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca
