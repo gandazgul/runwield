@@ -3821,6 +3821,7 @@ export async function ensureRootAgentSession(opts) {
     recordActiveAgent(
         /** @type {any} */ (activeSessionManager),
         opts.agentName,
+        agentDef.displayName,
     );
     rootSessionMetadata.set(rootSession, {
         agentDef,

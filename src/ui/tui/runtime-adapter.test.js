@@ -36,7 +36,8 @@ function makeUi() {
             appendDelta: (text) => transcript.push(`thinking:${text}`),
             end: () => transcript.push("thinking:end"),
         }),
-        appendSystemMessage: (text, isError) => transcript.push(`system:${isError ? "error" : "info"}:${text}`),
+        appendSystemMessage: (text, isError, header) =>
+            transcript.push(`system:${isError ? "error" : "info"}:${header ? `${header}:` : ""}${text}`),
         updateValidationProgress: (progress) => {
             validationProgressUpdates.push(progress);
             transcript.push(`validation:${progress.outcome}:${progress.stage}`);
@@ -83,8 +84,9 @@ function makeUi() {
  * @param {string} sessionId
  * @param {import('../../shared/session/session-runtime-events.js').RuntimeQueuedMessage[]} [queuedMessages]
  * @param {{ routingIntent?: string, complexity?: string, planName?: string } | null} [workflowContext]
+ * @param {string | null} [activeAgent]
  */
-function makeRuntimeHarness(sessionId, queuedMessages = [], workflowContext = null) {
+function makeRuntimeHarness(sessionId, queuedMessages = [], workflowContext = null, activeAgent = null) {
     /** @type {((event: any) => void) | null} */
     let listener = null;
     /** @type {any[]} */
@@ -111,6 +113,7 @@ function makeRuntimeHarness(sessionId, queuedMessages = [], workflowContext = nu
             name: null,
             queuedMessages,
             workflowContext,
+            activeAgent,
         }),
     });
     return { runtime, sessionId, interactionAdapters };
@@ -480,7 +483,7 @@ Deno.test("TUI renders Runtime cancellation events instead of key handlers rende
     });
     adapter.dispose();
 
-    assertEquals(transcript, ["system:info:Agent run canceled."]);
+    assertEquals(transcript, ["system:info:RunWield:Agent run canceled."]);
 });
 
 Deno.test("TUI adapter ignores replayed thinking because it is not active work", () => {
@@ -504,6 +507,39 @@ Deno.test("TUI adapter ignores replayed thinking because it is not active work",
     registration.dispose();
 
     assertEquals(transcript, []);
+});
+
+Deno.test("TUI adapter renders Agent switch notices only for marked root handoffs", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("agent-switch-notice", [], null, "guide");
+    const { transcript, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.AGENT_CHANGED,
+        agentName: "temporary-profile",
+        displayName: "Temporary Profile",
+    });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.AGENT_CHANGED,
+        agentName: "guide",
+        displayName: "Guide",
+        rootHandoff: true,
+    });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.AGENT_CHANGED,
+        agentName: "operator",
+        displayName: "Operator",
+        rootHandoff: true,
+    });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.AGENT_CHANGED,
+        agentName: "operator",
+        displayName: "Operator",
+        rootHandoff: true,
+    });
+    adapter.dispose();
+
+    assertEquals(transcript, ["system:info:RunWield:Agent switched to Operator"]);
 });
 
 Deno.test("TUI adapter renders normalized thinking deltas and one tool start", () => {

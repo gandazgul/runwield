@@ -136,6 +136,19 @@ function assertPlannerEventAfterLastAgentCommand(result: ConfigurationScenarioRe
     assert(firstPlannerEvent > lastAgentCommand, "Expected Planner activation only after the recovery /agent command");
 }
 
+function assertPlannerSwitchNoticeBeforeUserMessage(result: ConfigurationScenarioResult, userMessage: string) {
+    const notice = result.state.systemMessages?.find((entry) =>
+        entry.header === "RunWield" && entry.text === "Agent switched to Planner" && entry.isError === false
+    );
+    assert(notice, "Expected a RunWield Agent switch notice");
+    const noticeIndex = result.screenText.indexOf("Agent switched to Planner");
+    const userIndex = result.screenText.indexOf(userMessage);
+    assert(
+        noticeIndex >= 0 && userIndex >= 0 && noticeIndex < userIndex,
+        "Expected Agent switch notice before next user message",
+    );
+}
+
 export const slashAgentScenario = {
     name: "slash-command-agent-preset-model-precedence",
     slashCommands: ["agent"],
@@ -146,11 +159,14 @@ export const slashAgentScenario = {
     globalSettings: configuredSettings(),
     initialProjectFiles: plannerFixture,
     captureModelTurns: true,
+    captureSystemMessages: true,
     script: plannerScript("agent-preset-precedence"),
     actions: switchToPlannerAndSend("Use the preset model."),
     assertions: [
         (result: ConfigurationScenarioResult) => assertEventIncludes(result, "terminal:type:/agent planner"),
         (result: ConfigurationScenarioResult) => assertEventIncludes(result, "runtime:agent:planner"),
+        (result: ConfigurationScenarioResult) =>
+            assertPlannerSwitchNoticeBeforeUserMessage(result, "Use the preset model."),
         (result: ConfigurationScenarioResult) => assertPlannerPrecedence(result, PRESET_MODEL),
     ],
 };
