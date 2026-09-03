@@ -493,9 +493,9 @@ onto the base delegated prompt and declaring an authority ceiling that can reduc
 Omitting it yields the unspecialized `general` role. _Avoid_: Subagent type, delegated persona, Agent subtype
 
 **Verification Adversary**: The read-only Delegated Agent Role (`verification-adversary`) that receives a draft Plan and
-looks for ways an implementation could satisfy its stated verification without achieving the intended behavior.
-Recommended for structural Plans; never a required gate. _Avoid_: Plan reviewer, Reviewer, red team, adversarial
-validation
+looks for ways an implementation could satisfy its outcomes, steps, and verification claims without achieving the
+intended behavior. Recommended for structural or high-risk Plans; never a required gate. _Avoid_: Plan reviewer,
+Reviewer, red team, adversarial validation
 
 **Epic**: A PROJECT Plan that contains design and decomposition context for child PLANNED_CHANGE Plans rather than
 executable implementation work. _Avoid_: Initiative, umbrella task, PROJECT subtype
