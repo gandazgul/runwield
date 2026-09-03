@@ -21,18 +21,20 @@ affectedPaths:
     - "src/ui/workspace/server/"
     - "src/ui/workspace/server.js"
     - "docs/domain-language.md"
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-09-03T00:53:52.832Z"
-status: "feedback"
+status: "in_progress"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v2"
 order: 1
 dependencies:
     []
-executionAgent: "engineer"
-collaborationRecommendation: "autonomous"
+userVerifiedAt: null
+targetBranch: "main"
 ---
 
 # Durable Plan-to-Session Continuity
