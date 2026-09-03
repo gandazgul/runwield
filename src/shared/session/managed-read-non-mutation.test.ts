@@ -220,6 +220,24 @@ Deno.test("managed read sweep drives read paths without writable Pi calls or tra
             await run("isManagedSessionDormant", () => {
                 runtime.isManagedSessionDormant(adopted.sessionId);
             });
+            await run("listPlanAssociatedSessions", async () => {
+                await runtime.listPlanAssociatedSessions(cwd, "missing-plan-id");
+            });
+            await run("verifyPlanAssociatedSession", async () => {
+                await runtime.verifyPlanAssociatedSession({
+                    runwieldSessionId: session.runwieldSessionId,
+                    displayName: session.displayName,
+                    piSessionId: session.piSessionId,
+                    transcriptPath: session.transcriptPath,
+                    associations: [],
+                    latestPurpose: "planning",
+                    currentSegmentKind: "planning",
+                    activationState: "idle",
+                    activeSurface: null,
+                    safePlanningResume: true,
+                    reason: null,
+                });
+            });
             await run("listResumableSessions", async () => {
                 await runtime.listResumableSessions(cwd);
             });

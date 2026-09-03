@@ -5,6 +5,7 @@
 
 import { createHash } from "node:crypto";
 import { normalizeSegmentLineageEvidence, SEGMENT_LINEAGE_CUSTOM_TYPE } from "./workflow-context-session.js";
+import { readPlanAssociations } from "./plan-association.ts";
 import { FILE_SESSION_STORE_VERSION, isoNow } from "./file-session-storage.ts";
 import type {
     FileSessionManifest,
@@ -94,6 +95,16 @@ export function reconstructManifestFromLineage(
     if (ordered.length !== located.length) return null;
 
     const timestamp = isoNow(now);
+    const planAssociations = ordered.flatMap((item) => {
+        try {
+            const entries = Deno.readTextFileSync(item.locator.sessionPath).split("\n").filter(Boolean).slice(1)
+                .map((line) => JSON.parse(line));
+            return readPlanAssociations(entries).map((association) => ({ ...association, committedGeneration: 0 }));
+        } catch {
+            return [];
+        }
+    });
+
     const segments = ordered.map((item, ordinal) => ({
         segmentId: item.lineage.segmentId,
         runwieldSessionId,
@@ -142,5 +153,6 @@ export function reconstructManifestFromLineage(
         },
         generation: null,
         segments,
+        planAssociations,
     };
 }

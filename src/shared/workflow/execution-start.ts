@@ -264,6 +264,9 @@ export async function startActiveExecutionWorkflow(
     const stablePlanId = "planId" in planIdentity ? planIdentity.planId : planIdentity.id;
     const effectiveTriageMeta = { ...triageMeta, planId: stablePlanId };
     hostedSession.setWorkflowExecutionContext?.({ planName, triageMeta: effectiveTriageMeta });
+    if (hostedSession.getManagedOperationCapability?.()) {
+        hostedSession.recordPlanAssociation?.({ planId: stablePlanId, planName, purpose: "execution" });
+    }
     let executionAgent = resolveExecutionOwner(effectiveTriageMeta);
     const collaborationState = {
         collaborationStyle,
@@ -403,6 +406,9 @@ export async function startActiveExecutionWorkflow(
         Object.assign(effectiveTriageMeta, preflightCanonicalPlanSource.attrs, { planId: stablePlanId });
         executionAgent = resolveExecutionOwner(effectiveTriageMeta);
         hostedSession.setWorkflowExecutionContext?.({ planName, triageMeta: effectiveTriageMeta });
+        if (hostedSession.getManagedOperationCapability?.()) {
+            hostedSession.recordPlanAssociation?.({ planId: stablePlanId, planName, purpose: "execution" });
+        }
     }
     const resolvedTargetBranch = reusable
         ? normalizeExecutionTargetBranch(reusable.baseBranch) || await resolveCurrentBranch(projectRoot)

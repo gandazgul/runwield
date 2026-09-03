@@ -324,6 +324,17 @@ class ManagedOperationCapability {
         return this.#sessionStore.registerSessionArtifact(this.#proof, options);
     }
 
+    /** @param {import('./file-session-store-types.ts').PlanAssociation} entry */
+    stagePlanAssociation(entry) {
+        this.assertLive();
+        return this.#sessionStore.stagePlanAssociation(this.#proof, entry);
+    }
+
+    getCurrentSegmentKind() {
+        this.assertLive();
+        return this.#sessionStore.getCurrentSessionSegment(this.runwieldSessionId)?.kind || "session";
+    }
+
     /** @param {import('../owner-coordination/session-activations.js').ActivationProof} proof */
     updateProof(proof) {
         this.assertLive();
@@ -1809,6 +1820,11 @@ export class SessionRuntime {
         const projectRoot = workflow.projectRoot || session.cwd;
         const executionCwd = workflow.executionCwd || session.cwd;
         const runRepair = async () => {
+            const planId = continuation.plan?.planId || workflow.triageMeta?.planId || options.triageMeta?.planId;
+            const planName = continuation.plan?.planName || options.planName;
+            if (planId && planName && session.getManagedOperationCapability?.()) {
+                session.recordPlanAssociation({ planId, planName, purpose: "recovery" });
+            }
             session.setActiveExecutionWorkflow(/** @type {any} */ (continuation.activeWorkflow));
             const { buildValidationRepairPrompt } = await import("../workflow/validation-repair-prompt.ts");
             const { createReviewDiffTool, buildDiffInspectionSection } = await import(
@@ -2478,6 +2494,49 @@ export class SessionRuntime {
             activeMessageTokens: projection.activeMessageTokens,
             contextWindow: rootAgentSession?.model?.contextWindow,
         });
+    }
+
+    /** @param {string} cwd @param {string} planId */
+    async listPlanAssociatedSessions(cwd, planId) {
+        if (!this.#sessionStore) return [];
+        const { findPlanAssociatedSessions } = await import("./plan-session-lookup.ts");
+        return await findPlanAssociatedSessions(this.#sessionStore, { cwd, planId });
+    }
+
+    /** @param {import('./plan-session-lookup.ts').PlanAssociatedSession} candidate */
+    async verifyPlanAssociatedSession(candidate) {
+        if (!this.#sessionStore) return { ok: false, reason: "degraded" };
+        const { verifyPlanAssociatedSession } = await import("./plan-session-lookup.ts");
+        return await verifyPlanAssociatedSession(this.#sessionStore, candidate);
+    }
+
+    /** @param {string} sessionId @param {import('./file-session-store-types.ts').PlanAssociation} entry */
+    async recordPlanAssociation(sessionId, entry) {
+        try {
+            const before = this.getSessionSnapshot(sessionId)?.managed?.generation ?? null;
+            const result = await this.#runManagedStandaloneMutation(
+                sessionId,
+                "workflow_operation",
+                (session, capability) => {
+                    const association = session.recordPlanAssociation(entry);
+                    return {
+                        ok: true,
+                        association,
+                        committedGeneration: capability ? null : null,
+                        operationId: capability?.operationId || null,
+                    };
+                },
+                { activateAgent: false },
+            );
+            if (result?.ok === false) return result;
+            const after = this.getSessionSnapshot(sessionId)?.managed?.generation ?? null;
+            return {
+                ...result,
+                committedGeneration: before === after ? null : after,
+            };
+        } catch (error) {
+            return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
     }
 
     /** @param {string} sessionId */

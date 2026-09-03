@@ -461,6 +461,17 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 );
             }
 
+            try {
+                const planId = typeof effectiveMeta.planId === "string" ? effectiveMeta.planId : "";
+                if (planId) hostedSession.recordPlanAssociation({ planId, planName, purpose: "planning" });
+            } catch (error) {
+                emitSystemStatus(
+                    hostedSession,
+                    `Plan Association was not recorded: ${error instanceof Error ? error.message : String(error)}`,
+                    { level: "warning", header: "RunWield" },
+                );
+            }
+
             const managedCapability = hostedSession.getManagedOperationCapability?.() || null;
             if (managedCapability) {
                 managedCapability.registerArtifact({

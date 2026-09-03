@@ -69,6 +69,7 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {ReturnType<typeof openFileSessionStore>['catalogProjectSessions']} catalogProjectSessions
  * @property {ReturnType<typeof openFileSessionStore>['listSessionTranscriptSegments']} listSessionTranscriptSegments
  * @property {ReturnType<typeof openFileSessionStore>['listSessionArtifacts']} listSessionArtifacts
+ * @property {ReturnType<typeof openFileSessionStore>['listSessionPlanAssociations']} listSessionPlanAssociations
  * @property {ReturnType<typeof openFileSessionStore>['getCurrentSessionSegment']} getCurrentSessionSegment
  * @property {ReturnType<typeof openFileSessionStore>['appendSessionTranscriptSegment']} appendSessionTranscriptSegment
  * @property {ReturnType<typeof openFileSessionStore>['validateSuccessorSegmentLocator']} validateSuccessorSegmentLocator
@@ -89,6 +90,7 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {ReturnType<typeof openFileSessionStore>['acquireSessionActivation']} acquireSessionActivation
  * @property {ReturnType<typeof openFileSessionStore>['changeSessionActivationPhase']} changeSessionActivationPhase
  * @property {ReturnType<typeof openFileSessionStore>['registerSessionArtifact']} registerSessionArtifact
+ * @property {ReturnType<typeof openFileSessionStore>['stagePlanAssociation']} stagePlanAssociation
  * @property {ReturnType<typeof openFileSessionStore>['publishGenerationAndRelease']} publishGenerationAndRelease
  * @property {ReturnType<typeof openFileSessionStore>['commitSegmentRolloverAndPublish']} commitSegmentRolloverAndPublish
  * @property {ReturnType<typeof openFileSessionStore>['releaseUnchangedActivation']} releaseUnchangedActivation
@@ -188,6 +190,10 @@ export function openOwnerCoordinationStore(options = {}) {
             const runtimeProject = projectId ? resolveSessionProject(projectId) : null;
             return sessionStore.listSessionArtifacts(runwieldSessionId, runtimeProject?.projectId);
         },
+        listSessionPlanAssociations: (runwieldSessionId, projectId) => {
+            const runtimeProject = projectId ? resolveSessionProject(projectId) : null;
+            return sessionStore.listSessionPlanAssociations(runwieldSessionId, runtimeProject?.projectId);
+        },
         getCurrentSessionSegment: (runwieldSessionId) => sessionStore.getCurrentSessionSegment(runwieldSessionId),
         appendSessionTranscriptSegment: (segment) => sessionStore.appendSessionTranscriptSegment(segment),
         validateSuccessorSegmentLocator: (locator) => {
@@ -220,6 +226,7 @@ export function openOwnerCoordinationStore(options = {}) {
             sessionStore.changeSessionActivationPhase(proof, nextPhase, activationOptions),
         registerSessionArtifact: (proof, artifactOptions) =>
             sessionStore.registerSessionArtifact(proof, artifactOptions),
+        stagePlanAssociation: (proof, entry) => sessionStore.stagePlanAssociation(proof, entry),
         publishGenerationAndRelease: (proof, evidence, activationOptions) =>
             sessionStore.publishGenerationAndRelease(proof, evidence, activationOptions),
         commitSegmentRolloverAndPublish: (proof, rolloverOptions) =>

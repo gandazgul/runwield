@@ -6,6 +6,7 @@
 import { dirname, resolve } from "@std/path";
 import { ACTIVE_AGENT_CUSTOM_TYPE } from "./active-agent-session.js";
 import { readPersistedWorkflowContext } from "./workflow-context-session.js";
+import { readPlanAssociations } from "./plan-association.ts";
 import { normalizeRuntimeToolResult, normalizeRuntimeUsage, RuntimeEventTypes } from "./session-runtime-events.js";
 import { describeRuntimeTool } from "./tool-event-title.js";
 import { formatTaskCompletedMarkdown, readManualQaChecklistMessage } from "./workflow-messages.js";
@@ -653,6 +654,7 @@ export function summarizeProjectedEntries(entries) {
     let provider = null;
     let thinkingLevel = null;
     let attention = null;
+    const planAssociations = readPlanAssociations(entries);
     for (const entry of entries) {
         const value = /** @type {any} */ (entry || {});
         if (value.type === "session" && typeof value.name === "string") name = value.name;
@@ -678,7 +680,7 @@ export function summarizeProjectedEntries(entries) {
         const maybeWorkflow = readPersistedWorkflowContext(/** @type {any} */ ({ getEntries: () => [value] }));
         if (maybeWorkflow) workflowContext = maybeWorkflow;
     }
-    return { name, activeAgent, model, provider, thinkingLevel, workflowContext, attention };
+    return { name, activeAgent, model, provider, thinkingLevel, workflowContext, attention, planAssociations };
 }
 
 /** @param {unknown} value @returns {string} */

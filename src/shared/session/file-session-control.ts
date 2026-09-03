@@ -28,6 +28,7 @@ import type {
     FileSessionManifest,
     FileSessionStore,
     HeldFileLock,
+    ManifestPlanAssociation,
     SessionArtifactReference,
 } from "./file-session-store-types.ts";
 
@@ -37,12 +38,25 @@ interface FileSessionControlOptions {
     now?: () => string;
 }
 
+function stampPendingPlanAssociations(manifest: FileSessionManifest, generation: number): void {
+    manifest.planAssociations = (manifest.planAssociations || []).map((association) =>
+        association.committedGeneration === null ? { ...association, committedGeneration: generation } : association
+    );
+}
+
+function dropPendingPlanAssociations(manifest: FileSessionManifest): void {
+    manifest.planAssociations = (manifest.planAssociations || []).filter((association) =>
+        association.committedGeneration !== null
+    );
+}
+
 type FileSessionControl = Pick<
     FileSessionStore,
     | "inspectSessionActivation"
     | "acquireSessionActivation"
     | "changeSessionActivationPhase"
     | "registerSessionArtifact"
+    | "stagePlanAssociation"
     | "publishGenerationAndRelease"
     | "releaseUnchangedActivation"
     | "recoverSessionControl"
@@ -220,6 +234,16 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
             return { ...artifact };
         },
 
+        stagePlanAssociation(proof, entry) {
+            const held = requireHeldLock(locks, proof);
+            const manifest = readJson<FileSessionManifest>(held.manifestPath);
+            assertProof(manifest, proof);
+            const association: ManifestPlanAssociation = { ...entry, committedGeneration: null };
+            manifest.planAssociations = [...(manifest.planAssociations || []), association];
+            manifests.write(manifest, held.manifestPath);
+            return { ...association };
+        },
+
         publishGenerationAndRelease(proof, evidence) {
             const held = requireHeldLock(locks, proof);
             try {
@@ -248,6 +272,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     committedAt: now,
                 };
                 manifest.activation = idleActivation(manifest);
+                stampPendingPlanAssociations(manifest, evidence.generation);
                 manifests.write(manifest, held.manifestPath);
                 return { activation: activationView(manifest), generation: generationView(manifest) };
             } finally {
@@ -261,6 +286,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                 const manifest = readJson<FileSessionManifest>(held.manifestPath);
                 assertProof(manifest, proof);
                 manifest.activation = idleActivation(manifest);
+                dropPendingPlanAssociations(manifest);
                 manifests.write(manifest, held.manifestPath);
                 return { activation: activationView(manifest), generation: generationView(manifest) };
             } finally {
@@ -347,6 +373,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     committedAt: now,
                 };
                 manifest.activation = idleActivation(manifest);
+                stampPendingPlanAssociations(manifest, generation);
                 manifests.write(manifest, found.path);
                 return { activation: activationView(manifest), generation: generationView(manifest) };
             } finally {
@@ -376,6 +403,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     state: "reconcile_required",
                     blockedReason: reconciliationOptions.reason || "transcript_evidence_changed",
                 };
+                dropPendingPlanAssociations(manifest);
                 manifests.write(manifest, found.path);
                 return { activation: activationView(manifest), generation: generationView(manifest) };
             } finally {
@@ -398,6 +426,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     baselineByteLength,
                     baselineDigestHex,
                 };
+                dropPendingPlanAssociations(manifest);
                 manifests.write(manifest, held.manifestPath);
                 return { activation: activationView(manifest), generation: generationView(manifest) };
             } finally {
@@ -419,6 +448,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     baselineByteLength,
                     baselineDigestHex,
                 };
+                dropPendingPlanAssociations(manifest);
                 manifests.write(manifest, held.manifestPath);
                 return { activation: activationView(manifest), generation: generationView(manifest) };
             } finally {
@@ -499,6 +529,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     committedAt: now,
                 };
                 manifest.activation = idleActivation(manifest);
+                stampPendingPlanAssociations(manifest, evidence.generation);
                 manifests.write(manifest, held.manifestPath);
                 return {
                     predecessor: { ...predecessor },

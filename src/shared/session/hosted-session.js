@@ -5,6 +5,7 @@
 
 import { isAbsolute } from "@std/path";
 import { MAX_DELEGATED_READERS } from "../../constants.js";
+import { normalizePlanAssociation, PLAN_ASSOCIATION_CUSTOM_TYPE } from "./plan-association.ts";
 import {
     deriveWorkflowContextFromExecutionWorkflow,
     readPersistedWorkflowContext,
@@ -839,6 +840,29 @@ export class HostedSession {
         const nextContext = deriveWorkflowContextFromExecutionWorkflow(details);
         if (!nextContext) return;
         this.replaceWorkflowContext(nextContext, { persist: true });
+    }
+
+    /** @param {{ planId?: unknown, planName?: unknown, purpose?: unknown }} details */
+    recordPlanAssociation(details) {
+        if (this.disposed) throw new Error("plan_association_not_writable");
+        const capability = this.getManagedOperationCapability?.() || null;
+        this.#assertManagedWritableCapability(capability);
+        const managed = this.getManagedMetadata?.();
+        const rawEntry = {
+            planId: details?.planId,
+            planName: details?.planName,
+            purpose: details?.purpose,
+            segmentId: managed?.currentSegmentId,
+            segmentKind: capability?.getCurrentSegmentKind?.() || "session",
+            recordedAt: new Date().toISOString(),
+        };
+        const entry = normalizePlanAssociation(rawEntry);
+        if (!entry || !this.rootSessionManager?.appendCustomEntry || !capability?.stagePlanAssociation) {
+            throw new Error("plan_association_not_writable");
+        }
+        this.rootSessionManager.appendCustomEntry(PLAN_ASSOCIATION_CUSTOM_TYPE, entry);
+        capability.stagePlanAssociation(entry);
+        return entry;
     }
 
     /** @param {ActiveExecutionWorkflow | null} workflow */

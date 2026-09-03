@@ -36,6 +36,7 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     getUserTurnSubmissionBlockMessage: "read_only",
     inspectResumableSession: "read_only",
     isManagedSessionDormant: "read_only",
+    listPlanAssociatedSessions: "read_only",
     listResumableSessions: "read_only",
     listSessionContextFiles: "read_only",
     listSessionPromptTemplates: "read_only",
@@ -52,6 +53,7 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     ensureInitialSessionGeneration: "fenced_standalone_mutation",
     reconfigureSessionModel: "fenced_standalone_mutation",
     reloadSession: "fenced_standalone_mutation",
+    recordPlanAssociation: "fenced_standalone_mutation",
     renameSession: "fenced_standalone_mutation",
     replaceSessionForExecutionFollowUp: "fenced_standalone_mutation",
     replaySession: "projection_adapter_local",
@@ -75,4 +77,5 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     switchAgent: "fenced_standalone_mutation",
     synchronizeManagedSession: "read_only",
     takeNextTurnMessage: "projection_adapter_local",
+    verifyPlanAssociatedSession: "read_only",
 } satisfies Record<string, SessionRuntimeMethodPolicy>;

@@ -90,7 +90,18 @@ the Session Writer Lock. _Avoid_: Plan ownership, Session ownership, Agent owner
 
 **Session Manifest**: The atomic JSON record beside a Session's Pi transcripts that stores stable identity, ordered
 segments, committed generation evidence, and current writer state. Transcript-adjacent recovery descriptors and Pi
-lineage can rebuild it without a Workspace database. _Avoid_: Session database, Workspace catalog authority
+lineage can rebuild it without a Workspace database. It may carry projections of committed transcript evidence, but the
+transcript remains the authority. _Avoid_: Session database, Workspace catalog authority
+
+**Plan Association**: Append-only Session evidence that records that one Session worked on one Plan for one Association
+Purpose. It uses the Plan's durable `planId`, the Plan name at the time of recording, and the current Session Transcript
+Segment. The Session manifest carries a read cache of committed Plan Associations, but the transcript entry is the
+authority. A Plan can have Plan Associations in more than one Session, and a Session can have Plan Associations for more
+than one Plan. _Avoid_: Plan owner Session, Session owner, planName link
+
+**Association Purpose**: The reason a Plan Association was recorded: `planning`, `review`, `execution`, or `recovery`.
+Only `planning` and `review` on an idle planning segment can make a Session a safe planning resume candidate. _Avoid_:
+Plan status, Session status, ownership reason
 
 **Terminal Title**: The terminal emulator window or tab label RunWield sets for an interactive TUI session. _Avoid_: Tab
 name, shell title
