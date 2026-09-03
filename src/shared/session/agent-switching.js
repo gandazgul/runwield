@@ -224,10 +224,17 @@ export async function switchActiveAgent(hostedSession, options) {
             agentName,
             debugLogPath: options.debugLogPath,
         });
+        const committedAgentName = hostedSession.getRootAgentName() || agentName;
+        const committedDisplayName = hostedSession.getActiveAgentInfo?.()?.displayName || committedAgentName;
+        const previousRootIdentity = previousAgentName || selectionAgent || "";
+        const rootHandoff = Boolean(previousRootIdentity) &&
+            normalizeAgentInternalName(previousRootIdentity) !== normalizeAgentInternalName(committedAgentName);
         emitHostedSessionRuntimeEvent(hostedSession, {
             type: RuntimeEventTypes.AGENT_CHANGED,
-            agentName,
+            agentName: committedAgentName,
+            displayName: committedDisplayName,
             model: options.model,
+            ...(rootHandoff ? { rootHandoff: true } : {}),
         });
     }
     if (options.releaseActiveWorkflow) releaseActiveWorkflowAfterUserSwitch(hostedSession, agentName);

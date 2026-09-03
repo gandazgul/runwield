@@ -174,6 +174,11 @@ export async function projectAggregateTranscript(
         const aggregateEntries: JsonValue[] = [];
         const segmentMetadata: VerifiedSegmentMetadata[] = [];
         const replayEvents: ProjectedRuntimeEvent[] = [];
+        const agentProjectionState: { agentName: string | null; displayName: string | null; hasBaseline: boolean } = {
+            agentName: null,
+            displayName: null,
+            hasBaseline: false,
+        };
         for (const segment of segments) {
             const evidence = segment.segmentId === current.segmentId
                 ? await verifyCurrentSegment(segment, options.generation, sessionDir)
@@ -184,7 +189,11 @@ export async function projectAggregateTranscript(
                 ...createReplayEvents(
                     options.runtimeSessionId || options.runwieldSessionId,
                     evidence.entries,
-                    { segmentId: segment.segmentId, projectRoot: segment.transcriptCwd || options.cwd },
+                    {
+                        segmentId: segment.segmentId,
+                        projectRoot: segment.transcriptCwd || options.cwd,
+                        agentProjectionState,
+                    },
                 ).map((event) => ({
                     ...event,
                     segmentOrdinal: segment.ordinal,

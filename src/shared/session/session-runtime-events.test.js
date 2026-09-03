@@ -108,6 +108,16 @@ Deno.test("Runtime event factory supplies shared identity defaults and rejects p
     if (keyboardHelpEvent.type !== RuntimeEventTypes.KEYBOARD_HELP) throw new Error("unexpected event type");
     assertEquals(keyboardHelpEvent.items, [{ key: "?", description: "show help" }]);
 
+    const agentChangedEvent = createSessionRuntimeEvent("session-1", {
+        type: RuntimeEventTypes.AGENT_CHANGED,
+        agentName: "operator",
+        displayName: "Operator",
+        rootHandoff: true,
+    });
+    assertEquals(agentChangedEvent.type, RuntimeEventTypes.AGENT_CHANGED);
+    assertEquals(/** @type {any} */ (agentChangedEvent).displayName, "Operator");
+    assertEquals(/** @type {any} */ (agentChangedEvent).rootHandoff, true);
+
     assertThrows(
         () =>
             createSessionRuntimeEvent("session-1", {
@@ -147,6 +157,19 @@ Deno.test("Runtime event factory supplies shared identity defaults and rejects p
             }),
         TypeError,
         "items must be non-empty",
+    );
+    assertThrows(
+        () =>
+            createSessionRuntimeEvent(
+                "session-1",
+                /** @type {any} */ ({
+                    type: RuntimeEventTypes.AGENT_CHANGED,
+                    agentName: "operator",
+                    rootHandoff: "yes",
+                }),
+            ),
+        TypeError,
+        "rootHandoff must be boolean",
     );
 });
 

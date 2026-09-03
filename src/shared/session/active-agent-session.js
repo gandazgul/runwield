@@ -80,17 +80,28 @@ export function readPersistedManualModelState(sessionManager, agentName) {
 }
 
 /**
+ * @typedef {Object} PersistedActiveAgentState
+ * @property {string} agentName
+ * @property {string} [displayName]
+ */
+
+/**
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} sessionManager
  * @param {string} agentName
+ * @param {string} [displayName]
  */
-export function recordActiveAgent(sessionManager, agentName) {
+export function recordActiveAgent(sessionManager, agentName, displayName) {
     if (!sessionManager?.appendCustomEntry || !agentName) return;
 
     try {
         const canonicalName = normalizeAgentInternalName(agentName);
         const latest = readPersistedActiveAgentName(sessionManager);
         if (latest && normalizeAgentInternalName(latest) === canonicalName) return;
-        sessionManager.appendCustomEntry(ACTIVE_AGENT_CUSTOM_TYPE, { agentName: canonicalName });
+        const trimmedDisplayName = typeof displayName === "string" ? displayName.trim() : "";
+        sessionManager.appendCustomEntry(ACTIVE_AGENT_CUSTOM_TYPE, {
+            agentName: canonicalName,
+            ...(trimmedDisplayName ? { displayName: trimmedDisplayName } : {}),
+        });
     } catch (_e) {
         // Active-agent persistence should never block session construction.
     }
@@ -171,14 +182,25 @@ function getSessionEntries(sessionManager) {
 
 /**
  * @param {unknown} entry
+ * @returns {PersistedActiveAgentState | null}
+ */
+export function readActiveAgentFromEntry(entry) {
+    if (!entry || typeof entry !== "object") return null;
+    if (/** @type {{ type?: string }} */ (entry).type !== "custom") return null;
+    const customType = /** @type {{ customType?: string }} */ (entry).customType;
+    if (customType !== ACTIVE_AGENT_CUSTOM_TYPE) return null;
+
+    const data = /** @type {{ data?: { agentName?: unknown, displayName?: unknown } }} */ (entry).data;
+    const agentName = typeof data?.agentName === "string" ? data.agentName.trim() : "";
+    if (!agentName) return null;
+    const displayName = typeof data?.displayName === "string" ? data.displayName.trim() : "";
+    return { agentName, ...(displayName ? { displayName } : {}) };
+}
+
+/**
+ * @param {unknown} entry
  * @returns {string}
  */
 function readAgentNameFromEntry(entry) {
-    if (!entry || typeof entry !== "object") return "";
-    if (/** @type {{ type?: string }} */ (entry).type !== "custom") return "";
-    const customType = /** @type {{ customType?: string }} */ (entry).customType;
-    if (customType !== ACTIVE_AGENT_CUSTOM_TYPE) return "";
-
-    const data = /** @type {{ data?: { agentName?: unknown } }} */ (entry).data;
-    return data && typeof data.agentName === "string" ? data.agentName.trim() : "";
+    return readActiveAgentFromEntry(entry)?.agentName || "";
 }

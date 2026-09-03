@@ -4,14 +4,14 @@
  */
 
 import { dirname, resolve } from "@std/path";
-import { ACTIVE_AGENT_CUSTOM_TYPE } from "./active-agent-session.js";
+import { ACTIVE_AGENT_CUSTOM_TYPE, readActiveAgentFromEntry } from "./active-agent-session.js";
 import { readPersistedWorkflowContext } from "./workflow-context-session.js";
 import { normalizeRuntimeToolResult, normalizeRuntimeUsage, RuntimeEventTypes } from "./session-runtime-events.js";
 import { describeRuntimeTool } from "./tool-event-title.js";
 import { formatTaskCompletedMarkdown, readManualQaChecklistMessage } from "./workflow-messages.js";
 import { isPathInside, readCatalogSafeRootSessionLocator } from "./root-session.js";
 import { namedInvocationDisplayText, namedInvocationImageReferences } from "./named-invocation.ts";
-import { getAgentDisplayName } from "./agents.js";
+import { getAgentDisplayName, normalizeAgentInternalName } from "./agents.js";
 
 /** @param {unknown} value @returns {string} */
 function toReplayText(value) {
@@ -81,21 +81,30 @@ function claudeBackendStatusLevel(kind) {
 }
 
 /**
+ * @typedef {Object} AgentProjectionState
+ * @property {string | null} agentName
+ * @property {string | null} displayName
+ * @property {boolean} hasBaseline
+ */
+
+/**
  * @param {string} sessionId
  * @param {unknown[]} entries
- * @param {{ segmentId?: string | null, projectRoot?: string }} [options]
+ * @param {{ segmentId?: string | null, projectRoot?: string, agentProjectionState?: AgentProjectionState }} [options]
  * @returns {Array<Record<string, any> & { type: string, eventId: string }>}
  */
 export function createReplayEvents(sessionId, entries, options = {}) {
     const segmentId = options.segmentId || null;
     const projectRoot = typeof options.projectRoot === "string" ? options.projectRoot : undefined;
+    const agentProjectionState = options.agentProjectionState ||
+        { agentName: null, displayName: null, hasBaseline: false };
     /** @type {Array<Record<string, any> & { type: string, eventId: string }>} */
     const events = [];
     /** @type {string | null} */
     let replayModel = null;
     /** @type {string | null} */
     let replayThinkingLevel = null;
-    let replayAgentName = "Assistant";
+    let replayAgentName = agentProjectionState.displayName || "Assistant";
     /** @type {Map<string, ReturnType<typeof describeRuntimeTool>>} */
     const replayTools = new Map();
     /** @type {Map<string, number>} */
@@ -325,8 +334,30 @@ export function createReplayEvents(sessionId, entries, options = {}) {
             continue;
         }
         if (value.type === "custom" && value.customType === ACTIVE_AGENT_CUSTOM_TYPE) {
-            const agentName = typeof value.data?.agentName === "string" ? value.data.agentName.trim() : "";
-            if (agentName) replayAgentName = replayAgentDisplayName(agentName, projectRoot);
+            const activeAgent = readActiveAgentFromEntry(value);
+            if (!activeAgent) continue;
+            let canonicalName;
+            try {
+                canonicalName = normalizeAgentInternalName(activeAgent.agentName);
+            } catch (_error) {
+                continue;
+            }
+            const displayName = activeAgent.displayName || replayAgentDisplayName(canonicalName, projectRoot);
+            if (agentProjectionState.hasBaseline && agentProjectionState.agentName !== canonicalName) {
+                events.push({
+                    ...common,
+                    type: RuntimeEventTypes.SYSTEM_STATUS,
+                    eventId: makeEventId(value, "agent_switch", 0, segmentId),
+                    messageId: entryMessageId(value, `${sessionId}:agent-switch`, segmentId),
+                    message: `Agent switched to ${displayName}`,
+                    level: "info",
+                    header: "RunWield",
+                });
+            }
+            agentProjectionState.agentName = canonicalName;
+            agentProjectionState.displayName = displayName;
+            agentProjectionState.hasBaseline = true;
+            replayAgentName = displayName;
             continue;
         }
         if (value.type === "custom" && value.customType === "runwield.backend_status") {
