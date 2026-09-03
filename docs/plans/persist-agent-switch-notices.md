@@ -1,4 +1,5 @@
 ---
+planId: "5d5685b0-9234-495d-ae78-00f0f2eb7edc"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
@@ -17,14 +18,12 @@ affectedPaths:
     - "src/ui/tui/runtime-adapter.js"
     - "src/ui/tui/runtime-adapter.test.js"
     - "src/ui/tui/golden-scenarios/slash-command-tree-configuration.ts"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: "2026-08-20T20:26:45-04:00"
-status: "draft"
-planId: "5d5685b0-9234-495d-ae78-00f0f2eb7edc"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
+createdAt: "2026-08-20T20:26:45-04:00"
+status: "ready_for_work"
+origin: "internal"
+userVerifiedAt: null
 ---
 
 # Persist Agent Switch Notices
