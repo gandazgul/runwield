@@ -99,9 +99,6 @@ jobs:
             - name: Run source-quality gate
               run: deno task ci
 
-            - name: Run exhaustive Golden TUI release gate
-              run: deno task test:golden-tui:extensive
-
             - name: Print source-quality failure logs
               if: failure()
               run: |
@@ -131,6 +128,31 @@ jobs:
               with:
                   deno-version: v2.9.3
 
+            - name: Setup Go for Snip
+              uses: actions/setup-go@v6
+              with:
+                  go-version: "1.25.x"
+                  cache: false
+
+            # Release qualification runs the Golden TUI portfolio, and the test
+            # runner shells through Snip, so this job needs the same helper
+            # binaries as the source-quality gate.
+            - name: Prepare release qualification environment
+              run: |
+                  mkdir -p "$RUNNER_TEMP/runwield-ci-bin"
+                  for binary in mnemosyne cymbal ketch; do
+                    cat > "$RUNNER_TEMP/runwield-ci-bin/$binary" <<'EOF'
+                  #!/usr/bin/env bash
+                  if [[ "$1" == "--help" ]]; then exit 0; fi
+                  printf '%s test stub\n' "$(basename "$0")"
+                  EOF
+                    chmod +x "$RUNNER_TEMP/runwield-ci-bin/$binary"
+                  done
+                  GOBIN="$RUNNER_TEMP/runwield-ci-bin" go install github.com/edouard-claude/snip/cmd/snip@v0.24.1
+                  deno run -A scripts/write-version.js
+                  PATH="$RUNNER_TEMP/runwield-ci-bin:$PATH" deno run -A src/cli.ts snip-filters install
+                  echo "$RUNNER_TEMP/runwield-ci-bin" >> "$GITHUB_PATH"
+
             - name: Cache dependencies
               run: deno cache --reload scripts/release-check.js
 
@@ -138,6 +160,17 @@ jobs:
               env:
                   WLD_BUILD_VERSION: ${{ needs.metadata.outputs.build_version }}
               run: deno task release:check --build-version "${{ needs.metadata.outputs.build_version }}"
+
+            - name: Print release qualification failure logs
+              if: failure()
+              run: |
+                  for log in /tmp/tests-failure-*.log; do
+                    if [[ -f "$log" ]]; then
+                      echo "::group::$log"
+                      cat "$log"
+                      echo "::endgroup::"
+                    fi
+                  done
 
     build:
         runs-on: ubuntu-latest

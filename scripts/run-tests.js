@@ -31,6 +31,11 @@
  *   deno run -A scripts/run-tests.js --isolated <paths> isolated parallel run of matching files
  *   deno run -A scripts/run-tests.js <deno test args>   single sandboxed `deno test` (subsets, filters)
  *
+ * `--exclude <path>` drops a file or directory from the discovered set. It is how
+ * `deno task test` leaves the Golden TUI portfolio to `deno task test:golden-tui`,
+ * so the everyday gate does not pay for the composed scenario runs. It applies to
+ * discovery only, so it has no effect on the passthrough `deno test` form.
+ *
  * The passthrough form injects `-A` unless the caller passed their own
  * permission flags: without env access the sandbox marker in src/constants.js
  * is unreadable and its guard misfires, blaming a direct `deno test` run.
@@ -147,14 +152,51 @@ async function printSingleRunTestNames(args) {
 }
 
 /**
+ * @typedef {Object} RunnerArguments
+ * @property {string[]} excludedPaths absolute file or directory paths to drop from discovery
+ * @property {string[]} rest every remaining argument, in the order it was given
+ */
+
+/**
+ * @param {string[]} args
+ * @returns {RunnerArguments}
+ */
+function parseRunnerArguments(args) {
+    /** @type {string[]} */
+    const excludedPaths = [];
+    /** @type {string[]} */
+    const rest = [];
+    for (let index = 0; index < args.length; index += 1) {
+        if (args[index] !== "--exclude") {
+            rest.push(args[index]);
+            continue;
+        }
+        const value = args[++index];
+        if (!value) throw new Error("--exclude requires a test file or directory.");
+        excludedPaths.push(resolve(REPO_ROOT, value));
+    }
+    return { excludedPaths, rest };
+}
+
+/**
+ * @param {string} file
+ * @param {string[]} excludedPaths
+ * @returns {boolean}
+ */
+function isExcluded(file, excludedPaths) {
+    return excludedPaths.some((excluded) => file === excluded || file.startsWith(`${excluded}/`));
+}
+
+/**
  * Runs every discovered test file in its own process.
  *
  * @param {string} sandboxRoot
  * @param {string} denoDir
  * @param {string[]} [roots]
+ * @param {string[]} [excludedPaths]
  * @returns {Promise<number>} process exit code
  */
-async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT]) {
+async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], excludedPaths = []) {
     const discovered = new Set();
     for (const root of roots) {
         const path = resolve(REPO_ROOT, root);
@@ -165,7 +207,7 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT]) {
         }
         for await (const file of findTestFiles(path)) discovered.add(file);
     }
-    const files = [...discovered].sort();
+    const files = [...discovered].filter((file) => !isExcluded(file, excludedPaths)).sort();
 
     const prewarmEnv = await createSandboxEnv(sandboxRoot, "prewarm", denoDir);
     await prewarmDenoDir(prewarmEnv, ["-A", "--no-check", "--quiet", ...files]);
@@ -225,21 +267,22 @@ await Deno.mkdir(denoDir, { recursive: true });
 // Deliberately not Deno.exit() inside try/finally: Deno.exit terminates without
 // running finally blocks, which left ~600MB of sandboxes behind per run.
 let exitCode = 0;
+const { excludedPaths, rest: runnerArgs } = parseRunnerArguments(Deno.args);
 try {
-    if (Deno.args[0] === "--isolated") {
-        const roots = Deno.args.slice(1);
+    if (runnerArgs[0] === "--isolated") {
+        const roots = runnerArgs.slice(1);
         if (roots.length === 0) throw new Error("--isolated requires at least one test file or directory.");
-        exitCode = await runIsolatedSuite(sandboxRoot, denoDir, roots);
-    } else if (Deno.args.length > 0) {
+        exitCode = await runIsolatedSuite(sandboxRoot, denoDir, roots, excludedPaths);
+    } else if (runnerArgs.length > 0) {
         // Explicit paths or flags: one sandboxed process, arguments passed through.
         const env = await createSandboxEnv(sandboxRoot, "single", denoDir);
         // Grant full permissions unless the caller passed their own permission
         // flags — `-A` conflicts with explicit `--allow-*` grants, so it cannot
         // be injected unconditionally. `--deny-*` narrows allow-all safely.
-        const hasPermissionFlags = Deno.args.some((arg) =>
+        const hasPermissionFlags = runnerArgs.some((arg) =>
             arg === "-A" || arg === "--allow-all" || arg.startsWith("--allow-")
         );
-        const testArgs = hasPermissionFlags ? Deno.args : ["-A", ...Deno.args];
+        const testArgs = hasPermissionFlags ? runnerArgs : ["-A", ...runnerArgs];
         // Match the full-suite path (runIsolatedSuite) and every task invocation
         // (test:golden-tui, workspace:test) by running tests with `--no-check`
         // unless the caller already asked for type-checking. Type-checking here
@@ -257,10 +300,10 @@ try {
             failureLabel: "tests",
         });
         await writeSnipCommandResult(result);
-        if (result.code === 0) await printSingleRunTestNames(Deno.args);
+        if (result.code === 0) await printSingleRunTestNames(runnerArgs);
         exitCode = result.code;
     } else {
-        exitCode = await runIsolatedSuite(sandboxRoot, denoDir);
+        exitCode = await runIsolatedSuite(sandboxRoot, denoDir, [REPO_ROOT], excludedPaths);
     }
 } finally {
     await Deno.remove(sandboxRoot, { recursive: true }).catch(() => {});

@@ -632,6 +632,17 @@ export async function runReleaseCheck(options, port) {
         await port.smokeTestBundledAgentReferenceExtraction(output, tempDir);
         await port.smokeTestBinaryPlansUiSurface(output, tempDir);
         await port.smokeTestBinaryReviewSurface(output, tempDir);
+        // The Golden TUI portfolio is out of `deno task ci` because it is too slow
+        // for the everyday loop, so release qualification is where the composed
+        // workflow scenarios run. It goes last: every cheaper release signal fails
+        // first, and the release workflow reaches the portfolio only through here.
+        await mustRun(
+            "Run Golden TUI release gate",
+            "deno",
+            ["task", "test:golden-tui:extensive"],
+            { cwd: rootDir },
+            runner,
+        );
     } finally {
         await restoreFile(versionPath, versionSnapshot);
         await port.remove(tempDir, { recursive: true }).catch((error) => {

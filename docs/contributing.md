@@ -40,9 +40,11 @@ test task still uses `scripts/write-version.js` and the safe `scripts/run-tests.
 or `deno run -A scripts/run-tests.js <deno test args>` for tests; do not run `deno test` directly, because the test
 runner sandboxes `HOME` and process-global state per file.
 
-The ordinary test task includes the Golden TUI Scenario portfolio. You can run that portfolio directly with
-`deno task test:golden-tui`; `deno task test:golden-tui:extensive` is the explicit release-tier alias for the same
-measured suite while it remains fast enough for normal CI.
+The ordinary test task does not include the Golden TUI Scenario portfolio; it is too slow for the everyday loop.
+`deno task test` excludes `src/ui/tui/golden-scenarios` and `src/ui/tui/testing`, and `deno task test:golden-tui` runs
+exactly those. `deno task pr:check` is the full gate — `deno task ci` followed by the portfolio — and it is the same
+command the GitHub PR workflow runs. `deno task test:golden-tui:extensive` is the release-tier alias, which
+`deno task release:check` runs.
 
 Interactive RunWield sessions expect these helper binaries in `PATH`:
 
@@ -92,15 +94,19 @@ runtime. Run them with:
 
 ```bash
 deno task test:golden-tui
-# explicit release-tier alias while the full portfolio remains in ordinary CI
+# release-tier alias, run by deno task release:check
 deno task test:golden-tui:extensive
 ```
 
-The measured portfolio runtime is about 70 seconds on a warmed local cache, repeatable across three consecutive runs, so
-the full suite remains in the ordinary `deno task ci` gate via `deno task test`. Each test file runs in its own
-sandboxed process, which is most of that wall time and is what keeps the scenarios isolated. If the portfolio grows too
-expensive, keep the critical deterministic subset in CI and move the extensive alias into `deno task release:check` and
-the release workflow in the same change.
+Each test file runs in its own sandboxed process. That is most of the portfolio's wall time and is what keeps the
+scenarios isolated, but it also made the portfolio too expensive for `deno task ci`, which every change waits on. The
+portfolio now runs at the two slower gates instead:
+
+- `deno task pr:check` locally and the `pr-gate` GitHub workflow on every pull request.
+- `deno task release:check` locally and in the release workflow's `release-check` job.
+
+Run `deno task test:golden-tui` yourself whenever you change the TUI or the workflow runtime; `deno task ci` alone will
+not catch a composed scenario regression.
 
 Author scenarios under `src/ui/tui/golden-scenarios/` and shared harness helpers under `src/ui/tui/testing/`:
 

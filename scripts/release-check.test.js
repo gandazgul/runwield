@@ -83,6 +83,10 @@ Deno.test("runReleaseCheck propagates build identity to compile and preserves st
                     );
                     return { success: true, code: 0, stdout: "", stderr: "" };
                 }
+                if (command === "deno" && args.includes("test:golden-tui:extensive")) {
+                    stages.push("golden-tui");
+                    return { success: true, code: 0, stdout: "", stderr: "" };
+                }
                 if (command === "deno") {
                     stages.push("workspace-review-routes");
                     return { success: true, code: 0, stdout: "", stderr: "" };
@@ -109,7 +113,15 @@ Deno.test("runReleaseCheck propagates build identity to compile and preserves st
             },
         });
 
-        assertEquals(stages, ["compile", "workspace-review-routes", "version", "references", "plans-ui", "review"]);
+        assertEquals(stages, [
+            "compile",
+            "workspace-review-routes",
+            "version",
+            "references",
+            "plans-ui",
+            "review",
+            "golden-tui",
+        ]);
         assertEquals(calls[0].env, { WLD_BUILD_VERSION: "v1.2.3-rc.1" });
         assertEquals(
             await Deno.readTextFile(join(root, "src", "shared", "version.js")),
