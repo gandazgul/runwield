@@ -10,7 +10,7 @@ Deno.test("createGoldenIsolatedEnvironment creates isolated HOME and Project the
         assert((await Deno.stat(env.projectRoot)).isDirectory);
         assert(env.env.PATH.startsWith(join(root, "bin")));
         assert((await Deno.readTextFile(join(env.projectRoot, "README.md"))).includes("Golden TUI Fixture"));
-        const help = await new Deno.Command("mnemosyne", {
+        const help = await new Deno.Command("mnemoteca", {
             args: ["update", "--help"],
             env: env.env,
             stdout: "piped",

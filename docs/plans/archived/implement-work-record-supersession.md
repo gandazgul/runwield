@@ -86,7 +86,7 @@ verification confidence.
 Make Work Record supersession a complete, user-authorized lifecycle operation. Approved Plans can declare predecessor
 Work Record IDs, generated successor records apply that declaration without a second prompt, Recorder can propose
 late-discovered predecessor IDs with reasons, and users can accept or reject each pending proposal. Canonical Markdown
-must remain internally consistent, default retrieval must change only after confirmation, and the derived Mnemosyne
+must remain internally consistent, default retrieval must change only after confirmation, and the derived Mnemoteca
 index must follow canonical state without becoming authoritative.
 
 ## Approach
@@ -184,11 +184,11 @@ input leaves remaining candidates unchanged.
 - `src/shared/work-records/search.js` and `src/shared/work-records/list.js` — preserve current-only filtering and
   all-mode warnings; only add the pending proposal notice.
 - `src/tools/work-record-search.ts`, `src/tools/work-record-read.ts`, and `src/shared/session/session.js` — use
-  Recorder's existing all-record retrieval tools and Mnemosyne wiring; do not add a duplicate lookup seam.
+  Recorder's existing all-record retrieval tools and Mnemoteca wiring; do not add a duplicate lookup seam.
 - `src/shared/session/session-runtime-interactions.js` — reuse hosted select interactions for post-validation
   confirmation and their unsupported/canceled outcomes.
 - `src/ui/tui/types.js` — reuse `promptSelect` for `/load-plan` terminal outcomes.
-- `src/shared/work-records/test-fixtures/mnemosyne-port.ts` and `src/cmd/testing/runtime-command-fixture.ts` — test with
+- `src/shared/work-records/test-fixtures/mnemoteca-port.ts` and `src/cmd/testing/runtime-command-fixture.ts` — test with
   the real canonical store and derived-index fixture rather than injecting RunWield-owned lifecycle functions.
 
 ## Implementation Steps
@@ -203,7 +203,7 @@ input leaves remaining candidates unchanged.
       record IDs with non-empty reasons. Malformed proposal data fails with an actionable schema error, and an empty
       proposal is omitted.
 - [ ] `src/shared/work-records/supersession.ts` exports
-      `applyWorkRecordSupersession(cwd, { successorRecordId, predecessorRecordIds, mnemosynePort })`; under one
+      `applyWorkRecordSupersession(cwd, { successorRecordId, predecessorRecordIds, mnemotecaPort })`; under one
       project-local supersession lock, it establishes the symmetric relation between one successor and one or more
       predecessors, rejects self-links, missing records, duplicate IDs, and conflicting successors before mutation, and
       treats an already-correct relation as success.
@@ -211,7 +211,7 @@ input leaves remaining candidates unchanged.
       after a partial write failure. Generation treats a newly created successor as part of the operation and removes it
       if the declared relation cannot commit. A rollback failure reports every uncertain path rather than claiming
       success.
-- [ ] A successful canonical operation re-syncs successor and predecessors through the existing Mnemosyne adapter. Index
+- [ ] A successful canonical operation re-syncs successor and predecessors through the existing Mnemoteca adapter. Index
       failure leaves canonical state intact, reports `wld wr index rebuild`, and a later rebuild produces superseded
       tags and current-only retrieval from Markdown truth.
 - [ ] Work Record generation writes Plan-declared predecessor IDs to the successor and applies them without another
@@ -294,3 +294,5 @@ input leaves remaining candidates unchanged.
 - Existing Work Records need no migration because the proposal field is optional and `supersedes`/`supersededBy` already
   parse. Existing Plans need no migration because `supersedes` is optional.
 - The working tree contains unrelated archived/moved Plan files. Execution must not restore or modify those changes.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

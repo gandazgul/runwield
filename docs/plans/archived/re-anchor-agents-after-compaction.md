@@ -70,7 +70,7 @@ Both prompts now say to reread the artifact — `planner.md` under **Revising an
 under their verification steps. Neither has a trigger, and an instruction to reread after compaction is read by the very
 context compaction just discarded.
 
-RunWield already runs three pi extensions — `mnemosyne`, `cymbal`, and `snip` — registered through `extensionFactories`
+RunWield already runs three pi extensions — `mnemoteca`, `cymbal`, and `snip` — registered through `extensionFactories`
 at `session.js:1833`. pi's extension API exposes exactly the two events this needs, typed: `session_compact` (fired
 after compaction, carrying `reason` and `willRetry`) and `context` (fired before each provider request, and able to
 return a replacement `messages` array).
@@ -136,7 +136,7 @@ agent prompt, so the two cannot drift the way `buildEngineerRequest` drifted fro
 
 ## Reuse Opportunities
 
-- `src/extensions/mnemosyne/index.js` — the extension shape: default-export factory taking `pi`,
+- `src/extensions/mnemoteca/index.js` — the extension shape: default-export factory taking `pi`,
   `pi.on("session_start")` to capture cwd and project identity, state held in factory closure.
 - `src/extensions/*/index.test.js` — the established pattern for testing an extension by driving its handlers directly.
 - `src/shared/workflow/workflow-prompts.js` — `buildEngineerRequest` and `buildTriageReport` as the builder pattern.
@@ -229,3 +229,5 @@ agent prompt, so the two cannot drift the way `buildEngineerRequest` drifted fro
 - Registering a fourth extension touches session construction, which is on the path of every command. The factory and
   handlers must be side-effect-light and fail open for runtime resolution errors; compile/import errors should still be
   caught by `deno task ci` rather than hidden.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

@@ -17,7 +17,7 @@ provenance:
 
 Verified completion of the local-only checkout rename from /Users/gandazgul/Documents/web/harns to
 /Users/gandazgul/Documents/web/runwield without rebranding source or changing the GitHub repository. The migration
-preserved the operational path identities that mattered for RunWield sessions, Mnemosyne project memory, Claude Code,
+preserved the operational path identities that mattered for RunWield sessions, Mnemoteca project memory, Claude Code,
 Codex, shell command resolution, worktree state, and IDE/tool continuity.
 
 ## Future Planning Notes
@@ -25,3 +25,5 @@ Codex, shell command resolution, worktree state, and IDE/tool continuity.
 Future path-identity migrations should treat absolute paths as durable tool state, not cosmetic labels: drain linked
 worktrees first, quiesce path-owning processes, back up external session stores, transform only structural cwd/project
 metadata, and verify resume behavior before deleting rollback state.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

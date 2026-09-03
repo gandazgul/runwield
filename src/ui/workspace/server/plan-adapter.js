@@ -837,7 +837,7 @@ export function applyWorkspaceLifecycleActionInMemory(plan, payload) {
 
 /**
  * @typedef {Object} WorkspaceLifecycleActionOptions
- * @property {import('../../../shared/work-records/mnemosyne-port.ts').WorkRecordMnemosynePort} mnemosynePort
+ * @property {import('../../../shared/work-records/mnemoteca-port.ts').WorkRecordMnemotecaPort} mnemotecaPort
  */
 
 /**
@@ -909,7 +909,7 @@ export async function applyWorkspaceLifecycleAction(cwd, planId, payload, option
             workRecordResult = await autoGenerateWorkRecordForCompletedPlan({
                 cwd,
                 planName: result.evidence.planName,
-                mnemosynePort: options.mnemosynePort,
+                mnemotecaPort: options.mnemotecaPort,
             });
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);

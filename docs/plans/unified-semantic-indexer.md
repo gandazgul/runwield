@@ -18,7 +18,7 @@ title: "Unified Local Semantic Indexer (Code + Memory)"
 
 # Context
 
-Harns currently has a working memory system (Mnemosyne extension) that shells out to a Go binary (`mnemosyne`) for
+Harns currently has a working memory system (Mnemoteca extension) that shells out to a Go binary (`mnemoteca`) for
 hybrid search (BM25 + vector + cross-encoder reranking). The memory tools (`memory_recall`, `memory_store`,
 `memory_delete`) work well.
 
@@ -31,14 +31,14 @@ reducing token waste.
 ## D1: In-process LanceDB + transformers.js engine (DECIDED)
 
 Build a unified in-process semantic engine that owns both **memory** and **codebase indexing**. This replaces the
-external `mnemosyne` Go binary entirely. Mnemosyne remains as a standalone tool for other harnesses but Harns will have
+external `mnemoteca` Go binary entirely. Mnemoteca remains as a standalone tool for other harnesses but Harns will have
 its own native implementation.
 
 This is a single-phase effort: both memory tools AND codebase search ship together.
 
-**Rationale:** Mnemosyne is optimized for sentence-length docs, not code chunks. Owning the pipeline gives full control
+**Rationale:** Mnemoteca is optimized for sentence-length docs, not code chunks. Owning the pipeline gives full control
 over schema, batch upserts, and incremental updates without subprocess overhead. Harns is pre-MVP — now is the time to
-own the full stack before users depend on the mnemosyne binary.
+own the full stack before users depend on the mnemoteca binary.
 
 **Feasibility (verified via PoC):**
 
@@ -54,9 +54,9 @@ own the full stack before users depend on the mnemosyne binary.
 ## D1b: Models (DECIDED)
 
 - **Embedding:** `Snowflake/snowflake-arctic-embed-m-v1.5` at 256-dim (Matryoshka truncation + re-normalize). Same model
-  mnemosyne uses. Top of benchmarks for small open-weight models. Tested: 768 vs 256 produce identical ranking order on
+  mnemoteca uses. Top of benchmarks for small open-weight models. Tested: 768 vs 256 produce identical ranking order on
   code queries — 256 is sufficient, especially with cross-encoder reranking on top. Saves ~3x storage.
-- **Reranking:** `cross-encoder/ms-marco-MiniLM-L-6-v2`. Same as mnemosyne. Used to rerank top-K vector results before
+- **Reranking:** `cross-encoder/ms-marco-MiniLM-L-6-v2`. Same as mnemoteca. Used to rerank top-K vector results before
   returning to the agent.
 
 ## D2: Chunking strategy — tree-sitter (multi-language) + line-based fallback (DECIDED)
@@ -212,7 +212,7 @@ src/tools/codebase-search.js
 - Core memory injection: in the `systemPromptOverride` callback where the system prompt is already built.
 - File watcher: started once after onboarding / session start.
 
-The `src/extensions/mnemosyne/` directory is deleted. The `ensureMnemosyneBinary` preflight check is removed.
+The `src/extensions/mnemoteca/` directory is deleted. The `ensureMnemotecaBinary` preflight check is removed.
 
 ## D10: Memory tool interface (DECIDED)
 
@@ -370,10 +370,10 @@ All paths additionally filtered by:
 
 ## D17: Migration — no formal migration, dev convenience script (DECIDED)
 
-No user-facing migration. Pre-MVP, no users to break. A one-time dev convenience script (`scripts/migrate-mnemosyne.js`)
+No user-facing migration. Pre-MVP, no users to break. A one-time dev convenience script (`scripts/migrate-mnemoteca.js`)
 will:
 
-1. Run `mnemosyne export --no-embeddings` to dump existing memories to JSONL.
+1. Run `mnemoteca export --no-embeddings` to dump existing memories to JSONL.
 2. Read each memory, re-embed with snowflake, and upsert into the new LanceDB tables.
 3. Preserve tags (including `core`) and scope (project vs global).
 
@@ -409,7 +409,7 @@ For source-run (`deno run -A src/cli.ts`), tree-sitter grammars come from `node_
 ## D8: Sleep command — manual only, updated for native LanceDB (DECIDED)
 
 The `hns sleep` command remains manual-only for this plan. It will be rewritten to use the native LanceDB memory tools
-instead of shelling out to mnemosyne. Core logic unchanged: LLM reviews all memories, identifies redundancy/staleness,
+instead of shelling out to mnemoteca. Core logic unchanged: LLM reviews all memories, identifies redundancy/staleness,
 consolidates via delete + store.
 
 A dedicated `memory_list` tool returns ALL memories (no semantic search, just a full dump). This is given to the
@@ -438,7 +438,7 @@ Auto-triggering at session end with a threshold heuristic remains a future enhan
 | `src/tools/memory-delete.js`     | `defineTool()` — delete memory by ID                                            |
 | `src/tools/memory-list.js`       | `defineTool()` — full dump for sleep (operator only)                            |
 | `src/cmd/init/index.js`          | `hns init` command                                                              |
-| `scripts/migrate-mnemosyne.js`   | Dev convenience: export mnemosyne → import LanceDB                              |
+| `scripts/migrate-mnemoteca.js`   | Dev convenience: export mnemoteca → import LanceDB                              |
 
 ## Modified files
 
@@ -447,10 +447,10 @@ Auto-triggering at session end with a threshold heuristic remains a future enhan
 | `deno.json`                       | Add `nodeModulesDir: "auto"`, add deps (`@lancedb/lancedb`, `@huggingface/transformers`, `tree-sitter`, grammars) |
 | `src/constants.js`                | Add `COMMAND_NAMES.INIT`, core tools list constant                                                                |
 | `src/cmd/registry.js`             | Register `init` command                                                                                           |
-| `src/shared/session/session.js`   | Remove mnemosyne extension, wire engine init + core memory injection + tools                                      |
-| `src/shared/runtime-preflight.js` | Remove `ensureMnemosyneBinary`, add engine/model readiness check                                                  |
+| `src/shared/session/session.js`   | Remove mnemoteca extension, wire engine init + core memory injection + tools                                      |
+| `src/shared/runtime-preflight.js` | Remove `ensureMnemotecaBinary`, add engine/model readiness check                                                  |
 | `src/agent-definitions/*.md`      | Add `codebase_search` to all agents, add `memory_list` to operator                                                |
-| `src/cmd/sleep/index.js`          | Update sleep to use native tools instead of mnemosyne binary                                                      |
+| `src/cmd/sleep/index.js`          | Update sleep to use native tools instead of mnemoteca binary                                                      |
 | `src/prompt-templates/sleep.md`   | Rewrite to reference `memory_list` / `memory_delete` / `memory_store`                                             |
 | `install.sh`                      | Download tree-sitter grammars, ONNX models, fd to `~/.hns/`                                                       |
 | `.gitignore`                      | Add `.hns/`                                                                                                       |
@@ -459,8 +459,8 @@ Auto-triggering at session end with a threshold heuristic remains a future enhan
 
 | File                                     | Reason                             |
 | ---------------------------------------- | ---------------------------------- |
-| `src/extensions/mnemosyne/index.js`      | Replaced by native semantic engine |
-| `src/extensions/mnemosyne/index_test.js` | Tests replaced                     |
+| `src/extensions/mnemoteca/index.js`      | Replaced by native semantic engine |
+| `src/extensions/mnemoteca/index_test.js` | Tests replaced                     |
 
 ---
 
@@ -515,7 +515,7 @@ Auto-triggering at session end with a threshold heuristic remains a future enhan
 
 ### Phase 6: Session integration
 
-- [ ] **T14:** Update `src/shared/session/session.js` — remove mnemosyne extension factory. Add engine singleton
+- [ ] **T14:** Update `src/shared/session/session.js` — remove mnemoteca extension factory. Add engine singleton
       initialization. Wire core memory injection into `systemPromptOverride`. Register new tools as `customTools`.
       Implement two-tier tool logic in `loadAgentDef` (bundled core tools protected from override removal).
 - [ ] **T15:** Add onboarding prompt logic — on session start, check for index existence / noindex marker. Show TUI
@@ -528,18 +528,18 @@ Auto-triggering at session end with a threshold heuristic remains a future enhan
       operator. Remove memory tools from frontmatter where they'll be core-injected (or leave for clarity — dedup
       handles it).
 - [ ] **T18:** Rewrite `src/prompt-templates/sleep.md` — reference `memory_list`, `memory_delete`, `memory_store`
-      instead of mnemosyne CLI commands.
-- [ ] **T19:** Update `src/cmd/sleep/index.js` — remove `ensureMnemosyneBinary` call. The operator agent now uses native
+      instead of mnemoteca CLI commands.
+- [ ] **T19:** Update `src/cmd/sleep/index.js` — remove `ensureMnemotecaBinary` call. The operator agent now uses native
       tools.
 
 ### Phase 8: Cleanup + infrastructure
 
-- [ ] **T20:** Delete `src/extensions/mnemosyne/index.js` and `src/extensions/mnemosyne/index_test.js`.
-- [ ] **T21:** Remove `ensureMnemosyneBinary` from `src/shared/runtime-preflight.js`. Add model/dependency readiness
+- [ ] **T20:** Delete `src/extensions/mnemoteca/index.js` and `src/extensions/mnemoteca/index_test.js`.
+- [ ] **T21:** Remove `ensureMnemotecaBinary` from `src/shared/runtime-preflight.js`. Add model/dependency readiness
       checks if needed.
 - [ ] **T22:** Update `install.sh` — add steps to download ONNX models and tree-sitter grammars to `~/.hns/`.
 - [ ] **T23:** Update `.gitignore` — add `.hns/` and `node_modules/`.
-- [ ] **T24:** Write `scripts/migrate-mnemosyne.js` — dev convenience script for transition.
+- [ ] **T24:** Write `scripts/migrate-mnemoteca.js` — dev convenience script for transition.
 
 ### Phase 9: Testing
 
@@ -566,3 +566,5 @@ Auto-triggering at session end with a threshold heuristic remains a future enhan
 - [ ] Onboarding prompt appears on first run in a new project, doesn't appear again after answering.
 - [ ] `hns sleep` successfully runs with the operator using `memory_list` + native tools.
 - [ ] Graceful degradation: `codebase_search` returns helpful message when no index exists.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

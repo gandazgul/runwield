@@ -189,7 +189,7 @@ linked to from the PRDs and plans.
 
 ### What are the different layers of memory, and which product outcomes does each layer support?
 
-RunWield does not have one memory layer. It uses short-lived context, durable artifacts, local and shared Mnemosyne
+RunWield does not have one memory layer. It uses short-lived context, durable artifacts, local and shared Mnemoteca
 Memories, code intelligence, and Workspace surfaces for different outcomes.
 
 | Layer                                              | What it stores                                                                                            | Product outcome                                                                                          |
@@ -201,10 +201,10 @@ Memories, code intelligence, and Workspace surfaces for different outcomes.
 | Plans and Plan Lifecycle                           | Executable strategy, Plan Status, validation state, recovery metadata, and delivery evidence.             | Controlled execution, attention state, blocker visibility, recovery, and delivery truth.                 |
 | Validation evidence and workflow state             | Mechanical validation, Semantic Code Review, worktree state, and delivery results.                        | Confidence that the result matches the approved Plan.                                                    |
 | Work Records                                       | Retrospective planning memory: what changed, deviations, deferred work, and future planning notes.        | Future Plans become smarter because Agents can retrieve verified lessons.                                |
-| Mnemosyne Local Memory                             | Concise local project facts, decisions, and preferences.                                                  | Personal continuity across Sessions and less rediscovery for one user.                                   |
-| Mnemosyne Global Memory                            | Cross-project preferences and stable user working style.                                                  | Consistent Agent behavior across repositories.                                                           |
+| Mnemoteca Local Memory                             | Concise local project facts, decisions, and preferences.                                                  | Personal continuity across Sessions and less rediscovery for one user.                                   |
+| Mnemoteca Global Memory                            | Cross-project preferences and stable user working style.                                                  | Consistent Agent behavior across repositories.                                                           |
 | Core Memory                                        | Any Local or Team Memory marked for injection into every Agent Session.                                   | Always-on critical context for safety and consistency. This layer must stay sparse.                      |
-| Team Memory                                        | Reviewable repository-versioned Memory text, reconciled into local Mnemosyne copies after trusted review. | Shared Company Brain without committing Mnemosyne databases or unreviewed prompt injection.              |
+| Team Memory                                        | Reviewable repository-versioned Memory text, reconciled into local Mnemoteca copies after trusted review. | Shared Company Brain without committing Mnemoteca databases or unreviewed prompt injection.              |
 | Code intelligence                                  | Current source structure, symbols, references, and impact data.                                           | Accurate answers, better Plans, and safer changes grounded in current implementation.                    |
 | Workspace and Project Knowledge Search             | Search and presentation across Projects, Sessions, Plans, PRDs, ADRs, Work Records, and code.             | Multiplayer AI and leadership visibility into work, blockers, decisions, evidence, and lessons.          |
 
@@ -288,3 +288,5 @@ accepted a change into a shared artifact. RunWield's default posture replaces th
 memory — and relegates the forge to the git upstream. Teams that want forge-hosted review can opt into it per repository
 or team, and integrating with GitHub for identity and permissions is high on the Workspace roadmap. With RunWield, your
 knowledge does not live inside a vendor.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

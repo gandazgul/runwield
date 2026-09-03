@@ -187,7 +187,7 @@ try {
             // Ignore cleanup failures during fatal error reporting.
         }
     }
-    if (err instanceof Error && err.message.includes("Mnemosyne binary not found")) {
+    if (err instanceof Error && err.message.includes("Mnemoteca binary not found")) {
         console.error(err.message);
     } else {
         console.error("[RunWield] Fatal error:", err);

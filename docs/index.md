@@ -17,7 +17,7 @@ On macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
 ```
 
-The installer downloads `wld`, required Mnemosyne/Cymbal runtime helpers, required agent-browser, and optional Snip,
+The installer downloads `wld`, required Mnemoteca/Cymbal runtime helpers, required agent-browser, and optional Snip,
 then installs missing binaries to `~/.local/bin` by default. Make sure that directory is on your `PATH`.
 
 Contributors can also run from source:
@@ -30,7 +30,7 @@ deno task compile
 
 ### 2. Runtime helpers
 
-The installer is the helper recovery path. Mnemosyne, Cymbal, and agent-browser are required for interactive Agent
+The installer is the helper recovery path. Mnemoteca, Cymbal, and agent-browser are required for interactive Agent
 Sessions; Snip is optional and fail-open. Existing helper binaries found on `PATH` or already executable in
 `WLD_INSTALL_DIR` are preserved, while missing helpers are installed beside `wld`.
 
@@ -261,3 +261,5 @@ these upstream docs for full detail:
 - [Pi tmux](https://pi.dev/docs/latest/tmux)
 - [Pi Windows](https://pi.dev/docs/latest/windows)
 - [Pi Termux](https://pi.dev/docs/latest/termux)
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

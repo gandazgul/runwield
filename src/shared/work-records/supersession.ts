@@ -5,7 +5,7 @@ import type { WorkRecordResource } from "./schema.js";
 import { listWorkRecords, replaceWorkRecord } from "./store.js";
 import { supersedeWorkRecord } from "./lifecycle.js";
 import { syncWorkRecordToIndex } from "./index-adapter.js";
-import type { WorkRecordMnemosynePort } from "./mnemosyne-port.ts";
+import type { WorkRecordMnemotecaPort } from "./mnemoteca-port.ts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCK_WAIT_TIMEOUT_MS = 5 * 60_000;
@@ -19,7 +19,7 @@ const INDEX_GUIDANCE = "Run `wld wr index rebuild` to repair the derived Work Re
 export interface WorkRecordSupersessionOptions {
     successorRecordId: string;
     predecessorRecordIds: string[];
-    mnemosynePort: WorkRecordMnemosynePort;
+    mnemotecaPort: WorkRecordMnemotecaPort;
 }
 
 export interface WorkRecordSupersessionProposalEntry {
@@ -307,7 +307,7 @@ async function writePrepared(cwd: string, replacements: PreparedReplacement[]): 
 async function projectFreshCanonicalRecords(
     cwd: string,
     changedRecordIds: string[],
-    mnemosynePort: WorkRecordMnemosynePort,
+    mnemotecaPort: WorkRecordMnemotecaPort,
 ): Promise<{ records?: WorkRecordResource[]; warning?: string }> {
     let release: (() => Promise<void>) | undefined;
     const failures: string[] = [];
@@ -321,7 +321,7 @@ async function projectFreshCanonicalRecords(
         });
         for (const record of records) {
             try {
-                await syncWorkRecordToIndex(cwd, record, { mnemosynePort });
+                await syncWorkRecordToIndex(cwd, record, { mnemotecaPort });
             } catch (error) {
                 failures.push(`${record.attrs.recordId}: ${error instanceof Error ? error.message : String(error)}`);
             }
@@ -409,7 +409,7 @@ export async function applyWorkRecordSupersession(cwd: string, options: WorkReco
     const projection = await projectFreshCanonicalRecords(
         cwd,
         records.map((record) => record.attrs.recordId),
-        options.mnemosynePort,
+        options.mnemotecaPort,
     );
     return {
         records: projection.records || records,
@@ -439,7 +439,7 @@ export async function confirmWorkRecordSupersession(cwd: string, options: WorkRe
     const projection = await projectFreshCanonicalRecords(
         cwd,
         records.map((record) => record.attrs.recordId),
-        options.mnemosynePort,
+        options.mnemotecaPort,
     );
     return {
         records: projection.records || records,
@@ -469,7 +469,7 @@ export async function rejectWorkRecordSupersession(cwd: string, options: WorkRec
     } finally {
         await release();
     }
-    const projection = await projectFreshCanonicalRecords(cwd, [successor.attrs.recordId], options.mnemosynePort);
+    const projection = await projectFreshCanonicalRecords(cwd, [successor.attrs.recordId], options.mnemotecaPort);
     return {
         record: projection.records?.[0] || successor,
         ...(projection.warning ? { indexWarning: projection.warning } : {}),
@@ -479,7 +479,7 @@ export async function rejectWorkRecordSupersession(cwd: string, options: WorkRec
 export interface WorkRecordSupersessionProposalDecisionOptions {
     successorRecordId: string;
     predecessorRecordId: string;
-    mnemosynePort: WorkRecordMnemosynePort;
+    mnemotecaPort: WorkRecordMnemotecaPort;
 }
 
 export function confirmWorkRecordSupersessionProposal(
@@ -489,7 +489,7 @@ export function confirmWorkRecordSupersessionProposal(
     return confirmWorkRecordSupersession(cwd, {
         successorRecordId: options.successorRecordId,
         predecessorRecordIds: [options.predecessorRecordId],
-        mnemosynePort: options.mnemosynePort,
+        mnemotecaPort: options.mnemotecaPort,
     });
 }
 
@@ -500,7 +500,7 @@ export function rejectWorkRecordSupersessionProposal(
     return rejectWorkRecordSupersession(cwd, {
         successorRecordId: options.successorRecordId,
         predecessorRecordIds: [options.predecessorRecordId],
-        mnemosynePort: options.mnemosynePort,
+        mnemotecaPort: options.mnemotecaPort,
     });
 }
 

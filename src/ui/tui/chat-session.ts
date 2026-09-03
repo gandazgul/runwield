@@ -10,7 +10,7 @@ import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
 import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
 import { createManagedSessionSyncController, SYSTEM_MANAGED_SESSION_TIMER } from "./managed-session-sync.js";
-import { ensureCymbalBinary, ensureKetchBinary, ensureMnemosyneBinary } from "../../shared/runtime-preflight.ts";
+import { ensureCymbalBinary, ensureKetchBinary, ensureMnemotecaBinary } from "../../shared/runtime-preflight.ts";
 import {
     COMMAND_NAMES,
     commandRegistry,
@@ -242,7 +242,7 @@ export async function startInteractiveSession(
         view.requestRender();
         if (!options.skipModelWelcome) {
             await listAvailableAgents(runtimeSnapshot().cwd);
-            await ensureMnemosyneBinary();
+            await ensureMnemotecaBinary();
             await ensureCymbalBinary();
             await ensureKetchBinary();
         }

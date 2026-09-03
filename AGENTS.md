@@ -12,8 +12,8 @@ type. Do not define complex inline types.
 
 Run the suite with `deno task test` or `deno run -A scripts/run-tests.js <deno test args>`. Never run `deno test`
 directly. It puts every test file in one process and uses the real `HOME`, which can rewrite your own `~/.wld` and
-Mnemosyne database. `scripts/run-tests.js` gives each file its own process and a sandboxed `HOME` and
-`MNEMOSYNE_DB_PATH`.
+Mnemoteca database. `scripts/run-tests.js` gives each file its own process and a sandboxed `HOME` and
+`MNEMOTECA_DB_PATH`.
 
 Two rules keep tests safe:
 
@@ -49,3 +49,5 @@ established look and feel.
 - Use `--rw-*` semantic tokens and the theme bridge. Do not use hard-coded colors.
 - Before adding a visual pattern, check whether an existing one covers it. If a new one is necessary, document it in
   `docs/design-system.md` and add it to the shared design-system layer in the same change.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

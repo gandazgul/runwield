@@ -20,7 +20,7 @@ import {
     autoGenerateWorkRecordForCompletedPlan,
     formatWorkRecordAutoGenerationResult,
 } from "../../shared/work-records/auto-generation.js";
-import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../../shared/work-records/mnemosyne-port.ts";
+import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../../shared/work-records/mnemoteca-port.ts";
 import { archiveEpicWithChildren } from "./plan-epic-archive.ts";
 import { buildPlanSummary } from "../../shared/plan-presentation.ts";
 import {
@@ -251,7 +251,7 @@ export async function handleEpicPlan({
                 workRecordResult = await autoGenerateWorkRecordForCompletedPlan({
                     cwd: projectRoot,
                     planName: plan.planName,
-                    mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+                    mnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT,
                 });
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);
@@ -278,7 +278,7 @@ export async function handleEpicPlan({
                     projectRoot,
                     successorRecordId: workRecordResult.recordId,
                     proposals: workRecordResult.supersessionProposals,
-                    mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+                    mnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT,
                     uiAPI,
                 });
             }

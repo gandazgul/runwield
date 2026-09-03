@@ -37,7 +37,7 @@ Deno.test("Claude CLI capability tools execute PATH helper binaries", () =>
         try {
             await writeExecutable(join(tempDir, "git"), "#!/bin/sh\necho /repo/runwield/.git\n");
             await writeExecutable(
-                join(tempDir, "mnemosyne"),
+                join(tempDir, "mnemoteca"),
                 '#!/bin/sh\nif [ "$1" = search ]; then echo memory-hit; else echo ok; fi\n',
             );
             await writeExecutable(join(tempDir, "cymbal"), "#!/bin/sh\necho cymbal:$*\n");
@@ -64,7 +64,7 @@ Deno.test("Claude CLI capability tools execute PATH helper binaries", () =>
         }
     }));
 
-Deno.test("Claude CLI memory capability reports missing mnemosyne binary", () =>
+Deno.test("Claude CLI memory capability reports missing mnemoteca binary", () =>
     withProcessGlobalTestLock(async () => {
         const tempDir = await Deno.makeTempDir();
         const oldPath = Deno.env.get("PATH") || "";
@@ -76,7 +76,7 @@ Deno.test("Claude CLI memory capability reports missing mnemosyne binary", () =>
 
             const text = await executeText(getTool(tools, "memory"), { action: "recall", query: "test" });
 
-            assertMatch(text, /mnemosyne binary not found/i);
+            assertMatch(text, /mnemoteca binary not found/i);
         } finally {
             Deno.env.set("PATH", oldPath);
             await Deno.remove(tempDir, { recursive: true });

@@ -16,25 +16,24 @@ export function repoPath(...segments) {
 
 /** @typedef {"Darwin" | "Linux"} TestOs */
 /** @typedef {"x86_64" | "arm64"} TestArch */
-/** @typedef {"wld" | "mnemosyne" | "cymbal" | "ketch" | "snip"} ReleaseBinaryName */
-/** @typedef {ReleaseBinaryName | "agent-browser"} BinaryName */
+/** @typedef {"wld" | "cymbal" | "ketch" | "snip"} ReleaseBinaryName */
+/** @typedef {ReleaseBinaryName | "mnemoteca" | "agent-browser"} BinaryName */
 
 export const VERSIONS = {
     runwield: "v9.9.9",
-    mnemosyne: "v0.2.6",
     cymbal: "v0.14.0",
     ketch: "v0.13.0",
     snip: "v0.22.0",
 };
 
 /** @type {BinaryName[]} */
-export const BINARY_NAMES = ["wld", "mnemosyne", "cymbal", "ketch", "agent-browser", "snip"];
+export const BINARY_NAMES = ["wld", "mnemoteca", "cymbal", "ketch", "agent-browser", "snip"];
 
 /** @type {ReleaseBinaryName[]} */
-export const RELEASE_BINARY_NAMES = ["wld", "mnemosyne", "cymbal", "ketch", "snip"];
+export const RELEASE_BINARY_NAMES = ["wld", "cymbal", "ketch", "snip"];
 
 /** @type {Array<Exclude<ReleaseBinaryName, "wld">>} */
-export const HELPER_NAMES = ["mnemosyne", "cymbal", "ketch", "snip"];
+export const HELPER_NAMES = ["cymbal", "ketch", "snip"];
 
 /**
  * @param {string} path
@@ -90,7 +89,6 @@ export function assetNamesFor(os, arch) {
     const ketchArch = arch === "x86_64" ? "x86_64" : "arm64";
     return {
         wld: `wld-${VERSIONS.runwield}-${helperOs}-${wldArch}.tar.gz`,
-        mnemosyne: `mnemosyne_${VERSIONS.mnemosyne.slice(1)}_${helperOs}_${helperArch}.tar.gz`,
         cymbal: `cymbal_${VERSIONS.cymbal}_${helperOs}_${cymbalArch}.tar.gz`,
         ketch: `ketch_${VERSIONS.ketch.slice(1)}_${helperOs}_${ketchArch}.tar.gz`,
         snip: `snip_${VERSIONS.snip.slice(1)}_${helperOs}_${helperArch}.tar.gz`,
@@ -98,7 +96,7 @@ export function assetNamesFor(os, arch) {
 }
 
 /**
- * @param {{ os?: TestOs, arch?: TestArch, badChecksumFor?: BinaryName, omitChecksumFor?: BinaryName, badDigestFor?: BinaryName, omitDigestFor?: BinaryName, missingAssetFor?: BinaryName, missingExecutableFor?: BinaryName, latestApiFailsFor?: string[], releaseApiFailsFor?: string[] }} [options]
+ * @param {{ os?: TestOs, arch?: TestArch, badChecksumFor?: ReleaseBinaryName, omitChecksumFor?: ReleaseBinaryName, badDigestFor?: BinaryName, omitDigestFor?: BinaryName, missingAssetFor?: BinaryName, missingExecutableFor?: BinaryName, latestApiFailsFor?: string[], releaseApiFailsFor?: string[], mnemotecaInstallerFails?: boolean, mnemotecaInstallerSkipsExecutable?: boolean, mnemotecaInstallerPrompts?: boolean }} [options]
  */
 export async function createFixture(options = {}) {
     const root = await Deno.makeTempDir();
@@ -106,6 +104,7 @@ export async function createFixture(options = {}) {
     const binDir = join(root, "fake-bin");
     const installDir = join(root, "install dir with spaces");
     const curlLog = join(root, "curl.log");
+    const mnemotecaInstallerLog = join(root, "mnemoteca-installer.log");
     const os = options.os ?? "Linux";
     const arch = options.arch ?? "x86_64";
     const assets = assetNamesFor(os, arch);
@@ -158,6 +157,33 @@ export async function createFixture(options = {}) {
         await Deno.writeTextFile(join(fixtureDir, `${name}-expanded-assets.html`), expandedAssetsHtml);
     }
 
+    await Deno.writeTextFile(
+        join(fixtureDir, "mnemoteca-install.sh"),
+        `#!/usr/bin/env bash
+set -euo pipefail
+printf 'repo=%s\\ninstall_dir=%s\\ndb_path=%s\\n' "\${MNEMOTECA_REPO:-}" "\${INSTALL_DIR:-}" "\${MNEMOTECA_DB_PATH-unset}" >> '${mnemotecaInstallerLog}'
+${
+            options.mnemotecaInstallerPrompts
+                ? `printf 'Mnemoteca upgrade prompt: '
+answer=
+for _ in 1 2 3; do
+  IFS= read -r answer || answer=
+  [ -n "$answer" ] && break
+done
+printf 'answer=%s\\n' "$answer" >> '${mnemotecaInstallerLog}'
+`
+                : ""
+        }${options.mnemotecaInstallerFails ? "exit 42\n" : ""}${
+            options.mnemotecaInstallerSkipsExecutable ? "exit 0\n" : `mkdir -p "\${INSTALL_DIR:?}"
+cat >"$INSTALL_DIR/mnemoteca" <<'MNEMOTECABIN'
+#!/usr/bin/env bash
+echo mnemoteca version
+MNEMOTECABIN
+chmod 755 "$INSTALL_DIR/mnemoteca"
+`
+        }`,
+    );
+
     await writeExecutable(
         join(binDir, "curl"),
         `#!/usr/bin/env bash
@@ -181,10 +207,6 @@ case "$url" in
     [[ "$latest_api_failures" == *' runwield '* ]] && exit 22
     body='{"url":"https://api.github.com/repos/gandazgul/runwield/releases/1","tag_name":"${VERSIONS.runwield}"}'
     ;;
-  *api.github.com/repos/gandazgul/mnemosyne/releases/latest*)
-    [[ "$latest_api_failures" == *' mnemosyne '* ]] && exit 22
-    body='{"url":"https://api.github.com/repos/gandazgul/mnemosyne/releases/1","tag_name":"${VERSIONS.mnemosyne}"}'
-    ;;
   *api.github.com/repos/1broseidon/cymbal/releases/latest*)
     [[ "$latest_api_failures" == *' cymbal '* ]] && exit 22
     body='{"url":"https://api.github.com/repos/1broseidon/cymbal/releases/1","tag_name":"${VERSIONS.cymbal}"}'
@@ -198,14 +220,9 @@ case "$url" in
     body='{"url":"https://api.github.com/repos/edouard-claude/snip/releases/1","tag_name":"${VERSIONS.snip}"}'
     ;;
   *github.com/gandazgul/runwield/releases/latest*) effective_url='https://github.com/gandazgul/runwield/releases/tag/${VERSIONS.runwield}' ;;
-  *github.com/gandazgul/mnemosyne/releases/latest*) effective_url='https://github.com/gandazgul/mnemosyne/releases/tag/${VERSIONS.mnemosyne}' ;;
   *github.com/1broseidon/cymbal/releases/latest*) effective_url='https://github.com/1broseidon/cymbal/releases/tag/${VERSIONS.cymbal}' ;;
   *github.com/1broseidon/ketch/releases/latest*) effective_url='https://github.com/1broseidon/ketch/releases/tag/${VERSIONS.ketch}' ;;
   *github.com/edouard-claude/snip/releases/latest*) effective_url='https://github.com/edouard-claude/snip/releases/tag/${VERSIONS.snip}' ;;
-  *api.github.com/repos/gandazgul/mnemosyne/releases/tags/*)
-    [[ "$release_api_failures" == *' mnemosyne '* ]] && exit 22
-    file='${join(fixtureDir, "mnemosyne-release.json")}'
-    ;;
   *api.github.com/repos/1broseidon/cymbal/releases/tags/*)
     [[ "$release_api_failures" == *' cymbal '* ]] && exit 22
     file='${join(fixtureDir, "cymbal-release.json")}'
@@ -218,12 +235,10 @@ case "$url" in
     [[ "$release_api_failures" == *' snip '* ]] && exit 22
     file='${join(fixtureDir, "snip-release.json")}'
     ;;
-  *github.com/gandazgul/mnemosyne/releases/expanded_assets/*) file='${
-            join(fixtureDir, "mnemosyne-expanded-assets.html")
-        }' ;;
   *github.com/1broseidon/cymbal/releases/expanded_assets/*) file='${join(fixtureDir, "cymbal-expanded-assets.html")}' ;;
   *github.com/1broseidon/ketch/releases/expanded_assets/*) file='${join(fixtureDir, "ketch-expanded-assets.html")}' ;;
   *github.com/edouard-claude/snip/releases/expanded_assets/*) file='${join(fixtureDir, "snip-expanded-assets.html")}' ;;
+  *raw.githubusercontent.com/gandazgul/mnemoteca/main/install.sh) file='${join(fixtureDir, "mnemoteca-install.sh")}' ;;
   */SHA256SUMS) file='${join(fixtureDir, "SHA256SUMS")}' ;;
   */checksums.txt) file='${join(fixtureDir, "checksums.txt")}' ;;
   *) file='${fixtureDir}'/"$(basename "$url")" ;;
@@ -263,12 +278,12 @@ chmod 755 "$prefix/bin/agent-browser"
 `,
     );
 
-    return { root, fixtureDir, binDir, installDir, curlLog, os, arch, assets };
+    return { root, fixtureDir, binDir, installDir, curlLog, mnemotecaInstallerLog, os, arch, assets };
 }
 
 /**
  * @param {Awaited<ReturnType<typeof createFixture>>} fixture
- * @param {{ extraPathDir?: string, requestedVersion?: string | null, noninteractive?: boolean, extraEnv?: Record<string, string> }} [options]
+ * @param {{ extraPathDir?: string, requestedVersion?: string | null, noninteractive?: boolean, extraEnv?: Record<string, string>, unsetEnv?: string[] }} [options]
  */
 export async function runInstaller(fixture, options = {}) {
     const pathPrefix = options.extraPathDir ? `${options.extraPathDir}:` : "";
@@ -282,6 +297,7 @@ export async function runInstaller(fixture, options = {}) {
         WLD_TEST_UNAME_M: fixture.arch,
         ...options.extraEnv,
     };
+    for (const key of options.unsetEnv ?? []) delete env[key];
     if (options.noninteractive !== false) env.WLD_NONINTERACTIVE = "1";
     const args = [repoPath("install.sh")];
     if (options.requestedVersion !== null) args.push(options.requestedVersion ?? VERSIONS.runwield);
@@ -289,6 +305,7 @@ export async function runInstaller(fixture, options = {}) {
         args,
         cwd: REPO_ROOT,
         env,
+        clearEnv: true,
         stdout: "piped",
         stderr: "piped",
     });

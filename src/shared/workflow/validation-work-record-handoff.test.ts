@@ -6,7 +6,7 @@ import { savePlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { getRunWieldSessionDir } from "../session/root-session.js";
 import { listWorkRecords, writeWorkRecord } from "../work-records/store.js";
-import { createWorkRecordMnemosyneFixture } from "../work-records/test-fixtures/mnemosyne-port.ts";
+import { createWorkRecordMnemotecaFixture } from "../work-records/test-fixtures/mnemoteca-port.ts";
 import { attachRecorder, makeUi } from "./validation-test-helpers.js";
 import { runFeaturePostVerificationHandoffs } from "./validation-helpers.ts";
 
@@ -53,7 +53,7 @@ async function runWorkRecordHandoff(
                 }],
             })));
     setModelResponseFactories([respondToHandoff, respondToHandoff]);
-    const mnemosynePort = createWorkRecordMnemosyneFixture();
+    const mnemotecaPort = createWorkRecordMnemotecaFixture();
     const ui = makeUi();
     ui.promptSelect = () => {
         ui.promptSelections.push(decision === null ? "canceled" : decision);
@@ -80,11 +80,11 @@ async function runWorkRecordHandoff(
             planName: "verified-feature",
             planContent: "# Verified Feature",
             projectRoot,
-            mnemosynePort,
+            mnemotecaPort,
         });
         return {
             records: await listWorkRecords(projectRoot),
-            indexCount: mnemosynePort.snapshot().length,
+            indexCount: mnemotecaPort.snapshot().length,
             sessionManager,
             ui,
         };
@@ -93,7 +93,7 @@ async function runWorkRecordHandoff(
     }
 }
 
-Deno.test("post-verification handoffs run real Work Record machinery through the Mnemosyne port", async () => {
+Deno.test("post-verification handoffs run real Work Record machinery through the Mnemoteca port", async () => {
     await withRuntimeCommandFixture("validation-work-record-", async (fixture) => {
         const { records, indexCount, sessionManager, ui } = await runWorkRecordHandoff(fixture);
         const generated = records.find((record) =>

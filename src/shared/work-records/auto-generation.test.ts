@@ -3,7 +3,7 @@ import { loadPlan, savePlan } from "../../plan-store.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { setCustomSetting } from "../settings.js";
 import { listWorkRecords, writeWorkRecord } from "./store.js";
-import { createWorkRecordMnemosyneFixture } from "./test-fixtures/mnemosyne-port.ts";
+import { createWorkRecordMnemotecaFixture } from "./test-fixtures/mnemoteca-port.ts";
 import { autoGenerateWorkRecordForCompletedPlan } from "./auto-generation.ts";
 
 async function saveStandalonePlan(projectRoot: string, supersedes: string[] = []): Promise<void> {
@@ -69,7 +69,7 @@ Deno.test("automatic Work Record generation writes a canonical record and Plan b
         const result = await autoGenerateWorkRecordForCompletedPlan({
             cwd: projectRoot,
             planName: "standalone",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         assertEquals(result.status, "generated");
@@ -96,7 +96,7 @@ Deno.test("automatic child completion generates only the terminal parent Epic re
         const result = await autoGenerateWorkRecordForCompletedPlan({
             cwd: projectRoot,
             planName: "epic/01-child",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         assertEquals(result.status, "generated");
@@ -117,7 +117,7 @@ Deno.test("automatic child completion waits for its real parent Epic to become t
         const result = await autoGenerateWorkRecordForCompletedPlan({
             cwd: projectRoot,
             planName: "epic/01-child",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         assertEquals(result.status, "skipped");
@@ -136,7 +136,7 @@ Deno.test("automatic generation honors the project Work Record setting", async (
         const result = await autoGenerateWorkRecordForCompletedPlan({
             cwd: projectRoot,
             planName: "standalone",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         assertEquals(result.status, "disabled");
@@ -163,7 +163,7 @@ Deno.test("automatic generation persists normalized pending supersession proposa
         const result = await autoGenerateWorkRecordForCompletedPlan({
             cwd: projectRoot,
             planName: "standalone",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         assertEquals(result.status, "generated");
@@ -202,7 +202,7 @@ Deno.test("automatic generation settles Plan declarations and keeps only undecla
         const result = await autoGenerateWorkRecordForCompletedPlan({
             cwd: projectRoot,
             planName: "standalone",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
         const records = await listWorkRecords(projectRoot);
         const successor = records.find((record) => record.attrs.recordId === result.recordId);
@@ -230,7 +230,7 @@ Deno.test("automatic generation preserves terminal Plan state when Recorder fail
         const result = await autoGenerateWorkRecordForCompletedPlan({
             cwd: projectRoot,
             planName: "standalone",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         assertEquals(result.status, "failed");

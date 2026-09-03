@@ -256,8 +256,8 @@ const IS_TEST_REALM = (() => {
 })();
 
 const UNSANDBOXED_TEST_RUN_MESSAGE =
-    "Run the suite with `deno task test` (or scripts/run-tests.js), which points HOME and MNEMOSYNE_DB_PATH at a " +
-    "sandbox. Running `deno test` directly lets tests overwrite the real ~/.wld and the real mnemosyne memory database.";
+    "Run the suite with `deno task test` (or scripts/run-tests.js), which points HOME and MNEMOTECA_DB_PATH at a " +
+    "sandbox. Running `deno test` directly lets tests overwrite the real ~/.wld and the real mnemoteca memory database.";
 
 // Fail the moment a test realm loads this module without the sandbox marker
 // that only scripts/run-tests.js sets. The lazy guard below is what makes the

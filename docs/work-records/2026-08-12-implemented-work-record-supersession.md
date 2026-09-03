@@ -25,6 +25,8 @@ seams check, type/check/formatting, and full CI with 280 test files.
 
 ## Future Planning Notes
 
-Canonical Markdown remains the authority for supersession state; Mnemosyne index updates are best-effort projections
+Canonical Markdown remains the authority for supersession state; Mnemoteca index updates are best-effort projections
 with rebuild guidance on failure. Recorder-proposed supersession must stay pending until explicit user confirmation,
 including for backfill and headless flows.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

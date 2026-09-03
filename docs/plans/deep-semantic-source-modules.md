@@ -74,7 +74,7 @@ The user stated the rule that governs the decomposition:
 > machinery. Ports: Git, LLM API, Pi session management (the low-level one that writes JSONL files), etc.
 
 Applied to this repository, the legitimate port list is short: Git, the agent turn, low-level Pi session and JSONL
-writing, the browser, Mnemosyne, the GitHub CLI, the network, and subprocess exit. Plan writes, lifecycle transitions,
+writing, the browser, Mnemoteca, the GitHub CLI, the network, and subprocess exit. Plan writes, lifecycle transitions,
 the worktree registry, locks, and workflow state are RunWield's own machinery and get no port.
 
 Two existing constructs fail that test. `src/ui/tui/interactive-session-port.ts` wraps "start our own TUI", which never
@@ -175,7 +175,7 @@ src/
                               plan-lifecycle, plan-approval, plan-review-recovery, objective-checks,
                               ticket-references, execution-plan-file, yaml-scalar.ts
 
-    work-records/             ← src/shared/work-records/  (keeps mnemosyne-port.ts — a real port)
+    work-records/             ← src/shared/work-records/  (keeps mnemoteca-port.ts — a real port)
 
     collaboration/            ← src/shared/collaboration/
       share-plan.ts           ← the non-CLI half of src/cmd/plans/share.ts
@@ -205,7 +205,7 @@ src/
     workspace/                ← src/ui/workspace/  (Astro/React app + server/)
 
   design-system/              ← src/ui/design-system/  (pure leaf: ThemeJson in, CSS/JSX out)
-  extensions/                 unchanged name and location (cymbal, mnemosyne, re-anchor, snip)
+  extensions/                 unchanged name and location (cymbal, mnemoteca, re-anchor, snip)
   composition/                port wiring currently inline in src/cmd/registry.js
   resources/                  ← src/agent-definitions/, src/prompt-templates/, src/skills/,
                               src/snip-filters/
@@ -424,7 +424,7 @@ this way, so the two paths converge on one shape.
       test fails if the analyzer stops detecting any one of them.
 - [ ] `scripts/check-port-allowlist.js` exists, is registered as `deno task ports:check`, runs inside `deno task ci`,
       and fails when a file matching `*-port.ts` or a type name ending in `Port` appears outside a committed allowlist.
-      The initial allowlist contains exactly today's ports: `git-port.ts`, `browser-port.ts`, `mnemosyne-port.ts`,
+      The initial allowlist contains exactly today's ports: `git-port.ts`, `browser-port.ts`, `mnemoteca-port.ts`,
       `execution-backend.ts`, `validation-ports.ts`, and the GitHub CLI, update-network, and process-exit ports composed
       in the command registry. `interactive-session-port.ts` is deliberately absent because Phase 5 removes it.
 - [ ] `docs/architecture.md` describes the target tree, the allowed dependency graph, the forbidden relationships, and
@@ -575,3 +575,5 @@ a command_ must be rewritten against the composition root instead.
   allowlist admits it as pre-existing. Its redesign is a separate follow-up Plan.
 - `src/composition/` is expected to hold two entry assemblies (terminal and ACP). If a third genuinely distinct
   entrypoint appears during Phase 6, add it rather than forcing it through one of the two.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

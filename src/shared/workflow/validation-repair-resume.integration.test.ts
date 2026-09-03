@@ -108,7 +108,7 @@ async function runValidation(args: {
         semanticReviewPort: args.semanticReviewPort || {
             runIsolatedAgentSession: () => Promise.reject(new Error("unexpected isolated Agent turn")),
         },
-        workRecordMnemosynePort: {
+        workRecordMnemotecaPort: {
             run: () => Promise.reject(new Error("publication must not run in this test")),
         },
     });

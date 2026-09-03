@@ -161,23 +161,23 @@ async function unregisterScriptedOAuthProviders(): Promise<void> {
 }
 
 /**
- * Install the stable external Mnemosyne boundary used by composed TUI tests.
+ * Install the stable external Mnemoteca boundary used by composed TUI tests.
  * The composition runs the real startup preflight, which requires a
- * `mnemosyne` binary on PATH, and must not contend for the developer's
- * Mnemosyne database.
+ * `mnemoteca` binary on PATH, and must not contend for the developer's
+ * Mnemoteca database.
  *
  * @param {string} root
  */
-async function writeFixtureMnemosyneBinary(root: string): Promise<string> {
+async function writeFixtureMnemotecaBinary(root: string): Promise<string> {
     const binDir = join(root, "bin");
-    const executable = join(binDir, "mnemosyne");
+    const executable = join(binDir, "mnemoteca");
     await Deno.mkdir(binDir, { recursive: true });
     await Deno.writeTextFile(
         executable,
         [
             "#!/bin/sh",
             'if [ "$1" = "update" ] && [ "$2" = "--help" ]; then',
-            "  echo 'Usage: mnemosyne update <id> --replace-tags'",
+            "  echo 'Usage: mnemoteca update <id> --replace-tags'",
             'elif [ "$1" = "list" ]; then',
             "  echo 'No documents'",
             'elif [ "$1" = "search" ]; then',
@@ -205,7 +205,7 @@ export async function withRuntimeCommandFixture<T>(
         await unregisterScriptedOAuthProviders();
         const previousHome = Deno.env.get("HOME");
         const previousSandboxHome = Deno.env.get("WLD_TEST_SANDBOX_HOME");
-        const previousMnemosyneDbPath = Deno.env.get("MNEMOSYNE_DB_PATH");
+        const previousMnemotecaDbPath = Deno.env.get("MNEMOTECA_DB_PATH");
         const previousPath = Deno.env.get("PATH");
         const previousCwd = Deno.cwd();
         const previousExitCode = Deno.exitCode;
@@ -215,7 +215,7 @@ export async function withRuntimeCommandFixture<T>(
         const alternateRoot = join(fixtureRoot, "alternate-project");
         const runwieldDir = join(homeDir, ".wld");
         const settingsPath = join(runwieldDir, "settings.json");
-        const fixtureBinDir = await writeFixtureMnemosyneBinary(fixtureRoot);
+        const fixtureBinDir = await writeFixtureMnemotecaBinary(fixtureRoot);
         await Promise.all([
             Deno.mkdir(runwieldDir, { recursive: true }),
             Deno.mkdir(projectRoot, { recursive: true }),
@@ -281,7 +281,7 @@ export async function withRuntimeCommandFixture<T>(
         try {
             Deno.env.set("HOME", homeDir);
             Deno.env.set("WLD_TEST_SANDBOX_HOME", homeDir);
-            Deno.env.set("MNEMOSYNE_DB_PATH", join(fixtureRoot, "mnemosyne.db"));
+            Deno.env.set("MNEMOTECA_DB_PATH", join(fixtureRoot, "mnemoteca.db"));
             Deno.env.set("PATH", `${fixtureBinDir}:${previousPath || ""}`);
             Deno.chdir(canonicalAlternateRoot);
             Deno.exitCode = 0;
@@ -315,8 +315,8 @@ export async function withRuntimeCommandFixture<T>(
             else Deno.env.set("HOME", previousHome);
             if (previousSandboxHome === undefined) Deno.env.delete("WLD_TEST_SANDBOX_HOME");
             else Deno.env.set("WLD_TEST_SANDBOX_HOME", previousSandboxHome);
-            if (previousMnemosyneDbPath === undefined) Deno.env.delete("MNEMOSYNE_DB_PATH");
-            else Deno.env.set("MNEMOSYNE_DB_PATH", previousMnemosyneDbPath);
+            if (previousMnemotecaDbPath === undefined) Deno.env.delete("MNEMOTECA_DB_PATH");
+            else Deno.env.set("MNEMOTECA_DB_PATH", previousMnemotecaDbPath);
             if (previousPath === undefined) Deno.env.delete("PATH");
             else Deno.env.set("PATH", previousPath);
             Deno.exitCode = previousExitCode;

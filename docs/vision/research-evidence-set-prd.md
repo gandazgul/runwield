@@ -64,7 +64,7 @@ or create false confidence. The vision is intentionally falsifiable.
 - It should be stored beside RunWield's existing session-associated artifacts under the encoded project session
   directory, following the ownership model used for image attachments and memory-maintenance backups.
 - It survives compaction, process restart, and `/resume` for the owning Agent Session.
-- It is not injected wholesale into message history, Mnemosyne, default search, Plans, or Work Records.
+- It is not injected wholesale into message history, Mnemoteca, default search, Plans, or Work Records.
 - It should follow future session deletion, retention, export, and privacy semantics rather than invent an independent
   lifecycle.
 
@@ -85,7 +85,7 @@ or create false confidence. The vision is intentionally falsifiable.
 - Ideator may use selected evidence when writing a PRD or source-backed research note.
 - A resulting artifact should cite the original source, not a session-local evidence identifier that will disappear.
 - Durable conclusions belong in the appropriate PRD, ADR, Plan, Work Record, research note, `docs/domain-language.md`,
-  or Mnemosyne Memory according to existing artifact rules.
+  or Mnemoteca Memory according to existing artifact rules.
 - Deleting the Agent Session must not invalidate citations already written to durable artifacts because those citations
   point to original sources.
 
@@ -172,7 +172,7 @@ value is established.
 
 - A universal claim ledger for all software work.
 - Requirement-to-diff-to-test traceability across the full Plan Lifecycle.
-- Replacing source-backed research notes, PRDs, Plans, ADRs, Work Records, or Mnemosyne.
+- Replacing source-backed research notes, PRDs, Plans, ADRs, Work Records, or Mnemoteca.
 - Automatic ingestion of every Web, code, browser, or Delegated Agent Session result.
 - Project-wide or cross-project evidence search.
 - Treating saved snippets as validation evidence or source certification.
@@ -185,3 +185,5 @@ This focused hypothesis sharpens the source-aware context and external-represent
 `docs/vision/domain-harness-blueprint.md` and `docs/vision/runwield-se-harness-opportunities.md`. Those documents remain
 broader vision sources; this PRD defines one narrow experiment and preserves their warning that claim ledgers should not
 become a default artifact for ordinary software work.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

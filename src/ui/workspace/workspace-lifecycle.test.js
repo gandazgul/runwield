@@ -23,7 +23,7 @@ import { createWorkspaceApp } from "./server.js";
 import { COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { listWorkRecords } from "../../shared/work-records/store.js";
-import { createWorkRecordMnemosyneFixture } from "../../shared/work-records/test-fixtures/mnemosyne-port.ts";
+import { createWorkRecordMnemotecaFixture } from "../../shared/work-records/test-fixtures/mnemoteca-port.ts";
 
 import { git } from "./workspace-test-helpers.js";
 
@@ -169,7 +169,7 @@ Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks i
         const app = createWorkspaceApp({
             cwd,
             token: "secret",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         }).handler();
         const missingToken = await app(
             new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
@@ -244,11 +244,11 @@ Deno.test("Workspace persisted User Verification records attestation and trigger
             title: "User Verified Feature",
             summary: "Generated after the real Workspace lifecycle transition.",
         }));
-        const mnemosynePort = createWorkRecordMnemosyneFixture();
+        const mnemotecaPort = createWorkRecordMnemotecaFixture();
         const app = createWorkspaceApp({
             cwd,
             token: "secret",
-            mnemosynePort,
+            mnemotecaPort,
         }).handler();
 
         const blank = await app(
@@ -277,7 +277,7 @@ Deno.test("Workspace persisted User Verification records attestation and trigger
         assertEquals(records.length, 1);
         assertEquals(records[0].attrs.completionMode, "user_verified");
         assertEquals(detail.frontMatter.workRecord?.recordId, records[0].attrs.recordId);
-        assertEquals(mnemosynePort.snapshot().length, 1);
+        assertEquals(mnemotecaPort.snapshot().length, 1);
     });
 });
 
@@ -292,11 +292,11 @@ Deno.test("Workspace persisted close without verification triggers Work Record g
             title: "Manually Accepted Feature",
             summary: "Generated after close without verification.",
         }));
-        const mnemosynePort = createWorkRecordMnemosyneFixture();
+        const mnemotecaPort = createWorkRecordMnemotecaFixture();
         const app = createWorkspaceApp({
             cwd,
             token: "secret",
-            mnemosynePort,
+            mnemotecaPort,
         }).handler();
 
         const response = await postLifecycle(app, cwd, "feature-id", {
@@ -313,7 +313,7 @@ Deno.test("Workspace persisted close without verification triggers Work Record g
         assertEquals(records.length, 1);
         assertEquals(records[0].attrs.completionMode, "closed_without_verification");
         assertEquals(detail.frontMatter.workRecord?.recordId, records[0].attrs.recordId);
-        assertEquals(mnemosynePort.snapshot().length, 1);
+        assertEquals(mnemotecaPort.snapshot().length, 1);
     });
 });
 
@@ -328,7 +328,7 @@ Deno.test("Workspace persisted close preserves closure when Work Record generati
         const app = createWorkspaceApp({
             cwd,
             token: "secret",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         }).handler();
 
         const response = await postLifecycle(app, cwd, "feature-id", {
@@ -388,7 +388,7 @@ Deno.test("Workspace lifecycle API requires Resume Check confirmation for stalen
         const app = createWorkspaceApp({
             cwd,
             token: "secret",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         }).handler();
         const warned = await postLifecycle(app, cwd, "held-warning-id", { action: "resume_from_hold" });
         assertEquals(warned.status, 409);
@@ -422,7 +422,7 @@ Deno.test("Workspace Resume Check does not expose absolute worktree paths in blo
         const app = createWorkspaceApp({
             cwd,
             token: "secret",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         }).handler();
         const response = await postLifecycle(app, cwd, "held-leak-id", { action: "resume_from_hold" });
         assertEquals(response.status, 409);
@@ -479,7 +479,7 @@ Deno.test("Workspace APIs return lock-aware 409 responses without mutating locke
         const app = createWorkspaceApp({
             cwd,
             token: "secret",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         }).handler();
 
         const bodyEdit = await app(

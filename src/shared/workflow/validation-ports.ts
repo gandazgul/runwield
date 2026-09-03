@@ -260,7 +260,7 @@ export type PostVerificationHandoffParams = {
     planName: string;
     planContent: string;
     projectRoot: string;
-    mnemosynePort: import("../work-records/mnemosyne-port.ts").WorkRecordMnemosynePort;
+    mnemotecaPort: import("../work-records/mnemoteca-port.ts").WorkRecordMnemotecaPort;
 };
 
 /** Local CI result shape the engine consumes. */

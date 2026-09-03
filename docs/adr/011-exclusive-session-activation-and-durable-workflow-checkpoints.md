@@ -50,7 +50,7 @@ An owner-only SQLite database under `~/.wld/` coordinates Personal Workspace sta
 
 - canonical repository Plans, PRDs, ADRs, Work Records, and source code;
 - private Session JSONL transcript content;
-- derived Mnemosyne and Cymbal indexes;
+- derived Mnemoteca and Cymbal indexes;
 - public Shared Space ciphertext and capability storage.
 
 The owner database stores only coordination records needed for registered Projects, paired devices, stable Session
@@ -220,3 +220,5 @@ ordered transcript segments, lifecycle/worktree evidence, and the narrow rollove
 A separate long-lived Plan ownership record would create another authority to reconcile with canonical Plan markdown,
 Plan Lifecycle, and worktree registry state. Consequential Plan actions instead revalidate current canonical evidence
 under the active Session Activation Lease.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

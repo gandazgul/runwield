@@ -1,4 +1,4 @@
-import type { WorkRecordMnemosynePort } from "../mnemosyne-port.ts";
+import type { WorkRecordMnemotecaPort } from "../mnemoteca-port.ts";
 
 export interface IndexedFixtureDocument {
     id: number;
@@ -6,12 +6,12 @@ export interface IndexedFixtureDocument {
     content: string;
 }
 
-export interface WorkRecordMnemosyneFixture extends WorkRecordMnemosynePort {
+export interface WorkRecordMnemotecaFixture extends WorkRecordMnemotecaPort {
     snapshot(): IndexedFixtureDocument[];
     commands(): string[][];
 }
 
-export function createWorkRecordMnemosyneFixture(): WorkRecordMnemosyneFixture {
+export function createWorkRecordMnemotecaFixture(): WorkRecordMnemotecaFixture {
     let documents: IndexedFixtureDocument[] = [];
     const commands: string[][] = [];
     let nextId = 1;
@@ -40,7 +40,7 @@ export function createWorkRecordMnemosyneFixture(): WorkRecordMnemosyneFixture {
             commands.push([...args]);
             const command = args[0] || "";
             if (command === "update" && args[1] === "--help") {
-                return Promise.resolve(result("Usage: mnemosyne update <id> --replace-tags"));
+                return Promise.resolve(result("Usage: mnemoteca update <id> --replace-tags"));
             }
             if (command === "forget") {
                 documents = [];

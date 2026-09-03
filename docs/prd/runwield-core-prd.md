@@ -292,7 +292,7 @@ The full collaboration and Workspace story lives in [runwield-workspace-prd.md](
 
 ### 6.1 Current
 
-- **Mnemosyne:** project/global persistent memory for preferences, project facts, and critical context.
+- **Mnemoteca:** project/global persistent memory for preferences, project facts, and critical context.
 - **Init:** `wld init` / `/init` explores the project, writes context, stores memories, and records initialization.
 - **Sleep:** `wld sleep` / `/sleep` runs memory and context cleanup prompts.
 - **Cymbal:** external semantic/structural code intelligence for search, symbol lookup, impact analysis, tracing, and
@@ -510,7 +510,7 @@ Current:
 - **Local UI:** Astro SSR, Vite, React islands, Tailwind/Radix-compatible Workspace primitives.
 - **Plan persistence:** repo-local markdown under `docs/plans/`.
 - **RunWield settings/state:** `~/.wld/` and `.wld/` where appropriate.
-- **Memory:** Mnemosyne.
+- **Memory:** Mnemoteca.
 - **Code intelligence:** Cymbal plus command/search tools.
 - **Execution isolation:** Git worktrees and `.wld/worktrees.json` runtime registry.
 - **Validation:** project-configured validation command, semantic review, optional human review, merge-back.
@@ -556,3 +556,5 @@ RunWield supports terminal Plan Status `user_verified` via Plan Event `manual_us
 `userVerificationNote`, records `userVerifiedAt`, never records `verifiedAt` or synthesized Delivery Evidence, satisfies
 dependencies/Epic completion with distinct User Verified labels, and is archive-eligible subject to existing
 recoverable-worktree guards.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

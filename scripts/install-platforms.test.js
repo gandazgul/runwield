@@ -57,17 +57,65 @@ Deno.test("install.sh falls back to GitHub web redirect when latest release API 
     }
 });
 
-Deno.test("install.sh preserves helpers on PATH and in install dir, and idempotent reruns skip helper downloads", async () => {
+Deno.test("install.sh preserves Mnemoteca on PATH without invoking its installer", async () => {
     const fixture = await createFixture();
     const externalBin = join(fixture.root, "external-bin");
     await Deno.mkdir(externalBin);
-    await writeExecutable(join(externalBin, "mnemosyne"), "#!/usr/bin/env bash\necho external mnemosyne\n");
+    await writeExecutable(join(externalBin, "mnemoteca"), "#!/usr/bin/env bash\necho external mnemoteca\n");
+    try {
+        const result = await runInstaller(fixture, { extraPathDir: externalBin });
+        assertEquals(result.code, 0, `${result.stdout}\n${result.stderr}`);
+        assertStringIncludes(result.stdout, "Preserving existing mnemoteca");
+        const curlLog = await readCurlLog(fixture.curlLog);
+        assertEquals(curlLog.includes("raw.githubusercontent.com/gandazgul/mnemoteca/main/install.sh"), false);
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("install.sh preserves Mnemoteca in the install directory without invoking its installer", async () => {
+    const fixture = await createFixture();
+    await writeExecutable(join(fixture.installDir, "mnemoteca"), "#!/usr/bin/env bash\necho install-dir mnemoteca\n");
+    try {
+        const result = await runInstaller(fixture);
+        assertEquals(result.code, 0, `${result.stdout}\n${result.stderr}`);
+        assertStringIncludes(result.stdout, "Preserving existing mnemoteca");
+        const curlLog = await readCurlLog(fixture.curlLog);
+        assertEquals(curlLog.includes("raw.githubusercontent.com/gandazgul/mnemoteca/main/install.sh"), false);
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("install.sh ignores a pre-rename compatibility executable when Mnemoteca is missing", async () => {
+    const fixture = await createFixture();
+    const externalBin = join(fixture.root, "external-bin");
+    const oldName = "mnemo" + "syne";
+    await Deno.mkdir(externalBin);
+    await writeExecutable(join(externalBin, oldName), `#!/usr/bin/env bash\necho ${oldName}\n`);
+    try {
+        const result = await runInstaller(fixture, { extraPathDir: externalBin });
+        assertEquals(result.code, 0, `${result.stdout}\n${result.stderr}`);
+        const curlLog = await readCurlLog(fixture.curlLog);
+        assertEquals(curlLog.split("raw.githubusercontent.com/gandazgul/mnemoteca/main/install.sh").length - 1, 1);
+        const stat = await Deno.stat(join(fixture.installDir, "mnemoteca"));
+        assertEquals(stat.isFile, true);
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("install.sh preserves archive helpers on PATH and in install dir, and reruns skip archive downloads", async () => {
+    const fixture = await createFixture();
+    const externalBin = join(fixture.root, "external-bin");
+    await Deno.mkdir(externalBin);
+    await writeExecutable(join(externalBin, "mnemoteca"), "#!/usr/bin/env bash\necho external mnemoteca\n");
     await writeExecutable(join(fixture.installDir, "cymbal"), "#!/usr/bin/env bash\necho existing cymbal\n");
     await writeExecutable(join(fixture.installDir, "ketch"), "#!/usr/bin/env bash\necho existing ketch\n");
     try {
         const first = await runInstaller(fixture, { extraPathDir: externalBin });
         assertEquals(first.code, 0, `${first.stdout}\n${first.stderr}`);
-        assertStringIncludes(first.stdout, "Preserving existing mnemosyne");
+        assertStringIncludes(first.stdout, "Preserving existing mnemoteca");
         assertStringIncludes(first.stdout, "Preserving existing cymbal");
         assertStringIncludes(first.stdout, "Preserving existing ketch");
         assertStringIncludes(first.stdout, "agent-browser");
@@ -76,12 +124,12 @@ Deno.test("install.sh preserves helpers on PATH and in install dir, and idempote
         await Deno.writeTextFile(fixture.curlLog, "");
         const second = await runInstaller(fixture, { extraPathDir: externalBin });
         assertEquals(second.code, 0, `${second.stdout}\n${second.stderr}`);
-        assertStringIncludes(second.stdout, "Preserving existing mnemosyne");
+        assertStringIncludes(second.stdout, "Preserving existing mnemoteca");
         assertStringIncludes(second.stdout, "Preserving existing cymbal");
         assertStringIncludes(second.stdout, "Preserving existing ketch");
         assertStringIncludes(second.stdout, "Preserving existing snip");
         const curlLog = await readCurlLog(fixture.curlLog);
-        assertEquals(curlLog.includes("mnemosyne_"), false);
+        assertEquals(curlLog.includes("raw.githubusercontent.com/gandazgul/mnemoteca/main/install.sh"), false);
         assertEquals(curlLog.includes("cymbal_"), false);
         assertEquals(curlLog.includes("ketch_"), false);
         assertEquals(curlLog.includes("snip_"), false);
@@ -94,7 +142,7 @@ Deno.test("ux:new-user image provisions Node 24 for required agent-browser helpe
     const containerfile = await Deno.readTextFile(repoPath("Containerfile.wld-ux"));
     assertStringIncludes(containerfile, "https://deb.nodesource.com/node_24.x");
     assertStringIncludes(containerfile, "node --version");
-    assertStringIncludes(containerfile, "command -v wld mnemosyne cymbal ketch agent-browser snip");
+    assertStringIncludes(containerfile, "command -v wld mnemoteca cymbal ketch agent-browser snip");
 });
 
 Deno.test("ux:new-user tasks build latest and current targets from one containerfile", async () => {

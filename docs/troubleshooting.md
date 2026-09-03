@@ -1,6 +1,6 @@
 # Troubleshooting
 
-## Mnemosyne, Cymbal, or agent-browser is missing
+## Mnemoteca, Cymbal, or agent-browser is missing
 
 Interactive agent workflows require all three binaries in `PATH`. Rerun the RunWield installer to restore missing
 required helpers into the same install directory as `wld`:
@@ -47,3 +47,5 @@ published Plannotator packages are available:
 - Check local overrides in `<repo>/.wld/agents/`.
 - Check home overrides in `~/.wld/agents/`.
 - Run `/reload` in the TUI after changing memories, settings, prompt templates, skills, models, or themes.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

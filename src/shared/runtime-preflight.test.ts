@@ -1,7 +1,7 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
-import { ensureCymbalBinary, ensureKetchBinary, ensureMnemosyneBinary, hasSnipBinary } from "./runtime-preflight.ts";
+import { ensureCymbalBinary, ensureKetchBinary, ensureMnemotecaBinary, hasSnipBinary } from "./runtime-preflight.ts";
 
 async function writeAvailableBinary(directory: string, name: string): Promise<string> {
     const path = join(directory, name);
@@ -29,22 +29,22 @@ function runtimePreflightTest(name: string, run: (binaryDirectory: string) => Pr
 runtimePreflightTest(
     "required runtime binaries cache real PATH probe results while optional Snip stays live",
     async (dir) => {
-        const mnemosyne = await writeAvailableBinary(dir, "mnemosyne");
+        const mnemoteca = await writeAvailableBinary(dir, "mnemoteca");
         const cymbal = await writeAvailableBinary(dir, "cymbal");
         const ketch = await writeAvailableBinary(dir, "ketch");
         const snip = await writeAvailableBinary(dir, "snip");
 
-        await ensureMnemosyneBinary();
+        await ensureMnemotecaBinary();
         await ensureCymbalBinary();
         await ensureKetchBinary();
         assertEquals(await hasSnipBinary(), true);
 
-        await Deno.remove(mnemosyne);
+        await Deno.remove(mnemoteca);
         await Deno.remove(cymbal);
         await Deno.remove(ketch);
         await Deno.remove(snip);
 
-        await ensureMnemosyneBinary();
+        await ensureMnemotecaBinary();
         await ensureCymbalBinary();
         await ensureKetchBinary();
         assertEquals(await hasSnipBinary(), false);
@@ -52,13 +52,13 @@ runtimePreflightTest(
 );
 
 runtimePreflightTest("runtime preflight reports install guidance when fixture binaries are missing", async () => {
-    const mnemosyneError = await assertRejects(
-        () => ensureMnemosyneBinary(),
+    const mnemotecaError = await assertRejects(
+        () => ensureMnemotecaBinary(),
         Error,
-        "Mnemosyne binary not found",
+        "Mnemoteca binary not found",
     );
-    assertStringIncludes(mnemosyneError.message, "Rerun the RunWield installer");
-    assertStringIncludes(mnemosyneError.message, "raw.githubusercontent.com/gandazgul/runwield/main/install.sh");
+    assertStringIncludes(mnemotecaError.message, "Rerun the RunWield installer");
+    assertStringIncludes(mnemotecaError.message, "raw.githubusercontent.com/gandazgul/runwield/main/install.sh");
 
     const cymbalError = await assertRejects(
         () => ensureCymbalBinary(),
@@ -73,4 +73,16 @@ runtimePreflightTest("runtime preflight reports install guidance when fixture bi
         "Ketch binary not found",
     );
     assertStringIncludes(ketchError.message, "Rerun the RunWield installer");
+});
+
+runtimePreflightTest("runtime preflight rejects a pre-rename compatibility executable", async (dir) => {
+    const oldName = "mnemo" + "syne";
+    await writeAvailableBinary(dir, oldName);
+
+    const error = await assertRejects(
+        () => ensureMnemotecaBinary(),
+        Error,
+        "Mnemoteca binary not found",
+    );
+    assertStringIncludes(error.message, "Rerun the RunWield installer");
 });

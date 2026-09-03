@@ -16,7 +16,7 @@ import {
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { getRunWieldRuntimeDir } from "../../constants.js";
 import { savePlan } from "../../plan-store.js";
-import { createWorkRecordMnemosyneFixture } from "./test-fixtures/mnemosyne-port.ts";
+import { createWorkRecordMnemotecaFixture } from "./test-fixtures/mnemoteca-port.ts";
 
 const PREDECESSOR_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_ID = "22222222-2222-4222-8222-222222222222";
@@ -61,16 +61,16 @@ Deno.test("Work Record supersession applies canonical files and keeps the index 
     const cwd = await Deno.makeTempDir();
     try {
         await seed(cwd, false);
-        const mnemosynePort = createWorkRecordMnemosyneFixture();
+        const mnemotecaPort = createWorkRecordMnemotecaFixture();
         const result = await applyWorkRecordSupersession(cwd, {
             successorRecordId: SUCCESSOR_ID,
             predecessorRecordIds: [PREDECESSOR_ID],
-            mnemosynePort,
+            mnemotecaPort,
         });
         assertEquals(result.indexWarning, undefined);
         assertEquals((await findWorkRecordById(cwd, PREDECESSOR_ID))?.attrs.supersededBy, SUCCESSOR_ID);
         assertEquals((await findWorkRecordById(cwd, SUCCESSOR_ID))?.attrs.supersedes, [PREDECESSOR_ID]);
-        assertEquals(mnemosynePort.snapshot().length, 2);
+        assertEquals(mnemotecaPort.snapshot().length, 2);
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
@@ -80,13 +80,13 @@ Deno.test("supersession lock release does not remove a replacement owned by anot
     const cwd = await Deno.makeTempDir();
     try {
         await seed(cwd, false);
-        const fixture = createWorkRecordMnemosyneFixture();
+        const fixture = createWorkRecordMnemotecaFixture();
         let signalSync: (() => void) | undefined;
         const syncStarted = new Promise<void>((resolve) => signalSync = resolve);
         let releaseSync: (() => void) | undefined;
         const syncGate = new Promise<void>((resolve) => releaseSync = resolve);
         let delayed = false;
-        const mnemosynePort = {
+        const mnemotecaPort = {
             async run(args: string[], options?: { cwd?: string }) {
                 if (!delayed && args[0] === "add") {
                     delayed = true;
@@ -99,7 +99,7 @@ Deno.test("supersession lock release does not remove a replacement owned by anot
         const operation = applyWorkRecordSupersession(cwd, {
             successorRecordId: SUCCESSOR_ID,
             predecessorRecordIds: [PREDECESSOR_ID],
-            mnemosynePort,
+            mnemotecaPort,
         });
         await syncStarted;
 
@@ -137,7 +137,7 @@ Deno.test("supersession recovers malformed locks only after their file mtimes ar
         await applyWorkRecordSupersession(cwd, {
             successorRecordId: SUCCESSOR_ID,
             predecessorRecordIds: [PREDECESSOR_ID],
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         assertEquals((await findWorkRecordById(cwd, PREDECESSOR_ID))?.attrs.supersededBy, SUCCESSOR_ID);
@@ -150,13 +150,13 @@ Deno.test("concurrent supersession projection indexes the latest canonical succe
     const cwd = await Deno.makeTempDir();
     try {
         await seed(cwd, false);
-        const fixture = createWorkRecordMnemosyneFixture();
+        const fixture = createWorkRecordMnemotecaFixture();
         let signalFirstSync: (() => void) | undefined;
         const firstSync = new Promise<void>((resolve) => signalFirstSync = resolve);
         let releaseFirstSync: (() => void) | undefined;
         const firstSyncGate = new Promise<void>((resolve) => releaseFirstSync = resolve);
         let delayed = false;
-        const mnemosynePort = {
+        const mnemotecaPort = {
             async run(args: string[], options?: { cwd?: string }) {
                 if (!delayed && args[0] === "add") {
                     delayed = true;
@@ -170,13 +170,13 @@ Deno.test("concurrent supersession projection indexes the latest canonical succe
         const first = applyWorkRecordSupersession(cwd, {
             successorRecordId: SUCCESSOR_ID,
             predecessorRecordIds: [PREDECESSOR_ID],
-            mnemosynePort,
+            mnemotecaPort,
         });
         await firstSync;
         const second = applyWorkRecordSupersession(cwd, {
             successorRecordId: SUCCESSOR_ID,
             predecessorRecordIds: [OTHER_ID],
-            mnemosynePort,
+            mnemotecaPort,
         });
         releaseFirstSync?.();
         await Promise.all([first, second]);
@@ -202,7 +202,7 @@ Deno.test("Work Record proposals list, confirm only pending IDs, and retain unre
                 confirmWorkRecordSupersession(cwd, {
                     successorRecordId: SUCCESSOR_ID,
                     predecessorRecordIds: ["44444444-4444-4444-8444-444444444444"],
-                    mnemosynePort: createWorkRecordMnemosyneFixture(),
+                    mnemotecaPort: createWorkRecordMnemotecaFixture(),
                 }),
             Error,
             "not found",
@@ -210,7 +210,7 @@ Deno.test("Work Record proposals list, confirm only pending IDs, and retain unre
         await confirmWorkRecordSupersession(cwd, {
             successorRecordId: SUCCESSOR_ID,
             predecessorRecordIds: [PREDECESSOR_ID],
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
         const successor = await findWorkRecordById(cwd, SUCCESSOR_ID);
         assertEquals(successor?.attrs.supersessionProposal?.candidates.map((item) => item.recordId), [OTHER_ID]);
@@ -223,7 +223,7 @@ Deno.test("apply validates duplicate, self, missing, conflict, and idempotent re
     const cwd = await Deno.makeTempDir();
     try {
         await seed(cwd, false);
-        const options = { mnemosynePort: createWorkRecordMnemosyneFixture() };
+        const options = { mnemotecaPort: createWorkRecordMnemotecaFixture() };
         await assertRejects(
             () =>
                 applyWorkRecordSupersession(cwd, {
@@ -300,7 +300,7 @@ Deno.test("partial supersession write rolls back canonical records", async () =>
                     applyWorkRecordSupersession(cwd, {
                         successorRecordId: SUCCESSOR_ID,
                         predecessorRecordIds: [PREDECESSOR_ID],
-                        mnemosynePort: createWorkRecordMnemosyneFixture(),
+                        mnemotecaPort: createWorkRecordMnemotecaFixture(),
                     }),
                 Error,
                 "injected second replacement failure",
@@ -331,7 +331,7 @@ Deno.test("rollback failure reports original error and every uncertain canonical
                     applyWorkRecordSupersession(cwd, {
                         successorRecordId: SUCCESSOR_ID,
                         predecessorRecordIds: [PREDECESSOR_ID],
-                        mnemosynePort: createWorkRecordMnemosyneFixture(),
+                        mnemotecaPort: createWorkRecordMnemotecaFixture(),
                     }),
                 WorkRecordSupersessionRollbackError,
                 "Original error: injected rename failure 2",
@@ -376,7 +376,7 @@ Deno.test("generation preserves its successor when supersession rollback is inco
                 now: () => new Date("2026-08-03T00:00:00.000Z"),
                 runRecorderPrompt: () =>
                     Promise.resolve(JSON.stringify({ title: "Successor", summary: "Replacement complete." })),
-                mnemosynePort: createWorkRecordMnemosyneFixture(),
+                mnemotecaPort: createWorkRecordMnemotecaFixture(),
             });
 
             assertEquals(outcome.status, "failed");
@@ -397,7 +397,7 @@ Deno.test("reject removes only named pending proposal and reports index failure 
         const result = await rejectWorkRecordSupersession(cwd, {
             successorRecordId: SUCCESSOR_ID,
             predecessorRecordIds: [PREDECESSOR_ID],
-            mnemosynePort: {
+            mnemotecaPort: {
                 run: () =>
                     Promise.resolve({
                         success: false,

@@ -53,7 +53,7 @@ The original migration is complete. RunWield moved from 155 detected seams acros
 - production command, workflow, session, Work Record, Workspace, and TUI tests use real RunWield machinery over isolated
   projects, repositories, Plans, SQLite stores, and home directories;
 - only genuine external work such as Git/subprocess calls, Agent/model turns, browser launch, CI, clocks, network, and
-  Mnemosyne uses fakeable ports;
+  Mnemoteca uses fakeable ports;
 - the bundled `write-tests` skill and Agent prompts state the ownership rule directly.
 
 As of 2026-08-18, the ratchet scans production modules under both `src/` and `scripts/`. Expanding it to `scripts/`
@@ -131,7 +131,7 @@ Make ownership, not parameter syntax, decide what can be replaced:
   post-verification handoffs on real RunWield code paths;
 - preserve the session-independent validation engine for both Core Session execution and the future
   `AttachedWorkflowCoordinator`;
-- keep every validation test isolated from the real checkout, Plans, settings, `~/.wld`, browser, LLM, and Mnemosyne
+- keep every validation test isolated from the real checkout, Plans, settings, `~/.wld`, browser, LLM, and Mnemoteca
   data.
 
 ## Ownership rules
@@ -139,7 +139,7 @@ Make ownership, not parameter syntax, decide what can be replaced:
 An injection seam is a public claim that a behavior is outside the product boundary.
 
 - **External or independently operated capability:** Git, subprocess, network, browser, Agent/model call, Pi's low-level
-  session/JSONL facility, hosted CI, clock, Mnemosyne. Use a small required port with no fallback.
+  session/JSONL facility, hosted CI, clock, Mnemoteca. Use a small required port with no fallback.
 - **RunWield-owned machinery:** Plan writes, lifecycle transitions, validation state, workflow state, registries,
   Runtime events, transactions, locks, Work Record generation, and orchestration. Do not expose a replaceable
   collaborator. Exercise the real implementation through a fixture environment.
@@ -163,7 +163,7 @@ RunWield's small, reviewed declaration of production behavior RunWield does not 
 - the exact exported Port type;
 - its source module;
 - the external system it represents, such as Git, browser, Pi/Agent execution, CI, clock, network, GitHub CLI, or
-  Mnemosyne;
+  Mnemoteca;
 - the capability members that may be implemented by tests.
 
 The seam detector resolves required Port types and accepts them only when that exact type/module/member set is declared.
@@ -237,7 +237,7 @@ testability.
   currently owns the optional `SemanticReviewPort` fallback and all mixed port methods.
 - `src/shared/workflow/validation-ports.ts` owns the current 16-member contract plus its engine-facing types.
 - `src/shared/workflow/validation-test-helpers.js` already provides real Plan roots and HostedSession recorders. It also
-  provides explicit fakes only for Git, CI, Mnemosyne, and Agent calls.
+  provides explicit fakes only for Git, CI, Mnemoteca, and Agent calls.
 - `src/shared/workflow/validation-completion-gating.test.ts` already proves independent repair sessions through a real
   HostedSession and proves private session-manager reuse after an external backend failure.
 - `src/shared/git-test-fixture.ts#defineGitFixture` and
@@ -253,7 +253,7 @@ testability.
       transaction, registry, lock, Work Record, Workspace, SessionRuntime, command, and TUI machinery runs through real
       fixture environments.
 - [x] **Create genuine external capability ports.** Git, Agent/model, CI, browser, network, process, clock, GitHub CLI,
-      and Mnemosyne boundaries are explicit at production composition roots and explicit in tests.
+      and Mnemoteca boundaries are explicit at production composition roots and explicit in tests.
 - [x] **Scan production scripts.** The ratchet now walks both `src/` and `scripts/`, excludes tests and fixtures, and
       pins this coverage in `check-injection-seams.test.js`. Seven newly visible optional bags were removed without a
       baseline entry.
@@ -279,7 +279,7 @@ testability.
       post-verification handoffs through canonical RunWield implementations.
 - [ ] **Rewrite tests through public validation behavior.** Keep existing validation-loop behavior counts. Replace any
       direct port-object construction with real HostedSession, Plan, Git, and Runtime fixtures. Retain loud fakes for
-      Agent/model, CI, browser, and Mnemosyne boundaries. Add a focused runtime-context suite and mutation proof for
+      Agent/model, CI, browser, and Mnemoteca boundaries. Add a focused runtime-context suite and mutation proof for
       each removed internal replacement point.
 - [ ] **Align downstream architecture documents.** Update `docs/domain-language.md` so it no longer defines the engine
       by `ValidationSessionPort`. Update `deep-semantic-source-modules.md` so it moves the new context and narrow ports,
@@ -322,7 +322,7 @@ perform the same behavior change there. Do not use the move Plan's pre-existing-
   - remove one Agent fake from a scenario that reaches Semantic Review and confirm the test fails loudly instead of
     calling a real model.
 - Confirm no test creates or changes files in the real checkout `.wld`, real Plan directories, real settings, or
-  `~/.wld`, and no test opens a browser or calls a real LLM or Mnemosyne database.
+  `~/.wld`, and no test opens a browser or calls a real LLM or Mnemoteca database.
 
 ## Preserved behavior
 
@@ -348,3 +348,5 @@ perform the same behavior change there. Do not use the move Plan's pre-existing-
 - A port aggregate is valid only when all members belong to one external capability. A mixed `ports`, `deps`, or
   `context` object is still a dependency bag under a different name.
 - Pure formatters and data transforms need no port.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

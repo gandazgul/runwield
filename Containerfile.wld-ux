@@ -66,9 +66,9 @@ VOLUME ["/workspace/project", "/home/deno/.wld"]
 
 FROM wld-ux-base AS wld-ux-latest
 
-RUN command -v wld mnemosyne cymbal ketch agent-browser snip \
+RUN command -v wld mnemoteca cymbal ketch agent-browser snip \
     && wld --version \
-    && mnemosyne version \
+    && mnemoteca version \
     && cymbal version \
     && ketch --version \
     && agent-browser --version \
@@ -81,9 +81,9 @@ FROM wld-ux-base AS wld-ux-current
 COPY --chown=deno:deno bin/wld /tmp/wld-current
 
 RUN install -m 755 /tmp/wld-current "$WLD_INSTALL_DIR/wld" \
-    && command -v wld mnemosyne cymbal ketch agent-browser snip \
+    && command -v wld mnemoteca cymbal ketch agent-browser snip \
     && wld --version \
-    && mnemosyne version \
+    && mnemoteca version \
     && cymbal version \
     && ketch --version \
     && agent-browser --version \

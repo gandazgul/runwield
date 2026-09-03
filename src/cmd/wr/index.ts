@@ -20,7 +20,7 @@ import {
     runWorkRecordBackfill,
     searchWorkRecords,
 } from "../../shared/work-records/index.ts";
-import type { WorkRecordMnemosynePort } from "../../shared/work-records/mnemosyne-port.ts";
+import type { WorkRecordMnemotecaPort } from "../../shared/work-records/mnemoteca-port.ts";
 import { NO_OPEN_BROWSER_PORT, SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { startArtifactReadSurface } from "../../ui/review/review-launcher.ts";
 import { printCommandHelp } from "../help/index.js";
@@ -32,7 +32,7 @@ import type { WorkRecordSupersessionCandidate } from "../../shared/work-records/
 
 export interface WorkRecordCommandOptions {
     uiAPI?: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage" | "promptSelect">;
-    mnemosynePort: WorkRecordMnemosynePort;
+    mnemotecaPort: WorkRecordMnemotecaPort;
 }
 
 async function chooseSupersessionDecision(
@@ -63,7 +63,7 @@ async function resolveCommandProposals(
         projectRoot: getCwd(),
         successorRecordId,
         proposals,
-        mnemosynePort: options.mnemosynePort,
+        mnemotecaPort: options.mnemotecaPort,
         choose: (proposal) => chooseSupersessionDecision(proposal, options),
         notify: (message) => console.log(`[RunWield] ${message}`),
     });
@@ -137,7 +137,7 @@ export async function runWorkRecordsCommand(
     argv: string[],
     options: WorkRecordCommandOptions,
 ): Promise<void> {
-    const mnemosynePort = options.mnemosynePort;
+    const mnemotecaPort = options.mnemotecaPort;
     const subcommand = argv[0] && !argv[0].startsWith("-") ? argv[0] : "list";
     const rest = subcommand === "list" ? (argv[0] === "list" ? argv.slice(1) : argv) : argv.slice(1);
 
@@ -171,7 +171,7 @@ export async function runWorkRecordsCommand(
             console.log("[RunWield] Backfill canceled; no Work Records or Plan backlinks were written.");
             return;
         }
-        const result = await runWorkRecordBackfill(getCwd(), { mnemosynePort });
+        const result = await runWorkRecordBackfill(getCwd(), { mnemotecaPort });
         console.log(formatWorkRecordBackfillOutcomes(result.outcomes));
         for (const outcome of result.outcomes) {
             if (
@@ -244,12 +244,12 @@ export async function runWorkRecordsCommand(
                 ? await confirmWorkRecordSupersessionProposal(getCwd(), {
                     successorRecordId: canonicalSuccessorRecordId,
                     predecessorRecordId: canonicalPredecessorRecordId,
-                    mnemosynePort,
+                    mnemotecaPort,
                 })
                 : await rejectWorkRecordSupersessionProposal(getCwd(), {
                     successorRecordId: canonicalSuccessorRecordId,
                     predecessorRecordId: canonicalPredecessorRecordId,
-                    mnemosynePort,
+                    mnemotecaPort,
                 });
             console.log(
                 `[RunWield] ${
@@ -282,7 +282,7 @@ export async function runWorkRecordsCommand(
         if (!query) throw new Error("Usage: wld wr search <query> [--all]");
         console.log(
             formatWorkRecordSearchResults(
-                await searchWorkRecords(getCwd(), query, { includeAll: Boolean(parsed.all), mnemosynePort }),
+                await searchWorkRecords(getCwd(), query, { includeAll: Boolean(parsed.all), mnemotecaPort }),
             ),
         );
         return;
@@ -313,7 +313,7 @@ export async function runWorkRecordsCommand(
         }
         rejectUnknownFlags(parsed);
         if (parsed._.length) throw new Error("Usage: wld wr index rebuild");
-        console.log(formatRebuildResult(await rebuildWorkRecordIndex(getCwd(), { mnemosynePort })));
+        console.log(formatRebuildResult(await rebuildWorkRecordIndex(getCwd(), { mnemotecaPort })));
         return;
     }
 

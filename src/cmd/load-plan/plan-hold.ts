@@ -16,7 +16,7 @@ import {
     autoGenerateWorkRecordForCompletedPlan,
     formatWorkRecordAutoGenerationResult,
 } from "../../shared/work-records/auto-generation.js";
-import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../../shared/work-records/mnemosyne-port.ts";
+import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../../shared/work-records/mnemoteca-port.ts";
 import {
     deleteMergedWorktreeBranch,
     getWorktreeStatus,
@@ -249,7 +249,7 @@ export async function markPlanUserVerified(
         workRecordResult = await autoGenerateWorkRecordForCompletedPlan({
             cwd: projectRoot,
             planName: plan.planName,
-            mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+            mnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT,
         });
         workRecordMessage = ` ${workRecordResult.message}`;
     } catch (error) {
@@ -276,7 +276,7 @@ export async function markPlanUserVerified(
             projectRoot,
             successorRecordId: workRecordResult.recordId,
             proposals: workRecordResult.supersessionProposals,
-            mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+            mnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT,
             uiAPI,
         });
     }

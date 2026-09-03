@@ -37,7 +37,7 @@ Pi transcript locators before later slices can add device authorization, Session
 generations, Durable Workflow Checkpoints, or Plan Workflow Leases.
 
 The database is coordination-critical but reconstructible. It must not duplicate canonical Plans, PRDs, ADRs, Work
-Records, source, worktree evidence, transcript bodies, Shared Space ciphertext/capabilities, or derived Mnemosyne/Cymbal
+Records, source, worktree evidence, transcript bodies, Shared Space ciphertext/capabilities, or derived Mnemoteca/Cymbal
 indexes. Existing Shared Space SQLite code provides useful migration and transaction conventions, but its database and
 trust boundary must remain separate.
 
@@ -213,3 +213,5 @@ Existing functions, modules, or patterns to reuse:
   command or make registration run `/init`.
 - **Future schema:** activation, device, checkpoint, Plan lease, and attention tables belong to their owning child
   Plans; do not add speculative columns or generic process metadata now.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

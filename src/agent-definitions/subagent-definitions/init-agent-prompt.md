@@ -1,6 +1,6 @@
 ---
 name: Initializing...
-description: "Initialize wld into a new project. Gather project context and architecture to seed the index and mnemosyne effectively."
+description: "Initialize wld into a new project. Gather project context and architecture to seed the index and mnemoteca effectively."
 sharedPractice:
     - user-authority
 tools:

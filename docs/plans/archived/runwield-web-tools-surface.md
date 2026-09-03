@@ -89,7 +89,7 @@ RunWield Agents have no owned web capability. Ideator, Architect, the `research`
 Skill all instruct Agents to "load and follow the `ketch` skill" and then drive the `ketch` command-line interface (CLI)
 through `bash`. Three problems follow from that design.
 
-**The instruction points at nothing on a fresh machine.** `install.sh` installs `mnemosyne`, `cymbal`, `agent-browser`,
+**The instruction points at nothing on a fresh machine.** `install.sh` installs `mnemoteca`, `cymbal`, `agent-browser`,
 and `snip`. It does not install `ketch`, and `src/shared/runtime-preflight.ts` does not know `ketch` exists. The prompts
 promise a capability the installer never delivers.
 
@@ -197,7 +197,7 @@ parameters, and every result carries a `url` it can pass to `web_fetch` later.
   Skill that still exists (`research`).
 - `src/shared/runtime-preflight.ts` — add `"ketch"` to the `RuntimeBinary` union and export `ensureKetchBinary()`.
 - `src/shared/runtime-preflight.test.ts` — cover `ensureKetchBinary` alongside the existing binaries.
-- `src/ui/tui/chat-session.js` — line 552 calls `ensureMnemosyneBinary()`; also call `ensureCymbalBinary()` and
+- `src/ui/tui/chat-session.js` — line 552 calls `ensureMnemotecaBinary()`; also call `ensureCymbalBinary()` and
   `ensureKetchBinary()`. `ensureCymbalBinary` currently exists but is called from nowhere in production, so the
   "required helper" guarantee is not actually enforced today; this makes it real for both.
 - `install.sh` — add `KETCH_REPO="${WLD_KETCH_REPO:-1broseidon/ketch}"`, a `ketch` arm in `helper_asset_name`
@@ -206,7 +206,7 @@ parameters, and every result carries a `url` it can pass to `web_fetch` later.
 - `scripts/install-test-helpers.js` — add `ketch` to `ReleaseBinaryName`, `VERSIONS`, `BINARY_NAMES`,
   `RELEASE_BINARY_NAMES`, `HELPER_NAMES`, the asset-name map, and the `curl` stub's release-API and redirect arms.
 - `scripts/install-platforms.test.js` — extend the preserve/idempotence assertions to cover `ketch`.
-- `Containerfile.wld-ux` — add `ketch` to both `command -v wld mnemosyne cymbal agent-browser snip` checks (lines 69,
+- `Containerfile.wld-ux` — add `ketch` to both `command -v wld mnemoteca cymbal agent-browser snip` checks (lines 69,
   83).
 - `src/agent-definitions/ideator.md` — add all four tools to `tools:`; rewrite the research guidance at lines 174-176 to
   name the tools instead of the Skill.
@@ -269,7 +269,7 @@ parameters, and every result carries a `url` it can pass to `web_fetch` later.
       `"WebFetch"` nor `"WebSearch"`.
 - [ ] `PROTECTED_TOOL_NAMES` in `src/tools/registry.js` contains the four `web_*` names.
 - [ ] `src/shared/runtime-preflight.ts` exports `ensureKetchBinary`, and `src/ui/tui/chat-session.js` calls
-      `ensureKetchBinary` and `ensureCymbalBinary` on the same startup path that calls `ensureMnemosyneBinary`.
+      `ensureKetchBinary` and `ensureCymbalBinary` on the same startup path that calls `ensureMnemotecaBinary`.
 - [ ] `install.sh` installs `ketch` from `1broseidon/ketch` as a `required` helper with checksum verification, and
       `scripts/install-platforms.test.js` asserts `ketch` is preserved when already present and is not re-downloaded on
       a second run.
@@ -359,3 +359,5 @@ parameters, and every result carries a `url` it can pass to `web_fetch` later.
   requires it.
 - **`ketch crawl` and `ketch extract` stay uncovered.** Neither has a clear Agent use case that `web_fetch` does not
   already serve. Deliberately out of scope.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

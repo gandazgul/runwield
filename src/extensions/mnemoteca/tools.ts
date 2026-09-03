@@ -3,7 +3,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { HelperBinaryExec } from "../helper-binary-exec.ts";
 
-export interface MnemosyneToolHost {
+export interface MnemotecaToolHost {
     cwd: string;
     exec: HelperBinaryExec;
 }
@@ -42,7 +42,7 @@ interface ScopePresenceFailure {
 type ScopePresenceResult = ScopePresenceSuccess | ScopePresenceFailure;
 
 export const MISSING_BINARY_MSG =
-    "Error: mnemosyne binary not found. Rerun the RunWield installer to install required runtime helpers: curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash";
+    "Error: mnemoteca binary not found. Rerun the RunWield installer to install required runtime helpers: curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash";
 
 export const memoryToolDef = defineTool({
     name: "memory",
@@ -83,7 +83,7 @@ export function normalizedProjectCollectionName(rawName: string): string {
     return rawName === "global" ? "default" : (rawName || "default");
 }
 
-export async function resolveProjectCollectionName(host: MnemosyneToolHost): Promise<string> {
+export async function resolveProjectCollectionName(host: MnemotecaToolHost): Promise<string> {
     const cwd = host.cwd;
     const fallback = normalizedProjectCollectionName(basename(cwd));
     try {
@@ -99,7 +99,7 @@ export async function resolveProjectCollectionName(host: MnemosyneToolHost): Pro
     }
 }
 
-export function createMnemosyneTools(host: MnemosyneToolHost): ToolDefinition[] {
+export function createMnemotecaTools(host: MnemotecaToolHost): ToolDefinition[] {
     let collectionName: string | null = null;
     let initPromise: Promise<void> | null = null;
 
@@ -109,11 +109,11 @@ export function createMnemosyneTools(host: MnemosyneToolHost): ToolDefinition[] 
         return collectionName;
     }
 
-    async function mnemosyne(args: string[], signal?: AbortSignal): Promise<string> {
+    async function mnemoteca(args: string[], signal?: AbortSignal): Promise<string> {
         try {
-            const result = await host.exec("mnemosyne", args, { cwd: host.cwd, signal });
+            const result = await host.exec("mnemoteca", args, { cwd: host.cwd, signal });
             if (result.code !== 0) {
-                const errMsg = result.stderr.trim() || `mnemosyne ${args[0]} failed (exit ${result.code})`;
+                const errMsg = result.stderr.trim() || `mnemoteca ${args[0]} failed (exit ${result.code})`;
                 if (
                     result.code === 127 || errMsg.includes("not found") || errMsg.includes("ENOENT") ||
                     errMsg.includes("No such file")
@@ -134,14 +134,14 @@ export function createMnemosyneTools(host: MnemosyneToolHost): ToolDefinition[] 
 
     async function ensureProjectInitialized(signal?: AbortSignal): Promise<string> {
         const name = await projectName();
-        initPromise ??= mnemosyne(["init", "--name", name], signal).then(() => undefined).catch(() => undefined);
+        initPromise ??= mnemoteca(["init", "--name", name], signal).then(() => undefined).catch(() => undefined);
         await initPromise;
         return name;
     }
 
     async function searchProject(name: string, safeQuery: string, signal?: AbortSignal): Promise<SearchResult> {
         try {
-            const text = await mnemosyne(["search", "--name", name, "--format", "plain", safeQuery], signal);
+            const text = await mnemoteca(["search", "--name", name, "--format", "plain", safeQuery], signal);
             return { status: "success", text: text.trim() };
         } catch (error) {
             return { status: "failure", message: error instanceof Error ? error.message : String(error) };
@@ -150,7 +150,7 @@ export function createMnemosyneTools(host: MnemosyneToolHost): ToolDefinition[] 
 
     async function searchGlobal(safeQuery: string, signal?: AbortSignal): Promise<SearchResult> {
         try {
-            const text = await mnemosyne(["search", "--global", "--format", "plain", safeQuery], signal);
+            const text = await mnemoteca(["search", "--global", "--format", "plain", safeQuery], signal);
             return { status: "success", text: text.trim() };
         } catch (error) {
             return { status: "failure", message: error instanceof Error ? error.message : String(error) };
@@ -201,7 +201,7 @@ export function createMnemosyneTools(host: MnemosyneToolHost): ToolDefinition[] 
             ? ["list", "--global", "--format", "plain", "--limit", "100000"]
             : ["list", "--name", name, "--format", "plain", "--limit", "100000"];
         try {
-            const text = await mnemosyne(args, signal);
+            const text = await mnemoteca(args, signal);
             if (text.trim() === MISSING_BINARY_MSG) return { status: "failure", message: MISSING_BINARY_MSG };
             return { status: "success", present: memoryIdPattern(id).test(text) };
         } catch (error) {
@@ -231,11 +231,11 @@ export function createMnemosyneTools(host: MnemosyneToolHost): ToolDefinition[] 
         if (!typed.content) return errorResult("content is required for store.", typed);
 
         if (typed.scope === "global") {
-            await mnemosyne(["init", "--global"], signal).catch(() => "");
+            await mnemoteca(["init", "--global"], signal).catch(() => "");
             const args = ["add", "--global"];
             if (typed.core) args.push("--tag", "core");
             args.push(typed.content);
-            const result = await mnemosyne(args, signal);
+            const result = await mnemoteca(args, signal);
             return {
                 content: [{ type: "text" as const, text: result.trim() }],
                 details: typed,
@@ -247,7 +247,7 @@ export function createMnemosyneTools(host: MnemosyneToolHost): ToolDefinition[] 
         const args = ["add", "--name", name];
         if (typed.core) args.push("--tag", "core");
         args.push(typed.content);
-        const result = await mnemosyne(args, signal);
+        const result = await mnemoteca(args, signal);
         return {
             content: [{ type: "text" as const, text: result.trim() }],
             details: typed,
@@ -274,7 +274,7 @@ export function createMnemosyneTools(host: MnemosyneToolHost): ToolDefinition[] 
         const targetPresent = typed.scope === "project" ? project.present : global.present;
         if (!targetPresent) return errorResult(`id ${typed.id} was not found in ${typed.scope} memory.`, typed);
 
-        const result = await mnemosyne(["delete", String(typed.id)], signal);
+        const result = await mnemoteca(["delete", String(typed.id)], signal);
         return {
             content: [{ type: "text" as const, text: result.trim() || "Memory deleted." }],
             details: typed,
