@@ -182,7 +182,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
             const sidebarWidth = Math.min(34, Math.max(28, Math.floor(availableWidth * 0.28)));
             const mainWidth = Math.max(48, availableWidth - sidebarWidth - 1);
             const mainLines = container.render(mainWidth);
-            const sidebarLines = sessionSidebar.render(sidebarWidth);
+            const sidebarLines = sessionSidebar.render(sidebarWidth, snapshot);
             return composePinnedSessionSidebar(mainLines, sidebarLines, mainWidth, tui.terminal.rows);
         },
     };

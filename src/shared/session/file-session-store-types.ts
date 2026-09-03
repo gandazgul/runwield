@@ -360,7 +360,7 @@ export interface FileSessionStore {
     ): Array<{ enteredRoot: string; canonicalRoot: string; rootState: string }>;
     requireSessionProjectRoot(projectId: string): string;
     findSessionByLocator(locator: SessionLocator): CatalogedSession | null;
-    getSessionById(runwieldSessionId: string): CatalogedSession | null;
+    getSessionById(runwieldSessionId: string, projectId?: string): CatalogedSession | null;
     ensureSessionCatalogRecord(locator: EnsureSessionCatalogOptions): Promise<CatalogedSession>;
     ensureSessionCatalogRecordAndAcquire(options: {
         locator: EnsureSessionCatalogOptions;
@@ -373,7 +373,7 @@ export interface FileSessionStore {
     listProjectSessions(projectId: string, options?: ListSessionOptions): Promise<SessionListResult>;
     catalogProjectSessions(projectId: string, options?: ListSessionOptions): Promise<SessionCatalogResult>;
     listSessionTranscriptSegments(runwieldSessionId: string): SessionTranscriptSegment[];
-    listSessionArtifacts(runwieldSessionId: string): SessionArtifactReference[];
+    listSessionArtifacts(runwieldSessionId: string, projectId?: string): SessionArtifactReference[];
     getCurrentSessionSegment(runwieldSessionId: string): SessionTranscriptSegment | null;
     appendSessionTranscriptSegment(options: SegmentAppendOptions): Promise<SessionTranscriptSegment>;
     sealSessionTranscriptSegment(options: SegmentSealOptions): SessionTranscriptSegment;

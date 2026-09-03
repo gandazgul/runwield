@@ -302,6 +302,162 @@ export function findManifestById(
     return null;
 }
 
+interface ManifestFingerprint {
+    inode: number | null;
+    modifiedAt: number | null;
+    size: number;
+}
+
+interface CachedManifest {
+    path: string;
+    manifest: FileSessionManifest;
+    fingerprint: ManifestFingerprint;
+}
+
+function manifestFingerprint(path: string): ManifestFingerprint {
+    const stat = Deno.statSync(path);
+    return {
+        inode: stat.ino,
+        modifiedAt: stat.mtime?.getTime() ?? null,
+        size: stat.size,
+    };
+}
+
+function sameManifestFingerprint(left: ManifestFingerprint, right: ManifestFingerprint): boolean {
+    return left.inode === right.inode && left.modifiedAt === right.modifiedAt && left.size === right.size;
+}
+
+/**
+ * Keeps the manifest locator and last parsed value for Sessions this process
+ * has actually touched. Cache hits still stat that one manifest so changes
+ * published by another RunWield surface remain visible without a catalog scan.
+ */
+export class FileSessionManifestCache {
+    readonly #baseDir: string;
+    readonly #manifests = new Map<string, CachedManifest>();
+    readonly #manifestIdsByPath = new Map<string, string>();
+    readonly #projects = new Map<string, FileSessionProject>();
+
+    constructor(baseDir: string) {
+        this.#baseDir = baseDir;
+    }
+
+    rememberProject(project: FileSessionProject): void {
+        this.#projects.set(project.projectId, { ...project });
+    }
+
+    remember(path: string, manifest: FileSessionManifest): void {
+        const previous = this.#manifests.get(manifest.runwieldSessionId);
+        if (previous && previous.path !== path) this.#manifestIdsByPath.delete(previous.path);
+        this.#manifests.set(manifest.runwieldSessionId, {
+            path,
+            manifest: structuredClone(manifest),
+            fingerprint: manifestFingerprint(path),
+        });
+        this.#manifestIdsByPath.set(path, manifest.runwieldSessionId);
+    }
+
+    readPath(path: string): { path: string; manifest: FileSessionManifest } | null {
+        let fingerprint: ManifestFingerprint;
+        try {
+            fingerprint = manifestFingerprint(path);
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) return null;
+            throw error;
+        }
+        const cachedId = this.#manifestIdsByPath.get(path);
+        const cached = cachedId ? this.#manifests.get(cachedId) : undefined;
+        if (cached && sameManifestFingerprint(cached.fingerprint, fingerprint)) {
+            return { path, manifest: structuredClone(cached.manifest) };
+        }
+        const manifest = readJson<FileSessionManifest>(path);
+        if (manifest.version !== FILE_SESSION_STORE_VERSION) return null;
+        this.#manifests.set(manifest.runwieldSessionId, {
+            path,
+            manifest: structuredClone(manifest),
+            fingerprint,
+        });
+        this.#manifestIdsByPath.set(path, manifest.runwieldSessionId);
+        return { path, manifest };
+    }
+
+    findByTranscriptPath(transcriptPath: string): { path: string; manifest: FileSessionManifest } | null {
+        const resolvedTranscriptPath = resolve(transcriptPath);
+        for (const cached of this.#manifests.values()) {
+            if (
+                cached.manifest.segments.some((segment) => resolve(segment.transcriptPath) === resolvedTranscriptPath)
+            ) {
+                return this.readPath(cached.path);
+            }
+        }
+        let recovery: FileSessionManifest;
+        try {
+            recovery = readJson<FileSessionManifest>(recoveryDescriptorPath(resolvedTranscriptPath));
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) return null;
+            throw error;
+        }
+        if (
+            recovery.version !== FILE_SESSION_STORE_VERSION ||
+            !recovery.segments.some((segment) => resolve(segment.transcriptPath) === resolvedTranscriptPath)
+        ) return null;
+        const project = this.#project(recovery.projectId);
+        if (!project) return null;
+        const path = manifestPath(sessionDirForRoot(this.#baseDir, project.currentRoot), recovery.runwieldSessionId);
+        const found = this.readPath(path);
+        if (found) return found;
+        writeManifest(recovery, path);
+        this.remember(path, recovery);
+        return { path, manifest: structuredClone(recovery) };
+    }
+
+    resolve(
+        runwieldSessionId: string,
+        projectId?: string,
+    ): { path: string; manifest: FileSessionManifest } | null {
+        const cached = this.#manifests.get(runwieldSessionId);
+        if (cached) return this.#readRestoringPath(cached.path);
+        if (projectId) {
+            const project = this.#project(projectId);
+            if (!project) return null;
+            const path = manifestPath(sessionDirForRoot(this.#baseDir, project.currentRoot), runwieldSessionId);
+            const found = this.#readRestoringPath(path);
+            if (!found || found.manifest.projectId !== projectId) return null;
+            return found;
+        }
+        const found = findManifestById(this.#baseDir, runwieldSessionId);
+        if (!found) return null;
+        this.remember(found.path, found.manifest);
+        return { path: found.path, manifest: structuredClone(found.manifest) };
+    }
+
+    write(manifest: FileSessionManifest, path: string): void {
+        writeManifest(manifest, path);
+        this.remember(path, manifest);
+    }
+
+    #readRestoringPath(path: string): { path: string; manifest: FileSessionManifest } | null {
+        try {
+            const found = this.readPath(path);
+            if (found) return found;
+        } catch {
+            // The targeted recovery below preserves the damaged manifest before
+            // restoring it from transcript-adjacent evidence.
+        }
+        restoreManifestsFromRecoveryDescriptors(sessionDirForManifestPath(path));
+        return this.readPath(path);
+    }
+
+    #project(projectId: string): FileSessionProject | null {
+        const cached = this.#projects.get(projectId);
+        if (cached) return { ...cached };
+        const project = findProject(this.#baseDir, projectId);
+        if (!project) return null;
+        this.rememberProject(project);
+        return project;
+    }
+}
+
 export function writeManifest(manifest: FileSessionManifest, path: string): void {
     manifest.updatedAt = new Date().toISOString();
     writeJsonAtomically(path, manifest);

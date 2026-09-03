@@ -590,7 +590,7 @@ export class SessionRuntime {
         const managedProvider = managedDormant ? managed?.provider || "" : "";
         const managedThinkingLevel = managedDormant ? managed?.thinkingLevel || "" : "";
         const artifacts = managed && this.#sessionStore
-            ? this.#sessionStore.listSessionArtifacts(managed.runwieldSessionId)
+            ? this.#sessionStore.listSessionArtifacts(managed.runwieldSessionId, managed.projectId)
             : [];
         return {
             id: session.id,
@@ -4123,7 +4123,10 @@ export class SessionRuntime {
             }
             let selectedSession = null;
             if (options.resumeSessionId) {
-                const cataloged = ownerCoordinationStore?.getSessionById(options.resumeSessionId) || null;
+                const cataloged = ownerCoordinationStore?.getSessionById(
+                    options.resumeSessionId,
+                    managedProject?.projectId,
+                ) || null;
                 if (cataloged && cataloged.projectId === managedProject?.projectId) {
                     selectedSession = {
                         id: cataloged.piSessionId,

@@ -44,6 +44,20 @@ Deno.test("TUI Session Sidebar defaults to workflow and cycles through shared ta
     assertStringIncludes(artifacts, "PRD");
 });
 
+Deno.test("TUI Session Sidebar reuses the snapshot already loaded for the frame", () => {
+    let snapshotReads = 0;
+    const sidebar = new TuiSessionSidebar(
+        () => "session-1",
+        () => {
+            snapshotReads += 1;
+            return null;
+        },
+    );
+    const lines = sidebar.render(34, { managed: { generation: 0 }, name: "Cached Session" });
+    assertEquals(snapshotReads, 0);
+    assertStringIncludes(stripAnsi(lines.join("\n")), "Cached Session");
+});
+
 Deno.test("shared TUI projection defaults idle Sessions without a Plan to Session", () => {
     const projection = tuiSessionSidebarProjection({ managed: { generation: 0 }, artifacts: [] });
     assertEquals(projection.defaultTab, "session");

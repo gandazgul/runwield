@@ -76,8 +76,8 @@ export class TuiSessionSidebar {
 
     invalidate(): void {}
 
-    render(width: number): string[] {
-        const snapshot = this.getSnapshot();
+    render(width: number, snapshotOverride?: TuiSessionSidebarSnapshot): string[] {
+        const snapshot = snapshotOverride || this.getSnapshot();
         if (!snapshot?.managed || width < 20) return [];
         const projection = tuiSessionSidebarProjection(snapshot);
         const sessionKey = this.getSessionKey();
