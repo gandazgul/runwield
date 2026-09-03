@@ -172,8 +172,11 @@ export async function runSleepCommand(argv: string[], options: SleepCommandOptio
     if (!sessionRuntime || !runtimeSessionId) {
         throw new Error("Sleep mode requires an active runtime session.");
     }
-    const snapshot = sessionRuntime.getSessionSnapshot(runtimeSessionId);
-    if (!snapshot?.sessionManagerId) throw new Error("Sleep mode requires a persisted root session id.");
+    let snapshot = sessionRuntime.getSessionSnapshot(runtimeSessionId);
+    if (!snapshot) throw new Error("Sleep mode requires an active runtime session.");
+    if (!snapshot.sessionManagerId) {
+        snapshot = await sessionRuntime.materializePromptReadySession(runtimeSessionId);
+    }
 
     const mnemosyne = options.mnemosynePort;
     await mnemosyne.ensureAvailable();

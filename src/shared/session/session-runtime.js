@@ -4386,6 +4386,31 @@ export class SessionRuntime {
     }
 
     /**
+     * Persist a brand-new prompt-ready shell when a built-in command is the
+     * user's first prompt. Ordinary text uses promptUserTurn(), while commands
+     * such as /sleep need the durable Session path before constructing their
+     * command-owned prompt.
+     *
+     * @param {string} sessionId
+     * @returns {Promise<import('../types.js').SessionSnapshot>}
+     */
+    async materializePromptReadySession(sessionId) {
+        const hostedSession = this.#sessionHost.getSession(sessionId);
+        if (!hostedSession) {
+            throw new Error("SessionRuntime.materializePromptReadySession: session not found");
+        }
+        if (!this.#pendingManagedCreationProjects.has(sessionId)) {
+            throw new Error("SessionRuntime.materializePromptReadySession: session is not an unpersisted new shell");
+        }
+        const managed = await this.#materializeDeferredManagedShell(hostedSession);
+        const snapshot = this.getSessionSnapshot(sessionId);
+        if (!managed || !snapshot?.sessionManagerId) {
+            throw new Error("SessionRuntime.materializePromptReadySession: session could not be persisted");
+        }
+        return snapshot;
+    }
+
+    /**
      * Replace a live Session with one rooted at an execution workflow cwd.
      * UI adapters listen to the runtime replacement event and rebind themselves.
      *

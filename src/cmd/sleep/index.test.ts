@@ -189,6 +189,40 @@ Deno.test("sleep backs up fixture memory before a real Runtime switches and runs
     });
 });
 
+Deno.test("sleep can be the first prompt in a new deferred-persistence Session", async () => {
+    await withRuntimeCommandFixture(
+        "sleep-command-first-prompt-",
+        async ({ homeDir, projectRoot, setModelResponse }) => {
+            setModelResponse("Memory maintenance complete.");
+            const runtime = createSessionRuntime();
+            const sessionId = await runtime.createPromptReadySession({
+                cwd: projectRoot,
+                agentName: "router",
+                deferPersistenceUntilFirstMessage: true,
+            });
+            const mnemosyne = createMnemosyneFixture();
+            try {
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.sessionManagerId, null);
+
+                await runSleepCommand([], {
+                    sessionId,
+                    sessionRuntime: runtime,
+                    uiAPI: { appendSystemMessage: () => {} },
+                    mnemosynePort: mnemosyne.port,
+                    sessionPort: UNEXPECTED_SESSION_PORT,
+                });
+
+                assertEquals(typeof runtime.getSessionSnapshot(sessionId)?.sessionManagerId, "string");
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "engineer");
+                assertEquals(mnemosyne.exports.length, 1);
+                assert(mnemosyne.exports[0].outputPath.startsWith(join(homeDir, ".wld")));
+            } finally {
+                await runtime.closeSession(sessionId);
+            }
+        },
+    );
+});
+
 Deno.test("sleep leaves a real Runtime on its current Agent when external backup fails", async () => {
     await withRuntimeCommandFixture("sleep-command-failure-", async ({ projectRoot }) => {
         const runtime = createSessionRuntime();
@@ -216,7 +250,7 @@ Deno.test("sleep leaves a real Runtime on its current Agent when external backup
     });
 });
 
-Deno.test("sleep rejects missing persisted Runtime state before touching Mnemosyne", async () => {
+Deno.test("sleep rejects missing Runtime state before touching Mnemosyne", async () => {
     const mnemosyne = createMnemosyneFixture();
     await assertRejects(
         () =>
@@ -228,7 +262,7 @@ Deno.test("sleep rejects missing persisted Runtime state before touching Mnemosy
                 sessionPort: UNEXPECTED_SESSION_PORT,
             }),
         Error,
-        "persisted root session id",
+        "active runtime session",
     );
     assertEquals(mnemosyne.ensureCalls, 0);
 });
