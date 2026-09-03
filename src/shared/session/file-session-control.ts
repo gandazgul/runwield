@@ -17,12 +17,11 @@ import {
 import {
     bundleDir,
     ensurePrivateDir,
-    findManifestById,
+    FileSessionManifestCache,
     isoNow,
     lockPath,
     readJson,
     sessionDirForManifestPath,
-    writeManifest,
 } from "./file-session-storage.ts";
 import type {
     FileActivationProof,
@@ -33,8 +32,8 @@ import type {
 } from "./file-session-store-types.ts";
 
 interface FileSessionControlOptions {
-    baseDir: string;
     locks: Map<string, HeldFileLock>;
+    manifests: FileSessionManifestCache;
     now?: () => string;
 }
 
@@ -54,10 +53,10 @@ type FileSessionControl = Pick<
 >;
 
 export function createFileSessionControl(options: FileSessionControlOptions): FileSessionControl {
-    const { baseDir, locks } = options;
+    const { locks, manifests } = options;
     return {
         inspectSessionActivation(runwieldSessionId) {
-            const found = findManifestById(baseDir, runwieldSessionId);
+            const found = manifests.resolve(runwieldSessionId);
             if (!found) return { activation: null, generation: null };
             let manifest = found.manifest;
             if (manifest.activation.state === "active") {
@@ -73,7 +72,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                         try {
                             manifest = readJson<FileSessionManifest>(found.path);
                             markRecoveryAfterAbandonedWriter(manifest, isoNow(options.now));
-                            writeManifest(manifest, found.path);
+                            manifests.write(manifest, found.path);
                         } finally {
                             file.unlockSync();
                         }
@@ -86,7 +85,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
         },
 
         acquireSessionActivation(activationOptions) {
-            const found = findManifestById(baseDir, activationOptions.runwieldSessionId);
+            const found = manifests.resolve(activationOptions.runwieldSessionId, activationOptions.projectId);
             if (!found) throw new Error("Session identity is unavailable");
             const sessionDir = sessionDirForManifestPath(found.path);
             ensurePrivateDir(bundleDir(sessionDir, found.manifest.runwieldSessionId));
@@ -117,7 +116,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     };
                 }
                 if (["uncertain", "reconcile_required"].includes(manifest.activation.state)) {
-                    writeManifest(manifest, found.path);
+                    manifests.write(manifest, found.path);
                     throw new Error(`Session requires recovery: ${manifest.activation.blockedReason || "unknown"}`);
                 }
                 const latestGeneration = manifest.generation?.generation ?? null;
@@ -155,7 +154,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     baselineByteLength: baselineBytes.byteLength,
                     baselineDigestHex: createHash("sha256").update(baselineBytes).digest("hex"),
                 };
-                writeManifest(manifest, found.path);
+                manifests.write(manifest, found.path);
                 const proof: FileActivationProof = {
                     runwieldSessionId: manifest.runwieldSessionId,
                     projectId: manifest.projectId,
@@ -194,7 +193,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
             const manifest = readJson<FileSessionManifest>(held.manifestPath);
             assertProof(manifest, proof);
             manifest.activation.phase = nextPhase;
-            writeManifest(manifest, held.manifestPath);
+            manifests.write(manifest, held.manifestPath);
             return { ...proof, phase: nextPhase };
         },
 
@@ -217,7 +216,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                 sourceSegmentId: artifactOptions.sourceSegmentId ?? manifest.currentSegmentId,
             };
             manifest.artifacts = [...artifacts, artifact];
-            writeManifest(manifest, held.manifestPath);
+            manifests.write(manifest, held.manifestPath);
             return { ...artifact };
         },
 
@@ -249,7 +248,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     committedAt: now,
                 };
                 manifest.activation = idleActivation(manifest);
-                writeManifest(manifest, held.manifestPath);
+                manifests.write(manifest, held.manifestPath);
                 return { activation: activationView(manifest), generation: generationView(manifest) };
             } finally {
                 releaseHeldLock(locks, proof);
@@ -262,7 +261,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                 const manifest = readJson<FileSessionManifest>(held.manifestPath);
                 assertProof(manifest, proof);
                 manifest.activation = idleActivation(manifest);
-                writeManifest(manifest, held.manifestPath);
+                manifests.write(manifest, held.manifestPath);
                 return { activation: activationView(manifest), generation: generationView(manifest) };
             } finally {
                 releaseHeldLock(locks, proof);
@@ -270,7 +269,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
         },
 
         recoverSessionControl(recoveryOptions) {
-            const found = findManifestById(baseDir, recoveryOptions.runwieldSessionId);
+            const found = manifests.resolve(recoveryOptions.runwieldSessionId, recoveryOptions.projectId);
             if (!found) throw new Error("Session identity is unavailable");
             const sessionDir = sessionDirForManifestPath(found.path);
             const file = Deno.openSync(lockPath(sessionDir, found.manifest.runwieldSessionId), {
@@ -348,7 +347,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     committedAt: now,
                 };
                 manifest.activation = idleActivation(manifest);
-                writeManifest(manifest, found.path);
+                manifests.write(manifest, found.path);
                 return { activation: activationView(manifest), generation: generationView(manifest) };
             } finally {
                 file.unlockSync();
@@ -357,7 +356,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
         },
 
         markSessionReconcileRequired(session, reconciliationOptions = {}) {
-            const found = findManifestById(baseDir, session.runwieldSessionId);
+            const found = manifests.resolve(session.runwieldSessionId, session.projectId);
             if (!found) throw new Error("Session identity is unavailable");
             const sessionDir = sessionDirForManifestPath(found.path);
             const file = Deno.openSync(lockPath(sessionDir, found.manifest.runwieldSessionId), {
@@ -377,7 +376,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     state: "reconcile_required",
                     blockedReason: reconciliationOptions.reason || "transcript_evidence_changed",
                 };
-                writeManifest(manifest, found.path);
+                manifests.write(manifest, found.path);
                 return { activation: activationView(manifest), generation: generationView(manifest) };
             } finally {
                 file.unlockSync();
@@ -399,7 +398,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     baselineByteLength,
                     baselineDigestHex,
                 };
-                writeManifest(manifest, held.manifestPath);
+                manifests.write(manifest, held.manifestPath);
                 return { activation: activationView(manifest), generation: generationView(manifest) };
             } finally {
                 releaseHeldLock(locks, proof);
@@ -420,7 +419,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     baselineByteLength,
                     baselineDigestHex,
                 };
-                writeManifest(manifest, held.manifestPath);
+                manifests.write(manifest, held.manifestPath);
                 return { activation: activationView(manifest), generation: generationView(manifest) };
             } finally {
                 releaseHeldLock(locks, proof);
@@ -500,7 +499,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                     committedAt: now,
                 };
                 manifest.activation = idleActivation(manifest);
-                writeManifest(manifest, held.manifestPath);
+                manifests.write(manifest, held.manifestPath);
                 return {
                     predecessor: { ...predecessor },
                     successor: { ...successor },

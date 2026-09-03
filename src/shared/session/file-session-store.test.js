@@ -3,6 +3,7 @@ import { dirname, join } from "@std/path";
 import { createHash } from "node:crypto";
 import { classifyRootSessionLocator, encodeCwdForSessionDir } from "./root-session.js";
 import { openFileSessionStore } from "./file-session-store.ts";
+import { manifestPath } from "./file-session-storage.ts";
 
 const TIMESTAMP = "2026-01-01T00:00:00.000Z";
 
@@ -233,6 +234,108 @@ Deno.test("active Session turns register durable artifact references without cha
         const reopened = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
         assertEquals(reopened.listSessionArtifacts(acquired.session.runwieldSessionId), [artifact]);
         reopened.close();
+    } finally {
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});
+
+Deno.test("created and loaded Sessions do not scan unrelated Session manifests", async () => {
+    const fixture = await makeFixture();
+    const siblingRoot = join(fixture.rootDir, "sibling-project");
+    try {
+        await Deno.mkdir(siblingRoot);
+        const canonicalSiblingRoot = await Deno.realPath(siblingRoot);
+        const siblingSessionDir = join(fixture.sessionBaseDir, encodeCwdForSessionDir(canonicalSiblingRoot));
+        const siblingTranscript = await writeTranscript(
+            siblingSessionDir,
+            canonicalSiblingRoot,
+            "sibling-session",
+        );
+        const seedStore = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        const siblingProject = seedStore.ensureRuntimeProject({ root: canonicalSiblingRoot, now: () => TIMESTAMP });
+        const sibling = await seedStore.ensureSessionCatalogRecord({
+            projectId: siblingProject.projectId,
+            piSessionId: "sibling-session",
+            transcriptPath: siblingTranscript,
+            transcriptCwd: canonicalSiblingRoot,
+            source: "created",
+            idFactory: () => "sibling-runwield-session",
+            now: () => TIMESTAMP,
+        });
+        seedStore.close();
+        const siblingManifest = manifestPath(siblingSessionDir, sibling.runwieldSessionId);
+        await Deno.remove(siblingManifest);
+        assertFalse(await exists(siblingManifest));
+
+        const transcriptPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "current-session");
+        const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
+        const current = await store.ensureSessionCatalogRecord({
+            projectId: project.projectId,
+            piSessionId: "current-session",
+            transcriptPath,
+            transcriptCwd: fixture.projectRoot,
+            source: "created",
+            idFactory: () => "current-runwield-session",
+        });
+        assertFalse(await exists(siblingManifest));
+        assertEquals(store.listSessionArtifacts(current.runwieldSessionId), []);
+        assertFalse(await exists(siblingManifest));
+        store.close();
+
+        const reopened = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        assertEquals(reopened.findSessionByLocator({ transcriptPath })?.runwieldSessionId, current.runwieldSessionId);
+        assertFalse(await exists(siblingManifest));
+        assertEquals(
+            reopened.getSessionById(current.runwieldSessionId, project.projectId)?.runwieldSessionId,
+            current.runwieldSessionId,
+        );
+        assertFalse(await exists(siblingManifest));
+        reopened.close();
+    } finally {
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});
+
+Deno.test("cached Session manifests refresh after another surface publishes a change", async () => {
+    const fixture = await makeFixture();
+    try {
+        const transcriptPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "shared-session");
+        const reader = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        const project = reader.ensureRuntimeProject({ root: fixture.projectRoot });
+        const session = await reader.ensureSessionCatalogRecord({
+            projectId: project.projectId,
+            piSessionId: "shared-session",
+            transcriptPath,
+            transcriptCwd: fixture.projectRoot,
+            source: "created",
+        });
+        const segment = reader.getCurrentSessionSegment(session.runwieldSessionId);
+        assert(segment);
+        assertEquals(reader.listSessionArtifacts(session.runwieldSessionId), []);
+
+        const writer = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        const proof = writer.acquireSessionActivation({
+            runwieldSessionId: session.runwieldSessionId,
+            projectId: project.projectId,
+            ownerInstanceId: "artifact-writer",
+            ownerProcessKind: "test",
+            expectedGeneration: null,
+            expectedCurrentSegmentId: segment.segmentId,
+        });
+        const artifact = writer.registerSessionArtifact(proof, {
+            kind: "report",
+            path: "reports/fresh.md",
+            title: "Fresh report",
+            registeredBy: "Reviewer",
+            idFactory: () => "fresh-artifact",
+            now: () => TIMESTAMP,
+        });
+        writer.releaseUnchangedActivation(proof);
+
+        assertEquals(reader.listSessionArtifacts(session.runwieldSessionId), [artifact]);
+        writer.close();
+        reader.close();
     } finally {
         await Deno.remove(fixture.rootDir, { recursive: true });
     }

@@ -160,7 +160,10 @@ export function openOwnerCoordinationStore(options = {}) {
             });
         },
         findSessionByLocator: (locator) => sessionStore.findSessionByLocator(locator),
-        getSessionById: (runwieldSessionId) => sessionStore.getSessionById(runwieldSessionId),
+        getSessionById: (runwieldSessionId, projectId) => {
+            const runtimeProject = projectId ? resolveSessionProject(projectId) : null;
+            return sessionStore.getSessionById(runwieldSessionId, runtimeProject?.projectId);
+        },
         listProjectSessions: async (projectId, sessionOptions) => {
             const runtimeProject = resolveSessionProject(projectId);
             return runtimeProject ? await sessionStore.listProjectSessions(runtimeProject.projectId, sessionOptions) : {
@@ -181,7 +184,10 @@ export function openOwnerCoordinationStore(options = {}) {
         },
         listSessionTranscriptSegments: (runwieldSessionId) =>
             sessionStore.listSessionTranscriptSegments(runwieldSessionId),
-        listSessionArtifacts: (runwieldSessionId) => sessionStore.listSessionArtifacts(runwieldSessionId),
+        listSessionArtifacts: (runwieldSessionId, projectId) => {
+            const runtimeProject = projectId ? resolveSessionProject(projectId) : null;
+            return sessionStore.listSessionArtifacts(runwieldSessionId, runtimeProject?.projectId);
+        },
         getCurrentSessionSegment: (runwieldSessionId) => sessionStore.getCurrentSessionSegment(runwieldSessionId),
         appendSessionTranscriptSegment: (segment) => sessionStore.appendSessionTranscriptSegment(segment),
         validateSuccessorSegmentLocator: (locator) => {
@@ -205,7 +211,11 @@ export function openOwnerCoordinationStore(options = {}) {
         revokeDevice: (deviceId, deviceOptions) => revokeDevice(database, deviceId, deviceOptions),
         getDatabaseEpoch: () => getOwnerCoordinationDatabaseEpoch(database.handle),
         inspectSessionActivation: (runwieldSessionId) => sessionStore.inspectSessionActivation(runwieldSessionId),
-        acquireSessionActivation: (activationOptions) => sessionStore.acquireSessionActivation(activationOptions),
+        acquireSessionActivation: (activationOptions) => {
+            const project = resolveSessionProject(activationOptions.projectId);
+            if (!project) throw new Error("Session project is unavailable");
+            return sessionStore.acquireSessionActivation({ ...activationOptions, projectId: project.projectId });
+        },
         changeSessionActivationPhase: (proof, nextPhase, activationOptions) =>
             sessionStore.changeSessionActivationPhase(proof, nextPhase, activationOptions),
         registerSessionArtifact: (proof, artifactOptions) =>
@@ -216,9 +226,19 @@ export function openOwnerCoordinationStore(options = {}) {
             sessionStore.commitSegmentRolloverAndPublish(proof, rolloverOptions),
         releaseUnchangedActivation: (proof, activationOptions) =>
             sessionStore.releaseUnchangedActivation(proof, activationOptions),
-        recoverSessionControl: (recoveryOptions) => sessionStore.recoverSessionControl(recoveryOptions),
-        markSessionReconcileRequired: (session, activationOptions) =>
-            sessionStore.markSessionReconcileRequired(session, activationOptions),
+        recoverSessionControl: (recoveryOptions) => {
+            const project = resolveSessionProject(recoveryOptions.projectId);
+            if (!project) throw new Error("Session project is unavailable");
+            return sessionStore.recoverSessionControl({ ...recoveryOptions, projectId: project.projectId });
+        },
+        markSessionReconcileRequired: (session, activationOptions) => {
+            const project = resolveSessionProject(session.projectId);
+            if (!project) throw new Error("Session project is unavailable");
+            return sessionStore.markSessionReconcileRequired(
+                { ...session, projectId: project.projectId },
+                activationOptions,
+            );
+        },
         markSessionReconcileRequiredWithProof: (proof, activationOptions) =>
             sessionStore.markSessionReconcileRequiredWithProof(proof, activationOptions),
         markSessionUncertain: (proof, activationOptions) => sessionStore.markSessionUncertain(proof, activationOptions),
