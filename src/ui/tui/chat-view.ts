@@ -155,21 +155,22 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     container.addChild(runningTasksComponent);
     const activeInteractionContainer = new Container();
     container.addChild(activeInteractionContainer);
+    const composerContainer = new Container();
     const inputAccessoryContainer = new Container();
-    container.addChild(inputAccessoryContainer);
+    composerContainer.addChild(inputAccessoryContainer);
     const queuedInputContainer = new Container();
-    container.addChild(queuedInputContainer);
+    composerContainer.addChild(queuedInputContainer);
     const pastedImages: ImageAttachment[] = [];
     let clipboardImageAvailable = false;
     const previewImages = new Container();
-    container.addChild(previewImages);
+    composerContainer.addChild(previewImages);
     const clipboardImageHint: Component = {
         invalidate: () => {},
         render: (w: number) => renderClipboardImageHintLines(clipboardImageAvailable, pastedImages.length, w),
     };
-    container.addChild(clipboardImageHint);
+    composerContainer.addChild(clipboardImageHint);
     const editor = new Editor(tui, getEditorTheme());
-    container.addChild(editor);
+    composerContainer.addChild(editor);
     const footerContainer = new Container();
     const sessionSidebar = new TuiSessionSidebar(
         options.getSessionId,
@@ -178,21 +179,25 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     const rootWrapper: Component = {
         invalidate: () => {
             container.invalidate();
+            composerContainer.invalidate();
             sessionSidebar.invalidate();
             footerContainer.invalidate();
         },
         render: (w: number) => {
             const availableWidth = Math.max(10, w - 2);
             const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
-            const footerLines = footerContainer.render(availableWidth);
+            const bottomDockLines = [
+                ...composerContainer.render(availableWidth),
+                ...footerContainer.render(availableWidth),
+            ];
             if (!snapshot?.managed || availableWidth < SESSION_SIDEBAR_MIN_WIDTH) {
-                return [...container.render(availableWidth), ...footerLines];
+                return [...container.render(availableWidth), ...bottomDockLines];
             }
             const sidebarWidth = Math.min(34, Math.max(28, Math.floor(availableWidth * 0.28)));
             const mainWidth = Math.max(48, availableWidth - sidebarWidth - 1);
             const mainLines = container.render(mainWidth);
             const sidebarLines = sessionSidebar.render(sidebarWidth, snapshot);
-            return composePinnedSessionSidebar(mainLines, sidebarLines, mainWidth, tui.terminal.rows, footerLines);
+            return composePinnedSessionSidebar(mainLines, sidebarLines, mainWidth, tui.terminal.rows, bottomDockLines);
         },
     };
     tui.addChild(rootWrapper);
@@ -221,7 +226,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         uiAPI,
         tui,
         editor,
-        container,
+        container: composerContainer,
         messageList,
         getProjectRoot: () => {
             const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
