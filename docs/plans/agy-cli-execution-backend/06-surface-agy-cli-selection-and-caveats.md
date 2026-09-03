@@ -2,7 +2,6 @@
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
-summary: "Expose Antigravity CLI setup, selection, backend disclosure, and transcript/tooling caveats in the TUI, Workspace, and PRD after the backend is actually usable. Browser UI verification is part of this slice."
 affectedPaths:
     - "src/ui/tui/model-selector.ts"
     - "src/ui/tui/model-welcome.ts"
@@ -18,7 +17,6 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-08-23T20:02:05.487Z"
-updatedAt: "2026-08-23T20:02:05.487Z"
 status: "draft"
 origin: "internal"
 parentPlan: "agy-cli-execution-backend"
@@ -26,6 +24,7 @@ order: 6
 dependencies:
     - "05-harden-agy-cli-failures-and-continuations"
 planId: "3f664125-84bc-4f9a-8c13-eb98d2240f28"
+targetBranch: "feature/agy-cli-execution-backend"
 ---
 
 # Surface Agy CLI Selection and Caveats

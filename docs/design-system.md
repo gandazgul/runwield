@@ -146,19 +146,22 @@ unsubmitted New Session composer. The sidebar has three peer tabs in this order:
 **Artifacts**. Default to Workflow when the Session has an active workflow; otherwise default to Session. Preserve the
 reader's selected tab while the same Session remains open.
 
-Workflow shows canonical workflow stages and their state, not a second transcript. Session shows compact identity and
-runtime facts such as availability, state, agent, model, thinking, and generation. Artifacts lists only explicitly
-registered, Project-relative Markdown artifacts; never infer an artifact by scraping transcript text. Each artifact
-opens in the shared read-only artifact surface and returns to the owning Session.
+Workflow shows canonical workflow stages and their state, not a second transcript. Session shows durable, user-facing
+facts such as its name, message and tool-call counts, compaction count, and queued prompts. Do not expose storage
+generation or restate that the Session being viewed is active. In the TUI, do not repeat agent, model, thinking, token,
+cost, folder, or branch details from the footer. Artifacts lists only explicitly registered, Project-relative Markdown
+artifacts; never infer an artifact by scraping transcript text. Each artifact opens in the shared read-only artifact
+surface and returns to the owning Session.
 
 Use the `.session-context-*` classes and `--rw-*` semantic tokens for the tab rail, fields, workflow rows, and artifact
 links. The sidebar is a flat adjacent pane with dividers, not a stack of floating cards. At narrow browser widths it
 moves above the transcript without changing its information model.
 
 The TUI uses the same Session projection. Wide terminals show the context pane on the right, pinned to the top of the
-visible terminal viewport while transcript blocks scroll independently, and cycle the three tabs with **Ctrl+]**. Narrow
-terminals retain the existing transcript-only layout. If a TUI user opens an artifact, prefer the configured Workspace
-reader and fall back to the short-lived local read-only reader.
+visible terminal viewport while transcript blocks scroll independently, and cycle the three tabs with **Ctrl+]**. Its
+two-line footer remains full width below both panes. Narrow terminals retain the existing transcript-only layout. If a
+TUI user opens an artifact, prefer the configured Workspace reader and fall back to the short-lived local read-only
+reader.
 
 ## Token model
 

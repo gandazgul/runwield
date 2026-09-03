@@ -2,7 +2,6 @@
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
-summary: "Expose RunWield lifecycle completion tools to Antigravity through a narrow MCP bridge and prove accepted tool results, not assistant prose, are the only workflow authority. This slice also proves the Antigravity MCP and permission policy needed for parity."
 affectedPaths:
     - "src/shared/session/backends/agy-cli/"
     - "src/shared/session/session.js"
@@ -15,7 +14,6 @@ affectedPaths:
     - "src/shared/workflow/validation-loop-review.test.js"
 executionAgent: "engineer"
 createdAt: "2026-08-23T20:02:05.471Z"
-updatedAt: "2026-08-23T20:02:05.471Z"
 status: "draft"
 origin: "internal"
 parentPlan: "agy-cli-execution-backend"
@@ -23,6 +21,7 @@ order: 4
 dependencies:
     - "03-add-agy-cli-backend-transcript-tracer-bullet"
 planId: "4438b6ba-99e2-4b49-8848-7593a03a66a1"
+targetBranch: "feature/agy-cli-execution-backend"
 ---
 
 # Bridge Agy Workflow Signals Through MCP

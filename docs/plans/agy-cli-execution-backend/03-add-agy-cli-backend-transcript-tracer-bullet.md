@@ -2,7 +2,6 @@
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
-summary: "Route selected `agy-cli/*` turns through a real Antigravity subprocess backend, stream assistant text, and persist RunWield-owned transcript entries. This is the first normal execution path, but workflow completion tools remain out of scope."
 affectedPaths:
     - "src/shared/session/execution-backend.ts"
     - "src/shared/session/session.js"
@@ -14,7 +13,6 @@ affectedPaths:
     - "docs/domain-language.md"
 executionAgent: "engineer"
 createdAt: "2026-08-23T20:02:05.462Z"
-updatedAt: "2026-08-23T20:02:05.462Z"
 status: "draft"
 origin: "internal"
 parentPlan: "agy-cli-execution-backend"
@@ -22,6 +20,7 @@ order: 3
 dependencies:
     - "02-register-agy-cli-backend-models"
 planId: "595d0348-5882-4ee2-b2a4-d0b7a12d0128"
+targetBranch: "feature/agy-cli-execution-backend"
 ---
 
 # Add Agy CLI Backend Transcript Tracer Bullet

@@ -2,7 +2,6 @@
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
-summary: "Make Antigravity-backed execution deterministic across missing executable/auth, custom-agent drift, malformed output, non-zero exits, timeout, cancellation, missing terminal signals, and post-terminal output. This slice protects active workflow and transcript replay under failure."
 affectedPaths:
     - "src/shared/session/backends/agy-cli/"
     - "src/shared/session/session.js"
@@ -13,7 +12,6 @@ affectedPaths:
     - "src/shared/session/agy-cli-execution.test.ts"
 executionAgent: "engineer"
 createdAt: "2026-08-23T20:02:05.478Z"
-updatedAt: "2026-08-23T20:02:05.478Z"
 status: "draft"
 origin: "internal"
 parentPlan: "agy-cli-execution-backend"
@@ -21,6 +19,7 @@ order: 5
 dependencies:
     - "04-bridge-agy-workflow-signals-through-mcp"
 planId: "2ca9527d-ed5c-4a04-b0d3-cc667eb7aa12"
+targetBranch: "feature/agy-cli-execution-backend"
 ---
 
 # Harden Agy CLI Failures and Continuations
