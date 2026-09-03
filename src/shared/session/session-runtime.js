@@ -2422,6 +2422,7 @@ export class SessionRuntime {
                 ...rebuildOptions,
                 agentName,
                 forceRebuild: true,
+                reloadMcpTools: true,
                 managedOperationCapability: capability,
             });
             await this.#emitCommandCatalogChanged(sessionId, session);
@@ -2714,13 +2715,18 @@ export class SessionRuntime {
     }
 
     /** @param {string} id */
-    closeSession(id) {
+    async closeSession(id) {
         const hostedSession = this.#sessionHost.getSession(id);
         if (hostedSession && this.#currentManagedOperations.has(hostedSession.id)) {
             return this.#closeSessionAfterManagedOperation(hostedSession.id);
         }
         if (hostedSession) this.#clearQueuedMessages(hostedSession, "session_closed");
-        const closed = this.#sessionHost.disposeSession(id);
+        let closed = false;
+        try {
+            closed = await this.#sessionHost.disposeSession(id);
+        } catch {
+            closed = Boolean(hostedSession?.disposed || !this.#sessionHost.getSession(id));
+        }
         if (closed) {
             this.#emitSessionEvent(id, { type: RuntimeEventTypes.SESSION_CLOSED });
             this.#eventListeners.delete(id);
@@ -2835,7 +2841,14 @@ export class SessionRuntime {
         const enrichedEvent = /** @type {any} */ (sessionName ? { ...event, sessionName } : event);
         const runtimeEvent = createSessionRuntimeEvent(sessionId, enrichedEvent);
         const listeners = this.#eventListeners.get(sessionId);
-        if (!listeners) return;
+        if (!listeners) {
+            if (runtimeEvent.type === RuntimeEventTypes.SYSTEM_STATUS) {
+                const pending = this.#pendingReplayEvents.get(sessionId) || [];
+                pending.push(runtimeEvent);
+                this.#pendingReplayEvents.set(sessionId, pending);
+            }
+            return;
+        }
         for (const listener of Array.from(listeners)) {
             try {
                 const result = listener(runtimeEvent);
@@ -2883,7 +2896,7 @@ export class SessionRuntime {
      */
     async #refreshMcpTools(hostedSession, requestServers, forceReload = false) {
         if (requestServers) hostedSession.setMcpRequestServers(requestServers);
-        if (!forceReload && !requestServers && hostedSession.getMcpToolPool?.()) return;
+        if (!forceReload && !requestServers && hostedSession.getMcpToolPool?.()) return null;
         const resolved = await resolveMcpConfig({
             cwd: hostedSession.cwd,
             requestServers: hostedSession.getMcpRequestServers?.() || [],
@@ -2907,7 +2920,7 @@ export class SessionRuntime {
                 { level: "warning" },
             );
         }
-        hostedSession.setMcpToolPool(started.pool);
+        return started.pool;
     }
 
     /**
@@ -3061,8 +3074,22 @@ export class SessionRuntime {
             this.#pendingManagedCreationProjects.delete(hostedSession.id);
             this.#pendingManagedCreations.set(hostedSession.id, pendingCreation);
         }
-        await this.#refreshMcpTools(hostedSession, options.mcpServers, options.forceRebuild === true);
-        if (!pendingCreation) return await switchActiveAgent(hostedSession, options);
+        const mcpToolPool = options.mcpRootTools ? null : await this.#refreshMcpTools(
+            hostedSession,
+            options.mcpServers,
+            options.reloadMcpTools === true,
+        );
+        const activationOptions = mcpToolPool ? { ...options, mcpRootTools: mcpToolPool.getTools() } : options;
+        try {
+            if (!pendingCreation) {
+                const result = await switchActiveAgent(hostedSession, activationOptions);
+                if (mcpToolPool) await hostedSession.setMcpToolPool(mcpToolPool);
+                return result;
+            }
+        } catch (error) {
+            if (mcpToolPool) await mcpToolPool.close().catch(() => {});
+            throw error;
+        }
         if (!this.#sessionStore) throw new Error("Session coordination is unavailable");
         let activeProof = pendingCreation;
         const managed = hostedSession.getManagedMetadata?.();
@@ -3091,9 +3118,10 @@ export class SessionRuntime {
             capability.updateProof(activeProof);
             hydrated = true;
             activationResult = await switchActiveAgent(hostedSession, {
-                ...options,
+                ...activationOptions,
                 managedOperationCapability: capability,
             });
+            if (mcpToolPool) await hostedSession.setMcpToolPool(mcpToolPool);
             activeProof = this.#sessionStore.changeSessionActivationPhase(activeProof, "checkpointing");
             capability.updateProof(activeProof);
             const managed = hostedSession.getManagedMetadata?.();
@@ -3147,6 +3175,7 @@ export class SessionRuntime {
             } catch {
                 // Preserve the original creation/setup failure.
             }
+            if (mcpToolPool) await mcpToolPool.close().catch(() => {});
             throw error;
         } finally {
             capability.settle();
@@ -4374,6 +4403,10 @@ export class SessionRuntime {
         if (!hostedSession) throw new Error("SessionRuntime failed to retain the new session");
         if (options.mcpServers) hostedSession.setMcpRequestServers(options.mcpServers);
         try {
+            if (deferPersistence) {
+                const mcpToolPool = await this.#refreshMcpTools(hostedSession, options.mcpServers);
+                if (mcpToolPool) await hostedSession.setMcpToolPool(mcpToolPool);
+            }
             const activated = deferPersistence
                 ? this.markPromptReadyAgent(hostedSession.id, { agentName })
                 : await this.switchAgent(hostedSession.id, { agentName, mcpServers: options.mcpServers });
@@ -4413,11 +4446,14 @@ export class SessionRuntime {
         const newSession = this.#sessionHost.getSession(newSessionId);
         if (!newSession) throw new Error("Execution follow-up replacement session was not retained");
         try {
-            oldSession.transferMcpStateTo?.(newSession);
             newSession.setInteractionAdapter(oldSession.getInteractionAdapter());
-            await this.#activateSessionAgent(newSession, { agentName: executionAgent });
+            await this.#activateSessionAgent(newSession, {
+                agentName: executionAgent,
+                mcpRootTools: oldSession.getMcpRootTools?.() || [],
+            });
             newSession.setActiveExecutionWorkflow(workflow);
             if (workflow.planName) await this.renameSession(newSessionId, workflow.planName);
+            oldSession.moveMcpStateTo?.(newSession);
             this.#emitSessionEvent(oldSession.id, {
                 type: RuntimeEventTypes.SESSION_REPLACED,
                 oldSessionId: oldSession.id,
@@ -4483,11 +4519,18 @@ export class SessionRuntime {
                         generation: inspected.generation.generation,
                     });
                     const sync = await this.synchronizeManagedSession(adopted.sessionId, { emitEvents: false });
+                    const adoptedHostedSession = this.#sessionHost.getSession(adopted.sessionId);
+                    if (!adoptedHostedSession) throw new Error("Session Manager load did not retain adopted Session");
+                    const mcpToolPool = await this.#refreshMcpTools(adoptedHostedSession, options.mcpServers);
+                    if (mcpToolPool) await adoptedHostedSession.setMcpToolPool(mcpToolPool);
+                    const setupEvents = this.#pendingReplayEvents.get(adopted.sessionId) || [];
                     const replayEvents = sync.ok
-                        ? (sync.events || []).map((event) =>
-                            createSessionRuntimeEvent(adopted.sessionId, /** @type {any} */ (event))
+                        ? setupEvents.concat(
+                            (sync.events || []).map((event) =>
+                                createSessionRuntimeEvent(adopted.sessionId, /** @type {any} */ (event))
+                            ),
                         )
-                        : [];
+                        : setupEvents;
                     this.#pendingReplayEvents.set(adopted.sessionId, replayEvents);
                     return {
                         sessionId: adopted.sessionId,
@@ -4571,11 +4614,14 @@ export class SessionRuntime {
                 model: options.modelOverride,
                 mcpServers: options.mcpServers,
             });
-            const replayEvents = createProjectedReplayEvents(
-                hostedSession.id,
-                getRootSessionBranchEntries(sessionManager),
-            )
-                .map((event) => createSessionRuntimeEvent(hostedSession.id, /** @type {any} */ (event)));
+            const setupEvents = this.#pendingReplayEvents.get(hostedSession.id) || [];
+            const replayEvents = setupEvents.concat(
+                createProjectedReplayEvents(
+                    hostedSession.id,
+                    getRootSessionBranchEntries(sessionManager),
+                )
+                    .map((event) => createSessionRuntimeEvent(hostedSession.id, /** @type {any} */ (event))),
+            );
             this.#pendingReplayEvents.set(hostedSession.id, replayEvents);
             this.#emitSessionEvent(hostedSession.id, {
                 type: RuntimeEventTypes.SESSION_LOADED,
@@ -4673,12 +4719,18 @@ export class SessionRuntime {
             const newSessionId = created.sessionId;
             const newSession = this.#sessionHost.getSession(newSessionId);
             if (!newSession) throw new Error("Epic continuation replacement session was not retained");
-            currentOldSession.transferMcpStateTo?.(newSession);
-            newSession.setInteractionAdapter(adapter);
-            await this.#activateSessionAgent(newSession, {
-                agentName: action === "plan" ? AGENTS.PLANNER : AGENTS.ENGINEER,
-            });
-            await this.renameSession(newSessionId, `Epic child: ${resolution.childPlanName}`);
+            try {
+                newSession.setInteractionAdapter(adapter);
+                await this.#activateSessionAgent(newSession, {
+                    agentName: action === "plan" ? AGENTS.PLANNER : AGENTS.ENGINEER,
+                    mcpRootTools: currentOldSession.getMcpRootTools?.() || [],
+                });
+                await this.renameSession(newSessionId, `Epic child: ${resolution.childPlanName}`);
+                currentOldSession.moveMcpStateTo?.(newSession);
+            } catch (error) {
+                await this.closeSession(newSessionId);
+                throw error;
+            }
             this.#emitSessionEvent(currentOldSession.id, {
                 type: RuntimeEventTypes.SESSION_REPLACED,
                 oldSessionId: currentOldSession.id,
@@ -4715,7 +4767,7 @@ export class SessionRuntime {
 
     /**
      * @param {string} sessionId
-     * @param {{ agentName: string, model?: string, releaseActiveWorkflow?: boolean, customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], toolNames?: string[], mcpServers?: import('../mcp/config.ts').McpServerDefinition[] }} options
+     * @param {{ agentName: string, model?: string, releaseActiveWorkflow?: boolean, customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], mcpRootTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], toolNames?: string[], reloadMcpTools?: boolean, mcpServers?: import('../mcp/config.ts').McpServerDefinition[] }} options
      */
     async switchAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);

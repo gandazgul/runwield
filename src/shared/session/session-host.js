@@ -101,12 +101,12 @@ export class SessionHost {
     }
 
     /** @param {string} id */
-    disposeSession(id) {
+    async disposeSession(id) {
         const session = this.sessions.get(id);
         if (!session) return false;
         const managed = session.getManagedMetadata?.() || null;
         try {
-            session.dispose();
+            await session.dispose();
         } finally {
             this.sessions.delete(id);
             if (managed && this.managedSessionIds.get(managed.runwieldSessionId) === id) {
@@ -116,7 +116,7 @@ export class SessionHost {
         return true;
     }
 
-    dispose() {
-        for (const id of Array.from(this.sessions.keys())) this.disposeSession(id);
+    async dispose() {
+        for (const id of Array.from(this.sessions.keys())) await this.disposeSession(id);
     }
 }

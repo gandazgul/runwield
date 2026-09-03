@@ -501,11 +501,11 @@ export class HostedSession {
     }
 
     /** @param {import('../mcp/pool.ts').McpToolPool | null} pool */
-    setMcpToolPool(pool) {
+    async setMcpToolPool(pool) {
         this.assertActive();
         const previous = this.mcpToolPool;
         this.mcpToolPool = pool;
-        if (previous && previous !== pool) void previous.close().catch(() => {});
+        if (previous && previous !== pool) await previous.close().catch(() => {});
     }
 
     getMcpToolPool() {
@@ -517,7 +517,7 @@ export class HostedSession {
     }
 
     /** @param {HostedSession} targetHostedSession */
-    transferMcpStateTo(targetHostedSession) {
+    moveMcpStateTo(targetHostedSession) {
         this.assertActive();
         targetHostedSession.assertActive();
         targetHostedSession.mcpToolPool = this.mcpToolPool;
@@ -928,7 +928,7 @@ export class HostedSession {
         return Boolean(this.activeTurnId);
     }
 
-    dispose() {
+    async dispose() {
         if (this.disposed) return;
         disposeIfPresent(this.rootAgentSession);
         for (const session of this.subAgentSessions) disposeIfPresent(session);
@@ -958,9 +958,9 @@ export class HostedSession {
         this.steeringTargetStack = [];
         this.agentTransitionId = null;
         this.agentTransitionSteering = [];
-        void this.closeMcpToolPool().catch(() => {});
+        this.disposed = true;
+        await this.closeMcpToolPool();
         this.mcpRequestServers = [];
         this.managed = null;
-        this.disposed = true;
     }
 }

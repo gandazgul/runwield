@@ -171,6 +171,12 @@ function parseServer(name: string, value: JsonValue, filePath: string): ParsedSe
     };
 }
 
+function safeConfigErrorMessage(path: string, error: Error | null): string {
+    const message = error?.message || "MCP configuration could not be read.";
+    if (message.startsWith(`${path} `)) return message;
+    return `${path} could not be parsed.`;
+}
+
 async function readConfigFile(
     path: string,
     source: McpSourceKind,
@@ -200,8 +206,8 @@ async function readConfigFile(
         for (const [name, value] of Object.entries(servers)) entries.set(name, parseServer(name, value, path));
         return { entries };
     } catch (error) {
-        const message = error instanceof Error ? error.message : "MCP configuration could not be read.";
-        return { entries: new Map(), warning: warning(source, "parse", message, path) };
+        const failure = error instanceof Error ? error : null;
+        return { entries: new Map(), warning: warning(source, "parse", safeConfigErrorMessage(path, failure), path) };
     }
 }
 

@@ -1,4 +1,5 @@
 import { assertEquals, assertStrictEquals, assertThrows } from "@std/assert";
+import { McpToolPool } from "../mcp/pool.ts";
 import { HostedSession } from "./hosted-session.js";
 import { SessionHost } from "./session-host.js";
 
@@ -120,14 +121,14 @@ Deno.test("SessionHost rejects duplicate ids for created or adopted sessions", (
     );
 });
 
-Deno.test("SessionHost disposeSession removes and disposes only the target HostedSession", () => {
+Deno.test("SessionHost disposeSession removes and disposes only the target HostedSession", async () => {
     const alphaManager = makeSessionManager("alpha-manager");
     const betaManager = makeSessionManager("beta-manager");
     const host = new SessionHost();
     const alpha = host.createSession({ id: "alpha", cwd: "/repo/alpha", sessionManager: alphaManager });
     const beta = host.createSession({ id: "beta", cwd: "/repo/beta", sessionManager: betaManager });
 
-    assertEquals(host.disposeSession("alpha"), true);
+    assertEquals(await host.disposeSession("alpha"), true);
 
     assertEquals(alpha.disposed, true);
     assertEquals(alphaManager.disposed, true);
@@ -138,7 +139,7 @@ Deno.test("SessionHost disposeSession removes and disposes only the target Hoste
     assertEquals(host.listSessions(), [
         { id: "beta", cwd: "/work/beta-manager", sessionManagerId: "beta-manager", disposed: false },
     ]);
-    assertEquals(host.disposeSession("missing"), false);
+    assertEquals(await host.disposeSession("missing"), false);
 });
 
 /** @param {string} id @param {string} runwieldSessionId */
@@ -163,7 +164,27 @@ function makeManagedOptions(id, runwieldSessionId) {
     };
 }
 
-Deno.test("SessionHost rejects a second live HostedSession for one stable RunWield Session id", () => {
+Deno.test("HostedSession keeps replacement MCP pool authoritative when prior pool close fails", async () => {
+    const hostedSession = new HostedSession({ id: "mcp-replacement", cwd: "/repo/mcp-replacement" });
+    let replacementClosed = false;
+    const priorPool = new McpToolPool([], []);
+    priorPool.close = () => Promise.reject(new Error("prior close failed"));
+    const replacementPool = new McpToolPool([], []);
+    replacementPool.close = () => {
+        replacementClosed = true;
+        return Promise.resolve();
+    };
+
+    await hostedSession.setMcpToolPool(priorPool);
+    await hostedSession.setMcpToolPool(replacementPool);
+
+    assertStrictEquals(hostedSession.getMcpToolPool(), replacementPool);
+    assertEquals(replacementClosed, false);
+    await hostedSession.dispose();
+    assertEquals(replacementClosed, true);
+});
+
+Deno.test("SessionHost rejects a second live HostedSession for one stable RunWield Session id", async () => {
     const host = new SessionHost();
     const first = host.createSession(makeManagedOptions("managed-one", "runwield-same"));
 
@@ -173,7 +194,7 @@ Deno.test("SessionHost rejects a second live HostedSession for one stable RunWie
         'RunWield Session "runwield-same" already has live HostedSession "managed-one"',
     );
 
-    assertEquals(host.disposeSession(first.id), true);
+    assertEquals(await host.disposeSession(first.id), true);
     const second = host.createSession(makeManagedOptions("managed-two", "runwield-same"));
     assertEquals(second.id, "managed-two");
 });

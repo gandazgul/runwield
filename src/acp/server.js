@@ -135,7 +135,6 @@ function isPlainRecord(value) {
  * @returns {Record<string, string>}
  */
 function validateAcpMcpEnv(value) {
-    if (value === undefined) return {};
     if (!Array.isArray(value)) {
         throwInvalidParams("ACP stdio MCP server env must be an array", { field: "mcpServers.env" });
     }
@@ -157,7 +156,6 @@ function validateAcpMcpEnv(value) {
  * @returns {import('../shared/mcp/config.ts').McpServerDefinition[]}
  */
 function validateAcpMcpServers(value) {
-    if (value === undefined || value === null) return [];
     if (!Array.isArray(value)) throwInvalidParams("ACP mcpServers must be an array", { field: "mcpServers" });
     /** @type {import('../shared/mcp/config.ts').McpServerDefinition[]} */
     const servers = [];
@@ -240,7 +238,7 @@ export function validateNewSessionParams(params) {
             field: "additionalDirectories",
         });
     }
-    return { ...request, mcpServers: request.mcpServers || [], runwieldMcpServers: mcpServers };
+    return { ...request, mcpServers: request.mcpServers, runwieldMcpServers: mcpServers };
 }
 
 /** @param {unknown} params */
@@ -286,7 +284,7 @@ async function closeMappedSession(runtime, sessionMap, acpSessionId) {
             } catch {
                 // Close should still dispose mapping if cancellation fails.
             }
-            runtime.closeSession(runtimeSessionId);
+            await runtime.closeSession(runtimeSessionId);
         }
     }
     sessionMap.deleteRecord(acpSessionId);
@@ -298,6 +296,30 @@ async function closeAllMappedSessions(runtime, sessionMap) {
     for (const record of sessionMap.listRecords()) await closeMappedSession(runtime, sessionMap, record.acpSessionId);
     if (runtime.closeAllSessionsWhenIdle) await runtime.closeAllSessionsWhenIdle();
     else runtime.closeAllSessions?.();
+}
+
+/**
+ * @param {{ client?: { notify?: Function }, notify?: Function }} context
+ * @param {SessionRuntime} runtime
+ * @param {string} runtimeSessionId
+ * @param {string} acpSessionId
+ */
+async function replaySetupEvents(context, runtime, runtimeSessionId, acpSessionId) {
+    /** @type {Promise<unknown>[]} */
+    const pendingNotifications = [];
+    const unsubscribe = runtime.subscribeSessionEvents(runtimeSessionId, (event) => {
+        const notification = mapRuntimeEventToAcpSessionNotification(acpSessionId, event);
+        if (!notification) return;
+        const pending = notifyClient(context, methods.client.session.update, notification);
+        pendingNotifications.push(pending);
+        return pending;
+    });
+    try {
+        await runtime.replaySession(runtimeSessionId);
+        await Promise.allSettled(pendingNotifications);
+    } finally {
+        unsubscribe();
+    }
 }
 
 /**
@@ -330,6 +352,7 @@ function createRunWieldAcpServer(context) {
             { sessionId: runtimeSessionId, cwd: snapshot.cwd },
             { persistedSessionId },
         );
+        await replaySetupEvents(context, runtime, runtimeSessionId, record.acpSessionId);
         return {
             sessionId: record.acpSessionId,
             _meta: {
@@ -575,8 +598,13 @@ export function startRunWieldAcpServer(input, output, options = {}) {
             sessionStore.close();
         }
     };
-    connection.closed.then(closeMachinery, closeMachinery);
+    const closed = connection.closed.then(closeMachinery, closeMachinery);
     const diagnostics = options.diagnostic;
     if (diagnostics) diagnostics("RunWield ACP stdio server started");
-    return connection;
+    return {
+        signal: connection.signal,
+        client: connection.client,
+        close: (error) => connection.close(error),
+        closed,
+    };
 }

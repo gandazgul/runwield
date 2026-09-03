@@ -53,6 +53,7 @@
     "npm:@earendil-works/pi-tui@0.84": "0.84.2",
     "npm:@lezer/common@^1.5.2": "1.5.2",
     "npm:@lezer/highlight@^1.2.3": "1.2.3",
+    "npm:@modelcontextprotocol/sdk@1.30.0": "1.30.0_zod@4.4.3",
     "npm:@modelcontextprotocol/sdk@^1.30.0": "1.30.0_zod@4.4.3",
     "npm:@pierre/diffs@1.3.5": "1.3.5_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@plannotator/atomic-editor@0.8": "0.8.0_@codemirror+autocomplete@6.20.3_@codemirror+commands@6.10.4_@codemirror+lang-javascript@6.2.5_@codemirror+lang-json@6.0.2_@codemirror+lang-markdown@6.5.0_@codemirror+lang-python@6.2.1_@codemirror+lang-yaml@6.1.3_@codemirror+language@6.12.4_@codemirror+legacy-modes@6.5.3_@codemirror+merge@6.12.2_@codemirror+search@6.7.1_@codemirror+state@6.7.1_@codemirror+view@6.43.6_@lezer+common@1.5.2_@lezer+highlight@1.2.3_@lezer+markdown@1.7.2_react@19.2.7_react-dom@19.2.7__react@19.2.7_typescript@5.9.3",

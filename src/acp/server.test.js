@@ -4,7 +4,7 @@
  */
 
 import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
-import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { dirname, fromFileUrl, join, resolve } from "@std/path";
 import { withRuntimeCommandFixture } from "../cmd/testing/runtime-command-fixture.ts";
 import { mapRuntimeEventToAcpUpdate } from "./event-mapper.js";
@@ -20,6 +20,7 @@ import { createInitializeResponse, startRunWieldAcpServer, validateNewSessionPar
  */
 
 const REPO_ROOT = resolve(dirname(fromFileUrl(import.meta.url)), "../..");
+const MCP_FIXTURE_SERVER = join(dirname(fromFileUrl(import.meta.url)), "../shared/mcp/fixture-server.ts");
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -199,6 +200,36 @@ Deno.test("CLI --mode acp routes to ACP stdio without stdout diagnostics", async
     assertStringIncludes(decoder.decode(stderr), "RunWield ACP");
 });
 
+Deno.test("ACP session/new sends setup MCP warnings to the client", async () => {
+    await withRuntimeCommandFixture("runwield-acp-mcp-warning-", async (fixture) => {
+        const handle = startTestServer();
+        try {
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "new-warning",
+                method: "session/new",
+                params: {
+                    cwd: fixture.projectRoot,
+                    mcpServers: [{
+                        name: "dead",
+                        command: "/definitely/not/runwield-mcp",
+                        args: [],
+                        env: [],
+                    }],
+                },
+            });
+            const { response, messages } = await readThroughResponse(handle, "new-warning");
+            assert(response.result, JSON.stringify(response));
+            const warningText = joinedAgentText(messages);
+            assertStringIncludes(warningText, "MCP warning (spawn/dead)");
+            assertStringIncludes(warningText, "MCP server failed");
+            assertEquals(warningText.includes("/definitely/not"), false);
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
 Deno.test("ACP session/new and session/prompt exercise the real Runtime and stream canonical updates", async () => {
     await withRuntimeCommandFixture("runwield-acp-prompt-", async (fixture) => {
         fixture.setModelResponse("hello from the fixture model");
@@ -220,6 +251,50 @@ Deno.test("ACP session/new and session/prompt exercise the real Runtime and stre
             assertEquals(response.result, { stopReason: "end_turn" });
         } finally {
             await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP session/new and session/prompt can invoke a real MCP fixture tool", async () => {
+    await withRuntimeCommandFixture("runwield-acp-mcp-call-", async (fixture) => {
+        const logPath = await Deno.makeTempFile({ prefix: "runwield-acp-mcp-log-" });
+        fixture.setModelResponseFactories([
+            () => fauxAssistantMessage(fauxToolCall("mcp_fixture_fixture_echo", { marker: "acp-root" })),
+            () => fauxAssistantMessage(fauxText("ACP MCP turn complete.")),
+        ]);
+        const handle = startTestServer();
+        try {
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "new-mcp",
+                method: "session/new",
+                params: {
+                    cwd: fixture.projectRoot,
+                    mcpServers: [{
+                        name: "fixture",
+                        command: Deno.execPath(),
+                        args: ["run", "-A", MCP_FIXTURE_SERVER],
+                        env: [{ name: "RUNWIELD_MCP_FIXTURE_LOG", value: logPath }],
+                    }],
+                },
+            });
+            const created = await readThroughResponse(handle, "new-mcp");
+            assert(created.response.result, JSON.stringify(created.response));
+            const sessionId = created.response.result.sessionId;
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "prompt-mcp",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "Use MCP." }] },
+            });
+            const { response, messages } = await readThroughResponse(handle, "prompt-mcp");
+            assertEquals(response.result, { stopReason: "end_turn" });
+            assertStringIncludes(joinedAgentText(messages), "ACP MCP turn complete.");
+            assertStringIncludes(await Deno.readTextFile(logPath), '"marker":"acp-root"');
+        } finally {
+            await closeTestServer(handle);
+            await Deno.remove(logPath).catch(() => {});
         }
     });
 });
@@ -262,9 +337,15 @@ Deno.test("ACP session/prompt resolves Prompt Template invocations through Core"
 
 Deno.test("ACP session/load replays a real persisted Session and accepts another prompt", async () => {
     await withRuntimeCommandFixture("runwield-acp-load-", async (fixture) => {
+        const logPath = await Deno.makeTempFile({ prefix: "runwield-acp-load-mcp-log-" });
+        let sawLoadedMcpResultInTurn = false;
         fixture.setModelResponseFactories([
             () => fauxAssistantMessage(fauxText("first fixture response")),
-            () => fauxAssistantMessage(fauxText("continued fixture response")),
+            () => fauxAssistantMessage(fauxToolCall("mcp_fixture_fixture_echo", { marker: "acp-loaded" })),
+            (context) => {
+                sawLoadedMcpResultInTurn = JSON.stringify(context.messages).includes("fixture-result:acp-loaded");
+                return fauxAssistantMessage(fauxText("continued fixture response"));
+            },
         ]);
 
         const firstHandle = startTestServer();
@@ -284,7 +365,16 @@ Deno.test("ACP session/load replays a real persisted Session and accepts another
                 jsonrpc: "2.0",
                 id: "load",
                 method: "session/load",
-                params: { sessionId: created.sessionId, cwd: fixture.projectRoot, mcpServers: [] },
+                params: {
+                    sessionId: created.sessionId,
+                    cwd: fixture.projectRoot,
+                    mcpServers: [{
+                        name: "fixture",
+                        command: Deno.execPath(),
+                        args: ["run", "-A", MCP_FIXTURE_SERVER],
+                        env: [{ name: "RUNWIELD_MCP_FIXTURE_LOG", value: logPath }],
+                    }],
+                },
             });
             const loaded = await readThroughResponse(secondHandle, "load");
             assert(
@@ -308,13 +398,16 @@ Deno.test("ACP session/load replays a real persisted Session and accepts another
                 jsonrpc: "2.0",
                 id: "prompt-loaded",
                 method: "session/prompt",
-                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "continue" }] },
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "continue with MCP" }] },
             });
             const continued = await readThroughResponse(secondHandle, "prompt-loaded");
             assertEquals(continued.response.result.stopReason, "end_turn");
+            assertEquals(sawLoadedMcpResultInTurn, true);
             assertStringIncludes(joinedAgentText(continued.messages), "continued fixture response");
+            assertStringIncludes(await Deno.readTextFile(logPath), '"marker":"acp-loaded"');
         } finally {
             await closeTestServer(secondHandle);
+            await Deno.remove(logPath).catch(() => {});
         }
     });
 });
@@ -388,11 +481,18 @@ Deno.test("ACP session/close disposes a real Runtime session and rejects later p
 
 Deno.test("ACP validates new/load inputs and maps missing persisted Sessions", async () => {
     assertThrows(() => validateNewSessionParams({ cwd: "relative", mcpServers: [] }));
+    assertThrows(() => validateNewSessionParams({ cwd: REPO_ROOT }));
     assertThrows(() => validateNewSessionParams({ cwd: REPO_ROOT, mcpServers: { local: { command: "secret" } } }));
     assertThrows(() =>
         validateNewSessionParams({
             cwd: REPO_ROOT,
             mcpServers: [{ type: "http", name: "web", url: "https://example.test", headers: [] }],
+        })
+    );
+    assertThrows(() =>
+        validateNewSessionParams({
+            cwd: REPO_ROOT,
+            mcpServers: [{ name: "stdio", command: "/bin/echo", args: ["ok"] }],
         })
     );
     const validMcp = validateNewSessionParams({
