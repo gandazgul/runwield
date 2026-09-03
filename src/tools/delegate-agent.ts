@@ -36,7 +36,7 @@ const PARAMETERS = Type.Object({
     }),
     role: Type.Optional(StringEnum([...DELEGATED_ROLE_IDS], {
         description:
-            "Optional Delegated Agent Role. Omit (or use 'general') for an unspecialized delegate. Use 'verification-adversary' to have a read-only delegate attack a draft Plan's checks with the cheapest counterfeit implementation; a role's authority ceiling can reduce the requested mode.",
+            "Optional Delegated Agent Role. Omit (or use 'general') for an unspecialized delegate. Use 'verification-adversary' to have a read-only delegate attack a draft Plan's outcomes, steps, and verification claims with the cheapest counterfeit implementation; a role's authority ceiling can reduce the requested mode.",
     })),
     brief: Type.String({
         minLength: 1,
@@ -342,7 +342,7 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
         name: "delegate_agent",
         label: "Delegate Agent",
         description:
-            "Run a bounded context-isolated Delegated Agent Session. Use mode 'read' for parallel investigation/review and mode 'write' for one exclusive synchronous implementation task. Pass an optional role to specialize the delegate: 'verification-adversary' attacks a draft Plan with the cheapest counterfeit implementation that would pass its checks. The parent waits for the result.",
+            "Run a bounded context-isolated Delegated Agent Session. Use mode 'read' for parallel investigation/review and mode 'write' for one exclusive synchronous implementation task. Pass an optional role to specialize the delegate: 'verification-adversary' attacks a draft Plan with the cheapest counterfeit implementation that would satisfy its claims. The parent waits for the result.",
         parameters: PARAMETERS,
         async execute(_toolCallId, params, signal, _onUpdate, _ctx): Promise<DelegateAgentResult> {
             const requestedMode: DelegationMode = params.mode === "write" ? "write" : "read";

@@ -51,7 +51,7 @@
   - Use bundled specialist agents including Router, Guide, Ideator, Operator, Planner, Architect, Engineer, and Tester.
   - Use workflow specialists such as Slicer and Reviewer during plan decomposition and validation flows.
   - Let agents use bounded delegated agent sessions for parallel investigation or isolated implementation work.
-  - Let agents use a verification-adversary delegated role to attack weak validation plans.
+  - Let agents optionally use a verification-adversary delegated role to attack weak structural or high-risk Plans.
 
 - **Planning and execution**
   - Store plans as Markdown files under `docs/plans/`.

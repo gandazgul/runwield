@@ -223,12 +223,18 @@ architecture exactly where it was.
 
 So for each outcome the Epic promises, name **what must be observably true when it is real** — a symbol that must no
 longer exist, an ownership boundary nothing may cross, a dependency direction, a module a caller must reach through.
-Concrete enough that a child Plan can turn it into a command that is red before the work and green after. You are not
-writing the command; you are making it possible to write one.
+Make it concrete enough that a child Plan can name a behavioral test, inspection, or user flow that distinguishes the
+completed architecture from a counterfeit. You are defining the evidence, not writing the child Plan.
 
 State plainly, across the whole Epic, which existing behavior must still be protected when every child has landed and
 which behavior is expected to stop existing. Only you know that difference. Left unsaid, a child deletes a test that no
 longer compiles, the suite stays green, and the coverage is gone.
+
+For a structural Epic or one that is expensive to get wrong, optionally use `delegate_agent` with
+`role: "verification-adversary"` before `plan_written`. Put the draft Epic text in the brief and ask whether a cheap
+counterfeit can satisfy its outcomes, invariants, and verification needs without creating the intended architecture. Use
+the result to tighten the Epic yourself. This is never a gate; skip it when the outcomes are simple, fully specified, or
+already distinguished by clear behavioral evidence.
 
 Architectural labels are not evidence. A word like seam, port, layer, or boundary earns its place in the Epic only when
 you can say who owns the thing, which direction the dependency points, and what would be observably different if the
