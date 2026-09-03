@@ -2424,9 +2424,13 @@ export class SessionRuntime {
                 })
                 : { ok: false, error: projected.error, message: projected.message };
         }
-        const info = {
-            ...this.#getActiveSessionInfo(session, manager),
-        };
+        const info = manager
+            ? { ...this.#getActiveSessionInfo(session, manager) }
+            : buildProjectedSessionInfo([], {
+                sessionId: session.id,
+                cwd: session.cwd,
+                transcriptPath: "In-memory",
+            });
         const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
         info.compactionSettings = rootAgentSession?.settingsManager?.getCompactionSettings?.() || null;
         info.contextUsage = rootAgentSession?.getContextUsage?.() || null;
