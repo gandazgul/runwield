@@ -217,7 +217,7 @@ export async function startInteractiveSession(
             requestRender: () => tui.requestRender(),
         });
         disposables.push(() => footer.dispose());
-        view.container.addChild(footer.component);
+        view.footerContainer.addChild(footer.component);
         const uiAPI = view.uiAPI;
         uiAPIForDispose = uiAPI;
         let inputControllerForPause: { isProcessingSubmission(): boolean } | null = null;

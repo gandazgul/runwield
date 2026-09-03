@@ -751,13 +751,17 @@ export function buildProjectedSessionInfo(entries, options) {
         if (message.role === "user") {
             info.userMessages++;
             info.toolResults += Array.isArray(message.content)
-                ? message.content.filter((/** @type {any} */ block) => block?.type === "tool_result").length
+                ? message.content.filter((/** @type {any} */ block) =>
+                    block?.type === "tool_result" || block?.type === "toolResult"
+                ).length
                 : 0;
         }
         if (message.role === "assistant") {
             info.assistantMessages++;
             info.toolCalls += Array.isArray(message.content)
-                ? message.content.filter((/** @type {any} */ block) => block?.type === "tool_use").length
+                ? message.content.filter((/** @type {any} */ block) =>
+                    block?.type === "tool_use" || block?.type === "toolCall"
+                ).length
                 : 0;
             const usage = normalizeRuntimeUsage(message.usage);
             info.inputTokens += usage.inputTokens;

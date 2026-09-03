@@ -12,6 +12,7 @@ const KEYBOARD_HELP_ITEMS = Object.freeze([
     Object.freeze({ key: "ctrl+c twice", description: "to exit" }),
     Object.freeze({ key: "shift+tab", description: "to cycle thinking level" }),
     Object.freeze({ key: "ctrl+o", description: "to expand tool outputs" }),
+    Object.freeze({ key: "ctrl+]", description: "to switch Session sidebar tabs" }),
     Object.freeze({ key: "ctrl+t", description: "to toggle thinking block visibility" }),
     Object.freeze({ key: "ctrl+g", description: "for external editor (not-implemented)" }),
     Object.freeze({ key: "ctrl+v", description: "to paste image" }),

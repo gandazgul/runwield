@@ -61,6 +61,8 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
 /**
  * @typedef {Object} MinimalSessionManagerLike
  * @property {() => string} [getSessionId]
+ * @property {() => string | null} [getLeafId]
+ * @property {() => string | undefined} [getSessionFile]
  * @property {() => string} [getCwd]
  * @property {() => string | undefined} [getSessionName]
  * @property {(name: string) => void} [appendSessionInfo]

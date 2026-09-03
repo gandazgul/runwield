@@ -348,8 +348,38 @@ Deno.test("SessionRuntime exposes opaque ids and snapshots, never HostedSession 
     assertEquals("hostedSession" in created, false);
     assertEquals("sessionManager" in created, false);
     assertEquals(Object.hasOwn(runtime, "sessionHost"), false);
+    assertEquals(runtime.getSessionSnapshot(created.sessionId)?.sessionStats, null);
     assertEquals(runtime.listSessions(), [runtime.getSessionSnapshot(created.sessionId)]);
     assertEquals("getActiveOnMessage" in /** @type {any} */ (runtime.listSessions()[0]), false);
+});
+
+Deno.test("SessionRuntime snapshots cache user-facing Session counts by transcript leaf", () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const cwd = runtimeProjectRoot();
+    const sessionManager = SessionManager.create(cwd, getRunWieldSessionDir(cwd));
+    sessionManager.appendMessage({ role: "user", timestamp: Date.now(), content: "First question" });
+    sessionManager.appendMessage(fauxAssistantMessage(fauxText("First answer")));
+    const session = sessionHost.createSession({
+        id: crypto.randomUUID(),
+        cwd,
+        // @ts-expect-error Real SessionManager is runtime-compatible with HostedSession.
+        sessionManager,
+    });
+
+    assertEquals(runtime.getSessionSnapshot(session.id)?.sessionStats, {
+        userMessages: 1,
+        assistantMessages: 1,
+        toolCalls: 0,
+        compactionCount: 0,
+    });
+    sessionManager.appendMessage(fauxAssistantMessage(fauxToolCall("read", { path: "README.md" })));
+    assertEquals(runtime.getSessionSnapshot(session.id)?.sessionStats, {
+        userMessages: 1,
+        assistantMessages: 2,
+        toolCalls: 1,
+        compactionCount: 0,
+    });
 });
 
 Deno.test("SessionRuntime snapshot exposes active context capacity without exposing AgentSession", () => {

@@ -33,7 +33,12 @@ import type { Component } from "@earendil-works/pi-tui";
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { ImageAttachment } from "../../shared/session/types.js";
 import type { UiAPI } from "./types.js";
-import { composePinnedSessionSidebar, TuiSessionSidebar, type TuiSessionSidebarSnapshot } from "./session-sidebar.ts";
+import {
+    composePinnedSessionSidebar,
+    isSessionSidebarCycleKey,
+    TuiSessionSidebar,
+    type TuiSessionSidebarSnapshot,
+} from "./session-sidebar.ts";
 
 const SESSION_SIDEBAR_MIN_WIDTH = 132;
 
@@ -58,6 +63,7 @@ export interface ChatView {
     tui: TUI;
     editor: Editor;
     container: Container;
+    footerContainer: Container;
     messageList: Container;
     validationPanelContainer: Container;
     runningTasksComponent: SpinnerBlock;
@@ -164,6 +170,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     container.addChild(clipboardImageHint);
     const editor = new Editor(tui, getEditorTheme());
     container.addChild(editor);
+    const footerContainer = new Container();
     const sessionSidebar = new TuiSessionSidebar(
         options.getSessionId,
         () => options.sessionRuntime.getSessionSnapshot(options.getSessionId()),
@@ -172,23 +179,25 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         invalidate: () => {
             container.invalidate();
             sessionSidebar.invalidate();
+            footerContainer.invalidate();
         },
         render: (w: number) => {
             const availableWidth = Math.max(10, w - 2);
             const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+            const footerLines = footerContainer.render(availableWidth);
             if (!snapshot?.managed || availableWidth < SESSION_SIDEBAR_MIN_WIDTH) {
-                return container.render(availableWidth);
+                return [...container.render(availableWidth), ...footerLines];
             }
             const sidebarWidth = Math.min(34, Math.max(28, Math.floor(availableWidth * 0.28)));
             const mainWidth = Math.max(48, availableWidth - sidebarWidth - 1);
             const mainLines = container.render(mainWidth);
             const sidebarLines = sessionSidebar.render(sidebarWidth, snapshot);
-            return composePinnedSessionSidebar(mainLines, sidebarLines, mainWidth, tui.terminal.rows);
+            return composePinnedSessionSidebar(mainLines, sidebarLines, mainWidth, tui.terminal.rows, footerLines);
         },
     };
     tui.addChild(rootWrapper);
     const removeSidebarKeyListener = tui.addInputListener((data) => {
-        if (data !== "\x1d") return undefined;
+        if (!isSessionSidebarCycleKey(data)) return undefined;
         sessionSidebar.cycleTab();
         tui.requestRender();
         return { consume: true };
@@ -292,6 +301,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         tui,
         editor,
         container,
+        footerContainer,
         messageList,
         validationPanelContainer,
         runningTasksComponent,

@@ -11,6 +11,11 @@ export interface SessionSidebarProjectionInput {
     activeModel?: string | null;
     thinkingLevel?: string | null;
     generation?: number | null;
+    userMessages?: number | null;
+    assistantMessages?: number | null;
+    toolCalls?: number | null;
+    compactionCount?: number | null;
+    queuedMessages?: number | null;
     workflowPlan?: string | null;
     workflowIntent?: string | null;
     artifacts?: SessionArtifactReference[];
@@ -26,6 +31,14 @@ export interface SessionSidebarProjection {
         model: string;
         thinkingLevel: string;
         generation: string;
+        stats: {
+            totalMessages: number;
+            userMessages: number;
+            assistantMessages: number;
+            toolCalls: number;
+            compactionCount: number;
+            queuedMessages: number;
+        } | null;
     };
     workflow: {
         active: boolean;
@@ -60,6 +73,10 @@ export function buildSessionSidebarProjection(input: SessionSidebarProjectionInp
     const workflowPlan = input.workflowPlan?.trim() || "";
     const workflowIntent = input.workflowIntent?.trim() || "";
     const workflowActive = Boolean(workflowPlan || workflowIntent);
+    const hasSessionStats = typeof input.userMessages === "number" || typeof input.assistantMessages === "number" ||
+        typeof input.toolCalls === "number" || typeof input.compactionCount === "number";
+    const userMessages = Math.max(0, input.userMessages || 0);
+    const assistantMessages = Math.max(0, input.assistantMessages || 0);
     return {
         defaultTab: defaultSessionSidebarTab(workflowActive),
         session: {
@@ -70,6 +87,16 @@ export function buildSessionSidebarProjection(input: SessionSidebarProjectionInp
             model: input.activeModel?.trim() || "Project default",
             thinkingLevel: input.thinkingLevel?.trim() || "default",
             generation: typeof input.generation === "number" ? String(input.generation) : "Not committed",
+            stats: hasSessionStats
+                ? {
+                    totalMessages: userMessages + assistantMessages,
+                    userMessages,
+                    assistantMessages,
+                    toolCalls: Math.max(0, input.toolCalls || 0),
+                    compactionCount: Math.max(0, input.compactionCount || 0),
+                    queuedMessages: Math.max(0, input.queuedMessages || 0),
+                }
+                : null,
         },
         workflow: {
             active: workflowActive,

@@ -1,4 +1,4 @@
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
     buildSessionSidebarProjection,
     SESSION_SIDEBAR_TABS,
@@ -17,6 +17,13 @@ export interface TuiSessionSidebarSnapshot {
     thinkingLevel?: string | null;
     workflowContext?: { routingIntent?: string | null; planId?: string | null; planName?: string | null } | null;
     managed?: { generation?: number | null } | null;
+    sessionStats?: {
+        userMessages: number;
+        assistantMessages: number;
+        toolCalls: number;
+        compactionCount: number;
+    } | null;
+    queuedMessages?: readonly { id?: string }[];
     artifacts?: SessionArtifactReference[];
 }
 
@@ -30,6 +37,11 @@ export function tuiSessionSidebarProjection(snapshot: TuiSessionSidebarSnapshot)
         activeModel: snapshot.activeModel?.model,
         thinkingLevel: snapshot.thinkingLevel,
         generation: snapshot.managed?.generation,
+        userMessages: snapshot.sessionStats?.userMessages,
+        assistantMessages: snapshot.sessionStats?.assistantMessages,
+        toolCalls: snapshot.sessionStats?.toolCalls,
+        compactionCount: snapshot.sessionStats?.compactionCount,
+        queuedMessages: snapshot.queuedMessages?.length,
         workflowPlan: plan,
         workflowIntent: snapshot.workflowContext?.routingIntent,
         artifacts: snapshot.artifacts,
@@ -46,14 +58,21 @@ export function composePinnedSessionSidebar(
     sidebarLines: string[],
     mainWidth: number,
     terminalRows: number,
+    footerLines: string[] = [],
 ): string[] {
     const lineCount = Math.max(mainLines.length, sidebarLines.length);
-    const viewportStart = Math.max(0, lineCount - Math.max(1, terminalRows));
-    const visibleSidebarLines = sidebarLines.slice(0, Math.max(1, terminalRows));
-    return Array.from({ length: lineCount }, (_, index) => {
+    const bodyRows = Math.max(1, terminalRows - footerLines.length);
+    const viewportStart = Math.max(0, lineCount - bodyRows);
+    const visibleSidebarLines = sidebarLines.slice(0, bodyRows);
+    const bodyLines = Array.from({ length: lineCount }, (_, index) => {
         const sidebarLine = visibleSidebarLines[index - viewportStart] || "";
         return `${fit(mainLines[index] || "", mainWidth)} ${sidebarLine}`;
     });
+    return [...bodyLines, ...footerLines];
+}
+
+export function isSessionSidebarCycleKey(data: string): boolean {
+    return matchesKey(data, Key.ctrl("]"));
 }
 
 function field(label: string, value: string, width: number): string[] {
@@ -100,11 +119,29 @@ export class TuiSessionSidebar {
             }
         } else if (this.#activeTab === "session") {
             content.push(...field("Session", projection.session.name, inner));
-            content.push("", ...field("State", projection.session.state, inner));
-            content.push("", ...field("Agent", projection.session.agent, inner));
-            content.push("", ...field("Model", projection.session.model, inner));
-            content.push("", ...field("Thinking", projection.session.thinkingLevel, inner));
-            content.push("", ...field("Generation", projection.session.generation, inner));
+            const stats = projection.session.stats;
+            if (stats) {
+                content.push(
+                    "",
+                    ...field(
+                        "Messages",
+                        `${stats.totalMessages} · ${stats.userMessages} user / ${stats.assistantMessages} assistant`,
+                        inner,
+                    ),
+                );
+                content.push("", ...field("Tool calls", String(stats.toolCalls), inner));
+                content.push(
+                    "",
+                    ...field(
+                        "Compactions",
+                        stats.compactionCount === 0 ? "None" : String(stats.compactionCount),
+                        inner,
+                    ),
+                );
+                if (stats.queuedMessages > 0) {
+                    content.push("", ...field("Queued prompts", String(stats.queuedMessages), inner));
+                }
+            }
         } else if (projection.artifacts.length === 0) {
             content.push(theme.fg("dim", fit("No declared artifacts yet.", inner)));
         } else {

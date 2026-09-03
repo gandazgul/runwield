@@ -521,6 +521,8 @@ export class SessionRuntime {
     #pendingReplayEvents;
     /** @type {Map<string, string | null>} */
     #observedAttentionEventIds;
+    /** @type {WeakMap<import('./hosted-session.js').MinimalSessionManagerLike, { leafId: string | null, info: ReturnType<typeof buildProjectedSessionInfo> }>} */
+    #activeSessionInfoCache;
     /** @type {FileSessionStoreOwner} */
     #sessionStoreOwner;
     /** @type {'workspace' | 'tui' | 'acp' | 'test'} */
@@ -543,6 +545,7 @@ export class SessionRuntime {
         this.#pendingManagedCreationProjects = new Map();
         this.#pendingReplayEvents = new Map();
         this.#observedAttentionEventIds = new Map();
+        this.#activeSessionInfoCache = new WeakMap();
         this.#sessionStoreOwner = new FileSessionStoreOwner(
             composition.sessionStore,
             composition.ownsSessionStore,
@@ -562,6 +565,32 @@ export class SessionRuntime {
     }
 
     /**
+     * Keep transcript-derived sidebar facts off the render hot path. Pi's
+     * SessionManager is append-only and advances its leaf whenever an entry is
+     * added, so a stable leaf means the cached projection is still current.
+     *
+     * @param {import('./hosted-session.js').HostedSession} session
+     * @param {import('./hosted-session.js').MinimalSessionManagerLike} sessionManager
+     */
+    #getActiveSessionInfo(session, sessionManager) {
+        const fallbackEntries = sessionManager.getLeafId ? null : sessionManager.getEntries?.() || [];
+        const fallbackLeaf = fallbackEntries?.at(-1);
+        const leafId = sessionManager.getLeafId?.() ??
+            (fallbackLeaf && typeof fallbackLeaf === "object" && "id" in fallbackLeaf
+                ? String(fallbackLeaf.id)
+                : `entries:${fallbackEntries?.length || 0}`);
+        const cached = this.#activeSessionInfoCache.get(sessionManager);
+        if (cached?.leafId === leafId) return cached.info;
+        const info = buildProjectedSessionInfo(fallbackEntries || sessionManager.getEntries?.() || [], {
+            sessionId: sessionManager.getSessionId?.() || session.id,
+            cwd: session.cwd,
+            transcriptPath: sessionManager.getSessionFile?.() || "In-memory",
+        });
+        this.#activeSessionInfoCache.set(sessionManager, { leafId, info });
+        return info;
+    }
+
+    /**
      * @param {string} sessionId
      * @returns {import('../types.js').SessionSnapshot | null}
      */
@@ -569,6 +598,7 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return null;
         const sessionManager = session.getRootSessionManager();
+        const activeSessionInfo = sessionManager ? this.#getActiveSessionInfo(session, sessionManager) : null;
         const managed = session.getManagedMetadata?.() || null;
         const pendingCreation = this.#pendingManagedCreationProjects.get(sessionId) || null;
         const managedDormant = Boolean(managed && !sessionManager);
@@ -596,7 +626,15 @@ export class SessionRuntime {
             id: session.id,
             cwd: session.cwd,
             sessionManagerId,
-            name: sessionManager?.getSessionName?.() || managed?.name || pendingCreation?.name || null,
+            name: activeSessionInfo?.name || managed?.name || pendingCreation?.name || null,
+            sessionStats: activeSessionInfo
+                ? {
+                    userMessages: activeSessionInfo.userMessages,
+                    assistantMessages: activeSessionInfo.assistantMessages,
+                    toolCalls: activeSessionInfo.toolCalls,
+                    compactionCount: activeSessionInfo.compactionCount,
+                }
+                : null,
             disposed: session.disposed,
             managed: managed
                 ? {
@@ -2386,13 +2424,9 @@ export class SessionRuntime {
                 })
                 : { ok: false, error: projected.error, message: projected.message };
         }
-        const entries = manager?.getEntries?.() || [];
-        const info = buildProjectedSessionInfo(entries, {
-            sessionId: manager?.getSessionId?.() || sessionId,
-            cwd: session.cwd,
-            transcriptPath: manager?.getSessionFile?.() || "In-memory",
-        });
-        info.name = manager?.getSessionName?.() || info.name;
+        const info = {
+            ...this.#getActiveSessionInfo(session, manager),
+        };
         const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
         info.compactionSettings = rootAgentSession?.settingsManager?.getCompactionSettings?.() || null;
         info.contextUsage = rootAgentSession?.getContextUsage?.() || null;

@@ -1,6 +1,11 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import stripAnsi from "strip-ansi";
-import { composePinnedSessionSidebar, TuiSessionSidebar, tuiSessionSidebarProjection } from "./session-sidebar.ts";
+import {
+    composePinnedSessionSidebar,
+    isSessionSidebarCycleKey,
+    TuiSessionSidebar,
+    tuiSessionSidebarProjection,
+} from "./session-sidebar.ts";
 import { initRunWieldTheme } from "../theme/theme.js";
 
 initRunWieldTheme();
@@ -24,6 +29,7 @@ Deno.test("TUI Session Sidebar defaults to workflow and cycles through shared ta
         thinkingLevel: "high",
         workflowContext: { routingIntent: "PLANNED_CHANGE", planName: "session-sidebar" },
         managed: { generation: 2 },
+        sessionStats: { userMessages: 4, assistantMessages: 3, toolCalls: 6, compactionCount: 1 },
         artifacts: [ARTIFACT],
     };
     const sidebar = new TuiSessionSidebar(() => "session-1", () => snapshot);
@@ -36,7 +42,13 @@ Deno.test("TUI Session Sidebar defaults to workflow and cycles through shared ta
     sidebar.cycleTab();
     const session = stripAnsi(sidebar.render(34).join("\n"));
     assertStringIncludes(session, "Demo Session");
-    assertStringIncludes(session, "demo-model");
+    assertStringIncludes(session, "7 · 4 user / 3 assistant");
+    assertStringIncludes(session, "TOOL CALLS");
+    assertStringIncludes(session, "COMPACTIONS");
+    assertEquals(session.includes("STATE"), false);
+    assertEquals(session.includes("GENERATION"), false);
+    assertEquals(session.includes("demo-model"), false);
+    assertEquals(session.includes("frontend-engineer"), false);
 
     sidebar.cycleTab();
     const artifacts = stripAnsi(sidebar.render(34).join("\n"));
@@ -65,6 +77,12 @@ Deno.test("shared TUI projection defaults idle Sessions without a Plan to Sessio
     assertEquals(projection.session.generation, "0");
 });
 
+Deno.test("TUI Session Sidebar matches legacy and Kitty ctrl+] input", () => {
+    assertEquals(isSessionSidebarCycleKey("\x1d"), true);
+    assertEquals(isSessionSidebarCycleKey("\x1b[93;5u"), true);
+    assertEquals(isSessionSidebarCycleKey("]"), false);
+});
+
 Deno.test("TUI Session Sidebar stays at the top of the visible transcript viewport", () => {
     const mainLines = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`);
     const lines = composePinnedSessionSidebar(mainLines, ["sidebar top", "sidebar detail"], 12, 5);
@@ -74,4 +92,21 @@ Deno.test("TUI Session Sidebar stays at the top of the visible transcript viewpo
     assertEquals(lines[6].includes("sidebar"), false);
     assertEquals(lines[7].endsWith("sidebar top"), true);
     assertEquals(lines[8].endsWith("sidebar detail"), true);
+});
+
+Deno.test("TUI Session Sidebar reserves a full-width footer below both panes", () => {
+    const mainLines = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`);
+    const lines = composePinnedSessionSidebar(
+        mainLines,
+        ["sidebar top", "sidebar detail"],
+        12,
+        5,
+        ["full width footer one", "full width footer two"],
+    );
+
+    assertEquals(lines.length, 14);
+    assertEquals(lines[9].endsWith("sidebar top"), true);
+    assertEquals(lines[10].endsWith("sidebar detail"), true);
+    assertEquals(lines[12], "full width footer one");
+    assertEquals(lines[13], "full width footer two");
 });
