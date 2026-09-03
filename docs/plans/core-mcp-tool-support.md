@@ -19,9 +19,14 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-02T13:20:25-04:00"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "3e723bb2-cbc2-47b7-a6f9-739bd6fe0cf9"
+    path: "docs/work-records/2026-09-03-core-stdio-mcp-support.md"
+    lastAttemptAt: "2026-09-03T00:58:46.039Z"
 targetBranch: "main"
 ---
 
