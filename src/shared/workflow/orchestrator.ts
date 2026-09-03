@@ -666,6 +666,7 @@ export async function dispatchPostTriage({
                     localCI,
                     workRecordMnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
                     semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
+                    supportsSemanticRepairHandoff: true,
                 });
                 await recordMetric({
                     category: "execution",

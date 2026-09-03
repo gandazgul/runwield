@@ -21,6 +21,7 @@ export type ValidationWorkflowBranchId =
     | "semantic:round-limit:continue"
     | "semantic:round-limit:human-review"
     | "semantic:round-limit:stop"
+    | "semantic:round-limit:stop-after-execution"
     | "semantic:resume:validated-ci"
     | "semantic:entry:non-git-skip"
     | "semantic:entry:empty-diff-skip"
@@ -110,6 +111,7 @@ export const EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS: readonly ValidationWorkflo
     "semantic:round-limit:continue",
     "semantic:round-limit:human-review",
     "semantic:round-limit:stop",
+    "semantic:round-limit:stop-after-execution",
     "semantic:resume:validated-ci",
     "semantic:entry:non-git-skip",
     "semantic:entry:empty-diff-skip",
@@ -167,6 +169,7 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "semantic:round-limit:continue": "validation-tree-semantic-round-limit-continue",
     "semantic:round-limit:human-review": "validation-tree-semantic-round-limit-human-review",
     "semantic:round-limit:stop": "validation-tree-semantic-round-limit-stop",
+    "semantic:round-limit:stop-after-execution": "validation-tree-semantic-round-limit-stop-direct",
     "semantic:resume:validated-ci": "validation-tree-resume-validated-ci",
     "semantic:entry:non-git-skip": "validation-tree-non-git-delivery",
     "semantic:entry:empty-diff-skip": "validation-tree-empty-diff-skip",

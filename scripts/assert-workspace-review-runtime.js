@@ -31,6 +31,28 @@ function assertRealReviewHtml(html, label) {
     if (!html.includes("data-astro-review-shell")) fail(`${label} did not render the review shell.`);
     if (!html.includes("astro-island")) fail(`${label} did not include Astro island hydration markup.`);
     if (!html.includes("/_astro/")) fail(`${label} did not reference built Astro client assets.`);
+    if (html.includes("<div data-runwield-review-breakout>")) {
+        fail(`${label} allowed review source to break out of its embedded JSON payload.`);
+    }
+}
+
+/**
+ * @param {string} html
+ * @param {string} route
+ * @param {Record<string, unknown>} payload
+ */
+function assertEmbeddedPayloadRoundTrips(html, route, payload) {
+    const payloadAttribute = route === "/review/plan" ? "data-review-payload" : "data-code-review-payload";
+    const openingTag = `<script type="application/json" ${payloadAttribute}>`;
+    const payloadStart = html.indexOf(openingTag);
+    if (payloadStart < 0) fail(`${route} did not include its embedded review payload.`);
+    const jsonStart = payloadStart + openingTag.length;
+    const jsonEnd = html.indexOf("</script>", jsonStart);
+    if (jsonEnd < 0) fail(`${route} did not close its embedded review payload.`);
+    const decoded = JSON.parse(html.slice(jsonStart, jsonEnd));
+    if (JSON.stringify(decoded) !== JSON.stringify(payload)) {
+        fail(`${route} did not preserve its embedded review payload.`);
+    }
 }
 
 /**
@@ -111,6 +133,7 @@ async function assertReviewRoute(runtimeEntry, route, payload) {
     const html = await response.text();
     if (response.status !== 200) fail(`${route} returned ${response.status}: ${html.slice(0, 200)}`);
     assertRealReviewHtml(html, route);
+    assertEmbeddedPayloadRoundTrips(html, route, payload);
     await assertReviewAssetsAvailableInRuntime(html, url, join(dirname(absoluteRuntimeEntry), "client", "_astro"));
 }
 
@@ -118,14 +141,14 @@ async function assertReviewRoute(runtimeEntry, route, payload) {
 export async function main(args = Deno.args) {
     const runtimeEntry = args[0] || DEFAULT_RUNTIME_ENTRY;
     await assertReviewRoute(runtimeEntry, "/review/plan", {
-        plan: "# Release quality gate Plan\n",
+        plan: "# Release quality gate Plan\n\n`</script><div data-runwield-review-breakout>source</div>`\n",
         planPath: "docs/plans/release-quality-gate.md",
         token: "plan-review-runtime-token",
         mode: "workflow",
     });
     await assertReviewRoute(runtimeEntry, "/review/code", {
         rawPatch:
-            "diff --git a/src/example.js b/src/example.js\n--- a/src/example.js\n+++ b/src/example.js\n@@ -1 +1,2 @@\n export const a = 1;\n+export const b = 2;\n",
+            'diff --git a/src/example.js b/src/example.js\n--- a/src/example.js\n+++ b/src/example.js\n@@ -1 +1,3 @@\n export const a = 1;\n+export const b = 2;\n+const closingTag = "</script><div data-runwield-review-breakout>source</div>";\n',
         gitRef: "release quality gate diff",
         agentCwd: Deno.cwd(),
         token: "code-review-runtime-token",

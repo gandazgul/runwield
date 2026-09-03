@@ -30,8 +30,10 @@ src/shared/version.js
 
 .deno_compile*
 
-# Riptide artifacts (cloud-synced)
 .humanlayer/tasks/
+
+demo-media/
+
 # BEGIN RunWield owned runtime state
 .wld/plan-locks
 .wld/plan-transitions

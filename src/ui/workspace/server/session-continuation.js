@@ -894,11 +894,14 @@ export class WorkspaceSessionContinuationService {
             throw new Error("Session not found.");
         }
         const inspected = this.store.inspectSessionActivation(options.runwieldSessionId);
-        if (inspected.activation?.state !== "idle") {
-            throw new Error("This Session is still busy. Wait for it to finish, then try again.");
-        }
         if (!inspected.generation || inspected.generation.generation !== options.expectedGeneration) {
             throw new Error("Continuation requires the exact committed generation.");
+        }
+        if (inspected.activation?.state === "active") {
+            throw new Error("This Session is still busy. Keep the message queued in this browser until it finishes.");
+        }
+        if (inspected.activation?.state !== "idle") {
+            throw new Error("This Session needs recovery before it can accept messages.");
         }
         const projection = await projectAggregateTranscript({
             cwd: session.transcriptCwd,

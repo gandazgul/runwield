@@ -66,15 +66,19 @@ async function writeAcpSuccessorTranscript(
     return path;
 }
 
-Deno.test("ACP load uses the committed current segment and rejects prompt while Workspace owns activation", async () => {
+Deno.test("ACP load queues a prompt while Workspace owns activation and sends it after release", async () => {
     await withRuntimeCommandFixture(
         "acp-managed-session-",
-        async ({ homeDir, projectRoot, setModelResponseFactory }) => {
+        async ({ homeDir, projectRoot, setModelResponseFactories }) => {
             const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
             const workspace = fixture.openStore();
             const server = startTestServer();
             try {
-                setModelResponseFactory(fixture.recordedModelResponse("ACP accepted turn."));
+                setModelResponseFactories([
+                    fixture.recordedModelResponse("ACP first queued turn."),
+                    fixture.recordedModelResponse("ACP second queued turn."),
+                    fixture.recordedModelResponse("ACP accepted turn."),
+                ]);
                 const initial = workspace.inspectSessionActivation(fixture.session.runwieldSessionId).generation;
                 const predecessorId = initial?.currentSegmentId ?? "";
                 let rolloverProof = workspace.acquireSessionActivation({
@@ -160,9 +164,32 @@ Deno.test("ACP load uses the committed current segment and rejects prompt while 
                     params: { sessionId: loadId, prompt: [{ type: "text", text: "blocked" }] },
                 });
                 const blocked = await readThroughResponse(server, "blocked-prompt");
-                assert(blocked.response.error, JSON.stringify(blocked.response));
+                assert(blocked.response.result, JSON.stringify(blocked.response));
+                const blockedResult = blocked.response.result as {
+                    _meta?: { runwield?: { queued?: boolean; queuedMessageId?: string } };
+                };
+                assertEquals(blockedResult._meta?.runwield?.queued, true);
+                await sendMessage(server, {
+                    jsonrpc: "2.0",
+                    id: "second-blocked-prompt",
+                    method: "session/prompt",
+                    params: { sessionId: loadId, prompt: [{ type: "text", text: "second blocked" }] },
+                });
+                const secondBlocked = await readThroughResponse(server, "second-blocked-prompt");
+                assert(secondBlocked.response.result, JSON.stringify(secondBlocked.response));
                 assertEquals(fixture.modelRequests.length, 0);
                 workspace.releaseUnchangedActivation(proof);
+                for (let index = 0; index < 200; index++) {
+                    const idle =
+                        workspace.inspectSessionActivation(fixture.session.runwieldSessionId).activation?.state ===
+                            "idle";
+                    if (fixture.modelRequests.length === 2 && idle) break;
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                }
+                assertEquals(fixture.modelRequests.length, 2);
+                assert(fixture.modelRequests[0]?.messages.includes("blocked"));
+                assert(!fixture.modelRequests[0]?.messages.includes("second blocked"));
+                assert(fixture.modelRequests[1]?.messages.includes("second blocked"));
 
                 await sendMessage(server, {
                     jsonrpc: "2.0",
@@ -172,10 +199,17 @@ Deno.test("ACP load uses the committed current segment and rejects prompt while 
                 });
                 const accepted = await readThroughResponse(server, "accepted-prompt");
                 assert(accepted.response.result, JSON.stringify(accepted.response));
-                assertEquals(fixture.modelRequests.length, 1);
+                for (let index = 0; index < 200; index++) {
+                    const idle =
+                        workspace.inspectSessionActivation(fixture.session.runwieldSessionId).activation?.state ===
+                            "idle";
+                    if (fixture.modelRequests.length === 3 && idle) break;
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                }
+                assertEquals(fixture.modelRequests.length, 3);
                 const acceptedGeneration =
                     workspace.inspectSessionActivation(fixture.session.runwieldSessionId).generation;
-                assertEquals(acceptedGeneration?.generation, 2);
+                assertEquals(acceptedGeneration?.generation, 4);
                 assertEquals(acceptedGeneration?.currentSegmentId, "acp-successor-segment");
                 assertEquals(server.diagnostics.every((message) => !message.trim().startsWith("{")), true);
             } finally {

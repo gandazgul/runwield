@@ -7,7 +7,6 @@
 import { resolve } from "@std/path";
 import { createHash } from "node:crypto";
 import { createFileSessionControl } from "./file-session-control.ts";
-import { createFileSessionMessageQueue } from "./file-session-message-queue.ts";
 import {
     getRunWieldSessionsBaseDir,
     listCatalogSafeRootSessionLocators,
@@ -593,7 +592,6 @@ export function openFileSessionStore(options: OpenFileSessionStoreOptions = {}):
                 sessionPath: locator.transcriptPath,
             });
         },
-        ...createFileSessionMessageQueue({ baseDir, now: options.now }),
         ...createFileSessionControl({ baseDir, locks, now: options.now }),
     };
     return store;

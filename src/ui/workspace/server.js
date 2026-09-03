@@ -29,6 +29,7 @@ import {
     reviewFeedbackApi,
 } from "./routes/api/review-handlers.js";
 import { openRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
+import { escapeReviewPayloadJson } from "./server/review-payload-json.ts";
 import { withAccessLogger } from "./server-access-logger.ts";
 import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../../shared/work-records/mnemosyne-port.ts";
 import { PlanProgressSurface } from "./react/PlanProgressSurface.tsx";
@@ -616,7 +617,7 @@ function renderStaticReviewFallback(reviewType, payload) {
         ? "Plan Review · RunWield Workspace"
         : "Code Review · RunWield Workspace";
     const payloadAttribute = reviewType === "plan" ? "data-review-payload" : "data-code-review-payload";
-    const payloadJson = escapeScriptJson(JSON.stringify(payload));
+    const payloadJson = escapeReviewPayloadJson(JSON.stringify(payload));
     return new Response(
         `<!doctype html>
 <html lang="en">
@@ -645,11 +646,6 @@ function renderStaticReviewFallback(reviewType, payload) {
             headers: { "content-type": "text/html; charset=utf-8" },
         },
     );
-}
-
-/** @param {string} value */
-function escapeScriptJson(value) {
-    return value.replaceAll("<", "\\u003c").replaceAll(">", "\\u003e").replaceAll("&", "\\u0026");
 }
 
 function workspaceBuildUnavailable() {

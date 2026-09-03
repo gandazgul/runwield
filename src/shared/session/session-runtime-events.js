@@ -174,7 +174,7 @@ export const RuntimeEventTypes = Object.freeze({
  * @property {string} id
  * @property {string} text
  * @property {import('./types.js').ImageAttachment[]} images
- * @property {"steer" | "next_turn" | "lease"} delivery
+ * @property {"steer" | "next_turn"} delivery
  * @property {string} queuedAt
  */
 

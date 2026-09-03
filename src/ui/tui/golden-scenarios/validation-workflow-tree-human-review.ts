@@ -186,13 +186,6 @@ export const validationTreeHumanReviewFeedbackRepairApproveScenario = withValida
                     arguments: { message: "- Repaired Local Human Code Review feedback." },
                 }],
             },
-            {
-                id: "engineer-idle-after-human-review-feedback-repair",
-                agent: "engineer",
-                phase: "engineer",
-                ordinal: 7,
-                text: "Human feedback repair is ready for approval.",
-            },
         ]),
         scriptedInteractions: [],
         actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>

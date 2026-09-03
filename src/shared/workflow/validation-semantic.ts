@@ -311,70 +311,87 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 return { kind: "paused", planName: args.planName, projectRoot: context.projectRoot, reason };
             }
             if (nextRound >= SEMANTIC_REVIEW_CYCLES) {
-                emitStatus(args, buildValidationUserMessage({ kind: "ci_running", cwd: context.executionCwd }));
-                const ciResult = await args.localCI.run({ cwd: context.executionCwd });
-                const testsPass = ciResult.kind === "completed" && ciResult.exitCode === 0;
-                emitStatus(
-                    args,
-                    testsPass
-                        ? buildValidationUserMessage({ kind: "checks_passed" })
-                        : validationReviewerPauseMessage(args.planName),
-                    testsPass ? "success" : "warning",
-                );
-                const action = await promptForSemanticRoundLimit(args, nextRound, openCount, testsPass);
-                if (action === "code_review") {
-                    await persistHumanReviewMetadata(args, context.executionCwd, {
-                        humanReviewMode: "always",
-                        humanReviewDecision: null,
-                        humanReviewedAt: null,
-                    });
-                    await recordLifecycleEvent(
+                let lastRepairReport = repair.report;
+                while (true) {
+                    emitStatus(args, buildValidationUserMessage({ kind: "ci_running", cwd: context.executionCwd }));
+                    const ciResult = await args.localCI.run({ cwd: context.executionCwd });
+                    const testsPass = ciResult.kind === "completed" && ciResult.exitCode === 0;
+                    emitStatus(
                         args,
-                        context.projectRoot,
-                        "semantic_review_passed",
-                        "validated_ci",
-                        undefined,
-                        { humanReviewMode: "always", humanReviewDecision: null, humanReviewedAt: null },
+                        testsPass
+                            ? buildValidationUserMessage({ kind: "checks_passed" })
+                            : validationReviewerPauseMessage(args.planName),
+                        testsPass ? "success" : "warning",
                     );
-                    return {
-                        kind: "paused",
-                        planName: args.planName,
-                        projectRoot: context.projectRoot,
-                        reason: "Semantic Code Review round limit reached; Local Human Code Review requested.",
-                    };
-                }
-                if (action === "stop") {
-                    return {
-                        kind: "paused",
-                        planName: args.planName,
-                        projectRoot: context.projectRoot,
-                        reason: `The reviewer still has ${openCount} open point(s) on "${args.planName}". ${
-                            testsPass
-                                ? "The tests still pass and the findings are saved."
-                                : "The tests are failing too."
-                        } Run this Plan again when you want to pick it back up.`,
-                    };
-                }
-                if (action === "engineer_follow_up") {
-                    const response = await requestInteraction(args, {
-                        type: ValidationInteractionTypes.TEXT,
-                        prompt: buildValidationUserMessage({ kind: "repair_feedback_prompt" }),
-                        defaultValue: buildValidationUserMessage({ kind: "repair_feedback_default" }),
-                    });
-                    const feedback = typeof response.value === "string" ? response.value.trim() : "";
-                    const followUp = await args.session.continueLastRepairTurn(feedback);
-                    if (!followUp?.completed) {
+                    if (!testsPass) {
                         return {
                             kind: "paused",
                             planName: args.planName,
                             projectRoot: context.projectRoot,
-                            reason: repairBlockedReason(args, context.projectRoot, followUp?.blockerText),
+                            reason: validationReviewerPauseMessage(args.planName),
                         };
                     }
-                    state.lastRepairReport = followUp.report;
+                    const action = await promptForSemanticRoundLimit(args, nextRound, openCount, true);
+                    if (action === "engineer_follow_up") {
+                        const response = await requestInteraction(args, {
+                            type: ValidationInteractionTypes.TEXT,
+                            prompt: buildValidationUserMessage({ kind: "repair_feedback_prompt" }),
+                            defaultValue: buildValidationUserMessage({ kind: "repair_feedback_default" }),
+                        });
+                        const feedback = typeof response.value === "string" ? response.value.trim() : "";
+                        const followUp = await args.session.continueLastRepairTurn(feedback);
+                        if (!followUp?.completed) {
+                            return {
+                                kind: "paused",
+                                planName: args.planName,
+                                projectRoot: context.projectRoot,
+                                reason: repairBlockedReason(args, context.projectRoot, followUp?.blockerText),
+                            };
+                        }
+                        lastRepairReport = followUp.report;
+                        diffText = await getDiffText(context.baselineTree, context.executionCwd);
+                        continue;
+                    }
+                    await recordLifecycleEvent(
+                        args,
+                        context.projectRoot,
+                        "mechanical_validation_passed",
+                        "implemented",
+                    );
+                    if (action === "code_review") {
+                        await persistHumanReviewMetadata(args, context.executionCwd, {
+                            humanReviewMode: "always",
+                            humanReviewDecision: null,
+                            humanReviewedAt: null,
+                        });
+                        await recordLifecycleEvent(
+                            args,
+                            context.projectRoot,
+                            "semantic_review_passed",
+                            "validated_ci",
+                            undefined,
+                            { humanReviewMode: "always", humanReviewDecision: null, humanReviewedAt: null },
+                        );
+                        return {
+                            kind: "paused",
+                            planName: args.planName,
+                            projectRoot: context.projectRoot,
+                            reason: "Semantic Code Review round limit reached; Local Human Code Review requested.",
+                        };
+                    }
+                    if (action === "stop") {
+                        return {
+                            kind: "paused",
+                            planName: args.planName,
+                            projectRoot: context.projectRoot,
+                            reason: `The reviewer still has ${openCount} open point(s) on "${args.planName}". ` +
+                                "The tests still pass and the findings are saved. Run this Plan again when you want to pick it back up.",
+                        };
+                    }
+                    state.lastRepairReport = lastRepairReport;
+                    break;
                 }
                 state.repairBaselineTree = repairBaselineTree;
-                state.lastRepairReport = repair.report;
                 round = nextRound;
                 ledger = review.ledger;
                 diffText = await getDiffText(context.baselineTree, context.executionCwd);

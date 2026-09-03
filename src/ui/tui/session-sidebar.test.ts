@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import stripAnsi from "strip-ansi";
-import { TuiSessionSidebar, tuiSessionSidebarProjection } from "./session-sidebar.ts";
+import { composePinnedSessionSidebar, TuiSessionSidebar, tuiSessionSidebarProjection } from "./session-sidebar.ts";
 import { initRunWieldTheme } from "../theme/theme.js";
 
 initRunWieldTheme();
@@ -49,4 +49,15 @@ Deno.test("shared TUI projection defaults idle Sessions without a Plan to Sessio
     assertEquals(projection.defaultTab, "session");
     assertEquals(projection.workflow.active, false);
     assertEquals(projection.session.generation, "0");
+});
+
+Deno.test("TUI Session Sidebar stays at the top of the visible transcript viewport", () => {
+    const mainLines = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`);
+    const lines = composePinnedSessionSidebar(mainLines, ["sidebar top", "sidebar detail"], 12, 5);
+
+    assertEquals(lines.length, 12);
+    assertEquals(lines[0].includes("sidebar"), false);
+    assertEquals(lines[6].includes("sidebar"), false);
+    assertEquals(lines[7].endsWith("sidebar top"), true);
+    assertEquals(lines[8].endsWith("sidebar detail"), true);
 });

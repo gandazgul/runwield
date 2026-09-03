@@ -30,38 +30,6 @@ export interface RegisterSessionArtifactOptions {
     now?: () => string;
 }
 
-export interface QueuedSessionMessageClaim {
-    ownerInstanceId: string;
-    ownerProcessKind: ProcessKind;
-    claimedAt: string;
-    expectedGeneration: number | null;
-    resultGeneration: number;
-}
-
-export interface QueuedSessionMessage {
-    id: string;
-    text: string;
-    images: import("./types.js").ImageAttachment[];
-    delivery: "lease";
-    queuedAt: string;
-    queuedBy: ProcessKind;
-    claim?: QueuedSessionMessageClaim;
-}
-
-export interface EnqueueSessionMessageOptions {
-    text: string;
-    images?: import("./types.js").ImageAttachment[];
-    queuedBy: ProcessKind;
-    idFactory?: () => string;
-    now?: () => string;
-}
-
-export interface ClaimSessionMessageOptions {
-    ownerInstanceId: string;
-    ownerProcessKind: ProcessKind;
-    now?: () => string;
-}
-
 export interface FileSessionProject {
     projectId: string;
     displayName: string;
@@ -406,26 +374,6 @@ export interface FileSessionStore {
     catalogProjectSessions(projectId: string, options?: ListSessionOptions): Promise<SessionCatalogResult>;
     listSessionTranscriptSegments(runwieldSessionId: string): SessionTranscriptSegment[];
     listSessionArtifacts(runwieldSessionId: string): SessionArtifactReference[];
-    listQueuedSessionMessages(runwieldSessionId: string): QueuedSessionMessage[];
-    enqueueSessionMessage(
-        runwieldSessionId: string,
-        options: EnqueueSessionMessageOptions,
-    ): QueuedSessionMessage;
-    claimNextQueuedSessionMessage(
-        runwieldSessionId: string,
-        options: ClaimSessionMessageOptions,
-    ): QueuedSessionMessage | null;
-    completeQueuedSessionMessage(
-        runwieldSessionId: string,
-        messageId: string,
-        ownerInstanceId: string,
-    ): boolean;
-    releaseQueuedSessionMessage(
-        runwieldSessionId: string,
-        messageId: string,
-        ownerInstanceId: string,
-    ): boolean;
-    dequeueLastQueuedSessionMessage(runwieldSessionId: string): QueuedSessionMessage | null;
     getCurrentSessionSegment(runwieldSessionId: string): SessionTranscriptSegment | null;
     appendSessionTranscriptSegment(options: SegmentAppendOptions): Promise<SessionTranscriptSegment>;
     sealSessionTranscriptSegment(options: SegmentSealOptions): SessionTranscriptSegment;

@@ -818,6 +818,52 @@ Deno.test("Stop at the review round limit keeps the passing tests and the open f
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
 });
 
+Deno.test("inline round-limit repair records passing CI before another Reviewer round", async () => {
+    const { projectRoot, hostedSession } = await makeValidatedCiRun({ validationSemanticRounds: 2 });
+    let reviewerRuns = 0;
+    let ciRuns = 0;
+
+    hostedSession.setInteractionAdapter({
+        requestInteraction: () => Promise.resolve({ outcome: "selected", value: "continue" }),
+    });
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 2 },
+        supportsSemanticRepairHandoff: false,
+        semanticReviewPort: reviewPort({
+            runIsolatedAgentSession: (/** @type {any} */ options) => {
+                if (options.agentName === "reviewer-feedback-engineer") return Promise.resolve(repairMessages());
+                reviewerRuns += 1;
+                return Promise.resolve(
+                    reviewerRuns === 1
+                        ? reviewerMessages({
+                            approved: false,
+                            findings: [{ title: "Round-limit issue" }],
+                        })
+                        : reviewerMessages({
+                            approved: true,
+                            findings: [{ id: "R3-1", resolved: true, title: "Round-limit issue" }],
+                        }),
+                );
+            },
+        }),
+        localCI: {
+            run: () => {
+                ciRuns += 1;
+                return Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" });
+            },
+        },
+    });
+
+    assertEquals(reviewerRuns, 2);
+    assertEquals(ciRuns, 1);
+    assertEquals(result.kind, "paused");
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_reviewer");
+});
+
 Deno.test("look again re-enters at the focused reviewer, after the repair and its tests", async () => {
     const { projectRoot, hostedSession } = await makeValidatedCiRun({ validationSemanticRounds: 2 });
     /** @type {Array<"discovery" | "verify">} */

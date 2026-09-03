@@ -426,15 +426,6 @@
     font-size: 0.72rem;
 }
 
-.rw-artifact-conversation-working > span {
-    width: 0.5rem;
-    height: 0.5rem;
-    border-radius: 50%;
-    background: var(--rw-accent);
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--rw-accent) 35%, transparent);
-    animation: rw-conversation-pulse 1.4s ease-out infinite;
-}
-
 .rw-artifact-conversation-composer {
     display: grid;
     gap: 0.55rem;
@@ -492,19 +483,6 @@
     color: var(--rw-danger, var(--destructive));
     font-size: 0.7rem;
     line-height: 1.4;
-}
-
-@keyframes rw-conversation-pulse {
-    70%,
-    100% {
-        box-shadow: 0 0 0 0.45rem transparent;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .rw-artifact-conversation-working > span {
-        animation: none;
-    }
 }
 
 .card-actions a {

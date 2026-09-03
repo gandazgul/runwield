@@ -2646,6 +2646,39 @@
     z-index: 2;
 }
 
+.session-composer-queue {
+    display: grid;
+    gap: 0.35rem;
+    list-style: none;
+    margin: 0;
+    max-height: 9rem;
+    overflow-y: auto;
+    padding: 0;
+}
+
+.session-composer-queue li {
+    align-items: baseline;
+    background: color-mix(in srgb, var(--rw-accent) 8%, var(--rw-surface-muted));
+    border-left: 2px solid var(--rw-accent);
+    color: var(--rw-text-muted);
+    display: flex;
+    font-size: 0.82rem;
+    gap: 0.55rem;
+    justify-content: space-between;
+    padding: 0.42rem 0.55rem;
+}
+
+.session-composer-queue span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.session-composer-queue small {
+    color: var(--rw-text-dim);
+    flex: 0 0 auto;
+}
+
 .session-composer textarea,
 .session-create-card textarea {
     min-height: calc((1em * 1.45 * 2) + 0.3rem);

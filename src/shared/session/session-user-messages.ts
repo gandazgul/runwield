@@ -22,7 +22,7 @@ export function buildActiveConversationSubmissionMessage(kind?: SessionOwnerKind
 export function buildActiveConversationStatusMessage(kind?: SessionOwnerKind): string {
     return `This conversation is running in ${
         ownerLocation(kind)
-    }. This screen will become available when its current turn finishes.`;
+    }. Messages sent here will queue until its current turn finishes.`;
 }
 
 export function buildConversationRestoredMessage(kind?: SessionOwnerKind): string {

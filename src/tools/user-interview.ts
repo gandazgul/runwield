@@ -662,9 +662,27 @@ function buildResult(details: InterviewResultDetails): UserInterviewResult {
     };
 }
 
+function formatAnswerSelection(answer: InterviewResultAnswer): string {
+    if (answer.otherText) return `Other: ${answer.otherText}`;
+    if (answer.valueLabel) return answer.valueLabel;
+    return String(answer.value);
+}
+
+function answerLineNumber(answer: InterviewResultAnswer): number {
+    if (typeof answer.value === "string" && /^\d+$/.test(answer.value)) return Number(answer.value);
+    return answer.index;
+}
+
+function buildCompletedResultSummary(details: CompletedInterviewResultDetails): string {
+    const summaries = details.answers.map((answer) =>
+        `${answer.prompt}\n\n${answerLineNumber(answer)}. Answer selected was ${formatAnswerSelection(answer)}`
+    );
+    return summaries.join("\n\n");
+}
+
 function buildResultSummary(details: InterviewResultDetails): string {
     if (details.status === "completed") {
-        return `Interview completed: captured ${details.answeredCount}/${details.totalQuestions} answer(s).`;
+        return buildCompletedResultSummary(details);
     }
 
     if (details.status === "canceled") {

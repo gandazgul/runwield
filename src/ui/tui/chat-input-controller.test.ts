@@ -522,7 +522,7 @@ Deno.test("chat input controller preserves input while model setup blocks throug
     }, { providerState: "provider-no-model" });
 });
 
-Deno.test("chat input controller preserves input while another surface is active", async () => {
+Deno.test("chat input controller queues input while another surface is active", async () => {
     await withRuntimeCommandFixture("chat-input-real-managed-block-", async ({ alternateRoot }) => {
         const activeStore = await seedActiveElsewhereManagedSession(alternateRoot);
         const { composition, terminal } = await startComposition("continue");
@@ -539,7 +539,10 @@ Deno.test("chat input controller preserves input while another surface is active
                 "This conversation is running in RunWield Workspace.",
             );
             assertStringIncludes(terminal.getScreenText(), "keep managed draft");
-            assertEquals(composition.runtime.getQueuedMessages(composition.sessionId).length, 0);
+            assertEquals(
+                composition.runtime.getQueuedMessages(composition.sessionId).map((message) => message.text),
+                ["keep managed draft"],
+            );
         } finally {
             await composition.dispose();
             activeStore.close();

@@ -14,6 +14,8 @@ import {
     ValidationHandoffBlock,
 } from "./blocks.js";
 
+const MAX_MESSAGE_LIST_CHILDREN = 1000;
+
 /**
  * @typedef {Object} ToolElapsedTimerState
  * @property {ReturnType<typeof setTimeout> | null} renderTimer
@@ -189,6 +191,25 @@ export function createUiApi(
 
     const activePromptContainer = activeInteractionContainer || messageList;
 
+    const pruneMessageList = () => {
+        if (messageList.children.length <= MAX_MESSAGE_LIST_CHILDREN) return;
+        const retainedActiveToolBlocks = new Set(activeToolBlocks.values());
+        while (messageList.children.length > MAX_MESSAGE_LIST_CHILDREN) {
+            const child = messageList.children[0];
+            if (retainedActiveToolBlocks.has(child)) break;
+            messageList.removeChild(child);
+        }
+        while (messageList.children[0] instanceof Spacer) {
+            messageList.removeChild(messageList.children[0]);
+        }
+    };
+
+    /** @param {any} child */
+    const appendMessageListChild = (child) => {
+        messageList.addChild(child);
+        pruneMessageList();
+    };
+
     const suppressFocusedCursorForBusy = () => {
         const tuiFocus = /** @type {{ focusedComponent?: import('@earendil-works/pi-tui').Component | null }} */ (
             /** @type {unknown} */ (tui)
@@ -293,8 +314,8 @@ export function createUiApi(
             }
             const hidden = getSettingsManager().getHideThinkingBlock?.() ?? false;
             const block = new ThinkingBlock({ hidden });
-            messageList.addChild(block);
-            messageList.addChild(new Spacer(1));
+            appendMessageListChild(block);
+            appendMessageListChild(new Spacer(1));
             tui.requestRender();
             return {
                 /** @param {string} delta */
@@ -313,8 +334,8 @@ export function createUiApi(
         appendUserMessage: (text) => {
             if (outputSuppressed) return;
             const block = new UserPromptBlock(text);
-            messageList.addChild(block);
-            messageList.addChild(new Spacer(1));
+            appendMessageListChild(block);
+            appendMessageListChild(new Spacer(1));
             tui.requestRender();
         },
 
@@ -349,8 +370,8 @@ export function createUiApi(
                 };
             }
             const block = new AgentMessageBlock(agentName);
-            messageList.addChild(block);
-            messageList.addChild(new Spacer(1));
+            appendMessageListChild(block);
+            appendMessageListChild(new Spacer(1));
             tui.requestRender();
             return {
                 /** @param {string} delta */
@@ -369,8 +390,8 @@ export function createUiApi(
         appendReviewResult: (agentName, markdown, approved) => {
             if (outputSuppressed) return;
             const block = new ReviewResultBlock(agentName, markdown, approved);
-            messageList.addChild(block);
-            messageList.addChild(new Spacer(1));
+            appendMessageListChild(block);
+            appendMessageListChild(new Spacer(1));
             tui.requestRender();
         },
 
@@ -442,14 +463,14 @@ export function createUiApi(
                     messageList.removeChild(children[index]);
                 }
                 lastBlock.appendText(text, header, style);
-                messageList.addChild(new Spacer(1));
+                appendMessageListChild(new Spacer(1));
                 tui.requestRender();
                 return;
             }
 
             const block = new SystemMessageBlock(text, isError, header, style);
-            messageList.addChild(block);
-            messageList.addChild(new Spacer(1));
+            appendMessageListChild(block);
+            appendMessageListChild(new Spacer(1));
             tui.requestRender();
         },
 
@@ -472,12 +493,13 @@ export function createUiApi(
             block.endExecution = (isError, durationMs) => {
                 clearToolElapsedTimer(id);
                 originalEndExecution(isError, durationMs);
+                if (activeToolBlocks.get(id) === block) activeToolBlocks.delete(id);
                 if (!outputSuppressed) tui.requestRender();
             };
             block.setExpanded(toolsExpanded);
             activeToolBlocks.set(id, block);
-            messageList.addChild(block);
-            messageList.addChild(new Spacer(1));
+            appendMessageListChild(block);
+            appendMessageListChild(new Spacer(1));
             startToolElapsedTimer(id, block);
             tui.requestRender();
             return block;
@@ -616,8 +638,8 @@ export function createUiApi(
                     activePromptContainer.removeChild(spacer);
                     if (shouldPersistResult && !outputSuppressed) {
                         block.settle(value);
-                        messageList.addChild(block);
-                        messageList.addChild(spacer);
+                        appendMessageListChild(block);
+                        appendMessageListChild(spacer);
                     }
                     endPromptWait();
                     resolve(value);
@@ -670,8 +692,8 @@ export function createUiApi(
                     activePromptContainer.removeChild(spacer);
                     if (persistResult && !outputSuppressed) {
                         block.settle(value);
-                        messageList.addChild(block);
-                        messageList.addChild(spacer);
+                        appendMessageListChild(block);
+                        appendMessageListChild(spacer);
                     }
                     endPromptWait();
                     resolve(value);
@@ -725,6 +747,7 @@ export function createUiApi(
             }
             tui.setFocus(null);
             messageList.clear();
+            queuedInputContainer?.clear?.();
             validationPanelContainer?.clear?.();
             activeInteractionContainer?.clear?.();
             validationProgress = null;
@@ -751,6 +774,7 @@ export function createUiApi(
             for (const id of Array.from(toolElapsedTimers.keys())) clearToolElapsedTimer(id);
             activeToolBlocks.clear();
             queuedMessageBlocks.clear();
+            queuedInputContainer?.clear?.();
             removeInputAccessoryResources();
             validationProgress = null;
             latestEngineerReport = null;

@@ -217,16 +217,6 @@ export const plannedChangeReviewRepairValidationScenario = {
             }],
         },
         {
-            // The isolated repair session runs until a turn answers without tool
-            // calls; only then does Validation resume with round 2.
-            id: "engineer-post-repair-turn-before-re-review",
-            agent: "engineer",
-            phase: "engineer",
-            ordinal: 5,
-            optional: false,
-            text: "Engineer awaits re-review of the repair.",
-        },
-        {
             // The Reviewer's isolated session runs until the model answers without
             // tool calls, so each review round is two turns: the inspect/decide
             // turn above, then this text-only turn that closes the round. Without

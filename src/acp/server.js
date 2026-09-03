@@ -466,7 +466,29 @@ function createRunWieldAcpServer(context) {
         }
         let runtimeSessionId = /** @type {string} */ (sessionMap.getRuntimeSessionId(acpSessionId));
         if (!runtimeSessionId) throwUnknownSession(acpSessionId);
+        if (sessionMap.getRecord(acpSessionId)?.activePrompt) {
+            throw new RequestError(
+                ACP_INVALID_STATE,
+                `ACP session already has an active prompt: ${acpSessionId}`,
+                { sessionId: acpSessionId },
+            );
+        }
         const promptText = convertAcpPromptToText(request.prompt);
+        const initialSnapshot = runtime.getSessionSnapshot(runtimeSessionId);
+        if (initialSnapshot?.managed?.syncState?.status === "active_elsewhere") {
+            const queued = runtime.queueNextTurnMessage(runtimeSessionId, promptText, [], {
+                deliverWhenAvailable: true,
+            });
+            if (!queued.ok) {
+                throw new RequestError(ACP_INVALID_STATE, queued.error || "ACP prompt could not be queued", {
+                    sessionId: acpSessionId,
+                });
+            }
+            return {
+                stopReason: "end_turn",
+                _meta: { runwield: { queued: queued.queued, queuedMessageId: queued.message?.id || "" } },
+            };
+        }
 
         /** @type {Promise<void>[]} */
         const pendingNotifications = [];
@@ -567,6 +589,20 @@ function createRunWieldAcpServer(context) {
             }
             if (result?.stopReason === "cancelled") return result;
             if (!result.ok) {
+                if (
+                    result.error === "managed_operation_in_progress" &&
+                    !sessionMap.getRecord(acpSessionId)?.activePrompt
+                ) {
+                    const queued = runtime.queueNextTurnMessage(runtimeSessionId, promptText, [], {
+                        deliverWhenAvailable: true,
+                    });
+                    if (queued.ok) {
+                        return {
+                            stopReason: "end_turn",
+                            _meta: { runwield: { queued: queued.queued, queuedMessageId: queued.message?.id || "" } },
+                        };
+                    }
+                }
                 throw new RequestError(ACP_INVALID_STATE, result.error || "ACP prompt was rejected", {
                     sessionId: acpSessionId,
                 });

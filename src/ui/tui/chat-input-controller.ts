@@ -129,9 +129,12 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             previewImages.addChild(createPastedImagePreview(img));
         }
     }
-    function recallQueuedSubmissionsToEditor(): void {
+    async function recallQueuedSubmissionsToEditor(): Promise<void> {
         const queuedMessages = runtime.getQueuedMessages(options.getSessionId());
         if (queuedMessages.length === 0) return;
+        for (let index = 0; index < queuedMessages.length; index += 1) {
+            await runtime.dequeueLastQueuedMessage(options.getSessionId());
+        }
         restoreQueuedItemToEditor({
             text: queuedMessages.map((message) => message.text).join("\n"),
             images: queuedMessages.flatMap((message) => message.images),
@@ -297,8 +300,13 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             forceResetUI();
             return;
         }
+        const managedSnapshot = runtime.getSessionSnapshot(options.getSessionId());
+        const activeElsewhere = managedSnapshot?.managed?.syncState?.status === "active_elsewhere";
         const managedBlockMessage = runtime.getUserTurnSubmissionBlockMessage(options.getSessionId());
-        if (managedBlockMessage && !(userRequest.startsWith("/") && options.isModelSetupRecoveryCommand(userRequest))) {
+        if (
+            managedBlockMessage && (!activeElsewhere || userRequest.startsWith("/")) &&
+            !(userRequest.startsWith("/") && options.isModelSetupRecoveryCommand(userRequest))
+        ) {
             uiAPI.appendSystemMessage(managedBlockMessage, true, "RunWield");
             editor.setText(text);
             forceResetUI();
@@ -330,6 +338,23 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         endBlink();
         view.clearPastedImages();
         editor.setText("");
+        if (activeElsewhere) {
+            const queued = runtime.queueNextTurnMessage(options.getSessionId(), text, images, {
+                deliverWhenAvailable: true,
+            });
+            if (!queued.queued) {
+                restoreQueuedItemToEditor({ text, images });
+                uiAPI.appendSystemMessage(
+                    `Unable to queue message: ${queued.error || queued.reason || "unknown error"}`,
+                    true,
+                    "RunWield",
+                );
+            } else {
+                if (userRequest) recordUserInputHistory(editor, userRequest);
+            }
+            view.requestRender();
+            return;
+        }
         if (userRequest.startsWith("!")) {
             recordUserInputHistory(editor, userRequest);
             handleBashCommand({

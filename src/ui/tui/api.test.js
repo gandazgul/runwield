@@ -9,6 +9,7 @@ import {
     SystemMessageBlock,
     ThinkingBlock,
     ToolExecutionBlock,
+    UserPromptBlock,
     ValidationHandoffBlock,
 } from "./blocks.js";
 import stripAnsi from "strip-ansi";
@@ -146,9 +147,10 @@ Deno.test("createUiApi appends visible blocks, merges compatible system messages
     assertEquals(trailingSpacers, 1);
 
     const tool = ui.startToolExecution("tool-1", "bash", "$ echo hi");
+    assertEquals(ui.getActiveToolBlock("tool-1"), tool);
     tool.setOutput("output");
     tool.endExecution(false, 1);
-    assertEquals(ui.getActiveToolBlock("tool-1"), tool);
+    assertEquals(ui.getActiveToolBlock("tool-1"), undefined);
     ui.toggleToolOutputsExpanded();
     ui.toggleToolOutputsExpanded();
     ui.advanceSpinner();
@@ -177,6 +179,18 @@ Deno.test("createUiApi does not hide duplicate tool-start events", () => {
 
     first.endExecution(false, 1);
     second.endExecution(false, 1);
+});
+
+Deno.test("createUiApi releases old message blocks during long-running TUI sessions", () => {
+    const { tui, messageList } = makeTuiHarness();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
+
+    for (let index = 0; index < 700; index++) {
+        ui.appendUserMessage(`message ${index}`);
+    }
+
+    assertEquals(messageList.children.length <= 1000, true);
+    assertEquals(messageList.children[0] instanceof UserPromptBlock, true);
 });
 
 Deno.test("createUiApi toggles one transient keyboard-help block outside the message list", () => {
@@ -276,18 +290,22 @@ Deno.test("createUiApi clearMessages removes input accessory resources", () => {
 
 Deno.test("createUiApi adds and removes exact queued-message blocks by runtime id", () => {
     const { tui, messageList } = makeTuiHarness();
-    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
+    const queuedInput = makeContainer();
+    const ui = /** @type {any} */ (
+        createUiApi(tui, messageList, new SpinnerBlock(), undefined, undefined, undefined, queuedInput)
+    );
 
     ui.appendQueuedMessage("queued-1", "first");
     ui.appendQueuedMessage("queued-1", "duplicate ignored");
     ui.appendQueuedMessage("queued-2", "second");
 
-    assertEquals(messageList.children.length, 4);
+    assertEquals(messageList.children.length, 0);
+    assertEquals(queuedInput.children.length, 4);
     ui.removeQueuedMessage("queued-2");
-    assertEquals(messageList.children.length, 2);
-    assertEquals(messageList.children[0] instanceof SystemMessageBlock, true);
+    assertEquals(queuedInput.children.length, 2);
+    assertEquals(queuedInput.children[0] instanceof SystemMessageBlock, true);
     ui.removeQueuedMessage("queued-1");
-    assertEquals(messageList.children, []);
+    assertEquals(queuedInput.children, []);
 });
 
 Deno.test("createUiApi renders live elapsed tool time immediately and stops after completion", async () => {

@@ -26,7 +26,7 @@ export interface KeybindingsContext {
     generationGuard: GenerationGuard;
     dismissActivePrompt(): void;
     dequeueLastSubmission(): boolean | Promise<boolean>;
-    recallQueuedSubmissionsToEditor(): void;
+    recallQueuedSubmissionsToEditor(): void | Promise<void>;
     forceResetUI(): void;
     markCtrlCPendingExit(): void;
     isCtrlCPendingExit(): boolean;
@@ -86,7 +86,7 @@ export function installKeybindings(ctx: KeybindingsContext): (data: string) => v
     editor.handleInput = async (data: string): Promise<void> => {
         if (matchesKey(data, Key.escape)) {
             hideKeyboardHelp?.();
-            recallQueuedSubmissionsToEditor();
+            await recallQueuedSubmissionsToEditor();
             cancelEverything();
             tui.requestRender();
             return;

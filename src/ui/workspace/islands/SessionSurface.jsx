@@ -63,6 +63,20 @@ function getNewSessionDraftInstanceId(projectId) {
  * @property {string} base64
  */
 
+/**
+ * @typedef {Object} SessionImageRequest
+ * @property {string} base64
+ * @property {string} mimeType
+ */
+
+/**
+ * @typedef {Object} WorkspaceQueuedMessage
+ * @property {string} id
+ * @property {string} text
+ * @property {SessionImageRequest[]} images
+ * @property {string} queuedAt
+ */
+
 /** @param {unknown} value */
 function asRecord(value) {
     return value && typeof value === "object" ? /** @type {Record<string, any>} */ (value) : {};
@@ -156,9 +170,10 @@ export function isAtLiveScrollEdge(input) {
     return input.scrollHeight - input.scrollTop - input.clientHeight < threshold;
 }
 
-/** @param {{ mode: string, state?: string, localOperationActive?: boolean }} input */
+/** @param {{ mode: string, state?: string, localOperationActive?: boolean, queuedMessageCount?: number }} input */
 export function shouldRefreshSessionAvailability(input) {
-    return input.mode === "detail" && input.localOperationActive !== true && input.state === "active";
+    return input.mode === "detail" && input.localOperationActive !== true &&
+        (input.state === "active" || (input.queuedMessageCount || 0) > 0);
 }
 
 /**
@@ -321,6 +336,7 @@ function SessionComposer({
     agentFallback = null,
     modelFallback = null,
     thinkingFallback = null,
+    queuedMessages = [],
 }) {
     const textareaRef = useRef(null);
     useEffect(() => resizeComposerTextArea(textareaRef.current), [draft]);
@@ -332,6 +348,20 @@ function SessionComposer({
                 onSubmit();
             }}
         >
+            {queuedMessages.length
+                ? (
+                    <ol className="session-composer-queue" aria-label="Queued messages">
+                        {queuedMessages.map((item) => (
+                            <li key={item.id}>
+                                <span>{item.text || "Image message"}</span>
+                                {Array.isArray(item.images) && item.images.length
+                                    ? <small>{item.images.length} image{item.images.length === 1 ? "" : "s"}</small>
+                                    : null}
+                            </li>
+                        ))}
+                    </ol>
+                )
+                : null}
             <textarea
                 ref={textareaRef}
                 id={id}
@@ -434,6 +464,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [loadingDetail, setLoadingDetail] = useState(mode === "detail");
     const [draft, setDraft] = useState("");
     const [imageAttachments, setImageAttachments] = useState(/** @type {SessionImageAttachmentDraft[]} */ ([]));
+    const [queuedMessages, setQueuedMessages] = useState(/** @type {WorkspaceQueuedMessage[]} */ ([]));
     const [message, setMessage] = useState("");
     const [operation, setOperation] = useState(
         /** @type {{ operationId: string, status: string, observed: number, attempts: number } | null} */ (null),
@@ -453,6 +484,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [operationStreamFailed, setOperationStreamFailed] = useState(false);
     const operationRef = useRef(operation);
     operationRef.current = operation;
+    const queuedDispatchActiveRef = useRef(false);
+    const queuedSessionRef = useRef(runwieldSessionId);
     const timelineEndRef = useRef(/** @type {HTMLDivElement | null} */ (null));
     const timelineScrollRef = useRef(/** @type {HTMLDivElement | null} */ (null));
     const followingLiveEdgeRef = useRef(true);
@@ -580,6 +613,12 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             setLoadingDetail(false);
         }
     }
+
+    useEffect(() => {
+        if (queuedSessionRef.current === runwieldSessionId) return;
+        queuedSessionRef.current = runwieldSessionId;
+        setQueuedMessages([]);
+    }, [runwieldSessionId]);
 
     useEffect(() => {
         didPinInitialTimelineRef.current = false;
@@ -779,9 +818,75 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }
     }
 
+    /** @param {Record<string, any>} envelope @param {Record<string, any>} payload */
+    function acceptContinuation(envelope, payload) {
+        setPendingUserMessages((messages) => [
+            ...messages,
+            {
+                kind: "message",
+                role: "user",
+                key: `pending-user:${envelope.requestId}`,
+                text: envelope.text,
+                timestamp: envelope.createdAt,
+                source: "transient",
+            },
+        ]);
+        const stored = {
+            ...envelope,
+            status: payload.status || "running",
+            operationId: payload.operationId,
+            responseAccepted: true,
+        };
+        localStorage.setItem(requestKey, JSON.stringify(stored));
+        setOperationStreamFailed(false);
+        setOperation({
+            operationId: payload.operationId,
+            status: payload.status || "running",
+            observed: 0,
+            attempts: 0,
+        });
+        setMessage("Request accepted. Watching progress without replaying on refresh.");
+    }
+
+    /** @param {Record<string, any>} envelope */
+    async function postContinuation(envelope) {
+        return await ownerFetch(
+            `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                encodeURIComponent(runwieldSessionId)
+            }/continue`,
+            {
+                method: "POST",
+                body: JSON.stringify({
+                    requestId: envelope.requestId,
+                    expectedGeneration: envelope.expectedGeneration,
+                    text: envelope.text,
+                    images: Array.isArray(envelope.images) ? envelope.images : [],
+                }),
+            },
+        );
+    }
+
+    /** @param {Record<string, any>} envelope */
+    function queueContinuation(envelope) {
+        setQueuedMessages((current) => [
+            ...current,
+            {
+                id: String(envelope.requestId),
+                text: String(envelope.text || ""),
+                images: Array.isArray(envelope.images) ? envelope.images : [],
+                queuedAt: String(envelope.createdAt || new Date().toISOString()),
+            },
+        ]);
+        localStorage.removeItem(requestKey);
+        setDraft("");
+        setImageAttachments([]);
+        setMessage("Message queued in this browser tab. It will send when this Session becomes available.");
+    }
+
     async function sendRequest() {
         const text = draft;
-        if ((!text.trim() && imageAttachments.length === 0) || !availability.canContinue || submitting || !timeline) {
+        const canSubmit = availability.canContinue || availability.key === "active";
+        if ((!text.trim() && imageAttachments.length === 0) || !canSubmit || submitting || !timeline) {
             return;
         }
         setSubmitting(true);
@@ -801,61 +906,29 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             status: "pending",
             createdAt: new Date().toISOString(),
         };
+        if (freshTimeline.state === "active") {
+            queueContinuation(envelope);
+            setSubmitting(false);
+            return;
+        }
         localStorage.setItem(requestKey, JSON.stringify(envelope));
         try {
-            const payload = await ownerFetch(
-                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
-                    encodeURIComponent(runwieldSessionId)
-                }/continue`,
-                {
-                    method: "POST",
-                    body: JSON.stringify({
-                        requestId: envelope.requestId,
-                        expectedGeneration: envelope.expectedGeneration,
-                        text: envelope.text,
-                        images: Array.isArray(envelope.images) ? envelope.images : [],
-                    }),
-                },
-            );
+            const payload = await postContinuation(envelope);
             setDraft("");
             setImageAttachments([]);
-            setPendingUserMessages((messages) => [
-                ...messages,
-                {
-                    kind: "message",
-                    role: "user",
-                    key: `pending-user:${envelope.requestId}`,
-                    text: envelope.text,
-                    timestamp: envelope.createdAt,
-                    source: "transient",
-                },
-            ]);
-            const stored = {
-                ...envelope,
-                status: payload.status || "running",
-                operationId: payload.operationId,
-                responseAccepted: true,
-            };
-            localStorage.setItem(requestKey, JSON.stringify(stored));
-            setOperationStreamFailed(false);
-            setOperation({
-                operationId: payload.operationId,
-                status: payload.status || "running",
-                observed: 0,
-                attempts: 0,
-            });
-            setMessage("Request accepted. Watching progress without replaying on refresh.");
+            acceptContinuation(envelope, payload);
         } catch (error) {
             const errorRecord = asRecord(error);
             const status = Number(errorRecord.status || 0);
-            const nextStatus = status === 409 ? "conflict" : status === 503 ? "unavailable" : "network-error";
+            if (status === 409) {
+                await loadTimeline();
+                queueContinuation(envelope);
+                return;
+            }
+            const nextStatus = status === 503 ? "unavailable" : "network-error";
             localStorage.setItem(requestKey, JSON.stringify({ ...envelope, status: nextStatus }));
-            if (status === 409 || status === 503) await loadTimeline();
-            setMessage(
-                status === 409
-                    ? `${errorMessage(error)} Refreshing; resubmit explicitly when ready.`
-                    : errorMessage(error),
-            );
+            if (status === 503) await loadTimeline();
+            setMessage(errorMessage(error));
         } finally {
             setSubmitting(false);
         }
@@ -980,6 +1053,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 mode,
                 state: timeline?.state,
                 localOperationActive: Boolean(operation?.operationId),
+                queuedMessageCount: queuedMessages.length,
             })
         ) return undefined;
         const refresh = () => {
@@ -996,7 +1070,59 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             document.removeEventListener("visibilitychange", refreshWhenVisible);
             clearInterval(id);
         };
-    }, [mode, timeline?.state, operation?.operationId, projectId, runwieldSessionId]);
+    }, [mode, timeline?.state, queuedMessages.length, operation?.operationId, projectId, runwieldSessionId]);
+
+    useEffect(() => {
+        if (
+            mode !== "detail" || timeline?.state !== "idle" || operation?.operationId || queuedMessages.length === 0
+        ) return undefined;
+        let cancelled = false;
+        const sendOldestQueuedMessage = async () => {
+            if (cancelled || queuedDispatchActiveRef.current) return;
+            const queued = queuedMessages[0];
+            if (!queued) return;
+            queuedDispatchActiveRef.current = true;
+            setSubmitting(true);
+            try {
+                const freshTimeline = await loadTimeline();
+                if (
+                    cancelled || !freshTimeline || freshTimeline.state !== "idle" || freshTimeline.truncated ||
+                    freshTimeline.complete === false
+                ) return;
+                const envelope = {
+                    requestId: queued.id,
+                    expectedGeneration: freshTimeline.generation,
+                    text: queued.text,
+                    images: queued.images,
+                    status: "pending",
+                    createdAt: queued.queuedAt,
+                };
+                localStorage.setItem(requestKey, JSON.stringify(envelope));
+                try {
+                    const payload = await postContinuation(envelope);
+                    if (cancelled) return;
+                    setQueuedMessages((current) => current.filter((item) => item.id !== queued.id));
+                    acceptContinuation(envelope, payload);
+                } catch (error) {
+                    localStorage.removeItem(requestKey);
+                    const status = Number(asRecord(error).status || 0);
+                    if (status === 409 || status === 503) await loadTimeline();
+                    if (!cancelled) {
+                        setMessage(`${errorMessage(error)} Message remains queued in this browser tab.`);
+                    }
+                }
+            } finally {
+                queuedDispatchActiveRef.current = false;
+                if (!cancelled) setSubmitting(false);
+            }
+        };
+        void sendOldestQueuedMessage();
+        const id = setInterval(sendOldestQueuedMessage, AVAILABILITY_REFRESH_INTERVAL_MS);
+        return () => {
+            cancelled = true;
+            clearInterval(id);
+        };
+    }, [mode, timeline?.state, queuedMessages, operation?.operationId, projectId, runwieldSessionId, requestKey]);
 
     useEffect(() => {
         if (mode !== "detail" || !timeline) {
@@ -1226,6 +1352,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const showBusyPanel = ["active", "workspace-running", "execution-workflow"].includes(availability.key);
     const canRecoverBusySession = availability.key === "active" && typeof timeline?.generation === "number";
     const busySurface = timeline?.activeSurface || (operation?.operationId ? "workspace" : null);
+    const canSubmitSession = availability.canContinue || availability.key === "active";
     return (
         <section className="session-surface session-surface-detail" aria-label="RunWield Session chat">
             {loadingDetail && !timeline
@@ -1288,9 +1415,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             <SessionComposer
                                 id="session-request-text"
                                 draft={draft}
-                                disabled={!availability.canContinue || submitting}
+                                disabled={!canSubmitSession || submitting}
                                 controlsDisabled={!canConfigureSession}
-                                canSend={availability.canContinue && Boolean(draft.trim() || imageAttachments.length)}
+                                canSend={canSubmitSession && Boolean(draft.trim() || imageAttachments.length)}
                                 submitting={submitting}
                                 onDraftChange={setDraft}
                                 onSubmit={sendRequest}
@@ -1323,6 +1450,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                 thinkingFallback={thinkingLevels.includes(displayedThinking)
                                     ? null
                                     : <option value={displayedThinking}>{displayedThinking}</option>}
+                                queuedMessages={queuedMessages}
                             />
                         </main>
                         <aside

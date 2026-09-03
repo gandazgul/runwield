@@ -331,9 +331,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 localCI: systemLocalCIPort,
             });
             if (triageEvent) settleWorkflowToolEvent(hostedSession, triageEvent);
-            if (validationResult?.epicContinuation) {
-                return { kind: "complete", validationResult };
-            }
+            if (validationResult) return { kind: "complete", validationResult };
             return { kind: "complete" };
         }
 
@@ -505,11 +503,10 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     localCI: systemLocalCIPort,
                     workRecordMnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
                     semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
+                    supportsSemanticRepairHandoff: true,
                 });
-                if (validationResult?.epicContinuation) {
-                    return { kind: "complete", validationResult };
-                }
                 requestAgentStoppedAttention();
+                return { kind: "complete", validationResult };
             } else if (executionDecision.kind === "stay_with_agent") {
                 if (executionCanceledBeforeStart) {
                     requestAgentStoppedAttention();
@@ -682,13 +679,12 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     localCI: systemLocalCIPort,
                     workRecordMnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
                     semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
+                    supportsSemanticRepairHandoff: true,
                     ...(acceptedCompletion.completionId ? { taskCompletionId: acceptedCompletion.completionId } : {}),
                 });
                 if (!validationResult?.retainTaskCompletionClaim) acknowledgeCompletion();
-                if (validationResult?.epicContinuation) {
-                    return { kind: "complete", validationResult };
-                }
                 requestAgentStoppedAttention();
+                return { kind: "complete", validationResult };
             } else {
                 acknowledgeCompletion();
             }

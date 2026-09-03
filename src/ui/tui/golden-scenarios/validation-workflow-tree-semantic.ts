@@ -5,6 +5,23 @@ import {
 import { validationEvidenceAssertion } from "../testing/validation-workflow-coverage.ts";
 import { withValidationBranches } from "./validation-workflow-tree-shared.ts";
 
+type GoldenScriptValue = string | number | boolean | null | GoldenScriptValue[] | {
+    [key: string]: GoldenScriptValue;
+};
+
+interface GoldenScriptTurn {
+    id: string;
+    agent: string;
+    phase: string;
+    ordinal: number;
+    planName?: string;
+    optional?: boolean;
+    requiredTools?: string[];
+    thinking?: string;
+    text?: string;
+    toolCalls?: Array<{ name: string; arguments: { [key: string]: GoldenScriptValue } }>;
+}
+
 export const validationTreeSemanticReviewLoopScenario = withValidationBranches(
     plannedChangeReviewRepairValidationScenario,
     "validation-tree-semantic-review-loop",
@@ -15,7 +32,8 @@ export const validationTreeSemanticRepairIncompleteScenario = withValidationBran
     {
         ...plannedChangeReviewRepairValidationScenario,
         name: "validation-tree-semantic-repair-incomplete-base",
-        script: plannedChangeReviewRepairValidationScenario.script.slice(0, 5).concat([
+        script: [
+            ...(plannedChangeReviewRepairValidationScenario.script as GoldenScriptTurn[]).slice(0, 5),
             {
                 id: "engineer-semantic-repair-without-completion",
                 agent: "engineer",
@@ -36,7 +54,7 @@ export const validationTreeSemanticRepairIncompleteScenario = withValidationBran
                 optional: true,
                 text: "Semantic Code Review repair stopped before task_completed.",
             },
-        ]),
+        ],
         actions: [
             {
                 type: "writeProjectFile",
@@ -135,7 +153,7 @@ export const validationTreeSemanticNudgeOmittedPriorFindingScenario = withValida
                     },
                 ],
             },
-            ...plannedChangeReviewRepairValidationScenario.script.slice(5, 9),
+            ...plannedChangeReviewRepairValidationScenario.script.slice(5, 8),
             {
                 id: "semantic-reviewer-omits-prior-finding-after-repair",
                 agent: "reviewer",
@@ -603,11 +621,6 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
     ["semantic:round-limit:stop"],
 );
 
-// TODO: fix this. Seeding validationSemanticRounds=2 reaches semanticRound 3,
-// but after the Engineer repair completes the visible TUI stops at Engineer
-// without the round-limit prompt. The latest probe left the Plan implemented
-// with a paused semantic checkpoint, and only the recovery prompt interaction
-// was captured. Keep unowned until Stop is visible.
 export const validationTreeSemanticRoundLimitStopDirectScenario = withValidationBranches(
     {
         name: "validation-tree-semantic-round-limit-stop-direct-base",
@@ -625,74 +638,84 @@ export const validationTreeSemanticRoundLimitStopDirectScenario = withValidation
         }],
         script: [
             {
-                id: "reviewer-rejects-semantic-round-limit-stop-direct",
-                agent: "reviewer",
-                phase: "semantic_review",
-                planName: "semantic-round-limit-stop-direct",
-                ordinal: 1,
-                requiredTools: ["review_diff", "review_complete"],
-                toolCalls: [
-                    { name: "review_diff", arguments: { command: "list" } },
-                    {
-                        name: "review_complete",
-                        arguments: { approved: false, feedback: "Round limit still has open work." },
-                    },
-                ],
-            },
-            {
-                id: "engineer-repairs-semantic-round-limit-stop-direct",
+                id: "engineer-finishes-semantic-round-limit-stop-direct",
                 agent: "engineer",
                 phase: "engineer",
                 planName: "semantic-round-limit-stop-direct",
                 ordinal: 1,
-                requiredTools: ["write", "task_completed"],
-                toolCalls: [
-                    {
-                        name: "write",
-                        arguments: { path: "semantic-round-limit-stop-direct.txt", content: "repair\n" },
-                    },
-                    { name: "task_completed", arguments: { message: "- Repaired semantic round limit." } },
-                ],
+                requiredTools: ["write"],
+                toolCalls: [{
+                    name: "write",
+                    arguments: { path: "semantic-round-limit-stop-direct.txt", content: "implementation\n" },
+                }],
             },
             {
-                id: "engineer-idle-semantic-round-limit-stop-direct",
+                id: "engineer-completes-semantic-round-limit-stop-direct",
                 agent: "engineer",
                 phase: "engineer",
                 planName: "semantic-round-limit-stop-direct",
                 ordinal: 2,
-                text: "Semantic round-limit repair is ready for the Stop choice.",
+                requiredTools: ["task_completed"],
+                toolCalls: [{
+                    name: "task_completed",
+                    arguments: { message: "- Finished the implementation before review." },
+                }],
             },
+            ...(validationTreeSemanticRoundLimitStopScenario.script as GoldenScriptTurn[]).map((turn) => ({
+                ...turn,
+                id: `direct-${turn.id}`,
+                planName: "semantic-round-limit-stop-direct",
+                ordinal: turn.agent === "engineer" ? turn.ordinal + 2 : turn.ordinal,
+                ...(Array.isArray(turn.toolCalls)
+                    ? {
+                        toolCalls: turn.toolCalls.map((call) =>
+                            call.name === "write"
+                                ? {
+                                    ...call,
+                                    arguments: {
+                                        ...call.arguments,
+                                        path: "semantic-round-limit-stop-direct.txt",
+                                    },
+                                }
+                                : call
+                        ),
+                    }
+                    : {}),
+            })),
         ],
         scriptedInteractions: [
-            { type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" },
+            { type: "select", promptIncludes: "Plan recovery (in_progress)", value: "continue" },
             { type: "select", promptIncludes: "Look once more, read it, or stop.", value: "stop" },
         ],
         actions: [
             {
                 type: "seedActiveWorktree",
                 planName: "semantic-round-limit-stop-direct",
-                status: "validated_ci",
+                status: "in_progress",
                 attrs: {
                     validationSemanticRounds: 2,
                 },
-                files: [{ path: "semantic-round-limit-stop-direct.txt", text: "implemented\n" }],
             },
             { type: "type", text: "/load-plan semantic-round-limit-stop-direct" },
             { type: "enter" },
             { type: "enter" },
-            { type: "waitForEvent", event: "runtime:tool:start:review_complete", timeoutMs: 90000 },
-            { type: "waitForEvent", event: "runtime:agent:plan-engineer", timeoutMs: 90000 },
-            { type: "type", text: "repair the semantic review feedback" },
-            { type: "enter" },
-            { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 90000 },
-            { type: "waitForIdle", timeoutMs: 120000 },
+            { type: "waitForEventCount", event: "runtime:tool:start:task_completed", count: 4, timeoutMs: 180000 },
+            { type: "waitForScreen", text: "Look once more, read it, or stop.", timeoutMs: 180000 },
+            { type: "waitForEvent", event: "runtime:interaction_resolved", timeoutMs: 180000 },
+            { type: "waitForIdle", timeoutMs: 180000 },
+            {
+                type: "waitForPlanStatus",
+                planName: "semantic-round-limit-stop-direct",
+                statuses: ["validated_ci"],
+                timeoutMs: 90000,
+            },
             { type: "captureProjectState", planNames: ["semantic-round-limit-stop-direct"] },
         ],
-        assertions: [],
+        assertions: [validationEvidenceAssertion("semantic:round-limit:stop-after-execution")],
     },
     "validation-tree-semantic-round-limit-stop-direct",
     ["semantic-round-limit-stop-direct"],
-    [],
+    ["semantic:round-limit:stop-after-execution"],
 );
 
 export const validationTreeSemanticRoundLimitContinueScenario = {
@@ -893,6 +916,7 @@ export const validationWorkflowSemanticScenarios = [
     validationTreeSemanticNudgeMissingDiffInspectionScenario,
     validationTreeSemanticRoundLimitContinueScenario,
     validationTreeSemanticRoundLimitHumanReviewScenario,
+    validationTreeSemanticRoundLimitStopDirectScenario,
     validationTreeSemanticRoundLimitStopScenario,
     validationTreeEmptyDiffSkipScenario,
     validationTreeNonGitDeliveryScenario,

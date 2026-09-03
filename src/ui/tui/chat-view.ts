@@ -33,7 +33,7 @@ import type { Component } from "@earendil-works/pi-tui";
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { ImageAttachment } from "../../shared/session/types.js";
 import type { UiAPI } from "./types.js";
-import { TuiSessionSidebar, type TuiSessionSidebarSnapshot } from "./session-sidebar.ts";
+import { composePinnedSessionSidebar, TuiSessionSidebar, type TuiSessionSidebarSnapshot } from "./session-sidebar.ts";
 
 const SESSION_SIDEBAR_MIN_WIDTH = 132;
 
@@ -168,10 +168,6 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         options.getSessionId,
         () => options.sessionRuntime.getSessionSnapshot(options.getSessionId()),
     );
-    const padLine = (line: string, width: number): string => {
-        const clipped = truncateToWidth(line, width);
-        return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
-    };
     const rootWrapper: Component = {
         invalidate: () => {
             container.invalidate();
@@ -187,11 +183,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
             const mainWidth = Math.max(48, availableWidth - sidebarWidth - 1);
             const mainLines = container.render(mainWidth);
             const sidebarLines = sessionSidebar.render(sidebarWidth);
-            const lineCount = Math.max(mainLines.length, sidebarLines.length);
-            return Array.from(
-                { length: lineCount },
-                (_, index) => `${padLine(mainLines[index] || "", mainWidth)} ${sidebarLines[index] || ""}`,
-            );
+            return composePinnedSessionSidebar(mainLines, sidebarLines, mainWidth, tui.terminal.rows);
         },
     };
     tui.addChild(rootWrapper);

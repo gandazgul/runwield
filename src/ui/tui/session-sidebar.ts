@@ -41,6 +41,21 @@ function fit(text: string, width: number): string {
     return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
 }
 
+export function composePinnedSessionSidebar(
+    mainLines: string[],
+    sidebarLines: string[],
+    mainWidth: number,
+    terminalRows: number,
+): string[] {
+    const lineCount = Math.max(mainLines.length, sidebarLines.length);
+    const viewportStart = Math.max(0, lineCount - Math.max(1, terminalRows));
+    const visibleSidebarLines = sidebarLines.slice(0, Math.max(1, terminalRows));
+    return Array.from({ length: lineCount }, (_, index) => {
+        const sidebarLine = visibleSidebarLines[index - viewportStart] || "";
+        return `${fit(mainLines[index] || "", mainWidth)} ${sidebarLine}`;
+    });
+}
+
 function field(label: string, value: string, width: number): string[] {
     return [theme.fg("dim", fit(label.toUpperCase(), width)), fit(value, width)];
 }

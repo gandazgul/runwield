@@ -78,9 +78,50 @@ Deno.test("userInterviewTool completes a single yes/no question", async () => {
         valueLabel: "yes",
         otherText: undefined,
     });
-    assertMatch(firstText(result), /Interview completed: captured 1\/1 answer\(s\)\./);
+    assertMatch(firstText(result), /Proceed with the scoped feature\?\n\n1\. Answer selected was yes/);
     assertMatch(firstText(result), /interview_result_json:/);
     assertMatch(firstText(result), /"answers"\s*:\s*\[/);
+});
+
+Deno.test("userInterviewTool result text shows the question and selected answer", async () => {
+    const tool = createUserInterviewTool(makeUi({
+        promptSelect: () => Promise.resolve("2"),
+    }));
+
+    const result = await executeTool(tool, {
+        question: {
+            id: "multi_line",
+            type: "multiple_choice",
+            prompt: "Question blah blah\nmultiline?",
+            choices: [
+                { value: "1", label: "1" },
+                { value: "2", label: "2" },
+            ],
+        },
+    });
+
+    assertMatch(firstText(result), /Question blah blah\nmultiline\?\n\n2\. Answer selected was 2/);
+});
+
+Deno.test("userInterviewTool result text shows Other answers", async () => {
+    const tool = createUserInterviewTool(makeUi({
+        promptSelect: () => Promise.resolve("other"),
+        promptText: () => Promise.resolve("text from user here"),
+    }));
+
+    const result = await executeTool(tool, {
+        question: {
+            id: "custom",
+            type: "multiple_choice",
+            prompt: "Question blah blah",
+            choices: [
+                { value: "1", label: "1" },
+                { value: "2", label: "2" },
+            ],
+        },
+    });
+
+    assertMatch(firstText(result), /Question blah blah\n\n1\. Answer selected was Other: text from user here/);
 });
 
 Deno.test("userInterviewTool returns to choices when multiple-choice Other text is canceled", async () => {

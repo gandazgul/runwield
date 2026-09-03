@@ -88,7 +88,7 @@ export function deriveSessionAvailability(input) {
             key: "active",
             label,
             explanation:
-                "Another RunWield surface is using this Session. It becomes available when that surface stops.",
+                "Another RunWield surface is using this Session. New messages queue here and send when it stops.",
             intent: "warning",
             canPrepare: false,
             canContinue: false,

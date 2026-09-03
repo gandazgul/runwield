@@ -77,7 +77,7 @@ Deno.test("file-locked Sessions wait for the active surface without offering tak
     assertEquals(availability.key, "active");
     assertEquals(
         availability.explanation,
-        "Another RunWield surface is using this Session. It becomes available when that surface stops.",
+        "Another RunWield surface is using this Session. New messages queue here and send when it stops.",
     );
 });
 
@@ -154,6 +154,10 @@ Deno.test("Session availability refreshes only while another surface is active",
         false,
     );
     assertEquals(shouldRefreshSessionAvailability({ mode: "detail", state: "idle" }), false);
+    assertEquals(
+        shouldRefreshSessionAvailability({ mode: "detail", state: "idle", queuedMessageCount: 1 }),
+        true,
+    );
     assertEquals(shouldRefreshSessionAvailability({ mode: "new", state: "active" }), false);
 });
 
@@ -163,17 +167,30 @@ Deno.test("Session availability refreshes when a busy page becomes active again"
     assertEquals(surface.includes('document.addEventListener("visibilitychange", refreshWhenVisible)'), true);
 });
 
+Deno.test("busy Session messages remain sendable and render above the Workspace composer", async () => {
+    const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
+    const continuation = await Deno.readTextFile(new URL("./server/session-continuation.js", import.meta.url));
+    const css = await Deno.readTextFile(new URL("./static/workspace.css", import.meta.url));
+    assertEquals(surface.includes('availability.key === "active"'), true);
+    assertEquals(surface.includes("const [queuedMessages, setQueuedMessages] = useState"), true);
+    assertEquals(surface.includes("setQueuedMessages((current) => ["), true);
+    assertEquals(surface.includes('if (freshTimeline.state === "active")'), true);
+    assertEquals(surface.includes("const queued = queuedMessages[0]"), true);
+    assertEquals(surface.includes("queuedMessages={queuedMessages}"), true);
+    assertEquals(surface.includes("timeline.queuedMessages"), false);
+    assertEquals(continuation.includes("Keep the message queued in this browser"), true);
+    assertEquals(surface.includes('className="session-composer-queue"'), true);
+    assertEquals(surface.indexOf('className="session-composer-queue"') < surface.indexOf("<textarea"), true);
+    assertEquals(css.includes(".session-composer-queue"), true);
+});
+
 Deno.test("Workspace-owned Session operations use live updates instead of browser polling", async () => {
     const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
     const server = await Deno.readTextFile(new URL("./server.js", import.meta.url));
     assertEquals(surface.includes("const freshTimeline = await loadTimeline();"), true);
     assertEquals(surface.includes("expectedGeneration: freshTimeline.generation"), true);
     assertEquals(surface.includes("pending-user:${envelope.requestId}"), true);
-    assertEquals(
-        surface.indexOf("if (status === 409 || status === 503) await loadTimeline();") <
-            surface.indexOf("? `${errorMessage(error)} Refreshing; resubmit explicitly when ready.`"),
-        true,
-    );
+    assertEquals(surface.includes("resubmit explicitly when ready"), false);
     assertEquals(surface.includes("new EventSource("), true);
     assertEquals(
         surface.includes("/api/owner/session-operations/${encodeURIComponent(operation.operationId)}/stream"),

@@ -142,6 +142,8 @@ Deno.test("TUI review routes keep the same shared bodies in the standalone shell
 
     assertStringIncludes(planRoute, "ReviewLayout");
     assertStringIncludes(planRoute, "PlanReviewSurface");
+    assertStringIncludes(planRoute, "escapeReviewPayloadJson(JSON.stringify(payload))");
     assertStringIncludes(codeRoute, "ReviewLayout");
     assertStringIncludes(codeRoute, "CodeReviewSurface");
+    assertStringIncludes(codeRoute, "escapeReviewPayloadJson(JSON.stringify(payload))");
 });

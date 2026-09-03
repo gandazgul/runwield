@@ -134,6 +134,11 @@ technical entries stay visible as normal timeline rows.
 Session scrolling follows new live content only while the reader is near the live edge. If the reader scrolls away, keep
 the viewport stable and show a **Latest activity** action that returns to the live edge.
 
+Messages submitted while another surface owns Session Control remain editable and sendable. Show the sending surface's
+small in-memory queue directly above the composer input—not in transcript history—and remove each item when its turn is
+accepted after Session Control becomes idle. Workspace keeps this array only in the current browser tab. The TUI uses
+the same placement immediately above its editor.
+
 ### Session context sidebar
 
 Every persisted Session has one durable context sidebar beside its transcript. Do not show the sidebar for the
@@ -150,9 +155,10 @@ Use the `.session-context-*` classes and `--rw-*` semantic tokens for the tab ra
 links. The sidebar is a flat adjacent pane with dividers, not a stack of floating cards. At narrow browser widths it
 moves above the transcript without changing its information model.
 
-The TUI uses the same Session projection. Wide terminals show the context pane on the right and cycle the three tabs
-with **Ctrl+]**; narrow terminals retain the existing transcript-only layout. If a TUI user opens an artifact, prefer
-the configured Workspace reader and fall back to the short-lived local read-only reader.
+The TUI uses the same Session projection. Wide terminals show the context pane on the right, pinned to the top of the
+visible terminal viewport while transcript blocks scroll independently, and cycle the three tabs with **Ctrl+]**. Narrow
+terminals retain the existing transcript-only layout. If a TUI user opens an artifact, prefer the configured Workspace
+reader and fall back to the short-lived local read-only reader.
 
 ## Token model
 

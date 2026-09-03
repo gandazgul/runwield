@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { KeyboardEvent } from "react";
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 export interface ArtifactConversationMessage {
     id: string;
@@ -64,9 +65,10 @@ export function ArtifactConversationSidebar(props: ArtifactConversationSidebarPr
                     </article>
                 ))}
                 {props.working && (
-                    <div className="rw-artifact-conversation-working" role="status">
-                        <span aria-hidden="true" />
-                        {props.agentLabel} is reviewing the {artifactLabel}…
+                    <div className="rw-artifact-conversation-working">
+                        <RunWieldThinkingDots
+                            label={`${props.agentLabel} is reviewing the ${artifactLabel}…`}
+                        />
                     </div>
                 )}
             </div>
@@ -97,7 +99,7 @@ export function ArtifactConversationSidebar(props: ArtifactConversationSidebarPr
                         disabled={!canSend}
                         onClick={props.onSend}
                     >
-                        {props.working ? `${props.agentLabel} working…` : `Send to ${props.agentLabel}`}
+                        Send to {props.agentLabel}
                     </button>
                 </div>
             </div>

@@ -1,5 +1,5 @@
 // @ts-nocheck: Deno test imports are checked by scripts/run-tests.js, not Astro check.
-import { assertStringIncludes } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 
 const ROUTE_PATH = "src/ui/workspace/pages/projects/[projectId]/plans/[planId].astro";
 const SURFACE_PATH = "src/ui/workspace/react/PlanReviewSurface.tsx";
@@ -114,6 +114,9 @@ Deno.test("Plan review offers a reusable Planner conversation without replacing 
     assertStringIncludes(surface, "waitForPlannerReview");
     assertStringIncludes(surface, "setPlannerDiffBase(options.priorPlan)");
     assertStringIncludes(conversation, "Message ${props.agentLabel}");
+    assertStringIncludes(conversation, "RunWieldThinkingDots");
+    assertStringIncludes(conversation, "Send to {props.agentLabel}");
+    assertEquals(conversation.includes("props.agentLabel} working"), false);
     assertStringIncludes(components, ".rw-artifact-conversation {");
     assertStringIncludes(docs, "**Artifact conversation**");
 });

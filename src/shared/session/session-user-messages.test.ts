@@ -12,7 +12,7 @@ Deno.test("session messages describe an active terminal without internal terms",
     );
     assertEquals(
         buildActiveConversationStatusMessage("tui"),
-        "This conversation is running in another terminal. This screen will become available when its current turn finishes.",
+        "This conversation is running in another terminal. Messages sent here will queue until its current turn finishes.",
     );
     assertEquals(
         buildConversationRestoredMessage("tui"),
