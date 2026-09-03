@@ -1,4 +1,4 @@
-import { canonicalizeStoredPlanName, resolvePlan } from "../../plan-store.js";
+import { canonicalizeStoredPlanName, findPlanEvidenceById, resolvePlan } from "../../plan-store.js";
 import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
 import { basename, dirname, isAbsolute, relative, resolve } from "@std/path";
 import { resolvePrimaryCheckoutRoot } from "../../shared/primary-checkout.ts";
@@ -6,6 +6,10 @@ import { listEntries } from "../../shared/worktree-registry.js";
 import { cleanupStoredPublication, loadPublicationAttempt } from "../../shared/workflow/publication-machine.ts";
 
 type ResolvedPlan = Awaited<ReturnType<typeof resolvePlan>>;
+
+function isPlanIdArgument(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
+}
 
 export interface LoadPlanResolution {
     plan: ResolvedPlan;
@@ -89,6 +93,7 @@ export async function resolvePlanWithPrimaryRecovery(
     projectRoot: string,
     planArg: string,
 ): Promise<LoadPlanResolution> {
+    if (isPlanIdArgument(planArg)) return { plan: await findPlanEvidenceById(projectRoot, planArg) };
     planArg = await normalizePlanArgument(projectRoot, planArg);
     let name: string;
     try {

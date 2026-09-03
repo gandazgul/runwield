@@ -870,3 +870,96 @@ async function exists(path) {
         throw error;
     }
 }
+
+Deno.test("Plan Association manifest projection commits with the published generation", async () => {
+    const fixture = await makeFixture();
+    try {
+        const transcriptPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "plan-associated");
+        const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
+        const session = await store.ensureSessionCatalogRecord({
+            projectId: project.projectId,
+            piSessionId: "plan-associated",
+            transcriptPath,
+            transcriptCwd: fixture.projectRoot,
+            source: "created",
+        });
+        let proof = store.acquireSessionActivation({
+            runwieldSessionId: session.runwieldSessionId,
+            projectId: project.projectId,
+            ownerInstanceId: "owner",
+            ownerProcessKind: "test",
+        });
+        const segment = store.getCurrentSessionSegment(session.runwieldSessionId);
+        assert(segment);
+        /** @type {import('./plan-association.ts').PlanAssociation} */
+        const association = {
+            planId: "plan-1",
+            planName: "example-plan",
+            purpose: "planning",
+            segmentId: segment.segmentId,
+            segmentKind: "planning",
+            recordedAt: TIMESTAMP,
+        };
+        assertEquals(store.stagePlanAssociation(proof, association), { ...association, committedGeneration: null });
+        assertEquals(store.listSessionPlanAssociations(session.runwieldSessionId), []);
+        proof = store.changeSessionActivationPhase(proof, "hydrated");
+        proof = store.changeSessionActivationPhase(proof, "checkpointing");
+        const bytes = await Deno.readFile(transcriptPath);
+        store.publishGenerationAndRelease(proof, {
+            generation: 0,
+            byteLength: bytes.byteLength,
+            terminalEntryId: null,
+            digestHex: createHash("sha256").update(bytes).digest("hex"),
+        });
+        assertEquals(store.listSessionPlanAssociations(session.runwieldSessionId), [
+            { ...association, committedGeneration: 0 },
+        ]);
+        store.close();
+
+        const reopened = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        assertEquals(reopened.listSessionPlanAssociations(session.runwieldSessionId), [
+            { ...association, committedGeneration: 0 },
+        ]);
+        reopened.close();
+    } finally {
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});
+
+Deno.test("Plan Association manifest projection drops pending entries on unchanged release", async () => {
+    const fixture = await makeFixture();
+    try {
+        const transcriptPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "plan-pending");
+        const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
+        const session = await store.ensureSessionCatalogRecord({
+            projectId: project.projectId,
+            piSessionId: "plan-pending",
+            transcriptPath,
+            transcriptCwd: fixture.projectRoot,
+            source: "created",
+        });
+        const proof = store.acquireSessionActivation({
+            runwieldSessionId: session.runwieldSessionId,
+            projectId: project.projectId,
+            ownerInstanceId: "owner",
+            ownerProcessKind: "test",
+        });
+        const segment = store.getCurrentSessionSegment(session.runwieldSessionId);
+        assert(segment);
+        store.stagePlanAssociation(proof, {
+            planId: "plan-1",
+            planName: "example-plan",
+            purpose: "planning",
+            segmentId: segment.segmentId,
+            segmentKind: "planning",
+            recordedAt: TIMESTAMP,
+        });
+        store.releaseUnchangedActivation(proof);
+        assertEquals(store.listSessionPlanAssociations(session.runwieldSessionId), []);
+        store.close();
+    } finally {
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});

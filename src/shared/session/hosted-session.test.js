@@ -716,6 +716,8 @@ function makeManagedCapability() {
             registeredBy: "test",
             sourceSegmentId: null,
         }),
+        stagePlanAssociation: (entry) => ({ ...entry, committedGeneration: null }),
+        getCurrentSegmentKind: () => "planning",
         updateProof: () => {},
         assertLive: () => {},
         settle: () => {},
@@ -769,4 +771,52 @@ Deno.test("HostedSession requires the current managed operation capability for w
     assertEquals(session.getRootAgentSession(), null);
     assertEquals(session.getRootAgentName(), null);
     assertEquals(session.getSubAgentSessions().size, 0);
+});
+
+Deno.test("HostedSession records Plan Association through the managed capability", () => {
+    /** @type {Array<Record<string, unknown>>} */
+    const entries = [];
+    const manager = makeSessionManager("plan-association-session", entries);
+    const session = new HostedSession({
+        id: "plan-association-runtime",
+        cwd: "/work/plan-association",
+        sessionManager: manager,
+        managed: {
+            runwieldSessionId: "runwield-managed",
+            projectId: "project-managed",
+            piSessionId: "plan-association-session",
+            transcriptPath: "/work/plan-association/session.jsonl",
+            currentSegmentId: "segment-1",
+            generation: 0,
+            name: null,
+            activeAgent: null,
+            workflowContext: null,
+        },
+    });
+    /** @type {import('./plan-association.ts').PlanAssociation[]} */
+    const staged = [];
+    const capability = makeManagedCapability();
+    capability.stagePlanAssociation = (entry) => {
+        staged.push(entry);
+        return { ...entry, committedGeneration: null };
+    };
+    session.setManagedOperationCapability(capability);
+    session.setRootSessionManager(manager, capability);
+
+    const entry = session.recordPlanAssociation({ planId: "plan-1", planName: "example-plan", purpose: "planning" });
+
+    assertEquals(entry.segmentId, "segment-1");
+    assertEquals(entry.segmentKind, "planning");
+    assertEquals(staged, [entry]);
+    assertEquals(entries.at(-1)?.customType, "runwield.plan_association");
+    assertEquals(entries.at(-1)?.data, entry);
+});
+
+Deno.test("HostedSession rejects Plan Association recording without a writable manager", () => {
+    const session = new HostedSession({ id: "plan-association-nowrite", cwd: "/work/plan-association-nowrite" });
+    assertThrows(
+        () => session.recordPlanAssociation({ planId: "plan-1", planName: "example-plan", purpose: "planning" }),
+        Error,
+        "plan_association_not_writable",
+    );
 });

@@ -81,3 +81,26 @@ Deno.test("load-plan leaves a malformed primary Plan untouched and reads the exe
         await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
 });
+
+Deno.test("load-plan resolves an active Plan by durable planId", async () => {
+    const projectRoot = await makeRepo();
+    const planName = "resolve-by-id";
+    const planId = "123e4567-e89b-12d3-a456-426614174000";
+    try {
+        await savePlan(projectRoot, planName, "# Resolve By ID\n", {
+            classification: "PLANNED_CHANGE",
+            complexity: "LOW",
+            summary: "Resolve by ID",
+            affectedPaths: [],
+            status: "draft",
+            planId,
+        });
+
+        const result = await resolvePlanWithPrimaryRecovery(projectRoot, planId);
+
+        assertEquals(result.plan.planName, planName);
+        assertEquals(result.plan.attrs.planId, planId);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});

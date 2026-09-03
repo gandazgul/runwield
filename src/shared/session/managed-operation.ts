@@ -58,6 +58,10 @@ export type ManagedOperationCapability = {
     registerArtifact(
         options: import("./file-session-store-types.ts").RegisterSessionArtifactOptions,
     ): import("./file-session-store-types.ts").SessionArtifactReference;
+    stagePlanAssociation?(
+        entry: import("./file-session-store-types.ts").PlanAssociation,
+    ): import("./file-session-store-types.ts").ManifestPlanAssociation;
+    getCurrentSegmentKind?(): string;
     cancel?(): void;
     updateProof(proof: ActivationProof): void;
     assertLive(): void;

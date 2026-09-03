@@ -4,6 +4,7 @@ import { claimWorkflowToolEvent, settleWorkflowToolEvent } from "./workflow-tool
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { HostedSession } from "../session/hosted-session.js";
 import type { PlanFrontMatter } from "../../plan-store.js";
+import type { AssociationPurpose } from "../session/plan-association.ts";
 
 /**
  * @typedef {"approved_execute" | "approved_decompose" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
@@ -32,6 +33,7 @@ export interface RunPlanningAgentOptions {
      * child continuation all know it before the agent starts.
      */
     planName?: string;
+    associationPurpose?: AssociationPurpose;
 }
 
 export async function runPlanningAgent(
@@ -43,6 +45,7 @@ export async function runPlanningAgent(
         hostedSession,
         images,
         planName,
+        associationPurpose = "planning",
     }: RunPlanningAgentOptions,
 ): Promise<PlanOutcomeResult> {
     if (!hostedSession) throw new Error("runPlanningAgent: hostedSession is required");
@@ -52,6 +55,10 @@ export async function runPlanningAgent(
     // compaction: the transcript is lossy, so a pointer parsed back out of it is
     // exactly the thing that goes missing.
     if (planName) hostedSession.setWorkflowPlanName(planName);
+    const planId = typeof triageMeta?.planId === "string" ? triageMeta.planId : "";
+    if (planName && planId && hostedSession.getManagedOperationCapability?.()) {
+        hostedSession.recordPlanAssociation({ planId, planName, purpose: associationPurpose });
+    }
 
     const turnId = hostedSession.getActiveTurnId?.() || undefined;
     await runActiveAgentTurn({

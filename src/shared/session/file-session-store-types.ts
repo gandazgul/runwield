@@ -20,6 +20,9 @@ export interface SessionArtifactReference {
     sourceSegmentId: string | null;
 }
 
+export type ManifestPlanAssociation = import("./plan-association.ts").ManifestPlanAssociation;
+export type PlanAssociation = import("./plan-association.ts").PlanAssociation;
+
 export interface RegisterSessionArtifactOptions {
     kind: SessionArtifactKind;
     path: string;
@@ -60,6 +63,7 @@ export interface FileSessionManifest {
     generation: FileSessionGeneration | null;
     segments: SessionTranscriptSegment[];
     artifacts?: SessionArtifactReference[];
+    planAssociations?: ManifestPlanAssociation[];
 }
 
 export interface FileSessionActivation {
@@ -176,6 +180,7 @@ export interface CatalogedSession {
     headerTimestamp: string | null;
     firstCatalogedAt: string;
     lastCatalogedAt: string;
+    planAssociations?: ManifestPlanAssociation[];
 }
 
 export interface CatalogDiagnostic {
@@ -374,6 +379,7 @@ export interface FileSessionStore {
     catalogProjectSessions(projectId: string, options?: ListSessionOptions): Promise<SessionCatalogResult>;
     listSessionTranscriptSegments(runwieldSessionId: string): SessionTranscriptSegment[];
     listSessionArtifacts(runwieldSessionId: string, projectId?: string): SessionArtifactReference[];
+    listSessionPlanAssociations(runwieldSessionId: string, projectId?: string): ManifestPlanAssociation[];
     getCurrentSessionSegment(runwieldSessionId: string): SessionTranscriptSegment | null;
     appendSessionTranscriptSegment(options: SegmentAppendOptions): Promise<SessionTranscriptSegment>;
     sealSessionTranscriptSegment(options: SegmentSealOptions): SessionTranscriptSegment;
@@ -392,6 +398,7 @@ export interface FileSessionStore {
         proof: FileActivationProof,
         options: RegisterSessionArtifactOptions,
     ): SessionArtifactReference;
+    stagePlanAssociation(proof: FileActivationProof, entry: PlanAssociation): ManifestPlanAssociation;
     publishGenerationAndRelease(
         proof: FileActivationProof,
         evidence: TranscriptEvidence & { generation: number },

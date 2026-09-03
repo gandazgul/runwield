@@ -81,7 +81,7 @@ type AggregateProjectionResult = {
     nextCursor: string | null;
     nextCursorOrdinal: number | null;
     complete: boolean;
-    snapshot: { [key: string]: JsonValue | undefined };
+    snapshot: { [key: string]: unknown };
     segments: VerifiedSegmentMetadata[];
     cursorReset: boolean;
 };

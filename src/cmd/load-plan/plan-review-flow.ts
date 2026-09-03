@@ -304,6 +304,7 @@ export async function reviewLoadedPlanDirectly({
         triageMeta: plan.attrs,
         images: reviewResult.images,
         planName: plan.planName,
+        associationPurpose: "review",
     });
 
     const planningDecision = decidePostPlanning(outcome, {
