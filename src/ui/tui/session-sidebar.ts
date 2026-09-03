@@ -79,17 +79,17 @@ export function composePinnedSessionSidebar(
     sidebarLines: string[],
     mainWidth: number,
     terminalRows: number,
-    footerLines: string[] = [],
+    bottomDockLines: string[] = [],
 ): string[] {
     const lineCount = Math.max(mainLines.length, sidebarLines.length);
-    const bodyRows = Math.max(1, terminalRows - footerLines.length);
+    const bodyRows = Math.max(1, terminalRows - bottomDockLines.length);
     const viewportStart = Math.max(0, lineCount - bodyRows);
     const visibleSidebarLines = sidebarLines.slice(0, bodyRows);
     const bodyLines = Array.from({ length: lineCount }, (_, index) => {
         const sidebarLine = visibleSidebarLines[index - viewportStart] || "";
         return `${fit(mainLines[index] || "", mainWidth)} ${sidebarLine}`;
     });
-    return [...bodyLines, ...footerLines];
+    return [...bodyLines, ...bottomDockLines];
 }
 
 export function isSessionSidebarCycleKey(data: string): boolean {

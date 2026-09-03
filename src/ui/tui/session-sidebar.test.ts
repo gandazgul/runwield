@@ -127,19 +127,19 @@ Deno.test("TUI Session Sidebar stays at the top of the visible transcript viewpo
     assertEquals(lines[8].endsWith("sidebar detail"), true);
 });
 
-Deno.test("TUI Session Sidebar reserves a full-width footer below both panes", () => {
+Deno.test("TUI Session Sidebar reserves a full-width composer and footer below both panes", () => {
     const mainLines = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`);
     const lines = composePinnedSessionSidebar(
         mainLines,
         ["sidebar top", "sidebar detail"],
         12,
         5,
-        ["full width footer one", "full width footer two"],
+        ["full width composer", "full width footer"],
     );
 
     assertEquals(lines.length, 14);
     assertEquals(lines[9].endsWith("sidebar top"), true);
     assertEquals(lines[10].endsWith("sidebar detail"), true);
-    assertEquals(lines[12], "full width footer one");
-    assertEquals(lines[13], "full width footer two");
+    assertEquals(lines[12], "full width composer");
+    assertEquals(lines[13], "full width footer");
 });
