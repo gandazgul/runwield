@@ -17,6 +17,7 @@ export {
     validationTreeSemanticNudgeMissingDiffInspectionScenario,
     validationTreeSemanticNudgeMissingReviewCompleteScenario,
     validationTreeSemanticNudgeOmittedPriorFindingScenario,
+    validationTreeSemanticProviderErrorRetryScenario,
     validationTreeSemanticRepairIncompleteScenario,
     validationTreeSemanticReviewerIncompletePauseScenario,
     validationTreeSemanticReviewLoopScenario,

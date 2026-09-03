@@ -17,6 +17,7 @@ export type ValidationWorkflowBranchId =
     | "semantic:nudge:missing-diff-inspection"
     | "semantic:nudge:omitted-prior-finding"
     | "semantic:reviewer-incomplete-pause"
+    | "semantic:provider-error-retry"
     | "semantic:round-mode:discovery-to-verify"
     | "semantic:round-limit:continue"
     | "semantic:round-limit:human-review"
@@ -107,6 +108,7 @@ export const EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS: readonly ValidationWorkflo
     "semantic:nudge:missing-diff-inspection",
     "semantic:nudge:omitted-prior-finding",
     "semantic:reviewer-incomplete-pause",
+    "semantic:provider-error-retry",
     "semantic:round-mode:discovery-to-verify",
     "semantic:round-limit:continue",
     "semantic:round-limit:human-review",
@@ -165,6 +167,7 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "semantic:nudge:missing-diff-inspection": "validation-tree-semantic-nudge-missing-diff-inspection",
     "semantic:nudge:omitted-prior-finding": "validation-tree-semantic-nudge-omitted-prior-finding",
     "semantic:reviewer-incomplete-pause": "validation-tree-semantic-reviewer-incomplete-pause",
+    "semantic:provider-error-retry": "validation-tree-semantic-provider-error-retry",
     "semantic:round-mode:discovery-to-verify": "validation-tree-semantic-round-mode-discovery-to-verify",
     "semantic:round-limit:continue": "validation-tree-semantic-round-limit-continue",
     "semantic:round-limit:human-review": "validation-tree-semantic-round-limit-human-review",
@@ -219,6 +222,7 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id.includes("plan-amendment")) return ["Plan amendment"];
     if (id.includes(":ci:")) return ["CI"];
     if (id.startsWith("semantic:round-limit:")) return ["Look once more, read it, or stop."];
+    if (id === "semantic:provider-error-retry") return ["The model provider could not complete AI code review"];
     if (id.startsWith("semantic:nudge:")) return ["AI code review needs more time"];
     if (id === "semantic:entry:non-git-skip") return ["AI code review skipped"];
     if (id === "semantic:entry:empty-diff-skip") return ["AI code review skipped"];
@@ -324,6 +328,9 @@ function interactionValuesFor(id: ValidationWorkflowBranchId): string[] {
 
 function transcriptExcludesFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "human-review:none") return ["human review before merge"];
+    if (id === "semantic:provider-error-retry") {
+        return ["Semantic review rejected", "have not called review_complete"];
+    }
     return [];
 }
 

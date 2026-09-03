@@ -1,4 +1,5 @@
 import {
+    validationTreeSemanticProviderErrorRetryScenario,
     validationTreeSemanticRepairIncompleteScenario,
     validationTreeSemanticReviewerIncompletePauseScenario,
     validationTreeSemanticReviewLoopScenario,
@@ -18,6 +19,10 @@ registerValidationWorkflowTests("src/ui/tui/golden-scenarios/validation-workflow
     {
         scenario: validationTreeSemanticReviewerIncompletePauseScenario,
         exportName: "validationTreeSemanticReviewerIncompletePauseScenario",
+    },
+    {
+        scenario: validationTreeSemanticProviderErrorRetryScenario,
+        exportName: "validationTreeSemanticProviderErrorRetryScenario",
     },
     {
         scenario: validationTreeSemanticRoundModeDiscoveryToVerifyScenario,

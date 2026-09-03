@@ -112,6 +112,33 @@ type ProviderFailureIdentity = {
     code?: string;
 };
 
+function providerFailureIdentityFromMessage(message: string): ProviderFailureIdentity {
+    const normalized = message.toLowerCase();
+    if (/\b429\b|rate[ -]?limit|too many requests/.test(normalized)) {
+        return { kind: "rate_limited", code: "provider/http_429" };
+    }
+    if (/\b(?:408|504)\b|timed? out|timeout/.test(normalized)) {
+        return { kind: "timeout", code: "provider/timeout" };
+    }
+    if (/\b401\b|unauthori[sz]ed|authentication failed|invalid api key/.test(normalized)) {
+        return { kind: "authentication", code: "provider/authentication" };
+    }
+    if (/\b403\b|forbidden|permission denied/.test(normalized)) {
+        return { kind: "permission_denied", code: "provider/permission_denied" };
+    }
+    if (
+        /\b(?:404|500|502|503)\b|service unavailable|bad gateway|internal server error|temporarily unavailable/.test(
+            normalized,
+        )
+    ) {
+        return { kind: "service_unavailable", code: "provider/service_unavailable" };
+    }
+    if (/econnreset|econnrefused|enotfound|socket|network/.test(normalized)) {
+        return { kind: "network", code: "provider/network" };
+    }
+    return { kind: "legacy_text" };
+}
+
 function providerFailureIdentity(error: Error): ProviderFailureIdentity {
     if (error instanceof ClaudeCliBackendError) {
         switch (error.kind) {
@@ -146,8 +173,22 @@ function providerFailureIdentity(error: Error): ProviderFailureIdentity {
         case "PermissionDeniedError":
             return { kind: "permission_denied", code: error.name };
         default:
-            return { kind: "legacy_text" };
+            return providerFailureIdentityFromMessage(error.message);
     }
+}
+
+function classifyProviderFailure(
+    operation: ValidationOperation,
+    message: string,
+    identity: ProviderFailureIdentity,
+): ValidationOperationalFailure {
+    return classifyValidationOperationalError({
+        source: "provider",
+        kind: identity.kind,
+        operation,
+        message,
+        code: identity.code,
+    });
 }
 
 function classifyIsolatedAgentExecutionFailure(
@@ -159,14 +200,27 @@ function classifyIsolatedAgentExecutionFailure(
     return {
         kind: request.kind,
         outcome: "operational_failure",
-        failure: classifyValidationOperationalError({
-            source: "provider",
-            kind: identity.kind,
+        failure: classifyProviderFailure(
             operation,
-            message: identity.kind === "legacy_text" ? error.message : "Provider execution failed.",
-            code: identity.code,
-        }),
+            identity.kind === "legacy_text" ? error.message : "The model provider could not complete this operation.",
+            identity,
+        ),
     };
+}
+
+function readReviewerProviderFailure(messages: AgentMessage[]): ValidationOperationalFailure | undefined {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message.role !== "assistant") continue;
+        if (message.stopReason !== "error") return undefined;
+        const errorMessage = message.errorMessage?.trim() || "The model provider could not complete AI code review.";
+        return classifyProviderFailure(
+            "semantic_review",
+            "The model provider could not complete AI code review.",
+            providerFailureIdentityFromMessage(errorMessage),
+        );
+    }
+    return undefined;
 }
 
 function readReviewerToolFailure(messages: AgentMessage[]): ValidationOperationalFailure | undefined {
@@ -284,6 +338,15 @@ async function runIsolatedRequest(
         const reviewOutcome = reviewEvent?.kind === "review_complete"
             ? reviewEvent.payload as import("./workflow-tool-events.ts").ReviewCompleteEventPayload
             : null;
+        const providerFailure = reviewOutcome ? undefined : readReviewerProviderFailure(messages);
+        if (providerFailure) {
+            if (diffEvent) settleWorkflowToolEvent(hostedSession, diffEvent);
+            return {
+                kind: "reviewer",
+                outcome: "operational_failure",
+                failure: providerFailure,
+            };
+        }
         const toolFailure = reviewOutcome ? undefined : readReviewerToolFailure(messages);
         if (toolFailure) {
             if (diffEvent) settleWorkflowToolEvent(hostedSession, diffEvent);

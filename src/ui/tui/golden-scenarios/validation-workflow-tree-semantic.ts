@@ -19,6 +19,7 @@ interface GoldenScriptTurn {
     requiredTools?: string[];
     thinking?: string;
     text?: string;
+    response?: GoldenScriptValue;
     toolCalls?: Array<{ name: string; arguments: { [key: string]: GoldenScriptValue } }>;
 }
 
@@ -122,6 +123,113 @@ export const validationTreeSemanticReviewerIncompletePauseScenario = withValidat
     "validation-tree-semantic-reviewer-incomplete-pause",
     ["semantic-reviewer-incomplete"],
     ["semantic:reviewer-incomplete-pause"],
+);
+
+export const validationTreeSemanticProviderErrorRetryScenario = withValidationBranches(
+    {
+        name: "validation-tree-semantic-provider-error-retry-base",
+        composedTui: true,
+        initialAgentName: "guide",
+        terminal: { columns: 100, rows: 30 },
+        timeoutMs: 180000,
+        committedProjectFiles: [{
+            path: ".wld/settings.json",
+            text: `${
+                JSON.stringify(
+                    {
+                        verification_command: "true",
+                        "retry.baseDelayMs": 1,
+                        "retry.validation.maxDelayMs": 1,
+                    },
+                    null,
+                    4,
+                )
+            }\n`,
+        }],
+        initialProjectFiles: [{
+            path: "docs/plans/semantic-provider-error-retry.md",
+            text:
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Semantic provider error retry\naffectedPaths: []\nstatus: ready_for_work\nplanId: semantic-provider-error-retry-plan\n---\n# Semantic provider error retry\n\nAlready implemented content.\n",
+        }],
+        script: [
+            {
+                id: "semantic-review-provider-404",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "semantic-provider-error-retry",
+                ordinal: 1,
+                response: {
+                    role: "assistant",
+                    content: [],
+                    api: "openai-responses",
+                    provider: "faux-provider",
+                    model: "golden-faux-model",
+                    usage: {
+                        input: 0,
+                        output: 0,
+                        cacheRead: 0,
+                        cacheWrite: 0,
+                        totalTokens: 0,
+                        cost: {},
+                    },
+                    stopReason: "error",
+                    errorMessage: "404 Not Found",
+                    timestamp: 0,
+                },
+            },
+            {
+                id: "semantic-review-approves-after-provider-retry",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "semantic-provider-error-retry",
+                ordinal: 2,
+                requiredTools: ["review_diff", "review_complete"],
+                toolCalls: [
+                    { name: "review_diff", arguments: { command: "list" } },
+                    {
+                        name: "review_complete",
+                        arguments: { approved: true, feedback: "Approved after the provider recovered." },
+                    },
+                ],
+            },
+            {
+                id: "semantic-review-closes-after-provider-retry",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "semantic-provider-error-retry",
+                ordinal: 3,
+                text: "Approved after the provider recovered.",
+            },
+        ],
+        scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" }],
+        actions: [
+            {
+                type: "seedActiveWorktree",
+                planName: "semantic-provider-error-retry",
+                status: "validated_ci",
+                files: [{ path: "semantic-provider-error-retry.txt", text: "done\n" }],
+            },
+            { type: "type", text: "/load-plan semantic-provider-error-retry" },
+            { type: "enter" },
+            { type: "enter" },
+            {
+                type: "waitForScreen",
+                text: "The model provider could not complete AI code review",
+                timeoutMs: 90000,
+            },
+            {
+                type: "waitForPlanStatus",
+                planName: "semantic-provider-error-retry",
+                statuses: ["verified"],
+                timeoutMs: 120000,
+            },
+            { type: "captureProjectState", planNames: ["semantic-provider-error-retry"] },
+        ],
+        assertions: [],
+    },
+    "validation-tree-semantic-provider-error-retry",
+    ["semantic-provider-error-retry"],
+    ["semantic:provider-error-retry"],
 );
 
 export const validationTreeSemanticNudgeOmittedPriorFindingScenario = withValidationBranches(
@@ -910,6 +1018,7 @@ export const validationWorkflowSemanticScenarios = [
     validationTreeSemanticReviewLoopScenario,
     validationTreeSemanticRepairIncompleteScenario,
     validationTreeSemanticReviewerIncompletePauseScenario,
+    validationTreeSemanticProviderErrorRetryScenario,
     validationTreeSemanticNudgeOmittedPriorFindingScenario,
     validationTreeSemanticRoundModeDiscoveryToVerifyScenario,
     validationTreeSemanticNudgeMissingReviewCompleteScenario,

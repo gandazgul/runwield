@@ -1,6 +1,7 @@
 import { assertEquals, assertNotEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
+import { setCustomSetting } from "../settings.js";
 import { publishWorkflowToolEvent } from "./workflow-tool-events.ts";
 import { captureWorktreeTree } from "./git-snapshot.js";
 import {
@@ -86,6 +87,20 @@ function repairMessages(message = "R1-1 — fixed: added the missing guard.") {
         role: "toolResult",
         toolName: "task_completed",
         details: { outcome: "task_completed", message },
+    }]);
+}
+
+function providerErrorMessages(errorMessage = "404 Not Found") {
+    return /** @type {any} */ ([{
+        role: "assistant",
+        content: [],
+        api: "openai-responses",
+        provider: "openai-codex",
+        model: "gpt-5.5",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: {} },
+        stopReason: "error",
+        errorMessage,
+        timestamp: Date.now(),
     }]);
 }
 
@@ -455,6 +470,57 @@ Deno.test("runValidationPhase stops after one unknown Reviewer failure", async (
     assertEquals(plan?.attrs.status, "validated_ci");
     assertStringIncludes(uiAPI.messages.join(" "), "AI code review for p stopped.");
     assertStringIncludes(uiAPI.messages.join(" "), "Context window exceeded");
+});
+
+Deno.test("runValidationPhase treats a Reviewer 404 as an operational retry without consuming a review round", async () => {
+    const { projectRoot, hostedSession, uiAPI } = await makeValidatedCiRun({ validationSemanticRounds: 1 });
+    await setCustomSetting("retry.baseDelayMs", 1, "project", projectRoot);
+    await setCustomSetting("retry.validation.maxDelayMs", 1, "project", projectRoot);
+    const reviewOpts = /** @type {any[]} */ ([]);
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 1 },
+        semanticReviewPort: reviewPort({
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                reviewOpts.push(opts);
+                return Promise.resolve(reviewOpts.length === 1 ? providerErrorMessages() : reviewerMessages());
+            },
+        }),
+    });
+
+    const plan = await loadPlan(projectRoot, "p");
+    assertEquals(result.kind, "paused");
+    assertEquals(reviewOpts.length, 2);
+    assertEquals(reviewOpts[0].sessionManager, reviewOpts[1].sessionManager);
+    assertEquals(reviewOpts[1].userRequest.includes("have not called review_complete"), false);
+    assertEquals(plan?.attrs.status, "validated_reviewer");
+    assertEquals(plan?.attrs.validationSemanticRounds, 1);
+    assertStringIncludes(uiAPI.messages.join(" "), "The model provider could not complete AI code review");
+});
+
+Deno.test("runValidationPhase pauses a Reviewer outage without recording feedback or advancing its round", async () => {
+    const { projectRoot, hostedSession, uiAPI } = await makeValidatedCiRun({ validationSemanticRounds: 1 });
+    await setCustomSetting("retry.maxRetries", 1, "project", projectRoot);
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 1 },
+        semanticReviewPort: reviewPort({
+            runIsolatedAgentSession: () => Promise.resolve(providerErrorMessages("503 Service Unavailable")),
+        }),
+    });
+
+    const plan = await loadPlan(projectRoot, "p");
+    assertEquals(result.kind, "paused");
+    assertEquals(plan?.attrs.status, "validated_ci");
+    assertEquals(plan?.attrs.validationSemanticRounds, 1);
+    assertEquals(uiAPI.messages.join(" ").includes("Semantic review rejected"), false);
+    assertEquals(uiAPI.messages.join(" ").includes("have not called review_complete"), false);
 });
 
 Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Feedback Engineer and records feedback event", async () => {
