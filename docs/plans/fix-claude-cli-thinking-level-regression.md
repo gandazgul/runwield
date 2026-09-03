@@ -10,11 +10,12 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-03"
-status: "ready_for_work"
+status: "in_progress"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "Diagnose Claude CLI RC"
+targetBranch: "main"
 ---
 
 # Fix Claude CLI Thinking-Level Regression
