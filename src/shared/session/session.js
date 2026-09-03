@@ -2584,7 +2584,9 @@ export async function buildExecutionSession(opts) {
         /** @type {import('../models/model-registry.ts').RunWieldModel} */ (resolvedModel)?.executionBackend || "pi";
     const imageInputOptions = /** @type {AgyImageInputOptions} */ (opts);
     if (backend === "agy-cli") assertAgyCliImageInputSupported(imageInputOptions.images);
-    if (backend !== "pi") assertThinkingLevelBackendSupportedForInvocation(resolvedModel, backendThinking);
+    if (backend !== "pi" && opts.workflowAuthority === false) {
+        assertThinkingLevelBackendSupportedForInvocation(resolvedModel, backendThinking);
+    }
     if (backend === "pi") {
         const built = await buildAgentSession(opts);
         return { ...built, executionSession: createPiExecutionSession(built.session) };
