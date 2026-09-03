@@ -1,4 +1,5 @@
 ---
+planId: "595d0348-5882-4ee2-b2a4-d0b7a12d0128"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
@@ -13,19 +14,16 @@ affectedPaths:
     - "src/shared/session/session-transcript-projection.test.js"
     - "src/shared/session/root-session.test.js"
     - "docs/domain-language.md"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
 createdAt: "2026-08-23T20:02:05.462Z"
-status: "draft"
+status: "ready_for_work"
 origin: "internal"
 parentPlan: "agy-cli-execution-backend"
 order: 3
 dependencies:
     - "02-register-agy-cli-backend-models"
-planId: "595d0348-5882-4ee2-b2a4-d0b7a12d0128"
-executionAgent: "engineer"
-collaborationRecommendation: "autonomous"
+userVerifiedAt: null
 targetBranch: "feature/agy-cli-execution-backend"
 ---
 
