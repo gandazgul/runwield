@@ -254,7 +254,7 @@ async function resolvePersistedRootConfiguration(agentName, sessionManager, cwd)
  * @property {string} id
  * @property {string} text
  * @property {import('./types.js').ImageAttachment[]} images
- * @property {"steer" | "next_turn" | "lease"} delivery
+ * @property {"steer" | "next_turn"} delivery
  * @property {string} queuedAt
  * @property {import('@earendil-works/pi-coding-agent').AgentSession} [sourceSession]
  */
@@ -726,55 +726,7 @@ export class SessionRuntime {
      * @returns {import('./session-runtime-events.js').RuntimeQueuedMessage[]}
      */
     getQueuedMessages(sessionId) {
-        const transient = (this.#queuedMessages.get(sessionId) || []).map(toRuntimeQueuedMessage);
-        const managed = this.#sessionHost.getSession(sessionId)?.getManagedMetadata?.() || null;
-        if (!managed || !this.#sessionStore) return transient;
-        try {
-            const durable = this.#sessionStore.listQueuedSessionMessages(managed.runwieldSessionId);
-            const transientIds = new Set(transient.map((message) => message.id));
-            return [...transient, ...durable.filter((message) => !transientIds.has(message.id))]
-                .sort((left, right) => left.queuedAt.localeCompare(right.queuedAt));
-        } catch {
-            return transient;
-        }
-    }
-
-    /**
-     * Persist a user message that must wait for another surface to release
-     * Session Control. The queue has its own tiny lock, so enqueueing never
-     * writes the active transcript or manifest.
-     *
-     * @param {string} sessionId
-     * @param {string} text
-     * @param {import('./types.js').ImageAttachment[]} [images]
-     * @returns {SteerSessionResult}
-     */
-    enqueueManagedSessionMessage(sessionId, text, images = []) {
-        const hostedSession = this.#sessionHost.getSession(sessionId);
-        const managed = hostedSession?.getManagedMetadata?.() || null;
-        if (!hostedSession || !managed || !this.#sessionStore) {
-            return { ok: false, queued: false, error: "managed_session_required" };
-        }
-        const message = this.#sessionStore.enqueueSessionMessage(managed.runwieldSessionId, {
-            text,
-            images,
-            queuedBy: this.#ownerProcessKind,
-        });
-        this.#emitSessionEvent(sessionId, {
-            type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
-            status: "queued",
-            message,
-        });
-        this.#scheduleQueuedMessageDrain(sessionId);
-        return { ok: true, queued: true, message };
-    }
-
-    /** @param {string} sessionId */
-    startQueuedMessageDelivery(sessionId) {
-        const hostedSession = this.#sessionHost.getSession(sessionId);
-        if (!hostedSession?.getManagedMetadata?.()) return { ok: false, error: "managed_session_required" };
-        this.#scheduleQueuedMessageDrain(sessionId);
-        return { ok: true };
+        return (this.#queuedMessages.get(sessionId) || []).map(toRuntimeQueuedMessage);
     }
 
     /** @param {string} sessionId */
@@ -794,7 +746,8 @@ export class SessionRuntime {
             const hostedSession = this.#sessionHost.getSession(sessionId);
             const managed = hostedSession?.getManagedMetadata?.() || null;
             if (!hostedSession || !managed || !this.#sessionStore) return;
-            const queued = this.#sessionStore.listQueuedSessionMessages(managed.runwieldSessionId);
+            const queued = (this.#queuedMessages.get(sessionId) || [])
+                .filter((message) => message.delivery === "next_turn");
             if (queued.length === 0) return;
             const state = this.#sessionStore.inspectSessionActivation(managed.runwieldSessionId);
             if (state.activation?.state !== "idle") {
@@ -802,51 +755,18 @@ export class SessionRuntime {
                 continue;
             }
             await this.synchronizeManagedSession(sessionId, { emitEvents: false });
-            const claimed = this.#sessionStore.claimNextQueuedSessionMessage(managed.runwieldSessionId, {
-                ownerInstanceId: this.#ownerInstanceId,
-                ownerProcessKind: this.#ownerProcessKind,
-            });
+            const claimed = this.takeNextTurnMessage(sessionId).message;
             if (!claimed) {
                 await new Promise((resolve) => setTimeout(resolve, 100));
                 continue;
             }
-            this.#emitSessionEvent(sessionId, {
-                type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
-                status: "consumed",
-                message: claimed,
-                reason: "session_control_available",
-            });
             try {
-                await this.synchronizeManagedSession(sessionId, { emitEvents: false });
                 await this.promptUserTurn(sessionId, {
                     initialRequest: claimed.text,
                     initialImages: claimed.images,
                 });
-                if (
-                    !this.#sessionStore.completeQueuedSessionMessage(
-                        managed.runwieldSessionId,
-                        claimed.id,
-                        this.#ownerInstanceId,
-                    )
-                ) {
-                    this.#sessionStore.releaseQueuedSessionMessage(
-                        managed.runwieldSessionId,
-                        claimed.id,
-                        this.#ownerInstanceId,
-                    );
-                }
             } catch {
-                this.#sessionStore.releaseQueuedSessionMessage(
-                    managed.runwieldSessionId,
-                    claimed.id,
-                    this.#ownerInstanceId,
-                );
-                this.#emitSessionEvent(sessionId, {
-                    type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
-                    status: "queued",
-                    message: claimed,
-                    reason: "delivery_retry",
-                });
+                this.queueNextTurnMessage(sessionId, claimed.text, claimed.images, { deliverWhenAvailable: true });
                 await new Promise((resolve) => setTimeout(resolve, 300));
             }
         }
@@ -1064,9 +984,10 @@ export class SessionRuntime {
      * @param {string} sessionId
      * @param {string} text
      * @param {import('./types.js').ImageAttachment[]} [images]
+     * @param {{ deliverWhenAvailable?: boolean }} [options]
      * @returns {any}
      */
-    queueNextTurnMessage(sessionId, text, images = []) {
+    queueNextTurnMessage(sessionId, text, images = [], options = {}) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, queued: false, error: "not_found" };
         const message = /** @type {RuntimeQueuedMessageState} */ ({
@@ -1076,7 +997,9 @@ export class SessionRuntime {
             delivery: "next_turn",
             queuedAt: new Date().toISOString(),
         });
-        return { ok: true, queued: true, message: this.#trackQueuedMessage(hostedSession, message) };
+        const publicMessage = this.#trackQueuedMessage(hostedSession, message);
+        if (options.deliverWhenAvailable) this.#scheduleQueuedMessageDrain(sessionId);
+        return { ok: true, queued: true, message: publicMessage };
     }
 
     /**
@@ -1130,24 +1053,7 @@ export class SessionRuntime {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, message: null, error: "not_found" };
         const queue = this.#queuedMessages.get(hostedSession.id) || [];
-        const managed = hostedSession.getManagedMetadata?.() || null;
-        const durable = managed && this.#sessionStore
-            ? this.#sessionStore.listQueuedSessionMessages(managed.runwieldSessionId).at(-1) || null
-            : null;
-        const transient = queue.at(-1) || null;
-        if (managed && durable && (!transient || durable.queuedAt >= transient.queuedAt)) {
-            const selectedDurable = this.#sessionStore?.dequeueLastQueuedSessionMessage(managed.runwieldSessionId) ||
-                null;
-            if (!selectedDurable) return { ok: true, message: null };
-            this.#emitSessionEvent(hostedSession.id, {
-                type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
-                status: "dequeued",
-                message: selectedDurable,
-                reason: "user_recall",
-            });
-            return { ok: true, message: selectedDurable };
-        }
-        const selected = transient;
+        const selected = queue.at(-1) || null;
         if (!selected) return { ok: true, message: null };
 
         if (selected.delivery === "next_turn") {
@@ -4135,11 +4041,30 @@ export class SessionRuntime {
                     signal: capability.signal,
                 }, capability),
         );
-        if (result?.ok && /** @type {any} */ (result)._validationResult?.epicContinuation) {
-            const replacement = await this.#continueEpicAfterValidation(
-                hostedSession,
-                /** @type {any} */ (result)._validationResult,
+        const validationResult =
+            /** @type {import('../workflow/validation.ts').WorkflowValidationResult | undefined} */ (
+                /** @type {any} */ (result)?._validationResult
             );
+        if (result?.ok && validationResult?.kind === "semantic_repair_handoff") {
+            const workflow = /** @type {{ planName?: string, triageMeta?: Record<string, unknown> }} */ (
+                hostedSession.getActiveExecutionWorkflow?.() || {}
+            );
+            /** @type {any} */ (result)._validationResult = await this.#runSemanticRepairSegmentHandoff(
+                hostedSession.id,
+                {
+                    ...options,
+                    planName: validationResult.planName || workflow.planName,
+                    triageMeta: workflow.triageMeta || {},
+                },
+                validationResult,
+            );
+        }
+        const settledValidationResult =
+            /** @type {import('../workflow/validation.ts').WorkflowValidationResult | undefined} */ (
+                /** @type {any} */ (result)?._validationResult
+            );
+        if (result?.ok && settledValidationResult?.epicContinuation) {
+            const replacement = await this.#continueEpicAfterValidation(hostedSession, settledValidationResult);
             if (replacement.sessionId) result.replacementSessionId = replacement.sessionId;
         }
         delete (/** @type {any} */ (result))._validationResult;

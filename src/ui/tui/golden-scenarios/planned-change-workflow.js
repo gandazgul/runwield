@@ -193,6 +193,17 @@ export const plannedChangeReviewRepairValidationScenario = {
             ],
         },
         {
+            // The Reviewer's isolated session runs until the model answers without
+            // tool calls, so each review round is two turns: the inspect/decide
+            // turn above, then this text-only turn that closes the round. Without
+            // it the loop would consume the next round's scripted decision early.
+            id: "semantic-reviewer-closes-rejection-round",
+            agent: "reviewer",
+            phase: "semantic_review",
+            ordinal: 2,
+            text: "Reported the round 1 findings for repair.",
+        },
+        {
             id: "engineer-repairs-after-reviewer-rejection",
             agent: "engineer",
             phase: "engineer",
@@ -215,17 +226,6 @@ export const plannedChangeReviewRepairValidationScenario = {
                 name: "task_completed",
                 arguments: { message: "- Repaired Golden PLANNED_CHANGE after Reviewer rejection." },
             }],
-        },
-        {
-            // The Reviewer's isolated session runs until the model answers without
-            // tool calls, so each review round is two turns: the inspect/decide
-            // turn above, then this text-only turn that closes the round. Without
-            // it the loop would consume the next round's scripted decision early.
-            id: "semantic-reviewer-closes-rejection-round",
-            agent: "reviewer",
-            phase: "semantic_review",
-            ordinal: 2,
-            text: "Reported the round 1 findings for repair.",
         },
         {
             id: "semantic-reviewer-approves-repair",

@@ -6,7 +6,6 @@ const FENCED_METHOD_DRIVERS: Record<string, string> = {
     clearQueuedMessages: "clearQueuedMessages(",
     compactSession: "compactSession(",
     cycleSessionThinkingLevel: "cycleSessionThinkingLevel(",
-    enqueueManagedSessionMessage: "enqueueSessionMessage(",
     ensureInitialSessionGeneration: "recoverSessionControl(",
     executePlan: "executePlan(",
     persistSessionImage: "persistSessionImage(",

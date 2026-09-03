@@ -33,7 +33,7 @@ export const validationTreeSemanticRepairIncompleteScenario = withValidationBran
         ...plannedChangeReviewRepairValidationScenario,
         name: "validation-tree-semantic-repair-incomplete-base",
         script: [
-            ...(plannedChangeReviewRepairValidationScenario.script as GoldenScriptTurn[]).slice(0, 5),
+            ...(plannedChangeReviewRepairValidationScenario.script as GoldenScriptTurn[]).slice(0, 6),
             {
                 id: "engineer-semantic-repair-without-completion",
                 agent: "engineer",
