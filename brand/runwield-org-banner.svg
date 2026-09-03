@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="144" viewBox="0 0 2400 144" fill="none">
+  <title>RunWield organization banner</title>
+  <desc>A dark slate abstract review-gate background with restrained mint and blue signals.</desc>
+
+  <defs>
+    <linearGradient id="surface" x1="0" y1="72" x2="2400" y2="72" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1020"/>
+      <stop offset="0.36" stop-color="#0E1728"/>
+      <stop offset="0.58" stop-color="#101B2D"/>
+      <stop offset="0.82" stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#0B1020"/>
+    </linearGradient>
+
+    <radialGradient id="blueGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1510 72) rotate(180) scale(650 118)">
+      <stop stop-color="#60A5FA" stop-opacity="0.21"/>
+      <stop offset="0.48" stop-color="#3B82F6" stop-opacity="0.075"/>
+      <stop offset="1" stop-color="#3B82F6" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="mintGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1000 75) scale(470 96)">
+      <stop stop-color="#85CBBF" stop-opacity="0.13"/>
+      <stop offset="0.55" stop-color="#85CBBF" stop-opacity="0.045"/>
+      <stop offset="1" stop-color="#85CBBF" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="signal" x1="730" y1="72" x2="1680" y2="72" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#85CBBF" stop-opacity="0"/>
+      <stop offset="0.18" stop-color="#85CBBF" stop-opacity="0.22"/>
+      <stop offset="0.5" stop-color="#9DD9CF" stop-opacity="0.48"/>
+      <stop offset="0.72" stop-color="#60A5FA" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#60A5FA" stop-opacity="0"/>
+    </linearGradient>
+
+    <linearGradient id="gate" x1="0" y1="18" x2="0" y2="126" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#60A5FA" stop-opacity="0"/>
+      <stop offset="0.27" stop-color="#60A5FA" stop-opacity="0.3"/>
+      <stop offset="0.5" stop-color="#A2DED4" stop-opacity="0.62"/>
+      <stop offset="0.73" stop-color="#60A5FA" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#60A5FA" stop-opacity="0"/>
+    </linearGradient>
+
+    <pattern id="grid" width="48" height="24" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V24" stroke="#94A3B8" stroke-opacity="0.085" stroke-width="1"/>
+    </pattern>
+
+    <linearGradient id="gridFade" x1="420" y1="72" x2="1980" y2="72" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white" stop-opacity="0"/>
+      <stop offset="0.22" stop-color="white" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="white"/>
+      <stop offset="0.78" stop-color="white" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+
+    <mask id="gridMask">
+      <rect x="420" width="1560" height="144" fill="url(#gridFade)"/>
+    </mask>
+
+    <linearGradient id="edgeShade" x1="0" y1="72" x2="2400" y2="72" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#050814" stop-opacity="0.56"/>
+      <stop offset="0.12" stop-color="#050814" stop-opacity="0.08"/>
+      <stop offset="0.5" stop-color="#050814" stop-opacity="0"/>
+      <stop offset="0.88" stop-color="#050814" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#050814" stop-opacity="0.56"/>
+    </linearGradient>
+
+    <filter id="softBlur" x="-30%" y="-100%" width="160%" height="300%">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+
+    <filter id="noise" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.82" numOctaves="3" seed="23" stitchTiles="stitch"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.055"/>
+      </feComponentTransfer>
+    </filter>
+  </defs>
+
+  <rect width="2400" height="144" fill="url(#surface)"/>
+  <rect width="2400" height="144" fill="url(#mintGlow)"/>
+  <rect width="2400" height="144" fill="url(#blueGlow)"/>
+
+  <g mask="url(#gridMask)">
+    <rect x="420" width="1560" height="144" fill="url(#grid)"/>
+  </g>
+
+  <g opacity="0.75">
+    <path d="M690 72H1710" stroke="url(#signal)" stroke-width="1"/>
+    <path d="M820 48H1056L1092 72H1308L1344 96H1580" stroke="url(#signal)" stroke-width="1"/>
+    <path d="M820 96H1032L1068 72H1332L1368 48H1580" stroke="url(#signal)" stroke-width="1"/>
+  </g>
+
+  <g filter="url(#softBlur)" opacity="0.42">
+    <rect x="1195" y="20" width="10" height="104" fill="#85CBBF"/>
+    <rect x="1315" y="20" width="8" height="104" fill="#60A5FA"/>
+  </g>
+
+  <g>
+    <path d="M1118 17V127" stroke="url(#gate)"/>
+    <path d="M1200 10V134" stroke="url(#gate)" stroke-width="1.5"/>
+    <path d="M1282 17V127" stroke="url(#gate)"/>
+    <rect x="1114.5" y="68.5" width="7" height="7" rx="1.5" fill="#0F172A" stroke="#85CBBF" stroke-opacity="0.5"/>
+    <rect x="1195" y="67" width="10" height="10" rx="2" fill="#85CBBF" fill-opacity="0.22" stroke="#A2DED4" stroke-opacity="0.78"/>
+    <rect x="1278.5" y="68.5" width="7" height="7" rx="1.5" fill="#0F172A" stroke="#60A5FA" stroke-opacity="0.55"/>
+  </g>
+
+  <g opacity="0.28">
+    <circle cx="1008" cy="72" r="2.5" fill="#85CBBF"/>
+    <circle cx="1392" cy="72" r="2.5" fill="#60A5FA"/>
+    <path d="M1008 72H1115" stroke="#85CBBF" stroke-dasharray="2 6"/>
+    <path d="M1285 72H1392" stroke="#60A5FA" stroke-dasharray="2 6"/>
+  </g>
+
+  <rect width="2400" height="144" fill="url(#edgeShade)"/>
+  <rect width="2400" height="144" filter="url(#noise)" opacity="0.42" style="mix-blend-mode:soft-light"/>
+  <path d="M0 0H2400" stroke="#334155" stroke-opacity="0.4"/>
+  <path d="M0 143.5H2400" stroke="#334155" stroke-opacity="0.45"/>
+</svg>
