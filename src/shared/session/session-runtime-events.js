@@ -568,6 +568,13 @@ export function assertSessionRuntimeEvent(event) {
                     "workflowContext.planName must be a string",
                 );
             }
+            if ("parentPlan" in value.workflowContext) {
+                requireRuntimeEvent(
+                    typeof value.workflowContext.parentPlan === "string",
+                    event.type,
+                    "workflowContext.parentPlan must be a string",
+                );
+            }
             requireRuntimeEvent(
                 typeof value.workflowContext.routingIntent === "string" ||
                     typeof value.workflowContext.planName === "string",

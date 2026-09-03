@@ -13,6 +13,7 @@ import { loadPlan } from "../../plan-store.js";
  * @param {any[]} [options.reviewResponses]
  * @param {any} [options.retryResponse]
  * @param {"run" | "decompose" | "later"} [options.approvalAction]
+ * @param {string} [options.parentPlan]
  * @param {boolean} [options.exists]
  */
 async function makeHarness(options = {}) {
@@ -35,7 +36,7 @@ async function makeHarness(options = {}) {
                 `---
 classification: ${options.classification || "FEATURE"}
 status: approved
----
+${options.parentPlan ? `parentPlan: ${options.parentPlan}\n` : ""}---
 # ${name}
 `,
             );
@@ -79,6 +80,7 @@ status: approved
             classification: options.classification || "FEATURE",
             ...(options.workKind ? { workKind: options.workKind } : {}),
             complexity: "MEDIUM",
+            ...(options.parentPlan ? { parentPlan: options.parentPlan } : {}),
             summary: "Plan the boundary",
             affectedPaths: ["src/shared/session/session-runtime.js"],
         },
@@ -328,6 +330,26 @@ Deno.test("plan_written returns review feedback and images to the planning agent
     assertEquals((await readPlan())?.attrs.status, "approved");
 });
 
+Deno.test("plan_written does not present a stale review decision as Planner feedback", async () => {
+    const { tool } = await makeHarness({
+        reviewResponse: {
+            outcome: "selected",
+            _meta: {
+                approved: false,
+                cancellationReason: "stale_plan_review",
+                feedback: "The Plan changed while review was open. Open the current Plan and review it again.",
+            },
+        },
+    });
+
+    const result = await execute(tool);
+
+    assertEquals(result.details.outcome, "canceled");
+    assertEquals(result.terminate, true);
+    assertEquals(result.content[0].text.includes("Plan Review Feedback"), false);
+    assertStringIncludes(result.content[0].text, "Open the current Plan and review it again");
+});
+
 Deno.test("plan_written compares a revised Plan with the first reviewed Plan", async () => {
     const { tool, cwd, interactionRequests } = await makeHarness({
         reviewResponses: [
@@ -551,6 +573,23 @@ Deno.test("plan_written feature approval can save without execution", async () =
     assertStringIncludes(result.content[0].text, SESSION_COMPLETE_GUIDANCE);
     assertEquals(events.some((event) => String(event.message || "").includes("Plan saved")), true);
     assertEquals(events.some((event) => String(event.message || "").includes(SESSION_COMPLETE_GUIDANCE)), true);
+});
+
+Deno.test("plan_written persists an Epic child relationship in Session workflow context", async () => {
+    const { tool, hostedSession } = await makeHarness({
+        classification: "FEATURE",
+        approvalAction: "later",
+        parentPlan: "runtime-epic",
+    });
+
+    await execute(tool);
+
+    assertEquals(hostedSession.getWorkflowContext(), {
+        routingIntent: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+        planName: "runtime-boundary",
+        parentPlan: "runtime-epic",
+    });
 });
 
 Deno.test("plan_written project approval can save for later with session-complete guidance", async () => {

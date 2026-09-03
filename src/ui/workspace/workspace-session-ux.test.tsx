@@ -318,6 +318,8 @@ Deno.test("Persisted Sessions expose the shared context sidebar tabs", async () 
     assertEquals(surface.includes("session-context-tabs"), true);
     assertEquals(surface.includes("session-artifact-list"), true);
     assertEquals(surface.includes("defaultSessionSidebarTab"), true);
+    assertEquals(surface.includes("workflowSidebar.epic"), true);
+    assertEquals(surface.includes("<dt>Epic</dt>"), true);
 });
 
 Deno.test("Session image attachments use a Session-scoped draft key and request payload", () => {

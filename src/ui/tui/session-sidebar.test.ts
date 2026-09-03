@@ -27,16 +27,25 @@ Deno.test("TUI Session Sidebar defaults to workflow and cycles through shared ta
         activeAgent: "frontend-engineer",
         activeModel: { model: "demo-model", provider: "demo-provider" },
         thinkingLevel: "high",
-        workflowContext: { routingIntent: "PLANNED_CHANGE", planName: "session-sidebar" },
+        workflowContext: {
+            routingIntent: "PLANNED_CHANGE",
+            planName: "workspace-epic/session-sidebar",
+            parentPlan: "workspace-epic",
+        },
         managed: { generation: 2 },
         sessionStats: { userMessages: 4, assistantMessages: 3, toolCalls: 6, compactionCount: 1 },
+        contextUsage: { tokens: 96_000, contextWindow: 128_000, percent: 75 },
+        systemContextTokens: 24_000,
         artifacts: [ARTIFACT],
     };
     const sidebar = new TuiSessionSidebar(() => "session-1", () => snapshot);
 
     const workflow = stripAnsi(sidebar.render(34).join("\n"));
+    assertStringIncludes(workflow, "EPIC");
+    assertStringIncludes(workflow, "workspace-epic");
     assertStringIncludes(workflow, "PLAN");
     assertStringIncludes(workflow, "session-sidebar");
+    assertEquals(workflow.includes("workspace-epic/session-sidebar"), false);
     assertStringIncludes(workflow, "Artifacts");
 
     sidebar.cycleTab();
@@ -45,6 +54,11 @@ Deno.test("TUI Session Sidebar defaults to workflow and cycles through shared ta
     assertStringIncludes(session, "7 · 4 user / 3 assistant");
     assertStringIncludes(session, "TOOL CALLS");
     assertStringIncludes(session, "COMPACTIONS");
+    assertStringIncludes(session, "96,000 / 128,000 · 75.0%");
+    assertStringIncludes(session, "SYSTEM & SETUP");
+    assertStringIncludes(session, "~24,000 · 25.0% of used");
+    assertStringIncludes(session, "CONVERSATION");
+    assertStringIncludes(session, "~72,000 · 75.0% of used");
     assertEquals(session.includes("STATE"), false);
     assertEquals(session.includes("GENERATION"), false);
     assertEquals(session.includes("demo-model"), false);
@@ -74,12 +88,31 @@ Deno.test("shared TUI projection defaults idle Sessions without a Plan to Sessio
     const projection = tuiSessionSidebarProjection({ managed: { generation: 0 }, artifacts: [] });
     assertEquals(projection.defaultTab, "session");
     assertEquals(projection.workflow.active, false);
+    assertEquals(projection.workflow.epic, null);
     assertEquals(projection.session.generation, "0");
 });
 
-Deno.test("TUI Session Sidebar matches legacy and Kitty ctrl+] input", () => {
+Deno.test("TUI Session Sidebar hides Epic for a standalone Plan", () => {
+    const sidebar = new TuiSessionSidebar(
+        () => "session-standalone",
+        () => ({
+            managed: { generation: 1 },
+            workflowContext: { routingIntent: "PLANNED_CHANGE", planName: "standalone-plan" },
+        }),
+    );
+
+    const workflow = stripAnsi(sidebar.render(34).join("\n"));
+    assertStringIncludes(workflow, "PLAN");
+    assertStringIncludes(workflow, "standalone-plan");
+    assertEquals(workflow.includes("EPIC"), false);
+});
+
+Deno.test("TUI Session Sidebar cycles once for ctrl+] key-down only", () => {
     assertEquals(isSessionSidebarCycleKey("\x1d"), true);
     assertEquals(isSessionSidebarCycleKey("\x1b[93;5u"), true);
+    assertEquals(isSessionSidebarCycleKey("\x1b[93;5:1u"), true);
+    assertEquals(isSessionSidebarCycleKey("\x1b[93;5:2u"), false);
+    assertEquals(isSessionSidebarCycleKey("\x1b[93;5:3u"), false);
     assertEquals(isSessionSidebarCycleKey("]"), false);
 });
 

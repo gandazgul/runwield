@@ -102,10 +102,15 @@ Deno.test("workflow context normalization accepts canonical intents and sanitize
 Deno.test("workflow context derives execution metadata with legacy feature normalization", () => {
     assertEquals(
         deriveWorkflowContextFromExecutionWorkflow({
-            planName: "docs/plans/footer-plan.md",
-            triageMeta: { classification: "FEATURE", complexity: "medium" },
+            planName: "docs/plans/epic-name/footer-plan.md",
+            triageMeta: { classification: "FEATURE", complexity: "medium", parentPlan: "epic-name" },
         }),
-        { routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM", planName: "footer-plan" },
+        {
+            routingIntent: "PLANNED_CHANGE",
+            complexity: "MEDIUM",
+            planName: "epic-name/footer-plan",
+            parentPlan: "epic-name",
+        },
     );
     assertEquals(
         deriveWorkflowContextFromExecutionWorkflow({

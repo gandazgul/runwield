@@ -604,8 +604,8 @@ Deno.test("HostedSession preserves workflow context across empty root manager sw
         sessionManager: makeSessionManager("context-swap-a", firstEntries),
     });
     session.setWorkflowExecutionContext({
-        planName: "footer-plan",
-        triageMeta: { classification: "FEATURE", complexity: "MEDIUM" },
+        planName: "epic-name/footer-plan",
+        triageMeta: { classification: "FEATURE", complexity: "MEDIUM", parentPlan: "epic-name" },
     });
 
     session.setRootSessionManager(makeSessionManager("context-swap-b", secondEntries));
@@ -613,12 +613,18 @@ Deno.test("HostedSession preserves workflow context across empty root manager sw
     assertEquals(session.getWorkflowContext(), {
         routingIntent: "PLANNED_CHANGE",
         complexity: "MEDIUM",
-        planName: "footer-plan",
+        planName: "epic-name/footer-plan",
+        parentPlan: "epic-name",
     });
     assertEquals(secondEntries, [{
         type: "custom",
         customType: WORKFLOW_CONTEXT_CUSTOM_TYPE,
-        data: { routingIntent: "PLANNED_CHANGE", complexity: "MEDIUM", planName: "footer-plan" },
+        data: {
+            routingIntent: "PLANNED_CHANGE",
+            complexity: "MEDIUM",
+            planName: "epic-name/footer-plan",
+            parentPlan: "epic-name",
+        },
     }]);
 });
 

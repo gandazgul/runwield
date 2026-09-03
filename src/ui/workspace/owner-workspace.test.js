@@ -692,10 +692,10 @@ Deno.test("owner Workspace rejects stale live Plan review before answering Runti
                     },
                 }),
             Error,
-            "Plan changed after review opened",
+            "Plan Status changed after review opened",
         );
         assertEquals(resolved, false);
-        assertStringIncludes(rejectedMessage, "Plan changed after review opened");
+        assertStringIncludes(rejectedMessage, "Plan Status changed after review opened");
         assertEquals((await loadPlan(projectRoot, "owner-plan"))?.attrs.status, "feedback");
     } finally {
         store.close();

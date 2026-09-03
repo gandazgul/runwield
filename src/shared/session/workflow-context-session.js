@@ -22,6 +22,7 @@ export const PENDING_SEGMENT_CONTINUATION_CUSTOM_TYPE = "runwield.pending_segmen
  * @property {string} [routingIntent]
  * @property {string} [complexity]
  * @property {string} [planName]
+ * @property {string} [parentPlan]
  */
 
 /**
@@ -68,6 +69,7 @@ export function normalizeWorkflowContext(value) {
     const routingIntent = normalizeWorkflowRoutingIntent(data.routingIntent);
     const complexity = normalizeWorkflowComplexity(data.complexity);
     const planName = normalizeWorkflowPlanName(data.planName);
+    const parentPlan = normalizeWorkflowPlanName(data.parentPlan);
 
     /** @type {WorkflowContext} */
     const context = {};
@@ -76,6 +78,7 @@ export function normalizeWorkflowContext(value) {
         context.complexity = complexity;
     }
     if (planName) context.planName = planName;
+    if (parentPlan) context.parentPlan = parentPlan;
 
     return Object.keys(context).length > 0 ? context : null;
 }
@@ -114,6 +117,7 @@ export function recordWorkflowPlanName(sessionManager, planName) {
  * @property {string} [routingIntent]
  * @property {string} [classification]
  * @property {string} [complexity]
+ * @property {string} [parentPlan]
  */
 
 /**
@@ -133,6 +137,7 @@ export function deriveWorkflowContextFromExecutionWorkflow(workflow, planName) {
         normalizeWorkflowRoutingIntent(triageMeta?.classification);
     const complexity = normalizeWorkflowComplexity(triageMeta?.complexity);
     const normalizedPlanName = normalizeWorkflowPlanName(workflow?.planName || planName);
+    const parentPlan = normalizeWorkflowPlanName(triageMeta?.parentPlan);
 
     /** @type {WorkflowContext} */
     const context = {};
@@ -141,6 +146,7 @@ export function deriveWorkflowContextFromExecutionWorkflow(workflow, planName) {
         context.complexity = complexity;
     }
     if (normalizedPlanName) context.planName = normalizedPlanName;
+    if (parentPlan) context.parentPlan = parentPlan;
 
     return Object.keys(context).length > 0 ? context : null;
 }
@@ -327,7 +333,8 @@ export function normalizeSegmentLineageEvidence(lineage) {
 export function workflowContextsEqual(left, right) {
     return (left?.routingIntent || "") === (right?.routingIntent || "") &&
         (left?.complexity || "") === (right?.complexity || "") &&
-        (left?.planName || "") === (right?.planName || "");
+        (left?.planName || "") === (right?.planName || "") &&
+        (left?.parentPlan || "") === (right?.parentPlan || "");
 }
 
 /**
