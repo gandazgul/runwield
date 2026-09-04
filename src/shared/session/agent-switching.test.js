@@ -5,6 +5,7 @@ import { runActiveAgentTurn, switchActiveAgent } from "./agent-switching.js";
 import { __getRootSessionMetadataForTests } from "./session.js";
 import { HostedSession } from "./hosted-session.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
+import { createReplayEvents } from "./session-transcript-projection.js";
 import {
     BACKEND_CONTINUATION_REQUEST,
     failRequestDispatch,
@@ -73,6 +74,33 @@ Deno.test("switchActiveAgent marks only successful different root switches as ha
             ["planner", "Planner", true],
             ["planner", "Planner", undefined],
         ]);
+        hostedSession.dispose();
+    });
+});
+
+Deno.test("switchActiveAgent keeps the first committed Agent marker silent after a presented Agent", async () => {
+    await withRuntimeCommandFixture("agent-switch-presented-baseline-", async ({ projectRoot }) => {
+        const { hostedSession, sessionManager } = makeSession(projectRoot);
+        hostedSession.pushAgentInfo("Guide", "", "", "guide");
+        /** @type {Array<Record<string, unknown>>} */
+        const events = [];
+        hostedSession.setEventSink((/** @type {unknown} */ event) =>
+            events.push(/** @type {Record<string, unknown>} */ (event))
+        );
+
+        await switchActiveAgent(hostedSession, { agentName: "planner", sessionManager });
+
+        const liveAgentEvents = events.filter((event) => event.type === RuntimeEventTypes.AGENT_CHANGED);
+        assertEquals(liveAgentEvents.map((event) => [event.agentName, event.displayName, event.rootHandoff]), [
+            ["planner", "Planner", undefined],
+        ]);
+        const replayEvents = createReplayEvents("presented-baseline", sessionManager.getBranch(), { projectRoot });
+        assertEquals(
+            replayEvents.filter((event) =>
+                event.type === RuntimeEventTypes.SYSTEM_STATUS && event.message === "Agent switched to Planner"
+            ).length,
+            0,
+        );
         hostedSession.dispose();
     });
 });
