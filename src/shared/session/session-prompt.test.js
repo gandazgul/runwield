@@ -283,6 +283,53 @@ sessionPromptTest("assembleFinalSystemPromptWithContextProjection attributes res
     }
 });
 
+sessionPromptTest("assembleFinalSystemPromptWithContextProjection includes Core Memory from Mnemoteca", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-context-project-" });
+    const fakeBin = join(projectRoot, "fake-bin");
+    const commandLog = join(projectRoot, "mnemoteca-command.log");
+    const previousPath = Deno.env.get("PATH");
+    const pathSeparator = Deno.build.os === "windows" ? ";" : ":";
+    try {
+        await Deno.mkdir(fakeBin);
+        await Deno.writeTextFile(
+            join(fakeBin, "mnemoteca"),
+            `#!/usr/bin/env bash
+set -euo pipefail
+printf 'args=%s\n' "$*" > '${commandLog}'
+if [[ "$*" != 'list -t core -f plain' ]]; then
+  exit 64
+fi
+printf 'Core memory from Mnemoteca\nSecond core memory\n'
+`,
+        );
+        await Deno.chmod(join(fakeBin, "mnemoteca"), 0o755);
+        Deno.env.set("PATH", previousPath ? `${fakeBin}${pathSeparator}${previousPath}` : fakeBin);
+
+        const { prompt, projection } = await assembleFinalSystemPromptWithContextProjection(
+            /** @type {any} */ ({
+                name: "test",
+                displayName: "Test",
+                description: "Test agent",
+                systemPrompt: "Agent instructions {{MEMORIES}}",
+            }),
+            [],
+            [],
+            projectRoot,
+        );
+
+        assertStringIncludes(prompt, "Core memory from Mnemoteca");
+        assertStringIncludes(prompt, "Second core memory");
+        assertEquals(await Deno.readTextFile(commandLog), "args=list -t core -f plain\n");
+        const coreMemoryItem = projection.categories.find((category) => category.id === "core_memories")?.items?.[0];
+        assertEquals(coreMemoryItem?.source, "mnemoteca");
+        assertEquals(coreMemoryItem?.label, "Core Memories");
+    } finally {
+        if (previousPath === undefined) Deno.env.delete("PATH");
+        else Deno.env.set("PATH", previousPath);
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});
+
 sessionPromptTest("assembleFinalSystemPromptWithContextProjection excludes omitted placeholder context", async () => {
     const originalHome = Deno.env.get("HOME");
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-context-home-" });

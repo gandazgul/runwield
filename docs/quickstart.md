@@ -13,8 +13,8 @@ On macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
 ```
 
-The installer installs `wld` plus required Mnemoteca/Cymbal/agent-browser helpers and optional Snip to `~/.local/bin` by
-default. If your shell cannot find `wld`, add the install directory to your `PATH`.
+The installer installs `wld` plus required [Mnemoteca]/Cymbal/agent-browser helpers and optional Snip to `~/.local/bin`
+by default. If your shell cannot find `wld`, add the install directory to your `PATH`.
 
 To choose a different install directory:
 
@@ -45,8 +45,12 @@ project/global memory, `cymbal` for symbol-aware code search, and `agent-browser
 `wld`, preserving helper binaries you already manage elsewhere on `PATH` or in `WLD_INSTALL_DIR`. It also attempts
 optional `snip` for compact shell-output rewriting; RunWield still starts if Snip is missing.
 
-Mnemoteca's model payload is not downloaded by the installer. It is fetched lazily by Mnemoteca on first semantic memory
-use.
+[Mnemoteca]'s model payload is not downloaded by the installer. It is fetched lazily by Mnemoteca on first semantic
+memory use.
+
+If you already have `mnemoteca` and need data from a pre-rename install, run the official [Mnemoteca] installer before
+installing RunWield v0.10.0. The RunWield installer preserves an existing `mnemoteca` executable and does not start the
+upstream migration flow.
 
 ## Authenticate
 
