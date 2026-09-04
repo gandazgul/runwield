@@ -27,7 +27,7 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-09-03T00:53:52.832Z"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v2"
 order: 1
