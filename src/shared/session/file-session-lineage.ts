@@ -4,7 +4,12 @@
  */
 
 import { createHash } from "node:crypto";
-import { normalizeSegmentLineageEvidence, SEGMENT_LINEAGE_CUSTOM_TYPE } from "./workflow-context-session.js";
+import {
+    normalizeSegmentLineageEvidence,
+    PENDING_SEGMENT_CONTINUATION_CUSTOM_TYPE,
+    SEGMENT_LINEAGE_CUSTOM_TYPE,
+} from "./workflow-context-session.js";
+import { readPlanAssociations } from "./plan-association.ts";
 import { FILE_SESSION_STORE_VERSION, isoNow } from "./file-session-storage.ts";
 import type {
     FileSessionManifest,
@@ -12,6 +17,38 @@ import type {
     LineageReadResult,
     LocatedSegmentLineage,
 } from "./file-session-store-types.ts";
+
+function readJsonlPrefix(path: string, currentSegment: boolean) {
+    const text = Deno.readTextFileSync(path);
+    const lines = text.split("\n").filter(Boolean);
+    let prefixLength = lines.length;
+    if (currentSegment) {
+        let latestLineageIndex = -1;
+        let foundContinuation = false;
+        for (let index = 0; index < lines.length; index += 1) {
+            const entry = JSON.parse(lines[index]);
+            if (entry?.type !== "custom") continue;
+            if (entry.customType === PENDING_SEGMENT_CONTINUATION_CUSTOM_TYPE) {
+                prefixLength = index + 1;
+                foundContinuation = true;
+                break;
+            }
+            if (entry.customType === SEGMENT_LINEAGE_CUSTOM_TYPE) latestLineageIndex = index;
+        }
+        if (!foundContinuation && latestLineageIndex >= 0) prefixLength = latestLineageIndex + 1;
+    }
+    const selected = lines.slice(0, prefixLength);
+    const prefixText = selected.length > 0 ? `${selected.join("\n")}\n` : "";
+    const bytes = new TextEncoder().encode(prefixText);
+    const entries = selected.map((line) => JSON.parse(line));
+    const last = entries.at(-1);
+    return {
+        byteLength: bytes.byteLength,
+        digestHex: createHash("sha256").update(bytes).digest("hex"),
+        terminalEntryId: last && typeof last === "object" && typeof last.id === "string" ? last.id : null,
+        entries,
+    };
+}
 
 export function readLineage(path: string): LineageReadResult {
     try {
@@ -94,6 +131,18 @@ export function reconstructManifestFromLineage(
     if (ordered.length !== located.length) return null;
 
     const timestamp = isoNow(now);
+    const generation = ordered.length - 1;
+    const committedPrefixes = ordered.map((item, ordinal) =>
+        readJsonlPrefix(item.locator.sessionPath, ordinal === ordered.length - 1)
+    );
+    const planAssociations = committedPrefixes.flatMap((prefix) =>
+        readPlanAssociations(prefix.entries.slice(1)).map((association) => ({
+            ...association,
+            committedGeneration: generation,
+        }))
+    );
+    const currentPrefix = committedPrefixes[committedPrefixes.length - 1];
+
     const segments = ordered.map((item, ordinal) => ({
         segmentId: item.lineage.segmentId,
         runwieldSessionId,
@@ -130,7 +179,7 @@ export function reconstructManifestFromLineage(
         currentSegmentId: segments[segments.length - 1].segmentId,
         fence: 0,
         activation: {
-            state: "uninitialized",
+            state: "idle",
             phase: null,
             ownerInstanceId: null,
             ownerProcessKind: null,
@@ -140,7 +189,21 @@ export function reconstructManifestFromLineage(
             acquiredAt: null,
             blockedReason: null,
         },
-        generation: null,
+        generation: {
+            runwieldSessionId,
+            projectId: project.projectId,
+            generation,
+            evidenceVersion: 1,
+            digestAlgorithm: "sha256",
+            byteLength: currentPrefix.byteLength,
+            terminalEntryId: currentPrefix.terminalEntryId,
+            digestHex: currentPrefix.digestHex,
+            operationId: "lineage_recovery",
+            fence: 0,
+            currentSegmentId: segments[segments.length - 1].segmentId,
+            committedAt: timestamp,
+        },
         segments,
+        planAssociations,
     };
 }

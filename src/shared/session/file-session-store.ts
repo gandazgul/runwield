@@ -407,6 +407,13 @@ export function openFileSessionStore(options: OpenFileSessionStoreOptions = {}):
             if (!found) return [];
             return (found.manifest.artifacts || []).map((artifact: SessionArtifactReference) => ({ ...artifact }));
         },
+        listSessionPlanAssociations(runwieldSessionId, projectId) {
+            const found = manifests.resolve(runwieldSessionId, projectId);
+            if (!found) return [];
+            return (found.manifest.planAssociations || [])
+                .filter((association) => association.committedGeneration !== null)
+                .map((association) => ({ ...association }));
+        },
         getCurrentSessionSegment(runwieldSessionId) {
             const found = manifests.resolve(runwieldSessionId);
             if (!found) return null;

@@ -83,6 +83,7 @@ import {
     withOwnerSecurityHeaders,
 } from "./server/owner-origin.js";
 import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./server/owner-projects.js";
+import { ownerProjectPlanSessionsApi } from "./server/owner-plan-sessions.ts";
 import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
 import { setAstroOwnerWorkspaceSessionContinuation, setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
 
@@ -279,6 +280,7 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects/:projectId/plans", ownerProjectBoardApi);
     app.get("/api/owner/projects/:projectId/plans/view/:view", ownerProjectBoardApi);
     app.get("/api/owner/projects/:projectId/plans/:planId/progress", ownerProjectPlanProgressApi);
+    app.get("/api/owner/projects/:projectId/plans/:planId/sessions", ownerProjectPlanSessionsApi);
     app.get("/api/owner/projects/:projectId/plans/:planId", ownerProjectPlanDetailApi);
     app.get("/api/owner/projects/:projectId/files/content", ownerProjectFileContentApi);
     app.get("/api/file-content", ownerInSituReviewFileContent);

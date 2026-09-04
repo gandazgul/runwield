@@ -16,7 +16,7 @@ import { join, toFileUrl } from "@std/path";
 import { Type } from "@earendil-works/pi-ai";
 import { type AgentToolResult, defineTool } from "@earendil-works/pi-coding-agent";
 import { CLI_BIN, normalizePlanClassification, normalizeWorkKind, PLANS_DIR_NAME } from "../constants.js";
-import { loadPlan, resolvePlanExecutionPolicy, updatePlanFrontMatter } from "../plan-store.js";
+import { ensurePlanIdentity, loadPlan, resolvePlanExecutionPolicy, updatePlanFrontMatter } from "../plan-store.js";
 import { assertNotReservedEpicArtifactPlanName } from "../shared/epic-artifacts.ts";
 import { recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
 import { loadPlanActionEvidence } from "../shared/workflow/plan-actions.ts";
@@ -461,6 +461,30 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 );
             }
 
+            let planAssociationFailure = "";
+            const appendPlanAssociationFailure = (text: string) =>
+                planAssociationFailure ? `${text}\n\n${planAssociationFailure}` : text;
+            try {
+                const identified = await ensurePlanIdentity(cwd, planName);
+                const identifiedAttrs: TriageMeta = { ...identified.attrs };
+                if (identifiedAttrs.workKind === undefined || identifiedAttrs.workKind === null) {
+                    delete identifiedAttrs.workKind;
+                }
+                effectiveMeta = { ...effectiveMeta, ...identifiedAttrs };
+                const planId = typeof effectiveMeta.planId === "string" ? effectiveMeta.planId : "";
+                if (!planId) throw new Error("Plan identity is missing after identity repair");
+                hostedSession.recordPlanAssociation({ planId, planName, purpose: "planning" });
+            } catch (error) {
+                planAssociationFailure = `Plan Association was not recorded: ${
+                    error instanceof Error ? error.message : String(error)
+                }`;
+                emitSystemStatus(
+                    hostedSession,
+                    planAssociationFailure,
+                    { level: "warning", header: "RunWield" },
+                );
+            }
+
             const managedCapability = hostedSession.getManagedOperationCapability?.() || null;
             if (managedCapability) {
                 managedCapability.registerArtifact({
@@ -570,7 +594,9 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 const details = { ...params, outcome: "canceled" as const, reason: recoverableReview.reason };
                 publishAcceptedPlanOutcome(details);
                 return textResult(
-                    `${SESSION_COMPLETE_GUIDANCE}\n\nYour role as ${agentName} is complete. Do not generate any further text.`,
+                    appendPlanAssociationFailure(
+                        `${SESSION_COMPLETE_GUIDANCE}\n\nYour role as ${agentName} is complete. Do not generate any further text.`,
+                    ),
                     details,
                     true,
                 );
@@ -615,7 +641,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 };
                 publishAcceptedPlanOutcome(details, reviewMeta.images);
                 return textResult(
-                    message,
+                    appendPlanAssociationFailure(message),
                     details,
                     true,
                 );
@@ -639,7 +665,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 const details = { ...params, outcome: "canceled" as const };
                 publishAcceptedPlanOutcome(details);
                 return textResult(
-                    canceledMessage,
+                    appendPlanAssociationFailure(canceledMessage),
                     details,
                     true,
                 );
@@ -663,7 +689,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                     reason: "stale_plan_review",
                 };
                 publishAcceptedPlanOutcome(details);
-                return textResult(message, details, true);
+                return textResult(appendPlanAssociationFailure(message), details, true);
             }
 
             if (!reviewResult.approved) {
@@ -682,11 +708,11 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 };
                 publishAcceptedPlanOutcome(details, reviewResult.images);
                 return textResult(
-                    buildFeedbackRequestText({
+                    appendPlanAssociationFailure(buildFeedbackRequestText({
                         round: 1,
                         planName,
                         feedback: reviewResult.feedback,
-                    }),
+                    })),
                     details,
                     false,
                     reviewResult.images,
@@ -750,9 +776,9 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                         ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
                         : "";
                     return textResult(
-                        appendSessionCompleteGuidance(
+                        appendPlanAssociationFailure(appendSessionCompleteGuidance(
                             `Plan "${planName}" approved and saved for later decomposition. Your role as ${agentName} is complete. Do not generate any further text.${savedFeedbackSuffix}`,
-                        ),
+                        )),
                         {
                             ...params,
                             outcome: "saved",
@@ -788,7 +814,9 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 };
                 publishAcceptedPlanOutcome(details, reviewResult.images);
                 return textResult(
-                    `PROJECT Epic "${planName}" approved for Slicer decomposition. ${slicerFeedbackSuffix}`,
+                    appendPlanAssociationFailure(
+                        `PROJECT Epic "${planName}" approved for Slicer decomposition. ${slicerFeedbackSuffix}`,
+                    ),
                     details,
                     true,
                     reviewResult.images,
@@ -840,9 +868,9 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 };
                 publishAcceptedPlanOutcome(details, reviewResult.images);
                 return textResult(
-                    appendSessionCompleteGuidance(
+                    appendPlanAssociationFailure(appendSessionCompleteGuidance(
                         `Plan "${planName}" approved and saved for later execution. Your role as ${agentName} is complete. Do not generate any further text.${savedFeedbackSuffix}`,
-                    ),
+                    )),
                     details,
                     true,
                     reviewResult.images,
@@ -872,7 +900,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             };
             publishAcceptedPlanOutcome(details, reviewResult.images);
             return textResult(
-                `Plan "${planName}" approved for execution.${execFeedbackSuffix}`,
+                appendPlanAssociationFailure(`Plan "${planName}" approved for execution.${execFeedbackSuffix}`),
                 details,
                 true,
                 reviewResult.images,

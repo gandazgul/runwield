@@ -210,6 +210,9 @@ export function catalogedSession(manifest: FileSessionManifest) {
         headerTimestamp: current.headerTimestamp,
         firstCatalogedAt: first.firstCatalogedAt,
         lastCatalogedAt: manifest.updatedAt,
+        planAssociations: (manifest.planAssociations || [])
+            .filter((association) => association.committedGeneration !== null)
+            .map((association) => ({ ...association })),
     };
 }
 

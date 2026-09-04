@@ -12,6 +12,7 @@ const FENCED_METHOD_DRIVERS: Record<string, string> = {
     promptSession: "promptManagedSession(",
     promptUserTurn: "promptUserTurn(",
     queueNextTurnMessage: "queueNextTurnMessage(",
+    recordPlanAssociation: "runManagedStandaloneMutation(",
     requestInteraction: "runManagedStandaloneMutation(",
     reconfigureSessionModel: "reconfigureSessionModel(",
     reloadSession: "reloadSession(",

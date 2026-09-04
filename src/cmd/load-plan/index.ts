@@ -6,7 +6,7 @@
  */
 
 import { parseArgs } from "@std/cli/parse-args";
-import { AGENTS, CLI_BIN } from "../../constants.js";
+import { AGENTS, CLI_BIN, getCwd } from "../../constants.js";
 import {
     archivePlan,
     ensurePlanIdentity,
@@ -58,6 +58,8 @@ import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location
 import type { CommandContext } from "../registry.js";
 import type { UiAPI } from "../../ui/tui/types.js";
 import { buildPlanRecoveryUserMessage } from "../../shared/workflow/validation-user-messages.ts";
+import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
+import { findPlanAssociatedSessions, verifyPlanAssociatedSession } from "../../shared/session/plan-session-lookup.ts";
 
 export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
 
@@ -152,12 +154,43 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
     }
 
     let uiAPI = options.uiAPI;
+    let cliResumeSessionId = "";
 
     if (!uiAPI) {
+        const startupProjectRoot = getCwd();
+        const startupResolved = await resolvePlanWithPrimaryRecovery(startupProjectRoot, planArg);
+        let startupPlan = startupResolved.plan;
+        if (!startupPlan.attrs.planId) {
+            const location = await resolveWorkflowPlanLocation(startupProjectRoot, startupPlan.planName, {
+                migrateRegistry: false,
+            });
+            const identified = await ensurePlanIdentity(location.documentRoot, startupPlan.planName);
+            startupPlan = { ...startupPlan, attrs: identified.attrs };
+        }
+        const startupPlanId = typeof startupPlan.attrs.planId === "string" ? startupPlan.attrs.planId : "";
+        if (startupPlanId) {
+            const lookupStore = openFileSessionStore();
+            try {
+                const associations = await findPlanAssociatedSessions(lookupStore, {
+                    cwd: startupProjectRoot,
+                    planId: startupPlanId,
+                });
+                const safeAssociations = associations.filter((candidate) => candidate.safePlanningResume);
+                if (safeAssociations.length === 1) {
+                    const verified = await verifyPlanAssociatedSession(lookupStore, safeAssociations[0]);
+                    if (verified.ok) cliResumeSessionId = safeAssociations[0].runwieldSessionId;
+                }
+            } finally {
+                lookupStore.close();
+            }
+        }
         uiAPI = await startInteractiveSession(
             null,
             {
                 browser: SYSTEM_BROWSER_PORT,
+                ...(cliResumeSessionId
+                    ? { sessionStartMode: "continue" as const, resumeSessionId: cliResumeSessionId }
+                    : {}),
                 onSessionReady: (nextSessionId, nextRuntime) => {
                     runtimeSessionId = nextSessionId;
                     sessionRuntime = nextRuntime;
@@ -169,29 +202,44 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
     if (!uiAPI) return;
     if (!sessionRuntime || !runtimeSessionId) throw new Error("runLoadPlanCommand requires a runtime session");
     const runtime = sessionRuntime;
-    const activeSessionId = runtimeSessionId;
-    const session = createPlanSessionSurface(runtime, activeSessionId, {
-        executePlan: async (options) => {
-            const planId = typeof options.triageMeta?.planId === "string" ? options.triageMeta.planId : "";
-            const evidence = planId ? await loadPlanActionEvidence(projectRoot, planId) : null;
-            if (evidence?.kind !== "success") {
-                console.error("[RunWield] plan_execution_evidence_unavailable", evidence?.kind || "missing_plan_id");
-            }
-            return await runtime.executePlan(activeSessionId, {
-                ...options,
-                ...(evidence?.kind === "success" ? { approvalEvidence: evidence.evidence } : {}),
-            });
-        },
-        runPlanningAgent: (options) => runtime.runPlanningAgent(activeSessionId, options),
-        runValidation: (options) => runtime.runValidation(activeSessionId, options),
-        runSlicerAgent: (options) => runtime.runSlicerAgent(activeSessionId, options),
-    });
-    const projectRoot = session.cwd;
-    const executePlan = session.executePlan;
-    const runPlanningAgent = session.runPlanningAgent;
-    const continueWorkflowValidation = session.runValidation;
-    const runSlicerAgent = session.runSlicerAgent;
-    const switchPlanAgent = session.switchAgent;
+    let activeSessionId = runtimeSessionId;
+    let projectRoot = "";
+    const makeSessionSurface = () =>
+        createPlanSessionSurface(runtime, activeSessionId, {
+            executePlan: async (options) => {
+                const planId = typeof options.triageMeta?.planId === "string" ? options.triageMeta.planId : "";
+                const evidence = planId ? await loadPlanActionEvidence(projectRoot, planId) : null;
+                if (evidence?.kind !== "success") {
+                    console.error(
+                        "[RunWield] plan_execution_evidence_unavailable",
+                        evidence?.kind || "missing_plan_id",
+                    );
+                }
+                return await runtime.executePlan(activeSessionId, {
+                    ...options,
+                    ...(evidence?.kind === "success" ? { approvalEvidence: evidence.evidence } : {}),
+                });
+            },
+            runPlanningAgent: (options) => runtime.runPlanningAgent(activeSessionId, options),
+            runValidation: (options) => runtime.runValidation(activeSessionId, options),
+            runSlicerAgent: (options) => runtime.runSlicerAgent(activeSessionId, options),
+        });
+    let session = makeSessionSurface();
+    projectRoot = session.cwd;
+    let executePlan = session.executePlan;
+    let runPlanningAgent = session.runPlanningAgent;
+    let continueWorkflowValidation = session.runValidation;
+    let runSlicerAgent = session.runSlicerAgent;
+    let switchPlanAgent = session.switchAgent;
+    const refreshSessionSurface = () => {
+        session = makeSessionSurface();
+        projectRoot = session.cwd;
+        executePlan = session.executePlan;
+        runPlanningAgent = session.runPlanningAgent;
+        continueWorkflowValidation = session.runValidation;
+        runSlicerAgent = session.runSlicerAgent;
+        switchPlanAgent = session.switchAgent;
+    };
 
     let skipRouterRestore = false;
     const initialAgentName = session.getEffectiveAgentName() || AGENTS.ROUTER;
@@ -293,6 +341,63 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             plan.markdown = identified.markdown;
             plan.body = identified.body;
             plan.revision = identified.revision;
+        }
+        const planId = typeof plan.attrs.planId === "string" ? plan.attrs.planId : "";
+        const associations = planId ? await runtime.listPlanAssociatedSessions(projectRoot, planId) : [];
+        const safeAssociations = associations.filter((candidate) => candidate.safePlanningResume);
+        const activeElsewhere = associations.find((candidate) => candidate.reason === "active_elsewhere");
+        let candidateToAdopt: (typeof safeAssociations)[number] | null = null;
+        const activeSnapshot = runtime.getSessionSnapshot(activeSessionId);
+        if (safeAssociations.length === 1 && activeSnapshot?.managed === null) {
+            candidateToAdopt = safeAssociations[0];
+        } else if (
+            safeAssociations.length === 1 &&
+            activeSnapshot?.managed?.runwieldSessionId !== safeAssociations[0].runwieldSessionId
+        ) {
+            const answer = await uiAPI.promptSelect(`Continue ${plan.planName} in its planning Session?`, [
+                { value: "switch", label: `Continue in "${safeAssociations[0].displayName || plan.planName}"` },
+                { value: "stay", label: "Stay here" },
+            ]);
+            if (answer === "switch") candidateToAdopt = safeAssociations[0];
+        } else if (safeAssociations.length > 1) {
+            const answer = await uiAPI.promptSelect(
+                `Choose a planning Session for ${plan.planName}:`,
+                safeAssociations.map((candidate) => ({
+                    value: candidate.runwieldSessionId,
+                    label: candidate.displayName || candidate.runwieldSessionId,
+                })),
+            );
+            candidateToAdopt = safeAssociations.find((candidate) => candidate.runwieldSessionId === answer) || null;
+        } else if (activeElsewhere) {
+            uiAPI.appendSystemMessage(
+                `The associated planning Session is active in another ${
+                    activeElsewhere.activeSurface || "RunWield"
+                } surface. Staying in this Session.`,
+                true,
+                "RunWield",
+            );
+        }
+        if (candidateToAdopt) {
+            const verified = await runtime.verifyPlanAssociatedSession(candidateToAdopt);
+            if (!verified.ok) {
+                uiAPI.appendSystemMessage(
+                    `The associated planning Session is damaged. Staying in this Session.`,
+                    true,
+                    "RunWield",
+                );
+            } else {
+                const loaded = await runtime.loadSession({
+                    cwd: projectRoot,
+                    sessionId: candidateToAdopt.piSessionId,
+                    sessionPath: candidateToAdopt.transcriptPath,
+                });
+                activeSessionId = loaded.sessionId;
+                runtimeSessionId = loaded.sessionId;
+                options.replaceRuntimeSession?.(loaded.sessionId);
+                uiAPI.clearMessages?.();
+                await runtime.replaySession(loaded.sessionId);
+                refreshSessionSurface();
+            }
         }
         uiAPI.appendSystemMessage(`Plan loaded: ${plan.planName}`, false, "RunWield");
         uiAPI.appendSystemMessage(

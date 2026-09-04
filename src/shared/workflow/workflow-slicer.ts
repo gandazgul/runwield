@@ -535,6 +535,10 @@ export async function runSlicerAgent({
         });
         const slicerSessionManager = boundary?.manager || sessionManager;
         hostedSession.setWorkflowPlanName(planName);
+        const planId = typeof epic.attrs.planId === "string" ? epic.attrs.planId : "";
+        if (planId && hostedSession.getManagedOperationCapability?.()) {
+            hostedSession.recordPlanAssociation({ planId, planName, purpose: "planning" });
+        }
         const slicerCustomTools = createSlicerCustomTools(planName, projectRoot);
         await agentSwitching.runActiveAgentTurn({
             hostedSession,

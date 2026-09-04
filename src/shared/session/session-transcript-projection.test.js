@@ -291,6 +291,7 @@ Deno.test("committed transcript authority facts are explicit projection extracts
         provider: "openai",
         thinkingLevel: "high",
         workflowContext: { routingIntent: "FEATURE", complexity: "LOW" },
+        planAssociations: [],
     });
     assertEquals(getCommittedTranscriptAuthorityFacts(null), {
         activeAgent: null,
@@ -298,6 +299,7 @@ Deno.test("committed transcript authority facts are explicit projection extracts
         provider: null,
         thinkingLevel: null,
         workflowContext: null,
+        planAssociations: [],
     });
 });
 
@@ -366,5 +368,30 @@ Deno.test("^projection replays Claude backend failure entries as display-only st
         model: null,
         provider: null,
         thinkingLevel: null,
+        planAssociations: [],
     });
+});
+
+Deno.test("summarizeProjectedEntries exposes Plan Associations and ignores legacy planName-only context", () => {
+    const association = {
+        planId: "plan-1",
+        planName: "example-plan",
+        purpose: "planning",
+        segmentId: "segment-1",
+        segmentKind: "planning",
+        recordedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const summary = summarizeProjectedEntries([
+        { type: "custom", customType: "runwield.workflow_context", data: { planName: "example-plan" } },
+        { type: "custom", customType: "runwield.plan_association", data: association },
+    ]);
+
+    assertEquals(summary.workflowContext, { planName: "example-plan" });
+    assertEquals(summary.planAssociations, [association]);
+    assertEquals(
+        summarizeProjectedEntries([
+            { type: "custom", customType: "runwield.workflow_context", data: { planName: "example-plan" } },
+        ]).planAssociations,
+        [],
+    );
 });
