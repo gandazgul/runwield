@@ -17,7 +17,7 @@ On macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
 ```
 
-The installer downloads `wld`, required Mnemoteca/Cymbal runtime helpers, required agent-browser, and optional Snip,
+The installer downloads `wld`, required [Mnemoteca]/Cymbal runtime helpers, required agent-browser, and optional Snip,
 then installs missing binaries to `~/.local/bin` by default. Make sure that directory is on your `PATH`.
 
 Contributors can also run from source:

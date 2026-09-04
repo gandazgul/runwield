@@ -395,7 +395,7 @@ install_mnemoteca() {
   fi
   chmod 700 "$installer_path"
 
-  if ! INSTALL_DIR="$INSTALL_DIR" MNEMOTECA_REPO="$MNEMOTECA_REPO" /bin/sh "$installer_path"; then
+  if ! INSTALL_DIR="$INSTALL_DIR" MNEMOTECA_REPO="$MNEMOTECA_REPO" "$installer_path"; then
     echo "[wld installer] Mnemoteca installer failed." >&2
     return 1
   fi

@@ -43,20 +43,20 @@ differing only by case need a case-sensitive fixture or separate scenario assert
   distinction that this filesystem cannot represent: $t/p/CONTEXT.md must not exist while
   $t/p/context.md must exist. Command: bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap "rm -rf \"$t\"" EXIT; mkdir -p
   "$t/p" "$t/h"; printf legacy >"$t/p/CONTEXT.md"; printf lower >"$t/p/context.md"; (cd "$t/p" && HOME="$t/h"
-  MNEMOTECA_DB_PATH="$t/h/m.db" deno run -A "$r/src/cli.ts" plans >/dev/null 2>"$t/e"); test ! -e "$t/p/CONTEXT.md";
+  MNEMOSYNE_DB_PATH="$t/h/m.db" deno run -A "$r/src/cli.ts" plans >/dev/null 2>"$t/e"); test ! -e "$t/p/CONTEXT.md";
   test "$(cat "$t/p/docs/domain-language.md")" = legacy; test "$(cat "$t/p/context.md")" = lower' User note: that check
   would require a case sensitive file system. The code is handling this correctly.
 - 2026-08-06T15:50:53.080Z (mechanical_validation) OC2: Objective check requires a case-sensitive filesystem path
   distinction that this filesystem cannot represent: $t/p/CONTEXT.md must not exist while
   $t/p/context.md must exist. Command: bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap "rm -rf \"$t\"" EXIT; mkdir -p
   "$t/p" "$t/h"; printf legacy >"$t/p/CONTEXT.md"; printf lower >"$t/p/context.md"; (cd "$t/p" && HOME="$t/h"
-  MNEMOTECA_DB_PATH="$t/h/m.db" deno run -A "$r/src/cli.ts" plans >/dev/null 2>"$t/e"); test ! -e "$t/p/CONTEXT.md";
+  MNEMOSYNE_DB_PATH="$t/h/m.db" deno run -A "$r/src/cli.ts" plans >/dev/null 2>"$t/e"); test ! -e "$t/p/CONTEXT.md";
   test "$(cat "$t/p/docs/domain-language.md")" = legacy; test "$(cat "$t/p/context.md")" = lower' User note: this will
   never work on case-insensitive file systems
 - 2026-08-06T16:06:20.671Z (mechanical_validation) OC2: Objective check requires a case-sensitive filesystem path
   distinction that this filesystem cannot represent: $t/p/CONTEXT.md must not exist while
   $t/p/context.md must exist. Command: bash -c 'set -eu; r=$PWD; t=$(mktemp -d); trap "rm -rf \"$t\"" EXIT; mkdir -p
   "$t/p" "$t/h"; printf legacy >"$t/p/CONTEXT.md"; printf lower >"$t/p/context.md"; (cd "$t/p" && HOME="$t/h"
-  MNEMOTECA_DB_PATH="$t/h/m.db" deno run -A "$r/src/cli.ts" plans >/dev/null 2>"$t/e"); test ! -e "$t/p/CONTEXT.md";
+  MNEMOSYNE_DB_PATH="$t/h/m.db" deno run -A "$r/src/cli.ts" plans >/dev/null 2>"$t/e"); test ! -e "$t/p/CONTEXT.md";
   test "$(cat "$t/p/docs/domain-language.md")" = legacy; test "$(cat "$t/p/context.md")" = lower' User note: it would
   only work on a case-insensitive file system

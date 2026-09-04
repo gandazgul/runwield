@@ -2,7 +2,7 @@
 
 - **Installation and startup**
   - Install the standalone `wld` binary and missing runtime helpers on macOS or Linux with the release installer.
-  - Install required Mnemoteca/Cymbal/agent-browser and optional Snip into the shared `WLD_INSTALL_DIR` when they are
+  - Install required [Mnemoteca]/Cymbal/agent-browser and optional Snip into the shared `WLD_INSTALL_DIR` when they are
     not already present.
   - Preserve existing helper binaries already found on `PATH` or in `WLD_INSTALL_DIR`.
   - Choose a custom install directory with `WLD_INSTALL_DIR`.
