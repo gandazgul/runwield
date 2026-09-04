@@ -90,8 +90,8 @@ export async function switchActiveAgent(hostedSession, options) {
     const previousSwitch = switchMetadata.get(hostedSession);
     const effectiveModel = rootSwitchState?.model ?? previousSwitch?.model ?? activeModelState.model;
     const sessionManager = options.sessionManager || hostedSession.getRootSessionManager?.() || undefined;
-    const selectionAgent = previousAgentName || readPersistedActiveAgentName(sessionManager) ||
-        hostedSession.getActiveAgentInfo?.()?.agentName;
+    const persistedAgentName = readPersistedActiveAgentName(sessionManager);
+    const selectionAgent = previousAgentName || persistedAgentName || hostedSession.getActiveAgentInfo?.()?.agentName;
     const changesAgent = !!selectionAgent &&
         normalizeAgentInternalName(selectionAgent) !== normalizeAgentInternalName(agentName);
     const inheritedManualModel = (() => {
@@ -226,7 +226,7 @@ export async function switchActiveAgent(hostedSession, options) {
         });
         const committedAgentName = hostedSession.getRootAgentName() || agentName;
         const committedDisplayName = hostedSession.getActiveAgentInfo?.()?.displayName || committedAgentName;
-        const previousRootIdentity = previousAgentName || selectionAgent || "";
+        const previousRootIdentity = previousAgentName || persistedAgentName || "";
         const rootHandoff = Boolean(previousRootIdentity) &&
             normalizeAgentInternalName(previousRootIdentity) !== normalizeAgentInternalName(committedAgentName);
         emitHostedSessionRuntimeEvent(hostedSession, {
