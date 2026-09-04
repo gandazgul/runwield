@@ -10,9 +10,14 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-03"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "e783887f-bba0-442e-a730-5a29991547b4"
+    path: "docs/work-records/2026-09-04-fixed-claude-cli-thinking-regression.md"
+    lastAttemptAt: "2026-09-04T03:29:45.805Z"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "Diagnose Claude CLI RC"
 targetBranch: "main"
