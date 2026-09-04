@@ -32,7 +32,7 @@
     "jsr:@std/streams@^1.1.1": "1.1.1",
     "jsr:@std/toml@^1.0.3": "1.0.11",
     "jsr:@std/yaml@^1.0.5": "1.1.2",
-    "npm:@agentclientprotocol/sdk@^1.2.1": "1.2.1_zod@4.4.3",
+    "npm:@agentclientprotocol/sdk@^1.4.0": "1.4.0_zod@4.4.3",
     "npm:@astrojs/check@~0.9.9": "0.9.9_typescript@5.9.3",
     "npm:@astrojs/react@^6.0.1": "6.0.1_@types+react@19.2.18_@types+react-dom@19.2.3__@types+react@19.2.18_react@19.2.7_react-dom@19.2.7__react@19.2.7_esbuild@0.28.2",
     "npm:@base-ui/react@^1.7.0": "1.7.0_@types+react@19.2.18_react@19.2.7_react-dom@19.2.7__react@19.2.7",
@@ -220,8 +220,8 @@
     }
   },
   "npm": {
-    "@agentclientprotocol/sdk@1.2.1_zod@4.4.3": {
-      "integrity": "sha512-jwYUdOQR7tc+Zfch53VL4JJyUNK/46q03uUTYb+PjECsmnNl94XFXOfYLJ8RBpMNidXd1rpOAVgb0vqD98xImA==",
+    "@agentclientprotocol/sdk@1.4.0_zod@4.4.3": {
+      "integrity": "sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg==",
       "dependencies": [
         "zod"
       ]
@@ -6815,7 +6815,7 @@
       "jsr:@std/front-matter@^1.0.9",
       "jsr:@std/jsonc@^1.0.2",
       "jsr:@std/path@^1.1.6",
-      "npm:@agentclientprotocol/sdk@^1.2.1",
+      "npm:@agentclientprotocol/sdk@^1.4.0",
       "npm:@astrojs/check@~0.9.9",
       "npm:@astrojs/react@^6.0.1",
       "npm:@base-ui/react@^1.7.0",

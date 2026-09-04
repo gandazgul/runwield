@@ -16,8 +16,8 @@ still not supported.
 RunWield is not listed in the ACP Registry yet. Registry metadata, the 16×16 monochrome icon, public release asset URLs,
 and the upstream registry pull request are still publication work.
 
-Do not use this report as a full ACP v1 conformance claim. See `docs/acp-implementation-details.md` for remaining ACP
-MVP gaps.
+Do not use this report as a claim that RunWield supports optional ACP features it does not advertise. See
+`docs/acp-implementation-details.md` for the current ACP behavior and limits.
 
 ## Current Terminal Auth behavior
 
@@ -30,9 +30,14 @@ MVP gaps.
 
 ## Remaining ACP and registry gaps
 
-- Protocol-version negotiation still needs the ACP v1 conformance hardening Plan.
-- Cancellation settlement ordering still needs ACP hardening.
-- `usage_update.cost` still needs the ACP cost object shape.
-- `agentInfo.version` still uses the static MVP marker until the hardening Plan replaces it with the generated version.
-- The ACP SDK baseline still needs the planned upgrade.
 - Registry publication still needs `agent.json`, a compliant icon, versioned tarballs, checksums, and an upstream PR.
+- HTTP/SSE MCP transports, MCP prompts, MCP resources, optional Session methods, additional roots, and exact
+  context-capacity reporting remain out of scope.
+
+## Closed ACP hardening gaps
+
+- `initialize` now returns supported `protocolVersion: 1` instead of echoing unsupported versions.
+- Cancellation now waits for Runtime settlement and pending updates before the prompt response returns `cancelled`.
+- `usage_update.cost` now uses `{ amount, currency: "USD" }`, with `amount` as the cumulative ACP Session cost.
+- `agentInfo.version` now comes from the generated RunWield version.
+- The ACP SDK baseline is now `@agentclientprotocol/sdk` 1.4.0.

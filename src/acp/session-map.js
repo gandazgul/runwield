@@ -16,8 +16,6 @@ export function normalizeAcpSessionIdForLoad(sessionId) {
 /**
  * @typedef {Object} AcpPromptRecord
  * @property {boolean} cancelled
- * @property {Promise<{ stopReason: "cancelled" }>} cancellation
- * @property {() => void} resolveCancellation
  * @property {string} turnId
  * @property {string} [requestId]
  */
@@ -29,6 +27,7 @@ export function normalizeAcpSessionIdForLoad(sessionId) {
  * @property {string} cwd
  * @property {AcpPromptRecord | null} activePrompt
  * @property {boolean} loaded
+ * @property {number} usageCostUsd
  * @property {string} [persistedSessionId]
  * @property {string} [sessionPath]
  */
@@ -64,6 +63,7 @@ export class AcpSessionMap {
             cwd: session.cwd,
             activePrompt: null,
             loaded: Boolean(options.loaded),
+            usageCostUsd: 0,
             ...(options.persistedSessionId ? { persistedSessionId: options.persistedSessionId } : {}),
             ...(options.sessionPath ? { sessionPath: options.sessionPath } : {}),
         };
@@ -102,19 +102,30 @@ export class AcpSessionMap {
     beginPrompt(acpSessionId, turnId, requestId = undefined) {
         const record = this.getRecord(acpSessionId);
         if (!record) return null;
-        /** @type {() => void} */
-        let resolveCancellation = () => {};
-        const cancellation = new Promise((resolve) => {
-            resolveCancellation = () => resolve({ stopReason: "cancelled" });
-        });
         record.activePrompt = {
             cancelled: false,
-            cancellation,
-            resolveCancellation,
             turnId,
             ...(requestId ? { requestId } : {}),
         };
         return record.activePrompt;
+    }
+
+    /**
+     * Add one usage event's cost to the Session total and return the new total.
+     *
+     * ACP reports `cost.amount` as the cumulative Session cost, while the Runtime
+     * emits the cost of a single assistant message, so the adapter keeps the sum.
+     * The total belongs to the ACP Session, so it survives Runtime replacement.
+     *
+     * @param {string} acpSessionId
+     * @param {number | undefined} costUsd
+     * @returns {number}
+     */
+    addUsageCost(acpSessionId, costUsd) {
+        const record = this.getRecord(acpSessionId);
+        if (!record) return 0;
+        if (typeof costUsd === "number" && Number.isFinite(costUsd)) record.usageCostUsd += costUsd;
+        return record.usageCostUsd;
     }
 
     /**
@@ -157,7 +168,6 @@ export class AcpSessionMap {
         const record = this.getRecord(acpSessionId);
         if (!record?.activePrompt) return false;
         record.activePrompt.cancelled = true;
-        record.activePrompt.resolveCancellation();
         return true;
     }
 
