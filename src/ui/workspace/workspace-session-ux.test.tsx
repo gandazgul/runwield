@@ -184,6 +184,29 @@ Deno.test("busy Session messages remain sendable and render above the Workspace 
     assertEquals(css.includes(".session-composer-queue"), true);
 });
 
+Deno.test("Workspace new Session creation uses Workspace navigation instead of remounting the shell", async () => {
+    const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
+    assertEquals(surface.includes("function workspaceNavigate"), true);
+    assertEquals(
+        surface.includes(
+            "workspaceNavigate(\n                    `/projects/${encodeURIComponent(projectId)}/sessions/${",
+        ),
+        true,
+    );
+    assertEquals(
+        surface.includes(
+            "workspaceNavigate(\n                `/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(payload.runwieldSessionId)}`",
+        ),
+        true,
+    );
+    assertEquals(
+        surface.includes(
+            "globalThis.location.replace(\n                    `/projects/${encodeURIComponent(projectId)}/sessions/${",
+        ),
+        false,
+    );
+});
+
 Deno.test("Workspace-owned Session operations use live updates instead of browser polling", async () => {
     const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
     const server = await Deno.readTextFile(new URL("./server.js", import.meta.url));

@@ -2,12 +2,15 @@
 import { assertEquals, assertFalse, assertStringIncludes } from "@std/assert";
 import { WorkspaceSessionContinuationService } from "./server/session-continuation.js";
 
-const ROUTE_PATH = "src/ui/workspace/pages/projects/[projectId]/sessions/[runwieldSessionId]/review/code.astro";
-const SESSION_CONTINUATION_PATH = "src/ui/workspace/server/session-continuation.js";
-const SESSION_SURFACE_PATH = "src/ui/workspace/islands/SessionSurface.jsx";
-const TIMELINE_PATH = "src/ui/workspace/components/SessionTimeline.jsx";
-const CODE_REVIEW_SURFACE_PATH = "src/ui/workspace/react/CodeReviewSurface.tsx";
-const SERVER_PATH = "src/ui/workspace/server.js";
+const ROUTE_PATH = new URL(
+    "./pages/projects/[projectId]/sessions/[runwieldSessionId]/review/code.astro",
+    import.meta.url,
+);
+const SESSION_CONTINUATION_PATH = new URL("./server/session-continuation.js", import.meta.url);
+const SESSION_SURFACE_PATH = new URL("./islands/SessionSurface.jsx", import.meta.url);
+const TIMELINE_PATH = new URL("./components/SessionTimeline.jsx", import.meta.url);
+const CODE_REVIEW_SURFACE_PATH = new URL("./react/CodeReviewSurface.tsx", import.meta.url);
+const SERVER_PATH = new URL("./server.js", import.meta.url);
 
 async function runGit(cwd: string, args: string[]): Promise<string> {
     const result = await new Deno.Command("git", { cwd, args, stdout: "piped", stderr: "piped" }).output();
@@ -137,8 +140,8 @@ Deno.test("Workspace Code Review returns decisions to its live Session interacti
 });
 
 Deno.test("TUI review routes keep the same shared bodies in the standalone shell", async () => {
-    const planRoute = await Deno.readTextFile("src/ui/workspace/pages/review/plan.astro");
-    const codeRoute = await Deno.readTextFile("src/ui/workspace/pages/review/code.astro");
+    const planRoute = await Deno.readTextFile(new URL("./pages/review/plan.astro", import.meta.url));
+    const codeRoute = await Deno.readTextFile(new URL("./pages/review/code.astro", import.meta.url));
 
     assertStringIncludes(planRoute, "ReviewLayout");
     assertStringIncludes(planRoute, "PlanReviewSurface");

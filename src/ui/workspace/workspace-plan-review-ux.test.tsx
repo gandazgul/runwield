@@ -62,7 +62,8 @@ Deno.test("Approve and Run opens stable Plan progress without changing other rev
     assertStringIncludes(route, "progressUrl");
     assertStringIncludes(surface, "Approve & Run");
     assertStringIncludes(surface, "PLAN_APPROVAL_ACTIONS.RUN");
-    assertStringIncludes(surface, "globalThis.location.assign(initialPayload.progressUrl)");
+    assertStringIncludes(surface, "workspaceNavigate(initialPayload.progressUrl)");
+    assertStringIncludes(surface, 'document.addEventListener?.("astro:before-preparation", persistBeforeClose)');
     assertStringIncludes(surface, "Later");
     assertStringIncludes(surface, "approved-later");
 });
