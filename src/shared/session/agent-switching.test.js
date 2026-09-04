@@ -5,6 +5,7 @@ import { runActiveAgentTurn, switchActiveAgent } from "./agent-switching.js";
 import { __getRootSessionMetadataForTests } from "./session.js";
 import { HostedSession } from "./hosted-session.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
+import { createReplayEvents } from "./session-transcript-projection.js";
 import {
     BACKEND_CONTINUATION_REQUEST,
     failRequestDispatch,
@@ -44,10 +45,61 @@ Deno.test("switchActiveAgent installs a real matching Agent root and handler", a
             "function",
         );
         assertEquals(typeof hostedSession.getActiveOnMessage(), "function");
+        const agentEvents = events.filter((event) =>
+            event.type === RuntimeEventTypes.AGENT_CHANGED && event.agentName === "guide"
+        );
+        assertEquals(agentEvents.length, 1);
+        assertEquals(/** @type {any} */ (agentEvents[0]).displayName, "Guide");
+        assertEquals(/** @type {any} */ (agentEvents[0]).rootHandoff, undefined);
+        hostedSession.dispose();
+    });
+});
+
+Deno.test("switchActiveAgent marks only successful different root switches as handoffs", async () => {
+    await withRuntimeCommandFixture("agent-switch-handoff-", async ({ projectRoot }) => {
+        const { hostedSession, sessionManager } = makeSession(projectRoot);
+        /** @type {Array<Record<string, unknown>>} */
+        const events = [];
+        hostedSession.setEventSink((/** @type {unknown} */ event) =>
+            events.push(/** @type {Record<string, unknown>} */ (event))
+        );
+
+        await switchActiveAgent(hostedSession, { agentName: "guide", sessionManager });
+        await switchActiveAgent(hostedSession, { agentName: "planner", sessionManager });
+        await switchActiveAgent(hostedSession, { agentName: "planner", forceRebuild: true, sessionManager });
+
+        const agentEvents = events.filter((event) => event.type === RuntimeEventTypes.AGENT_CHANGED);
+        assertEquals(agentEvents.map((event) => [event.agentName, event.displayName, event.rootHandoff]), [
+            ["guide", "Guide", undefined],
+            ["planner", "Planner", true],
+            ["planner", "Planner", undefined],
+        ]);
+        hostedSession.dispose();
+    });
+});
+
+Deno.test("switchActiveAgent keeps the first committed Agent marker silent after a presented Agent", async () => {
+    await withRuntimeCommandFixture("agent-switch-presented-baseline-", async ({ projectRoot }) => {
+        const { hostedSession, sessionManager } = makeSession(projectRoot);
+        hostedSession.pushAgentInfo("Guide", "", "", "guide");
+        /** @type {Array<Record<string, unknown>>} */
+        const events = [];
+        hostedSession.setEventSink((/** @type {unknown} */ event) =>
+            events.push(/** @type {Record<string, unknown>} */ (event))
+        );
+
+        await switchActiveAgent(hostedSession, { agentName: "planner", sessionManager });
+
+        const liveAgentEvents = events.filter((event) => event.type === RuntimeEventTypes.AGENT_CHANGED);
+        assertEquals(liveAgentEvents.map((event) => [event.agentName, event.displayName, event.rootHandoff]), [
+            ["planner", "Planner", undefined],
+        ]);
+        const replayEvents = createReplayEvents("presented-baseline", sessionManager.getBranch(), { projectRoot });
         assertEquals(
-            events.filter((event) => event.type === RuntimeEventTypes.AGENT_CHANGED && event.agentName === "guide")
-                .length,
-            1,
+            replayEvents.filter((event) =>
+                event.type === RuntimeEventTypes.SYSTEM_STATUS && event.message === "Agent switched to Planner"
+            ).length,
+            0,
         );
         hostedSession.dispose();
     });

@@ -31,20 +31,33 @@ async function writeTranscript(cwd, piSessionId, timestamp, bodyEntries) {
     return { path, entries };
 }
 
-async function createTwoSegmentFixture() {
-    const dir = await Deno.makeTempDir({ prefix: "runwield-aggregate-transcript-" });
-    const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
-    const root = `${dir}/repo`;
-    await Deno.mkdir(root);
-    const project = registerProject(database, { root, idFactory: idFactory("project"), now: () => "t0" });
-    const first = await writeTranscript(root, "pi-one", "2026-01-01T00:00:00.000Z", [
+/**
+ * @param {Array<Record<string, unknown>> | null} [firstBodyEntries]
+ * @param {Array<Record<string, unknown>> | null} [secondBodyEntries]
+ */
+async function createTwoSegmentFixture(firstBodyEntries = null, secondBodyEntries = null) {
+    const firstEntries = firstBodyEntries || [
         {
             type: "message",
             id: "duplicate",
             timestamp: "2026-01-01T00:00:01.000Z",
             message: { role: "user", content: "first" },
         },
-    ]);
+    ];
+    const secondEntries = secondBodyEntries || [
+        {
+            type: "message",
+            id: "duplicate",
+            timestamp: "2026-01-01T00:00:03.000Z",
+            message: { role: "assistant", content: "second" },
+        },
+    ];
+    const dir = await Deno.makeTempDir({ prefix: "runwield-aggregate-transcript-" });
+    const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+    const root = `${dir}/repo`;
+    await Deno.mkdir(root);
+    const project = registerProject(database, { root, idFactory: idFactory("project"), now: () => "t0" });
+    const first = await writeTranscript(root, "pi-one", "2026-01-01T00:00:00.000Z", firstEntries);
     const session = await ensureSessionCatalogRecord(database, {
         projectId: project.projectId,
         piSessionId: "pi-one",
@@ -62,14 +75,7 @@ async function createTwoSegmentFixture() {
         evidence: firstEvidence,
         now: () => "t2",
     });
-    const second = await writeTranscript(root, "pi-two", "2026-01-01T00:00:02.000Z", [
-        {
-            type: "message",
-            id: "duplicate",
-            timestamp: "2026-01-01T00:00:03.000Z",
-            message: { role: "assistant", content: "second" },
-        },
-    ]);
+    const second = await writeTranscript(root, "pi-two", "2026-01-01T00:00:02.000Z", secondEntries);
     const secondSegment = await appendSessionTranscriptSegment(database, {
         runwieldSessionId: session.runwieldSessionId,
         projectId: project.projectId,
@@ -123,6 +129,82 @@ Deno.test("aggregate projection adds safe segment context without exposing segme
             { ordinal: 1, kind: "execution", label: "Execution segment 2", sealed: false, current: true },
         ]);
         assertEquals(JSON.stringify(projected.segments).includes(fixture.firstSegment.segmentId), false);
+    } finally {
+        await cleanupFixture(fixture);
+    }
+});
+
+Deno.test("aggregate projection carries active Agent state across segment boundaries", async () => {
+    const fixture = await createTwoSegmentFixture(
+        [
+            {
+                type: "custom",
+                id: "agent-guide",
+                customType: "runwield.active_agent",
+                data: { agentName: "guide", displayName: "Guide" },
+            },
+            {
+                type: "message",
+                id: "guide-reply",
+                timestamp: "2026-01-01T00:00:01.000Z",
+                message: { role: "assistant", content: "first" },
+            },
+        ],
+        [
+            {
+                type: "message",
+                id: "pre-marker-reply",
+                timestamp: "2026-01-01T00:00:03.000Z",
+                message: { role: "assistant", content: "still guide" },
+            },
+            {
+                type: "custom",
+                id: "agent-guide-repeat",
+                customType: "runwield.active_agent",
+                data: { agentName: "guide", displayName: "Guide" },
+            },
+            {
+                type: "custom",
+                id: "agent-operator",
+                customType: "runwield.active_agent",
+                data: { agentName: "operator", displayName: "Operator" },
+            },
+        ],
+    );
+    try {
+        const projected = await projectAggregateTranscript({
+            cwd: fixture.root,
+            runwieldSessionId: fixture.session.runwieldSessionId,
+            runtimeSessionId: "runtime-1",
+            generation: fixture.generation,
+            segments: listSessionTranscriptSegments(fixture.database, fixture.session.runwieldSessionId),
+        });
+        assert(projected.ok);
+        assertEquals(
+            projected.events.map((
+                event,
+            ) => [event.type, event.eventId, event.message || event.delta || "", event.agentName || ""]),
+            [
+                [
+                    "assistant_text_delta",
+                    `${fixture.firstSegment.segmentId}:guide-reply:assistant_text_delta:0`,
+                    "first",
+                    "Guide",
+                ],
+                [
+                    "assistant_text_delta",
+                    `${fixture.secondSegment.segmentId}:pre-marker-reply:assistant_text_delta:0`,
+                    "still guide",
+                    "Guide",
+                ],
+                [
+                    "system_status",
+                    `${fixture.secondSegment.segmentId}:agent-operator:agent_switch:0`,
+                    "Agent switched to Operator",
+                    "",
+                ],
+            ],
+        );
     } finally {
         await cleanupFixture(fixture);
     }

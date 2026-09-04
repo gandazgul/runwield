@@ -25,10 +25,27 @@ function makeSessionManager(entries = []) {
 Deno.test("recordActiveAgent stores and reads the latest active root agent", () => {
     const sessionManager = makeSessionManager();
 
-    recordActiveAgent(sessionManager, AGENTS.ROUTER);
-    recordActiveAgent(sessionManager, AGENTS.PLANNER);
+    recordActiveAgent(sessionManager, AGENTS.ROUTER, "Router");
+    recordActiveAgent(sessionManager, AGENTS.PLANNER, "Planner");
 
     assertEquals(readPersistedActiveAgentName(sessionManager), AGENTS.PLANNER);
+});
+
+Deno.test("recordActiveAgent persists display name with canonical root agent", () => {
+    /** @type {Array<Record<string, unknown>>} */
+    const entries = [];
+    const sessionManager = makeSessionManager(entries);
+
+    recordActiveAgent(sessionManager, "project-operator", "Project Operator");
+
+    assertEquals(entries, [
+        {
+            type: "custom",
+            customType: ACTIVE_AGENT_CUSTOM_TYPE,
+            data: { agentName: "project-operator", displayName: "Project Operator" },
+        },
+    ]);
+    assertEquals(readPersistedActiveAgentName(sessionManager), "project-operator");
 });
 
 Deno.test("recordActiveAgent skips duplicate adjacent markers", () => {

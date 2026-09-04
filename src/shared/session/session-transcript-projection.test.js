@@ -182,6 +182,56 @@ Deno.test("projection resolves active agent machine names to display names", () 
     assertEquals(events.find((event) => event.type === "assistant_text_delta")?.agentName, "Frontend Engineer");
 });
 
+Deno.test("projection emits RunWield notices only for later different active Agents", () => {
+    const events = createReplayEvents("projection", [
+        {
+            type: "custom",
+            id: "agent-guide",
+            customType: "runwield.active_agent",
+            data: { agentName: "guide", displayName: "Guide" },
+        },
+        {
+            type: "message",
+            id: "guide-reply",
+            message: { role: "assistant", content: [{ type: "text", text: "Plan first." }] },
+        },
+        {
+            type: "custom",
+            id: "agent-guide-repeat",
+            customType: "runwield.active_agent",
+            data: { agentName: "guide", displayName: "Guide" },
+        },
+        {
+            type: "custom",
+            id: "agent-operator",
+            customType: "runwield.active_agent",
+            data: { agentName: "operator", displayName: "Operator" },
+        },
+        {
+            type: "message",
+            id: "operator-reply",
+            message: { role: "assistant", content: [{ type: "text", text: "Operate." }] },
+        },
+    ], { projectRoot: Deno.cwd() });
+
+    assertEquals(
+        events.map((
+            event,
+        ) => [
+            event.type,
+            event.eventId,
+            event.message || event.delta || "",
+            event.header || "",
+            event.agentName || "",
+        ]),
+        [
+            ["assistant_text_delta", "guide-reply:assistant_text_delta:0", "Plan first.", "", "Guide"],
+            ["system_status", "agent-operator:agent_switch:0", "Agent switched to Operator", "RunWield", ""],
+            ["assistant_text_delta", "operator-reply:assistant_text_delta:0", "Operate.", "", "Operator"],
+        ],
+    );
+});
+
 Deno.test("projection cursor selection returns only later events and advances summary-only generations", () => {
     const events = [
         { type: "user_message", eventId: "one" },

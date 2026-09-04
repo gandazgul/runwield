@@ -146,7 +146,7 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeEventBase & { type: "agent_changed", messageId: string, agentName: string, model?: string }} RuntimeAgentChangedEvent
+ * @typedef {RuntimeEventBase & { type: "agent_changed", messageId: string, agentName: string, displayName?: string, model?: string, rootHandoff?: boolean }} RuntimeAgentChangedEvent
  */
 
 /**
@@ -540,6 +540,10 @@ export function assertSessionRuntimeEvent(event) {
             break;
         case RuntimeEventTypes.AGENT_CHANGED:
             requireString("agentName");
+            if (value.displayName !== undefined) requireString("displayName");
+            if (value.rootHandoff !== undefined) {
+                requireRuntimeEvent(typeof value.rootHandoff === "boolean", event.type, "rootHandoff must be boolean");
+            }
             break;
         case RuntimeEventTypes.MODEL_CHANGED:
             requireString("model");

@@ -4,6 +4,7 @@
  */
 
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
+import { normalizeAgentInternalName } from "../../shared/session/agents.js";
 import { formatImageAttachmentMarker } from "../../shared/session/image-attachments.js";
 import { createTuiInteractionAdapter } from "./runtime-interaction-adapter.js";
 import { setTerminalTitleForName } from "./terminal-title.ts";
@@ -106,6 +107,9 @@ export function attachTuiRuntimeAdapter({
     runtime.setInteractionAdapter(sessionId, interactionAdapter);
 
     const initialSnapshot = runtime.getSessionSnapshot(sessionId);
+    let currentRootAgentName = initialSnapshot?.activeAgent
+        ? normalizeAgentInternalName(String(initialSnapshot.activeAgent))
+        : "";
     let currentRoutingIntent = initialSnapshot?.workflowContext?.routingIntent || null;
     let validationSessionActive = false;
     let terminalValidationPanelVisible = false;
@@ -266,9 +270,26 @@ export function attachTuiRuntimeAdapter({
             case RuntimeEventTypes.BUSY_CHANGED:
                 uiAPI.setBusy?.(value.busy);
                 break;
-            case RuntimeEventTypes.AGENT_CHANGED:
+            case RuntimeEventTypes.AGENT_CHANGED: {
+                let nextRootAgentName = "";
+                try {
+                    nextRootAgentName = value.agentName ? normalizeAgentInternalName(value.agentName) : "";
+                } catch (_error) {
+                    nextRootAgentName = "";
+                }
+                if (value.rootHandoff && nextRootAgentName && nextRootAgentName !== currentRootAgentName) {
+                    uiAPI.appendSystemMessage(
+                        `Agent switched to ${value.displayName || value.agentName}`,
+                        false,
+                        "RunWield",
+                    );
+                    currentRootAgentName = nextRootAgentName;
+                } else if (!currentRootAgentName && nextRootAgentName && !value.rootHandoff) {
+                    currentRootAgentName = nextRootAgentName;
+                }
                 uiAPI.requestRender();
                 break;
+            }
             case RuntimeEventTypes.KEYBOARD_HELP:
                 uiAPI.showKeyboardHelp?.({
                     title: value.title,
