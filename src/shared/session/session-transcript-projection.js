@@ -608,7 +608,7 @@ export async function projectCommittedTranscript(options) {
  * is the active source of truth, such as idle continuation gates or hydration.
  *
  * @param {{ snapshot?: Record<string, any> | null } | null | undefined} projection
- * @returns {{ activeAgent: string | null, workflowContext: unknown | null, model: string | null, provider: string | null, thinkingLevel: string | null }}
+ * @returns {{ activeAgent: string | null, workflowContext: unknown | null, model: string | null, provider: string | null, thinkingLevel: string | null, planAssociations: import("./plan-association.ts").PlanAssociation[] }}
  */
 export function getCommittedTranscriptAuthorityFacts(projection) {
     const snapshot = projection?.snapshot || {};
@@ -620,6 +620,9 @@ export function getCommittedTranscriptAuthorityFacts(projection) {
         thinkingLevel: typeof snapshot.thinkingLevel === "string" && snapshot.thinkingLevel
             ? snapshot.thinkingLevel
             : null,
+        planAssociations: Array.isArray(snapshot.planAssociations)
+            ? snapshot.planAssociations.map((association) => ({ ...association }))
+            : [],
     };
 }
 

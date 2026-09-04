@@ -241,6 +241,7 @@ Deno.test("committed transcript authority facts are explicit projection extracts
         provider: "openai",
         thinkingLevel: "high",
         workflowContext: { routingIntent: "FEATURE", complexity: "LOW" },
+        planAssociations: [],
     });
     assertEquals(getCommittedTranscriptAuthorityFacts(null), {
         activeAgent: null,
@@ -248,6 +249,7 @@ Deno.test("committed transcript authority facts are explicit projection extracts
         provider: null,
         thinkingLevel: null,
         workflowContext: null,
+        planAssociations: [],
     });
 });
 
@@ -316,6 +318,7 @@ Deno.test("^projection replays Claude backend failure entries as display-only st
         model: null,
         provider: null,
         thinkingLevel: null,
+        planAssociations: [],
     });
 });
 

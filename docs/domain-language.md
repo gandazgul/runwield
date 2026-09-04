@@ -95,9 +95,10 @@ transcript remains the authority. _Avoid_: Session database, Workspace catalog a
 
 **Plan Association**: Append-only Session evidence that records that one Session worked on one Plan for one Association
 Purpose. It uses the Plan's durable `planId`, the Plan name at the time of recording, and the current Session Transcript
-Segment. The Session manifest carries a read cache of committed Plan Associations, but the transcript entry is the
-authority. A Plan can have Plan Associations in more than one Session, and a Session can have Plan Associations for more
-than one Plan. _Avoid_: Plan owner Session, Session owner, planName link
+Segment. RunWield writes it under the Session Writer Lock, and a Session generation commits it. The Session manifest
+carries a read cache of committed Plan Associations, but the transcript entry is the authority. A Plan can have Plan
+Associations in more than one Session, and a Session can have Plan Associations for more than one Plan. _Avoid_: Plan
+owner Session, Session owner, planName link
 
 **Association Purpose**: The reason a Plan Association was recorded: `planning`, `review`, `execution`, or `recovery`.
 Only `planning` and `review` on an idle planning segment can make a Session a safe planning resume candidate. _Avoid_:

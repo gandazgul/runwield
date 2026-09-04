@@ -2510,7 +2510,7 @@ export class SessionRuntime {
         return await verifyPlanAssociatedSession(this.#sessionStore, candidate);
     }
 
-    /** @param {string} sessionId @param {import('./file-session-store-types.ts').PlanAssociation} entry */
+    /** @param {string} sessionId @param {{ planId: string, planName: string, purpose: import('./plan-association.ts').AssociationPurpose }} entry */
     async recordPlanAssociation(sessionId, entry) {
         try {
             const before = this.getSessionSnapshot(sessionId)?.managed?.generation ?? null;
@@ -4478,6 +4478,16 @@ export class SessionRuntime {
                 mcpRootTools: oldSession.getMcpRootTools?.() || [],
             });
             newSession.setActiveExecutionWorkflow(workflow);
+            const planId = typeof workflow?.triageMeta?.planId === "string" ? workflow.triageMeta.planId : "";
+            const planName = typeof workflow?.planName === "string" ? workflow.planName : "";
+            if (planId && planName) {
+                const recorded = await this.recordPlanAssociation(newSessionId, {
+                    planId,
+                    planName,
+                    purpose: "execution",
+                });
+                if (recorded?.ok === false) throw new Error(recorded.error || "Execution Plan Association failed");
+            }
             if (workflow.planName) await this.renameSession(newSessionId, workflow.planName);
             oldSession.moveMcpStateTo?.(newSession);
             this.#emitSessionEvent(oldSession.id, {
