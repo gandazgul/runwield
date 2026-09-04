@@ -2,7 +2,7 @@ import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { loadPlan, savePlan } from "../../plan-store.js";
 import type { WorkRecordFrontMatter } from "../../shared/work-records/schema.js";
 import { findWorkRecordById, listWorkRecords, writeWorkRecord } from "../../shared/work-records/index.ts";
-import { createWorkRecordMnemosyneFixture } from "../../shared/work-records/test-fixtures/mnemosyne-port.ts";
+import { createWorkRecordMnemotecaFixture } from "../../shared/work-records/test-fixtures/mnemoteca-port.ts";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runWorkRecordsCommand, type WorkRecordCommandOptions } from "./index.ts";
 
@@ -76,7 +76,7 @@ async function saveVerifiedPlan(projectRoot: string): Promise<void> {
 
 async function captureCommand(
     argv: string[],
-    options: WorkRecordCommandOptions = { mnemosynePort: createWorkRecordMnemosyneFixture() },
+    options: WorkRecordCommandOptions = { mnemotecaPort: createWorkRecordMnemotecaFixture() },
 ): Promise<string> {
     const logs: string[] = [];
     const originalLog = console.log;
@@ -152,7 +152,7 @@ Deno.test("wld wr backfill --yes writes a Work Record and its Plan backlink", as
         }));
 
         const output = await captureCommand(["backfill", "--yes"], {
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         assertStringIncludes(output, "Generated standalone");
@@ -170,8 +170,8 @@ Deno.test("wld wr index rebuild and search hydrate canonical project records", a
         Deno.chdir(projectRoot);
         await writeFixtureRecords(projectRoot);
 
-        const mnemosynePort = createWorkRecordMnemosyneFixture();
-        const options = { mnemosynePort };
+        const mnemotecaPort = createWorkRecordMnemotecaFixture();
+        const options = { mnemotecaPort };
         const rebuildOutput = await captureCommand(["index", "rebuild"], options);
         const currentOutput = await captureCommand(["search", "durable current machinery"], options);
         const hiddenOutput = await captureCommand(["search", "obsolete zephyr history"], options);
@@ -203,7 +203,7 @@ Deno.test("wld wr read --no-open serves canonical Markdown without launching a b
 
         let readUrl = "";
         const command = runWorkRecordsCommand(["read", CURRENT_RECORD_ID, "--no-open"], {
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
         try {
             readUrl = await Promise.race([
@@ -243,7 +243,7 @@ Deno.test("wld wr supersede lists pending reasons and confirms one pending relat
     await withRuntimeCommandFixture("wr-supersede-confirm-", async ({ projectRoot }) => {
         Deno.chdir(projectRoot);
         await writeSupersessionFixture(projectRoot);
-        const options = { mnemosynePort: createWorkRecordMnemosyneFixture() };
+        const options = { mnemotecaPort: createWorkRecordMnemotecaFixture() };
 
         const pending = await captureCommand(["supersede"], options);
         assertStringIncludes(pending, "The newer outcome replaces the old path.");
@@ -271,7 +271,7 @@ Deno.test("wld wr supersede matches explicit UUID arguments case-insensitively",
 
         const output = await captureCommand(
             ["supersede", ARCHIVED_RECORD_ID.toUpperCase(), "--confirm", CURRENT_RECORD_ID.toUpperCase()],
-            { mnemosynePort: createWorkRecordMnemosyneFixture() },
+            { mnemotecaPort: createWorkRecordMnemotecaFixture() },
         );
 
         assertStringIncludes(output, `${CURRENT_RECORD_ID} -> ${ARCHIVED_RECORD_ID}`);
@@ -286,10 +286,10 @@ Deno.test("wld wr supersede supports reject and interactive cancel without losin
     await withRuntimeCommandFixture("wr-supersede-reject-", async ({ projectRoot }) => {
         Deno.chdir(projectRoot);
         await writeSupersessionFixture(projectRoot);
-        const mnemosynePort = createWorkRecordMnemosyneFixture();
+        const mnemotecaPort = createWorkRecordMnemotecaFixture();
         const messages: string[] = [];
         const canceled = await captureCommand(["supersede", ARCHIVED_RECORD_ID], {
-            mnemosynePort,
+            mnemotecaPort,
             uiAPI: {
                 appendSystemMessage: (message) => messages.push(message),
                 promptSelect: () => Promise.resolve(null),
@@ -303,7 +303,7 @@ Deno.test("wld wr supersede supports reject and interactive cancel without losin
 
         const rejected = await captureCommand(
             ["supersede", ARCHIVED_RECORD_ID, "--reject", CURRENT_RECORD_ID],
-            { mnemosynePort },
+            { mnemotecaPort },
         );
         assertStringIncludes(rejected, "Rejected Work Record supersession proposal");
         assertEquals(
@@ -321,7 +321,7 @@ Deno.test("wld wr rejects invalid command arguments before touching project stat
         await assertRejects(
             () =>
                 runWorkRecordsCommand(["backfill", "--yes", "--dry-run"], {
-                    mnemosynePort: createWorkRecordMnemosyneFixture(),
+                    mnemotecaPort: createWorkRecordMnemotecaFixture(),
                 }),
             Error,
             "Cannot combine --yes with --dry-run",
@@ -329,7 +329,7 @@ Deno.test("wld wr rejects invalid command arguments before touching project stat
         await assertRejects(
             () =>
                 runWorkRecordsCommand(["read", CURRENT_RECORD_ID, "--all"], {
-                    mnemosynePort: createWorkRecordMnemosyneFixture(),
+                    mnemotecaPort: createWorkRecordMnemotecaFixture(),
                 }),
             Error,
             "Unsupported flag: --all",
@@ -337,7 +337,7 @@ Deno.test("wld wr rejects invalid command arguments before touching project stat
         await assertRejects(
             () =>
                 runWorkRecordsCommand(["index", "rebuild", "--all"], {
-                    mnemosynePort: createWorkRecordMnemosyneFixture(),
+                    mnemotecaPort: createWorkRecordMnemotecaFixture(),
                 }),
             Error,
             "Unsupported flag: --all",

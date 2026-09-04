@@ -47,7 +47,7 @@ erDiagram
   superseded or archived. The execution diagram below shows that single current record as `produces_current`. The two
   edges describe the same relation at different points in time, not a contradiction.
 - **Source-of-truth caveats:** A `Team Memory` is a project `Memory` whose canonical human-readable text is versioned in
-  the repository and whose local Mnemosyne copies are derived from that trusted text; it is not a container that
+  the repository and whose local Mnemoteca copies are derived from that trusted text; it is not a container that
   includes other Memories. A `Ticket Reference` is a structured URL relation only. RunWield does not copy, own, or
   synchronize external Ticket content, status, or lifecycle.
 
@@ -169,10 +169,12 @@ erDiagram
 | Change Request Delivery    | Delivery mode selection                       | Publication evidence plus Forge provider relation                | Workflow validation publication and Forge        | Explicit delivery mode; Forge still owns review and merge lifecycle.                  |
 | Review Issue Ledger        | Attempt ledger identity                       | Validation attempt context                                       | Reviewer loop                                    | Temporary per-attempt record; not durable planning memory.                            |
 | Work Record                | Work Record Markdown path                     | Repository-local Markdown                                        | Recorder and human review/status conventions     | Durable planning memory; not a transcript or Review Issue Ledger.                     |
-| Memory                     | Mnemosyne memory ID/scope                     | Mnemosyne project or global store                                | Memory tools and user/project preferences        | Every project Memory is either Local Memory or Team Memory; not Plan lifecycle truth. |
-| Local Memory               | Mnemosyne memory ID/scope                     | Owner's local Mnemosyne collection                               | Memory tools and user/project preferences        | Project Memory retained locally unless promoted through Team Memory workflow.         |
-| Team Memory                | Canonical repository text plus derived copies | Repository Team Memory text and local Mnemosyne copies           | Trusted Branch and memory reconciliation policy  | Memory subtype and shared retrieval aid; not a container of Memories.                 |
+| Memory                     | Mnemoteca memory ID/scope                     | Mnemoteca project or global store                                | Memory tools and user/project preferences        | Every project Memory is either Local Memory or Team Memory; not Plan lifecycle truth. |
+| Local Memory               | Mnemoteca memory ID/scope                     | Owner's local Mnemoteca collection                               | Memory tools and user/project preferences        | Project Memory retained locally unless promoted through Team Memory workflow.         |
+| Team Memory                | Canonical repository text plus derived copies | Repository Team Memory text and local Mnemoteca copies           | Trusted Branch and memory reconciliation policy  | Memory subtype and shared retrieval aid; not a container of Memories.                 |
 | Ticket Reference           | Required external Ticket URL relation         | Plan or Work Record structured relation                          | RunWield artifact writer                         | Navigation/provenance only; external source owns Ticket lifecycle.                    |
 | Forge Change Request       | Forge provider PR/MR identity                 | Forge provider                                                   | Forge                                            | Delivery/navigation relation only; RunWield records local delivery evidence.          |
 | PRD                        | Markdown artifact path                        | Repository documentation                                         | Product/documentation owners                     | Informs multiple Plans; no Plan Lifecycle status.                                     |
 | ADR                        | Markdown artifact path                        | Repository documentation                                         | Architecture/documentation owners                | Constrains design; no Plan Lifecycle status.                                          |
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

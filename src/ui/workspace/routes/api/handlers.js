@@ -63,7 +63,7 @@ export async function lifecycleActionApi(ctx) {
 
     try {
         const result = await applyWorkspaceLifecycleAction(ctx.state.cwd, ctx.params.planId, payload, {
-            mnemosynePort: ctx.state.mnemosynePort,
+            mnemotecaPort: ctx.state.mnemotecaPort,
         });
         if (result.blocked) return json(result.body, result.status || 409);
         return json(result.body);

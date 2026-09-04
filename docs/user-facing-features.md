@@ -2,7 +2,7 @@
 
 - **Installation and startup**
   - Install the standalone `wld` binary and missing runtime helpers on macOS or Linux with the release installer.
-  - Install required Mnemosyne/Cymbal/agent-browser and optional Snip into the shared `WLD_INSTALL_DIR` when they are
+  - Install required [Mnemoteca]/Cymbal/agent-browser and optional Snip into the shared `WLD_INSTALL_DIR` when they are
     not already present.
   - Preserve existing helper binaries already found on `PATH` or in `WLD_INSTALL_DIR`.
   - Choose a custom install directory with `WLD_INSTALL_DIR`.
@@ -171,7 +171,7 @@
     replace product-owned behavior; this is not enforcement and not a clean bill of health.
   - Generate a project `docs/domain-language.md` during initialization.
   - Store durable project memories during initialization.
-  - Use Mnemosyne for project and global memory recall; Mnemosyne models download lazily on first semantic use.
+  - Use Mnemoteca for project and global memory recall; Mnemoteca models download lazily on first semantic use.
   - Use Cymbal for code search, symbol lookup, references, impact analysis, and tracing.
   - Use Snip for compact command-output rewriting when available; Snip remains optional and fail-open.
   - Use `code_batch` to read several Cymbal source or outline results in one tool call.
@@ -252,3 +252,5 @@
   - Start ACP mode with `wld --mode acp`.
   - Expose a minimal Agent Client Protocol server for external clients.
   - Return structured ACP errors for protocol methods not yet implemented.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

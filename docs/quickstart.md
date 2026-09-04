@@ -13,8 +13,8 @@ On macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
 ```
 
-The installer installs `wld` plus required Mnemosyne/Cymbal/agent-browser helpers and optional Snip to `~/.local/bin` by
-default. If your shell cannot find `wld`, add the install directory to your `PATH`.
+The installer installs `wld` plus required [Mnemoteca]/Cymbal/agent-browser helpers and optional Snip to `~/.local/bin`
+by default. If your shell cannot find `wld`, add the install directory to your `PATH`.
 
 To choose a different install directory:
 
@@ -40,13 +40,17 @@ deno task compile
 
 ## Runtime helpers
 
-The one-line installer is the complete standalone setup path. It installs missing required helpers (`mnemosyne` for
+The one-line installer is the complete standalone setup path. It installs missing required helpers (`mnemoteca` for
 project/global memory, `cymbal` for symbol-aware code search, and `agent-browser` for headed browser inspection) beside
 `wld`, preserving helper binaries you already manage elsewhere on `PATH` or in `WLD_INSTALL_DIR`. It also attempts
 optional `snip` for compact shell-output rewriting; RunWield still starts if Snip is missing.
 
-Mnemosyne's model payload is not downloaded by the installer. It is fetched lazily by Mnemosyne on first semantic memory
-use.
+[Mnemoteca]'s model payload is not downloaded by the installer. It is fetched lazily by Mnemoteca on first semantic
+memory use.
+
+If you already have `mnemoteca` and need data from a pre-rename install, run the official [Mnemoteca] installer before
+installing RunWield v0.10.0. The RunWield installer preserves an existing `mnemoteca` executable and does not start the
+upstream migration flow.
 
 ## Authenticate
 
@@ -126,3 +130,5 @@ wld version
 - [Plans and workflows](workflows.md) - RunWield planning and validation behavior.
 - [Providers and models](providers.md) - RunWield-specific provider paths.
 - [Settings Reference](settings.md) - configure defaults and agent model overrides.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

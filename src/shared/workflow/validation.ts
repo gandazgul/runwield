@@ -43,7 +43,7 @@ type TriageMeta = import("../../tools/plan-written.ts").TriageMeta & Partial<Pla
 type ActiveExecutionWorkflow = import("../session/hosted-session.js").ActiveExecutionWorkflow;
 type HostedSession = import("../session/hosted-session.js").HostedSession;
 type GitPort = import("../git-port.ts").GitPort;
-type WorkRecordMnemosynePort = import("../work-records/mnemosyne-port.ts").WorkRecordMnemosynePort;
+type WorkRecordMnemotecaPort = import("../work-records/mnemoteca-port.ts").WorkRecordMnemotecaPort;
 
 /**
  * The public loop arguments, unchanged from before the split.
@@ -62,7 +62,7 @@ export type ValidationLoopArgs = {
     git: GitPort;
     semanticReviewPort?: SemanticReviewPort;
     localCI: LocalCIPort;
-    workRecordMnemosynePort: WorkRecordMnemosynePort;
+    workRecordMnemotecaPort: WorkRecordMnemotecaPort;
     supportsSemanticRepairHandoff?: boolean;
     /** Durable phase selected by the validation supervisor. */
     continuationPhase?: ValidationCheckpointPhase;
@@ -126,7 +126,7 @@ export function createEngineValidationArgs(args: ValidationLoopArgs): EngineVali
             run: ({ cwd }) =>
                 args.localCI.run({ hostedSession: args.hostedSession, cwd, settingsPolicy: "exact-project" }),
         },
-        workRecordMnemosynePort: args.workRecordMnemosynePort,
+        workRecordMnemotecaPort: args.workRecordMnemotecaPort,
         supportsSemanticRepairHandoff: args.supportsSemanticRepairHandoff,
         continuationPhase: args.continuationPhase,
         validationCheckpoint: args.validationCheckpoint,

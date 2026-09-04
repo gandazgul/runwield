@@ -19,7 +19,7 @@
     "src/cmd/version/index.js",
     "src/constants.js",
     "src/extensions/cymbal/index.js",
-    "src/extensions/mnemosyne/index.js",
+    "src/extensions/mnemoteca/index.js",
     "src/extensions/snip/index.js",
     "src/plan-front-matter.js",
     "src/plan-store.js",

@@ -63,11 +63,11 @@ const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Va
  * @property {() => string} [idGenerator]
  * @property {() => Date} [now]
  * @property {(prompt: string) => Promise<string>} [runRecorderPrompt]
- * @property {import('./mnemosyne-port.ts').WorkRecordMnemosynePort} [mnemosynePort]
+ * @property {import('./mnemoteca-port.ts').WorkRecordMnemotecaPort} [mnemotecaPort]
  */
 
 /**
- * @typedef {GenerationOptions & { mnemosynePort: import('./mnemosyne-port.ts').WorkRecordMnemosynePort }} WorkRecordGenerationOptions
+ * @typedef {GenerationOptions & { mnemotecaPort: import('./mnemoteca-port.ts').WorkRecordMnemotecaPort }} WorkRecordGenerationOptions
  */
 
 /**
@@ -680,7 +680,7 @@ async function linkSourceToRecord(cwd, source, record, now) {
 async function bestEffortSyncGeneratedRecord(cwd, record, options) {
     try {
         await syncWorkRecordToIndex(cwd, record, {
-            mnemosynePort: options.mnemosynePort,
+            mnemotecaPort: options.mnemotecaPort,
         });
         return "";
     } catch (error) {
@@ -739,7 +739,7 @@ export async function generateWorkRecordForSource(cwd, inputSource, options) {
                 const applied = await applyWorkRecordSupersession(cwd, {
                     successorRecordId: record.attrs.recordId,
                     predecessorRecordIds: declaredIds,
-                    mnemosynePort: options.mnemosynePort,
+                    mnemotecaPort: options.mnemotecaPort,
                 });
                 record = applied.records.find((candidate) => candidate.attrs.recordId === record.attrs.recordId) ||
                     record;
@@ -796,7 +796,7 @@ export async function generateWorkRecordForSource(cwd, inputSource, options) {
                 const applied = await applyWorkRecordSupersession(cwd, {
                     successorRecordId: recordId,
                     predecessorRecordIds: declaredIds,
-                    mnemosynePort: options.mnemosynePort,
+                    mnemotecaPort: options.mnemotecaPort,
                 });
                 settledRecord = applied.records.find((candidate) => candidate.attrs.recordId === recordId) || record;
                 indexWarning = applied.indexWarning || "";

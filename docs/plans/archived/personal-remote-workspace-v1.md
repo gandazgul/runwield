@@ -5,19 +5,19 @@ workKind: "MAINTENANCE"
 complexity: "HIGH"
 summary: "Evolve RunWield Workspace into a secure personal environment with activated segmented Sessions, canonical Plan actions, and a remote browser core loop: see a Session, review a Plan, send Feedback, approve, and watch it run."
 affectedPaths:
-  - "docs/prd/runwield-workspace-prd.md"
-  - "docs/prd/runwield-core-prd.md"
-  - "docs/prd/runwield-acp-protocol-prd.md"
-  - "docs/adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md"
-  - "docs/adr/012-segment-session-transcripts-at-execution-handoff.md"
-  - "src/shared/owner-coordination/"
-  - "src/shared/session/"
-  - "src/shared/workflow/"
-  - "src/shared/worktree-registry.js"
-  - "src/ui/workspace/"
-  - "src/ui/tui/"
-  - "src/acp/"
-  - "src/cmd/"
+    - "docs/prd/runwield-workspace-prd.md"
+    - "docs/prd/runwield-core-prd.md"
+    - "docs/prd/runwield-acp-protocol-prd.md"
+    - "docs/adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md"
+    - "docs/adr/012-segment-session-transcripts-at-execution-handoff.md"
+    - "src/shared/owner-coordination/"
+    - "src/shared/session/"
+    - "src/shared/workflow/"
+    - "src/shared/worktree-registry.js"
+    - "src/ui/workspace/"
+    - "src/ui/tui/"
+    - "src/acp/"
+    - "src/cmd/"
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
@@ -27,10 +27,10 @@ origin: "internal"
 userVerifiedAt: "2026-08-24T18:51:34.985Z"
 userVerificationNote: "all children are done"
 workRecord:
-  status: "generated"
-  recordId: "2112607c-9593-420e-b7e1-2366e5fc7e07"
-  path: "docs/work-records/2026-08-24-personal-remote-workspace-v1-completed.md"
-  lastAttemptAt: "2026-08-24T18:51:35.094Z"
+    status: "generated"
+    recordId: "2112607c-9593-420e-b7e1-2366e5fc7e07"
+    path: "docs/work-records/2026-08-24-personal-remote-workspace-v1-completed.md"
+    lastAttemptAt: "2026-08-24T18:51:35.094Z"
 humanReviewMode: null
 humanReviewDecision: null
 validationCheckpoint: null
@@ -56,7 +56,7 @@ the Workspace PRD. The owner cannot yet browse Projects and Sessions remotely, c
 Workspace, and ACP, or run the Plan review/approve loop from a phone.
 
 Existing foundations include sibling TUI and ACP consumers of `SessionRuntime`, Pi JSONL model history, Plan Lifecycle,
-worktree evidence, Work Records, Workspace Plan/Plannotator surfaces, Mnemosyne retrieval, Cymbal code intelligence, and
+worktree evidence, Work Records, Workspace Plan/Plannotator surfaces, Mnemoteca retrieval, Cymbal code intelligence, and
 the RunWield Design System. Verified children 01–10 add owner catalog, secure bootstrap, Session Activation, managed
 read and mutation boundaries, an ordered segment manifest, aggregate projection, and transactional rollover primitives.
 
@@ -284,3 +284,5 @@ Epic.
 - **Security:** Pairing is authorization, not encryption; owner routes require a secure private browser boundary.
 - **Frontend quality:** Follow `docs/design-system.md`, shared primitives, semantic `--rw-*` tokens, accessibility, and
   responsive phone behavior.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

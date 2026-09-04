@@ -35,7 +35,7 @@ Memory-count reduction is not a goal. When uncertain whether context remains use
    - lossless consolidation;
    - core-tag promotion or demotion;
    - keep.
-2. Before mutating Mnemosyne, write a timestamped deletion manifest in the supplied session artifact directory. For
+2. Before mutating Mnemoteca, write a timestamped deletion manifest in the supplied session artifact directory. For
    every proposed deletion, record the memory ID, its full content and tags, the classification and reason, and the
    replacement memory or authoritative source that preserves its context.
 3. If the proposal would delete more than 25 memories or more than 10% of the collection, whichever threshold is reached
@@ -52,4 +52,4 @@ Memory-count reduction is not a goal. When uncertain whether context remains use
    post-maintenance export paths. Do not claim that deleted memories were unnecessary; report the specific reason each
    category was safe to remove.
 
-Delete with `mnemosyne delete [memory id]` and add with `mnemosyne add [memory content] --tag tag1 --tag tag2`.
+Delete with `mnemoteca delete [memory id]` and add with `mnemoteca add [memory content] --tag tag1 --tag tag2`.

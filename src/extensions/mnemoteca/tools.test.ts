@@ -1,6 +1,6 @@
 import { assertEquals, assertMatch } from "@std/assert";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createMnemosyneTools, type MnemosyneToolHost } from "./tools.ts";
+import { createMnemotecaTools, type MnemotecaToolHost } from "./tools.ts";
 import type { HelperBinaryExecResult } from "../helper-binary-exec.ts";
 
 interface RecordedCall {
@@ -17,14 +17,14 @@ function setup(
     ) => HelperBinaryExecResult | Promise<HelperBinaryExecResult>,
 ) {
     const calls: RecordedCall[] = [];
-    const host: MnemosyneToolHost = {
+    const host: MnemotecaToolHost = {
         cwd: "/tmp/worktrees/project-feature",
         async exec(command, args, options) {
             calls.push({ command, args, cwd: options.cwd });
             return await execImpl(command, args, options.cwd);
         },
     };
-    const tools = createMnemosyneTools(host);
+    const tools = createMnemotecaTools(host);
     const getTool = (name: string) => {
         const tool = tools.find((candidate) => candidate.name === name);
         if (!tool) throw new Error(`tool not found: ${name}`);
@@ -65,7 +65,7 @@ Deno.test("memory recall searches project and global memory with labeled provena
         text,
         "Project memories (runwield) — these take precedence over global memories:\nproject hit\n\nGlobal memories (cross-project defaults):\nglobal hit",
     );
-    assertEquals(calls.map((call) => call.command), ["git", "mnemosyne", "mnemosyne", "mnemosyne"]);
+    assertEquals(calls.map((call) => call.command), ["git", "mnemoteca", "mnemoteca", "mnemoteca"]);
     assertEquals(calls[1]?.args, ["init", "--name", "runwield"]);
     assertEquals(calls[2]?.args, ["search", "--name", "runwield", "--format", "plain", '"he said ""hello"""']);
     assertEquals(calls[3]?.args, ["search", "--global", "--format", "plain", '"he said ""hello"""']);
@@ -79,8 +79,8 @@ Deno.test("memory recall returns one missing binary message", async () => {
 
     const text = await executeText(getTool("memory"), { action: "recall", query: "test" });
 
-    assertMatch(text, /mnemosyne binary not found/i);
-    assertEquals(text.match(/mnemosyne binary not found/gi)?.length, 1);
+    assertMatch(text, /mnemoteca binary not found/i);
+    assertEquals(text.match(/mnemoteca binary not found/gi)?.length, 1);
 });
 
 Deno.test("memory recall returns a simple empty result when both scopes are empty", async () => {

@@ -4,17 +4,17 @@ Last updated: 2026-07-23 08:28 EDT
 
 ## Objective
 
-Allow RunWield teams to share useful Mnemosyne project Memories through normal Git collaboration without committing
-Mnemosyne's SQLite database, embeddings, or other derived index state.
+Allow RunWield teams to share useful Mnemoteca project Memories through normal Git collaboration without committing
+Mnemoteca's SQLite database, embeddings, or other derived index state.
 
 RunWield should classify likely team-useful Memories without interrupting the user, materialize them as reviewable text
-at safe checkpoints, and reconcile accepted Team Memories into each contributor's local Mnemosyne database. Sharing
+at safe checkpoints, and reconcile accepted Team Memories into each contributor's local Mnemoteca database. Sharing
 should feel automatic while preserving repository review, privacy boundaries, and protection against untrusted memory
 injection.
 
 ## Problem Statement
 
-Mnemosyne currently gives RunWield durable project and global Memory across Agent Sessions, but its working database is
+Mnemoteca currently gives RunWield durable project and global Memory across Agent Sessions, but its working database is
 local to one user. Consequently, a useful project fact learned by one contributor is unavailable to teammates unless it
 is repeated elsewhere or communicated manually.
 
@@ -26,7 +26,7 @@ make it difficult to review sensitive content or detect a malicious Core Memory 
 
 Requiring users to approve or promote every Memory individually would avoid some disclosure risk but create enough
 friction that sharing would likely be skipped. RunWield needs an agent-classified, Git-reviewed lifecycle that shares
-Mnemosyne Memories without conflating them with CONTEXT, ADRs, PRDs, Plans, Work Records, or other durable artifact
+Mnemoteca Memories without conflating them with CONTEXT, ADRs, PRDs, Plans, Work Records, or other durable artifact
 types.
 
 ## Resolved Assumptions
@@ -37,7 +37,7 @@ Project Memories have two independent dimensions:
 
 | Audience | Importance | Meaning                                                                    |
 | -------- | ---------- | -------------------------------------------------------------------------- |
-| Local    | Ordinary   | Searchable only in the owner's local Mnemosyne context                     |
+| Local    | Ordinary   | Searchable only in the owner's local Mnemoteca context                     |
 | Local    | Core       | Local to the owner and injected into every Agent Session                   |
 | Team     | Ordinary   | Shared with repository collaborators and retrieved when relevant           |
 | Team     | Core       | Shared with repository collaborators and injected into every Agent Session |
@@ -58,9 +58,9 @@ Project Memories have two independent dimensions:
 - Classification guidance applies to every Agent allowed to create project Memories.
 - A user may still explicitly request that a Memory remain Local or become a Team Memory Candidate.
 
-### Team Memories Remain a Distinct Mnemosyne Concept
+### Team Memories Remain a Distinct Mnemoteca Concept
 
-- Team Memories are the shareable form of the concise facts, decisions, and preferences already represented as Mnemosyne
+- Team Memories are the shareable form of the concise facts, decisions, and preferences already represented as Mnemoteca
   Memories.
 - Promotion does not convert a Memory into CONTEXT, an ADR, PRD, Plan, Work Record, Session Transcript, or another
   artifact type.
@@ -69,10 +69,10 @@ Project Memories have two independent dimensions:
 
 ### Canonical Text, Derived Database
 
-- Mnemosyne's SQLite database, embeddings, FTS structures, vector indexes, WAL files, and local document IDs are never
+- Mnemoteca's SQLite database, embeddings, FTS structures, vector indexes, WAL files, and local document IDs are never
   committed.
 - A Team Memory has one canonical, deterministic, human-readable repository representation.
-- Once promoted, canonical text owns the Team Memory; local Mnemosyne records are derived searchable copies.
+- Once promoted, canonical text owns the Team Memory; local Mnemoteca records are derived searchable copies.
 - Canonical Team Memory text must support meaningful Git diffs, ordinary code review, parallel additions, stable
   identity, updates, supersession, and deletion without relying on local database IDs.
 - Generated or machine-specific values that create diff churn, including embeddings and export timestamps, do not belong
@@ -82,7 +82,7 @@ Project Memories have two independent dimensions:
 
 ### Promotion Uses Git Review Instead of Per-Memory Approval
 
-- A Team Memory Candidate begins as Local Mnemosyne state and remains usable by its author.
+- A Team Memory Candidate begins as Local Mnemoteca state and remains usable by its author.
 - At safe Session or workflow checkpoints, and during Sleep maintenance, RunWield materializes pending candidates as
   canonical-text changes in the working tree.
 - Materialization does not automatically stage, commit, push, or merge changes.
@@ -97,7 +97,7 @@ Project Memories have two independent dimensions:
 - Presence in a checked-out branch does not make a Team Memory trusted or active.
 - Each project has a configured **Trusted Branch**, normally its reviewed default integration branch.
 - Only the accepted committed Team Memory state reachable through the Trusted Branch may be reconciled automatically
-  into collaborators' active Mnemosyne indexes.
+  into collaborators' active Mnemoteca indexes.
 - Team Memory additions or modifications in an untrusted feature branch or pull request remain visible for review but
   cannot alter active shared retrieval or Core Memory injection merely because the branch was checked out.
 - A locally authored candidate may remain active for its author as Local state while awaiting review.
@@ -106,7 +106,7 @@ Project Memories have two independent dimensions:
 
 ### Reconciliation Is Convergent
 
-- RunWield reconciles the accepted Trusted Branch snapshot into the local Mnemosyne database before using Team Memories
+- RunWield reconciles the accepted Trusted Branch snapshot into the local Mnemoteca database before using Team Memories
   as active shared context.
 - Repeated reconciliation must be idempotent and must not append duplicate Memories.
 - Added canonical Memories create derived local records.
@@ -139,7 +139,7 @@ does not claim that a candidate is shared merely because text was generated loca
 ### Receiving Team Memories
 
 After reviewed Team Memory changes enter the Trusted Branch, each collaborator's RunWield environment reconciles them
-into local Mnemosyne state. Ordinary Team Memories become semantically searchable; Team Core Memories become eligible
+into local Mnemoteca state. Ordinary Team Memories become semantically searchable; Team Core Memories become eligible
 for normal Core injection. Contributors do not import exports or copy database files manually.
 
 ### Branch Review
@@ -153,7 +153,7 @@ into active shared Memory. Returning to another branch must not leave behind unt
 
 RunWield's project-Memory creation capability must carry an audience classification independently from Core importance.
 Agent instructions must define the Team classification criteria consistently and preserve Local as the fallback for
-uncertain content. Mnemosyne may retain the classification as local metadata, but local representation does not define
+uncertain content. Mnemoteca may retain the classification as local metadata, but local representation does not define
 the canonical Team Memory format.
 
 ### Candidate Materialization
@@ -169,9 +169,9 @@ RunWield owns promotion from local candidates to repository text. Materializatio
 
 ### Trusted Snapshot Reconciler
 
-RunWield owns synchronization between canonical Team Memory text and local Mnemosyne derived state. The reconciler must
+RunWield owns synchronization between canonical Team Memory text and local Mnemoteca derived state. The reconciler must
 read the accepted Trusted Branch snapshot rather than trusting arbitrary working-tree content. It requires stable
-external identity and create/update/remove behavior; Mnemosyne's current backup-oriented, append-only import behavior is
+external identity and create/update/remove behavior; Mnemoteca's current backup-oriented, append-only import behavior is
 insufficient as the synchronization contract by itself.
 
 ### Safety Controls
@@ -193,7 +193,7 @@ insufficient as the synchronization contract by itself.
 - Editing or deleting a canonical Team Memory converges local derived indexes to the accepted state.
 - A Local Core Memory remains private and a Team ordinary Memory remains non-Core.
 - Checking out an untrusted branch cannot persistently change shared retrieval or Core injection.
-- A fresh local Mnemosyne database can rebuild Team Memory state entirely from trusted repository text.
+- A fresh local Mnemoteca database can rebuild Team Memory state entirely from trusted repository text.
 - RunWield never automatically commits, pushes, or merges Team Memory changes.
 
 ## Risks and Mitigations
@@ -223,7 +223,7 @@ independent Local knowledge solely because its text is similar.
 
 ## Out of Scope
 
-- Committing or merging Mnemosyne SQLite databases, embeddings, FTS data, vector indexes, WAL files, or local IDs.
+- Committing or merging Mnemoteca SQLite databases, embeddings, FTS data, vector indexes, WAL files, or local IDs.
 - Real-time peer-to-peer or hosted Memory synchronization.
 - Sharing Global Memories, personal preferences, Session Transcripts, or arbitrary Agent conversation history.
 - Replacing or redefining CONTEXT, ADRs, PRDs, Plans, Work Records, or their existing synchronization behavior.
@@ -233,3 +233,5 @@ independent Local knowledge solely because its text is similar.
 - Per-Memory team ACLs, encryption for subsets of repository collaborators, or sharing with users who cannot access the
   repository.
 - Selecting the final canonical text path, file granularity, or serialization syntax in this PRD.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

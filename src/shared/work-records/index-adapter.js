@@ -1,6 +1,6 @@
 /**
  * @module shared/work-records/index-adapter
- * Derived Mnemosyne index for canonical Work Records.
+ * Derived Mnemoteca index for canonical Work Records.
  */
 
 import { basename, dirname } from "@std/path";
@@ -11,7 +11,7 @@ const REBUILD_GUIDANCE = "Run `wld wr index rebuild` to repair the derived Work 
 
 /**
  * @typedef {Object} WorkRecordIndexOptions
- * @property {import('./mnemosyne-port.ts').WorkRecordMnemosynePort} mnemosynePort
+ * @property {import('./mnemoteca-port.ts').WorkRecordMnemotecaPort} mnemotecaPort
  */
 
 /**
@@ -105,19 +105,19 @@ function decode(bytes) {
  * @param {string[]} args
  * @param {WorkRecordIndexOptions} options
  */
-export async function runMnemosyneWorkRecordCommand(cwd, args, options) {
-    const mnemosynePort = options.mnemosynePort;
+export async function runMnemotecaWorkRecordCommand(cwd, args, options) {
+    const mnemotecaPort = options.mnemotecaPort;
     let result;
     try {
-        result = await mnemosynePort.run(args, { cwd });
+        result = await mnemotecaPort.run(args, { cwd });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`mnemosyne ${args[0] || ""} failed: ${message}`);
+        throw new Error(`mnemoteca ${args[0] || ""} failed: ${message}`);
     }
     if (!result.success) {
         const stderr = decode(result.stderr);
         const stdout = decode(result.stdout);
-        throw new Error(stderr || stdout || `mnemosyne ${args[0] || ""} failed with exit code ${result.code}`);
+        throw new Error(stderr || stdout || `mnemoteca ${args[0] || ""} failed with exit code ${result.code}`);
     }
     return decode(result.stdout) || decode(result.stderr);
 }
@@ -126,10 +126,10 @@ export async function runMnemosyneWorkRecordCommand(cwd, args, options) {
  * @param {string} cwd
  * @param {WorkRecordIndexOptions} options
  */
-export async function verifyMnemosyneUpdateAvailable(cwd, options) {
-    const help = await runMnemosyneWorkRecordCommand(cwd, ["update", "--help"], options);
+export async function verifyMnemotecaUpdateAvailable(cwd, options) {
+    const help = await runMnemotecaWorkRecordCommand(cwd, ["update", "--help"], options);
     if (!help.includes("update <id>") || !help.includes("--replace-tags")) {
-        throw new Error("mnemosyne update prerequisite is unavailable or missing strict --replace-tags support.");
+        throw new Error("mnemoteca update prerequisite is unavailable or missing strict --replace-tags support.");
     }
     return true;
 }
@@ -139,7 +139,7 @@ export async function verifyMnemosyneUpdateAvailable(cwd, options) {
  * @param {WorkRecordIndexOptions} options
  */
 export async function initializeWorkRecordIndex(cwd, options) {
-    await runMnemosyneWorkRecordCommand(cwd, ["init", "--name", await getWorkRecordIndexCollectionName(cwd)], options);
+    await runMnemotecaWorkRecordCommand(cwd, ["init", "--name", await getWorkRecordIndexCollectionName(cwd)], options);
 }
 
 /** @param {string} output */
@@ -169,7 +169,7 @@ function parsePlainListDocumentIds(output, options = {}) {
     if (!options.tolerateMalformed && ids.length === 0) {
         const target = options.recordId ? ` for ${options.recordId}` : "";
         throw new Error(
-            `Work Record index locator listing${target} did not include a parseable Mnemosyne numeric document ID. ${REBUILD_GUIDANCE}`,
+            `Work Record index locator listing${target} did not include a parseable Mnemoteca numeric document ID. ${REBUILD_GUIDANCE}`,
         );
     }
     return ids;
@@ -181,7 +181,7 @@ function parsePlainListDocumentIds(output, options = {}) {
  * @param {WorkRecordIndexOptions} options
  */
 export async function findIndexedDocumentIdsByRecordId(cwd, recordId, options) {
-    const out = await runMnemosyneWorkRecordCommand(cwd, [
+    const out = await runMnemotecaWorkRecordCommand(cwd, [
         "list",
         "--name",
         await getWorkRecordIndexCollectionName(cwd),
@@ -201,7 +201,7 @@ export async function findIndexedDocumentIdsByRecordId(cwd, recordId, options) {
  * @param {WorkRecordIndexOptions} options
  */
 export async function syncWorkRecordToIndex(cwd, record, options) {
-    await verifyMnemosyneUpdateAvailable(cwd, options);
+    await verifyMnemotecaUpdateAvailable(cwd, options);
     await initializeWorkRecordIndex(cwd, options);
     const collection = await getWorkRecordIndexCollectionName(cwd);
     const tags = buildWorkRecordIndexTags(record);
@@ -212,12 +212,12 @@ export async function syncWorkRecordToIndex(cwd, record, options) {
         throw new Error(`Duplicate Work Record index entries for ${record.attrs.recordId}. ${REBUILD_GUIDANCE}`);
     }
     if (ids.length === 0) {
-        await runMnemosyneWorkRecordCommand(cwd, ["add", "--name", collection, ...tagArgs, content], options);
+        await runMnemotecaWorkRecordCommand(cwd, ["add", "--name", collection, ...tagArgs, content], options);
         return { action: "added", recordId: record.attrs.recordId };
     }
     const id = ids[0];
-    if (!Number.isFinite(id)) throw new Error(`Missing Mnemosyne numeric document ID for ${record.attrs.recordId}.`);
-    await runMnemosyneWorkRecordCommand(cwd, [
+    if (!Number.isFinite(id)) throw new Error(`Missing Mnemoteca numeric document ID for ${record.attrs.recordId}.`);
+    await runMnemotecaWorkRecordCommand(cwd, [
         "update",
         String(id),
         "--name",
@@ -235,7 +235,7 @@ export async function syncWorkRecordToIndex(cwd, record, options) {
  */
 export async function isWorkRecordIndexEmpty(cwd, options) {
     try {
-        const out = await runMnemosyneWorkRecordCommand(cwd, [
+        const out = await runMnemotecaWorkRecordCommand(cwd, [
             "list",
             "--name",
             await getWorkRecordIndexCollectionName(cwd),
@@ -255,10 +255,10 @@ export async function isWorkRecordIndexEmpty(cwd, options) {
  * @param {WorkRecordIndexOptions} options
  */
 export async function rebuildWorkRecordIndex(cwd, options) {
-    await verifyMnemosyneUpdateAvailable(cwd, options);
+    await verifyMnemotecaUpdateAvailable(cwd, options);
     const collection = await getWorkRecordIndexCollectionName(cwd);
     try {
-        await runMnemosyneWorkRecordCommand(cwd, ["forget", "--name", collection, "--yes"], options);
+        await runMnemotecaWorkRecordCommand(cwd, ["forget", "--name", collection, "--yes"], options);
     } catch {
         // Collection may not exist yet; init below is authoritative for rebuild bootstrap.
     }
@@ -269,7 +269,7 @@ export async function rebuildWorkRecordIndex(cwd, options) {
     for (const record of records) {
         try {
             const tags = buildWorkRecordIndexTags(record).flatMap((tag) => ["--tag", tag]);
-            await runMnemosyneWorkRecordCommand(cwd, [
+            await runMnemotecaWorkRecordCommand(cwd, [
                 "add",
                 "--name",
                 collection,

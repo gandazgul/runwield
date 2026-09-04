@@ -6,7 +6,7 @@
 import { theme } from "../../ui/theme/theme.js";
 import { getHomeDir } from "../../constants.js";
 
-const SOURCE_ORDER = ["local", "home", "bundled", "external", "mnemosyne", "runtime", "agent"];
+const SOURCE_ORDER = ["local", "home", "bundled", "external", "mnemoteca", "runtime", "agent"];
 
 /**
  * @param {number | null | undefined} count

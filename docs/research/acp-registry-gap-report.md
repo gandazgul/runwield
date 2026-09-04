@@ -8,10 +8,10 @@ RunWield now closes the registry's mandatory authentication gap in source: `init
 Clients that declare support. The method launches `wld login`, which stores credentials in `~/.wld/auth.json`, requires
 a usable default model, exits, and lets the ACP Client reconnect to `wld acp`.
 
-RunWield also implements Core-owned stdio MCP tool support for ACP `session/new` and `session/load` requests. This closes
-the prior gap where RunWield rejected every non-empty ACP `mcpServers` list. The implementation is limited to stdio MCP
-tools. HTTP, SSE, ACP-carried MCP transport, MCP prompts, MCP resources, and dynamic tool-list updates are still not
-supported.
+RunWield also implements Core-owned stdio MCP tool support for ACP `session/new` and `session/load` requests. This
+closes the prior gap where RunWield rejected every non-empty ACP `mcpServers` list. The implementation is limited to
+stdio MCP tools. HTTP, SSE, ACP-carried MCP transport, MCP prompts, MCP resources, and dynamic tool-list updates are
+still not supported.
 
 RunWield is not listed in the ACP Registry yet. Registry metadata, the 16×16 monochrome icon, public release asset URLs,
 and the upstream registry pull request are still publication work.

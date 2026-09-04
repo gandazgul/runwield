@@ -1,6 +1,6 @@
 /**
  * @module shared/work-records/search
- * Canonical Work Record retrieval hydrated from Markdown, using Mnemosyne only for candidates.
+ * Canonical Work Record retrieval hydrated from Markdown, using Mnemoteca only for candidates.
  */
 
 import { findWorkRecordById, listWorkRecords } from "./store.js";
@@ -10,7 +10,7 @@ import {
     isWorkRecordIndexEmpty,
     rebuildWorkRecordIndex,
     recordIdFromTags,
-    runMnemosyneWorkRecordCommand,
+    runMnemotecaWorkRecordCommand,
 } from "./index-adapter.js";
 
 /** @typedef {"current"|"all"} WorkRecordAccessMode */
@@ -86,7 +86,7 @@ export function parseWorkRecordSearchJson(output) {
 
 /**
  * @param {string} cwd
- * @param {{ mnemosynePort: import('./mnemosyne-port.ts').WorkRecordMnemosynePort }} options
+ * @param {{ mnemotecaPort: import('./mnemoteca-port.ts').WorkRecordMnemotecaPort }} options
  */
 async function ensureSearchBootstrap(cwd, options) {
     const canonical = await listWorkRecords(cwd, { createDir: false });
@@ -99,7 +99,7 @@ async function ensureSearchBootstrap(cwd, options) {
 /**
  * @param {string} cwd
  * @param {string} query
- * @param {{ accessMode?: WorkRecordAccessMode, includeAll?: boolean, limit?: number, mnemosynePort: import('./mnemosyne-port.ts').WorkRecordMnemosynePort }} options
+ * @param {{ accessMode?: WorkRecordAccessMode, includeAll?: boolean, limit?: number, mnemotecaPort: import('./mnemoteca-port.ts').WorkRecordMnemotecaPort }} options
  */
 export async function searchWorkRecords(cwd, query, options) {
     const trimmed = String(query || "").trim();
@@ -107,7 +107,7 @@ export async function searchWorkRecords(cwd, query, options) {
     const accessMode = options.includeAll ? "all" : options.accessMode || "current";
     const bootstrap = await ensureSearchBootstrap(cwd, options);
     const collection = await getWorkRecordIndexCollectionName(cwd);
-    const output = await runMnemosyneWorkRecordCommand(cwd, [
+    const output = await runMnemotecaWorkRecordCommand(cwd, [
         "search",
         "--name",
         collection,

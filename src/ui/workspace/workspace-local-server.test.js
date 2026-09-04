@@ -11,7 +11,7 @@ import { PlanBoardToolbar } from "./components/PlanBoardToolbar.jsx";
 import { PlanDetail } from "./components/PlanDetail.jsx";
 
 import { createWorkspaceApp } from "./server.js";
-import { createWorkRecordMnemosyneFixture } from "../../shared/work-records/test-fixtures/mnemosyne-port.ts";
+import { createWorkRecordMnemotecaFixture } from "../../shared/work-records/test-fixtures/mnemoteca-port.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
 Deno.test("Workspace wrapper protects page routes and serves public assets without token", async () => {
@@ -26,7 +26,7 @@ Deno.test("Workspace wrapper protects page routes and serves public assets witho
         const app = createWorkspaceApp({
             cwd,
             token: "secret",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         }).handler();
         const rejected = await app(new Request("http://localhost/"));
         assertEquals(rejected.status, 401);
@@ -125,7 +125,7 @@ Deno.test("Workspace page routes require Astro handler instead of static React f
         const app = createWorkspaceApp({
             cwd,
             token: "secret",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         }).handler();
         const response = await app(new Request("http://localhost/?token=secret"));
         const body = await response.text();
@@ -179,7 +179,7 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
             const app = createWorkspaceApp({
                 cwd,
                 token: "secret",
-                mnemosynePort: createWorkRecordMnemosyneFixture(),
+                mnemotecaPort: createWorkRecordMnemotecaFixture(),
             }).handler();
             const api = await app(
                 new Request("http://localhost/api/plans/detail-id", {
@@ -329,7 +329,7 @@ Deno.test("Workspace body-save API preserves front matter rejects stale writes a
         const app = createWorkspaceApp({
             cwd,
             token: "secret",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         }).handler();
 
         const rejected = await app(new Request("http://localhost/api/plans/api-id/body", { method: "POST" }));

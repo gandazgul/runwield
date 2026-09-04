@@ -579,7 +579,7 @@ Bridged Tools can advance workflow state and keep the legacy `runwield_` aliases
 Record, interview, edit, MCP, or caller-supplied work and use their internal names, avoiding new aliases such as
 `runwield_memory` or `runwield_code_search`. _Avoid_: Claude native tool, MCP plugin
 
-**Memory Tool**: The `memory` Custom Tool that recalls, stores, or deletes Mnemosyne memories through an explicit
+**Memory Tool**: The `memory` Custom Tool that recalls, stores, or deletes Mnemoteca memories through an explicit
 `action`. `action: "recall"` searches project and global memories together and labels each result group.
 `action: "store"` defaults to project scope and uses `scope: "global"` only for cross-project memories.
 `action: "delete"` requires `scope` and refuses an ID that is not safely tied to one scope. _Avoid_: Separate memory
@@ -605,32 +605,32 @@ smart project snapshot
 
 ### Memory & Persistence
 
-**Mnemosyne**: The external semantic memory system for project and global memories. _Avoid_: Memory layer, memory store
+**Mnemoteca**: The external semantic memory system for project and global memories. _Avoid_: Memory layer, memory store
 
-**Memory**: A concise fact, decision, or preference stored in Mnemosyne for future retrieval. _Avoid_: Note, record,
+**Memory**: A concise fact, decision, or preference stored in Mnemoteca for future retrieval. _Avoid_: Note, record,
 entry
 
-**Local Memory**: A project Memory retained only in its owner's local Mnemosyne collection. _Avoid_: Private memory,
+**Local Memory**: A project Memory retained only in its owner's local Mnemoteca collection. _Avoid_: Private memory,
 personal memory
 
 **Team Memory Candidate**: A Local Memory classified as stable, repository-safe, and useful to teammates but not yet
 trusted as shared project context. _Avoid_: Shareable memory, pending memory
 
 **Team Memory**: A project Memory whose canonical human-readable form is versioned in the repository and whose local
-Mnemosyne copies are derived from trusted text. _Avoid_: Shared memory, synchronized memory
+Mnemoteca copies are derived from trusted text. _Avoid_: Shared memory, synchronized memory
 
 **Core Memory**: A Memory tagged `core` that is injected into every Agent Session independently of whether it is Local
 or Team. _Avoid_: Critical memory, pinned memory, shared memory
 
 **Global Memory**: A Memory stored in the cross-project collection. _Avoid_: Shared memory, universal memory
 
-**Trusted Branch**: A configured repository branch whose reviewed Team Memories may become active local Mnemosyne
+**Trusted Branch**: A configured repository branch whose reviewed Team Memories may become active local Mnemoteca
 context. _Avoid_: Main branch, safe branch
 
-**Sleep**: A maintenance workflow that exports, analyzes, and improves the Mnemosyne collection. _Avoid_: Memory
+**Sleep**: A maintenance workflow that exports, analyzes, and improves the Mnemoteca collection. _Avoid_: Memory
 cleanup, memory maintenance
 
-**Project Name**: The basename of the working directory used as the Mnemosyne collection identifier. _Avoid_:
+**Project Name**: The basename of the working directory used as the Mnemoteca collection identifier. _Avoid_:
 Collection, namespace
 
 **Cymbal**: The external code indexing and search system exposed to agents as codebase tools. _Avoid_: Search layer,
@@ -768,6 +768,8 @@ continuation, database interaction record
   always-on injection.
 - A **Team Memory Candidate** begins as Local Memory and becomes Team Memory only after its canonical text is trusted
   through the repository workflow.
-- A Team Memory has one canonical repository representation and zero or more derived local **Mnemosyne** copies.
+- A Team Memory has one canonical repository representation and zero or more derived local **Mnemoteca** copies.
 - Only Team Memories accepted through a **Trusted Branch** may become active shared context.
 - Core Memories are injected into every Agent Session.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

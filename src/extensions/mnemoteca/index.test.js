@@ -1,6 +1,6 @@
 import { assertArrayIncludes, assertEquals, assertMatch } from "@std/assert";
 import { basename } from "@std/path";
-import mnemosyneExtension from "./index.js";
+import mnemotecaExtension from "./index.js";
 
 /**
  * @param {(command: string, args: string[], opts: { cwd: string }) => Promise<{code: number, stdout: string, stderr: string}> | {code: number, stdout: string, stderr: string}} execImpl
@@ -30,7 +30,7 @@ function setup(execImpl) {
         },
     });
 
-    mnemosyneExtension(pi);
+    mnemotecaExtension(pi);
 
     /** @param {string} name */
     const getTool = (name) => {
@@ -63,7 +63,7 @@ function firstText(result) {
     return first.text ?? "";
 }
 
-Deno.test("mnemosyne extension registers one action-based memory tool", () => {
+Deno.test("mnemoteca extension registers one action-based memory tool", () => {
     const { tools } = setup(() => Promise.resolve({ code: 0, stdout: "", stderr: "" }));
 
     const names = tools.map((tool) => tool.name);
@@ -101,15 +101,15 @@ Deno.test("memory recall searches both scopes and escapes quotes", async () => {
     ]);
 });
 
-Deno.test("memory recall returns one missing binary message when mnemosyne is unavailable", async () => {
+Deno.test("memory recall returns one missing binary message when mnemoteca is unavailable", async () => {
     const { getTool } = setup(() => Promise.resolve({ code: 127, stdout: "", stderr: "" }));
     const tool = getTool("memory");
 
     const result = await executeTool(tool, { action: "recall", query: "test" });
 
-    assertMatch(firstText(result), /mnemosyne binary not found/i);
+    assertMatch(firstText(result), /mnemoteca binary not found/i);
     assertMatch(firstText(result), /RunWield installer/i);
-    assertEquals(firstText(result).match(/mnemosyne binary not found/gi)?.length, 1);
+    assertEquals(firstText(result).match(/mnemoteca binary not found/gi)?.length, 1);
 });
 
 Deno.test("memory stores project memory with optional core tag", async () => {

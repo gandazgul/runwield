@@ -7,7 +7,7 @@ import { CLI_BIN, DEV_CLI_RUN } from "../constants.js";
 import { runPlansCommand } from "./plans/index.ts";
 import { runWorkRecordsCommand } from "./wr/index.ts";
 import { runRouterCommand } from "./router/index.ts";
-import { runSleepCommand, SYSTEM_SLEEP_MNEMOSYNE_PORT } from "./sleep/index.ts";
+import { runSleepCommand, SYSTEM_SLEEP_MNEMOTECA_PORT } from "./sleep/index.ts";
 import { runHelpCommand } from "./help/index.js";
 import { getAgentCompletions, runAgentsCommand } from "./agents/index.ts";
 import { getModelCompletions, runModelsCommand } from "./models/index.ts";
@@ -42,7 +42,7 @@ import { runAcpCommand } from "./acp/index.js";
 import { runWorkspaceCommand } from "./workspace/index.ts";
 import { getAgentDisplayName } from "../shared/session/agents.js";
 import { SYSTEM_INTERACTIVE_SESSION_PORT } from "../ui/tui/interactive-session-port.ts";
-import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../shared/work-records/mnemosyne-port.ts";
+import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../shared/work-records/mnemoteca-port.ts";
 
 /** Known CLI / slash command names. Defined alongside the registry so adding a new command only touches one file. */
 /** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, UPDATE: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string, WORKSPACE: string}>} */
@@ -491,14 +491,14 @@ export const commandRegistry = {
             "Default list/search behavior includes current usable Work Records only: approved, non-archived, non-superseded records.",
             "Use wr search --all or wr list --all for maintenance inspection of draft, pending, superseded, or archived records with warnings.",
             "Use wr read <recordId> to open canonical Markdown by stable ID in a local read-only browser view, independent of file moves; --no-open prints the URL without launching a browser.",
-            "Use wr index rebuild to repair or bootstrap only the derived Work Record Mnemosyne collection.",
+            "Use wr index rebuild to repair or bootstrap only the derived Work Record Mnemoteca collection.",
             "Use wr supersede without an ID to list pending proposals and reasons. Pass a successor ID to choose confirm, reject, or later for each candidate.",
             "The --confirm and --reject forms are mutually exclusive and accept exactly one pending predecessor relation. Later or canceled prompts preserve the proposal.",
             "Backfill asks about each generated supersession proposal even with --yes. Proposal decisions do not change whether backfill succeeded.",
             "Manual create remains deferred to later Work Records slices.",
         ],
         execute: (argv, options) =>
-            runWorkRecordsCommand(argv, { ...options, mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT }),
+            runWorkRecordsCommand(argv, { ...options, mnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT }),
         surfaces: ["cli"],
     },
     [COMMAND_NAMES.SLEEP]: {
@@ -511,7 +511,7 @@ export const commandRegistry = {
             `${bin("sleep --help")}`,
         ],
         notes: [
-            "Requires mnemosyne binary in PATH.",
+            "Requires mnemoteca binary in PATH.",
             "Creates a verified backup under ~/.wld/sessions before any memory changes.",
             "Starts or switches to Engineer and keeps that Agent active for follow-up questions.",
             "You can also run /sleep directly inside the interactive TUI.",
@@ -519,7 +519,7 @@ export const commandRegistry = {
         execute: (argv, options) =>
             runSleepCommand(argv, {
                 ...options,
-                mnemosynePort: SYSTEM_SLEEP_MNEMOSYNE_PORT,
+                mnemotecaPort: SYSTEM_SLEEP_MNEMOTECA_PORT,
                 sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT,
             }),
         surfaces: ["cli", "slash"],

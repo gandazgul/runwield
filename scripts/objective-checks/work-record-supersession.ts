@@ -6,7 +6,7 @@ import {
     listWorkRecords,
     writeWorkRecord,
 } from "../../src/shared/work-records/index.ts";
-import type { MnemosyneCommandResult, WorkRecordMnemosynePort } from "../../src/shared/work-records/mnemosyne-port.ts";
+import type { MnemotecaCommandResult, WorkRecordMnemotecaPort } from "../../src/shared/work-records/mnemoteca-port.ts";
 
 interface IndexedDocument {
     id: number;
@@ -14,11 +14,11 @@ interface IndexedDocument {
     content: string;
 }
 
-class ObjectiveMnemosynePort implements WorkRecordMnemosynePort {
+class ObjectiveMnemotecaPort implements WorkRecordMnemotecaPort {
     #documents: IndexedDocument[] = [];
     #nextId = 1;
 
-    #result(stdout = "", code = 0): MnemosyneCommandResult {
+    #result(stdout = "", code = 0): MnemotecaCommandResult {
         return {
             success: code === 0,
             code,
@@ -35,10 +35,10 @@ class ObjectiveMnemosynePort implements WorkRecordMnemosynePort {
         return values;
     }
 
-    run(args: string[]): Promise<MnemosyneCommandResult> {
+    run(args: string[]): Promise<MnemotecaCommandResult> {
         const command = args[0] || "";
         if (command === "update" && args[1] === "--help") {
-            return Promise.resolve(this.#result("Usage: mnemosyne update <id> --replace-tags"));
+            return Promise.resolve(this.#result("Usage: mnemoteca update <id> --replace-tags"));
         }
         if (command === "init") return Promise.resolve(this.#result());
         if (command === "list") {
@@ -94,16 +94,16 @@ export async function runWorkRecordSupersessionObjectiveCheck() {
             { fileName: "current.md" },
         );
 
-        const mnemosynePort = new ObjectiveMnemosynePort();
+        const mnemotecaPort = new ObjectiveMnemotecaPort();
         await applyWorkRecordSupersession(cwd, {
             successorRecordId: SUCCESSOR_ID.toUpperCase(),
             predecessorRecordIds: [PREDECESSOR_ID.toUpperCase()],
-            mnemosynePort,
+            mnemotecaPort,
         });
         await applyWorkRecordSupersession(cwd, {
             successorRecordId: SUCCESSOR_ID,
             predecessorRecordIds: [PREDECESSOR_ID],
-            mnemosynePort,
+            mnemotecaPort,
         });
 
         assertEquals((await findWorkRecordById(cwd, PREDECESSOR_ID.toUpperCase()))?.attrs.supersededBy, SUCCESSOR_ID);

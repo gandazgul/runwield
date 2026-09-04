@@ -2,8 +2,8 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { writeWorkRecord } from "../shared/work-records/index.ts";
 import type { WorkRecordFrontMatter } from "../shared/work-records/schema.js";
-import type { WorkRecordMnemosynePort } from "../shared/work-records/mnemosyne-port.ts";
-import { createWorkRecordMnemosyneFixture } from "../shared/work-records/test-fixtures/mnemosyne-port.ts";
+import type { WorkRecordMnemotecaPort } from "../shared/work-records/mnemoteca-port.ts";
+import { createWorkRecordMnemotecaFixture } from "../shared/work-records/test-fixtures/mnemoteca-port.ts";
 import { createWorkRecordSearchTool } from "./work-record-search.ts";
 
 const RECORD_ID = "11111111-1111-4111-8111-111111111111";
@@ -40,7 +40,7 @@ Deno.test("work_record_search indexes and hydrates canonical fixture records", a
         const tool = createWorkRecordSearchTool({
             cwd: projectRoot,
             accessMode: "current",
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         const result = await tool.execute(
@@ -62,9 +62,9 @@ Deno.test("work_record_search indexes and hydrates canonical fixture records", a
     }
 });
 
-Deno.test("work_record_search reports the external Mnemosyne failure as a tool error", async () => {
+Deno.test("work_record_search reports the external Mnemoteca failure as a tool error", async () => {
     const projectRoot = await Deno.makeTempDir({ prefix: "work-record-search-failure-" });
-    const failedPort: WorkRecordMnemosynePort = {
+    const failedPort: WorkRecordMnemotecaPort = {
         run: () =>
             Promise.resolve({
                 success: false,
@@ -80,7 +80,7 @@ Deno.test("work_record_search reports the external Mnemosyne failure as a tool e
             "# Useful outcome\n\n## Summary\n\nFull durable summary text.",
             { fileName: "useful.md" },
         );
-        const tool = createWorkRecordSearchTool({ cwd: projectRoot, accessMode: "all", mnemosynePort: failedPort });
+        const tool = createWorkRecordSearchTool({ cwd: projectRoot, accessMode: "all", mnemotecaPort: failedPort });
 
         const result = await tool.execute("call", { query: "durable" }, undefined, undefined, EXTENSION_CONTEXT);
 

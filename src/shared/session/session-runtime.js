@@ -1717,11 +1717,11 @@ export class SessionRuntime {
             );
             const { createGitPort } = await import("../git-port.ts");
             const { systemLocalCIPort } = await import("../workflow/validation-local-ci.ts");
-            const { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } = await import("../work-records/mnemosyne-port.ts");
+            const { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } = await import("../work-records/mnemoteca-port.ts");
             const validationPorts = {
                 git: createGitPort(),
                 localCI: systemLocalCIPort,
-                workRecordMnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+                workRecordMnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT,
             };
             const latestResult = await runWorkflowValidationToStableBoundary(
                 /** @type {any} */ ({

@@ -40,7 +40,7 @@ import { recordWorkflowMetric } from "./metrics.js";
 
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.ts";
 import { autoGenerateWorkRecordForCompletedPlan } from "../work-records/auto-generation.js";
-import type { WorkRecordMnemosynePort } from "../work-records/mnemosyne-port.ts";
+import type { WorkRecordMnemotecaPort } from "../work-records/mnemoteca-port.ts";
 import {
     confirmWorkRecordSupersessionProposal,
     rejectWorkRecordSupersessionProposal,
@@ -53,7 +53,7 @@ export interface ResolveWorkRecordSupersessionProposalsOptions {
     projectRoot: string;
     successorRecordId: string;
     proposals: WorkRecordSupersessionCandidate[];
-    mnemosynePort: WorkRecordMnemosynePort;
+    mnemotecaPort: WorkRecordMnemotecaPort;
     choose: (proposal: WorkRecordSupersessionCandidate) => Promise<WorkRecordSupersessionDecision | null>;
     notify: (message: string, warning?: boolean) => void;
 }
@@ -63,7 +63,7 @@ export async function resolveWorkRecordSupersessionProposals({
     projectRoot,
     successorRecordId,
     proposals,
-    mnemosynePort,
+    mnemotecaPort,
     choose,
     notify,
 }: ResolveWorkRecordSupersessionProposalsOptions): Promise<void> {
@@ -75,7 +75,7 @@ export async function resolveWorkRecordSupersessionProposals({
                 const result = await confirmWorkRecordSupersessionProposal(projectRoot, {
                     successorRecordId,
                     predecessorRecordId: proposal.recordId,
-                    mnemosynePort,
+                    mnemotecaPort,
                 });
                 notify(`Confirmed Work Record supersession: ${proposal.recordId} -> ${successorRecordId}.`);
                 if (result.indexWarning) notify(result.indexWarning, true);
@@ -85,7 +85,7 @@ export async function resolveWorkRecordSupersessionProposals({
                 const result = await rejectWorkRecordSupersessionProposal(projectRoot, {
                     successorRecordId,
                     predecessorRecordId: proposal.recordId,
-                    mnemosynePort,
+                    mnemotecaPort,
                 });
                 notify(`Rejected Work Record supersession proposal: ${proposal.recordId} -> ${successorRecordId}.`);
                 if (result.indexWarning) notify(result.indexWarning, true);
@@ -105,7 +105,7 @@ export interface ResolveWorkRecordSupersessionProposalsWithUiOptions {
     projectRoot: string;
     successorRecordId: string;
     proposals: WorkRecordSupersessionCandidate[];
-    mnemosynePort: WorkRecordMnemosynePort;
+    mnemotecaPort: WorkRecordMnemotecaPort;
     uiAPI: Pick<import("../../ui/tui/types.js").UiAPI, "promptSelect" | "appendSystemMessage">;
 }
 
@@ -114,14 +114,14 @@ export function resolveWorkRecordSupersessionProposalsWithUi({
     projectRoot,
     successorRecordId,
     proposals,
-    mnemosynePort,
+    mnemotecaPort,
     uiAPI,
 }: ResolveWorkRecordSupersessionProposalsWithUiOptions): Promise<void> {
     return resolveWorkRecordSupersessionProposals({
         projectRoot,
         successorRecordId,
         proposals,
-        mnemosynePort,
+        mnemotecaPort,
         choose: async (proposal) => {
             const answer = await uiAPI.promptSelect(
                 buildValidationUserMessage({
@@ -261,7 +261,7 @@ interface RunFeaturePostVerificationHandoffsOptions {
     planName: string;
     planContent: string;
     projectRoot: string;
-    mnemosynePort: WorkRecordMnemosynePort;
+    mnemotecaPort: WorkRecordMnemotecaPort;
 }
 
 /**
@@ -270,14 +270,14 @@ interface RunFeaturePostVerificationHandoffsOptions {
  * @param {string} args.planName
  * @param {string} args.planContent
  * @param {string} args.projectRoot
- * @param {WorkRecordMnemosynePort} args.mnemosynePort
+ * @param {WorkRecordMnemotecaPort} args.mnemotecaPort
  */
 export async function runFeaturePostVerificationHandoffs({
     hostedSession,
     planName,
     planContent,
     projectRoot,
-    mnemosynePort,
+    mnemotecaPort,
 }: RunFeaturePostVerificationHandoffsOptions) {
     const plan = await loadPlan(projectRoot, planName).catch(() => null);
     const isEpicChild = typeof plan?.attrs.parentPlan === "string" && plan.attrs.parentPlan.trim().length > 0;
@@ -302,7 +302,7 @@ export async function runFeaturePostVerificationHandoffs({
     const workRecordPromise = autoGenerateWorkRecordForCompletedPlan({
         cwd: projectRoot,
         planName,
-        mnemosynePort,
+        mnemotecaPort,
     }).catch((error) => {
         console.error("[RunWield] work_record_failed", error);
         return {
@@ -334,7 +334,7 @@ export async function runFeaturePostVerificationHandoffs({
             projectRoot,
             successorRecordId: workRecordResult.recordId,
             proposals: workRecordResult.supersessionProposals,
-            mnemosynePort,
+            mnemotecaPort,
             choose: async (proposal) => {
                 const response = await requestHostedSessionInteraction(
                     hostedSession,

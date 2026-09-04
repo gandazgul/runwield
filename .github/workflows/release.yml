@@ -83,7 +83,7 @@ jobs:
               run: |
                   git checkout -B main "$GITHUB_SHA"
                   mkdir -p "$RUNNER_TEMP/runwield-ci-bin"
-                  for binary in mnemosyne cymbal ketch; do
+                  for binary in mnemoteca cymbal ketch; do
                     cat > "$RUNNER_TEMP/runwield-ci-bin/$binary" <<'EOF'
                   #!/usr/bin/env bash
                   if [[ "$1" == "--help" ]]; then exit 0; fi
@@ -140,7 +140,7 @@ jobs:
             - name: Prepare release qualification environment
               run: |
                   mkdir -p "$RUNNER_TEMP/runwield-ci-bin"
-                  for binary in mnemosyne cymbal ketch; do
+                  for binary in mnemoteca cymbal ketch; do
                     cat > "$RUNNER_TEMP/runwield-ci-bin/$binary" <<'EOF'
                   #!/usr/bin/env bash
                   if [[ "$1" == "--help" ]]; then exit 0; fi

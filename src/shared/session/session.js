@@ -35,7 +35,7 @@ import {
     normalizeRuntimeUsage,
     RuntimeEventTypes,
 } from "./session-runtime-events.js";
-import mnemosyneExtension, { memoryToolDef } from "../../extensions/mnemosyne/index.js";
+import mnemotecaExtension, { memoryToolDef } from "../../extensions/mnemoteca/index.js";
 import cymbalExtension, {
     codeBatchToolDef,
     codeImpactToolDef,
@@ -57,7 +57,7 @@ import ketchExtension, {
 } from "../../extensions/ketch/index.ts";
 import snipExtension from "../../extensions/snip/index.js";
 import reAnchorExtension from "../../extensions/re-anchor/index.ts";
-import { ensureCymbalBinary, ensureMnemosyneBinary, hasSnipBinary } from "../runtime-preflight.ts";
+import { ensureCymbalBinary, ensureMnemotecaBinary, hasSnipBinary } from "../runtime-preflight.ts";
 import { createUserInterviewTool } from "../../tools/user-interview.ts";
 import { createSeeImageTool } from "../../tools/see-image.ts";
 import {
@@ -1646,7 +1646,7 @@ export async function assembleFinalSystemPromptWithContextProjection(
     let memories = "";
     if (hasMemoriesPlaceholder) {
         try {
-            const command = new Deno.Command("mnemosyne", {
+            const command = new Deno.Command("mnemoteca", {
                 args: ["list", "-t", "core", "-f", "plain"],
                 cwd,
                 stdout: "piped",
@@ -1731,7 +1731,7 @@ export async function assembleFinalSystemPromptWithContextProjection(
         timezoneLine,
     ].filter(Boolean).join("\n");
     const agentInstructionsItem = createContextProjectionItem("Agent Definition", agentText, { source: "agent" });
-    const memoriesItem = createContextProjectionItem("Core Memories", memories, { source: "mnemosyne" });
+    const memoriesItem = createContextProjectionItem("Core Memories", memories, { source: "mnemoteca" });
     const projectStateItem = createContextProjectionItem("Project State", projectStateContextSection, {
         source: "runtime",
     });
@@ -1995,7 +1995,7 @@ export async function buildAgentSession({
     const targetHostedSession = hostedSession ? requireHostedSession(hostedSession, "buildAgentSession") : null;
     const sessionCwd = cwd || targetHostedSession?.cwd;
     if (!sessionCwd) throw new Error("buildAgentSession: cwd or hostedSession cwd is required");
-    await ensureMnemosyneBinary();
+    await ensureMnemotecaBinary();
     await ensureCymbalBinary();
     const agentDef = subAgentDefinition
         ? await loadSubAgentDefinition(subAgentDefinition.id, subAgentDefinition.options)
@@ -2086,11 +2086,11 @@ export async function buildAgentSession({
     const workRecordAccessMode = [AGENTS.GUIDE, AGENTS.RECORDER].includes(agentName) ? "all" : "current";
     if (tools.includes("work_record_search") && !finalCustomTools.find((t) => t.name === "work_record_search")) {
         const { createWorkRecordSearchTool } = await import("../../tools/work-record-search.ts");
-        const { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } = await import("../work-records/mnemosyne-port.ts");
+        const { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } = await import("../work-records/mnemoteca-port.ts");
         finalCustomTools.push(createWorkRecordSearchTool({
             cwd: sessionCwd,
             accessMode: workRecordAccessMode,
-            mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+            mnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT,
         }));
     }
     if (tools.includes("work_record_read") && !finalCustomTools.find((t) => t.name === "work_record_read")) {
@@ -2189,7 +2189,7 @@ export async function buildAgentSession({
     const packagePromptResources = await resolveInstalledPackagePromptResources({ cwd: sessionCwd }).catch(() => []);
     const packageExtensionResources = await resolveInstalledWldExtensionResources({ cwd: sessionCwd }).catch(() => []);
     const extensionFactories = [
-        mnemosyneExtension,
+        mnemotecaExtension,
         cymbalExtension,
         ketchExtension,
         // Re-anchoring is per-agent-session: the agent identity is fixed here, and
@@ -2251,7 +2251,7 @@ export async function buildAgentSession({
         for (const err of extensionsResult.errors) {
             const msg = `[RunWield] Extension warning (${err.path}): ${err.error}`;
             emitSystemStatus(targetHostedSession || undefined, msg, { level: "warning" });
-            if (String(err.error).toLowerCase().includes("mnemosyne")) {
+            if (String(err.error).toLowerCase().includes("mnemoteca")) {
                 const msg2 =
                     "[RunWield] Memory extension issue detected. Rerun the RunWield installer to install required runtime helpers: curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash";
                 emitSystemStatus(targetHostedSession || undefined, msg2, { level: "warning" });
@@ -2409,11 +2409,11 @@ export async function composeClaudeCliBridgedTools({
     const workRecordAccessMode = [AGENTS.GUIDE, AGENTS.RECORDER].includes(agentName) ? "all" : "current";
     if (declared.has("work_record_search") && !hasTool("work_record_search")) {
         const { createWorkRecordSearchTool } = await import("../../tools/work-record-search.ts");
-        const { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } = await import("../work-records/mnemosyne-port.ts");
+        const { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } = await import("../work-records/mnemoteca-port.ts");
         finalCustomTools.push(createWorkRecordSearchTool({
             cwd,
             accessMode: workRecordAccessMode,
-            mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+            mnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT,
         }));
     }
     if (declared.has("work_record_read") && !hasTool("work_record_read")) {

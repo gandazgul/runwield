@@ -168,7 +168,7 @@ Deno.test("stale RunWield state self-heals and validation continues", async () =
             semanticReviewPort: {
                 runIsolatedAgentSession: () => Promise.reject(new Error("stop after mechanical proof")),
             },
-            workRecordMnemosynePort: {
+            workRecordMnemotecaPort: {
                 run: () => Promise.reject(new Error("publication must not run in this test")),
             },
         });
@@ -252,7 +252,7 @@ Deno.test("body-only Plan amendment no longer prompts before Mechanical Validati
             semanticReviewPort: {
                 runIsolatedAgentSession: () => Promise.reject(new Error("stop after Mechanical Validation proof")),
             },
-            workRecordMnemosynePort: {
+            workRecordMnemotecaPort: {
                 run: () => Promise.reject(new Error("publication must not run")),
             },
         });

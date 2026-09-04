@@ -26,7 +26,7 @@ import {
     writeWorkRecord,
 } from "./index.ts";
 import { archivePlan, loadArchivedPlan, loadPlan, savePlan } from "../../plan-store.js";
-import { createWorkRecordMnemosyneFixture } from "./test-fixtures/mnemosyne-port.ts";
+import { createWorkRecordMnemotecaFixture } from "./test-fixtures/mnemoteca-port.ts";
 
 /** @type {import('./schema.js').WorkRecordFrontMatter} */
 const INTERNAL_ATTRS = {
@@ -49,10 +49,10 @@ function ok(stdout) {
 }
 
 /** @param {(command: string, args: string[], options?: { cwd?: string }) => Promise<ReturnType<typeof ok>>} commandOutput */
-function createCommandMnemosynePort(commandOutput) {
+function createCommandMnemotecaPort(commandOutput) {
     return {
         run: (/** @type {string[]} */ args, /** @type {{ cwd?: string }} */ options) =>
-            commandOutput("mnemosyne", args, options),
+            commandOutput("mnemoteca", args, options),
     };
 }
 
@@ -468,7 +468,7 @@ Deno.test("Work Record generation writes a record and active Plan backlink", asy
         });
         const preview = await previewWorkRecordBackfill(cwd);
         const outcome = await generateWorkRecordForSource(cwd, preview.eligible[0], {
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
             idGenerator: () => "44444444-4444-4444-8444-444444444444",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             runRecorderPrompt: recorderResponse({
@@ -518,7 +518,7 @@ Deno.test("Work Record generation rejects missing and self Recorder proposals be
             });
             const source = (await previewWorkRecordBackfill(cwd)).eligible[0];
             const outcome = await generateWorkRecordForSource(cwd, source, {
-                mnemosynePort: createWorkRecordMnemosyneFixture(),
+                mnemotecaPort: createWorkRecordMnemotecaFixture(),
                 idGenerator: () => testCase.successorId,
                 runRecorderPrompt: () =>
                     Promise.resolve(JSON.stringify({
@@ -557,7 +557,7 @@ Deno.test("Work Record generation preserves canonical state when the external in
                 title: "Index Unavailable Outcome",
                 summary: "The canonical Work Record still exists.",
             }),
-            mnemosynePort: {
+            mnemotecaPort: {
                 run: () =>
                     Promise.resolve({
                         success: false,
@@ -600,7 +600,7 @@ Deno.test("Work Record generation distills the task completion report into the s
         });
         const preview = await previewWorkRecordBackfill(cwd);
         const outcome = await generateWorkRecordForSource(cwd, preview.eligible[0], {
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
             idGenerator: () => "77777777-7777-4777-8777-777777777777",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             runRecorderPrompt: recorderResponse({
@@ -637,7 +637,7 @@ Deno.test("Work Record generation includes deterministic Plan record requirement
         });
         const preview = await previewWorkRecordBackfill(cwd);
         const outcome = await generateWorkRecordForSource(cwd, preview.eligible[0], {
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
             idGenerator: () => "88888888-8888-4888-8888-888888888888",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             runRecorderPrompt: recorderResponse({ title: "Required Outcome", summary: "Completed." }),
@@ -706,7 +706,7 @@ Deno.test("Work Record generation discloses skipped verification reason fallback
             idGenerator: () => "55555555-5555-4555-8555-555555555555",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             runRecorderPrompt: recorderResponse({ title: "Closed", summary: "Implemented and accepted manually." }),
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         assertEquals(result.outcomes[0].status, "generated");
@@ -736,7 +736,7 @@ Deno.test("Work Record generation preserves User Verification attribution and no
             idGenerator: () => "66666666-6666-4666-8666-666666666666",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             runRecorderPrompt: recorderResponse({ title: "User Verified", summary: "Implemented feature." }),
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         assertEquals(result.outcomes[0].status, "generated");
@@ -772,7 +772,7 @@ Deno.test("Work Record backfill updates archived Plan backlinks", async () => {
             idGenerator: () => "66666666-6666-4666-8666-666666666666",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             runRecorderPrompt: recorderResponse({ title: "Archived Source", summary: "Archived completed feature." }),
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         assertEquals(result.outcomes[0].status, "generated");
@@ -808,7 +808,7 @@ Deno.test("Work Record backfill retries failed Plan backlinks", async () => {
             idGenerator: () => "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             runRecorderPrompt: recorderResponse({ title: "Retry Outcome", summary: "Retry succeeded." }),
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         assertEquals(result.outcomes[0].status, "generated");
@@ -835,7 +835,7 @@ Deno.test("Work Record generation rejects empty structured sections and records 
         });
         const preview = await previewWorkRecordBackfill(cwd);
         const outcome = await generateWorkRecordForSource(cwd, preview.eligible[0], {
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
             idGenerator: () => "77777777-7777-4777-8777-777777777777",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             runRecorderPrompt: recorderResponse({ title: "", summary: "" }),
@@ -865,7 +865,7 @@ Deno.test("Work Record generation records failure backlink without changing term
         });
         const preview = await previewWorkRecordBackfill(cwd);
         const outcome = await generateWorkRecordForSource(cwd, preview.eligible[0], {
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
             idGenerator: () => "77777777-7777-4777-8777-777777777777",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             runRecorderPrompt: () => Promise.reject(new Error("Recorder exploded")),
@@ -940,7 +940,7 @@ Deno.test("Work Record backfill ignores non-linkable existing records and genera
                 title: "Approved Internal",
                 summary: "Generated approved internal record.",
             }),
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         assertEquals(result.outcomes[0].status, "generated");
@@ -975,10 +975,10 @@ Deno.test("Work Record index document uses compact summary metadata and tags onl
     assertEquals(tags.includes("superseded:false"), true);
 });
 
-Deno.test("Work Record index emptiness ignores Mnemosyne plain-list footer", async () => {
+Deno.test("Work Record index emptiness ignores Mnemoteca plain-list footer", async () => {
     assertEquals(
         await isWorkRecordIndexEmpty("/tmp/project", {
-            mnemosynePort: createCommandMnemosynePort(
+            mnemotecaPort: createCommandMnemotecaPort(
                 (/** @type {string} */ _command, /** @type {string[]} */ args) => {
                     assertEquals(args[0], "list");
                     return Promise.resolve(ok("[42] indexed\n\nShowing 1 of 90 documents. Use --limit to see more."));
@@ -1019,7 +1019,7 @@ Deno.test("Work Record index sync adds absent records and strictly updates exist
     const commandOutput = (/** @type {string} */ _command, /** @type {string[]} */ args) => {
         calls.push(args);
         if (args[0] === "update" && args[1] === "--help") {
-            return Promise.resolve(ok("Usage: mnemosyne update <id> [text] --replace-tags"));
+            return Promise.resolve(ok("Usage: mnemoteca update <id> [text] --replace-tags"));
         }
         if (args[0] === "init") return Promise.resolve(ok(""));
         if (args[0] === "list") {
@@ -1030,9 +1030,9 @@ Deno.test("Work Record index sync adds absent records and strictly updates exist
         throw new Error(`unexpected ${args.join(" ")}`);
     };
 
-    const mnemosynePort = createCommandMnemosynePort(commandOutput);
-    await syncWorkRecordToIndex("/tmp/project", record, { mnemosynePort });
-    await syncWorkRecordToIndex("/tmp/project", record, { mnemosynePort });
+    const mnemotecaPort = createCommandMnemotecaPort(commandOutput);
+    await syncWorkRecordToIndex("/tmp/project", record, { mnemotecaPort });
+    await syncWorkRecordToIndex("/tmp/project", record, { mnemotecaPort });
 
     assertEquals(
         calls.some((args) => args[0] === "add" && args.includes(`work-record:${INTERNAL_ATTRS.recordId}`)),
@@ -1051,12 +1051,12 @@ Deno.test("Work Record index sync rejects duplicate locator matches with rebuild
     await assertRejects(
         () =>
             syncWorkRecordToIndex("/tmp/project", record, {
-                mnemosynePort: createCommandMnemosynePort((
+                mnemotecaPort: createCommandMnemotecaPort((
                     /** @type {string} */ _command,
                     /** @type {string[]} */ args,
                 ) => {
                     if (args[0] === "update" && args[1] === "--help") {
-                        return Promise.resolve(ok("Usage: mnemosyne update <id> [text] --replace-tags"));
+                        return Promise.resolve(ok("Usage: mnemoteca update <id> [text] --replace-tags"));
                     }
                     if (args[0] === "init") return Promise.resolve(ok(""));
                     if (args[0] === "list") return Promise.resolve(ok("[1] old\n[2] duplicate"));
@@ -1075,7 +1075,7 @@ Deno.test("Work Record search rejects duplicate indexed locator candidates", asy
         await assertRejects(
             () =>
                 searchWorkRecords(cwd, "durable", {
-                    mnemosynePort: createCommandMnemosynePort((
+                    mnemotecaPort: createCommandMnemotecaPort((
                         /** @type {string} */ _command,
                         /** @type {string[]} */ args,
                     ) => {
@@ -1132,7 +1132,7 @@ Deno.test("Work Record search hydrates indexed candidates from a single canonica
         workRecordFileReads = 0;
 
         await searchWorkRecords(cwd, "durable", {
-            mnemosynePort: createCommandMnemosynePort((
+            mnemotecaPort: createCommandMnemotecaPort((
                 /** @type {string} */ _command,
                 /** @type {string[]} */ args,
             ) => {
@@ -1174,7 +1174,7 @@ Deno.test("Work Record search bootstraps empty index, filters current records, a
         const commandOutput = (/** @type {string} */ _command, /** @type {string[]} */ args) => {
             calls.push(args);
             if (args[0] === "update" && args[1] === "--help") {
-                return Promise.resolve(ok("Usage: mnemosyne update <id> [text] --replace-tags"));
+                return Promise.resolve(ok("Usage: mnemoteca update <id> [text] --replace-tags"));
             }
             if (args[0] === "list") return Promise.resolve(ok(""));
             if (["forget", "init", "add"].includes(args[0])) return Promise.resolve(ok(""));
@@ -1190,7 +1190,7 @@ Deno.test("Work Record search bootstraps empty index, filters current records, a
         };
 
         const result = await searchWorkRecords(cwd, "durable", {
-            mnemosynePort: createCommandMnemosynePort(commandOutput),
+            mnemotecaPort: createCommandMnemotecaPort(commandOutput),
         });
 
         assertEquals(result.bootstrapped, true);
@@ -1226,15 +1226,15 @@ Deno.test("Work Record index rebuild forgets only the dedicated collection and r
     const cwd = await Deno.makeTempDir();
     try {
         await writeWorkRecord(cwd, INTERNAL_ATTRS, BODY, { fileName: "2026-07-14-example.md" });
-        const mnemosynePort = createWorkRecordMnemosyneFixture();
+        const mnemotecaPort = createWorkRecordMnemotecaFixture();
 
-        const result = await rebuildWorkRecordIndex(cwd, { mnemosynePort });
+        const result = await rebuildWorkRecordIndex(cwd, { mnemotecaPort });
         const collection = await getWorkRecordIndexCollectionName(cwd);
-        const calls = mnemosynePort.commands();
+        const calls = mnemotecaPort.commands();
 
         assertEquals(calls.some((args) => args[0] === "forget" && args.includes(collection)), true);
         assertEquals(calls.some((args) => args[0] === "forget" && !args.includes(collection)), false);
-        assertEquals(mnemosynePort.snapshot().length, 1);
+        assertEquals(mnemotecaPort.snapshot().length, 1);
         assertEquals(result.added, 1);
         assertEquals(result.failed, 0);
     } finally {
@@ -1251,13 +1251,13 @@ Deno.test("Work Record index sync rejects locator listing without numeric docume
     await assertRejects(
         () =>
             syncWorkRecordToIndex("/tmp/project", record, {
-                mnemosynePort: createCommandMnemosynePort((
+                mnemotecaPort: createCommandMnemotecaPort((
                     /** @type {string} */ _command,
                     /** @type {string[]} */ args,
                 ) => {
                     calls.push(args);
                     if (args[0] === "update" && args[1] === "--help") {
-                        return Promise.resolve(ok("Usage: mnemosyne update <id> [text] --replace-tags"));
+                        return Promise.resolve(ok("Usage: mnemoteca update <id> [text] --replace-tags"));
                     }
                     if (args[0] === "init") return Promise.resolve(ok(""));
                     if (args[0] === "list") return Promise.resolve(ok("work-record row missing numeric id"));
@@ -1266,7 +1266,7 @@ Deno.test("Work Record index sync rejects locator listing without numeric docume
                 }),
             }),
         Error,
-        "parseable Mnemosyne numeric document ID",
+        "parseable Mnemoteca numeric document ID",
     );
     assertEquals(calls.some((args) => args[0] === "add"), false);
 });
@@ -1315,7 +1315,7 @@ Deno.test("Work Record generation preserves child Ticket References when assigni
         const outcome = await generateWorkRecordForSource(cwd, source, {
             idGenerator: () => ids.shift() || "11111111-1111-4111-8111-111111111116",
             runRecorderPrompt: recorderResponse({ title: "Epic Without Plan ID", summary: "Done." }),
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
         assertEquals(outcome.status, "generated");
@@ -1343,7 +1343,7 @@ Deno.test("Work Record generation snapshots standalone and Epic Ticket Reference
         const standaloneOutcome = await generateWorkRecordForSource(cwd, standalone, {
             idGenerator: () => "11111111-1111-4111-8111-111111111112",
             runRecorderPrompt: recorderResponse({ title: "Standalone", summary: "Done." }),
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
         assertEquals(standaloneOutcome.status, "generated");
         assertEquals((await findWorkRecordById(cwd, "11111111-1111-4111-8111-111111111112"))?.attrs.tickets, [
@@ -1376,7 +1376,7 @@ Deno.test("Work Record generation snapshots standalone and Epic Ticket Reference
         const epicOutcome = await generateWorkRecordForSource(cwd, epic, {
             idGenerator: () => "11111111-1111-4111-8111-111111111113",
             runRecorderPrompt: recorderResponse({ title: "Epic", summary: "Done." }),
-            mnemosynePort: createWorkRecordMnemosyneFixture(),
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
         assertEquals(epicOutcome.status, "generated");
         assertEquals((await findWorkRecordById(cwd, "11111111-1111-4111-8111-111111111113"))?.attrs.tickets, [

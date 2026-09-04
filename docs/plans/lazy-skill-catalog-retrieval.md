@@ -31,7 +31,7 @@ skill, and a stale semantic index must not override current skill files.
 - Add exact lookup, listing, and hybrid search across names, trigger tags, and descriptions.
 - Load the authoritative SKILL.md through the catalog and record what was loaded.
 - Preserve local, home, bundled, and external precedence plus `disable-model-invocation`.
-- Treat filesystem skill metadata as truth; use Mnemosyne-like selective retrieval, not normal project memories as the
+- Treat filesystem skill metadata as truth; use Mnemoteca-like selective retrieval, not normal project memories as the
   authority.
 - Return safe fallback candidates or the full name list when search confidence is low.
 
@@ -46,3 +46,5 @@ skill, and a stale semantic index must not override current skill files.
 
 Define the catalog record and invalidation rules, mandatory-skill safeguards, explicit-user invocation behavior,
 search/load UX, evaluation cases, and an acceptable false-negative threshold before removing resident descriptions.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

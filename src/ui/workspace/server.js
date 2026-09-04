@@ -31,7 +31,7 @@ import {
 import { openRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 import { escapeReviewPayloadJson } from "./server/review-payload-json.ts";
 import { withAccessLogger } from "./server-access-logger.ts";
-import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../../shared/work-records/mnemosyne-port.ts";
+import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../../shared/work-records/mnemoteca-port.ts";
 import { PlanProgressSurface } from "./react/PlanProgressSurface.tsx";
 import { loadRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.js";
@@ -143,7 +143,7 @@ export function hasWorkspaceToken(request, expectedToken) {
  * @property {string} cwd
  * @property {string} token
  * @property {boolean} [skipTokenCheck]
- * @property {import("../../shared/work-records/mnemosyne-port.ts").WorkRecordMnemosynePort} mnemosynePort
+ * @property {import("../../shared/work-records/mnemoteca-port.ts").WorkRecordMnemotecaPort} mnemotecaPort
  */
 
 /**
@@ -327,7 +327,7 @@ export function createOwnerWorkspaceApp(options) {
 }
 
 /** @param {LocalWorkspaceAppOptions} options */
-function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false, mnemosynePort }) {
+function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false, mnemotecaPort }) {
     return {
         handler() {
             /** @param {Request} request */
@@ -337,7 +337,7 @@ function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false, mnemosyne
                 if (!skipTokenCheck && !hasWorkspaceToken(request, token)) {
                     return new Response("Workspace token required.", { status: 401 });
                 }
-                return await handleLocalWorkspaceRequest(request, { cwd, mnemosynePort });
+                return await handleLocalWorkspaceRequest(request, { cwd, mnemotecaPort });
             };
         },
     };
@@ -479,7 +479,7 @@ function hasReviewAssetToken(request, token) {
     }
 }
 
-/** @param {Request} request @param {{ cwd: string, mnemosynePort: import("../../shared/work-records/mnemosyne-port.ts").WorkRecordMnemosynePort }} state */
+/** @param {Request} request @param {{ cwd: string, mnemotecaPort: import("../../shared/work-records/mnemoteca-port.ts").WorkRecordMnemotecaPort }} state */
 async function handleLocalWorkspaceRequest(request, state) {
     const url = new URL(request.url);
     const pathname = url.pathname;
@@ -500,7 +500,7 @@ function isAstroPageRoute(pathname) {
     return pathname === "/" || pathname === "/closed" || pathname === "/on-hold" || pathname.startsWith("/plans/");
 }
 
-/** @param {Request} request @param {{ cwd: string, mnemosynePort: import("../../shared/work-records/mnemosyne-port.ts").WorkRecordMnemosynePort }} state @param {string} pathname */
+/** @param {Request} request @param {{ cwd: string, mnemotecaPort: import("../../shared/work-records/mnemoteca-port.ts").WorkRecordMnemotecaPort }} state @param {string} pathname */
 async function handleLocalApiRequest(request, state, pathname) {
     if (request.method === "GET" && pathname === "/api/workspace") return await workspaceApi(ctx(request, state));
     if (request.method === "GET" && pathname === "/api/plans") return await plansApi(ctx(request, state));
@@ -1115,7 +1115,7 @@ export function startWorkspaceServer(options) {
         : createWorkspaceApp({
             cwd: options.cwd ?? Deno.cwd(),
             token: options.token ?? "",
-            mnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+            mnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT,
         });
     return Deno.serve(
         {

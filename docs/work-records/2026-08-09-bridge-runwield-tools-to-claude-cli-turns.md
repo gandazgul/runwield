@@ -17,13 +17,13 @@ provenance:
 ## Summary
 
 Claude CLI turns now receive RunWield tool parity through generalized Bridged Tools. The work added host-neutral
-Mnemosyne and Cymbal tool factories, bridged memory, code, Work Record, interview, lifecycle, multi-file edit,
+Mnemoteca and Cymbal tool factories, bridged memory, code, Work Record, interview, lifecycle, multi-file edit,
 return-to-router, and caller-supplied tools, and corrected the Claude CLI system prompt tool list. Verification passed
 with `deno task ci`, including checks, lint, seams check, doc links, and the full test suite.
 
 ## Deviations from Plan
 
-One archived Plan doc link found by CI was fixed as part of the work. Some tests were rewritten because Mnemosyne
+One archived Plan doc link found by CI was fixed as part of the work. Some tests were rewritten because Mnemoteca
 initialization moved from session start to first tool call.
 
 ## Deferred Work
@@ -35,3 +35,5 @@ initialization moved from session start to first tool call.
 The Bridged Tool abstraction is now the durable term for RunWield tools exposed to Claude CLI over the loopback MCP
 bridge. Future Claude CLI tool work should reuse the host-neutral factories and the bridge composer instead of adding
 backend-specific tool copies.
+
+[Mnemoteca]: https://github.com/gandazgul/mnemoteca

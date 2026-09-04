@@ -14,7 +14,7 @@ import {
 import { dispatchPostTriage } from "../workflow/orchestrator.ts";
 import { systemLocalCIPort } from "../workflow/validation-local-ci.ts";
 import { createGitPort } from "../git-port.ts";
-import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../work-records/mnemosyne-port.ts";
+import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../work-records/mnemoteca-port.ts";
 import { decidePostExecution, decidePostPlanning, summarizeWorkflowDecision } from "../workflow/decisions.js";
 import { recordWorkflowMetric } from "../workflow/metrics.js";
 import {
@@ -501,7 +501,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     finalAgentName: agentName,
                     git: createGitPort(),
                     localCI: systemLocalCIPort,
-                    workRecordMnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+                    workRecordMnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT,
                     semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                     supportsSemanticRepairHandoff: true,
                 });
@@ -677,7 +677,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     finalAgentName: agentName,
                     git: createGitPort(),
                     localCI: systemLocalCIPort,
-                    workRecordMnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+                    workRecordMnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT,
                     semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                     supportsSemanticRepairHandoff: true,
                     ...(acceptedCompletion.completionId ? { taskCompletionId: acceptedCompletion.completionId } : {}),

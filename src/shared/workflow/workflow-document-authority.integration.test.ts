@@ -159,7 +159,7 @@ for (const surface of ["primary", "execution"]) {
                     },
                 },
                 semanticReviewPort: { runIsolatedAgentSession: () => Promise.reject(new Error("stop after CI proof")) },
-                workRecordMnemosynePort: { run: () => Promise.reject(new Error("publication is not expected")) },
+                workRecordMnemotecaPort: { run: () => Promise.reject(new Error("publication is not expected")) },
             });
             assertEquals(ciRuns, 1);
             assertEquals((await loadPlan(current, "demo"))?.attrs.status, "validated_ci");

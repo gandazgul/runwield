@@ -27,17 +27,17 @@ Deno.test("suite runs against a sandboxed HOME", async () => {
     });
 });
 
-Deno.test("mnemosyne is pointed at a sandbox database", () => {
-    // work-records cleanup shells out to the real mnemosyne binary
-    // (`mnemosyne forget`). Without this it operates on the developer's own
+Deno.test("mnemoteca is pointed at a sandbox database", () => {
+    // work-records cleanup shells out to the real mnemoteca binary
+    // (`mnemoteca forget`). Without this it operates on the developer's own
     // memory database, which HOME sandboxing alone does not prevent because
-    // mnemosyne resolves its default path itself.
+    // mnemoteca resolves its default path itself.
     const sandbox = Deno.env.get("WLD_TEST_SANDBOX_HOME");
-    const dbPath = Deno.env.get("MNEMOSYNE_DB_PATH");
+    const dbPath = Deno.env.get("MNEMOTECA_DB_PATH");
     assert(sandbox, "Expected the suite to be sandboxed.");
-    assert(dbPath, "MNEMOSYNE_DB_PATH must be set so tests never touch the real memory database.");
+    assert(dbPath, "MNEMOTECA_DB_PATH must be set so tests never touch the real memory database.");
     assert(
         dbPath.startsWith(sandbox),
-        `MNEMOSYNE_DB_PATH (${dbPath}) must live inside the sandbox (${sandbox}).`,
+        `MNEMOTECA_DB_PATH (${dbPath}) must live inside the sandbox (${sandbox}).`,
     );
 });

@@ -16,7 +16,7 @@ import type { ValidationRecoveryResult } from "./validation-recovery.ts";
 
 type PlanFrontMatter = import("../../plan-store.js").PlanFrontMatter;
 type GitPort = import("../git-port.ts").GitPort;
-type WorkRecordMnemosynePort = import("../work-records/mnemosyne-port.ts").WorkRecordMnemosynePort;
+type WorkRecordMnemotecaPort = import("../work-records/mnemoteca-port.ts").WorkRecordMnemotecaPort;
 type RecordPlanEventArgs = Parameters<typeof import("./plan-lifecycle.js").recordPlanEvent>[0];
 type RecordPlanEventResult = Awaited<ReturnType<typeof import("./plan-lifecycle.js").recordPlanEvent>>;
 type EpicContinuationResolution = import("./epic-continuation.ts").EpicContinuationResolution;
@@ -76,7 +76,7 @@ export type ValidationLoopArgs = {
     executionContext?: ValidationWorkflowState;
     git: GitPort;
     localCI: ValidationLocalCIPort;
-    workRecordMnemosynePort: WorkRecordMnemosynePort;
+    workRecordMnemotecaPort: WorkRecordMnemotecaPort;
     supportsSemanticRepairHandoff?: boolean;
     /** Durable phase claimed by the validation supervisor. */
     continuationPhase?: ValidationCheckpointPhase;

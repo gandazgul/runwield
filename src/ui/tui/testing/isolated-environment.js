@@ -10,24 +10,24 @@ export const GOLDEN_FAUX_MODEL = "faux";
 export const GOLDEN_FAUX_API = "golden-faux";
 
 /**
- * Install the stable external Mnemosyne boundary used by composed scenarios.
+ * Install the stable external Mnemoteca boundary used by composed scenarios.
  * The scenarios exercise RunWield's real Work Record machinery, but must not
- * contend for or mutate the developer's Mnemosyne database when Golden files run
+ * contend for or mutate the developer's Mnemoteca database when Golden files run
  * concurrently.
  *
  * @param {string} root
  * @returns {Promise<string>}
  */
-async function writeGoldenMnemosyneFixture(root) {
+async function writeGoldenMnemotecaFixture(root) {
     const binDir = join(root, "bin");
-    const executable = join(binDir, "mnemosyne");
+    const executable = join(binDir, "mnemoteca");
     await Deno.mkdir(binDir, { recursive: true });
     await Deno.writeTextFile(
         executable,
         [
             "#!/bin/sh",
             'if [ "$1" = "update" ] && [ "$2" = "--help" ]; then',
-            "  echo 'Usage: mnemosyne update <id> --replace-tags'",
+            "  echo 'Usage: mnemoteca update <id> --replace-tags'",
             'elif [ "$1" = "list" ]; then',
             "  echo 'No documents'",
             'elif [ "$1" = "search" ]; then',
@@ -38,7 +38,7 @@ async function writeGoldenMnemosyneFixture(root) {
             '    if [ "$1" = "--output" ]; then',
             "      shift",
             '      mkdir -p "$(dirname "$1")"',
-            '      printf \'%s\\n\' \'{"type":"mnemosyne-export"}\' > "$1"',
+            '      printf \'%s\\n\' \'{"type":"mnemoteca-export"}\' > "$1"',
             "      break",
             "    fi",
             "    shift",
@@ -145,7 +145,7 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
     const projectRoot = join(root, "project");
     const remoteRoot = join(root, "remote.git");
     const runwieldDir = join(home, ".wld");
-    const fixtureBinDir = await writeGoldenMnemosyneFixture(root);
+    const fixtureBinDir = await writeGoldenMnemotecaFixture(root);
     await Deno.mkdir(projectRoot, { recursive: true });
     await Deno.mkdir(runwieldDir, { recursive: true });
     await Deno.writeTextFile(

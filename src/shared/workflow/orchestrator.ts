@@ -52,7 +52,7 @@ import { runMechanicalValidation, shouldRunWorkflowValidation, SYSTEM_SEMANTIC_R
 import { runWorkflowValidationToStableBoundary } from "./validation-supervisor.ts";
 import type { LocalCIPort } from "./validation-local-ci.ts";
 import { createGitPort } from "../git-port.ts";
-import { SYSTEM_WORK_RECORD_MNEMOSYNE_PORT } from "../work-records/mnemosyne-port.ts";
+import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../work-records/mnemoteca-port.ts";
 import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
 import { waitForWorkflowToolEvent } from "./workflow-tool-events.ts";
 
@@ -664,7 +664,7 @@ export async function dispatchPostTriage({
                     executionContext: executionResult.executionContext,
                     git: createGitPort(),
                     localCI,
-                    workRecordMnemosynePort: SYSTEM_WORK_RECORD_MNEMOSYNE_PORT,
+                    workRecordMnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT,
                     semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                     supportsSemanticRepairHandoff: true,
                 });
