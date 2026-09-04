@@ -202,7 +202,8 @@ transcript storage from scratch; those invariants are prerequisites delivered by
 - The standard `sessionId` returned by `session/new` remains loadable after the `wld acp` process exits and maps to the
   already-established stable RunWield Session ID. In-process Runtime IDs may remain separate internally.
 - `initialize` negotiates the supported protocol version instead of echoing unsupported versions.
-- `usage_update.cost` uses the ACP cost object shape, and context capacity is not knowingly misreported.
+- `usage_update.cost` uses the ACP cost object shape with cumulative USD Session cost. Exact context-capacity reporting
+  remains separate work.
 - ACP `session/load`, `session/prompt`, `session/cancel`, compaction, and continuation paths use the existing Session
   Activation Lease enforcement before opening or mutating a writable Pi `SessionManager` for an existing Session.
 - If another TUI, Workspace, or ACP process owns activation, ACP fails mutation visibly and safely or remains a
@@ -275,13 +276,18 @@ separately and becomes a blocker if RunWield begins emitting standard ACP permis
 
 ## 7. Stage 2 — Full ACP v1 Compliance
 
-After the Telegram proof, close all remaining required ACP v1 gaps against the pinned protocol and SDK baseline. Stage 2
-includes:
+After the Telegram proof, close all remaining required ACP v1 gaps against the pinned protocol and SDK baseline. The ACP
+hardening suite now implements and proves these Stage 2 items for the advertised core Session path:
 
 - required stdio MCP server support in session lifecycle requests;
-- schema-valid messages for all advertised stable capabilities;
-- a black-box conformance suite against the official ACP v1 schema;
-- complete resolution of remaining required findings in `docs/acp-implementation-details.md`;
+- schema-valid initialize, prompt, usage, auth, Session notification, and cancellation messages for advertised stable
+  capabilities;
+- black-box conformance checks against the ACP v1 schema where the suite records serialized NDJSON frames;
+- resolution of the listed required findings for protocol negotiation, generated version, cumulative cost, cancellation
+  ordering, and stdio MCP setup.
+
+Stage 2 still includes:
+
 - accurate public capability and conformance claims;
 - interoperability checks with more than one ACP client.
 

@@ -497,7 +497,7 @@ Deno.test("default review guide usage frames update a running job and remain aft
                 );
                 const jobs = await jobsResponse?.json();
                 runningJob = jobs.jobs.find((candidate) => candidate.id === job.id);
-                if (runningJob?.usageState === "available") break;
+                if (runningJob?.cost?.usd === 0.125) break;
                 await new Promise((resolve) => setTimeout(resolve, 20));
             }
             assertEquals(runningJob?.status, "running");
