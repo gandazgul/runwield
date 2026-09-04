@@ -293,6 +293,69 @@ Deno.test("Prompt Template invocation sends active Segment history plus the exac
     );
 });
 
+Deno.test("Prompt Template invocation rejects unsupported Claude CLI thinking before process launch", async () => {
+    await withRuntimeCommandFixture(
+        "named-invocation-claude-cli-thinking-",
+        async ({ projectRoot, homeDir }) => {
+            const promptDir = join(projectRoot, ".wld", "prompts");
+            await Deno.mkdir(promptDir, { recursive: true });
+            await Deno.writeTextFile(
+                join(promptDir, "claude-deep.md"),
+                [
+                    "---",
+                    "agent: operator",
+                    "model: claude-cli/sonnet",
+                    "thinkingLevel: high",
+                    "---",
+                    "Think deeply through Claude CLI about {{input}}",
+                    "",
+                ].join("\n"),
+            );
+            const binDir = join(homeDir, "claude-thinking-bin");
+            const logPath = join(homeDir, "claude-thinking-log.jsonl");
+            await installClaudeCliFixture(binDir, logPath);
+            const previousPath = Deno.env.get("PATH");
+            const previousLog = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_LOG");
+            Deno.env.set("PATH", `${binDir}:${previousPath || ""}`);
+            Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_LOG", logPath);
+
+            const store = openFileSessionStore();
+            const runtime = makeRuntime(store);
+            try {
+                const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+                const sessionId = created.sessionId;
+                await runtime.switchAgent(sessionId, { agentName: "engineer" });
+                const beforeSnapshot = runtime.getSessionSnapshot(sessionId);
+
+                await assertRejects(
+                    () =>
+                        runtime.promptUserTurn(sessionId, {
+                            initialRequest: "/claude-deep this fixture",
+                            initialImages: [],
+                        }),
+                    Error,
+                    'does not support thinkingLevel "high" for RunWield named invocations',
+                );
+
+                assertEquals(await Deno.readTextFile(logPath), "");
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, beforeSnapshot?.activeAgent);
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, beforeSnapshot?.activeModel);
+                assertEquals(
+                    runtime.getSessionSnapshot(sessionId)?.activeExecutionWorkflow,
+                    beforeSnapshot?.activeExecutionWorkflow,
+                );
+            } finally {
+                await runtime.closeAllSessionsWhenIdle?.();
+                store.close();
+                if (previousPath === undefined) Deno.env.delete("PATH");
+                else Deno.env.set("PATH", previousPath);
+                if (previousLog === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_LOG");
+                else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_LOG", previousLog);
+            }
+        },
+    );
+});
+
 Deno.test("Prompt Template invocation fails oversized Claude CLI requests before process launch", async () => {
     await withRuntimeCommandFixture(
         "named-invocation-claude-capacity-",

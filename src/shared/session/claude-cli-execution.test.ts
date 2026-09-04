@@ -6,6 +6,7 @@ import { AGENTS } from "../../constants.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { HostedSession } from "./hosted-session.js";
 import { getRunWieldSessionDir, openPersistedRootSession } from "./root-session.js";
+import { __resetSettingsForTests } from "../settings.js";
 import {
     abortActiveSession,
     ensureRootAgentSession,
@@ -107,6 +108,7 @@ async function withClaudeExecutionFixture(
             Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_LOG", logPath);
             await callback(home, cwd, logPath);
         } finally {
+            __resetSettingsForTests();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
             if (previousPath === undefined) Deno.env.delete("PATH");
@@ -156,6 +158,31 @@ Deno.test("Claude CLI selected root turn dispatches without Pi AgentSession", as
         assertEquals(log.args.includes("--model"), true);
         assertEquals(log.args[log.args.indexOf("--model") + 1], "sonnet");
         assertEquals("agent" in root, false);
+    });
+});
+
+Deno.test("Claude CLI selected root turn runs when Agent config has thinking level", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd, logPath) => {
+        await Deno.mkdir(join(cwd, ".wld"), { recursive: true });
+        await Deno.writeTextFile(
+            join(cwd, ".wld", "settings.json"),
+            JSON.stringify({ agents: { [AGENTS.ENGINEER]: { thinkingLevel: "medium" } } }),
+        );
+        __resetSettingsForTests();
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        const root = await ensureRootAgentSession({ hostedSession, agentName: AGENTS.ENGINEER });
+        assertEquals((root as never as RootSessionRef).kind, "claude-cli");
+
+        const messages = await runRootTurn({
+            hostedSession,
+            agentName: AGENTS.ENGINEER,
+            userRequest: "hello with configured thinking",
+        });
+
+        const log = JSON.parse((await Deno.readTextFile(logPath)).trim().split("\n")[0]);
+        assertStringIncludes(log.stdin, "hello with configured thinking");
+        assertEquals(messages.at(-1)?.role, "assistant");
     });
 });
 

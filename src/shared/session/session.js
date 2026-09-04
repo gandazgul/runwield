@@ -2489,7 +2489,9 @@ export async function buildExecutionSession(opts) {
     );
     const backend =
         /** @type {import('../models/model-registry.ts').RunWieldModel} */ (resolvedModel)?.executionBackend || "pi";
-    if (backend !== "pi") assertThinkingLevelBackendSupportedForInvocation(resolvedModel, backendThinking);
+    if (backend !== "pi" && opts.workflowAuthority === false) {
+        assertThinkingLevelBackendSupportedForInvocation(resolvedModel, backendThinking);
+    }
     if (backend === "pi") {
         const built = await buildAgentSession(opts);
         return { ...built, executionSession: createPiExecutionSession(built.session) };
