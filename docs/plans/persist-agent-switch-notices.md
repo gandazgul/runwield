@@ -21,9 +21,14 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-20T20:26:45-04:00"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "018b70db-22f4-4b54-aee7-53306bf6e515"
+    path: "docs/work-records/2026-09-04-persisted-agent-switch-notices.md"
+    lastAttemptAt: "2026-09-04T03:15:30.275Z"
 targetBranch: "main"
 ---
 
