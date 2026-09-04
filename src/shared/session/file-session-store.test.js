@@ -518,8 +518,26 @@ Deno.test("recovery descriptor retains the initial writer baseline when the mani
 Deno.test("transcript lineage reconstructs one ordered Session without a database or manifest", async () => {
     const fixture = await makeFixture();
     try {
-        await writeTranscript(fixture.sessionDir, fixture.projectRoot, "planning");
-        await writeTranscript(fixture.sessionDir, fixture.projectRoot, "execution", {
+        const planningPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "planning");
+        await Deno.writeTextFile(
+            planningPath,
+            `${
+                JSON.stringify({
+                    type: "custom",
+                    customType: "runwield.plan_association",
+                    data: {
+                        planId: "committed-plan",
+                        planName: "committed-plan",
+                        purpose: "planning",
+                        segmentId: "planning-segment",
+                        segmentKind: "planning",
+                        recordedAt: TIMESTAMP,
+                    },
+                })
+            }\n`,
+            { append: true },
+        );
+        const executionPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "execution", {
             runwieldSessionId: "stable-session",
             segmentId: "execution-segment",
             parentSegmentId: "planning-segment",
@@ -527,6 +545,24 @@ Deno.test("transcript lineage reconstructs one ordered Session without a databas
             lineageGroupKey: "planning-segment",
             kind: "execution",
         });
+        await Deno.writeTextFile(
+            executionPath,
+            `${
+                JSON.stringify({
+                    type: "custom",
+                    customType: "runwield.plan_association",
+                    data: {
+                        planId: "continuation-boundary-plan",
+                        planName: "continuation-boundary-plan",
+                        purpose: "planning",
+                        segmentId: "execution-segment",
+                        segmentKind: "execution",
+                        recordedAt: TIMESTAMP,
+                    },
+                })
+            }\n${JSON.stringify({ type: "custom", customType: "runwield.pending_segment_continuation", data: {} })}\n`,
+            { append: true },
+        );
         const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
         const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
         const result = await store.listProjectSessions(project.projectId);
@@ -544,6 +580,70 @@ Deno.test("transcript lineage reconstructs one ordered Session without a databas
                 { piSessionId: "execution", kind: "execution", ordinal: 1 },
             ],
         );
+        assertEquals(store.inspectSessionActivation("stable-session").generation?.generation, 1);
+        assertEquals(store.listSessionPlanAssociations("stable-session"), [
+            {
+                planId: "committed-plan",
+                planName: "committed-plan",
+                purpose: "planning",
+                segmentId: "planning-segment",
+                segmentKind: "planning",
+                recordedAt: TIMESTAMP,
+                committedGeneration: 1,
+            },
+            {
+                planId: "continuation-boundary-plan",
+                planName: "continuation-boundary-plan",
+                purpose: "planning",
+                segmentId: "execution-segment",
+                segmentKind: "execution",
+                recordedAt: TIMESTAMP,
+                committedGeneration: 1,
+            },
+        ]);
+        store.close();
+    } finally {
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});
+
+Deno.test("lineage recovery ignores uncommitted current root transcript associations", async () => {
+    const fixture = await makeFixture();
+    try {
+        const transcriptPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "planning", {
+            runwieldSessionId: "root-only-session",
+            segmentId: "planning-segment",
+            parentSegmentId: null,
+            parentPiSessionId: null,
+            lineageGroupKey: "planning-segment",
+            kind: "planning",
+        });
+        await Deno.writeTextFile(
+            transcriptPath,
+            `${
+                JSON.stringify({
+                    type: "custom",
+                    customType: "runwield.plan_association",
+                    data: {
+                        planId: "tail-plan",
+                        planName: "tail-plan",
+                        purpose: "planning",
+                        segmentId: "planning-segment",
+                        segmentKind: "planning",
+                        recordedAt: TIMESTAMP,
+                    },
+                })
+            }\n`,
+            { append: true },
+        );
+        const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
+        const result = await store.listProjectSessions(project.projectId);
+        assertEquals(result.diagnostics, []);
+        assertEquals(result.sessions.length, 1);
+        assertEquals(result.sessions[0].runwieldSessionId, "root-only-session");
+        assertEquals(store.inspectSessionActivation("root-only-session").generation?.generation, 0);
+        assertEquals(store.listSessionPlanAssociations("root-only-session"), []);
         store.close();
     } finally {
         await Deno.remove(fixture.rootDir, { recursive: true });

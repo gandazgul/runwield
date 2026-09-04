@@ -22,8 +22,11 @@ export interface PlanAssociatedSession {
 }
 
 function reasonForCandidate(activationState: string, currentSegmentKind: string, latestPurpose: string): string | null {
-    if (activationState === "active") return "active_elsewhere";
-    if (activationState === "uncertain" || activationState === "reconcile_required") return activationState;
+    if (activationState !== "idle") {
+        if (activationState === "active") return "active_elsewhere";
+        if (activationState === "uncertain" || activationState === "reconcile_required") return activationState;
+        return "non_idle";
+    }
     if (currentSegmentKind === "execution") return "execution_segment";
     if (currentSegmentKind === "semantic_repair") return "semantic_repair_segment";
     if (currentSegmentKind !== "planning") return "non_planning_segment";
@@ -39,7 +42,7 @@ export async function findPlanAssociatedSessions(
     const listedSessions: Awaited<ReturnType<FileSessionStore["listProjectSessions"]>>["sessions"] = [];
     for (let page = 0;; page += 1) {
         const listed = await sessionStore.listProjectSessions(project.projectId, {
-            catalog: page === 0,
+            catalog: false,
             page,
             pageSize: 100,
         });

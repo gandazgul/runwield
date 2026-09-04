@@ -86,6 +86,51 @@ Deno.test("findPlanAssociatedSessions returns safe planning candidates from mani
     }
 });
 
+Deno.test("findPlanAssociatedSessions does not catalog lineage transcripts during lookup", async () => {
+    const fixture = await makeFixture();
+    try {
+        const planningPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "planning");
+        await Deno.writeTextFile(
+            planningPath,
+            `${
+                JSON.stringify({
+                    type: "custom",
+                    customType: "runwield.segment_lineage",
+                    data: {
+                        runwieldSessionId: "lineage-session",
+                        segmentId: "planning-segment",
+                        parentSegmentId: null,
+                        parentPiSessionId: null,
+                        lineageGroupKey: "planning-segment",
+                        kind: "planning",
+                    },
+                })
+            }\n${
+                JSON.stringify({
+                    type: "custom",
+                    customType: "runwield.plan_association",
+                    data: {
+                        planId: "plan-1",
+                        planName: "example-plan",
+                        purpose: "planning",
+                        segmentId: "planning-segment",
+                        segmentKind: "planning",
+                        recordedAt: TIMESTAMP,
+                    },
+                })
+            }\n`,
+            { append: true },
+        );
+        const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        store.ensureRuntimeProject({ root: fixture.projectRoot });
+
+        assertEquals(await findPlanAssociatedSessions(store, { cwd: fixture.projectRoot, planId: "plan-1" }), []);
+        assertEquals(store.getSessionById("lineage-session"), null);
+    } finally {
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});
+
 Deno.test("findPlanAssociatedSessions ignores raw transcript associations that were not published", async () => {
     const fixture = await makeFixture();
     try {

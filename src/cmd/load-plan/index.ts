@@ -6,7 +6,7 @@
  */
 
 import { parseArgs } from "@std/cli/parse-args";
-import { AGENTS, CLI_BIN } from "../../constants.js";
+import { AGENTS, CLI_BIN, getCwd } from "../../constants.js";
 import {
     archivePlan,
     ensurePlanIdentity,
@@ -58,6 +58,8 @@ import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location
 import type { CommandContext } from "../registry.js";
 import type { UiAPI } from "../../ui/tui/types.js";
 import { buildPlanRecoveryUserMessage } from "../../shared/workflow/validation-user-messages.ts";
+import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
+import { findPlanAssociatedSessions, verifyPlanAssociatedSession } from "../../shared/session/plan-session-lookup.ts";
 
 export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
 
@@ -152,12 +154,43 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
     }
 
     let uiAPI = options.uiAPI;
+    let cliResumeSessionId = "";
 
     if (!uiAPI) {
+        const startupProjectRoot = getCwd();
+        const startupResolved = await resolvePlanWithPrimaryRecovery(startupProjectRoot, planArg);
+        let startupPlan = startupResolved.plan;
+        if (!startupPlan.attrs.planId) {
+            const location = await resolveWorkflowPlanLocation(startupProjectRoot, startupPlan.planName, {
+                migrateRegistry: false,
+            });
+            const identified = await ensurePlanIdentity(location.documentRoot, startupPlan.planName);
+            startupPlan = { ...startupPlan, attrs: identified.attrs };
+        }
+        const startupPlanId = typeof startupPlan.attrs.planId === "string" ? startupPlan.attrs.planId : "";
+        if (startupPlanId) {
+            const lookupStore = openFileSessionStore();
+            try {
+                const associations = await findPlanAssociatedSessions(lookupStore, {
+                    cwd: startupProjectRoot,
+                    planId: startupPlanId,
+                });
+                const safeAssociations = associations.filter((candidate) => candidate.safePlanningResume);
+                if (safeAssociations.length === 1) {
+                    const verified = await verifyPlanAssociatedSession(lookupStore, safeAssociations[0]);
+                    if (verified.ok) cliResumeSessionId = safeAssociations[0].runwieldSessionId;
+                }
+            } finally {
+                lookupStore.close();
+            }
+        }
         uiAPI = await startInteractiveSession(
             null,
             {
                 browser: SYSTEM_BROWSER_PORT,
+                ...(cliResumeSessionId
+                    ? { sessionStartMode: "continue" as const, resumeSessionId: cliResumeSessionId }
+                    : {}),
                 onSessionReady: (nextSessionId, nextRuntime) => {
                     runtimeSessionId = nextSessionId;
                     sessionRuntime = nextRuntime;
