@@ -119,6 +119,17 @@ function errorMessage(error) {
     return error instanceof Error ? error.message : String(error);
 }
 
+/** @param {string} href @param {"push" | "replace"} [history] */
+function workspaceNavigate(href, history = "push") {
+    const navigate = globalThis.__runwieldWorkspaceNavigate;
+    if (typeof navigate === "function") {
+        navigate(href, { history });
+        return;
+    }
+    if (history === "replace") globalThis.location.replace(href);
+    else globalThis.location.assign(href);
+}
+
 /** @param {SessionImageAttachmentDraft} image */
 export function serializeSessionImageForRequest(image) {
     return { base64: image.base64, mimeType: image.mimeType };
@@ -740,10 +751,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             localStorage.setItem(requestKey, JSON.stringify(stored));
             if (payload.runwieldSessionId) {
                 localStorage.removeItem(requestKey);
-                globalThis.location.replace(
+                workspaceNavigate(
                     `/projects/${encodeURIComponent(projectId)}/sessions/${
                         encodeURIComponent(payload.runwieldSessionId)
                     }`,
+                    "replace",
                 );
                 return;
             }
@@ -964,8 +976,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         if (!["completed", "failed", "unknown"].includes(next.status)) return;
         if (mode === "new" && payload.runwieldSessionId) {
             localStorage.removeItem(requestKey);
-            globalThis.location.replace(
+            workspaceNavigate(
                 `/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(payload.runwieldSessionId)}`,
+                "replace",
             );
             return;
         }

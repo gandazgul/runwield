@@ -2,7 +2,7 @@
 
 import { devOwnerProjects } from "./dev-owner-fixtures.ts";
 import { currentWorkspaceCwd } from "./cwd.js";
-import { dirname, relative, resolve, SEPARATOR } from "@std/path";
+import { dirname, relative, resolve, sep as SEPARATOR } from "node:path";
 
 export const OWNER_WORKSPACE_STORE_KEY = Symbol.for("runwield.workspace.owner-store");
 export const OWNER_WORKSPACE_SESSION_CONTINUATION_KEY = Symbol.for("runwield.workspace.session-continuation");

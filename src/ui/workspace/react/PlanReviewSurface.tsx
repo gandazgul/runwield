@@ -52,6 +52,16 @@ import "./plannotator.css";
 
 const DEFAULT_PLAN_PAYLOAD = { plan: "", token: "", mode: "dev" };
 
+function workspaceNavigate(href, history = "push") {
+    const navigate = globalThis.__runwieldWorkspaceNavigate;
+    if (typeof navigate === "function") {
+        navigate(href, { history });
+        return;
+    }
+    if (history === "replace") globalThis.location.replace(href);
+    else globalThis.location.assign(href);
+}
+
 export function PlanReviewSurface({ payload, presentation = "standalone" }) {
     usePrintMode();
     const initialPayload = useMemo(() => payload || readEmbeddedPayload("review-payload") || DEFAULT_PLAN_PAYLOAD, [
@@ -266,7 +276,11 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
         if (!reviewDraftReady || pendingReviewDraft || submitted !== null) return;
         const persistBeforeClose = () => persistReviewDraftLocally(false);
         globalThis.addEventListener?.("pagehide", persistBeforeClose);
-        return () => globalThis.removeEventListener?.("pagehide", persistBeforeClose);
+        document.addEventListener?.("astro:before-preparation", persistBeforeClose);
+        return () => {
+            globalThis.removeEventListener?.("pagehide", persistBeforeClose);
+            document.removeEventListener?.("astro:before-preparation", persistBeforeClose);
+        };
     }, [pendingReviewDraft, persistReviewDraftLocally, reviewDraftReady, submitted]);
 
     async function submitApprove(approvalAction) {
@@ -285,7 +299,7 @@ export function PlanReviewSurface({ payload, presentation = "standalone" }) {
                 approvalAction === PLAN_APPROVAL_ACTIONS.LATER ? "approved-later" : `approved-${approvalAction}`,
             );
             if (approvalAction === PLAN_APPROVAL_ACTIONS.RUN && initialPayload.progressUrl) {
-                globalThis.location.assign(initialPayload.progressUrl);
+                workspaceNavigate(initialPayload.progressUrl);
             }
         } catch {
             // submit() owns the visible error state.
