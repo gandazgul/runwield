@@ -28,6 +28,13 @@ import {
  * @property {import('@agentclientprotocol/sdk').AgentConnection} connection
  * @property {string[]} diagnostics
  * @property {string[]} frames raw NDJSON lines the server wrote, in order
+ * @property {Promise<void>} [heldResponseStarted]
+ * @property {() => void} [releaseHeldResponse]
+ */
+
+/**
+ * @typedef {Object} StartTestServerOptions
+ * @property {string | number} [holdResponseId]
  */
 
 const REPO_ROOT = resolve(dirname(fromFileUrl(import.meta.url)), "../..");
@@ -52,23 +59,98 @@ const ACP_REGISTRY_INITIALIZE_REQUEST = {
     },
 };
 
-/** @returns {TestServerHandle} */
-function startTestServer() {
+/**
+ * @param {Uint8Array} chunk
+ * @param {string | number} responseId
+ */
+function chunkIncludesResponseId(chunk, responseId) {
+    return decoder.decode(chunk).split("\n").some((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return false;
+        return JSON.parse(trimmed).id === responseId;
+    });
+}
+
+/**
+ * @param {string | number} responseId
+ */
+function createHeldOutput(responseId) {
+    /** @type {PromiseWithResolvers<void>} */
+    const heldResponseStarted = Promise.withResolvers();
+    /** @type {PromiseWithResolvers<void>} */
+    const releaseHeldResponse = Promise.withResolvers();
+    /** @type {ReadableStreamDefaultController<Uint8Array> | null} */
+    let outputController = null;
+    let held = false;
+    const readable = new ReadableStream({
+        start(controller) {
+            outputController = controller;
+        },
+    });
+    const writable = new WritableStream({
+        write(chunk) {
+            if (!held && chunkIncludesResponseId(chunk, responseId)) {
+                held = true;
+                heldResponseStarted.resolve(undefined);
+                return releaseHeldResponse.promise.then(() => outputController?.enqueue(chunk));
+            }
+            outputController?.enqueue(chunk);
+        },
+        close() {
+            outputController?.close();
+        },
+        abort(reason) {
+            outputController?.error(reason);
+        },
+    });
+    return {
+        readable,
+        writable,
+        heldResponseStarted: heldResponseStarted.promise,
+        releaseHeldResponse: () => releaseHeldResponse.resolve(undefined),
+    };
+}
+
+/**
+ * @param {StartTestServerOptions} [options]
+ * @returns {TestServerHandle}
+ */
+function startTestServer(options = {}) {
     const input = new TransformStream();
-    const output = new TransformStream();
+    /** @type {ReadableStream<Uint8Array>} */
+    let outputReadable;
+    /** @type {WritableStream<Uint8Array>} */
+    let outputWritable;
+    /** @type {Promise<void> | undefined} */
+    let heldResponseStarted;
+    /** @type {(() => void) | undefined} */
+    let releaseHeldResponse;
+    if (options.holdResponseId !== undefined) {
+        const output = createHeldOutput(options.holdResponseId);
+        outputReadable = output.readable;
+        outputWritable = output.writable;
+        heldResponseStarted = output.heldResponseStarted;
+        releaseHeldResponse = output.releaseHeldResponse;
+    } else {
+        const output = new TransformStream();
+        outputReadable = output.readable;
+        outputWritable = output.writable;
+    }
     /** @type {string[]} */
     const diagnostics = [];
-    const connection = startRunWieldAcpServer(input.readable, output.writable, {
+    const connection = startRunWieldAcpServer(input.readable, outputWritable, {
         diagnostic: (message) => {
             diagnostics.push(message);
         },
     });
     return {
         inputWriter: input.writable.getWriter(),
-        outputReader: output.readable.getReader(),
+        outputReader: outputReadable.getReader(),
         connection,
         diagnostics,
         frames: [],
+        ...(heldResponseStarted ? { heldResponseStarted } : {}),
+        ...(releaseHeldResponse ? { releaseHeldResponse } : {}),
     };
 }
 
@@ -167,6 +249,9 @@ async function createSession(handle, cwd) {
         params: { cwd, mcpServers: [] },
     });
     assert(response.result, JSON.stringify(response));
+    const frame = handle.frames.at(-1);
+    assert(frame, "session/new response frame should be captured");
+    assertAcpFrameSchema("NewSessionResponse", frame, (message) => message.result);
     return {
         sessionId: /** @type {string} */ (response.result.sessionId),
         persistedSessionId: /** @type {string} */ (response.result._meta.runwield.persistedSessionId),
@@ -348,6 +433,12 @@ Deno.test("ACP initialize and prompt responses satisfy the published ACP schema"
         const initializeFrame = framesMatching(handle, (message) => message.id === "registry-initialize")[0];
         assert(initializeFrame, "initialize response frame should be captured");
         assertAcpFrameSchema("InitializeResponse", initializeFrame, (message) => message.result);
+        const authFrame = JSON.stringify({
+            jsonrpc: "2.0",
+            id: "auth-method",
+            result: JSON.parse(initializeFrame).result.authMethods[0],
+        });
+        assertAcpFrameSchema("AuthMethod", authFrame, (message) => message.result);
         assertAcpSchema("AuthMethod", response.result.authMethods[0]);
     } finally {
         await closeTestServer(handle);
@@ -355,6 +446,16 @@ Deno.test("ACP initialize and prompt responses satisfy the published ACP schema"
 
     assertAcpSchema("PromptResponse", { stopReason: "cancelled" });
     assertAcpSchema("PromptResponse", { stopReason: "end_turn" });
+});
+
+Deno.test("ACP schema checker rejects published numeric and map constraints", () => {
+    assertThrows(() => assertAcpSchema("ProtocolVersion", 65_536), Error, "above maximum 65535");
+    assertThrows(() => assertAcpSchema("RequestId", 1e100), Error, "format int64");
+    assertThrows(
+        () => assertAcpSchema("AuthMethodTerminal", { ...TERMINAL_AUTH_METHOD, env: { RUNWIELD_TOKEN: 1 } }),
+        Error,
+        "expected type string",
+    );
 });
 
 Deno.test("ACP server returns structured errors for unimplemented session methods", async () => {
@@ -591,6 +692,9 @@ Deno.test("ACP session/load replays a real persisted Session and accepts another
                 },
             });
             const loaded = await readThroughResponse(secondHandle, "load");
+            const loadFrame = framesMatching(secondHandle, (message) => message.id === "load")[0];
+            assert(loadFrame, "session/load response frame should be captured");
+            assertAcpFrameSchema("LoadSessionResponse", loadFrame, (message) => message.result);
             assert(
                 loaded.messages.some((message) =>
                     message.method === "session/update" &&
@@ -665,35 +769,101 @@ Deno.test("ACP rejects overlapping prompts and cancels the real in-flight Runtim
                 method: "session/cancel",
                 params: { sessionId: created.sessionId },
             });
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "prompt-3",
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "while cancel settles" }] },
+            });
+            const settlingOverlap = await readThroughResponse(handle, "prompt-3");
+            assertEquals(settlingOverlap.response.error.code, -32002);
+            assertEquals(settlingOverlap.messages.some((message) => message.id === "prompt-1"), false);
+
             const cancelled = await readThroughResponse(handle, "prompt-1", 10_000);
             assertEquals(cancelled.response.result.stopReason, "cancelled");
+            const cancelledFrame = framesMatching(handle, (message) => message.id === "prompt-1")[0];
+            assert(cancelledFrame, "cancelled prompt response frame should be captured");
+            assertAcpFrameSchema("PromptResponse", cancelledFrame, (message) => message.result);
 
             // The Runtime's own cancellation message is mapped like any other update, so it
-            // has to reach the Client before the response that ends the turn.
-            const cancellationIndex = cancelled.messages.findIndex((message) =>
+            // has to reach the Client before the response that ends the turn. The overlap
+            // request can read some of those pending updates before it gets its own error.
+            const cancelSequence = [...settlingOverlap.messages, ...cancelled.messages];
+            const promptResponseIndex = cancelSequence.findIndex((message) => message.id === "prompt-1");
+            const cancellationIndex = cancelSequence.findIndex((message) =>
                 message.method === "session/update" &&
                 String(message.params?.update?.content?.text || "").includes("Agent run canceled.")
             );
             assert(
                 cancellationIndex >= 0,
                 `the Runtime cancellation message should be streamed: ${
-                    JSON.stringify(cancelled.messages.slice(-6).map((m) => [m.method, m.id, m.params?.update]))
+                    JSON.stringify(cancelSequence.slice(-8).map((m) => [m.method, m.id, m.params?.update]))
                 }`,
             );
-            assertEquals(cancellationIndex < cancelled.messages.length - 1, true);
+            assertEquals(cancellationIndex < promptResponseIndex, true);
             assertEquals(cancelled.messages.at(-1)?.id, "prompt-1");
 
-            // A settled turn releases the session immediately: the next prompt is accepted,
-            // and nothing from the cancelled turn trails behind the response.
+            // After the Client receives the cancelled response, the next prompt is accepted,
+            // and nothing from the cancelled turn trails behind it.
             await sendMessage(handle, {
                 jsonrpc: "2.0",
-                id: "prompt-3",
+                id: "prompt-4",
                 method: "session/prompt",
                 params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "after cancel" }] },
             });
-            const resumed = await readThroughResponse(handle, "prompt-3", 1_000);
+            const resumed = await readThroughResponse(handle, "prompt-4", 1_000);
             assertEquals(resumed.response.result.stopReason, "end_turn");
             assertStringIncludes(joinedAgentText(resumed.messages), "turn after cancellation");
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP rejects a prompt sent before the Client receives the cancelled response for request ID 0", async () => {
+    await withRuntimeCommandFixture("runwield-acp-cancel-response-held-", async (fixture) => {
+        fixture.setModelResponseFactories([
+            () => fauxAssistantMessage(fauxText("working ".repeat(5_000))),
+            () => fauxAssistantMessage(fauxText("should not run before cancelled response")),
+        ]);
+        const handle = startTestServer({ holdResponseId: 0 });
+        assert(handle.heldResponseStarted);
+        assert(handle.releaseHeldResponse);
+        try {
+            const created = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: 0,
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "wait" }] },
+            });
+
+            let sawAgentStreaming = false;
+            while (!sawAgentStreaming) {
+                const message = await readMessage(handle);
+                sawAgentStreaming = message.params?.update?.sessionUpdate === "agent_message_chunk" &&
+                    String(message.params?.update?.content?.text || "").includes("working");
+            }
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                method: "session/cancel",
+                params: { sessionId: created.sessionId },
+            });
+            await handle.heldResponseStarted;
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "prompt-2",
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "too soon" }] },
+            });
+            handle.releaseHeldResponse();
+
+            const overlap = await readThroughResponse(handle, "prompt-2", 10_000);
+            const cancelled = overlap.messages.find((message) => message.id === 0);
+            assertEquals(cancelled?.result?.stopReason, "cancelled");
+            assertEquals(overlap.response.error.code, -32002);
         } finally {
             await closeTestServer(handle);
         }
@@ -738,6 +908,8 @@ Deno.test("ACP usage_update reports the Session's cumulative cost, not the last 
     for (const notification of notifications) {
         assertAcpSchema("SessionNotification", JSON.parse(JSON.stringify(notification)));
     }
+    const costedUsageFrame = JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: notifications[2] });
+    assertAcpFrameSchema("SessionNotification", costedUsageFrame, (message) => message.params);
 });
 
 Deno.test("ACP replayed usage events keep adding to the same Session total", () => {
