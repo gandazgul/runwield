@@ -337,13 +337,11 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                     "Reviewer-Feedback Engineer stopped without task_completed during semantic repair.";
                 return { kind: "paused", planName: args.planName, projectRoot: context.projectRoot, reason };
             }
-            return {
-                kind: "paused",
-                planName: args.planName,
-                projectRoot: context.projectRoot,
-                continueValidation: true,
-                reason: "The repair is complete. Running checks before another review.",
-            };
+            round = nextRound;
+            ledger = review.ledger;
+            state.lastRepairReport = repair.report;
+            diffText = await getDiffText(context.baselineTree, context.executionCwd);
+            continue;
         }
         emitStatus(args, buildValidationUserMessage({ kind: "review_repair", repairKind: "semantic" }), "warning");
         return {
