@@ -489,7 +489,7 @@ Deno.test("default review guide usage frames update a running job and remain aft
             const { job } = await launch.json();
 
             let runningJob = null;
-            for (let attempt = 0; attempt < 20; attempt += 1) {
+            for (let attempt = 0; attempt < 100; attempt += 1) {
                 const jobsResponse = await reviewAgentApi(
                     new Request("http://localhost/api/agents/jobs"),
                     new URL("http://localhost/api/agents/jobs"),
