@@ -53,13 +53,14 @@ import "./plannotator.css";
 const DEFAULT_PLAN_PAYLOAD = { plan: "", token: "", mode: "dev" };
 
 function workspaceNavigate(href, history = "push") {
-    const navigate = globalThis.__runwieldWorkspaceNavigate;
-    if (typeof navigate === "function") {
-        navigate(href, { history });
-        return;
+    const event = new CustomEvent("runwield:workspace-navigate", {
+        cancelable: true,
+        detail: { href, history },
+    });
+    if (document.dispatchEvent(event)) {
+        if (history === "replace") globalThis.location.replace(href);
+        else globalThis.location.assign(href);
     }
-    if (history === "replace") globalThis.location.replace(href);
-    else globalThis.location.assign(href);
 }
 
 export function PlanReviewSurface({ payload, presentation = "standalone" }) {
