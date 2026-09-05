@@ -22,9 +22,14 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-09-03T16:51:05-04:00"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "a69e9613-2101-45c6-a899-cd89af4912d4"
+    path: "docs/work-records/2026-09-05-persistent-workspace-sidebar-navigation.md"
+    lastAttemptAt: "2026-09-05T03:38:41.003Z"
 routingIntent: "PLANNED_CHANGE"
 targetBranch: "main"
 ---
