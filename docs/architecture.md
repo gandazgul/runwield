@@ -859,10 +859,11 @@ rebuilds the active Agent and emits replacement Prompt Template and Skill catalo
 
 ### Metrics and fail-open services
 
-Workflow metrics are opt-in JSONL under `~/.wld/workflow-metrics/<encoded-cwd>/metrics.jsonl`. They hash cwd, redact
-prompts, output, secrets, and paths, and fail open so telemetry cannot stop a workflow. Session footer-context markers,
-event listeners, extension warnings, and selected cleanup paths are also fail-open. In contrast, missing Mnemoteca or
-Cymbal is a hard agent-construction failure, and invalid lifecycle/worktree gates are hard workflow failures.
+Workflow metrics are opt-in JSONL under `~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl`. Linked execution
+worktrees write to the primary project's metrics file. Records hash the project root, redact prompts, output, secrets,
+and paths, and fail open so telemetry cannot stop a workflow. Session footer-context markers, event listeners, extension
+warnings, and selected cleanup paths are also fail-open. In contrast, missing Mnemoteca or Cymbal is a hard
+agent-construction failure, and invalid lifecycle/worktree gates are hard workflow failures.
 
 ## Persistence map
 
