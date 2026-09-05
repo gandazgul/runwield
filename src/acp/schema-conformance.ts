@@ -31,6 +31,15 @@ type JsonSchemaNode = {
     oneOf?: readonly JsonSchemaNode[];
     not?: JsonSchemaNode;
     minimum?: number;
+    maximum?: number;
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    minItems?: number;
+    maxItems?: number;
+    format?: string;
+    additionalProperties?: boolean | JsonSchemaNode;
+    unevaluatedProperties?: boolean | JsonSchemaNode;
 };
 
 type AcpSchemaDocument = {
@@ -69,7 +78,7 @@ function matchesType(typeName: string, value: JsonValue): boolean {
         case "string":
             return typeof value === "string";
         case "number":
-            return typeof value === "number";
+            return typeof value === "number" && Number.isFinite(value);
         case "integer":
             return typeof value === "number" && Number.isInteger(value);
         case "boolean":
@@ -78,6 +87,40 @@ function matchesType(typeName: string, value: JsonValue): boolean {
             return value === null;
         default:
             throw new Error(`Unsupported ACP schema type: ${typeName}`);
+    }
+}
+
+/**
+ * Report whether a number satisfies one ACP integer or string format.
+ *
+ * @param format JSON Schema format name
+ * @param value value under test
+ */
+function matchesFormat(format: string, value: JsonValue): boolean {
+    switch (format) {
+        case "double":
+            return typeof value === "number" && Number.isFinite(value);
+        case "int32":
+            return typeof value === "number" && Number.isInteger(value) && value >= -2_147_483_648 &&
+                value <= 2_147_483_647;
+        case "int64":
+            return typeof value === "number" && Number.isSafeInteger(value);
+        case "uint16":
+            return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 65_535;
+        case "uint32":
+            return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 4_294_967_295;
+        case "uint64":
+            return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+        case "uri":
+            if (typeof value !== "string") return true;
+            try {
+                new URL(value);
+                return true;
+            } catch {
+                return false;
+            }
+        default:
+            throw new Error(`Unsupported ACP schema format: ${format}`);
     }
 }
 
@@ -108,6 +151,27 @@ function collectViolations(node: JsonSchemaNode, value: JsonValue, path: string)
     if (node.minimum !== undefined && typeof value === "number" && value < node.minimum) {
         violations.push(`${path}: ${value} is below minimum ${node.minimum}`);
     }
+    if (node.maximum !== undefined && typeof value === "number" && value > node.maximum) {
+        violations.push(`${path}: ${value} is above maximum ${node.maximum}`);
+    }
+    if (node.format && !matchesFormat(node.format, value)) {
+        violations.push(`${path}: ${JSON.stringify(value)} does not match format ${node.format}`);
+    }
+    if (node.minLength !== undefined && typeof value === "string" && value.length < node.minLength) {
+        violations.push(`${path}: string length ${value.length} is below minLength ${node.minLength}`);
+    }
+    if (node.maxLength !== undefined && typeof value === "string" && value.length > node.maxLength) {
+        violations.push(`${path}: string length ${value.length} is above maxLength ${node.maxLength}`);
+    }
+    if (node.pattern && typeof value === "string" && !(new RegExp(node.pattern).test(value))) {
+        violations.push(`${path}: ${JSON.stringify(value)} does not match pattern ${node.pattern}`);
+    }
+    if (node.minItems !== undefined && Array.isArray(value) && value.length < node.minItems) {
+        violations.push(`${path}: array length ${value.length} is below minItems ${node.minItems}`);
+    }
+    if (node.maxItems !== undefined && Array.isArray(value) && value.length > node.maxItems) {
+        violations.push(`${path}: array length ${value.length} is above maxItems ${node.maxItems}`);
+    }
     if (node.not && collectViolations(node.not, value, path).length === 0) {
         violations.push(`${path}: value matched a forbidden schema`);
     }
@@ -115,12 +179,24 @@ function collectViolations(node: JsonSchemaNode, value: JsonValue, path: string)
     const isObject = typeof value === "object" && value !== null && !Array.isArray(value);
     if (isObject) {
         const record = value as { [key: string]: JsonValue };
+        const propertySchemas = node.properties || {};
         for (const key of node.required || []) {
-            if (record[key] === undefined) violations.push(`${path}: missing required property "${key}"`);
+            if (!Object.hasOwn(record, key)) violations.push(`${path}: missing required property "${key}"`);
         }
-        for (const [key, propertySchema] of Object.entries(node.properties || {})) {
-            if (!propertySchema || record[key] === undefined) continue;
+        for (const [key, propertySchema] of Object.entries(propertySchemas)) {
+            if (!propertySchema || !Object.hasOwn(record, key)) continue;
             violations.push(...collectViolations(propertySchema, record[key], `${path}.${key}`));
+        }
+        if (node.additionalProperties !== undefined && node.additionalProperties !== true) {
+            const knownProperties = new Set(Object.keys(propertySchemas));
+            for (const [key, entry] of Object.entries(record)) {
+                if (knownProperties.has(key)) continue;
+                if (node.additionalProperties === false) {
+                    violations.push(`${path}.${key}: unexpected additional property`);
+                } else {
+                    violations.push(...collectViolations(node.additionalProperties, entry, `${path}.${key}`));
+                }
+            }
         }
     }
     if (node.items && Array.isArray(value)) {
@@ -130,12 +206,17 @@ function collectViolations(node: JsonSchemaNode, value: JsonValue, path: string)
     }
 
     for (const subSchema of node.allOf || []) violations.push(...collectViolations(subSchema, value, path));
-    for (const key of ["anyOf", "oneOf"] as const) {
-        const branches = node[key];
-        if (!branches) continue;
-        const branchViolations = branches.map((branch) => collectViolations(branch, value, path));
+    if (node.anyOf) {
+        const branchViolations = node.anyOf.map((branch) => collectViolations(branch, value, path));
         if (!branchViolations.some((found) => found.length === 0)) {
-            violations.push(`${path}: matched no ${key} branch (${branchViolations.flat().join("; ")})`);
+            violations.push(`${path}: matched no anyOf branch (${branchViolations.flat().join("; ")})`);
+        }
+    }
+    if (node.oneOf) {
+        const branchViolations = node.oneOf.map((branch) => collectViolations(branch, value, path));
+        const matchCount = branchViolations.filter((found) => found.length === 0).length;
+        if (matchCount !== 1) {
+            violations.push(`${path}: matched ${matchCount} oneOf branches (${branchViolations.flat().join("; ")})`);
         }
     }
     return violations;
