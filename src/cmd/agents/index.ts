@@ -1,6 +1,5 @@
 /** List available Agents or start/switch to a chosen active Agent. */
 
-import { basename } from "@std/path";
 import type { Component } from "@earendil-works/pi-tui";
 import { printCommandHelp } from "../help/index.ts";
 import {
@@ -121,9 +120,7 @@ async function runAgentsCommandTUI(
                 tui.setFocus(editor as import("../../ui/tui/types.js").EditorAPI & Component);
                 return;
             }
-            if (!sessionRuntime.getSessionSnapshot(sessionId)?.name) {
-                setTerminalTitleForName(`${basename(projectRoot || getCwd())} - ${match.name}`);
-            }
+            if (!sessionRuntime.getSessionSnapshot(sessionId)?.name) setTerminalTitleForName(undefined);
         } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
             uiAPI.appendSystemMessage(

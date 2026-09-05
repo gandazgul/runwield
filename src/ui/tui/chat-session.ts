@@ -200,7 +200,7 @@ export async function startInteractiveSession(
         );
         const initialAgentInternalName = options.initialAgentName || AGENTS.ROUTER;
         const tui = initTUI();
-        setTerminalTitleForName(runtimeSnapshot().name || runtimeSnapshot().cwd.split("/").at(-1) || "RunWield");
+        setTerminalTitleForName(runtimeSnapshot().name);
         const suppressStartupHeader = options.sessionStartMode === "continue";
         const view = await createChatView({
             tui,
