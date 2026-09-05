@@ -1,4 +1,5 @@
 ---
+import { ClientRouter } from "astro:transitions";
 import { PLAN_SEARCH_QUERY_PARAM, PLAN_UI_TOKEN_QUERY } from "../constants.js";
 
 const {
@@ -34,6 +35,17 @@ function linkWithToken(path: string) {
         <link rel="stylesheet" href="/components.css" />
         <link rel="stylesheet" href="/workspace.css" />
         <link rel="stylesheet" href="/theme.css" />
+        {!localShell && <ClientRouter />}
+        {!localShell && (
+            <script>
+                import { navigate } from "astro:transitions/client";
+                document.addEventListener("runwield:workspace-navigate", (event) => {
+                    if (!(event instanceof CustomEvent)) return;
+                    event.preventDefault();
+                    navigate(event.detail.href, { history: event.detail.history });
+                });
+            </script>
+        )}
     </head>
     <body class="theme-runwield">
         {localShell ? (
@@ -53,7 +65,7 @@ function linkWithToken(path: string) {
             </div>
         ) : (
             <div class="workspace-shell workspace-shell-with-sidebar" data-selected-tab={selectedTab} data-astro-workspace-shell>
-                <aside class="workspace-sidebar" data-workspace-sidebar aria-label="Workspace navigation">
+                <aside class="workspace-sidebar" data-workspace-sidebar aria-label="Workspace navigation" transition:name="workspace-sidebar" transition:persist>
                     <div class="workspace-sidebar-brand">
                         <a href={linkWithToken("/")} aria-label="RunWield Workspace home">
                             <img src="/brand/logo.svg" alt="" aria-hidden="true" />
@@ -85,6 +97,6 @@ function linkWithToken(path: string) {
                 </div>
             </div>
         )}
-        {!localShell && <script is:inline src="/workspace-shell.js"></script>}
+        {!localShell && <script is:inline type="module" src="/workspace-shell.js"></script>}
     </body>
 </html>

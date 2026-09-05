@@ -32,6 +32,14 @@ const ARTIFACT_LABELS = {
     report: "Report",
 };
 
+function workspaceNavigate(href) {
+    const event = new CustomEvent("runwield:workspace-navigate", {
+        cancelable: true,
+        detail: { href, history: "push" },
+    });
+    if (document.dispatchEvent(event)) globalThis.location.assign(href);
+}
+
 export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
     usePrintMode();
     const initialPayload = useMemo(() => payload || readEmbeddedPayload("review-payload") || DEFAULT_READ_PAYLOAD, [
@@ -67,7 +75,7 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
     async function closeReadSurface() {
         if (closing || closed) return;
         if (presentation === "workspace" && initialPayload.returnHref) {
-            globalThis.location.assign(initialPayload.returnHref);
+            workspaceNavigate(initialPayload.returnHref);
             return;
         }
         setClosing(true);
