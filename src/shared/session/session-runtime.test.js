@@ -353,7 +353,7 @@ Deno.test("SessionRuntime exposes opaque ids and snapshots, never HostedSession 
     assertEquals("getActiveOnMessage" in /** @type {any} */ (runtime.listSessions()[0]), false);
 });
 
-Deno.test("SessionRuntime snapshots cache user-facing Session counts by transcript leaf", () => {
+Deno.test("SessionRuntime snapshots keep Session names current with transcript changes", () => {
     const sessionHost = new SessionHost();
     const runtime = makeRuntime({ sessionHost });
     const cwd = runtimeProjectRoot();
@@ -380,6 +380,8 @@ Deno.test("SessionRuntime snapshots cache user-facing Session counts by transcri
         toolCalls: 1,
         compactionCount: 0,
     });
+    sessionManager.appendSessionInfo("Renamed Session");
+    assertEquals(runtime.getSessionSnapshot(session.id)?.name, "Renamed Session");
 });
 
 Deno.test("SessionRuntime snapshot exposes active context capacity without exposing AgentSession", () => {

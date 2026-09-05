@@ -1,6 +1,9 @@
 import { assertEquals, assertRejects } from "@std/assert";
+import { TuiMainScreen } from "@earendil-works/pi-tui";
 import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
+import { initTUIWithPair, stopTUI } from "../../ui/tui/tui.ts";
+import { VirtualTerminal } from "../../ui/tui/testing/virtual-terminal.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runNewCommand } from "./index.ts";
 
@@ -14,6 +17,20 @@ async function captureErrors(run: () => Promise<void>): Promise<string[]> {
         console.error = originalError;
     }
     return errors;
+}
+
+class CompatibleVirtualTerminal extends VirtualTerminal {
+    override drainInput(): Promise<void> {
+        return Promise.resolve();
+    }
+
+    override moveBy(lines: number, columns?: number): void {
+        super.moveBy(lines, columns ?? 0);
+    }
+
+    override setProgress(active: boolean | number | null): void {
+        super.setProgress(typeof active === "boolean" ? (active ? 1 : null) : active);
+    }
 }
 
 async function countTranscripts(projectRoot: string): Promise<number> {
@@ -69,6 +86,9 @@ Deno.test("runNewCommand creates and names an in-memory Router session until its
 Deno.test("runNewCommand uses the fixture cwd when there is no current session", async () => {
     await withRuntimeCommandFixture("runwield-new-command-", async ({ alternateRoot }) => {
         const runtime = createSessionRuntime();
+        const terminal = new CompatibleVirtualTerminal();
+        const tui = new TuiMainScreen(terminal);
+        initTUIWithPair({ terminal, tui });
         let replacementId = "";
         try {
             await runNewCommand([], {
@@ -80,11 +100,13 @@ Deno.test("runNewCommand uses the fixture cwd when there is no current session",
             const replacement = runtime.getSessionSnapshot(replacementId);
             assertEquals(replacement?.cwd, alternateRoot);
             assertEquals(replacement?.name, null);
+            assertEquals(terminal.title, "W.");
             assertEquals(replacement?.activeAgent, "router");
             assertEquals(replacement?.sessionManagerId, null);
             assertEquals(replacement?.managed, null);
             assertEquals(await countTranscripts(alternateRoot), 0);
         } finally {
+            stopTUI();
             runtime.closeAllSessions();
         }
     });

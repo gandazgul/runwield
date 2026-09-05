@@ -635,6 +635,7 @@ export class SessionRuntime {
         const systemContextTokens = getRootSessionStaticContextTokens(session);
         const activeModelState = session.getActiveModelState();
         const activeAgentInfo = session.getActiveAgentInfo();
+        const liveSessionName = sessionManager?.getSessionName?.() || "";
         const managedModel = managedDormant ? managed?.model || "" : "";
         const managedProvider = managedDormant ? managed?.provider || "" : "";
         const managedThinkingLevel = managedDormant ? managed?.thinkingLevel || "" : "";
@@ -645,7 +646,7 @@ export class SessionRuntime {
             id: session.id,
             cwd: session.cwd,
             sessionManagerId,
-            name: activeSessionInfo?.name || managed?.name || pendingCreation?.name || null,
+            name: liveSessionName || activeSessionInfo?.name || managed?.name || pendingCreation?.name || null,
             sessionStats: activeSessionInfo
                 ? {
                     userMessages: activeSessionInfo.userMessages,

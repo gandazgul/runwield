@@ -228,5 +228,5 @@ export async function runResumeCommand(argv: string[], options: ResumeCommandOpt
         notice = buildConversationRestoredMessage(resumed.managed.syncState.owningSurfaceKind);
     }
     uiAPI.appendSystemMessage(notice);
-    setTerminalTitleForName(resumed?.name || loaded.sessionManagerId);
+    setTerminalTitleForName(resumed?.name);
 }

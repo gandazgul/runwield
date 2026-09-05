@@ -7,7 +7,6 @@ import type { EditorAPI, TuiAPI, UiAPI } from "./types.js";
 import type { ImageAttachment } from "../../shared/session/types.js";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import type { GenerationGuard } from "./generation-guard.js";
-import { basename } from "@std/path";
 import { setTerminalTitleForName } from "./terminal-title.ts";
 import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
 
@@ -92,18 +91,9 @@ export function isImmediateBuiltinSlashCommandWhileStreaming(userRequest: string
     return IMMEDIATE_BUILTIN_SLASH_COMMANDS_WHILE_STREAMING.has(rawCommand.trim());
 }
 
-function maybeUpdateTitleForSlashCommand(
-    command: string,
-    runtime: SessionRuntime,
-    sessionId: string,
-    displayName?: string,
-): void {
+function maybeUpdateTitleForSlashCommand(runtime: SessionRuntime, sessionId: string): void {
     const snapshot = runtime.getSessionSnapshot(sessionId);
-    if (snapshot && !snapshot.name) {
-        const folder = basename(snapshot.cwd);
-        if (displayName === "") setTerminalTitleForName(folder);
-        else setTerminalTitleForName(`${folder} - ${displayName || command}`);
-    }
+    if (snapshot && !snapshot.name) setTerminalTitleForName(undefined);
 }
 
 export async function handleSlashCommand(ctx: SlashContext): Promise<boolean> {
@@ -124,15 +114,14 @@ export async function handleSlashCommand(ctx: SlashContext): Promise<boolean> {
     }
 
     if (builtinCommand) {
-        const displayName = command === "agent" ? (args[0] || "") : undefined;
-        maybeUpdateTitleForSlashCommand(builtinCommand.name, ctx.sessionRuntime, ctx.sessionId, displayName);
+        maybeUpdateTitleForSlashCommand(ctx.sessionRuntime, ctx.sessionId);
         await dispatchBuiltin(ctx, builtinCommand.name, args, registryModule.commandRegistry, thisGen);
         return true;
     }
 
     const template = ctx.promptTemplateByName.get(command);
     if (template) {
-        maybeUpdateTitleForSlashCommand(command, ctx.sessionRuntime, ctx.sessionId);
+        maybeUpdateTitleForSlashCommand(ctx.sessionRuntime, ctx.sessionId);
         await dispatchTemplate(ctx, template, args.join(" "), thisGen);
         return true;
     }
@@ -141,7 +130,7 @@ export async function handleSlashCommand(ctx: SlashContext): Promise<boolean> {
         const skillName = command.slice(6);
         const skill = ctx.skills.find((candidate) => candidate.name === skillName);
         if (skill) {
-            maybeUpdateTitleForSlashCommand(command, ctx.sessionRuntime, ctx.sessionId);
+            maybeUpdateTitleForSlashCommand(ctx.sessionRuntime, ctx.sessionId);
             await dispatchSkill(ctx, skill, args.join(" "), thisGen);
             return true;
         }

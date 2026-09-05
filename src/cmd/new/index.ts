@@ -40,6 +40,6 @@ export async function runNewCommand(argv: string[], options: NewCommandOptions =
     });
     if (sessionName) await options.sessionRuntime.renameSession(nextSessionId, sessionName);
     options.replaceRuntimeSession(nextSessionId);
-    setTerminalTitleForName(sessionName || projectRoot);
+    setTerminalTitleForName(sessionName || undefined);
     uiAPI.clearMessages?.();
 }
