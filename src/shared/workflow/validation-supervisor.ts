@@ -461,25 +461,18 @@ export async function runWorkflowValidationToStableBoundary(
     initialArgs: ContinueWorkflowValidationArgs,
 ): Promise<WorkflowValidationResult> {
     let args = initialArgs;
-    let previousStatus = String(args.triageMeta?.status || "");
     let result = await continueWorkflowValidation(args);
     // A resumed run can first consume its durable recovery checkpoint before
     // advancing through Mechanical Validation, semantic review, optional human
     // review, and publication. Bound the loop above that complete phase count;
     // status/reason checks below still stop immediately at Agent/user boundaries.
     for (let phase = 0; phase < 5; phase += 1) {
-        if (result?.kind !== "paused") break;
+        if (result?.kind !== "paused" || !result.continueValidation) break;
         const planCwd = await validationPlanCwd(args);
         const plan = await loadPlan(planCwd, args.planName).catch(() => null);
         const status = String(plan?.attrs.status || "");
-        const completedHumanReview = result.reason === "Local Human Code Review is not required." ||
-            result.reason === "Local Human Code Review skipped by user." ||
-            result.reason === "Local Human Code Review approved.";
-        const deferredByUser = result.reason?.includes("Run this Plan again when you are ready") === true;
-        if (deferredByUser) break;
-        if (!plan || (status === previousStatus && !completedHumanReview)) break;
+        if (!plan) break;
         if (status !== "validated_ci" && status !== "validated_reviewer") break;
-        previousStatus = status;
         args = {
             ...args,
             planContent: plan.markdown || plan.body || args.planContent,

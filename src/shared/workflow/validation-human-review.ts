@@ -48,6 +48,7 @@ export async function runHumanReviewPhase(
             planName: args.planName,
             projectRoot: context.projectRoot,
             reason: "Local Human Code Review is not required.",
+            continueValidation: true,
         };
     }
 
@@ -62,7 +63,16 @@ export async function runHumanReviewPhase(
                 { value: "skip", label: "Skip code review" },
             ],
         });
-        if (response.outcome !== "selected" || response.value !== "open") {
+        if (response.outcome !== "selected" || (response.value !== "open" && response.value !== "skip")) {
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                awaitingUserAction: true,
+                reason: "Code review is still waiting for your decision. Load this Plan to continue.",
+            };
+        }
+        if (response.value === "skip") {
             await persistHumanReviewMetadata(args, context.executionCwd, {
                 humanReviewMode: "ask",
                 humanReviewDecision: "skipped",
@@ -73,6 +83,7 @@ export async function runHumanReviewPhase(
                 planName: args.planName,
                 projectRoot: context.projectRoot,
                 reason: "Local Human Code Review skipped by user.",
+                continueValidation: true,
             };
         }
     }
@@ -162,6 +173,7 @@ export async function runHumanReviewPhase(
                     planName: args.planName,
                     projectRoot: context.projectRoot,
                     reason: "Local Human Code Review approved.",
+                    continueValidation: true,
                 },
             };
         }
@@ -226,6 +238,7 @@ export async function runHumanReviewPhase(
                         planName: args.planName,
                         projectRoot: context.projectRoot,
                         reason: "Human review feedback repair dispatched.",
+                        continueValidation: true,
                     },
                 };
             }
