@@ -1,9 +1,11 @@
 import { assert, assertEquals, assertExists } from "@std/assert";
 import { join } from "@std/path";
 import { setCustomSetting } from "../settings.js";
+import { git } from "../git-test-fixture.ts";
 import { withWorkflowMetricsFixture } from "../../testing/workflow-metrics-fixture.ts";
 import {
     classifyToolSubUsage,
+    getWorkflowMetricsFilePath,
     isWorkflowMetricsEnabled,
     recordToolCallFinished,
     recordToolCallStarted,
@@ -27,6 +29,33 @@ Deno.test("recordWorkflowMetric skips writes when disabled", async () => {
             projectRoot,
         );
         assertEquals(await readMetrics(), []);
+    });
+});
+
+Deno.test("recordWorkflowMetric writes worktree events under the primary project", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot }) => {
+        const worktreePath = `${projectRoot}-linked`;
+        try {
+            await git(projectRoot, ["init", "-b", "main"]);
+            await git(projectRoot, ["config", "user.email", "runwield@example.com"]);
+            await git(projectRoot, ["config", "user.name", "RunWield Test"]);
+            await Deno.writeTextFile(join(projectRoot, "README.md"), "base\n");
+            await git(projectRoot, ["add", "README.md"]);
+            await git(projectRoot, ["commit", "-m", "base"]);
+            await git(projectRoot, ["worktree", "add", "-b", "side", worktreePath, "main"]);
+
+            const primaryRoot = await Deno.realPath(projectRoot);
+            await setCustomSetting("workflowMetrics", true, "project", primaryRoot);
+            await recordWorkflowMetric({ category: "execution", event: "task_completed" }, worktreePath);
+
+            const contents = await Deno.readTextFile(getWorkflowMetricsFilePath(primaryRoot));
+            const metrics = contents.trim().split("\n").map((line) => JSON.parse(line));
+            assertEquals(metrics.length, 1);
+            assertEquals(metrics[0].category, "execution");
+        } finally {
+            await git(projectRoot, ["worktree", "remove", "--force", worktreePath]).catch(() => {});
+            await Deno.remove(worktreePath, { recursive: true }).catch(() => {});
+        }
     });
 });
 

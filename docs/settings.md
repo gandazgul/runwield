@@ -358,7 +358,7 @@ These keys are read by RunWield outside the upstream Pi `SettingsManager` schema
 | `cleanupMergedWorktrees`                   | boolean           | default `true`                                  | global + project | When true, successful merge-back removes a clean execution checkout, deletes its registry entry, and clears Plan worktree metadata. Unexpected dirty state is preserved rather than force-deleted. Set false to keep merged worktrees for inspection. |
 | `workRecords.autoGenerateOnPlanCompletion` | boolean           | default `true`                                  | global + project | Automatically generates or reconciles eligible Work Records after terminal planned-work outcomes. Only literal `false` disables automation; explicit `wld wr` commands still work.                                                                    |
 | `notifications`                            | object            | enabled by default                              | global + project | Terminal bell and native terminal OSC attention notifications for agent stops, `plan_written`, `user_interview` prompts, and `/compact` completion. Focused TUI terminals stay quiet by default.                                                      |
-| `workflowMetrics`                          | boolean or object | default disabled                                | global + project | Opt-in local-only JSONL workflow metrics under `~/.wld/workflow-metrics/<encoded-cwd>/metrics.jsonl`. Accepts `true` or `{ "enabled": true }`.                                                                                                        |
+| `workflowMetrics`                          | boolean or object | default disabled                                | global + project | Opt-in local-only JSONL workflow metrics under `~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl`. Linked worktrees write to the primary project file. Accepts `true` or `{ "enabled": true }`.                                           |
 | `enableExternalSkills`                     | boolean           | default `true`                                  | global           | When true, RunWield includes skills from `~/.agents/skills` after local, home, and bundled RunWield skills.                                                                                                                                           |
 | `enableExternalGlobalAgentsMd`             | boolean           | default `true`                                  | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.wld/RUNWIELD.md` and `~/.wld/AGENTS.md`.                                                                                                                                    |
 
@@ -379,10 +379,11 @@ unless this setting is `true` or an object with `enabled: true`:
 }
 ```
 
-When enabled, RunWield appends JSONL records to `~/.wld/workflow-metrics/<encoded-cwd>/metrics.jsonl`, where
-`<encoded-cwd>` uses the same project-directory encoding as persisted sessions. Records cover routing, planning,
-execution, validation, recovery, model-selection, and tool-usage counter events. Metrics are record-only in this
-release; there is no reporting UI, analytics sync, or CLI summary command.
+When enabled, RunWield appends JSONL records to `~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl`, where
+`<encoded-project-root>` uses the same project-directory encoding as persisted sessions. Linked execution worktrees
+write to the primary project's metrics file. Records cover routing, planning, execution, validation, recovery,
+model-selection, and tool-usage counter events. Metrics are record-only in this release; there is no reporting UI,
+analytics sync, or CLI summary command.
 
 Metrics records intentionally do not include prompts, user request text, plan markdown, diffs, CI output, review
 feedback, raw tool arguments/results, file contents, secrets, full auth configuration, shell commands, search queries,

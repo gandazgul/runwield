@@ -5,6 +5,7 @@
 
 import { dirname, isAbsolute, join } from "@std/path";
 import { getHomeDir, RUNWIELD_DIR_NAME } from "../../constants.js";
+import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { encodeCwdForSessionDir } from "../session/root-session.js";
 import { getMergedCustomSetting } from "../settings.js";
 
@@ -91,8 +92,9 @@ export function isWorkflowMetricsEnabled(setting) {
  */
 export function getWorkflowMetricsFilePath(cwd) {
     if (!cwd) throw new Error("getWorkflowMetricsFilePath: cwd is required");
+    const projectRoot = resolvePrimaryCheckoutRoot(cwd);
     const homeDir = getHomeDir() || "~";
-    return join(homeDir, RUNWIELD_DIR_NAME, METRICS_DIR_NAME, encodeCwdForSessionDir(cwd), "metrics.jsonl");
+    return join(homeDir, RUNWIELD_DIR_NAME, METRICS_DIR_NAME, encodeCwdForSessionDir(projectRoot), "metrics.jsonl");
 }
 
 /**
@@ -275,10 +277,11 @@ function sanitizeDedicatedFrontendMetricDetails(event, details) {
 export async function recordWorkflowMetric(metric, cwd) {
     try {
         if (!cwd) throw new Error("recordWorkflowMetric: cwd is required");
-        const resolvedSetting = getMergedCustomSetting("workflowMetrics", cwd);
+        const projectRoot = resolvePrimaryCheckoutRoot(cwd);
+        const resolvedSetting = getMergedCustomSetting("workflowMetrics", projectRoot);
         if (!isWorkflowMetricsEnabled(resolvedSetting)) return null;
 
-        const filePath = getWorkflowMetricsFilePath(cwd);
+        const filePath = getWorkflowMetricsFilePath(projectRoot);
         const dedicatedFrontendEvent = DEDICATED_FRONTEND_EVENTS.has(metric.event);
         const dedicatedDetails = dedicatedFrontendEvent
             ? sanitizeDedicatedFrontendMetricDetails(metric.event, metric.details)
@@ -289,7 +292,7 @@ export async function recordWorkflowMetric(metric, cwd) {
             ts: new Date().toISOString(),
             category: metric.category,
             event: metric.event,
-            cwdHash: await hashMetricCwd(cwd),
+            cwdHash: await hashMetricCwd(projectRoot),
             ...(!dedicatedFrontendEvent && metric.sessionId ? { sessionId: metric.sessionId } : {}),
             ...(!dedicatedFrontendEvent && metric.planName ? { planName: metric.planName } : {}),
             ...(!dedicatedFrontendEvent && metric.agentName ? { agentName: metric.agentName } : {}),
