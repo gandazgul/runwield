@@ -39,9 +39,10 @@ function mapToolContent(content) {
 
 /**
  * @param {import('../shared/session/session-runtime-events.js').SessionRuntimeEvent} event
+ * @param {number} [sessionCostUsd] cumulative USD cost of the ACP Session so far
  * @returns {Record<string, any> | null}
  */
-export function mapRuntimeEventToAcpUpdate(event) {
+export function mapRuntimeEventToAcpUpdate(event, sessionCostUsd = 0) {
     switch (event.type) {
         case RuntimeEventTypes.USER_MESSAGE:
             return {
@@ -104,11 +105,13 @@ export function mapRuntimeEventToAcpUpdate(event) {
         case RuntimeEventTypes.USAGE: {
             const used = event.usage.inputTokens;
             const size = event.usage.contextWindow || used;
+            // ACP defines cost.amount as the cumulative Session cost. A total of 0 means
+            // no message has a known price yet, so cost stays off the wire.
             return {
                 sessionUpdate: "usage_update",
                 used,
                 size,
-                ...(event.usage.costUsd ? { cost: event.usage.costUsd } : {}),
+                ...(sessionCostUsd > 0 ? { cost: { amount: sessionCostUsd, currency: "USD" } } : {}),
             };
         }
         case RuntimeEventTypes.PLAN_REVIEW_LINK: {
@@ -186,10 +189,11 @@ export function mapRuntimeEventToAcpUpdate(event) {
 /**
  * @param {string} acpSessionId
  * @param {import('../shared/session/session-runtime-events.js').SessionRuntimeEvent} event
+ * @param {number} [sessionCostUsd] cumulative USD cost of the ACP Session so far
  * @returns {Record<string, any> | null}
  */
-export function mapRuntimeEventToAcpSessionNotification(acpSessionId, event) {
-    const update = mapRuntimeEventToAcpUpdate(event);
+export function mapRuntimeEventToAcpSessionNotification(acpSessionId, event, sessionCostUsd = 0) {
+    const update = mapRuntimeEventToAcpUpdate(event, sessionCostUsd);
     if (!update) return null;
     return { sessionId: acpSessionId, update };
 }

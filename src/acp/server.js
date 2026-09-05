@@ -5,9 +5,11 @@
 
 import { agent, methods, ndJsonStream, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk";
 import { isAbsolute } from "@std/path";
+import { VERSION } from "../shared/version.js";
 import { openFileSessionStore } from "../shared/session/file-session-store.ts";
 import { getSelectedDefaultModelAvailability } from "../shared/session/model-readiness.ts";
 import { createSessionRuntime, SessionTurnInProgressError } from "../shared/session/session-runtime.js";
+import { RuntimeEventTypes } from "../shared/session/session-runtime-events.js";
 import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.js";
 import { mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
@@ -53,6 +55,7 @@ function isAuthenticationSetupFailure(message) {
 
 /** @typedef {import('@agentclientprotocol/sdk').AgentApp} AgentApp */
 /** @typedef {import('@agentclientprotocol/sdk').AgentConnection} AgentConnection */
+/** @typedef {import('@agentclientprotocol/sdk').Stream} AcpStream */
 /** @typedef {import('../shared/session/session-runtime.js').SessionRuntime} SessionRuntime */
 
 /**
@@ -64,10 +67,16 @@ function isAuthenticationSetupFailure(message) {
  * @typedef {Object} AcpServerContext
  * @property {SessionRuntime} runtime
  * @property {AcpSessionMap} sessionMap
+ * @property {(requestId: string, release: () => void) => void} [releasePromptAfterResponse]
  */
 
 /**
  * Build the stable initialize response for the ACP MVP.
+ *
+ * The response always carries the version RunWield speaks. ACP negotiation puts the
+ * decision on the Client: it reads the Agent's version and either accepts it or
+ * disconnects. Echoing a requested version RunWield does not implement would tell the
+ * Client the wrong thing.
  *
  * @param {import('@agentclientprotocol/sdk').InitializeRequest | undefined} request
  * @returns {import('@agentclientprotocol/sdk').InitializeResponse}
@@ -83,7 +92,7 @@ export function createInitializeResponse(request) {
         }]
         : [];
     return {
-        protocolVersion: request?.protocolVersion || PROTOCOL_VERSION,
+        protocolVersion: PROTOCOL_VERSION,
         agentCapabilities: {
             loadSession: true,
             promptCapabilities: {
@@ -106,7 +115,7 @@ export function createInitializeResponse(request) {
             },
         },
         authMethods,
-        agentInfo: { name: "RunWield", version: "0.0.0-acp-mvp" },
+        agentInfo: { name: "RunWield", version: VERSION },
     };
 }
 
@@ -343,16 +352,71 @@ async function closeAllMappedSessions(runtime, sessionMap) {
 }
 
 /**
+ * Map one Runtime event for an ACP Session, folding usage cost into the Session total.
+ *
+ * The Runtime reports the cost of a single assistant message; ACP wants the cumulative
+ * Session cost. Every mapping site goes through here so live, replayed, and setup events
+ * all add to the same total.
+ *
+ * @param {AcpSessionMap} sessionMap
+ * @param {string} acpSessionId
+ * @param {import('../shared/session/session-runtime-events.js').SessionRuntimeEvent} event
+ */
+export function mapEventWithSessionCost(sessionMap, acpSessionId, event) {
+    const sessionCostUsd = event.type === RuntimeEventTypes.USAGE
+        ? sessionMap.addUsageCost(acpSessionId, event.usage?.costUsd)
+        : sessionMap.getRecord(acpSessionId)?.usageCostUsd || 0;
+    return mapRuntimeEventToAcpSessionNotification(acpSessionId, event, sessionCostUsd);
+}
+
+/**
+ * @param {AcpStream} stream
+ * @param {Map<string, () => void>} promptReleases
+ * @returns {AcpStream}
+ */
+function releasePromptsAfterResponses(stream, promptReleases) {
+    const writer = stream.writable.getWriter();
+    return {
+        readable: stream.readable,
+        writable: new WritableStream({
+            async write(message) {
+                const responseId = isRecord(message) && "id" in message && ("result" in message || "error" in message)
+                    ? String(message.id)
+                    : null;
+                try {
+                    await writer.write(message);
+                } finally {
+                    if (responseId) {
+                        const release = promptReleases.get(responseId);
+                        if (release) {
+                            promptReleases.delete(responseId);
+                            release();
+                        }
+                    }
+                }
+            },
+            close() {
+                return writer.close();
+            },
+            abort(reason) {
+                return writer.abort(reason);
+            },
+        }),
+    };
+}
+
+/**
  * @param {{ client?: { notify?: Function }, notify?: Function }} context
  * @param {SessionRuntime} runtime
+ * @param {AcpSessionMap} sessionMap
  * @param {string} runtimeSessionId
  * @param {string} acpSessionId
  */
-async function replaySetupEvents(context, runtime, runtimeSessionId, acpSessionId) {
+async function replaySetupEvents(context, runtime, sessionMap, runtimeSessionId, acpSessionId) {
     /** @type {Promise<unknown>[]} */
     const pendingNotifications = [];
     const unsubscribe = runtime.subscribeSessionEvents(runtimeSessionId, (event) => {
-        const notification = mapRuntimeEventToAcpSessionNotification(acpSessionId, event);
+        const notification = mapEventWithSessionCost(sessionMap, acpSessionId, event);
         if (!notification) return;
         const pending = notifyClient(context, methods.client.session.update, notification);
         pendingNotifications.push(pending);
@@ -374,7 +438,7 @@ async function replaySetupEvents(context, runtime, runtimeSessionId, acpSessionI
  */
 function createRunWieldAcpServer(context) {
     const app = agent({ name: "RunWield ACP MVP" });
-    const { runtime, sessionMap } = context;
+    const { runtime, sessionMap, releasePromptAfterResponse } = context;
     /** @type {unknown} */
     let clientCapabilities = null;
 
@@ -398,7 +462,7 @@ function createRunWieldAcpServer(context) {
             { sessionId: runtimeSessionId, cwd: snapshot.cwd },
             { persistedSessionId },
         );
-        await replaySetupEvents(context, runtime, runtimeSessionId, record.acpSessionId);
+        await replaySetupEvents(context, runtime, sessionMap, runtimeSessionId, record.acpSessionId);
         return {
             sessionId: record.acpSessionId,
             _meta: {
@@ -430,7 +494,7 @@ function createRunWieldAcpServer(context) {
                 sessionPath: result.sessionPath,
             });
             const notifications = result.replayEvents
-                .map((event) => mapRuntimeEventToAcpSessionNotification(record.acpSessionId, event))
+                .map((event) => mapEventWithSessionCost(sessionMap, record.acpSessionId, event))
                 .filter(Boolean)
                 .map((notification) => notifyClient(context, methods.client.session.update, notification));
             await Promise.allSettled(notifications);
@@ -499,23 +563,40 @@ function createRunWieldAcpServer(context) {
         /** @type {() => void} */
         let unsubscribe = () => {};
         let promptStarted = false;
-        let deferCleanupUntilRuntimeSettles = false;
         let cleanupStarted = false;
 
-        const cleanupPrompt = () => {
+        const cleanupPromptResources = () => {
             if (!promptStarted || cleanupStarted) return;
             cleanupStarted = true;
             try {
                 unsubscribe();
             } finally {
-                try {
-                    if (activePrompt && sessionMap.isCurrentPrompt(acpSessionId, activePrompt)) {
-                        runtime.setInteractionAdapter?.(runtimeSessionId, null);
-                    }
-                } finally {
-                    if (activePrompt) sessionMap.endPrompt(acpSessionId, activePrompt);
+                if (activePrompt && sessionMap.isCurrentPrompt(acpSessionId, activePrompt)) {
+                    runtime.setInteractionAdapter?.(runtimeSessionId, null);
                 }
             }
+        };
+
+        const releasePrompt = () => {
+            const prompt = activePrompt;
+            cleanupPromptResources();
+            if (!prompt) return;
+            sessionMap.endPrompt(acpSessionId, prompt);
+            if (activePrompt === prompt) activePrompt = null;
+        };
+
+        const finishPromptRequest = () => {
+            const prompt = activePrompt;
+            cleanupPromptResources();
+            if (!prompt) return;
+            if (prompt.requestId && releasePromptAfterResponse) {
+                releasePromptAfterResponse(prompt.requestId, () => {
+                    sessionMap.endPrompt(acpSessionId, prompt);
+                    if (activePrompt === prompt) activePrompt = null;
+                });
+                return;
+            }
+            releasePrompt();
         };
 
         const subscribeCurrentRuntimeSession = () => {
@@ -540,7 +621,7 @@ function createRunWieldAcpServer(context) {
                     subscribeCurrentRuntimeSession();
                     return;
                 }
-                const notification = mapRuntimeEventToAcpSessionNotification(acpSessionId, event);
+                const notification = mapEventWithSessionCost(sessionMap, acpSessionId, event);
                 if (!notification) return;
                 const pending = notifyClient(context, methods.client.session.update, notification);
                 pendingNotifications.push(pending);
@@ -556,7 +637,7 @@ function createRunWieldAcpServer(context) {
                     activePrompt = sessionMap.beginPrompt(
                         acpSessionId,
                         turnId,
-                        context.requestId ? String(context.requestId) : undefined,
+                        context.requestId === undefined ? undefined : String(context.requestId),
                     );
                     if (!activePrompt) throwUnknownSession(acpSessionId);
                     promptStarted = true;
@@ -571,22 +652,19 @@ function createRunWieldAcpServer(context) {
                         );
                         subscribeCurrentRuntimeSession();
                     } catch (error) {
-                        cleanupPrompt();
+                        releasePrompt();
                         throw error;
                     }
-                    return cleanupPrompt;
+                    return cleanupPromptResources;
                 },
             });
-            const startedPrompt = getActivePrompt();
-            const result = /** @type {any} */ (
-                await (startedPrompt ? Promise.race([runtimePrompt, startedPrompt.cancellation]) : runtimePrompt)
-            );
+            // The Runtime turn is the only thing that completes this request. session/cancel
+            // marks the prompt and aborts the run, but the response waits for the Runtime to
+            // settle and for every mapped update — including the Runtime's own cancellation
+            // message — to reach the Client first.
+            const result = /** @type {any} */ (await runtimePrompt);
             await Promise.allSettled(pendingNotifications);
-            if (getActivePrompt()?.cancelled) {
-                deferCleanupUntilRuntimeSettles = true;
-                void runtimePrompt.then(cleanupPrompt, cleanupPrompt);
-                return { stopReason: "cancelled" };
-            }
+            if (getActivePrompt()?.cancelled) return { stopReason: "cancelled" };
             if (result?.stopReason === "cancelled") return result;
             if (!result.ok) {
                 if (
@@ -620,7 +698,7 @@ function createRunWieldAcpServer(context) {
             }
             throw error;
         } finally {
-            if (!deferCleanupUntilRuntimeSettles) cleanupPrompt();
+            finishPromptRequest();
         }
     });
 
@@ -669,11 +747,19 @@ function createRunWieldAcpServer(context) {
  * @returns {AgentConnection}
  */
 export function startRunWieldAcpServer(input, output, options = {}) {
-    const stream = ndJsonStream(output, input);
+    /** @type {Map<string, () => void>} */
+    const promptReleases = new Map();
+    const stream = releasePromptsAfterResponses(ndJsonStream(output, input), promptReleases);
     const sessionStore = openFileSessionStore();
     const runtime = createSessionRuntime({ sessionStore, ownerProcessKind: "acp" });
     const sessionMap = new AcpSessionMap();
-    const connection = createRunWieldAcpServer({ runtime, sessionMap }).connect(stream);
+    const connection = createRunWieldAcpServer({
+        runtime,
+        sessionMap,
+        releasePromptAfterResponse: (requestId, release) => {
+            promptReleases.set(requestId, release);
+        },
+    }).connect(stream);
     const closeMachinery = async () => {
         try {
             await closeAllMappedSessions(runtime, sessionMap);
