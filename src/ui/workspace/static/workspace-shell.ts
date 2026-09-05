@@ -166,11 +166,10 @@ function sessionTitleFromPayload(payload, current) {
     if (current.kind !== "session") return "";
     if (current.runwieldSessionId === "new") return "New Session";
     const projects = Array.isArray(payload.projects) ? payload.projects : [];
-    for (const project of projects) {
-        const sessions = Array.isArray(project.sessions) ? project.sessions : [];
-        const match = sessions.find((session) => session.runwieldSessionId === current.runwieldSessionId);
-        if (match) return match.displayName || titleFromSessionId(current.runwieldSessionId);
-    }
+    const project = projects.find((candidate) => candidate?.projectId === current.projectId);
+    const sessions = Array.isArray(project?.sessions) ? project.sessions : [];
+    const match = sessions.find((session) => session.runwieldSessionId === current.runwieldSessionId);
+    if (match) return match.displayName || titleFromSessionId(current.runwieldSessionId);
     return titleFromSessionId(current.runwieldSessionId);
 }
 
@@ -226,7 +225,10 @@ function updateSessionRow(link, projectId, session, current, extraClass = "") {
     link.dataset.sidebarProjectId = projectId;
     const classNames = ["workspace-sidebar-session"];
     if (extraClass) classNames.push(...extraClass.trim().split(/\s+/));
-    if (current.runwieldSessionId === session.runwieldSessionId) classNames.push("active");
+    if (
+        current.kind === "session" && current.projectId === projectId &&
+        current.runwieldSessionId === session.runwieldSessionId
+    ) classNames.push("active");
     link.className = classNames.join(" ");
     const label = link.querySelector("span") || document.createElement("span");
     label.textContent = session.displayName || "Untitled Session";
@@ -289,7 +291,7 @@ export function sidebarSessionOrder(existingProject, incomingProject) {
     const incoming = normalizeProject(incomingProject).sessions;
     const seen = new Set(incoming.map((session) => session.runwieldSessionId));
     const retained = (existingProject?.sessions || []).filter((session) =>
-        session.runwieldSessionId && !seen.has(session.runwieldSessionId)
+        session.runwieldSessionId && session.loaded === true && !seen.has(session.runwieldSessionId)
     );
     return [...incoming, ...retained];
 }
@@ -299,6 +301,7 @@ export function shouldApplySidebarRefresh(requestGeneration, latestGeneration, r
 }
 
 function ensureSidebarScaffold(sidebar, payload, current) {
+    sidebar.querySelectorAll(":scope > .workspace-sidebar-empty").forEach((node) => node.remove());
     let brand = sidebar.querySelector(".workspace-sidebar-brand");
     if (!brand) {
         brand = document.createElement("div");
@@ -438,7 +441,6 @@ function reconcileSessionRows(container, existingProject, project, current) {
         const row = byId.get(current.runwieldSessionId) ||
             makeSessionRow(project.projectId, session, current, " workspace-sidebar-session-extra");
         updateSessionRow(row, project.projectId, session, current, " workspace-sidebar-session-extra");
-        row.dataset.sidebarLoaded = "true";
         nodes.push(row);
     }
 
@@ -456,11 +458,8 @@ function reconcileSessionRows(container, existingProject, project, current) {
     for (const node of nodes) container.append(node);
 }
 
-export function sidebarProjectOrder(existingProjects, incomingProjects) {
-    const incoming = incomingProjects.map(normalizeProject).filter((project) => project.projectId);
-    const seen = new Set(incoming.map((project) => project.projectId));
-    const retained = (existingProjects || []).filter((project) => project.projectId && !seen.has(project.projectId));
-    return [...incoming, ...retained];
+export function sidebarProjectOrder(_existingProjects, incomingProjects) {
+    return incomingProjects.map(normalizeProject).filter((project) => project.projectId);
 }
 
 function reconcileProjects(list, payload, current) {
@@ -489,7 +488,7 @@ function reconcileProjects(list, payload, current) {
     }
 }
 
-function renderSidebar(payload, current) {
+export function renderSidebar(payload, current) {
     const sidebar = document.querySelector("[data-workspace-sidebar]");
     if (!sidebar) return;
     renderMainHeader(payload, current);
@@ -499,11 +498,13 @@ function renderSidebar(payload, current) {
     sidebarHasRendered = true;
 }
 
-function applyActiveRoute(current) {
+export function applyActiveRoute(current) {
     document.querySelectorAll("[data-sidebar-session]").forEach((row) => {
         row.classList.toggle(
             "active",
-            current.kind === "session" && row.getAttribute("data-sidebar-session") === current.runwieldSessionId,
+            current.kind === "session" &&
+                row.getAttribute("data-sidebar-project-id") === current.projectId &&
+                row.getAttribute("data-sidebar-session") === current.runwieldSessionId,
         );
     });
     if (current.projectId) {
@@ -512,13 +513,14 @@ function applyActiveRoute(current) {
 }
 
 function workspaceNavigate(href, history = "push") {
-    const navigate = globalThis.__runwieldWorkspaceNavigate;
-    if (typeof navigate === "function") {
-        navigate(href, { history });
-        return;
+    const event = new CustomEvent("runwield:workspace-navigate", {
+        cancelable: true,
+        detail: { href, history },
+    });
+    if (document.dispatchEvent(event)) {
+        if (history === "replace") location.replace(href);
+        else location.assign(href);
     }
-    if (history === "replace") location.replace(href);
-    else location.assign(href);
 }
 
 function installRestoreDelegation() {
@@ -647,10 +649,15 @@ export function installWorkspaceShell() {
     refreshSidebarForPage();
 }
 
-if (typeof document !== "undefined" && !globalThis.__runwieldWorkspaceShellInstalled) {
-    globalThis.__runwieldWorkspaceShellInstalled = true;
+let workspaceShellBrowserInstalled = false;
+
+export function installWorkspaceShellBrowser() {
+    if (workspaceShellBrowserInstalled) return;
+    workspaceShellBrowserInstalled = true;
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", installWorkspaceShell, { once: true });
     } else installWorkspaceShell();
     document.addEventListener("astro:page-load", installWorkspaceShell);
 }
+
+if (typeof document !== "undefined") installWorkspaceShellBrowser();

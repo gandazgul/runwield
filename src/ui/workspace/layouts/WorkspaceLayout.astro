@@ -39,7 +39,11 @@ function linkWithToken(path: string) {
         {!localShell && (
             <script>
                 import { navigate } from "astro:transitions/client";
-                Reflect.set(globalThis, "__runwieldWorkspaceNavigate", navigate);
+                document.addEventListener("runwield:workspace-navigate", (event) => {
+                    if (!(event instanceof CustomEvent)) return;
+                    event.preventDefault();
+                    navigate(event.detail.href, { history: event.detail.history });
+                });
             </script>
         )}
     </head>

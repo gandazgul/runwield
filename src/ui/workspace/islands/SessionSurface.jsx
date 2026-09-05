@@ -121,13 +121,14 @@ function errorMessage(error) {
 
 /** @param {string} href @param {"push" | "replace"} [history] */
 function workspaceNavigate(href, history = "push") {
-    const navigate = globalThis.__runwieldWorkspaceNavigate;
-    if (typeof navigate === "function") {
-        navigate(href, { history });
-        return;
+    const event = new CustomEvent("runwield:workspace-navigate", {
+        cancelable: true,
+        detail: { href, history },
+    });
+    if (document.dispatchEvent(event)) {
+        if (history === "replace") globalThis.location.replace(href);
+        else globalThis.location.assign(href);
     }
-    if (history === "replace") globalThis.location.replace(href);
-    else globalThis.location.assign(href);
 }
 
 /** @param {SessionImageAttachmentDraft} image */

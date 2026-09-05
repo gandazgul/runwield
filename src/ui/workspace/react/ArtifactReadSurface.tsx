@@ -33,12 +33,11 @@ const ARTIFACT_LABELS = {
 };
 
 function workspaceNavigate(href) {
-    const navigate = globalThis.__runwieldWorkspaceNavigate;
-    if (typeof navigate === "function") {
-        navigate(href);
-        return;
-    }
-    globalThis.location.assign(href);
+    const event = new CustomEvent("runwield:workspace-navigate", {
+        cancelable: true,
+        detail: { href, history: "push" },
+    });
+    if (document.dispatchEvent(event)) globalThis.location.assign(href);
 }
 
 export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
