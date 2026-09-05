@@ -337,6 +337,12 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                     "Reviewer-Feedback Engineer stopped without task_completed during semantic repair.";
                 return { kind: "paused", planName: args.planName, projectRoot: context.projectRoot, reason };
             }
+            const ciResult = await args.localCI.run({ cwd: context.executionCwd });
+            if (ciResult.kind !== "completed" || ciResult.exitCode !== 0) {
+                const reason = ciResult.kind === "completed" ? ciResult.output : "The repair checks did not complete.";
+                return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
+            }
+            await recordLifecycleEvent(args, context.projectRoot, "mechanical_validation_passed", "implemented");
             round = nextRound;
             ledger = review.ledger;
             state.lastRepairReport = repair.report;

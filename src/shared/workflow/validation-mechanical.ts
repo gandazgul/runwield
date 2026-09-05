@@ -204,6 +204,7 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 planName: args.planName,
                 projectRoot: phase.context.projectRoot,
                 reason: "Mechanical Validation passed.",
+                continueValidation: true,
             };
         }
 
