@@ -88,14 +88,13 @@ The cases are synthetic reductions, not copies of private or historical source. 
 RunWield rules and regressions, including:
 
 - Plan body and lifecycle ownership in [RunWield product rules](../product-rules.md);
-- validation completion and recovery in
-  [Resume validation after repair completion](../plans/archived/resume-validation-after-repair-completion.md);
+- validation completion and recovery in [Validation authority](../validation-authority.md);
 - worktree isolation in
   [Concurrent worktrees execution isolation](../plans/archived/concurrent-worktrees-execution-isolation.md);
 - cancellation settlement in
   [Escape reliably cancels active process trees](../work-records/2026-08-04-escape-reliably-cancels-active-process-trees.md);
 - destructive retention boundaries in
-  [Archived Plan retention and prune](../plans/archived/archived-plan-retention-and-prune.md);
+  [Archived Plan retention and prune](../work-records/2026-08-16-archived-plan-retention-and-prune.md);
 - injection-seam and fake-test prevention in [Engineering Quality Principles](../engineering-quality-principles.md).
 
 Do not include these provenance documents in a materialized fixture. They would reveal what the Reviewer is expected to
