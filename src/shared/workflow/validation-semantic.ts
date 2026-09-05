@@ -142,8 +142,13 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 defaultValue: buildValidationUserMessage({ kind: "repair_feedback_default" }),
             });
             if (response.outcome !== "submitted") {
-                return { kind: "paused", planName: args.planName, projectRoot: context.projectRoot,
-                    awaitingUserAction: true, reason: "Engineer follow-up canceled. Your review findings are saved." };
+                return {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: context.projectRoot,
+                    awaitingUserAction: true,
+                    reason: "Engineer follow-up canceled. Your review findings are saved.",
+                };
             }
             const feedback = typeof response.value === "string" ? response.value.trim() : "";
             await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", feedback);
@@ -156,10 +161,20 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                     reason: repairBlockedReason(args, context.projectRoot, repair?.blockerText),
                 };
             }
-            args.session.setActiveWorkflow({ ...context.workflowBase, semanticRound: round,
-                reviewLedger: ledger, repairBaselineTree: state.repairBaselineTree, lastRepairReport: repair.report });
-            return { kind: "paused", planName: args.planName, projectRoot: context.projectRoot,
-                continueValidation: true, reason: "The repair is complete. Running checks before another review." };
+            args.session.setActiveWorkflow({
+                ...context.workflowBase,
+                semanticRound: round,
+                reviewLedger: ledger,
+                repairBaselineTree: state.repairBaselineTree,
+                lastRepairReport: repair.report,
+            });
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                continueValidation: true,
+                reason: "The repair is complete. Running checks before another review.",
+            };
         } else if (action === "stop") {
             return {
                 kind: "paused",
