@@ -27,6 +27,9 @@ workRecord:
     recordId: "eb1899c4-dfe2-4a27-affc-69fa6d1dc485"
     path: "docs/work-records/2026-09-03-shared-session-sidebar-and-artifact-catalog-completed.md"
     lastAttemptAt: "2026-09-03T19:45:54.010Z"
+archivedAt: "2026-09-05T04:21:38.496Z"
+archivedFromStatus: "user_verified"
+archivedFromPath: "docs/plans/session-sidebar-and-artifact-review.md"
 ---
 
 # Shared Session Sidebar and Artifact Review
