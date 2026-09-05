@@ -226,7 +226,7 @@ export async function switchActiveAgent(hostedSession, options) {
         });
         const committedAgentName = hostedSession.getRootAgentName() || agentName;
         const committedDisplayName = hostedSession.getActiveAgentInfo?.()?.displayName || committedAgentName;
-        const previousRootIdentity = previousAgentName || persistedAgentName || "";
+        const previousRootIdentity = previousAgentName || persistedAgentName || selectionAgent || "";
         const rootHandoff = Boolean(previousRootIdentity) &&
             normalizeAgentInternalName(previousRootIdentity) !== normalizeAgentInternalName(committedAgentName);
         emitHostedSessionRuntimeEvent(hostedSession, {
