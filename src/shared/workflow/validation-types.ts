@@ -36,6 +36,8 @@ export type WorkflowValidationResult = {
     semanticRepairHandoff?: SemanticRepairHandoff;
     recovery?: ValidationRecoveryResult;
     retainTaskCompletionClaim?: true;
+    /** Set only after a completed check, accepted tool call, or explicit user decision. */
+    continueValidation?: true;
 };
 
 export type SemanticRepairHandoff = {
