@@ -54,10 +54,16 @@ import { printCommandHelp } from "../help/index.js";
 import { startInteractiveSession } from "../../ui/tui/chat-session.ts";
 import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { resolvePlanWithPrimaryRecovery, resumePlanPublicationCleanup } from "./primary-plan-recovery.ts";
-import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
+import {
+    recoverMissingExecutionWorktreesForPlanLoading,
+    resolveWorkflowPlanLocation,
+} from "../../shared/workflow/plan-location.ts";
 import type { CommandContext } from "../registry.js";
 import type { UiAPI } from "../../ui/tui/types.js";
-import { buildPlanRecoveryUserMessage } from "../../shared/workflow/validation-user-messages.ts";
+import {
+    buildPlanRecoveryUserMessage,
+    buildValidationRecoveryNotice,
+} from "../../shared/workflow/validation-user-messages.ts";
 import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
 import { findPlanAssociatedSessions, verifyPlanAssociatedSession } from "../../shared/session/plan-session-lookup.ts";
 
@@ -115,6 +121,18 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 return;
             }
             publicationCleanupDone = true;
+            const recoveredWorktrees = await recoverMissingExecutionWorktreesForPlanLoading(activeSnapshot.cwd);
+            for (const recovered of recoveredWorktrees) {
+                options.uiAPI.appendSystemMessage(
+                    buildValidationRecoveryNotice({
+                        kind: "worktree_restored",
+                        planName: recovered.planName,
+                        branch: recovered.branch,
+                    }),
+                    false,
+                    "RunWield",
+                );
+            }
             const plans = await listPlans(activeSnapshot.cwd);
             if (plans.length === 0) {
                 options.uiAPI.appendSystemMessage(
@@ -252,6 +270,29 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
         if (!publicationCleanupDone && await finishSavedPublicationCleanup(projectRoot, uiAPI, planArg)) return;
         const resolved = await resolvePlanWithPrimaryRecovery(projectRoot, planArg);
         const plan = resolved.plan;
+        if (resolved.recoveredWorktree?.recovered) {
+            uiAPI.appendSystemMessage(
+                buildValidationRecoveryNotice({
+                    kind: "worktree_restored",
+                    planName: plan.planName,
+                    branch: resolved.recoveredWorktree.branch || plan.attrs.worktreeBranch || "recovered source",
+                }),
+                false,
+                "RunWield",
+            );
+        }
+        if (resolved.recoveredStatus) {
+            uiAPI.appendSystemMessage(
+                buildValidationRecoveryNotice({
+                    kind: "plan_status_restored",
+                    planName: plan.planName,
+                    from: resolved.recoveredStatus.from,
+                    to: resolved.recoveredStatus.to,
+                }),
+                false,
+                "RunWield",
+            );
+        }
         loadedPlanName = plan.planName;
         const rawStatus = getPlanContentStatus(plan.markdown);
         if (rawStatus !== undefined && !PLAN_STATUSES.some((status) => status === rawStatus)) {

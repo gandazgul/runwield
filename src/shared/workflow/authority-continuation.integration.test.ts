@@ -75,35 +75,59 @@ async function setStatus(root: string, status: "implemented" | "validated" | "in
     await updatePlanFrontMatter(root, "demo", { status }, {}, { expectedRevision: plan.revision });
 }
 
-for (const missing of ["document", "worktree"] as const) {
-    Deno.test(`missing execution ${missing} cannot redirect a lifecycle write into primary`, async () => {
-        await withProject(async (root, directory) => {
-            await createPlan(root);
-            const tree = await addTree(root, directory, "current");
-            const primary = await loadPlan(root, "demo");
-            assert(primary);
-            const body = await loadPlanBodyById(root, "demo");
-            if (missing === "worktree") await Deno.remove(tree, { recursive: true });
-            else await Deno.remove(join(tree, "docs/plans/demo.md"));
-            await assertRejects(() => loadPlanBodyById(root, "demo"));
-            await assertRejects(() =>
-                savePlanBodyById(root, "demo", "# Must not overwrite primary\n", body.bodyHash, {
-                    expectedRevision: body.revision,
-                })
-            );
-            await assertRejects(() =>
-                recordPlanEvent({
-                    cwd: root,
-                    planName: "demo",
-                    event: "plan_held",
-                    currentStatus: "ready_for_work",
-                })
-            );
-            await assertRejects(() => resolvePlanWithPrimaryRecovery(root, "demo"));
-            assertEquals(await Deno.readTextFile(primary.path), primary.markdown);
-        });
+Deno.test("missing execution document cannot redirect a lifecycle write into primary", async () => {
+    await withProject(async (root, directory) => {
+        await createPlan(root);
+        const tree = await addTree(root, directory, "current");
+        const primary = await loadPlan(root, "demo");
+        assert(primary);
+        const body = await loadPlanBodyById(root, "demo");
+        await Deno.remove(join(tree, "docs/plans/demo.md"));
+        await assertRejects(() => loadPlanBodyById(root, "demo"));
+        await assertRejects(() =>
+            savePlanBodyById(root, "demo", "# Must not overwrite primary\n", body.bodyHash, {
+                expectedRevision: body.revision,
+            })
+        );
+        await assertRejects(() =>
+            recordPlanEvent({
+                cwd: root,
+                planName: "demo",
+                event: "plan_held",
+                currentStatus: "ready_for_work",
+            })
+        );
+        await assertRejects(() => resolvePlanWithPrimaryRecovery(root, "demo"));
+        assertEquals(await Deno.readTextFile(primary.path), primary.markdown);
     });
-}
+});
+
+Deno.test("missing execution worktree is rebuilt before lifecycle writes continue", async () => {
+    await withProject(async (root, directory) => {
+        await createPlan(root);
+        const tree = await addTree(root, directory, "current");
+        const primary = await loadPlan(root, "demo");
+        assert(primary);
+        const body = await loadPlanBodyById(root, "demo");
+        await Deno.remove(tree, { recursive: true });
+
+        assertEquals((await resolvePlanWithPrimaryRecovery(root, "demo")).plan.path, join(tree, "docs/plans/demo.md"));
+        assertEquals((await loadPlanBodyById(root, "demo")).body, body.body);
+        await savePlanBodyById(root, "demo", "# Recovered execution copy\n", body.bodyHash, {
+            expectedRevision: body.revision,
+        });
+        await recordPlanEvent({
+            cwd: root,
+            planName: "demo",
+            event: "plan_held",
+            currentStatus: "ready_for_work",
+        });
+
+        assertEquals((await resolvePlanWithPrimaryRecovery(root, "demo")).plan.attrs.status, "on_hold");
+        assertEquals((await loadPlan(tree, "demo"))?.body, "# Recovered execution copy\n");
+        assertEquals(await Deno.readTextFile(primary.path), primary.markdown);
+    });
+});
 
 Deno.test("explicit loading cannot revive the stale primary copy of an archived execution Plan", async () => {
     await withProject(async (root, directory) => {

@@ -591,6 +591,41 @@ const PLAN_LIST_CLASSIFICATION_ORDER = new Map([
     ["QUICK_FIX", 2],
 ]);
 
+const LEGACY_PLAN_STATUSES = new Map([
+    ["completed", "verified"],
+    ["in_review", "feedback"],
+    // Older/manual recovery copies used this to mean implementation was done
+    // and Workflow Validation had not started yet.
+    ["ready_for_review", "implemented"],
+]);
+
+/**
+ * Return the current lifecycle name for a current or retired Plan status.
+ * Truly unknown values remain unknown so callers can fail closed.
+ *
+ * @param {string | undefined} status
+ * @returns {PlanFrontMatter["status"] | undefined}
+ */
+export function canonicalPlanStatus(status) {
+    const legacy = status ? LEGACY_PLAN_STATUSES.get(status) : undefined;
+    if (legacy) return /** @type {PlanFrontMatter["status"]} */ (legacy);
+    if (status && PLAN_STATUSES.has(status)) {
+        return /** @type {PlanFrontMatter["status"]} */ (status);
+    }
+    return undefined;
+}
+
+/**
+ * Read the status exactly as the Plan declares it, before compatibility normalization.
+ * @param {string} planContent
+ * @returns {string | undefined}
+ */
+export function getDeclaredPlanStatus(planContent) {
+    if (!planContent.startsWith("---")) return undefined;
+    const parsed = extractYaml(planContent);
+    return typeof parsed.attrs?.status === "string" ? parsed.attrs.status : undefined;
+}
+
 /**
  * Normalize legacy statuses from older saved plans into the current lifecycle.
  *
@@ -598,12 +633,7 @@ const PLAN_LIST_CLASSIFICATION_ORDER = new Map([
  * @returns {PlanFrontMatter["status"]}
  */
 function normalizePlanStatus(status) {
-    if (status === "completed") return "verified";
-    if (status === "in_review") return "feedback";
-    if (status && PLAN_STATUSES.has(status)) {
-        return /** @type {PlanFrontMatter["status"]} */ (status);
-    }
-    return DEFAULT_FRONT_MATTER.status;
+    return canonicalPlanStatus(status) || DEFAULT_FRONT_MATTER.status;
 }
 
 /** @param {string | undefined | null} status */

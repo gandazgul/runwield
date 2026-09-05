@@ -184,6 +184,7 @@ Deno.test("all validation recovery and doctor messages stay plain", async () => 
         { kind: "worktree_path_fixed", planName: "demo" },
         { kind: "branch_restored", branch: "work" },
         { kind: "worktree_restored", planName: "demo", branch: "work" },
+        { kind: "plan_status_restored", planName: "demo", from: "ready_for_review", to: "implemented" },
         { kind: "execution_plan_fixed", planName: "demo" },
         { kind: "review_range_fixed", planName: "demo" },
         { kind: "merge_plan_preserved", planName: "demo" },

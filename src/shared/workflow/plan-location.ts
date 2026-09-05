@@ -3,6 +3,14 @@ import { canonicalizeStoredPlanName, loadPlan } from "../../plan-store.js";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { findActiveByPlanName } from "../worktree-registry.js";
 import { listControllerDocumentWorktrees } from "./controller-registry.ts";
+import {
+    executionWorktreePathExists,
+    type MissingExecutionWorktreeRecovery,
+    recoverMissingExecutionWorktree,
+} from "./execution-worktree-rescue.ts";
+
+export { recoverMissingExecutionWorktreesForPlanLoading } from "./execution-worktree-rescue.ts";
+export type { MissingExecutionWorktreeRecovery } from "./execution-worktree-rescue.ts";
 
 interface ResolveWorkflowPlanLocationOptions {
     migrateRegistry?: boolean;
@@ -18,12 +26,17 @@ export async function resolveWorkflowPlanLocation(
     const registryReadOptions = options.migrateRegistry === false ? { migrate: false } : undefined;
     const attempt = await findActiveByPlanName(registryRoot, planName, registryReadOptions);
     if (attempt) {
-        const plan = await loadPlan(attempt.path, planName);
+        let plan = await loadPlan(attempt.path, planName);
+        let recoveredWorktree: MissingExecutionWorktreeRecovery | undefined;
+        if (!plan && !await executionWorktreePathExists(attempt.path)) {
+            recoveredWorktree = await recoverMissingExecutionWorktree(registryRoot, attempt);
+            if (recoveredWorktree.recovered) plan = await loadPlan(attempt.path, planName);
+        }
         if (plan) {
             if (attempt.planId && plan.attrs.planId && plan.attrs.planId !== attempt.planId) {
                 throw new Error("The execution directory contains a different Plan. Your files have not been changed.");
             }
-            return { registryRoot, documentRoot: attempt.path, plan };
+            return { registryRoot, documentRoot: attempt.path, plan, recoveredWorktree };
         }
         if (await loadPlan(attempt.path, `archived/${planName}`)) {
             return { registryRoot, documentRoot: attempt.path, plan: null, archived: true };

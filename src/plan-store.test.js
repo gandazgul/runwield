@@ -2082,6 +2082,14 @@ Deno.test("parsePlanFrontMatter normalizes legacy and invalid statuses", () => {
     ].join("\n"));
     assertEquals(inReview.attrs.status, "feedback");
 
+    const readyForReview = parsePlanFrontMatter([
+        "---",
+        'status: "ready_for_review"',
+        "---",
+        "body",
+    ].join("\n"));
+    assertEquals(readyForReview.attrs.status, "implemented");
+
     const invalid = parsePlanFrontMatter([
         "---",
         'status: "whatever"',

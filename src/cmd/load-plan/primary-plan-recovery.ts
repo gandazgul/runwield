@@ -1,5 +1,16 @@
-import { canonicalizeStoredPlanName, findPlanEvidenceById, resolvePlan } from "../../plan-store.js";
-import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
+import {
+    canonicalizeStoredPlanName,
+    canonicalPlanStatus,
+    findPlanEvidenceById,
+    getDeclaredPlanStatus,
+    loadPlan,
+    resolvePlan,
+    updatePlanFrontMatter,
+} from "../../plan-store.js";
+import {
+    type MissingExecutionWorktreeRecovery,
+    resolveWorkflowPlanLocation,
+} from "../../shared/workflow/plan-location.ts";
 import { basename, dirname, isAbsolute, relative, resolve } from "@std/path";
 import { resolvePrimaryCheckoutRoot } from "../../shared/primary-checkout.ts";
 import { listEntries } from "../../shared/worktree-registry.js";
@@ -13,6 +24,8 @@ function isPlanIdArgument(value: string): boolean {
 
 export interface LoadPlanResolution {
     plan: ResolvedPlan;
+    recoveredWorktree?: MissingExecutionWorktreeRecovery;
+    recoveredStatus?: { from: string; to: string };
 }
 
 export interface PublicationCleanupNotice {
@@ -45,6 +58,26 @@ async function normalizePlanArgument(projectRoot: string, planArg: string): Prom
         }
     }
     return planArg;
+}
+
+async function repairRetiredPlanStatus(
+    documentRoot: string,
+    planName: string,
+    plan: ResolvedPlan,
+): Promise<Pick<LoadPlanResolution, "plan" | "recoveredStatus">> {
+    const declaredStatus = getDeclaredPlanStatus(plan.markdown);
+    const canonicalStatus = canonicalPlanStatus(declaredStatus);
+    if (!declaredStatus || !canonicalStatus || declaredStatus === canonicalStatus) return { plan };
+
+    await updatePlanFrontMatter(documentRoot, planName, { status: canonicalStatus }, {}, {
+        expectedRevision: plan.revision,
+    });
+    const repaired = await loadPlan(documentRoot, planName);
+    if (!repaired) throw new Error(`Plan not found after repairing its retired status: ${planName}`);
+    return {
+        plan: { ...repaired, planName },
+        recoveredStatus: { from: declaredStatus, to: canonicalStatus },
+    };
 }
 
 /** Resume already-proven publication independently of its removed Plan directory. */
@@ -105,5 +138,7 @@ export async function resolvePlanWithPrimaryRecovery(
     if (location.archived) {
         throw new Error(`This Plan is archived. Run wld plans archive restore ${name} before continuing it.`);
     }
-    return { plan: location.plan ? { ...location.plan, planName: name } : await resolvePlan(projectRoot, planArg) };
+    const resolvedPlan = location.plan ? { ...location.plan, planName: name } : await resolvePlan(projectRoot, planArg);
+    const repaired = await repairRetiredPlanStatus(location.documentRoot, name, resolvedPlan);
+    return { ...repaired, recoveredWorktree: location.recoveredWorktree };
 }

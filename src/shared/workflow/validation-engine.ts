@@ -11,9 +11,8 @@
  * imports — they are RunWield's own machinery, never ports.
  */
 
-import { extractYaml } from "@std/front-matter";
-import { loadPlan } from "../../plan-store.js";
-import { PLAN_STATUSES, VALIDATION_PLAN_STATUSES } from "./plan-lifecycle.js";
+import { canonicalPlanStatus, getDeclaredPlanStatus, loadPlan } from "../../plan-store.js";
+import { VALIDATION_PLAN_STATUSES } from "./plan-lifecycle.js";
 import { getProjectRoot } from "./validation-context.ts";
 import { emitStatus } from "./validation-emit.ts";
 import { validationPhaseForStatus } from "./validation-checkpoint.ts";
@@ -89,18 +88,14 @@ function resolveNextPhase(
  * moving, and stops the moment a phase parks without moving it — human review
  * awaiting a decision, a dispatched repair, a terminal outcome.
  *
- * Status is the only continuation signal, deliberately. It is durable, it is what
- * `recordPlanEvent` already guards, and re-reading it each turn means this loop
- * carries no state of its own — the thing that made the previous driver
- * untestable. A phase that parks is simply a phase that did not move the Plan.
+ * A completed check, accepted tool call, or explicit user decision authorizes
+ * the next phase. Document revisions and presentation text never do.
  */
 export async function runValidationLoop(args: ValidationLoopArgs): Promise<WorkflowValidationResult> {
     const projectRoot = getProjectRoot(args);
     let result: ValidationPhaseResult | undefined;
     let phaseArgs = args;
     for (let phase = 0; phase < MAX_PHASES_PER_CALL; phase += 1) {
-        const planCwd = validationPlanCwd(phaseArgs, projectRoot);
-        const before = await loadPlan(planCwd, args.planName);
         result = await runValidationPhase(phaseArgs);
         if (result.kind !== "paused") {
             // Verified/failed finish; a semantic repair handoff pauses outside this activated operation.
@@ -113,13 +108,7 @@ export async function runValidationLoop(args: ValidationLoopArgs): Promise<Workf
         // Plan merely because failure-attempt bookkeeping changed Front Matter.
         if (result.awaitingTaskCompletion) return result;
         if (result.awaitingUserAction) return result;
-        const after = await loadPlan(validationPlanCwd(phaseArgs, projectRoot), args.planName);
-        // Human review advances controller state without changing the document.
-        // Observe both owners; neither is a mirror of the other.
-        if (
-            after?.frontMatterRevision === before?.frontMatterRevision &&
-            after?.controllerRevision === before?.controllerRevision
-        ) return result;
+        if (!result.continueValidation) return result;
         // The caller's execution context described the world before validation began.
         // It is worth checking against once — a caller pointing at the wrong worktree
         // must not be humoured — but every phase after the first runs in the workflow
@@ -187,7 +176,7 @@ export async function loadCanonicalValidationPlan(
         };
     }
     const rawStatus = getPlanContentStatus(plan.markdown);
-    if (rawStatus !== undefined && !PLAN_STATUSES.includes(rawStatus as PlanStatus)) {
+    if (rawStatus !== undefined && !canonicalPlanStatus(rawStatus)) {
         return {
             kind: "blocked",
             result: canonicalOperationalResult(args, projectRoot, {
@@ -230,7 +219,5 @@ function validationPlanCwd(args: ValidationLoopArgs, projectRoot: string): strin
 }
 
 export function getPlanContentStatus(planContent: string): string | undefined {
-    if (!planContent.startsWith("---")) return undefined;
-    const parsed = extractYaml(planContent) as { attrs?: { status?: string } };
-    return typeof parsed.attrs?.status === "string" ? parsed.attrs.status : undefined;
+    return getDeclaredPlanStatus(planContent);
 }

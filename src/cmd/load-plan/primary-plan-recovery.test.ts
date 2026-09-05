@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { loadPlan, savePlan } from "../../plan-store.js";
+import { getDeclaredPlanStatus, loadPlan, savePlan } from "../../plan-store.js";
 import { createTestWorktreeAttempt, makeRepo } from "../../shared/worktree-test-helpers.js";
 import { removeWorktreeGitArtifacts } from "../../shared/worktree.js";
 import { resolvePlanWithPrimaryRecovery } from "./primary-plan-recovery.ts";
@@ -100,6 +100,32 @@ Deno.test("load-plan resolves an active Plan by durable planId", async () => {
 
         assertEquals(result.plan.planName, planName);
         assertEquals(result.plan.attrs.planId, planId);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("load-plan repairs retired ready_for_review status to implemented", async () => {
+    const projectRoot = await makeRepo();
+    const planName = "retired-review-status";
+    try {
+        await savePlan(projectRoot, planName, "# Retired Review Status\n", {
+            classification: "PLANNED_CHANGE",
+            complexity: "LOW",
+            summary: "Repair a retired status",
+            affectedPaths: [],
+            status: "implemented",
+            planId: "retired-review-status-id",
+        });
+        const path = `${projectRoot}/docs/plans/${planName}.md`;
+        const current = await Deno.readTextFile(path);
+        await Deno.writeTextFile(path, current.replace('status: "implemented"', 'status: "ready_for_review"'));
+
+        const result = await resolvePlanWithPrimaryRecovery(projectRoot, planName);
+
+        assertEquals(result.recoveredStatus, { from: "ready_for_review", to: "implemented" });
+        assertEquals(result.plan.attrs.status, "implemented");
+        assertEquals(getDeclaredPlanStatus(await Deno.readTextFile(path)), "implemented");
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
     }
