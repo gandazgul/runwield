@@ -2,7 +2,6 @@
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
-summary: "Add manifest-backed Session Artifact registration and one consumer-neutral Session Sidebar projection rendered as Workflow, Session, and Artifacts tabs in TUI and Workspace, reusing a generalized read-only Markdown viewer."
 affectedPaths:
     - "src/shared/session/file-session-store-types.ts"
     - "src/shared/session/file-session-store.ts"
@@ -30,6 +29,9 @@ parentPlan: "session-sidebar-and-artifact-review"
 order: 1
 dependencies: []
 planId: "ec3d5b1f-ebd6-4380-8392-df9f30cc9070"
+archivedAt: "2026-09-05T04:21:38.496Z"
+archivedFromStatus: "draft"
+archivedFromPath: "docs/plans/session-sidebar-and-artifact-review/01-shared-session-sidebar-and-artifact-catalog.md"
 ---
 
 # Shared Session Sidebar and Artifact Catalog
