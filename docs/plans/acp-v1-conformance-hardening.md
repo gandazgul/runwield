@@ -20,9 +20,14 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-02T13:47:43-04:00"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "d5c9b240-39a9-4d59-9c67-0b2fed44f46a"
+    path: "docs/work-records/2026-09-05-acp-v1-conformance-hardened.md"
+    lastAttemptAt: "2026-09-05T03:42:31.979Z"
 targetBranch: "main"
 ---
 
