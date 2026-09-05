@@ -1,16 +1,83 @@
 import { assert, assertEquals, assertNotEquals } from "@std/assert";
 import { fromFileUrl } from "@std/path";
-import { loadPlan, savePlan } from "../../plan-store.js";
+import { listPlans, loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import { findById, pruneEntry } from "../worktree-registry.js";
+import { addEntry } from "../worktree-registry.js";
 import { createExecutionStartPorts, startActiveExecutionWorkflow } from "./execution-start.ts";
 import { recordPlanEvent } from "./plan-lifecycle.js";
-import { resolveWorkflowPlanLocation } from "./plan-location.ts";
+import { recoverMissingExecutionWorktreesForPlanLoading, resolveWorkflowPlanLocation } from "./plan-location.ts";
 import { applySharedPlanReviewDecision } from "./plan-review-actions.ts";
 import { executePlanAction, loadPlanActionEvidence } from "./plan-actions.ts";
 
 const fixture = defineCommittedGitFixture({ ".gitignore": ".wld/\n", "app.ts": "// application\n" });
+
+Deno.test("load-plan rebuilds a missing execution worktree from one rescued branch", async () => {
+    const root = await fixture.checkout({ prefix: "rw-rescued-execution-" });
+    const container = await Deno.makeTempDir({ prefix: "rw-rescued-execution-tree-" });
+    const executionPath = `${container}/execution`;
+    try {
+        await savePlan(root, "demo", "# Demo\n\n## Context\n\nImplement demo.\n", {
+            planId: "rescued-plan-id",
+            classification: "PLANNED_CHANGE",
+            status: "ready_for_work",
+            targetBranch: "main",
+        });
+        await git(root, ["add", "docs"]);
+        await git(root, ["commit", "-m", "add Plan"]);
+        const baseCommit = await git(root, ["rev-parse", "HEAD"]);
+        const baseTree = await git(root, ["rev-parse", "HEAD^{tree}"]);
+        await git(root, ["switch", "-c", "rescued/demo"]);
+        await Deno.writeTextFile(`${root}/app.ts`, "// rescued implementation\n");
+        const plan = await loadPlan(root, "demo");
+        assert(plan);
+        await updatePlanFrontMatter(root, "demo", { status: "implemented" }, plan.attrs, {
+            expectedRevision: plan.revision,
+        });
+        await git(root, ["add", "app.ts", "docs/plans/demo.md"]);
+        await git(root, ["commit", "-m", "rescue completed implementation"]);
+        await git(root, ["switch", "main"]);
+        await Deno.writeTextFile(`${root}/target.ts`, "// newer target work\n");
+        await git(root, ["add", "target.ts"]);
+        await git(root, ["commit", "-m", "new target work"]);
+        await git(root, ["switch", "-c", "rescued/publication"]);
+        await git(root, ["merge", "--no-ff", "rescued/demo", "-m", "manually rescue execution commits"]);
+        const rescuedCommit = await git(root, ["rev-parse", "HEAD"]);
+        await git(root, ["branch", "-D", "rescued/demo"]);
+        await git(root, ["switch", "main"]);
+        await addEntry(root, {
+            id: "missing-attempt",
+            planName: "demo",
+            planId: "rescued-plan-id",
+            baseBranch: "main",
+            baseRef: "refs/heads/main",
+            baseCommit,
+            baseTree,
+            executionBaselineTree: baseTree,
+            branch: "worktree/demo-missing",
+            path: executionPath,
+            status: "completed",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        });
+
+        assertEquals(await recoverMissingExecutionWorktreesForPlanLoading(root), [{
+            planName: "demo",
+            branch: "worktree/demo-missing",
+        }]);
+        const listed = await listPlans(root);
+
+        assertEquals(listed.find((item) => item.name === "demo")?.attrs.status, "implemented");
+        assertEquals((await resolveWorkflowPlanLocation(root, "demo")).documentRoot, executionPath);
+        assertEquals(await git(root, ["rev-parse", "worktree/demo-missing"]), rescuedCommit);
+        assertEquals((await loadPlan(root, "demo"))?.attrs.status, "ready_for_work");
+    } finally {
+        await git(root, ["worktree", "remove", "--force", executionPath]).catch(() => {});
+        await Deno.remove(container, { recursive: true }).catch(() => {});
+        await Deno.remove(root, { recursive: true });
+    }
+});
 
 for (const surface of ["primary", "execution"]) {
     Deno.test(`review from ${surface}, restart, approve and execute keeps the document but creates a fresh attempt`, async () => {

@@ -113,6 +113,7 @@ export type ValidationRecoveryNotice =
     | { kind: "worktree_path_fixed"; planName: string }
     | { kind: "branch_restored"; branch: string }
     | { kind: "worktree_restored"; planName: string; branch: string }
+    | { kind: "plan_status_restored"; planName: string; from: string; to: string }
     | { kind: "execution_plan_fixed"; planName: string }
     | { kind: "review_range_fixed"; planName: string }
     | { kind: "merge_plan_preserved"; planName: string };
@@ -131,6 +132,8 @@ export function buildValidationRecoveryNotice(notice: ValidationRecoveryNotice):
             return `Branch ${notice.branch} is back.`;
         case "worktree_restored":
             return `The worktree for ${notice.planName} is back on branch ${notice.branch}.`;
+        case "plan_status_restored":
+            return `The Plan is fixed. Moving on.`;
         case "execution_plan_fixed":
             return `The Plan file for ${notice.planName} is now fixed and safe to use.`;
         case "review_range_fixed":
