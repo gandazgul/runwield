@@ -142,7 +142,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 prompt: buildValidationUserMessage({ kind: "repair_feedback_prompt" }),
                 defaultValue: buildValidationUserMessage({ kind: "repair_feedback_default" }),
             });
-            if (response.outcome !== "text") {
+            if (response.outcome !== "text" && response.outcome !== "submitted") {
                 return {
                     kind: "paused",
                     planName: args.planName,
