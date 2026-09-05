@@ -344,6 +344,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 continueValidation: true,
                 reason: "The repair is complete. Running checks before another review.",
             };
+        }
         emitStatus(args, buildValidationUserMessage({ kind: "review_repair", repairKind: "semantic" }), "warning");
         return {
             kind: "semantic_repair_handoff",
