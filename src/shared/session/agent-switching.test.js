@@ -78,7 +78,7 @@ Deno.test("switchActiveAgent marks only successful different root switches as ha
     });
 });
 
-Deno.test("switchActiveAgent keeps the first committed Agent marker silent after a presented Agent", async () => {
+Deno.test("switchActiveAgent marks a presented Agent change while replay keeps the first marker silent", async () => {
     await withRuntimeCommandFixture("agent-switch-presented-baseline-", async ({ projectRoot }) => {
         const { hostedSession, sessionManager } = makeSession(projectRoot);
         hostedSession.pushAgentInfo("Guide", "", "", "guide");
@@ -92,7 +92,7 @@ Deno.test("switchActiveAgent keeps the first committed Agent marker silent after
 
         const liveAgentEvents = events.filter((event) => event.type === RuntimeEventTypes.AGENT_CHANGED);
         assertEquals(liveAgentEvents.map((event) => [event.agentName, event.displayName, event.rootHandoff]), [
-            ["planner", "Planner", undefined],
+            ["planner", "Planner", true],
         ]);
         const replayEvents = createReplayEvents("presented-baseline", sessionManager.getBranch(), { projectRoot });
         assertEquals(
