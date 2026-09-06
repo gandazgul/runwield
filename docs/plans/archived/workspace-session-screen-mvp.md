@@ -32,6 +32,9 @@ workRecord:
     recordId: "45854a6d-ab07-4fd5-9efc-fa2be4b9f31e"
     path: "docs/work-records/2026-08-28-workspace-session-chat-mvp-verified.md"
     lastAttemptAt: "2026-08-28T20:50:30.479Z"
+archivedAt: "2026-09-05T04:21:54.347Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/workspace-session-screen-mvp.md"
 targetBranch: "main"
 ---
 
