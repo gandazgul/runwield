@@ -31,7 +31,6 @@ export {
     shouldContinueParentEpicAfterValidation,
     shouldRunWorkflowValidation,
     unaccountedOpenItems,
-    usedReviewDiffTool,
 } from "./validation-helpers.ts";
 
 export { type SemanticReviewPort, SYSTEM_SEMANTIC_REVIEW_PORT } from "./validation-session-adapter.ts";
@@ -49,7 +48,8 @@ type WorkRecordMnemotecaPort = import("../work-records/mnemoteca-port.ts").WorkR
  * The public loop arguments, unchanged from before the split.
  *
  * `hostedSession` stays required; the port is built internally. `semanticReviewPort`
- * stays injectable so tests can substitute message-returning fixtures.
+ * stays injectable at the external Agent boundary. Fixtures must invoke real
+ * workflow tools; returned transcripts cannot complete a workflow step.
  */
 export type ValidationLoopArgs = {
     planName: string;

@@ -197,10 +197,10 @@ Deno.test("remote publication records the lease head when the primary target is 
         await git(worktree.path, ["commit", "-m", "Validated execution candidate"]);
         const sealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
 
-        await git(projectRoot, ["clone", remoteRoot, contributorRoot]);
+        await git(projectRoot, ["clone", "--no-checkout", remoteRoot, contributorRoot]);
         await git(contributorRoot, ["config", "user.name", "RunWield Tests"]);
         await git(contributorRoot, ["config", "user.email", "runwield@example.com"]);
-        await git(contributorRoot, ["checkout", "-b", "main", "origin/main"]);
+        await git(contributorRoot, ["checkout", "main"]);
         await Deno.writeTextFile(`${contributorRoot}/remote-only.txt`, "new target commit\n");
         await git(contributorRoot, ["add", "remote-only.txt"]);
         await git(contributorRoot, ["commit", "-m", "Advance remote target"]);

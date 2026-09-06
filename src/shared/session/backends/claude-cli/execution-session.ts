@@ -4,6 +4,7 @@ import type { RunWieldModel } from "../../../models/model-registry.ts";
 import type { HostedSession } from "../../hosted-session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "../../session-runtime-events.js";
 import { getRootSessionBranchEntries } from "../../root-session.js";
+import { WorkflowStepCompleted } from "../../../workflow/workflow-tool-events.ts";
 import {
     prepareClaudeCliCommand,
     type PreparedClaudeCliCommand,
@@ -190,6 +191,7 @@ export class ClaudeCliExecutionSession {
             exitCode: number | null,
             message?: string,
         ) => {
+            if (options.signal?.reason instanceof WorkflowStepCompleted) return;
             // emitBackendStatus persists the sanitized runwield.backend_status transcript entry.
             if (statusEmitted) return;
             statusEmitted = true;

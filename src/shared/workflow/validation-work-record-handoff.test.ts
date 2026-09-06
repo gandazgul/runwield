@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { fauxAssistantMessage, type FauxResponseFactory, fauxText } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, type FauxResponseFactory, fauxToolCall } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { type RuntimeCommandFixture, withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { savePlan } from "../../plan-store.js";
@@ -43,15 +43,19 @@ async function runWorkRecordHandoff(
     });
     const respondToHandoff: FauxResponseFactory = (context) =>
         JSON.stringify(context).includes("post-verification checklist")
-            ? fauxAssistantMessage(fauxText("Manual verification steps\n- [ ] Exercise the verified feature."))
-            : fauxAssistantMessage(fauxText(JSON.stringify({
+            ? fauxAssistantMessage(
+                fauxToolCall("manual_qa_completed", {
+                    checklistMarkdown: "Manual verification steps\n- [ ] Exercise the verified feature.",
+                }),
+            )
+            : fauxAssistantMessage(fauxToolCall("work_record_completed", {
                 title: "Verified Feature Outcome",
                 summary: "Generated through the real post-verification handoff.",
                 supersessionProposals: [{
                     recordId: PREDECESSOR_RECORD_ID,
                     reason: "The verified implementation replaces the older implementation.",
                 }],
-            })));
+            }));
     setModelResponseFactories([respondToHandoff, respondToHandoff]);
     const mnemotecaPort = createWorkRecordMnemotecaFixture();
     const ui = makeUi();

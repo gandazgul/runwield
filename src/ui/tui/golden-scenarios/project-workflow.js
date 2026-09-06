@@ -280,14 +280,6 @@ export const twoChildProjectContinuationScenario = {
             ],
         },
         {
-            id: "reviewer-closes-first-child-round",
-            agent: "reviewer",
-            phase: "semantic_review",
-            planName: "epic/01-child-one",
-            ordinal: 2,
-            text: "Reported the approved first child outcome.",
-        },
-        {
             // Everything from here is driven by the Runtime's real Epic continuation
             // after the first child verifies: a fresh Session, the Planner on the
             // second child, its own review, execution and validation.
@@ -337,17 +329,6 @@ export const twoChildProjectContinuationScenario = {
                 { name: "review_diff", arguments: { command: "list" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Second child approved." } },
             ],
-        },
-        {
-            // Optional: whether a round needs a closing text turn depends on how the
-            // Reviewer session settles after review_complete, which varies by one turn.
-            id: "reviewer-closes-second-child-round",
-            agent: "reviewer",
-            phase: "semantic_review",
-            planName: "epic/02-child-two",
-            ordinal: 2,
-            optional: true,
-            text: "Reported the approved second child outcome.",
         },
     ],
     actions: [
@@ -525,15 +506,11 @@ export const projectChildCiFailureStopScenario = {
                 phase: "engineer",
                 planName: "epic/01-child-one",
                 ordinal: attempt * 2 + 1,
-                requiredTools: ["bash", "task_completed"],
+                requiredTools: ["bash"],
                 toolCalls: [
                     {
                         name: "bash",
                         arguments: { command: `printf '${attempt}\n' >> ci-repair-attempts.txt` },
-                    },
-                    {
-                        name: "task_completed",
-                        arguments: { message: `- CI repair ${attempt} could not fix the external validation command.` },
                     },
                 ],
             },
@@ -543,7 +520,11 @@ export const projectChildCiFailureStopScenario = {
                 phase: "engineer",
                 planName: "epic/01-child-one",
                 ordinal: attempt * 2 + 2,
-                text: `CI repair ${attempt} awaits validation.`,
+                requiredTools: ["task_completed"],
+                toolCalls: [{
+                    name: "task_completed",
+                    arguments: { message: `- CI repair ${attempt} could not fix the external validation command.` },
+                }],
             },
         ]),
     ],

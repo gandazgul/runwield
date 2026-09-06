@@ -7,6 +7,7 @@
 import { AGENTS } from "../../constants.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
 import { buildDiffInspectionSection, createReviewDiffTool } from "./review-diff-tool.js";
+import { logValidationFailure } from "./validation-state-errors.ts";
 import {
     applyRoundFindings,
     hasOpenItems,
@@ -82,9 +83,9 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
     }
 
     const state = readSemanticRoundState(args, context);
-    let round = state.semanticRound;
-    let ledger = state.reviewLedger;
-    let diffText = await getDiffText(context.baselineTree, context.executionCwd);
+    const round = state.semanticRound;
+    const ledger = state.reviewLedger;
+    const diffText = await getDiffText(context.baselineTree, context.executionCwd);
     if (requiresImplementationDiff(args.triageMeta) && !hasImplementationDiff(diffText, args.planName)) {
         const planOnly = Boolean(diffText.trim());
         const reason = planOnly
@@ -141,9 +142,14 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 prompt: buildValidationUserMessage({ kind: "repair_feedback_prompt" }),
                 defaultValue: buildValidationUserMessage({ kind: "repair_feedback_default" }),
             });
-            if (response.outcome !== "submitted") {
-                return { kind: "paused", planName: args.planName, projectRoot: context.projectRoot,
-                    awaitingUserAction: true, reason: "Engineer follow-up canceled. Your review findings are saved." };
+            if (response.outcome !== "text") {
+                return {
+                    kind: "paused",
+                    planName: args.planName,
+                    projectRoot: context.projectRoot,
+                    awaitingUserAction: true,
+                    reason: "Engineer follow-up canceled. Your review findings are saved.",
+                };
             }
             const feedback = typeof response.value === "string" ? response.value.trim() : "";
             await recordLifecycleEvent(args, context.projectRoot, "validation_failed", "validated_ci", feedback);
@@ -156,10 +162,20 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                     reason: repairBlockedReason(args, context.projectRoot, repair?.blockerText),
                 };
             }
-            args.session.setActiveWorkflow({ ...context.workflowBase, semanticRound: round,
-                reviewLedger: ledger, repairBaselineTree: state.repairBaselineTree, lastRepairReport: repair.report });
-            return { kind: "paused", planName: args.planName, projectRoot: context.projectRoot,
-                continueValidation: true, reason: "The repair is complete. Running checks before another review." };
+            args.session.setActiveWorkflow({
+                ...context.workflowBase,
+                semanticRound: round,
+                reviewLedger: ledger,
+                repairBaselineTree: state.repairBaselineTree,
+                lastRepairReport: repair.report,
+            });
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                continueValidation: true,
+                reason: "The repair is complete. Running checks before another review.",
+            };
         } else if (action === "stop") {
             return {
                 kind: "paused",
@@ -329,6 +345,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 continueValidation: true,
                 reason: "The repair is complete. Running checks before another review.",
             };
+        }
         emitStatus(args, buildValidationUserMessage({ kind: "review_repair", repairKind: "semantic" }), "warning");
         return {
             kind: "semantic_repair_handoff",
@@ -575,11 +592,12 @@ export async function runReviewerRound(
                 latestOutcome = outcome;
             }
         } catch (error) {
+            await logValidationFailure(error instanceof Error ? error : new Error(String(error)), "semantic_review");
             const failure = classifyValidationOperationalError({
                 source: "provider",
                 kind: "legacy_text",
                 operation: "semantic_review",
-                message: error instanceof Error ? error.message : String(error),
+                message: "The code review could not finish. Your commits are safe. Run validation again to retry it.",
             });
             const decision = decideValidationRecovery({
                 failure,
@@ -783,7 +801,12 @@ export async function dispatchReviewFeedbackRepair(
         }
         return { completed: true, report: taskReport.report };
     } catch (error) {
-        return { completed: false, report: "", reason: error instanceof Error ? error.message : String(error) };
+        await logValidationFailure(error instanceof Error ? error : new Error(String(error)), "semantic_repair");
+        return {
+            completed: false,
+            report: "",
+            reason: "The repair could not finish. Your changes are safe. Continue the repair to try again.",
+        };
     }
 }
 

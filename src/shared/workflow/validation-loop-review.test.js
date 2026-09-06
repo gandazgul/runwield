@@ -1,14 +1,17 @@
-import { assertEquals, assertNotEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertNotEquals, assertRejects, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
+import { getHomeDir } from "../../constants.js";
+import { join } from "@std/path";
 import { setCustomSetting } from "../settings.js";
-import { publishWorkflowToolEvent } from "./workflow-tool-events.ts";
+import { executeWorkflowTestTools } from "../../testing/workflow-agent-tools.ts";
 import { captureWorktreeTree } from "./git-snapshot.js";
 import {
     git,
     makeRecordedSession,
     makeUi,
     makeValidationProjectRoot,
+    runValidationLoop,
     runValidationPhase,
 } from "./validation-test-helpers.js";
 
@@ -111,31 +114,19 @@ function reviewPort(overrides = {}) {
     const overrideRun = typeof overrides.runIsolatedAgentSession === "function"
         ? overrides.runIsolatedAgentSession
         : () => Promise.reject(new Error("Unexpected isolated Agent session"));
-    let toolCallCounter = 0;
     return /** @type {any} */ ({
         ...overrides,
         runIsolatedAgentSession: async (/** @type {any} */ opts) => {
             const messages = await overrideRun(opts);
-            for (const message of messages || []) {
-                if (message?.role !== "toolResult" || message.isError) continue;
-                toolCallCounter += 1;
-                const toolCallId = message.toolCallId || `${message.toolName}-test-${toolCallCounter}`;
-                const tool = opts.customTools?.find((/** @type {any} */ candidate) =>
-                    candidate.name === message.toolName
-                );
-                if (tool) {
-                    await tool.execute(toolCallId, message.details || {});
-                    continue;
-                }
-                if (message.toolName === "review_complete") {
-                    publishWorkflowToolEvent({
-                        hostedSession: opts.hostedSession,
-                        toolCallId,
-                        kind: "review_complete",
-                        payload: message.details || {},
-                    });
-                }
-            }
+            await executeWorkflowTestTools(
+                opts,
+                (messages || [])
+                    .filter((/** @type {any} */ message) => message?.role === "toolResult" && !message.isError)
+                    .map((/** @type {any} */ message) => ({
+                        name: message.toolName,
+                        arguments: message.details || {},
+                    })),
+            );
             return messages;
         },
     });
@@ -383,7 +374,7 @@ Deno.test("runValidationPhase nudges the same reviewer session when review_compl
     assertStringIncludes(uiAPI.messages.join(" "), "AI code review needs more time");
 });
 
-Deno.test("runValidationPhase returns invalid review_complete arguments to the same Reviewer session", async () => {
+Deno.test("runValidationPhase nudges the same Reviewer after real argument validation rejects review_complete", async () => {
     const { hostedSession } = await makeValidatedCiRun();
     const reviewOpts = /** @type {any[]} */ ([]);
 
@@ -393,17 +384,18 @@ Deno.test("runValidationPhase returns invalid review_complete arguments to the s
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
         semanticReviewPort: reviewPort({
-            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+            runIsolatedAgentSession: async (/** @type {any} */ opts) => {
                 reviewOpts.push(opts);
                 if (reviewOpts.length === 1) {
-                    return Promise.resolve(
-                        /** @type {any} */ ([{
-                            role: "toolResult",
-                            toolName: "review_complete",
-                            isError: true,
-                            content: [{ type: "text", text: "findings must be an array" }],
-                        }]),
+                    await assertRejects(
+                        () =>
+                            executeWorkflowTestTools(opts, [{
+                                name: "review_complete",
+                                arguments: { approved: true, findings: "not an array" },
+                            }]),
+                        Error,
                     );
+                    return [];
                 }
                 return Promise.resolve(reviewerMessages());
             },
@@ -411,11 +403,11 @@ Deno.test("runValidationPhase returns invalid review_complete arguments to the s
     });
 
     assertEquals(reviewOpts.length, 2);
-    assertStringIncludes(reviewOpts[1].userRequest, "Correct the review_complete arguments");
+    assertStringIncludes(reviewOpts[1].userRequest, "have not called review_complete");
     assertEquals(reviewOpts[0].sessionManager, reviewOpts[1].sessionManager);
 });
 
-Deno.test("runValidationPhase replans after a missing review_diff item without retrying it", async () => {
+Deno.test("runValidationPhase cannot advance from a failed diff lookup without review_complete", async () => {
     const { hostedSession } = await makeValidatedCiRun();
     const reviewOpts = /** @type {any[]} */ ([]);
 
@@ -425,17 +417,14 @@ Deno.test("runValidationPhase replans after a missing review_diff item without r
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
         semanticReviewPort: reviewPort({
-            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+            runIsolatedAgentSession: async (/** @type {any} */ opts) => {
                 reviewOpts.push(opts);
                 if (reviewOpts.length === 1) {
-                    return Promise.resolve(
-                        /** @type {any} */ ([{
-                            role: "toolResult",
-                            toolName: "review_diff",
-                            isError: true,
-                            content: [{ type: "text", text: "file does not exist" }],
-                        }]),
-                    );
+                    await executeWorkflowTestTools(opts, [{
+                        name: "review_diff",
+                        arguments: { command: "show", path: "missing-file.js" },
+                    }]);
+                    return [];
                 }
                 return Promise.resolve(reviewerMessages());
             },
@@ -443,7 +432,7 @@ Deno.test("runValidationPhase replans after a missing review_diff item without r
     });
 
     assertEquals(reviewOpts.length, 2);
-    assertStringIncludes(reviewOpts[1].userRequest, "Do not request the missing item again");
+    assertStringIncludes(reviewOpts[1].userRequest, "have not called review_complete");
     assertEquals(reviewOpts[0].sessionManager, reviewOpts[1].sessionManager);
 });
 
@@ -469,7 +458,11 @@ Deno.test("runValidationPhase stops after one unknown Reviewer failure", async (
     assertEquals(result.kind, "failed");
     assertEquals(plan?.attrs.status, "validated_ci");
     assertStringIncludes(uiAPI.messages.join(" "), "AI code review for p stopped.");
-    assertStringIncludes(uiAPI.messages.join(" "), "Context window exceeded");
+    assertEquals(uiAPI.messages.join(" ").includes("Context window exceeded"), false);
+    assertStringIncludes(
+        await Deno.readTextFile(join(getHomeDir(), ".wld", "debug", "validation-errors.jsonl")),
+        "Context window exceeded",
+    );
 });
 
 Deno.test("runValidationPhase treats a Reviewer 404 as an operational retry without consuming a review round", async () => {
@@ -885,15 +878,23 @@ Deno.test("Stop at the review round limit keeps the passing tests and the open f
 });
 
 Deno.test("inline round-limit repair records passing CI before another Reviewer round", async () => {
-    const { projectRoot, hostedSession } = await makeValidatedCiRun({ validationSemanticRounds: 2 });
+    const { projectRoot, hostedSession } = await makeValidatedCiRun({
+        validationSemanticRounds: 2,
+        humanReviewMode: "always",
+    });
     let reviewerRuns = 0;
     let ciRuns = 0;
 
     hostedSession.setInteractionAdapter({
-        requestInteraction: () => Promise.resolve({ outcome: "selected", value: "continue" }),
+        requestInteraction: (request) =>
+            Promise.resolve(
+                request.type === "select" && request.options?.some((option) => option.value === "continue")
+                    ? { outcome: "selected", value: "continue" }
+                    : { outcome: "canceled" },
+            ),
     });
 
-    const result = await runValidationPhase({
+    const result = await runValidationLoop({
         hostedSession,
         planName: "p",
         planContent: "# p",
@@ -977,7 +978,7 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
 });
 
-Deno.test("^Claude MCP review completion waives only review_diff inspection$", async () => {
+Deno.test("transcript provenance cannot waive production diff inspection", async () => {
     // Accepted bridge-stamped review_complete: no review_diff transcript event
     // is needed, and no inspection nudge is issued.
     const { projectRoot, hostedSession } = await makeValidatedCiRun();
@@ -1011,9 +1012,9 @@ Deno.test("^Claude MCP review completion waives only review_diff inspection$", a
         }),
     });
 
-    assertEquals(reviewCalls, 1);
-    assertEquals(reviewPrompts[0].includes("without inspecting the diff"), false);
-    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_reviewer");
+    assertEquals(reviewCalls, 4);
+    assertEquals(reviewPrompts[1].includes("without inspecting the diff"), true);
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
 
     // An otherwise identical result WITHOUT the trusted provenance is still
     // nudged: the waiver belongs to the Claude opaque-inspection policy only.
@@ -1079,7 +1080,7 @@ Deno.test("^Claude MCP review completion waives only review_diff inspection$", a
                 ledgerCalls += 1;
                 if (ledgerCalls === 1) {
                     return Promise.resolve(
-                        /** @type {any} */ ([{
+                        /** @type {any} */ ([reviewerMessages()[0], {
                             role: "toolResult",
                             toolName: "review_complete",
                             details: {

@@ -60,10 +60,10 @@ function createCommandMnemotecaPort(commandOutput) {
  * Script only the external Recorder model response. Prompt construction,
  * structured-output parsing, Work Record persistence, and Plan backlinks stay real.
  *
- * @param {Record<string, string>} sections
+ * @param {import("./generation.js").GeneratedWorkRecordSections} sections
  */
 function recorderResponse(sections) {
-    return () => Promise.resolve(JSON.stringify(sections));
+    return () => Promise.resolve(sections);
 }
 
 /** @param {string} cwd */
@@ -374,9 +374,9 @@ Deno.test("default Recorder generation invokes the Recorder prompt boundary", as
         scope: "planned_change",
         completionMode: "verified",
     }, {
-        runRecorderPrompt: (prompt) => {
+        runRecorderStep: (prompt) => {
             prompts.push(prompt);
-            return Promise.resolve('{"title":"Feature Outcome","summary":"Completed through Recorder."}');
+            return Promise.resolve({ title: "Feature Outcome", summary: "Completed through Recorder." });
         },
     });
 
@@ -471,7 +471,7 @@ Deno.test("Work Record generation writes a record and active Plan backlink", asy
             mnemotecaPort: createWorkRecordMnemotecaFixture(),
             idGenerator: () => "44444444-4444-4444-8444-444444444444",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
-            runRecorderPrompt: recorderResponse({
+            runRecorderStep: recorderResponse({
                 title: "Standalone Outcome",
                 summary: "Completed the standalone feature.",
                 futurePlanningNotes: "Reuse this seam.",
@@ -520,12 +520,12 @@ Deno.test("Work Record generation rejects missing and self Recorder proposals be
             const outcome = await generateWorkRecordForSource(cwd, source, {
                 mnemotecaPort: createWorkRecordMnemotecaFixture(),
                 idGenerator: () => testCase.successorId,
-                runRecorderPrompt: () =>
-                    Promise.resolve(JSON.stringify({
+                runRecorderStep: () =>
+                    Promise.resolve({
                         title: "Invalid Proposal Outcome",
                         summary: "Must not be written.",
                         supersessionProposals: [{ recordId: testCase.candidateId, reason: "Material correction." }],
-                    })),
+                    }),
             });
 
             assertEquals(outcome.status, "failed");
@@ -553,7 +553,7 @@ Deno.test("Work Record generation preserves canonical state when the external in
         const outcome = await generateWorkRecordForSource(cwd, source, {
             idGenerator: () => "45454545-4545-4545-8545-454545454545",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
-            runRecorderPrompt: recorderResponse({
+            runRecorderStep: recorderResponse({
                 title: "Index Unavailable Outcome",
                 summary: "The canonical Work Record still exists.",
             }),
@@ -603,7 +603,7 @@ Deno.test("Work Record generation distills the task completion report into the s
             mnemotecaPort: createWorkRecordMnemotecaFixture(),
             idGenerator: () => "77777777-7777-4777-8777-777777777777",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
-            runRecorderPrompt: recorderResponse({
+            runRecorderStep: recorderResponse({
                 title: "Reported Outcome",
                 summary: `Completed with evidence: ${executionReport}`,
             }),
@@ -640,7 +640,7 @@ Deno.test("Work Record generation includes deterministic Plan record requirement
             mnemotecaPort: createWorkRecordMnemotecaFixture(),
             idGenerator: () => "88888888-8888-4888-8888-888888888888",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
-            runRecorderPrompt: recorderResponse({ title: "Required Outcome", summary: "Completed." }),
+            runRecorderStep: recorderResponse({ title: "Required Outcome", summary: "Completed." }),
         });
 
         assertEquals(outcome.status, "generated");
@@ -679,9 +679,9 @@ Deno.test("Work Record recorder prompt includes the task completion report as so
     let prompt = "";
 
     const sections = await generateRecorderSections(Deno.cwd(), source, {
-        runRecorderPrompt: (value) => {
+        runRecorderStep: (value) => {
             prompt = value;
-            return Promise.resolve(JSON.stringify({ title: "Reported", summary: "Distilled the execution report." }));
+            return Promise.resolve({ title: "Reported", summary: "Distilled the execution report." });
         },
     });
 
@@ -705,7 +705,7 @@ Deno.test("Work Record generation discloses skipped verification reason fallback
         const result = await runWorkRecordBackfill(cwd, {
             idGenerator: () => "55555555-5555-4555-8555-555555555555",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
-            runRecorderPrompt: recorderResponse({ title: "Closed", summary: "Implemented and accepted manually." }),
+            runRecorderStep: recorderResponse({ title: "Closed", summary: "Implemented and accepted manually." }),
             mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
@@ -735,7 +735,7 @@ Deno.test("Work Record generation preserves User Verification attribution and no
         const result = await runWorkRecordBackfill(cwd, {
             idGenerator: () => "66666666-6666-4666-8666-666666666666",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
-            runRecorderPrompt: recorderResponse({ title: "User Verified", summary: "Implemented feature." }),
+            runRecorderStep: recorderResponse({ title: "User Verified", summary: "Implemented feature." }),
             mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
@@ -771,7 +771,7 @@ Deno.test("Work Record backfill updates archived Plan backlinks", async () => {
         const result = await runWorkRecordBackfill(cwd, {
             idGenerator: () => "66666666-6666-4666-8666-666666666666",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
-            runRecorderPrompt: recorderResponse({ title: "Archived Source", summary: "Archived completed feature." }),
+            runRecorderStep: recorderResponse({ title: "Archived Source", summary: "Archived completed feature." }),
             mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
@@ -807,7 +807,7 @@ Deno.test("Work Record backfill retries failed Plan backlinks", async () => {
         const result = await runWorkRecordBackfill(cwd, {
             idGenerator: () => "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
-            runRecorderPrompt: recorderResponse({ title: "Retry Outcome", summary: "Retry succeeded." }),
+            runRecorderStep: recorderResponse({ title: "Retry Outcome", summary: "Retry succeeded." }),
             mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
@@ -838,7 +838,7 @@ Deno.test("Work Record generation rejects empty structured sections and records 
             mnemotecaPort: createWorkRecordMnemotecaFixture(),
             idGenerator: () => "77777777-7777-4777-8777-777777777777",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
-            runRecorderPrompt: recorderResponse({ title: "", summary: "" }),
+            runRecorderStep: recorderResponse({ title: "", summary: "" }),
         });
 
         assertEquals(outcome.status, "failed");
@@ -868,7 +868,7 @@ Deno.test("Work Record generation records failure backlink without changing term
             mnemotecaPort: createWorkRecordMnemotecaFixture(),
             idGenerator: () => "77777777-7777-4777-8777-777777777777",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
-            runRecorderPrompt: () => Promise.reject(new Error("Recorder exploded")),
+            runRecorderStep: () => Promise.reject(new Error("Recorder exploded")),
         });
 
         assertEquals(outcome.status, "failed");
@@ -936,7 +936,7 @@ Deno.test("Work Record backfill ignores non-linkable existing records and genera
         const result = await runWorkRecordBackfill(cwd, {
             idGenerator: () => "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
-            runRecorderPrompt: recorderResponse({
+            runRecorderStep: recorderResponse({
                 title: "Approved Internal",
                 summary: "Generated approved internal record.",
             }),
@@ -1314,7 +1314,7 @@ Deno.test("Work Record generation preserves child Ticket References when assigni
         ];
         const outcome = await generateWorkRecordForSource(cwd, source, {
             idGenerator: () => ids.shift() || "11111111-1111-4111-8111-111111111116",
-            runRecorderPrompt: recorderResponse({ title: "Epic Without Plan ID", summary: "Done." }),
+            runRecorderStep: recorderResponse({ title: "Epic Without Plan ID", summary: "Done." }),
             mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
 
@@ -1342,7 +1342,7 @@ Deno.test("Work Record generation snapshots standalone and Epic Ticket Reference
         if (!standalone) throw new Error("Expected standalone source");
         const standaloneOutcome = await generateWorkRecordForSource(cwd, standalone, {
             idGenerator: () => "11111111-1111-4111-8111-111111111112",
-            runRecorderPrompt: recorderResponse({ title: "Standalone", summary: "Done." }),
+            runRecorderStep: recorderResponse({ title: "Standalone", summary: "Done." }),
             mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
         assertEquals(standaloneOutcome.status, "generated");
@@ -1375,7 +1375,7 @@ Deno.test("Work Record generation snapshots standalone and Epic Ticket Reference
         if (!epic) throw new Error("Expected Epic source");
         const epicOutcome = await generateWorkRecordForSource(cwd, epic, {
             idGenerator: () => "11111111-1111-4111-8111-111111111113",
-            runRecorderPrompt: recorderResponse({ title: "Epic", summary: "Done." }),
+            runRecorderStep: recorderResponse({ title: "Epic", summary: "Done." }),
             mnemotecaPort: createWorkRecordMnemotecaFixture(),
         });
         assertEquals(epicOutcome.status, "generated");

@@ -15,10 +15,14 @@ import {
     loadPlan,
     updateArchivedPlanFrontMatter,
 } from "../../plan-store.js";
-import { runNonInteractiveAgentPrompt } from "../session/session.js";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { HostedSession } from "../session/hosted-session.js";
+import { runValidationAgentUntilEvent } from "../session/agent-workflow-step.ts";
+import { SYSTEM_SEMANTIC_REVIEW_PORT } from "../workflow/validation-session-adapter.ts";
+import { settleWorkflowToolEvent } from "../workflow/workflow-tool-events.ts";
+import { createWorkRecordCompletedTool } from "../../tools/work-record-completed.ts";
 import { dedupeTicketReferencesByUrl } from "../ticket-references.js";
 import { runPlanFrontMatterTransition } from "../workflow/state-transition.ts";
-import { extractAssistantOutput } from "../workflow/workflow-results.js";
 import { buildWorkRecordFileName, deleteWorkRecord, listWorkRecords, writeWorkRecord } from "./store.js";
 import { syncWorkRecordToIndex } from "./index-adapter.js";
 import { applyWorkRecordSupersession, WorkRecordSupersessionRollbackError } from "./supersession.ts";
@@ -62,7 +66,7 @@ const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Va
  * @typedef {Object} GenerationOptions
  * @property {() => string} [idGenerator]
  * @property {() => Date} [now]
- * @property {(prompt: string) => Promise<string>} [runRecorderPrompt]
+ * @property {(prompt: string) => Promise<GeneratedWorkRecordSections>} [runRecorderStep]
  * @property {import('./mnemoteca-port.ts').WorkRecordMnemotecaPort} [mnemotecaPort]
  */
 
@@ -484,7 +488,7 @@ function buildRecorderPrompt(source, successorRecordId, settledSupersedes) {
     return JSON.stringify(
         {
             instruction:
-                "Generate a concise Work Record body draft as JSON only: title, summary, optional deviationsFromPlan, optional deferredWork, optional futurePlanningNotes, and optional supersessionProposals. supersessionProposals must be an array of {recordId, reason}; each recordId must be a plain UUID and each reason must be non-blank. settledSupersedes are already confirmed and must not be proposed again. Propose only other existing Work Records that this result appears to replace. Distill executionReport facts into the appropriate sections; RunWield will preserve the raw executionReport separately when present.",
+                "Generate a concise Work Record body draft and call work_record_completed with: title, summary, optional deviationsFromPlan, optional deferredWork, optional futurePlanningNotes, and optional supersessionProposals. supersessionProposals must be an array of {recordId, reason}; each recordId must be a plain UUID and each reason must be non-blank. settledSupersedes are already confirmed and must not be proposed again. Propose only other existing Work Records that this result appears to replace. Distill executionReport facts into the appropriate sections; RunWield will preserve the raw executionReport separately when present.",
             successorRecordId,
             settledSupersedes,
             source: {
@@ -528,10 +532,26 @@ export async function generateRecorderSections(
     settledSupersedes = [],
 ) {
     const prompt = buildRecorderPrompt(source, successorRecordId, settledSupersedes);
-    const text = options.runRecorderPrompt ? await options.runRecorderPrompt(prompt) : extractAssistantOutput(
-        await runNonInteractiveAgentPrompt({ cwd, agentName: AGENTS.RECORDER, userRequest: prompt }),
-    ) || "";
-    return parseRecorderSections(text);
+    if (options.runRecorderStep) return normalizeRecorderOutput(await options.runRecorderStep(prompt));
+    const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
+    try {
+        const { event } = await runValidationAgentUntilEvent(SYSTEM_SEMANTIC_REVIEW_PORT, {
+            hostedSession,
+            cwd,
+            agentName: AGENTS.RECORDER,
+            userRequest: prompt +
+                "\nSubmit the sections by calling work_record_completed. Plain text cannot complete this step.",
+            sessionManager: SessionManager.inMemory(cwd),
+            customTools: [createWorkRecordCompletedTool(hostedSession)],
+            includeEditFallback: false,
+        }, "work_record_completed");
+        if (!event) throw new Error("The Recorder did not submit a Work Record. Retry generation.");
+        const sections = normalizeRecorderOutput(event.payload);
+        settleWorkflowToolEvent(hostedSession, event);
+        return sections;
+    } finally {
+        hostedSession.dispose();
+    }
 }
 
 /**
