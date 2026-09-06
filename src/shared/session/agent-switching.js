@@ -226,10 +226,7 @@ export async function switchActiveAgent(hostedSession, options) {
         });
         const committedAgentName = hostedSession.getRootAgentName() || agentName;
         const committedDisplayName = hostedSession.getActiveAgentInfo?.()?.displayName || committedAgentName;
-        // An explicit /agent request can switch away from a prompt-ready shell
-        // before it has a durable root. Ordinary first activation stays silent.
-        const previousRootIdentity = previousAgentName || persistedAgentName ||
-            (options.releaseActiveWorkflow ? selectionAgent || "" : "");
+        const previousRootIdentity = previousAgentName || persistedAgentName || selectionAgent || "";
         const rootHandoff = Boolean(previousRootIdentity) &&
             normalizeAgentInternalName(previousRootIdentity) !== normalizeAgentInternalName(committedAgentName);
         emitHostedSessionRuntimeEvent(hostedSession, {

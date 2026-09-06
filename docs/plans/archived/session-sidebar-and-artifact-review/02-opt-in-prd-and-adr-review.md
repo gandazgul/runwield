@@ -2,7 +2,6 @@
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
-summary: "Let Ideator and Architect offer optional feedback-and-revision review for registered PRDs and ADRs through the shared Markdown artifact surface without creating Plan lifecycle semantics."
 affectedPaths:
     - "src/tools/"
     - "src/agent-definitions/ideator.md"
@@ -27,6 +26,9 @@ order: 2
 dependencies:
     - "01-shared-session-sidebar-and-artifact-catalog"
 planId: "bc6ca032-417c-49b9-9aae-ef94b2b99882"
+archivedAt: "2026-09-05T04:21:38.496Z"
+archivedFromStatus: "draft"
+archivedFromPath: "docs/plans/session-sidebar-and-artifact-review/02-opt-in-prd-and-adr-review.md"
 ---
 
 # Opt-In PRD and ADR Review

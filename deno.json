@@ -74,6 +74,7 @@
         "vite": "npm:vite@^8.1.5",
         "esbuild": "npm:esbuild@^0.28.2",
         "codemirror": "npm:codemirror@^6.0.2",
+        "@codemirror/autocomplete": "npm:@codemirror/autocomplete@^6.20.3",
         "@codemirror/lang-markdown": "npm:@codemirror/lang-markdown@^6.5.0",
         "@codemirror/lang-javascript": "npm:@codemirror/lang-javascript@^6.2.5",
         "@codemirror/lang-json": "npm:@codemirror/lang-json@^6.0.2",
