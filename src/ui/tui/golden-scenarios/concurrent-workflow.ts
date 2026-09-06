@@ -122,11 +122,14 @@ export const concurrentPlansIdentityScenario = {
             agent: "recorder",
             phase: "work_record",
             ordinal: 1,
-            text: JSON.stringify({
-                title: "Concurrent B Work Record",
-                summary: "Recorded the completed concurrent Plan B fixture.",
-                deviationsFromPlan: "None.",
-            }),
+            toolCalls: [{
+                name: "work_record_completed",
+                arguments: {
+                    title: "Concurrent B Work Record",
+                    summary: "Recorded the completed concurrent Plan B fixture.",
+                    deviationsFromPlan: "None.",
+                },
+            }],
         },
         {
             id: "reviewer-approves-concurrent-b",
@@ -141,33 +144,16 @@ export const concurrentPlansIdentityScenario = {
             ],
         },
         {
-            id: "reviewer-closes-concurrent-b",
-            agent: "reviewer",
-            phase: "semantic_review",
-            planName: "concurrent-a",
-            ordinal: 2,
-            text: "B approved.",
-        },
-        {
             id: "reviewer-approves-concurrent-a",
             agent: "reviewer",
             phase: "semantic_review",
             planName: "concurrent-a",
-            ordinal: 3,
+            ordinal: 2,
             requiredTools: ["review_diff", "review_complete"],
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Concurrent A approved." } },
             ],
-        },
-        {
-            id: "reviewer-closes-concurrent-a",
-            agent: "reviewer",
-            phase: "semantic_review",
-            planName: "concurrent-a",
-            ordinal: 4,
-            optional: true,
-            text: "A approved.",
         },
     ],
     actions: [

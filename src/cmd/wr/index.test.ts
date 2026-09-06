@@ -1,3 +1,4 @@
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { loadPlan, savePlan } from "../../plan-store.js";
 import type { WorkRecordFrontMatter } from "../../shared/work-records/schema.js";
@@ -142,14 +143,14 @@ Deno.test("wld wr backfill --dry-run previews a real completed Plan without writ
 });
 
 Deno.test("wld wr backfill --yes writes a Work Record and its Plan backlink", async () => {
-    await withRuntimeCommandFixture("wr-backfill-write-", async ({ projectRoot, setModelResponse }) => {
+    await withRuntimeCommandFixture("wr-backfill-write-", async ({ projectRoot, setModelMessages }) => {
         Deno.chdir(projectRoot);
         await saveVerifiedPlan(projectRoot);
-        setModelResponse(JSON.stringify({
+        setModelMessages([fauxAssistantMessage(fauxToolCall("work_record_completed", {
             title: "Standalone Outcome",
             summary: "Completed the fixture feature through real Work Record machinery.",
             futurePlanningNotes: "Reuse the verified fixture path.",
-        }));
+        }))]);
 
         const output = await captureCommand(["backfill", "--yes"], {
             mnemotecaPort: createWorkRecordMnemotecaFixture(),

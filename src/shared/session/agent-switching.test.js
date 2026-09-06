@@ -6,6 +6,7 @@ import { __getRootSessionMetadataForTests } from "./session.js";
 import { HostedSession } from "./hosted-session.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { createReplayEvents } from "./session-transcript-projection.js";
+/** @typedef {{ type: string, agentName?: string, rootHandoff?: boolean }} AgentNoticeEvent */
 import {
     BACKEND_CONTINUATION_REQUEST,
     failRequestDispatch,
@@ -51,6 +52,20 @@ Deno.test("switchActiveAgent installs a real matching Agent root and handler", a
         assertEquals(agentEvents.length, 1);
         assertEquals(/** @type {any} */ (agentEvents[0]).displayName, "Guide");
         assertEquals(/** @type {any} */ (agentEvents[0]).rootHandoff, undefined);
+        hostedSession.dispose();
+    });
+});
+
+Deno.test("switchActiveAgent reports a user switch from the unpersisted prompt-ready Agent", async () => {
+    await withRuntimeCommandFixture("agent-switch-prompt-ready-", async ({ projectRoot }) => {
+        const { hostedSession, sessionManager } = makeSession(projectRoot);
+        hostedSession.resetAgentInfoStack("Guide", "", "", "guide");
+        /** @type {AgentNoticeEvent[]} */
+        const events = [];
+        hostedSession.setEventSink((/** @type {AgentNoticeEvent} */ event) => events.push(event));
+        await switchActiveAgent(hostedSession, { agentName: "planner", sessionManager, releaseActiveWorkflow: true });
+        const changed = events.filter((event) => event.type === RuntimeEventTypes.AGENT_CHANGED);
+        assertEquals(changed.map((event) => [event.agentName, event.rootHandoff]), [["planner", true]]);
         hostedSession.dispose();
     });
 });

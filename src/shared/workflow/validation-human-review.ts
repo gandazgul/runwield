@@ -190,6 +190,19 @@ export async function runHumanReviewPhase(
                     feedbackText,
                 ].join("\n")
                 : feedbackText;
+            // Editing invalidates the checked revision even if the Agent is interrupted.
+            await persistHumanReviewMetadata(args, context.executionCwd, {
+                humanReviewMode: mode,
+                humanReviewDecision: "changes_requested",
+                humanReviewedAt: null,
+            });
+            await recordLifecycleEvent(
+                args,
+                context.projectRoot,
+                "validation_failed",
+                "validated_reviewer",
+                feedbackText,
+            );
             const repair = await dispatchReviewFeedbackRepair(args, context, {
                 diffText,
                 findingsSection: conversationContext,
@@ -214,23 +227,7 @@ export async function runHumanReviewPhase(
                     diffText = context.nonGitInPlace
                         ? ""
                         : await getDiffText(context.baselineTree, context.executionCwd);
-                    return { kind: "conversation" };
                 }
-                // The user owns this review from here. Recorded before the status
-                // moves, so the phase that picks the Plan up next can see it and hand
-                // the diff straight back rather than starting another sweep.
-                await persistHumanReviewMetadata(args, context.executionCwd, {
-                    humanReviewMode: mode,
-                    humanReviewDecision: "changes_requested",
-                    humanReviewedAt: null,
-                });
-                await recordLifecycleEvent(
-                    args,
-                    context.projectRoot,
-                    "validation_failed",
-                    "validated_reviewer",
-                    feedbackText,
-                );
                 return {
                     kind: "decided",
                     result: {

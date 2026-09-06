@@ -921,7 +921,9 @@ async function runComposedTuiScenario(scenario, options) {
             // called saveChildFeaturePlans directly, so the real
             // slicer_finalize_decomposition tool and the Epic decomposition
             // transaction never ran in any Golden scenario.
-            const scriptedResponseFactories = (scenario.script || []).map(() =>
+            // Extra slots allow ancillary Recorder calls; they must still pass
+            // through the same strict actor dispatch as every other model turn.
+            const scriptedResponseFactories = Array.from({ length: (scenario.script || []).length + 8 }, () =>
             (
                 /** @type {unknown} */ context,
                 /** @type {unknown} */ _options,
@@ -939,6 +941,52 @@ async function runComposedTuiScenario(scenario, options) {
                     availableTools,
                     systemPrompt,
                 );
+                const checklistTool = availableTools.includes("manual_qa_completed")
+                    ? "manual_qa_completed"
+                    : availableTools.includes("qa_checklist_generated")
+                    ? "qa_checklist_generated"
+                    : null;
+                if (
+                    checklistTool &&
+                    !actor.remaining.some((turn) => turn.toolCalls?.some((call) => call.name === checklistTool))
+                ) {
+                    events.push("model:faux-provider:manual-qa:manual_qa");
+                    return createFauxMessageForTurn({
+                        id: "golden-default-manual-qa",
+                        agent: "manual-qa",
+                        phase: "manual_qa",
+                        toolCalls: [{
+                            name: checklistTool,
+                            arguments: {
+                                checklistMarkdown: `Manual verification steps for ${
+                                    lastWorkflowPlanName || "the completed Plan"
+                                }\n\n- [ ] Verify the completed behavior.`,
+                            },
+                        }],
+                    });
+                }
+                // Most scenarios do not prescribe prose for the Work Record.
+                // Only that ancillary model response has a default: persistence,
+                // indexing, and linking still run through the production tool.
+                if (
+                    availableTools.includes("work_record_completed") &&
+                    !actor.remaining.some((turn) => turn.agent === "recorder")
+                ) {
+                    events.push("model:faux-provider:recorder:work_record");
+                    return createFauxMessageForTurn({
+                        id: "golden-default-work-record",
+                        agent: "recorder",
+                        phase: "work_record",
+                        toolCalls: [{
+                            name: "work_record_completed",
+                            arguments: {
+                                title: "Golden Work Record",
+                                summary: "Recorded the completed Golden Planned Change for planning memory.",
+                                deviationsFromPlan: "None.",
+                            },
+                        }],
+                    });
+                }
                 if (scenario.captureModelTurns) {
                     const modelTurns = Array.isArray(state.modelTurns) ? state.modelTurns : [];
                     modelTurns.push({
@@ -990,57 +1038,7 @@ async function runComposedTuiScenario(scenario, options) {
                 events.push(`model:faux-provider:${agent}:${phase}`);
                 return createFauxMessageForTurn(actor.consumed.at(-1) || /** @type {any} */ ({ response }));
             });
-            const fallbackResponseFactories = Array.from({ length: 8 }, () => (/** @type {unknown} */ context) => {
-                const availableTools = getContextToolNames(context);
-                const fallbackSystemPrompt = String(
-                    /** @type {{ systemPrompt?: unknown }} */ (context && typeof context === "object" ? context : {})
-                        .systemPrompt || "",
-                );
-                // The Recorder's Output Contract is JSON body sections. Answering it
-                // in prose would fail generation on format alone and say nothing about
-                // Work Records; the record itself is still written, indexed and linked
-                // by the real generator from the real Plan and Git history.
-                if (fallbackSystemPrompt.includes("You are the Recorder")) {
-                    return createFauxMessageForTurn({
-                        id: "golden-fallback-work-record",
-                        agent: "recorder",
-                        phase: "work_record",
-                        text: JSON.stringify({
-                            title: "Golden Work Record",
-                            summary: "Recorded the completed Golden Planned Change for planning memory.",
-                            deviationsFromPlan: "None.",
-                        }),
-                    });
-                }
-                if (availableTools.includes("review_complete")) {
-                    return createFauxMessageForTurn({
-                        id: "golden-fallback-review-approval",
-                        agent: "engineer",
-                        phase: "engineer",
-                        thinking: "Approve repaired Golden implementation.",
-                        toolCalls: [{ name: "review_complete", arguments: { approved: true, feedback: "Approved." } }],
-                    });
-                }
-                if (availableTools.includes("bash") && availableTools.includes("task_completed")) {
-                    return createFauxMessageForTurn({
-                        id: "golden-fallback-merge-repair",
-                        agent: "engineer",
-                        phase: "engineer",
-                        thinking: "Clean isolated fixture settings overlap before merge retry.",
-                        toolCalls: [
-                            { name: "bash", arguments: { command: "rm -rf .wld" } },
-                            { name: "task_completed", arguments: { message: "- Removed isolated settings overlap." } },
-                        ],
-                    });
-                }
-                return createFauxMessageForTurn({
-                    id: "golden-fallback-text",
-                    agent: "guide",
-                    phase: "inquiry",
-                    text: "Golden fallback response.",
-                });
-            });
-            fauxProvider?.setResponses([...scriptedResponseFactories, ...fallbackResponseFactories]);
+            fauxProvider?.setResponses(scriptedResponseFactories);
             // The welcome prompt blocks inside createInteractiveTuiComposition while
             // scenario actions only run after it resolves, so startup-declared input
             // has to be fed while the composition promise is still in flight. Input

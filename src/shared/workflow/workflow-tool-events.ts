@@ -7,6 +7,7 @@
  */
 
 import type { HostedSession } from "../session/hosted-session.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 export const WORKFLOW_TOOL_EVENT_CUSTOM_TYPE = "runwield.workflow_tool_event" as const;
 
@@ -16,7 +17,9 @@ export type WorkflowToolEventKind =
     | "task_completed"
     | "review_diff"
     | "review_complete"
-    | "qa_checklist_generated";
+    | "qa_checklist_generated"
+    | "work_record_completed"
+    | "manual_qa_completed";
 
 export type WorkflowToolEventOwnerKind = "root" | "isolated";
 
@@ -77,6 +80,8 @@ export type WorkflowToolEventPayloadByKind = {
     review_diff: ReviewDiffEventPayload;
     review_complete: ReviewCompleteEventPayload;
     qa_checklist_generated: QaChecklistGeneratedEventPayload;
+    work_record_completed: import("../work-records/generation.js").GeneratedWorkRecordSections;
+    manual_qa_completed: { checklistMarkdown: string };
 };
 
 export type WorkflowToolEventPayload<K extends WorkflowToolEventKind = WorkflowToolEventKind> =
@@ -84,6 +89,26 @@ export type WorkflowToolEventPayload<K extends WorkflowToolEventKind = WorkflowT
 
 type ActiveExecutionWorkflow = import("../session/hosted-session.js").ActiveExecutionWorkflow;
 type OwningSession = ReturnType<HostedSession["getRootAgentSession"]>;
+type EventSourceSession = { sessionManager?: { getSessionId(): string } };
+type ToolEventSource = { hostedSession: HostedSession; owningSession: OwningSession };
+const toolEventSources = new AsyncLocalStorage<ToolEventSource>();
+
+/** Internal shutdown after accepted completion, distinct from user cancellation or failure. */
+export class WorkflowStepCompleted extends Error {
+    constructor() {
+        super("Workflow step completed");
+        this.name = "WorkflowStepCompleted";
+    }
+}
+
+/** Concurrent isolated Agents must not borrow whichever Agent last updated the footer. */
+export function withWorkflowToolEventSource<T>(
+    hostedSession: HostedSession,
+    owningSession: OwningSession,
+    run: () => Promise<T>,
+): Promise<T> {
+    return toolEventSources.run({ hostedSession, owningSession }, run);
+}
 
 export interface WorkflowToolEvent<K extends WorkflowToolEventKind = WorkflowToolEventKind> {
     version: 1;
@@ -92,6 +117,7 @@ export interface WorkflowToolEvent<K extends WorkflowToolEventKind = WorkflowToo
     kind: K;
     owner: WorkflowToolEventOwnerKind;
     owningSession: OwningSession;
+    sourceSessionId?: string;
     turnId: string | null;
     acceptedAtMs: number;
     payload: WorkflowToolEventPayload<K>;
@@ -148,6 +174,8 @@ interface EventWaiter {
     owningSession: OwningSession;
     turnId?: string;
     validationGeneration?: string;
+    excludeEventIds?: string[];
+    sourceSessionId?: string;
     resolve: (event: WorkflowToolEvent) => void;
 }
 
@@ -165,6 +193,9 @@ export interface ClaimWorkflowToolEventOptions {
     turnId?: string;
     validationGeneration?: string;
     signal?: AbortSignal;
+    /** An invocation must not adopt completion from an earlier turn. */
+    excludeEventIds?: string[];
+    sourceSessionId?: string;
 }
 
 const states = new WeakMap<HostedSession, EventState>();
@@ -209,6 +240,8 @@ function isRootOwnedSession(owningSession: OwningSession, rootSession: OwningSes
 function matchesOptions(event: WorkflowToolEvent, options: ClaimWorkflowToolEventOptions): boolean {
     if (event.claimed || event.settled) return false;
     if (!options.kinds.includes(event.kind)) return false;
+    if (options.excludeEventIds?.includes(event.eventId)) return false;
+    if (options.sourceSessionId && event.sourceSessionId !== options.sourceSessionId) return false;
     if (
         options.owningSession !== null &&
         !isRootOwnedSession(event.owningSession, options.owningSession) &&
@@ -280,6 +313,8 @@ function wakeWaiters(hostedSession: HostedSession): void {
         const event = claimWorkflowToolEvent(hostedSession, {
             kinds: [...waiter.kinds],
             owningSession: waiter.owningSession,
+            excludeEventIds: waiter.excludeEventIds,
+            sourceSessionId: waiter.sourceSessionId,
             ...(waiter.turnId ? { turnId: waiter.turnId } : {}),
             ...(waiter.validationGeneration ? { validationGeneration: waiter.validationGeneration } : {}),
         });
@@ -293,7 +328,10 @@ export function publishWorkflowToolEvent<K extends WorkflowToolEventKind>(
     options: PublishWorkflowToolEventOptions<K>,
 ): WorkflowToolEvent<K> {
     const { hostedSession, toolCallId, kind, payload } = options;
-    const owningSession = hostedSession.getActiveSteeringTargetSession();
+    const source = toolEventSources.getStore();
+    const owningSession = source?.hostedSession === hostedSession
+        ? source.owningSession
+        : hostedSession.getActiveSteeringTargetSession();
     const rootSession = hostedSession.getRootAgentSession();
     const owner: WorkflowToolEventOwnerKind = isRootOwnedSession(owningSession, rootSession) ? "root" : "isolated";
     const workflow = hostedSession.getActiveExecutionWorkflow?.() || null;
@@ -314,6 +352,7 @@ export function publishWorkflowToolEvent<K extends WorkflowToolEventKind>(
         kind,
         owner,
         owningSession,
+        sourceSessionId: (owningSession as EventSourceSession | null)?.sessionManager?.getSessionId(),
         turnId,
         acceptedAtMs: options.acceptedAtMs ?? Date.now(),
         payload,
@@ -391,6 +430,8 @@ export function waitForWorkflowToolEvent(
         const waiter: EventWaiter = {
             kinds: new Set(options.kinds),
             owningSession: options.owningSession,
+            excludeEventIds: options.excludeEventIds,
+            sourceSessionId: options.sourceSessionId,
             resolve,
             ...(options.turnId ? { turnId: options.turnId } : {}),
             ...(options.validationGeneration ? { validationGeneration: options.validationGeneration } : {}),

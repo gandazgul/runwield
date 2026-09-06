@@ -1,7 +1,7 @@
 import { assertEquals, assertExists, assertStringIncludes } from "@std/assert";
+import { executeWorkflowTestTools } from "../../testing/workflow-agent-tools.ts";
 import { join } from "@std/path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
@@ -24,20 +24,18 @@ function hostedSessionManager(sessionManager: SessionManager): HostedSessionMana
     return sessionManager as HostedSessionManager;
 }
 
-function completedRepairMessage(message = "- Repair completed."): AgentMessage[] {
-    return [{
-        role: "toolResult",
-        toolName: "task_completed",
-        details: { outcome: "task_completed", message },
-    }] as AgentMessage[];
-}
-
 function makeRepairPort(options: RepairPortOptions, counter: { runs: number }): SemanticReviewPort {
     return {
-        runIsolatedAgentSession: async () => {
+        runIsolatedAgentSession: async (request) => {
             counter.runs += 1;
             await options.onRun?.();
-            return options.completed === false ? [] : completedRepairMessage();
+            if (options.completed !== false) {
+                await executeWorkflowTestTools(request, [{
+                    name: "task_completed",
+                    arguments: { message: "- Repair completed." },
+                }]);
+            }
+            return [];
         },
     };
 }

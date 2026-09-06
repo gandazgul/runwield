@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
@@ -118,8 +118,10 @@ Deno.test("runLocalCI streams large validation output without failing the proces
 });
 
 Deno.test("Mechanical Validation runs real checklist and session machinery after CI passes", async () => {
-    await withRuntimeCommandFixture("mechanical-pass-", async ({ projectRoot, setModelResponse }) => {
-        setModelResponse("Manual verification steps for small-fix\n- [ ] Save settings and reload.");
+    await withRuntimeCommandFixture("mechanical-pass-", async ({ projectRoot, setModelMessages }) => {
+        setModelMessages([fauxAssistantMessage(fauxToolCall("manual_qa_completed", {
+            checklistMarkdown: "Manual verification steps for small-fix\n- [ ] Save settings and reload.",
+        }))]);
         const fixture = await activateMechanicalFixture(projectRoot);
         const ci = defineLocalCIFixture([{ kind: "completed", exitCode: 0, output: "ok" }]);
 
@@ -152,7 +154,9 @@ Deno.test("Mechanical Validation repairs through the real Engineer turn and then
     await withRuntimeCommandFixture("mechanical-repair-", async ({ projectRoot, setModelMessages }) => {
         setModelMessages([
             taskCompletedMessage("- Repaired the fixture failure."),
-            fauxAssistantMessage(fauxText("Manual verification steps for quick-fix\n- [ ] Exercise the repair.")),
+            fauxAssistantMessage(fauxToolCall("manual_qa_completed", {
+                checklistMarkdown: "Manual verification steps for quick-fix\n- [ ] Exercise the repair.",
+            })),
         ]);
         const fixture = await activateMechanicalFixture(projectRoot);
         const ci = defineLocalCIFixture([

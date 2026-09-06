@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { loadPlan, savePlan } from "../../plan-store.js";
@@ -13,9 +13,9 @@ Deno.test("Manual QA runs the bundled isolated Operator and persists its visible
             let modelContext = "";
             setModelResponseFactory((context) => {
                 modelContext = JSON.stringify(context);
-                return fauxAssistantMessage(fauxText(
-                    "Manual verification steps for settings-panel\n- [ ] Save settings and reload.",
-                ));
+                return fauxAssistantMessage(fauxToolCall("manual_qa_completed", {
+                    checklistMarkdown: "Manual verification steps for settings-panel\n- [ ] Save settings and reload.",
+                }));
             });
             const sessionManager = SessionManager.inMemory(projectRoot);
             const hostedSession = new HostedSession({ id: "manual-qa-persist", cwd: projectRoot });
@@ -32,7 +32,7 @@ Deno.test("Manual QA runs the bundled isolated Operator and persists its visible
                 cwd: projectRoot,
             });
 
-            assertEquals(messages.at(-1)?.role, "assistant");
+            assertEquals(messages, []);
             assertStringIncludes(modelContext, "Name: settings-panel");
             assertStringIncludes(modelContext, "Classification: PLANNED_CHANGE");
             assertStringIncludes(modelContext, "save settings and reload");

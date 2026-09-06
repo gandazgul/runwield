@@ -148,8 +148,8 @@ function isRootOwnedSession(owningSession: OwningSession, rootSession: OwningSes
 
 /**
  * Record an accepted root completion before the tool reports success. Isolated
- * Agent sessions keep using their synchronously returned message stream and are
- * intentionally excluded from the root-session outbox.
+ * Agent sessions publish owner-scoped accepted tool events and are intentionally
+ * excluded from the root-session outbox.
  */
 export function recordAcceptedTaskCompletion(args: RecordTaskCompletionArgs): string | null {
     const { hostedSession, agentName, report, timestampMs } = args;

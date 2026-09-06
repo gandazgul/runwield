@@ -244,7 +244,9 @@ Deno.test("QUICK_FIX completion runs real Mechanical Validation around the CI po
         await initializeGitProject(projectRoot);
         setModelMessages([
             taskCompleted("Updated the settings save action."),
-            fauxAssistantMessage(fauxText("Manual verification steps\n- [ ] Save settings and reload.")),
+            fauxAssistantMessage(fauxToolCall("manual_qa_completed", {
+                checklistMarkdown: "Manual verification steps\n- [ ] Save settings and reload.",
+            })),
         ]);
         const fixture = createSessionFixture(projectRoot);
         const ci = defineLocalCIFixture([{ kind: "completed", exitCode: 0, output: "ok" }]);
@@ -545,7 +547,9 @@ Deno.test("completed planned work runs the real validation lifecycle around exte
                     content: "implemented\n",
                 })),
                 taskCompleted("Implemented and checked the fixture feature."),
-                fauxAssistantMessage(fauxText("Manual verification steps\n- [ ] Inspect implemented.txt.")),
+                fauxAssistantMessage(fauxToolCall("manual_qa_completed", {
+                    checklistMarkdown: "Manual verification steps\n- [ ] Inspect implemented.txt.",
+                })),
             ]);
             publishPlanOutcome(fixture.hostedSession, "approved_execute", "feature-validated");
             const ci = defineLocalCIFixture([{ kind: "completed", exitCode: 0, output: "fixture CI passed" }]);

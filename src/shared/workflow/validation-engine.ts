@@ -41,6 +41,7 @@ export async function runValidationPhase(args: ValidationLoopArgs): Promise<Vali
         ...args,
         triageMeta: canonicalPlan.attrs as ValidationLoopArgs["triageMeta"],
         planContent: canonicalPlan.markdown,
+        validationCheckpoint: canonicalPlan.attrs.validationCheckpoint || undefined,
     };
     const nextPhase = resolveNextPhase(args, canonicalPlan.status);
     switch (nextPhase) {
@@ -83,10 +84,8 @@ function resolveNextPhase(
 /**
  * Run validation until it needs something it cannot supply.
  *
- * Each phase advances the Plan by one status and returns. Something has to run the
- * next one, and that is this: it keeps going while the Plan's status is still
- * moving, and stops the moment a phase parks without moving it — human review
- * awaiting a decision, a dispatched repair, a terminal outcome.
+ * Each phase returns an explicit continuation or pause. Status determines where
+ * a fresh invocation starts; a status write by itself never keeps this loop going.
  *
  * A completed check, accepted tool call, or explicit user decision authorizes
  * the next phase. Document revisions and presentation text never do.

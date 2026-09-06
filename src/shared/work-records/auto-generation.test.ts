@@ -1,3 +1,4 @@
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
@@ -57,14 +58,14 @@ async function saveEpicWithChild(projectRoot: string, terminal: boolean): Promis
 }
 
 Deno.test("automatic Work Record generation writes a canonical record and Plan backlink", async () => {
-    await withRuntimeCommandFixture("work-record-auto-", async ({ projectRoot, setModelResponse }) => {
+    await withRuntimeCommandFixture("work-record-auto-", async ({ projectRoot, setModelMessages }) => {
         Deno.chdir(projectRoot);
         await saveStandalonePlan(projectRoot);
-        setModelResponse(JSON.stringify({
+        setModelMessages([fauxAssistantMessage(fauxToolCall("work_record_completed", {
             title: "Standalone Outcome",
             summary: "Completed through the real automatic generation path.",
             futurePlanningNotes: "Reuse this fixture-backed flow.",
-        }));
+        }))]);
 
         const result = await autoGenerateWorkRecordForCompletedPlan({
             cwd: projectRoot,
@@ -85,13 +86,13 @@ Deno.test("automatic Work Record generation writes a canonical record and Plan b
 });
 
 Deno.test("automatic child completion generates only the terminal parent Epic record", async () => {
-    await withRuntimeCommandFixture("work-record-auto-epic-", async ({ projectRoot, setModelResponse }) => {
+    await withRuntimeCommandFixture("work-record-auto-epic-", async ({ projectRoot, setModelMessages }) => {
         Deno.chdir(projectRoot);
         await saveEpicWithChild(projectRoot, true);
-        setModelResponse(JSON.stringify({
+        setModelMessages([fauxAssistantMessage(fauxToolCall("work_record_completed", {
             title: "Epic Outcome",
             summary: "Completed the parent Epic with its fixture child.",
-        }));
+        }))]);
 
         const result = await autoGenerateWorkRecordForCompletedPlan({
             cwd: projectRoot,
@@ -146,19 +147,19 @@ Deno.test("automatic generation honors the project Work Record setting", async (
 });
 
 Deno.test("automatic generation persists normalized pending supersession proposals", async () => {
-    await withRuntimeCommandFixture("work-record-auto-proposal-", async ({ projectRoot, setModelResponse }) => {
+    await withRuntimeCommandFixture("work-record-auto-proposal-", async ({ projectRoot, setModelMessages }) => {
         Deno.chdir(projectRoot);
         const predecessorId = "11111111-1111-4111-8111-111111111111";
         await savePredecessor(projectRoot, predecessorId, "Earlier Outcome");
         await saveStandalonePlan(projectRoot);
-        setModelResponse(JSON.stringify({
+        setModelMessages([fauxAssistantMessage(fauxToolCall("work_record_completed", {
             title: "Standalone Outcome",
             summary: "Completed with a possible replacement.",
             supersessionProposals: [
                 { recordId: ` ${predecessorId} `, reason: " More complete evidence. " },
                 { recordId: predecessorId, reason: "Duplicate must be removed." },
             ],
-        }));
+        }))]);
 
         const result = await autoGenerateWorkRecordForCompletedPlan({
             cwd: projectRoot,
@@ -183,21 +184,21 @@ Deno.test("automatic generation persists normalized pending supersession proposa
 });
 
 Deno.test("automatic generation settles Plan declarations and keeps only undeclared proposals pending", async () => {
-    await withRuntimeCommandFixture("work-record-auto-declared-", async ({ projectRoot, setModelResponse }) => {
+    await withRuntimeCommandFixture("work-record-auto-declared-", async ({ projectRoot, setModelMessages }) => {
         Deno.chdir(projectRoot);
         const declaredId = "22222222-2222-4222-8222-222222222222";
         const proposedId = "33333333-3333-4333-8333-333333333333";
         await savePredecessor(projectRoot, declaredId, "Declared Earlier Outcome");
         await savePredecessor(projectRoot, proposedId, "Possible Earlier Outcome");
         await saveStandalonePlan(projectRoot, [declaredId]);
-        setModelResponse(JSON.stringify({
+        setModelMessages([fauxAssistantMessage(fauxToolCall("work_record_completed", {
             title: "Settled Outcome",
             summary: "Completed and reconciled.",
             supersessionProposals: [
                 { recordId: declaredId, reason: "The Plan already settled this relation." },
                 { recordId: proposedId, reason: "A separate possible replacement." },
             ],
-        }));
+        }))]);
 
         const result = await autoGenerateWorkRecordForCompletedPlan({
             cwd: projectRoot,
@@ -222,10 +223,10 @@ Deno.test("automatic generation settles Plan declarations and keeps only undecla
 });
 
 Deno.test("automatic generation preserves terminal Plan state when Recorder fails", async () => {
-    await withRuntimeCommandFixture("work-record-auto-failure-", async ({ projectRoot, setModelResponse }) => {
+    await withRuntimeCommandFixture("work-record-auto-failure-", async ({ projectRoot, setModelMessages }) => {
         Deno.chdir(projectRoot);
         await saveStandalonePlan(projectRoot);
-        setModelResponse("Recorder returned invalid fixture output.");
+        setModelMessages([fauxAssistantMessage(fauxText("Recorder returned invalid fixture output."))]);
 
         const result = await autoGenerateWorkRecordForCompletedPlan({
             cwd: projectRoot,

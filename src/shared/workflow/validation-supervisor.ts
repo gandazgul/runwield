@@ -17,10 +17,11 @@ import {
     validationCheckpointCanResume,
     validationPhaseForStatus,
 } from "./validation-checkpoint.ts";
-import { classifyValidationOperationalError } from "./validation-operational-errors.ts";
-import { decideValidationRecovery, readValidationRetryPolicy, retryValidationLater } from "./validation-recovery.ts";
+import { retryValidationLater } from "./validation-recovery.ts";
+import { logValidationFailure, ValidationStateError } from "./validation-state-errors.ts";
 import type { WorkflowValidationResult } from "./validation-types.ts";
 import { validationUserMessage } from "./validation-user-messages.ts";
+import { emitStatus } from "./validation-emit.ts";
 import { resumeValidationPlanAmendment } from "./validation-plan-amendment.ts";
 import { getDiffText, resolvePhaseContext } from "./validation-context.ts";
 import { renderOpenItems } from "./review-ledger.ts";
@@ -86,7 +87,7 @@ async function claimValidation(args: ContinueWorkflowValidationArgs): Promise<Cl
     const planCwd = await validationPlanCwd(args);
     for (let attempt = 0; attempt < 3; attempt += 1) {
         const plan = await loadPlan(planCwd, args.planName);
-        if (!plan) throw new Error(`Plan not found: ${args.planName}`);
+        if (!plan) throw new ValidationStateError("plan_missing");
         let phase = validationPhaseForStatus(plan.attrs.status);
         if (!phase && plan.attrs.status === "validated" && planCwd !== projectRoot) {
             const pendingPublication = await findWorktreeByPlanName(projectRoot, args.planName);
@@ -94,7 +95,7 @@ async function claimValidation(args: ContinueWorkflowValidationArgs): Promise<Cl
         }
         if (!phase) {
             if (!PLAN_STATUSES.includes(plan.attrs.status)) {
-                throw new Error(`Plan has unknown status: ${String(plan.attrs.status)}`);
+                throw new ValidationStateError("unknown_plan_status");
             }
             return { kind: "settled_completion", projectRoot };
         }
@@ -169,7 +170,9 @@ async function settleValidation(
                 ? current.repairGeneration || crypto.randomUUID()
                 : current.repairGeneration,
             repairCompletedOperationId: current.repairCompletedOperationId,
-            lastSettledOperationId: args.taskCompletionId || current.lastSettledOperationId,
+            lastSettledOperationId: result.retainTaskCompletionClaim
+                ? current.lastSettledOperationId
+                : args.taskCompletionId || current.lastSettledOperationId,
             reviewState: current.reviewState,
         });
         try {
@@ -211,7 +214,6 @@ export async function recordValidationRepairCompletion(args: {
         }
         if (checkpoint.repairCompletedOperationId === args.repairGeneration && checkpoint.state === "ready") return;
         const reviewState = readValidationReviewState(checkpoint);
-        if (!reviewState) throw new Error("Semantic repair completion is missing its saved Review Issues.");
         const completed = makeValidationCheckpoint({
             attemptId: checkpoint.attemptId,
             generation: checkpoint.generation,
@@ -222,7 +224,7 @@ export async function recordValidationRepairCompletion(args: {
             repairGeneration: checkpoint.repairGeneration,
             repairCompletedOperationId: args.repairGeneration,
             lastSettledOperationId: checkpoint.lastSettledOperationId,
-            reviewState: { ...reviewState, lastRepairReport: args.report },
+            reviewState: reviewState ? { ...reviewState, lastRepairReport: args.report } : undefined,
         });
         try {
             await updatePlanFrontMatter(
@@ -283,44 +285,30 @@ async function rebuildSemanticRepairHandoff(
 
 function operationalFailureResult(
     args: ContinueWorkflowValidationArgs,
-    error: unknown,
+    error: Error,
     phase?: ValidationCheckpoint["nextPhase"],
 ): WorkflowValidationResult {
-    const message = error instanceof Error ? error.message : String(error);
-    const failure = classifyValidationOperationalError(
-        message.startsWith("Plan not found:")
-            ? {
-                source: "validation_state",
-                kind: "plan_missing",
-                operation: "validation_state",
-                message,
-            }
-            : message.startsWith("Plan has unknown status:")
-            ? {
-                source: "validation_state",
-                kind: "unknown_plan_status",
-                operation: "validation_state",
-                message,
-            }
-            : {
-                source: "policy",
-                kind: "lifecycle_invariant",
-                operation: "validation_state",
-                message,
-            },
-    );
-    const decision = decideValidationRecovery({
-        failure,
-        attempt: 1,
-        policy: readValidationRetryPolicy(validationProjectRoot(args)),
-        nextPhase: phase,
-    });
+    const canceled = error.name === "AbortError";
+    const message = canceled
+        ? "Validation stopped at your request. Load this Plan to continue."
+        : error instanceof ValidationStateError && error.code === "plan_missing"
+        ? "The Plan file could not be found. Restore it, then load the Plan to continue."
+        : error instanceof ValidationStateError && error.code === "unknown_plan_status"
+        ? "The saved Plan needs attention before validation can continue. Open the Plan and check its status."
+        : error instanceof Deno.errors.PermissionDenied
+        ? "Validation could not access the project files. Check folder permissions, then retry."
+        : "Validation paused before it could finish. Your changes are safe. Load this Plan to retry from the saved step.";
     return {
-        kind: decision.action === "halt" ? "failed" : "paused",
+        kind: "paused",
         planName: args.planName,
         projectRoot: validationProjectRoot(args),
-        reason: decision.result.message,
-        recovery: decision.result,
+        reason: message,
+        retainTaskCompletionClaim: true,
+        recovery: retryValidationLater(
+            canceled ? "validation_canceled" : "validation_operation_interrupted",
+            message,
+            phase,
+        ),
     };
 }
 
@@ -342,6 +330,13 @@ function pausedResult(
 /** Reconcile canonical Plan state, claim one owner, run, and durably settle. */
 export async function continueWorkflowValidation(
     args: ContinueWorkflowValidationArgs,
+): Promise<WorkflowValidationResult> {
+    return await continueValidationAttempt(args, 0);
+}
+
+async function continueValidationAttempt(
+    args: ContinueWorkflowValidationArgs,
+    retry: number,
 ): Promise<WorkflowValidationResult> {
     let claim: Extract<ClaimResult, { kind: "claimed" }> | undefined;
     try {
@@ -440,13 +435,30 @@ export async function continueWorkflowValidation(
         }
         return result;
     } catch (error) {
-        const result = operationalFailureResult(args, error, claim?.checkpoint.nextPhase);
+        const failure = error instanceof Error ? error : new Error(String(error));
+        const result = operationalFailureResult(args, failure, claim?.checkpoint.nextPhase);
+        let released = !claim;
         if (claim) {
-            await settleValidation(args, claim.checkpoint, result, claim.planCwd).catch((settlementError) => {
-                console.error("[RunWield] validation_pause_write_failed", settlementError);
-            });
+            try {
+                await settleValidation(args, claim.checkpoint, result, claim.planCwd);
+                released = true;
+            } catch (settlementError) {
+                await logValidationFailure(
+                    settlementError instanceof Error ? settlementError : new Error(String(settlementError)),
+                    "pause",
+                );
+            }
         }
-        console.error("[RunWield] validation_operation_failed", error);
+        await logValidationFailure(failure, "validation");
+        // Only revision contention is safe to retry automatically. Reload the
+        // canonical phase, never replay an Agent turn from its transcript.
+        if (
+            released && retry < 2 &&
+            (error instanceof StalePlanWriteError || error instanceof StaleControllerWriteError)
+        ) {
+            return await continueValidationAttempt(args, retry + 1);
+        }
+        emitStatus(createEngineValidationArgs(args), result.reason || validationUserMessage("retry_pause"), "warning");
         return result;
     }
 }
@@ -465,7 +477,7 @@ export async function runWorkflowValidationToStableBoundary(
     // A resumed run can first consume its durable recovery checkpoint before
     // advancing through Mechanical Validation, semantic review, optional human
     // review, and publication. Bound the loop above that complete phase count;
-    // status/reason checks below still stop immediately at Agent/user boundaries.
+    // explicit decisions below still stop immediately at Agent/user boundaries.
     for (let phase = 0; phase < 5; phase += 1) {
         if (result?.kind !== "paused" || !result.continueValidation) break;
         const planCwd = await validationPlanCwd(args);
@@ -475,8 +487,8 @@ export async function runWorkflowValidationToStableBoundary(
         if (status !== "validated_ci" && status !== "validated_reviewer") break;
         args = {
             ...args,
-            planContent: plan.markdown || plan.body || args.planContent,
-            triageMeta: { ...args.triageMeta, ...plan.attrs },
+            planContent: plan.markdown,
+            triageMeta: plan.attrs as ContinueWorkflowValidationArgs["triageMeta"],
         };
         result = await continueWorkflowValidation(args);
     }

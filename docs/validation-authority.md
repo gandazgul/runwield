@@ -24,12 +24,33 @@ Lifecycle, close Review Issues, move a target branch, or authorize cleanup.
 The workflow distinguishes these inputs before choosing a lifecycle event:
 
 - command execution produces a structured CI result;
-- Reviewer output contains approval, stable Review Issues, and non-blocking advisories;
+- accepted `review_complete` calls contain approval, stable Review Issues, and non-blocking advisories;
 - repair completion contains a consume-once repair generation and an untrusted per-item report;
 - publication returns committed, rolled back, blocked, or needs recovery, retaining the typed cause;
 - user decisions are explicit interaction outcomes, including stop and cancel.
 
 Error text is for people and diagnostics. It is not a lifecycle discriminator.
+
+Every Agent-owned workflow step ends through its accepted completion tool. The validation owner registers its listener
+before dispatch, accepts only events from that invocation, then stops the producer before starting the next phase.
+`task_completed` ends repairs; `review_complete` ends code review; `qa_checklist_generated` ends Epic child QA;
+`manual_qa_completed` ends standalone Plan and Quick Fix QA; `work_record_completed` supplies Work Record sections.
+Closing prose, returned tool-result transcripts, and backend shutdown are never completion evidence. Backend failures
+use structured error results and do not consume semantic review rounds.
+
+Concurrent isolated Agents carry their own tool-event source through the invocation. The visible Agent/footer stack is
+not used to decide which Agent completed a step. Stopping an Agent after accepted completion does not emit a terminal
+error or clear the validation reports.
+
+The outer driver continues only when a phase returns an explicit continuation decision. Stop, cancel, and incomplete
+Agent turns remain paused regardless of the wording of their messages. Canceling human review does not waive it. Any
+Engineer repair invalidates prior validation before dispatch, so fresh CI must pass before review or publication. After
+the third CI repair, CI runs once more; a failure pauses before a fourth repair, while success continues normally.
+
+Recoverable stale-write conflicts reload the Plan and controller record and retry within a bounded attempt. Other errors
+pause without discarding the accepted completion receipt. Detailed diagnostics go to
+`~/.wld/debug/validation-errors.jsonl`, not the terminal. After restart, Engineer follow-up rebuilds context from the
+saved Plan, repair report and Review Issues.
 
 ## Mechanical repair completion and restart
 

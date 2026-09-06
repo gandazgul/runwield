@@ -2,6 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { HostedSession } from "./hosted-session.js";
 import { attachSessionEventSubscribers } from "./session.js";
 import { createSessionRuntimeEvent } from "./session-runtime-events.js";
+import { getCwd } from "../../constants.js";
 
 /**
  * @returns {{ session: any, emit: (event: any) => void, unsubscribed: () => boolean }}
@@ -31,7 +32,7 @@ function makeSubscribableSession() {
 
 /** @param {string} id */
 function makeRuntimeHarness(id) {
-    const hostedSession = new HostedSession({ id, cwd: Deno.cwd() });
+    const hostedSession = new HostedSession({ id, cwd: getCwd() });
     /** @type {any[]} */
     const events = [];
     hostedSession.setEventSink({
@@ -41,6 +42,22 @@ function makeRuntimeHarness(id) {
 }
 
 const agentDef = /** @type {any} */ ({ name: "tester", displayName: "Tester" });
+
+Deno.test("explicit isolated-step cancellation does not erase the validation panel with a terminal error", () => {
+    const { session, emit } = makeSubscribableSession();
+    const { hostedSession, events } = makeRuntimeHarness("completed-step-cancellation");
+    const cancellation = new AbortController();
+    const state = attachSessionEventSubscribers(session, agentDef, undefined, hostedSession, cancellation.signal);
+    cancellation.abort();
+    emit({
+        type: "message_end",
+        message: { role: "assistant", stopReason: "error", errorMessage: "The signal has been aborted" },
+    });
+    emit({ type: "turn_end" });
+    assertEquals(events.filter((event) => event.type === "terminal_error").length, 0);
+    assertEquals(events.filter((event) => event.type === "turn_end").length, 1);
+    state.unsubscribe();
+});
 
 Deno.test("session subscriber emits thinking, message, status, error, usage, and lifecycle events only", () => {
     const { session, emit } = makeSubscribableSession();

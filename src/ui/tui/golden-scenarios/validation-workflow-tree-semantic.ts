@@ -1,3 +1,4 @@
+import { assertEquals } from "@std/assert";
 import {
     plannedChangeNonGitInPlaceScenario,
     plannedChangeReviewRepairValidationScenario,
@@ -34,7 +35,7 @@ export const validationTreeSemanticRepairIncompleteScenario = withValidationBran
         ...plannedChangeReviewRepairValidationScenario,
         name: "validation-tree-semantic-repair-incomplete-base",
         script: [
-            ...(plannedChangeReviewRepairValidationScenario.script as GoldenScriptTurn[]).slice(0, 6),
+            ...(plannedChangeReviewRepairValidationScenario.script as GoldenScriptTurn[]).slice(0, 5),
             {
                 id: "engineer-semantic-repair-without-completion",
                 agent: "engineer",
@@ -192,14 +193,6 @@ export const validationTreeSemanticProviderErrorRetryScenario = withValidationBr
                     },
                 ],
             },
-            {
-                id: "semantic-review-closes-after-provider-retry",
-                agent: "reviewer",
-                phase: "semantic_review",
-                planName: "semantic-provider-error-retry",
-                ordinal: 3,
-                text: "Approved after the provider recovered.",
-            },
         ],
         scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" }],
         actions: [
@@ -261,12 +254,14 @@ export const validationTreeSemanticNudgeOmittedPriorFindingScenario = withValida
                     },
                 ],
             },
-            ...plannedChangeReviewRepairValidationScenario.script.slice(5, 8),
+            ...plannedChangeReviewRepairValidationScenario.script.filter((turn) =>
+                turn.agent === "engineer" && turn.ordinal >= 3
+            ),
             {
                 id: "semantic-reviewer-omits-prior-finding-after-repair",
                 agent: "reviewer",
                 phase: "semantic_review",
-                ordinal: 3,
+                ordinal: 2,
                 requiredTools: ["review_diff", "review_complete"],
                 thinking: "Inspect the repair diff, then approve while omitting the existing open finding.",
                 toolCalls: [
@@ -278,17 +273,10 @@ export const validationTreeSemanticNudgeOmittedPriorFindingScenario = withValida
                 ],
             },
             {
-                id: "semantic-reviewer-closes-omitted-prior-finding-result",
-                agent: "reviewer",
-                phase: "semantic_review",
-                ordinal: 4,
-                text: "Reported approval without accounting for the existing finding.",
-            },
-            {
                 id: "semantic-reviewer-accounts-for-prior-finding-after-nudge",
                 agent: "reviewer",
                 phase: "semantic_review",
-                ordinal: 5,
+                ordinal: 3,
                 requiredTools: ["review_diff", "review_complete"],
                 thinking: "Answer the nudge by accounting for the existing finding identity.",
                 toolCalls: [
@@ -302,13 +290,6 @@ export const validationTreeSemanticNudgeOmittedPriorFindingScenario = withValida
                         },
                     },
                 ],
-            },
-            {
-                id: "semantic-reviewer-closes-omitted-prior-finding-round",
-                agent: "reviewer",
-                phase: "semantic_review",
-                ordinal: 6,
-                text: "Reported the repaired finding after the omitted-finding nudge.",
             },
         ],
         actions: [
@@ -375,14 +356,6 @@ export const validationTreeSemanticNudgeMissingReviewCompleteScenario = withVali
                         arguments: { approved: true, feedback: "Approved after review_complete nudge." },
                     },
                 ],
-            },
-            {
-                id: "reviewer-closes-semantic-nudge-missing-review-complete",
-                agent: "reviewer",
-                phase: "semantic_review",
-                planName: "semantic-nudge-missing-review-complete",
-                ordinal: 3,
-                text: "Approved after missing-review-complete nudge.",
             },
         ],
         scriptedInteractions: [
@@ -456,14 +429,6 @@ export const validationTreeSemanticNudgeMissingDiffInspectionScenario = withVali
                         arguments: { approved: true, feedback: "Approved after diff inspection." },
                     },
                 ],
-            },
-            {
-                id: "reviewer-closes-semantic-nudge-missing-diff",
-                agent: "reviewer",
-                phase: "semantic_review",
-                planName: "semantic-nudge-missing-diff",
-                ordinal: 3,
-                text: "Approved after missing-diff nudge.",
             },
         ],
         scriptedInteractions: [
@@ -556,19 +521,11 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                 toolCalls: [{ name: "task_completed", arguments: { message: "- Repaired semantic round 1." } }],
             },
             {
-                id: "reviewer-closes-semantic-round-limit-stop-1",
-                agent: "reviewer",
-                phase: "semantic_review",
-                planName: "semantic-round-limit-stop",
-                ordinal: 2,
-                text: "Reported semantic round 1 findings.",
-            },
-            {
                 id: "reviewer-rejects-semantic-round-limit-stop-2",
                 agent: "reviewer",
                 phase: "semantic_review",
                 planName: "semantic-round-limit-stop",
-                ordinal: 3,
+                ordinal: 2,
                 requiredTools: ["review_diff", "review_complete"],
                 toolCalls: [
                     { name: "review_diff", arguments: { command: "list" } },
@@ -610,19 +567,11 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                 toolCalls: [{ name: "task_completed", arguments: { message: "- Repaired semantic round 2." } }],
             },
             {
-                id: "reviewer-closes-semantic-round-limit-stop-2",
-                agent: "reviewer",
-                phase: "semantic_review",
-                planName: "semantic-round-limit-stop",
-                ordinal: 4,
-                text: "Reported semantic round 2 findings.",
-            },
-            {
                 id: "reviewer-rejects-semantic-round-limit-stop-3",
                 agent: "reviewer",
                 phase: "semantic_review",
                 planName: "semantic-round-limit-stop",
-                ordinal: 5,
+                ordinal: 3,
                 requiredTools: ["review_diff", "review_complete"],
                 toolCalls: [
                     { name: "review_diff", arguments: { command: "list" } },
@@ -641,14 +590,6 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                         },
                     },
                 ],
-            },
-            {
-                id: "reviewer-closes-semantic-round-limit-stop-3",
-                agent: "reviewer",
-                phase: "semantic_review",
-                planName: "semantic-round-limit-stop",
-                ordinal: 6,
-                text: "Reported semantic round 3 findings.",
             },
             {
                 id: "engineer-repairs-semantic-round-limit-stop-3",
@@ -676,7 +617,7 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                 agent: "reviewer",
                 phase: "semantic_review",
                 planName: "semantic-round-limit-stop",
-                ordinal: 7,
+                ordinal: 4,
                 optional: true,
                 requiredTools: ["review_diff", "review_complete"],
                 toolCalls: [
@@ -690,15 +631,6 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                         },
                     },
                 ],
-            },
-            {
-                id: "reviewer-closes-semantic-round-limit-continue",
-                agent: "reviewer",
-                phase: "semantic_review",
-                planName: "semantic-round-limit-stop",
-                ordinal: 8,
-                optional: true,
-                text: "Focused round-limit recheck complete.",
             },
         ],
         scriptedInteractions: [
@@ -876,6 +808,63 @@ export const validationTreeSemanticRoundLimitHumanReviewScenario = {
     assertions: [validationEvidenceAssertion("semantic:round-limit:human-review")],
 };
 
+type FollowUpPublicationResult = {
+    state: { publication?: { deliveredText?: string; remotePlanStatus?: string } };
+    actor: { consumed: string[] };
+};
+
+export const validationTreeSemanticRoundLimitFollowUpScenario = {
+    ...validationTreeSemanticRoundLimitContinueScenario,
+    name: "validation-tree-semantic-round-limit-follow-up",
+    committedProjectFiles: [{
+        path: ".wld/settings.json",
+        text: JSON.stringify({
+            verification_command:
+                "if test \"$(cat semantic-round-limit-stop.txt)\" = followup; then printf 'checked followup' > followup-ci.txt; fi",
+        }) + "\n",
+    }],
+    scriptedInteractions: [
+        { type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" },
+        { type: "select", promptIncludes: "Look once more, read it, or stop.", value: "engineer_follow_up" },
+        { type: "text", promptIncludes: "Tell the Repair Engineer", value: "Apply the follow-up change and check it." },
+        { type: "select", promptIncludes: "Look once more, read it, or stop.", value: "continue" },
+    ],
+    script: [
+        ...validationTreeSemanticRoundLimitStopScenario.script,
+        {
+            id: "engineer-applies-round-limit-follow-up",
+            agent: "engineer",
+            phase: "engineer",
+            planName: "semantic-round-limit-stop",
+            ordinal: 7,
+            requiredTools: ["write"],
+            toolCalls: [{ name: "write", arguments: { path: "semantic-round-limit-stop.txt", content: "followup\n" } }],
+        },
+        {
+            id: "engineer-completes-round-limit-follow-up",
+            agent: "engineer",
+            phase: "engineer",
+            planName: "semantic-round-limit-stop",
+            ordinal: 8,
+            requiredTools: ["task_completed"],
+            toolCalls: [{ name: "task_completed", arguments: { message: "Follow-up applied." } }],
+        },
+    ],
+    actions: [
+        ...validationTreeSemanticRoundLimitContinueScenario.actions,
+        { type: "capturePublicationState", planName: "semantic-round-limit-stop", deliveredPath: "followup-ci.txt" },
+    ],
+    validationBranches: [],
+    assertions: [(result: FollowUpPublicationResult) => {
+        assertEquals(result.actor.consumed.includes("engineer-completes-round-limit-follow-up"), true);
+        assertEquals(result.actor.consumed.includes("reviewer-approves-semantic-round-limit-continue"), true);
+        // Only the real CI subprocess can create this file, and only after
+        // the follow-up Engineer changed the implementation.
+        assertEquals(result.state.publication?.deliveredText, "checked followup");
+        assertEquals(result.state.publication?.remotePlanStatus, "validated");
+    }],
+};
+
 // A loaded QUICK_FIX can resume a durable semantic phase without requiring an
 // implementation diff. OPERATION is deliberately not a Plan classification.
 export const validationTreeEmptyDiffSkipScenario = withValidationBranches(
@@ -947,14 +936,6 @@ export const validationTreeSemanticRoundModeDiscoveryToVerifyScenario = withVali
                     },
                 ],
             },
-            {
-                id: "reviewer-closes-verify-mode-round",
-                agent: "reviewer",
-                phase: "semantic_review",
-                planName: "semantic-round-mode-discovery-to-verify",
-                ordinal: 2,
-                text: "Approved the focused verification round.",
-            },
         ],
         scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery (validated_ci)", value: "validate" }],
         actions: [
@@ -1015,6 +996,7 @@ export const validationTreePlanOnlyDiffFailsScenario = withValidationBranches(
 );
 
 export const validationWorkflowSemanticScenarios = [
+    validationTreeSemanticRoundLimitFollowUpScenario,
     validationTreeSemanticReviewLoopScenario,
     validationTreeSemanticRepairIncompleteScenario,
     validationTreeSemanticReviewerIncompletePauseScenario,

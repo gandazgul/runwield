@@ -1,3 +1,4 @@
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
 import { loadPlanBodyById, savePlan } from "../../plan-store.js";
@@ -233,17 +234,17 @@ Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks i
 });
 
 Deno.test("Workspace persisted User Verification records attestation and triggers Work Record generation", async () => {
-    await withRuntimeCommandFixture("workspace-user-verify-", async ({ projectRoot: cwd, setModelResponse }) => {
+    await withRuntimeCommandFixture("workspace-user-verify-", async ({ projectRoot: cwd, setModelMessages }) => {
         await savePlan(cwd, "feature", "# Feature", {
             planId: "feature-id",
             status: "implemented",
             classification: "FEATURE",
             failureReason: "Workflow Validation failed.",
         });
-        setModelResponse(JSON.stringify({
+        setModelMessages([fauxAssistantMessage(fauxToolCall("work_record_completed", {
             title: "User Verified Feature",
             summary: "Generated after the real Workspace lifecycle transition.",
-        }));
+        }))]);
         const mnemotecaPort = createWorkRecordMnemotecaFixture();
         const app = createWorkspaceApp({
             cwd,
@@ -282,16 +283,16 @@ Deno.test("Workspace persisted User Verification records attestation and trigger
 });
 
 Deno.test("Workspace persisted close without verification triggers Work Record generation after closure", async () => {
-    await withRuntimeCommandFixture("workspace-close-", async ({ projectRoot: cwd, setModelResponse }) => {
+    await withRuntimeCommandFixture("workspace-close-", async ({ projectRoot: cwd, setModelMessages }) => {
         await savePlan(cwd, "feature", "# Feature", {
             planId: "feature-id",
             status: "implemented",
             classification: "FEATURE",
         });
-        setModelResponse(JSON.stringify({
+        setModelMessages([fauxAssistantMessage(fauxToolCall("work_record_completed", {
             title: "Manually Accepted Feature",
             summary: "Generated after close without verification.",
-        }));
+        }))]);
         const mnemotecaPort = createWorkRecordMnemotecaFixture();
         const app = createWorkspaceApp({
             cwd,
@@ -338,7 +339,7 @@ Deno.test("Workspace persisted close preserves closure when Work Record generati
         assertEquals(response.status, 200);
         const payload = await response.json();
         assertStringIncludes(payload.message, "Work Record generation failed");
-        assertStringIncludes(payload.message, "structured JSON");
+        assertStringIncludes(payload.message, "did not submit a Work Record");
         const detail = await loadWorkspaceDetail(cwd, "feature-id");
         assertEquals(detail.status, "closed_without_verification");
         assertEquals(detail.closedWithoutVerificationReason, "Manual acceptance despite CI gap.");

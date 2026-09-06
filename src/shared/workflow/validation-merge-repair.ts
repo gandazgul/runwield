@@ -5,6 +5,7 @@
  */
 
 import { AGENTS } from "../../constants.js";
+import { logValidationFailure } from "./validation-state-errors.ts";
 import type { PhaseContext, UserActionPause, ValidationLoopArgs } from "./validation-types.ts";
 import { emitStatus } from "./validation-emit.ts";
 import { buildValidationUserMessage, validationMergeRepairMessage } from "./validation-user-messages.ts";
@@ -74,7 +75,7 @@ export async function finalizeMergeRepair(repairCwd: string): Promise<boolean> {
         if (staged.code !== 0) return false;
         const committed = await runRepairGit(repairCwd, ["commit", "--no-edit"]);
         if (committed.code !== 0) {
-            console.error("[RunWield] merge_repair_commit_failed", committed.stderr || committed.stdout);
+            await logValidationFailure(new Error(committed.stderr || committed.stdout), "merge_repair_commit");
             return false;
         }
     }
@@ -87,7 +88,7 @@ export async function finalizeMergeRepair(repairCwd: string): Promise<boolean> {
     if (pending.code === 1) {
         const committed = await runRepairGit(repairCwd, ["commit", "-m", "Complete RunWield publication repair"]);
         if (committed.code !== 0) {
-            console.error("[RunWield] merge_repair_commit_failed", committed.stderr || committed.stdout);
+            await logValidationFailure(new Error(committed.stderr || committed.stdout), "merge_repair_commit");
             return false;
         }
     } else if (pending.code !== 0) {
@@ -218,7 +219,6 @@ export async function dispatchMergeRepair(
     // explanation reads as RunWield doing something unprompted: the user sees tool
     // calls about merge conflicts they were never told about, in a directory they did
     // not choose.
-    console.error("[RunWield] merge_repair_started", { planName: args.planName });
     const problem = getMergeFailureKind(failure) === "target_sync_conflict" ? "target_update" : "work_combination";
     emitStatus(args, validationMergeRepairMessage(args.planName, problem), "warning");
     emitStatus(

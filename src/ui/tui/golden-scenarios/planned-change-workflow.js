@@ -193,17 +193,6 @@ export const plannedChangeReviewRepairValidationScenario = {
             ],
         },
         {
-            // The Reviewer's isolated session runs until the model answers without
-            // tool calls, so each review round is two turns: the inspect/decide
-            // turn above, then this text-only turn that closes the round. Without
-            // it the loop would consume the next round's scripted decision early.
-            id: "semantic-reviewer-closes-rejection-round",
-            agent: "reviewer",
-            phase: "semantic_review",
-            ordinal: 2,
-            text: "Reported the round 1 findings for repair.",
-        },
-        {
             id: "engineer-repairs-after-reviewer-rejection",
             agent: "engineer",
             phase: "engineer",
@@ -231,20 +220,13 @@ export const plannedChangeReviewRepairValidationScenario = {
             id: "semantic-reviewer-approves-repair",
             agent: "reviewer",
             phase: "semantic_review",
-            ordinal: 3,
+            ordinal: 2,
             requiredTools: ["review_diff", "review_complete"],
             thinking: "Inspect the repair diff, then approve the repaired implementation.",
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Approved after repair." } },
             ],
-        },
-        {
-            id: "semantic-reviewer-closes-approval-round",
-            agent: "reviewer",
-            phase: "semantic_review",
-            ordinal: 4,
-            text: "Reported the approved repair outcome.",
         },
     ],
     actions: [
@@ -427,13 +409,6 @@ export const plannedChangeCiRepairReentryScenario = {
             toolCalls: [{ name: "task_completed", arguments: { message: "- Fixed the failing build." } }],
         },
         {
-            id: "engineer-closes-ci-repair",
-            agent: "engineer",
-            phase: "engineer",
-            ordinal: 5,
-            text: "Engineer awaits re-validation of the build fix.",
-        },
-        {
             // Reached only if the loop re-entered Mechanical Validation, re-ran CI, and
             // passed. If it lost its place this turn is never requested.
             id: "semantic-reviewer-approves-after-ci-repair",
@@ -446,14 +421,6 @@ export const plannedChangeCiRepairReentryScenario = {
                 { name: "review_diff", arguments: { command: "list" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Approved after the build fix." } },
             ],
-        },
-        {
-            id: "semantic-reviewer-closes-after-ci-repair",
-            agent: "reviewer",
-            phase: "semantic_review",
-            ordinal: 2,
-            optional: true,
-            text: "Reported the approved outcome.",
         },
         {
             id: "engineer-idle-after-ci-repair-delivery",
@@ -660,10 +627,9 @@ export const plannedChangeValidationFailureRetryScenario = {
             phase: "engineer",
             planName: "validation-retry",
             ordinal: 3,
-            requiredTools: ["bash", "task_completed"],
+            requiredTools: ["bash"],
             toolCalls: [
                 { name: "bash", arguments: { command: "printf repaired > golden-validation-retry.txt" } },
-                { name: "task_completed", arguments: { message: "- Repaired retry fixture after CI failure." } },
             ],
         },
         {
@@ -672,7 +638,11 @@ export const plannedChangeValidationFailureRetryScenario = {
             phase: "engineer",
             planName: "validation-retry",
             ordinal: 4,
-            text: "Awaiting retry validation.",
+            requiredTools: ["task_completed"],
+            toolCalls: [{
+                name: "task_completed",
+                arguments: { message: "- Repaired retry fixture after CI failure." },
+            }],
         },
         {
             id: "reviewer-approves-validation-retry",
@@ -685,14 +655,6 @@ export const plannedChangeValidationFailureRetryScenario = {
                 { name: "review_diff", arguments: { command: "list" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Retry repair approved." } },
             ],
-        },
-        {
-            id: "reviewer-closes-validation-retry",
-            agent: "reviewer",
-            phase: "semantic_review",
-            planName: "validation-retry",
-            ordinal: 2,
-            text: "Approved retry repair.",
         },
     ],
     actions: [
@@ -798,13 +760,12 @@ export const plannedChangeValidationExhaustedScenario = {
                 phase: "engineer",
                 planName: "validation-exhausted",
                 ordinal: attempt * 2 - 1,
-                requiredTools: ["bash", "task_completed"],
+                requiredTools: ["bash"],
                 toolCalls: [
                     {
                         name: "bash",
                         arguments: { command: `printf attempt-${attempt} > golden-validation-exhausted.txt` },
                     },
-                    { name: "task_completed", arguments: { message: `- Attempt ${attempt} still cannot satisfy CI.` } },
                 ],
             },
             {
@@ -813,7 +774,11 @@ export const plannedChangeValidationExhaustedScenario = {
                 phase: "engineer",
                 planName: "validation-exhausted",
                 ordinal: attempt * 2,
-                text: `Attempt ${attempt} awaits CI.`,
+                requiredTools: ["task_completed"],
+                toolCalls: [{
+                    name: "task_completed",
+                    arguments: { message: `- Attempt ${attempt} still cannot satisfy CI.` },
+                }],
             },
         ]),
     ],
@@ -946,15 +911,6 @@ export const plannedChangeFrontendIdentityScenario = {
                 { name: "review_diff", arguments: { command: "list" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Frontend identity approved." } },
             ],
-        },
-        {
-            id: "reviewer-closes-frontend-identity",
-            agent: "reviewer",
-            phase: "semantic_review",
-            planName: "frontend-identity",
-            ordinal: 2,
-            optional: true,
-            text: "Approved frontend identity.",
         },
     ],
     actions: [
