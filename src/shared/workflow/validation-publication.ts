@@ -9,6 +9,7 @@
  */
 
 import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
+import { logValidationFailure } from "./validation-state-errors.ts";
 import { loadPlan, withPlanLock } from "../../plan-store.js";
 import { createQaChecklistGeneratedTool } from "../../tools/qa-checklist-generated.ts";
 import { findEpicManualQaSection } from "../epic-artifacts.ts";
@@ -226,7 +227,7 @@ async function prepareEpicChildManualQaArtifact(
             emitStatus(args, decision.result.message, decision.action === "halt" ? "error" : "warning");
             return { kind: "blocked", outcome: operationalPhaseResult(args, projectRoot, outcome.failure, attempt) };
         }
-        console.error("[RunWield] test_note_not_generated");
+        await logValidationFailure(new Error("Test note was not generated"), "test_note");
         emitStatus(args, validationUserMessage("publication_note_failed"), "warning");
         return { kind: "ready" };
     }
@@ -421,11 +422,7 @@ async function runLockedPublicationPhase(
                 planName: args.planName,
                 stage: failure.publicationStage || "git_publication",
             });
-            console.error("[RunWield] publication_resume_failed", {
-                planName: args.planName,
-                stage: failure.publicationStage || "git_publication",
-                error: failure.reason,
-            });
+            await logValidationFailure(new Error(failure.reason), failure.publicationStage || "git_publication");
             emitStatus(args, blockedMessage, "warning");
             return {
                 recorded: false,

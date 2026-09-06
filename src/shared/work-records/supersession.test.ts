@@ -374,8 +374,7 @@ Deno.test("generation preserves its successor when supersession rollback is inco
             const outcome = await generateWorkRecordForSource(cwd, source, {
                 idGenerator: () => SUCCESSOR_ID,
                 now: () => new Date("2026-08-03T00:00:00.000Z"),
-                runRecorderPrompt: () =>
-                    Promise.resolve(JSON.stringify({ title: "Successor", summary: "Replacement complete." })),
+                runRecorderStep: () => Promise.resolve({ title: "Successor", summary: "Replacement complete." }),
                 mnemotecaPort: createWorkRecordMnemotecaFixture(),
             });
 

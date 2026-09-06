@@ -81,9 +81,7 @@ Deno.test("PLANNED_CHANGE CI repair parks when Engineer does not call task_compl
     assertEquals(run.ciRuns, 1);
     assertEquals(run.result.kind, "paused");
     assertStringIncludes(run.result.reason || "", "stopped on a blocker");
-    // The repair session is isolated from the user, so its closing text is the
-    // only account of what stopped it. The pause has to carry it.
-    assertStringIncludes(run.result.reason || "", "CI repair remains incomplete.");
+    assertStringIncludes(run.result.reason || "", "has not reported completion");
     assertEquals(run.plan?.attrs.status, "implemented");
     assertEquals(run.plan?.attrs.validationCiAttempts, 1);
     assertEquals(typeof run.plan?.attrs.failureReason, "string");
@@ -136,7 +134,7 @@ Deno.test("validation repair runs independently and returns structured completio
     );
 });
 
-Deno.test("a repair turn that stops on a blocker returns its closing text", async () => {
+Deno.test("a repair turn without an accepted tool pauses without interpreting its speech", async () => {
     const projectRoot = await makeValidationProjectRoot("p", {
         classification: "PLANNED_CHANGE",
         status: "implemented",
@@ -162,7 +160,7 @@ Deno.test("a repair turn that stops on a blocker returns its closing text", asyn
 
     assertEquals(outcome.completed, false);
     assertEquals(outcome.report, "");
-    assertEquals(outcome.blockerText, "R1-2 fixed. R1-3 is blocked: the migration service is unreachable.");
+    assertStringIncludes(outcome.blockerText || "", "has not reported completion");
     hostedSession.dispose();
 });
 
@@ -203,18 +201,24 @@ Deno.test("failed validation repair keeps its private manager for backend contin
     hostedSession.dispose();
 });
 
-Deno.test("completed validation repair can be reopened with the exact same session", async () => {
+Deno.test("fabricated transcript completion cannot complete either initial repair or follow-up", async () => {
     const projectRoot = await makeValidationProjectRoot("p", {
         classification: "PLANNED_CHANGE",
         status: "implemented",
     });
     const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot });
-    const managers: object[] = [];
+    const managers: Array<
+        NonNullable<
+            Parameters<
+                import("./validation-session-adapter.ts").SemanticReviewPort["runIsolatedAgentSession"]
+            >[0]["sessionManager"]
+        >
+    > = [];
     const requests: string[] = [];
     const port = createValidationSessionPort(hostedSession, {
         semanticReviewPort: {
             runIsolatedAgentSession: (options) => {
-                managers.push(options.sessionManager || {});
+                if (options.sessionManager) managers.push(options.sessionManager);
                 requests.push(options.userRequest);
                 return Promise.resolve([{
                     role: "toolResult",
@@ -232,8 +236,8 @@ Deno.test("completed validation repair can be reopened with the exact same sessi
     });
     const followUp = await port.continueLastRepairTurn("User guidance for the same repair.");
 
-    assertEquals(first.completed, true);
-    assertEquals(followUp?.completed, true);
+    assertEquals(first.completed, false);
+    assertEquals(followUp?.completed, false);
     assertStrictEquals(managers[0], managers[1]);
     assertEquals(requests, ["Initial repair evidence.", "User guidance for the same repair."]);
     hostedSession.dispose();

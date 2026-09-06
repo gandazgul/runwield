@@ -19,6 +19,9 @@ import { CLAUDE_CLI_MCP_PROVENANCE } from "./backends/claude-cli/mcp-bridge.ts";
 import { readLatestTaskCompletedOutcome } from "../workflow/workflow-results.js";
 import { readLatestTriageOutcome } from "../workflow/orchestrator.ts";
 import { startMcpToolPool } from "../mcp/pool.ts";
+import { runValidationAgentUntilEvent } from "./agent-workflow-step.ts";
+import { settleWorkflowToolEvent } from "../workflow/workflow-tool-events.ts";
+import { readRequestAttemptEntries } from "./request-dispatch.ts";
 
 interface ToolResultDetails {
     outcome?: string;
@@ -335,6 +338,39 @@ Deno.test("Claude CLI isolated turns persist only to the supplied isolated manag
         assertEquals(messages.at(-1)?.role, "assistant");
         assertEquals(rootManager.getBranch().length, 0);
         assertEquals(isolatedManager.getBranch().filter((entry) => entry.type === "message").length, 2);
+    });
+});
+
+Deno.test("Claude CLI accepted workflow completion shuts down without recording a backend failure", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, SessionManager.inMemory(cwd));
+        const callsPath = join(cwd, "mcp-calls-completion.json");
+        await Deno.writeTextFile(
+            callsPath,
+            JSON.stringify([
+                { name: "runwield_task_completed", arguments: { message: "Completed the repair." } },
+            ]),
+        );
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", callsPath);
+        const result = await runValidationAgentUntilEvent({ runIsolatedAgentSession }, {
+            hostedSession,
+            cwd,
+            agentName: AGENTS.ENGINEER,
+            userRequest: "Complete the repair using task_completed.",
+            sessionManager: manager,
+        }, "task_completed");
+        assertEquals(result.event?.kind, "task_completed");
+        assertEquals(result.event?.sourceSessionId, manager.getSessionId());
+        assertEquals(readRequestAttemptEntries(manager).map((entry) => entry.phase), ["started", "completed"]);
+        assertEquals(
+            manager.getBranch().filter((entry) =>
+                entry.type === "custom" && entry.customType === "runwield.backend_status"
+            ),
+            [],
+        );
+        if (result.event) settleWorkflowToolEvent(hostedSession, result.event);
+        hostedSession.dispose();
     });
 });
 

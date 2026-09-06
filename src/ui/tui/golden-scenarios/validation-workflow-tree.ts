@@ -22,6 +22,7 @@ export {
     validationTreeSemanticReviewerIncompletePauseScenario,
     validationTreeSemanticReviewLoopScenario,
     validationTreeSemanticRoundLimitContinueScenario,
+    validationTreeSemanticRoundLimitFollowUpScenario,
     validationTreeSemanticRoundLimitHumanReviewScenario,
     validationTreeSemanticRoundLimitStopDirectScenario,
     validationTreeSemanticRoundLimitStopScenario,

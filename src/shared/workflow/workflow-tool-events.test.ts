@@ -8,11 +8,17 @@ import {
     publishWorkflowToolEvent,
     settleWorkflowToolEvent,
     waitForWorkflowToolEvent,
+    withWorkflowToolEventSource,
     WORKFLOW_TOOL_EVENT_CUSTOM_TYPE,
 } from "./workflow-tool-events.ts";
+import { createManualQaCompletedTool } from "../../tools/manual-qa-completed.ts";
 
 const PROJECT_ROOT = makeToolProjectFixture("runwield-workflow-tool-events-");
 type HostedSessionManager = NonNullable<ConstructorParameters<typeof HostedSession>[0]["sessionManager"]>;
+type ChecklistToolExecute = (
+    id: string,
+    params: { checklistMarkdown: string },
+) => ReturnType<ReturnType<typeof createManualQaCompletedTool>["execute"]>;
 
 function hostedSessionManager(sessionManager: SessionManager): HostedSessionManager {
     return sessionManager as HostedSessionManager;
@@ -29,6 +35,42 @@ function makeHostedSession(id: string) {
     hostedSession.setRootAgentSession(root);
     return { hostedSession, sessionManager, root };
 }
+
+Deno.test("concurrent isolated completion keeps its caller even when another Agent owns the footer", async () => {
+    const { hostedSession } = makeHostedSession("concurrent-tool-source");
+    const first = { sessionManager: SessionManager.inMemory(PROJECT_ROOT), dispose() {} };
+    const second = { sessionManager: SessionManager.inMemory(PROJECT_ROOT), dispose() {} };
+    const firstToken = hostedSession.pushSteeringTargetSession(first);
+    let releaseFirst = () => {};
+    const gate = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+    });
+    const tool = createManualQaCompletedTool({ hostedSession, name: "plan", classification: "PLANNED_CHANGE" });
+    const execute = tool.execute as ChecklistToolExecute;
+    const firstRun = withWorkflowToolEventSource(hostedSession, first, async () => {
+        await gate;
+        await execute("first-qa", { checklistMarkdown: "- [ ] First checklist" });
+    });
+    const secondToken = hostedSession.pushSteeringTargetSession(second);
+    await withWorkflowToolEventSource(hostedSession, second, async () => {
+        await execute("second-qa", { checklistMarkdown: "- [ ] Second checklist" });
+        releaseFirst();
+        await firstRun;
+    });
+    for (const owner of [first, second]) {
+        const event = claimWorkflowToolEvent(hostedSession, {
+            kinds: ["manual_qa_completed"],
+            owningSession: owner,
+            sourceSessionId: owner.sessionManager.getSessionId(),
+        });
+        assertExists(event);
+        assertEquals(event.owningSession, owner);
+        settleWorkflowToolEvent(hostedSession, event);
+    }
+    hostedSession.popSteeringTargetSession(secondToken);
+    hostedSession.popSteeringTargetSession(firstToken);
+    assertEquals(listPendingWorkflowToolEvents(hostedSession), []);
+});
 
 Deno.test("Workflow Tool Event is consume-once and settled through the root outbox", () => {
     const { hostedSession, sessionManager, root } = makeHostedSession("workflow-event-root");

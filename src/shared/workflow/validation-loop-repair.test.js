@@ -63,7 +63,7 @@ Deno.test("CI repair pauses when Engineer does not report task completion", asyn
     assertEquals(run.ciRuns, 1);
     assertEquals(run.result.kind, "paused");
     assertStringIncludes(run.result.reason || "", "stopped on a blocker");
-    assertStringIncludes(run.result.reason || "", "CI repair remains incomplete.");
+    assertStringIncludes(run.result.reason || "", "has not reported completion");
     assertEquals(run.plan?.attrs.status, "implemented");
     assertEquals(run.plan?.attrs.validationCiAttempts, 1);
 });

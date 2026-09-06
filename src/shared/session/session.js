@@ -2888,6 +2888,7 @@ async function compactBeforePromptIfNeeded(session, prepared, agentName) {
  * @param {import('./types.js').AgentDefinition} agentDef
  * @param {string} [debugLogPath]
  * @param {import('./hosted-session.js').HostedSession} [hostedSession]
+ * @param {AbortSignal} [cancellationSignal] Explicit cancellation is not an API failure.
  *
  * @returns {SubscriberState}
  */
@@ -2896,6 +2897,7 @@ export function attachSessionEventSubscribers(
     agentDef,
     debugLogPath = undefined,
     hostedSession = undefined,
+    cancellationSignal = undefined,
 ) {
     /** @type {string[]} */
     let invokedToolNames = [];
@@ -3051,7 +3053,10 @@ export function attachSessionEventSubscribers(
                     });
                 }
 
-                if (event.message.role === "assistant" && event.message.stopReason === "error") {
+                if (
+                    event.message.role === "assistant" && event.message.stopReason === "error" &&
+                    !cancellationSignal?.aborted
+                ) {
                     const message = sanitizeApiErrorMessage(event.message.errorMessage || "Unknown LLM error");
                     emitRuntimeEvent({
                         type: RuntimeEventTypes.TERMINAL_ERROR,
@@ -3943,6 +3948,7 @@ export async function runNonInteractiveAgentPrompt({
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runIsolatedAgentSession(opts) {
+    const { withWorkflowToolEventSource, WorkflowStepCompleted } = await import("../workflow/workflow-tool-events.ts");
     const hostedSession = requireHostedSession(opts.hostedSession, "runIsolatedAgentSession");
     const managedOperationCapability = opts.managedOperationCapability ||
         hostedSession.getManagedOperationCapability?.() || null;
@@ -3979,7 +3985,7 @@ export async function runIsolatedAgentSession(opts) {
                 endThinking: () => {},
                 unsubscribe: () => {},
             }
-            : attachSessionEventSubscribers(session, agentDef, opts.debugLogPath, hostedSession);
+            : attachSessionEventSubscribers(session, agentDef, opts.debugLogPath, hostedSession, opts.signal);
         hostedSession.addSubAgentSession(
             steeringTarget,
             managedOperationCapability,
@@ -4012,33 +4018,44 @@ export async function runIsolatedAgentSession(opts) {
                         images: opts.images || [],
                     }, resolvedModel);
                 }
-                messages = await executionSession.session.runTurn({
-                    userRequest: dispatch.userRequest,
-                    images: opts.images,
-                    signal: opts.signal,
-                    requestId: dispatch.requestId,
-                    attemptId: dispatch.attemptId,
-                });
+                messages = await withWorkflowToolEventSource(
+                    hostedSession,
+                    steeringTarget,
+                    () =>
+                        executionSession.session.runTurn({
+                            userRequest: dispatch.userRequest,
+                            images: opts.images,
+                            signal: opts.signal,
+                            requestId: dispatch.requestId,
+                            attemptId: dispatch.attemptId,
+                        }),
+                );
             } else {
-                messages = await runPrompt({
-                    session,
-                    agentDef,
-                    agentName: opts.agentName,
-                    userRequest: dispatch.userRequest,
-                    finalSystemPrompt: promptState.text,
-                    images: opts.images,
-                    subscriberState,
-                    resolvedModel,
-                    resolvedThinkingLevel,
-                    cwd: opts.cwd || hostedSession.cwd,
-                    debugLogPath: opts.debugLogPath,
-                    signal: opts.signal,
-                    disableAutoCompaction: opts.disableAutoCompaction === true,
-                });
+                const turnSubscribers = subscriberState;
+                messages = await withWorkflowToolEventSource(hostedSession, steeringTarget, () =>
+                    runPrompt({
+                        session,
+                        agentDef,
+                        agentName: opts.agentName,
+                        userRequest: dispatch.userRequest,
+                        finalSystemPrompt: promptState.text,
+                        images: opts.images,
+                        subscriberState: turnSubscribers,
+                        resolvedModel,
+                        resolvedThinkingLevel,
+                        cwd: opts.cwd || hostedSession.cwd,
+                        debugLogPath: opts.debugLogPath,
+                        signal: opts.signal,
+                        disableAutoCompaction: opts.disableAutoCompaction === true,
+                    }));
             }
             completeRequestDispatch(session.sessionManager, dispatch);
             return messages;
         } catch (error) {
+            if (opts.signal?.reason instanceof WorkflowStepCompleted) {
+                completeRequestDispatch(session.sessionManager, dispatch);
+                return getRootExecutionMessages(executionRoot);
+            }
             failRequestDispatch(
                 session.sessionManager,
                 dispatch,

@@ -1,4 +1,5 @@
 import { assertEquals, assertExists, assertStringIncludes } from "@std/assert";
+import { executeWorkflowTestTools } from "../../testing/workflow-agent-tools.ts";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
@@ -20,9 +21,15 @@ import {
 function repairPort(outcomes = ["completed"]) {
     let call = 0;
     return {
-        runIsolatedAgentSession: () => {
+        runIsolatedAgentSession: async (options) => {
             const outcome = outcomes[Math.min(call, outcomes.length - 1)];
             call += 1;
+            if (outcome === "completed") {
+                await executeWorkflowTestTools(options, [{
+                    name: "task_completed",
+                    arguments: { message: `Repair turn ${call} completed.` },
+                }]);
+            }
             return Promise.resolve(
                 /** @type {any} */ (
                     outcome === "completed"
@@ -181,13 +188,13 @@ Deno.test("runValidationLoop offers a way out when the repair rounds for CI are 
     const plan = await loadPlan(projectRoot, "p");
     // The user is asked before RunWield gives up, and told what would help.
     assertEquals(uiAPI.promptSelections.length, 1);
-    assertEquals(result.kind, "failed");
+    assertEquals(result.kind, "paused");
     assertStringIncludes(result.reason || "", "still failing");
     assertStringIncludes(result.reason || "", "Pick Engineer follow-up");
     assertEquals(offeredOptions, ["Engineer follow-up", "Retry", "Stop"]);
     assertEquals(plan?.attrs.status, "implemented");
-    // Cleared, so the Retry the message promises actually gets rounds to spend.
-    assertEquals(plan?.attrs.validationCiAttempts, 0);
+    // Exhaustion must survive a pause, not grant three more automatic repairs.
+    assertEquals(plan?.attrs.validationCiAttempts, 3);
 });
 
 Deno.test("Retry after the CI rounds run out runs the tests again and carries on", async () => {
@@ -224,7 +231,7 @@ Deno.test("Retry after the CI rounds run out runs the tests again and carries on
             run: () => {
                 ciRuns += 1;
                 return Promise.resolve(
-                    ciRuns === 1
+                    ciRuns <= 2
                         ? { kind: "completed", exitCode: 1, output: "type error" }
                         : { kind: "completed", exitCode: 0, output: "ok" },
                 );
@@ -233,7 +240,7 @@ Deno.test("Retry after the CI rounds run out runs the tests again and carries on
     });
 
     assertEquals(uiAPI.promptSelections.length, 1);
-    assertEquals(ciRuns, 2);
+    assertEquals(ciRuns, 3);
     assertEquals(result.kind, "paused");
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
 });

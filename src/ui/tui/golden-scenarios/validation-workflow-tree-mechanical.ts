@@ -194,14 +194,6 @@ export const validationTreeValidationExhaustedRetryScenario = withValidationBran
                     { name: "review_complete", arguments: { approved: true, feedback: "Exhausted retry approved." } },
                 ],
             },
-            {
-                id: "reviewer-closes-validation-exhausted-retry",
-                agent: "reviewer",
-                phase: "semantic_review",
-                planName: "validation-exhausted",
-                ordinal: 2,
-                text: "Approved exhausted retry recovery.",
-            },
         ],
         actions: [
             ...(plannedChangeValidationExhaustedScenario.actions ?? []).filter((action: { type?: string }) =>

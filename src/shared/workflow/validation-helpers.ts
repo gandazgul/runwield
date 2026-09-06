@@ -25,16 +25,17 @@ import {
     updateValidationProgress,
 } from "./validation-progress.ts";
 
-import { extractAssistantOutput } from "./workflow.js";
-import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
+import { runValidationAgentUntilEvent } from "../session/agent-workflow-step.ts";
+import { settleWorkflowToolEvent } from "./workflow-tool-events.ts";
+import { createManualQaCompletedTool } from "../../tools/manual-qa-completed.ts";
+import { logValidationFailure } from "./validation-state-errors.ts";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { runActiveAgentTurn, switchActiveAgent } from "../session/agent-switching.js";
 import {
     requestHostedSessionInteraction,
     RuntimeInteractionOutcomes,
     RuntimeInteractionTypes,
 } from "../session/session-runtime-interactions.js";
-
-import { recordManualQaChecklistMessage } from "../session/workflow-messages.js";
 
 import { recordWorkflowMetric } from "./metrics.js";
 
@@ -200,25 +201,19 @@ export async function runManualQaChecklistPrompt({
         context,
     ].join("\n");
 
-    const messages = await runIsolatedAgentSession({
+    const { event } = await runValidationAgentUntilEvent({ runIsolatedAgentSession }, {
         hostedSession,
         agentName: AGENTS.OPERATOR,
-        userRequest,
+        userRequest: userRequest + "\nCall manual_qa_completed with the checklist. Do not finish with plain text.",
         cwd,
+        sessionManager: SessionManager.inMemory(cwd),
         subAgentDefinition: { id: SUBAGENTS.MANUAL_QA },
         includeEditFallback: false,
-    });
-    const checklistText = extractAssistantOutput(messages);
-    if (checklistText) {
-        recordManualQaChecklistMessage(
-            hostedSession.getRootSessionManager?.() as
-                | import("@earendil-works/pi-coding-agent").SessionManager
-                | undefined
-                | null,
-            { agentName: "Operator", text: checklistText, name, classification: normalizedClassification },
-        );
-    }
-    return messages;
+        customTools: [createManualQaCompletedTool({ hostedSession, name, classification: normalizedClassification })],
+    }, "manual_qa_completed");
+    if (!event) throw new Error("Manual QA has not submitted a checklist.");
+    settleWorkflowToolEvent(hostedSession, event);
+    return [];
 }
 
 interface PresentManualQaChecklistOptions {
@@ -247,7 +242,7 @@ async function presentManualQaChecklist(
     try {
         await runManualQaChecklistPrompt({ hostedSession, name, classification, context, cwd });
     } catch (error) {
-        console.error("[RunWield] manual_qa_list_failed", error);
+        await logValidationFailure(error instanceof Error ? error : new Error(String(error)), "manual_qa");
         emitRunWieldSystemStatus(
             hostedSession,
             buildValidationUserMessage({ kind: "manual_qa_failed" }),
@@ -303,8 +298,8 @@ export async function runFeaturePostVerificationHandoffs({
         cwd: projectRoot,
         planName,
         mnemotecaPort,
-    }).catch((error) => {
-        console.error("[RunWield] work_record_failed", error);
+    }).catch(async (error) => {
+        await logValidationFailure(error instanceof Error ? error : new Error(String(error)), "work_record");
         return {
             status: "failed" as const,
             planName,
@@ -390,79 +385,19 @@ async function runCompletionGatedRepair({
     const customTools = workflow?.collaborationStyle === "pair"
         ? [createPairCheckpointTool({ hostedSession })]
         : undefined;
-    await runActiveAgentTurn({
+    const { event } = await runValidationAgentUntilEvent({ runIsolatedAgentSession: runActiveAgentTurn }, {
         hostedSession,
         agentName,
         userRequest,
         images,
         sessionManager,
-        cwd,
+        cwd: cwd || hostedSession.cwd,
         dispatchKind: "validation_repair",
         ...(customTools ? { customTools } : {}),
-    });
-
-    const completion = claimPendingTaskCompletion(hostedSession, hostedSession.getRootAgentSession() || null);
-    if (!completion) return false;
-    acknowledgeTaskCompletion(hostedSession, completion);
+    }, "task_completed");
+    if (!event) return false;
+    settleWorkflowToolEvent(hostedSession, event);
     return true;
-}
-
-/**
- * Whether the Reviewer actually opened the diff during an invocation.
- *
- * The diff is never inlined into the prompt, so a `review_complete` call made
- * without any `review_diff` call is a verdict reached without reading the code.
- *
- * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
- * @returns {boolean}
- */
-export function usedReviewDiffTool(messages: import("@earendil-works/pi-agent-core").AgentMessage[]) {
-    if (!Array.isArray(messages)) return false;
-    return messages.some((msg) => {
-        if (!msg || typeof msg !== "object" || !("role" in msg) || msg.role !== "toolResult") return false;
-        if (!("toolName" in msg) || msg.toolName !== "review_diff") return false;
-        // A failed lookup or an absent repair scope is not an inspection: the
-        // Reviewer saw no code, so it must not satisfy the read-before-deciding
-        // requirement.
-        const result = msg as ReviewDiffToolResult;
-        if (result.isError) return false;
-        const details = result.details || {};
-        return details.available !== false;
-    });
-}
-
-/** The `review_diff` tool-result fields this check reads off a transcript message. */
-interface ReviewDiffToolResult {
-    isError?: boolean;
-    details?: { available?: boolean };
-}
-
-/**
- * Whether the latest accepted `review_complete` result came from the trusted
- * Claude CLI MCP bridge.
- *
- * Claude CLI owns its internal read/Bash tool loop and RunWield does not
- * ingest that internal transcript, so a bridge-stamped accepted result waives
- * only the Pi-specific `review_diff`-before-verdict prerequisite. The waiver
- * says nothing about what Claude actually inspected; it is not proof of
- * inspection and must not generalize to Pi, Attached Mode, arbitrary external
- * results, or approval with incomplete/open findings.
- *
- * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
- * @returns {boolean}
- */
-export function hasTrustedClaudeMcpReview(messages: import("@earendil-works/pi-agent-core").AgentMessage[]) {
-    if (!Array.isArray(messages)) return false;
-    for (let i = messages.length - 1; i >= 0; i--) {
-        const msg = messages[i];
-        if (!msg || typeof msg !== "object" || !("role" in msg) || msg.role !== "toolResult") continue;
-        if (!("toolName" in msg) || msg.toolName !== "review_complete") continue;
-        const details = (msg as { details?: { outcome?: unknown; provenance?: unknown } }).details || {};
-        const outcome = details.outcome;
-        if (outcome !== "approved" && outcome !== "feedback") continue;
-        return details.provenance === "claude-cli-mcp";
-    }
-    return false;
 }
 
 /**

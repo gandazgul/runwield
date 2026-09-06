@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
+import { executeWorkflowTestTools } from "../../testing/workflow-agent-tools.ts";
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import {
@@ -276,18 +277,13 @@ async function makeAwaitingReview(extra = {}) {
     return { projectRoot, hostedSession, uiAPI };
 }
 
-/** A Reviewer-Feedback Engineer that reports the repair done. The model is the only
- * faked part; the dispatch, the completion read, and the lifecycle write are real. */
-function completedRepairMessages() {
-    return /** @type {any[]} */ ([{
-        role: "toolResult",
-        toolName: "task_completed",
-        toolCallId: "repair-1",
-        content: [],
-        isError: false,
-        timestamp: new Date().toISOString(),
-        details: { outcome: "task_completed", message: "- Renamed the helper." },
+/** @param {import("./validation-session-adapter.ts").IsolatedAgentSessionOptions} options */
+async function completedRepairMessages(options) {
+    await executeWorkflowTestTools(options, [{
+        name: "task_completed",
+        arguments: { message: "- Renamed the helper." },
     }]);
+    return [];
 }
 
 Deno.test("a code review closed with no answer asks instead of throwing the work back to the start", async () => {
@@ -345,7 +341,7 @@ Deno.test("Retry reopens the code review that was closed without an answer", asy
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.humanReviewDecision, "approved");
 });
 
-Deno.test("Code Review chat repairs files and republishes a fresh diff without ending review", async () => {
+Deno.test("Code Review chat repairs rerun CI before reopening the fresh diff", async () => {
     const { projectRoot, hostedSession } = await makeAwaitingReview();
     const sourcePath = `${projectRoot}/review-chat.ts`;
     await Deno.writeTextFile(sourcePath, "export const label = 'base';\n");
@@ -386,18 +382,25 @@ Deno.test("Code Review chat repairs files and republishes a fresh diff without e
                 },
             });
         }
-        return Promise.resolve({ outcome: "selected", _meta: { approved: true, feedback: "" } });
+        return Promise.resolve({ outcome: "canceled" });
     });
 
-    const result = await runValidationPhase({
+    let ciRuns = 0;
+    const result = await runValidationLoop({
+        localCI: {
+            run: () => {
+                ciRuns += 1;
+                return Promise.resolve({ kind: "completed", exitCode: 0, output: "ok" });
+            },
+        },
         hostedSession,
         planName: "p",
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
         semanticReviewPort: {
-            runIsolatedAgentSession: async () => {
+            runIsolatedAgentSession: async (options) => {
                 await Deno.writeTextFile(sourcePath, "export const label = 'second';\n");
-                return completedRepairMessages();
+                return await completedRepairMessages(options);
             },
         },
     });
@@ -405,10 +408,9 @@ Deno.test("Code Review chat repairs files and republishes a fresh diff without e
     assertEquals(reviewRound, 2);
     assertStringIncludes(patches[0], "+export const label = 'first';");
     assertStringIncludes(patches[1], "+export const label = 'second';");
-    assertEquals(conversations[0], conversations[1]);
-    assertStringIncludes(conversations[1].events[0].delta, "Renamed the helper");
+    assertEquals(ciRuns, 1);
     assertEquals(result.kind, "paused");
-    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.humanReviewDecision, "approved");
+    assertEquals((await loadPlan(projectRoot, "p"))?.attrs.humanReviewDecision, "changes_requested");
 });
 
 Deno.test("human code-review annotations are not duplicated in the engineer repair request", async () => {
@@ -434,7 +436,7 @@ Deno.test("human code-review annotations are not duplicated in the engineer repa
         semanticReviewPort: {
             runIsolatedAgentSession: (request) => {
                 capturedRequest = String(request.userRequest || "");
-                return Promise.resolve(completedRepairMessages());
+                return completedRepairMessages(request);
             },
         },
     });
@@ -466,9 +468,9 @@ Deno.test("your feedback goes to the engineer, then the tests, then straight bac
         planContent: "# p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "always" },
         semanticReviewPort: {
-            runIsolatedAgentSession: () => {
+            runIsolatedAgentSession: (request) => {
                 isolatedRuns += 1;
-                return Promise.resolve(completedRepairMessages());
+                return completedRepairMessages(request);
             },
         },
         localCI: {
