@@ -27,6 +27,7 @@ export interface ClaudeCliThinkingDelta {
 
 export type ClaudeCliStreamEvent =
     | { kind: "assistant_delta"; text: string }
+    | { kind: "plain_text"; text: string }
     | { kind: "text_partial"; text: string }
     | { kind: "thinking_partial"; text: string }
     | { kind: "result"; text: string; externalSessionId?: string; isError: boolean; usage: ClaudeCliUsage };
@@ -98,7 +99,7 @@ export function parseClaudeCliJsonLine(line: string): ClaudeCliStreamEvent | nul
     try {
         parsed = JSON.parse(trimmed) as JsonValue;
     } catch {
-        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return { kind: "assistant_delta", text: trimmed };
+        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return { kind: "plain_text", text: trimmed };
         throw new Error("Claude CLI emitted malformed stream-json output");
     }
     if (!isJsonRecord(parsed)) return null;
@@ -159,6 +160,7 @@ export async function parseClaudeCliStream(
     // in progress; used to avoid re-emitting it when the matching complete `assistant` message arrives.
     let streamedBlockText = "";
     let thinkingActive = false;
+    let previousCompletePlainLine = false;
 
     const endThinking = () => {
         if (!thinkingActive) return;
@@ -173,13 +175,23 @@ export async function parseClaudeCliStream(
             return;
         }
         if (event.kind === "text_partial") {
+            previousCompletePlainLine = false;
             endThinking();
             visibleText += event.text;
             streamedBlockText += event.text;
             callbacks.onDelta({ text: event.text });
             return;
         }
+        if (event.kind === "plain_text") {
+            endThinking();
+            const text = previousCompletePlainLine ? `\n${event.text}` : event.text;
+            previousCompletePlainLine = false;
+            visibleText += text;
+            callbacks.onDelta({ text });
+            return;
+        }
         if (event.kind === "assistant_delta") {
+            previousCompletePlainLine = false;
             endThinking();
             const alreadyStreamed = streamedBlockText;
             streamedBlockText = "";
@@ -209,8 +221,15 @@ export async function parseClaudeCliStream(
         const lines = buffered.split(/\r?\n/);
         buffered = lines.pop() || "";
         for (const line of lines) {
-            const event = parseClaudeCliJsonLine(line);
-            if (event) applyEvent(event);
+            const event: ClaudeCliStreamEvent | null = line === "" && previousCompletePlainLine
+                ? { kind: "plain_text", text: "" }
+                : parseClaudeCliJsonLine(line);
+            if (event) {
+                applyEvent(event);
+                previousCompletePlainLine = event.kind === "plain_text";
+            } else {
+                previousCompletePlainLine = false;
+            }
         }
     }
     if (buffered.trim()) {

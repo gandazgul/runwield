@@ -214,6 +214,19 @@ Deno.test("Claude CLI parser preserves plain stdout diagnostics as assistant tex
     assertEquals(result.metadata.usage.inputTokens, 0);
 });
 
+Deno.test("Claude CLI parser preserves line breaks in plain assistant stdout", async () => {
+    const deltas: string[] = [];
+    const result = await parseClaudeCliStream(
+        streamFromText("First line\nSecond line\nThird line"),
+        {
+            onDelta: (delta) => deltas.push(delta.text),
+            isTerminalAccepted: () => true,
+        },
+    );
+    assertEquals(deltas, ["First line", "\nSecond line", "\nThird line"]);
+    assertEquals(result.text, "First line\nSecond line\nThird line");
+});
+
 Deno.test("Claude CLI parser keeps plain diagnostics around a matching final result", async () => {
     const result = await parseClaudeCliStream(
         streamFromText([
