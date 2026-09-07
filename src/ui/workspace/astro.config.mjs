@@ -13,7 +13,7 @@ import tailwindcss from "@tailwindcss/vite";
 const WORKSPACE_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = resolve(WORKSPACE_DIR, "../../..");
 const PLANNOTATOR_DIR = resolve(ROOT_DIR, "third_party/plannotator");
-const STD_EXTERNALS = ["@std/assert", "@std/cli", "@std/front-matter", "@std/jsonc", "@std/path"];
+const STD_EXTERNALS = ["@std/assert", "@std/cli", "@std/cli/parse-args", "@std/front-matter", "@std/jsonc", "@std/path"];
 
 export default defineConfig({
     root: WORKSPACE_DIR,
