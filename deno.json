@@ -107,7 +107,7 @@
         "dompurify": "npm:dompurify@^3.4.11",
         "highlight.js": "npm:highlight.js@^11.11.1",
         "beautiful-mermaid": "npm:beautiful-mermaid@^1.1.3",
-        "katex": "npm:katex@^0.18.2",
+        "katex": "npm:katex@^0.18.4",
         "lucide-react": "npm:lucide-react@^1.25.0",
         "marked": "npm:marked@^17.0.6",
         "mermaid": "npm:mermaid@^11.16.0",
