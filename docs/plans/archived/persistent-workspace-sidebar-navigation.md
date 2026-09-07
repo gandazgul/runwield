@@ -31,6 +31,9 @@ workRecord:
     path: "docs/work-records/2026-09-05-persistent-workspace-sidebar-navigation.md"
     lastAttemptAt: "2026-09-05T03:38:41.003Z"
 routingIntent: "PLANNED_CHANGE"
+archivedAt: "2026-09-07T21:21:21.126Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/persistent-workspace-sidebar-navigation.md"
 targetBranch: "main"
 ---
 

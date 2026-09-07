@@ -27,6 +27,9 @@ workRecord:
     recordId: "8106889d-c62b-4b01-b6ce-39a7c373bb98"
     path: "docs/work-records/2026-08-31-workflow-tool-events-became-authoritative.md"
     lastAttemptAt: "2026-08-31T15:05:17.982Z"
+archivedAt: "2026-09-07T21:21:37.959Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/make-workflow-tool-events-authoritative.md"
 targetBranch: "main"
 ---
 

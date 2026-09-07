@@ -28,6 +28,9 @@ workRecord:
     recordId: "d5c9b240-39a9-4d59-9c67-0b2fed44f46a"
     path: "docs/work-records/2026-09-05-acp-v1-conformance-hardened.md"
     lastAttemptAt: "2026-09-05T03:42:31.979Z"
+archivedAt: "2026-09-07T21:23:18.017Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/acp-v1-conformance-hardening.md"
 targetBranch: "main"
 ---
 

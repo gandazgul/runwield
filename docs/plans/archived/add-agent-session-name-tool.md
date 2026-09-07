@@ -25,6 +25,9 @@ workRecord:
     lastAttemptAt: "2026-08-28T21:06:17.548Z"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "agent session naming"
+archivedAt: "2026-09-07T21:23:09.578Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/add-agent-session-name-tool.md"
 targetBranch: "main"
 ---
 

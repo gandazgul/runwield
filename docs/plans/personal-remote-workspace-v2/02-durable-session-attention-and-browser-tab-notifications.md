@@ -1,4 +1,5 @@
 ---
+planId: "46942300-8b9c-4af5-bdaf-1b69ea39be34"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
@@ -24,19 +25,19 @@ affectedPaths:
     - "src/ui/workspace/browser/session-tab-notifications.ts"
     - "src/ui/workspace/static/workspace.css"
     - "docs/domain-language.md"
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-09-03T00:53:56.723Z"
-status: "draft"
+status: "ready_for_work"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v2"
 order: 2
 dependencies:
     []
-planId: "46942300-8b9c-4af5-bdaf-1b69ea39be34"
-executionAgent: "engineer"
-collaborationRecommendation: "autonomous"
+userVerifiedAt: null
 ---
 
 # Durable Session Attention and Browser Tab Notifications
@@ -177,14 +178,15 @@ connects to that stream even while the Session is idle. The controller uses:
 - a browser notification `tag` keyed by Project + Session + attention ID as a second deduplication guard;
 - `notification.onclick = () => { notification.close(); window.focus(); }` in the exact claiming Session tab.
 
-Under the claim lock, the controller first checks the ledger, probes loaded copies by tab ID, and waits one short
-coordination window. If any exact copy reports both `document.visibilityState === "visible"` and `document.hasFocus()`,
-it stores `suppressed_visible`. Otherwise, one background copy with granted permission stores a reserved claim before it
-constructs the notification, then changes that claim to `notified`. Writing the claim first prevents a successful
-notification followed by a failed ledger write from notifying again after reload. Different Session IDs use different
-claims. If Notification, BroadcastChannel, Web Locks, or writable durable browser storage is unavailable, delivery is
-disabled rather than risking duplicates; committed Session Attention remains valid. The ledger and stale peer presence
-are capped by count and age so neither can grow without bound.
+Under the claim lock, the controller first checks the ledger, includes its own focus state, probes other loaded copies
+by tab ID, and waits one short coordination window. If the local tab or any exact copy reports both
+`document.visibilityState === "visible"` and `document.hasFocus()`, it stores `suppressed_visible`. Otherwise, one
+background copy with granted permission stores a reserved claim before it constructs the notification, then changes that
+claim to `notified`. Writing the claim first prevents a successful notification followed by a failed ledger write from
+notifying again after reload. Different Session IDs use different claims. If Notification, BroadcastChannel, Web Locks,
+or writable durable browser storage is unavailable, delivery is disabled rather than risking duplicates; committed
+Session Attention remains valid. The ledger and stale peer presence are capped by count and age so neither can grow
+without bound.
 
 `BrowserNotificationPermissionControl` lives in a new global-actions container beside the existing
 `data-workspace-header-actions` portal. The existing portal remains reserved for review actions. It uses RunWield
@@ -319,14 +321,16 @@ Existing functions, modules, or patterns to reuse:
   expires stale peer presence, and closes its stream, channel, timers, listeners, and live Notification object on
   cleanup or identity change. It does not run for Session lists, the New Session screen, Dashboard, Plan pages, or
   unrelated Session tabs.
-- For each unresolved stable attention ID, the controller uses a same-origin Web Lock and bounded local delivery ledger,
-  with Project ID, stable Session ID, and attention ID in every channel, lock, ledger, and notification-tag key. An
-  exact focused visible peer produces one durable browser-local `suppressed_visible` result. Otherwise, exactly one
-  loaded background copy with granted permission stores a reserved claim before it creates the notification, then
-  records `notified`; its click closes the notification and focuses that tab. Replayed or resolved snapshots, reconnect,
-  reload, and server restart do not send again. Different stable Session IDs remain independent. Missing Notification,
-  BroadcastChannel, Web Locks, or writable storage, or a thrown Notification constructor, produces no notification and
-  no Core mutation; the constructor failure records local unavailable state and updates the header.
+- The controller seeds an in-memory observed-ID set from its initial snapshot, sends only IDs newly added by later
+  snapshots through the delivery claim, and retains those observed IDs for the loaded tab's lifetime. For each new
+  stable attention ID, it uses a same-origin Web Lock and bounded local delivery ledger, with Project ID, stable Session
+  ID, and attention ID in every channel, lock, ledger, and notification-tag key. A focused visible local tab or exact
+  peer produces one durable browser-local `suppressed_visible` result. Otherwise, exactly one loaded background copy
+  with granted permission stores a reserved claim before it creates the notification, then records `notified`; its click
+  closes the notification and focuses that tab. Replayed or resolved snapshots, reconnect, reload, and server restart do
+  not send again. Different stable Session IDs remain independent. Missing Notification, BroadcastChannel, Web Locks, or
+  writable storage, or a thrown Notification constructor, produces no notification and no Core mutation; the constructor
+  failure records local unavailable state and updates the header.
 - `BrowserNotificationPermissionControl` appears in a new owner Workspace global-actions container on all Workspace
   routes and not in the local Plan Board shell. The existing `data-workspace-header-actions` portal remains exclusively
   for review decisions. The default-state click alone calls `Notification.requestPermission`; granted, denied, and
@@ -408,8 +412,8 @@ reused rather than materially replaced.
   BroadcastChannel, Web Locks, storage, focus, and visibility), not a replacement notification algorithm.
   - Two background copies of Session A observing one ID create one notification; invoking its click focuses only the
     claiming A tab.
-  - A focused visible copy of A plus background duplicates creates zero notifications and stores one suppression result;
-    hiding it later does not notify for the same ID.
+  - One focused visible copy of A creates zero notifications and stores one suppression result; adding background
+    duplicates does not change that result, and hiding the focused copy later does not notify for the same ID.
   - Background Session A and Session B each notify once. Duplicate A tabs still produce only one A notification.
   - A fresh controller seeds unresolved IDs from its initial snapshot without notifying about attention that occurred
     before the Session tab was loaded. A controller that was already loaded detects a new ID after EventSource

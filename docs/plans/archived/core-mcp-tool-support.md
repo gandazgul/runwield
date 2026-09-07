@@ -27,6 +27,9 @@ workRecord:
     recordId: "3e723bb2-cbc2-47b7-a6f9-739bd6fe0cf9"
     path: "docs/work-records/2026-09-03-core-stdio-mcp-support.md"
     lastAttemptAt: "2026-09-03T00:58:46.039Z"
+archivedAt: "2026-09-07T21:22:36.492Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/core-mcp-tool-support.md"
 targetBranch: "main"
 ---
 

@@ -28,6 +28,9 @@ workRecord:
     recordId: "d966173b-5096-4d45-8eea-767963216246"
     path: "docs/work-records/2026-09-04-adopted-mnemoteca-across-runwield.md"
     lastAttemptAt: "2026-09-04T03:28:32.206Z"
+archivedAt: "2026-09-07T21:22:52.661Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/adopt-mnemoteca-across-runwield.md"
 targetBranch: "main"
 ---
 

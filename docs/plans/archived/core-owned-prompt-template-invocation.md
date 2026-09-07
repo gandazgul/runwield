@@ -26,6 +26,9 @@ workRecord:
     recordId: "2444044e-afd6-4b15-8879-dc8681200e07"
     path: "docs/work-records/2026-09-02-core-owned-named-invocation.md"
     lastAttemptAt: "2026-09-02T01:46:43.210Z"
+archivedAt: "2026-09-07T21:22:25.127Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/core-owned-prompt-template-invocation.md"
 targetBranch: "main"
 ---
 

@@ -27,6 +27,9 @@ workRecord:
     recordId: "bf95aaac-2076-40f5-9d08-d74b018d380c"
     path: "docs/work-records/2026-09-02-acp-terminal-auth-shipped.md"
     lastAttemptAt: "2026-09-02T22:05:05.789Z"
+archivedAt: "2026-09-07T21:30:23.369Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/acp-registry-terminal-auth.md"
 targetBranch: "main"
 ---
 

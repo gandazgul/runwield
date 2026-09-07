@@ -20,6 +20,9 @@ workRecord:
     lastAttemptAt: "2026-09-04T03:29:45.805Z"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "Diagnose Claude CLI RC"
+archivedAt: "2026-09-07T21:21:46.716Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/fix-claude-cli-thinking-level-regression.md"
 targetBranch: "main"
 ---
 
