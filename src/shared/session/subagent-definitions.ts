@@ -83,6 +83,10 @@ export const DELEGATED_READ_TOOLS = Object.freeze([
     "code_structure",
     "code_impls",
     "code_importers",
+    "web_search",
+    "web_fetch",
+    "web_code_search",
+    "web_docs_search",
 ]);
 
 export const DELEGATED_WRITE_TOOLS = Object.freeze([
