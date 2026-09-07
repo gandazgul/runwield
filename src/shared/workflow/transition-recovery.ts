@@ -17,6 +17,15 @@ import {
     type TransitionReconciliation,
 } from "./state-transition.ts";
 
+interface SequenceJournalPlan {
+    planName: string;
+    beforeRevision: string;
+    afterRevision: string;
+}
+interface SequenceJournalProof {
+    plans?: SequenceJournalPlan[];
+}
+
 /** A registry attempt as stored, before anything about it is proven. */
 type RegistryEntry = Awaited<ReturnType<typeof inspectWorktreeRegistry>>["entries"][number];
 
@@ -76,6 +85,42 @@ export function buildEffectProver(
         const proof = (effect.proof || {}) as Record<string, unknown>;
         const worktreeId = typeof proof.worktreeId === "string" ? proof.worktreeId : undefined;
 
+        if (effect.effect === "sequence_review_prepared") {
+            const group = effect.proof as SequenceJournalProof | undefined;
+            if (!group?.plans?.length) {
+                return { settled: false, reason: "Sequence journal has no complete document set" };
+            }
+            const states = await Promise.all(group.plans.map(async (plan) => {
+                const loaded = await loadPlanStrict(projectRoot, plan.planName);
+                return {
+                    planName: plan.planName,
+                    before: loaded.kind === "loaded" && loaded.revision === plan.beforeRevision,
+                    after: loaded.kind === "loaded" && loaded.revision === plan.afterRevision,
+                };
+            }));
+            if (states.every((state) => state.before) || states.every((state) => state.after)) {
+                return {
+                    settled: true,
+                    reason: "every Sequence document matches the complete before or after decision",
+                };
+            }
+            return {
+                settled: false,
+                reason:
+                    `Sequence review is incomplete. Preserve new edits and restore the complete before set or finish the after set recorded in this journal before resuming: ${
+                        states.map((state) =>
+                            `${state.planName} (${state.before ? "before" : state.after ? "after" : "changed"})`
+                        ).join(", ")
+                    }`,
+            };
+        }
+        if (effect.effect === "sequence_review_accepted") {
+            return {
+                settled: true,
+                reason:
+                    "the complete decision and durable workflow handoff were accepted; document proof is checked separately",
+            };
+        }
         if (REGISTRY_STATUS_EFFECTS.has(effect.effect)) {
             const entry = worktreeId ? entryById.get(worktreeId) : undefined;
             if (!worktreeId) return { settled: true, reason: "no attempt named, so no registry row is outstanding" };

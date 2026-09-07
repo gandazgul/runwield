@@ -1,3 +1,4 @@
+import type { PlanReviewPolicyFields } from "./plan-review-policy.ts";
 import type { Annotation, CodeAnnotation, ImageAttachment } from "@plannotator/ui/types.ts";
 
 const PLAN_REVIEW_DRAFT_VERSION = 1;
@@ -8,6 +9,7 @@ export interface PlanReviewDraft {
     annotations: Annotation[];
     codeAnnotations: CodeAnnotation[];
     globalAttachments: ImageAttachment[];
+    executionPolicy?: PlanReviewPolicyFields;
     editedPlan: string | null;
     updatedAt: string;
 }
@@ -17,6 +19,7 @@ export interface PlanReviewDraftInput {
     annotations: Annotation[];
     codeAnnotations: CodeAnnotation[];
     globalAttachments: ImageAttachment[];
+    executionPolicy?: PlanReviewPolicyFields;
     editedPlan: string | null;
 }
 
@@ -41,6 +44,7 @@ export function createPlanReviewDraft(input: PlanReviewDraftInput): PlanReviewDr
         codeAnnotations: input.codeAnnotations,
         globalAttachments: input.globalAttachments,
         editedPlan: input.editedPlan,
+        ...(input.executionPolicy ? { executionPolicy: input.executionPolicy } : {}),
         updatedAt: new Date().toISOString(),
     };
 }
@@ -63,7 +67,7 @@ export function parsePlanReviewDraft(raw: string, basePlan: string): PlanReviewD
             (draft.annotations.length === 0 &&
                 (draft.codeAnnotations?.length ?? 0) === 0 &&
                 draft.globalAttachments.length === 0 &&
-                draft.editedPlan === null)
+                draft.editedPlan === null && !draft.executionPolicy)
         ) {
             return null;
         }

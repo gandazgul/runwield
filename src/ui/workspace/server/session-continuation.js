@@ -1,3 +1,4 @@
+import { validateSequenceReviewDecision } from "../../../shared/workflow/sequence-review.ts";
 /* @module ui/workspace/server/session-continuation */
 
 import { createHash } from "node:crypto";
@@ -82,6 +83,7 @@ function safePlanReviewReference(request) {
     return {
         planId,
         planName,
+        sequenceDocuments: Array.isArray(meta.sequenceDocuments) ? meta.sequenceDocuments : undefined,
         agentLabel: typeof meta.agentLabel === "string" && meta.agentLabel.trim() ? meta.agentLabel.trim() : "Planner",
         classification,
         expectedRevision: typeof meta.expectedRevision === "string" ? meta.expectedRevision : null,
@@ -1082,7 +1084,24 @@ export class WorkspaceSessionContinuationService {
             const planReview = request?.planReview && typeof request.planReview === "object"
                 ? /** @type {Record<string, unknown>} */ (request.planReview)
                 : null;
-            if (request?.type === "plan_review" && planReview) {
+            if (request?.type === "plan_review" && Array.isArray(planReview?.sequenceDocuments)) {
+                const decision = readPlanReviewDecisionMeta(options.response);
+                await validateSequenceReviewDecision(
+                    requireOwnerProjectRoot(this.store, options.projectId),
+                    /** @type {import('../../../shared/workflow/sequence-review.ts').SequenceReviewDocument[]} */ (planReview
+                        .sequenceDocuments),
+                    /** @type {import('../../../shared/workflow/sequence-review.ts').SequenceReviewDecision} */ (decision),
+                );
+                runtimeResponse = {
+                    outcome: "accepted",
+                    _meta: {
+                        approved: decision.approved === true,
+                        approvalAction: decision.approvalAction,
+                        feedback: decision.feedback,
+                        sequenceDecision: decision,
+                    },
+                };
+            } else if (request?.type === "plan_review" && planReview) {
                 const root = requireOwnerProjectRoot(this.store, options.projectId);
                 const planId = String(planReview.planId || "");
                 const plan = await findPlanEvidenceById(root, planId);

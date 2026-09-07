@@ -12,6 +12,7 @@ function holdMetadata(plan) {
 
 /** @param {{ epic: any, url: URL | string, draggableCard?: boolean }} props */
 export function EpicCard({ epic, url, draggableCard = false }) {
+    const label = epic.attrs?.type === "sequence" ? "Sequence" : "Epic";
     const progress = epic.childProgress ||
         { verified: 0, userVerified: 0, total: 0, active: 0, remaining: 0, failed: 0, byStatus: {} };
     const held = epic.childHealth?.held?.length || 0;
@@ -39,7 +40,7 @@ export function EpicCard({ epic, url, draggableCard = false }) {
             <a className="card-hit-area" href={href} aria-label={`Open ${epic.planName} details`}></a>
             <div className="card-header">
                 <div>
-                    <p className="card-kicker">Epic</p>
+                    <p className="card-kicker">{label}</p>
                     <span className="card-title">{epic.planName}</span>
                 </div>
                 {canDrag
@@ -53,13 +54,14 @@ export function EpicCard({ epic, url, draggableCard = false }) {
             {canDrag
                 ? (
                     <span id={`drag-help-${epic.planId}`} className="sr-only">
-                        Drag this Epic Card to an allowed status column: {allowedTargetStatuses.replaceAll(" ", ", ")}.
+                        Drag this {label} Card to an allowed status column:{" "}
+                        {allowedTargetStatuses.replaceAll(" ", ", ")}.
                     </span>
                 )
                 : null}
-            <p>{epic.summary || "No Epic summary provided."}</p>
+            <p>{epic.summary || `No ${label} summary provided.`}</p>
             {epic.status === "on_hold" ? <p className="hold-summary">{holdMetadata(epic)}</p> : null}
-            <div className="progress-meter" aria-label="Epic child progress">
+            <div className="progress-meter" aria-label={`${label} child progress`}>
                 <span>
                     {progress.verified} RunWield / {progress.userVerified || 0} user / {progress.total} complete
                 </span>

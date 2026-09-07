@@ -615,3 +615,11 @@ Validation, Semantic Code Review, repair, delivery, and completion.
 - Keep the model read-only. Progress views can link to related Plan and Session pages, but they must not advance the
   workflow.
 - Long failure text must wrap inside the card and must not create whole-page horizontal overflow.
+
+## Grouped Plan review
+
+Sequence review uses controlled `RunWieldTabs` above the existing review workbench: an overview followed by numbered
+child tabs. Mounted inactive panels preserve per-Plan editing, comments, scroll and execution controls. The shared
+approval actions state their complete scope (for example, “Sequence and 2 Plans”) on every tab. Only child tabs show
+execution policy. Keep the tab strip horizontally scrollable and keyboard accessible; use the same semantic tokens and
+header controls as single-Plan review. Surface Lab includes standalone and embedded `sequence` variants.

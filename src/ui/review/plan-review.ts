@@ -1,3 +1,10 @@
+import {
+    type LoadedReviewImage,
+    loadReviewFeedbackImages,
+    type ReviewAnnotationInput,
+    type ReviewImageInput,
+} from "../../shared/workflow/review-feedback-images.ts";
+import type { SequenceReviewDecision, SequenceReviewDocument } from "../../shared/workflow/sequence-review.ts";
 /**
  * @module ui/review/plan-review
  * Browser plan-review consumer used by the terminal runtime adapter.
@@ -7,9 +14,7 @@
  */
 
 import { injectFrontMatter, loadPlanFileStrict, planDocumentMarkdown } from "../../plan-store.js";
-import { isAbsolute, resolve } from "node:path";
 import { assertSharedPlanWriteAllowed } from "../../shared/collaboration/lock.js";
-import { mimeTypeForImagePath } from "../../shared/session/image-attachments.js";
 import { isAnsweredPlanReview } from "../../shared/workflow/plan-review-recovery.js";
 import { applySharedPlanReviewDecision } from "../../shared/workflow/plan-review-actions.ts";
 import { startPlanReviewSurface } from "./review-launcher.ts";
@@ -17,22 +22,7 @@ import type { PlanFrontMatter } from "../../plan-store.js";
 import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.js";
 import type { BrowserPort } from "../../shared/browser-port.ts";
 
-interface ReviewImageInput {
-    path?: string;
-    name?: string;
-}
-
-interface ReviewAnnotationInput {
-    images?: ReviewImageInput[];
-}
-
-interface LoadedReviewImage {
-    base64: string;
-    mimeType: string;
-    name: string;
-}
-
-interface PlanReviewDecision {
+interface PlanReviewDecision extends SequenceReviewDecision {
     approved?: boolean;
     canceled?: boolean;
     exit?: boolean;
@@ -75,9 +65,11 @@ export interface PlanReviewResult {
         | boolean
         | PlanApprovalAction
         | PlanFrontMatter
+        | SequenceReviewDecision
         | LoadedReviewImage[]
         | PlanReviewRecoveryRequired
         | undefined;
+    sequenceDecision?: SequenceReviewDecision;
     approved: boolean;
     canceled?: boolean;
     cancellationReason?: string;
@@ -101,6 +93,7 @@ interface ReviewSurfaceReady {
 }
 
 interface SubmitPlanForReviewOptions {
+    sequenceDocuments?: SequenceReviewDocument[];
     cwd: string;
     planName: string;
     planPath: string;
@@ -115,78 +108,6 @@ interface SubmitPlanForReviewOptions {
     browser: BrowserPort;
 }
 
-const MAX_REVIEW_IMAGE_BYTES = 20 * 1024 * 1024;
-
-/**
- * Read image attachments while the review decision and its temp files are
- * still available. Invalid attachments stay fail-soft so text feedback is not
- * lost when one image cannot be loaded.
- */
-async function loadReviewFeedbackImages(
-    decision: PlanReviewDecision,
-    cwd: string,
-): Promise<LoadedReviewImage[]> {
-    const attachments = collectReviewImageAttachments(decision);
-    const images: LoadedReviewImage[] = [];
-    for (const attachment of attachments) {
-        try {
-            const path = isAbsolute(attachment.path) ? attachment.path : resolve(cwd, attachment.path);
-            const stat = await Deno.stat(path);
-            if (!stat.isFile || stat.size > MAX_REVIEW_IMAGE_BYTES) {
-                throw new Error(stat.size > MAX_REVIEW_IMAGE_BYTES ? "image exceeds 20 MB" : "path is not a file");
-            }
-            const bytes = await Deno.readFile(path);
-            images.push({
-                base64: bytesToBase64(bytes),
-                mimeType: mimeTypeForImagePath(path),
-                name: attachment.name,
-            });
-        } catch (_error) {
-            // Text feedback remains valid if an uploaded image disappears.
-        }
-    }
-    return images;
-}
-
-function collectReviewImageAttachments(decision: PlanReviewDecision): Array<{ path: string; name: string }> {
-    const candidates = [
-        ...readReviewImageAttachments(decision?.images),
-        ...readReviewImageAttachments(decision?.globalAttachments),
-        ...(Array.isArray(decision?.annotations) ? decision.annotations.flatMap(readAnnotationImageAttachments) : []),
-        ...(Array.isArray(decision?.codeAnnotations)
-            ? decision.codeAnnotations.flatMap(readAnnotationImageAttachments)
-            : []),
-    ];
-    const seen = new Set<string>();
-    return candidates.filter((image) => {
-        if (seen.has(image.path)) return false;
-        seen.add(image.path);
-        return true;
-    });
-}
-
-function readAnnotationImageAttachments(annotation: ReviewAnnotationInput): Array<{ path: string; name: string }> {
-    return readReviewImageAttachments(annotation?.images);
-}
-
-function readReviewImageAttachments(value?: ReviewImageInput[]): Array<{ path: string; name: string }> {
-    if (!Array.isArray(value)) return [];
-    return value.flatMap((image) => {
-        const path = typeof image.path === "string" ? image.path.trim() : "";
-        if (!path) return [];
-        const name = typeof image?.name === "string" && image.name.trim() ? image.name.trim() : "image";
-        return [{ path, name }];
-    });
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-    const chunks: string[] = [];
-    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-        chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 0x8000)));
-    }
-    return btoa(chunks.join(""));
-}
-
 // ─── Main Function ────────────────────────────────────────────────────
 
 /**
@@ -194,6 +115,7 @@ function bytesToBase64(bytes: Uint8Array): string {
  */
 export async function submitPlanForReview({
     cwd,
+    sequenceDocuments,
     planName,
     planPath,
     previousPlan,
@@ -241,6 +163,7 @@ export async function submitPlanForReview({
     const server = await startPlanReviewSurface<PlanReviewDecision>({
         cwd,
         plan: planWithFm,
+        sequenceDocuments,
         planPath,
         previousPlan,
         planVersions,
@@ -291,6 +214,15 @@ export async function submitPlanForReview({
             };
         }
 
+        if (sequenceDocuments) {
+            // The workflow owns the complete group transaction, including its durable dispatch event.
+            return {
+                approved: decision.approved === true,
+                approvalAction: decision.approvalAction,
+                feedback: decision.feedback,
+                sequenceDecision: decision,
+            };
+        }
         const actionResult = await applySharedPlanReviewDecision({
             cwd,
             planName,

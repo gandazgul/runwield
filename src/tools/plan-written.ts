@@ -1,3 +1,6 @@
+import { isSequencePlan, projectPlanType } from "../shared/project-plan.ts";
+import { applySequenceReviewDecision, prepareSequenceReview } from "../shared/workflow/sequence-review.ts";
+import type { SequenceReviewDecision, SequenceReviewDocument } from "../shared/workflow/sequence-review.ts";
 /**
  * @module plan-written
  * Custom tool for planning agents to declare a plan and
@@ -115,6 +118,7 @@ interface PlanReviewMeta {
     serverUrl?: string;
     reused?: boolean;
     cancellationReason?: string;
+    sequenceDecision?: SequenceReviewDecision;
 }
 
 interface PlanWrittenOptions {
@@ -144,6 +148,7 @@ function parsePlanReviewMeta(meta: InteractionMeta | undefined): PlanReviewMeta 
         spaceId: typeof source.spaceId === "string" ? source.spaceId : undefined,
         serverUrl: typeof source.serverUrl === "string" ? source.serverUrl : undefined,
         reused: typeof source.reused === "boolean" ? source.reused : undefined,
+        sequenceDecision: source.sequenceDecision as SequenceReviewDecision | undefined,
         cancellationReason: typeof source.cancellationReason === "string" ? source.cancellationReason : undefined,
     };
 }
@@ -152,6 +157,20 @@ const TOOL_PARAMS = Type.Object({
     planName: Type.String({
         description: "Plan filename without extension (kebab-case preferred), e.g. implement-memory-system",
     }),
+    plans: Type.Optional(Type.Array(
+        Type.Object({
+            planName: Type.String({
+                description: "Child Plan name or ID, in declared execution order. Write every child first.",
+            }),
+            executionAgent: Type.Optional(Type.Union([Type.Literal("engineer"), Type.Literal("frontend-engineer")])),
+            collaborationRecommendation: Type.Optional(Type.Union([Type.Literal("autonomous"), Type.Literal("pair")])),
+        }),
+        {
+            minItems: 1,
+            description:
+                "Complete child set for a PROJECT type: sequence. Omit when resuming to load its saved children.",
+        },
+    )),
     executionAgent: Type.Optional(Type.Union([
         Type.Literal("engineer"),
         Type.Literal("frontend-engineer"),
@@ -288,7 +307,7 @@ async function resolveTriageMeta(
         if (plan?.attrs) {
             const planAttrs: TriageMeta = { ...plan.attrs };
             if (planAttrs.workKind === undefined || planAttrs.workKind === null) delete planAttrs.workKind;
-            meta = { ...triageMeta, ...planAttrs };
+            meta = { ...triageMeta, ...planAttrs, type: plan.attrs.type };
         }
     } catch {
         /* ignore */
@@ -340,7 +359,8 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             "after your turn ends — the workflow dispatcher picks it up from this tool's outcome. " +
             "Call this once after writing the plan; the user reviews it in a browser UI. " +
             "If the user submits feedback instead of approving, the tool result contains that feedback so you can " +
-            "revise in this same session.",
+            "revise in this same session. For a PROJECT with type: sequence, submit its complete child list in plans; " +
+            "all documents open together and approval executes the children in order. A later submission may name only the container.",
         parameters: TOOL_PARAMS,
         async execute(toolCallId, params, _signal, onUpdate, _ctx) {
             const publishAcceptedPlanOutcome = (details: ToolResultDetails, images: ReviewImage[] = []) => {
@@ -412,6 +432,22 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             }
 
             let effectiveMeta = await resolveTriageMeta(triageMeta, planName, cwd);
+            let sequenceDocuments: SequenceReviewDocument[] | undefined;
+            try {
+                projectPlanType(effectiveMeta);
+                if (isSequencePlan(effectiveMeta)) {
+                    sequenceDocuments = await prepareSequenceReview(cwd, planName, params.plans);
+                    effectiveMeta = { ...effectiveMeta, ...sequenceDocuments[0].frontmatter };
+                } else if (params.plans) {
+                    throw new Error("Multiple Plans require a PROJECT container with type: sequence.");
+                }
+            } catch (error) {
+                return textResult(`plan_written: ${error instanceof Error ? error.message : String(error)}`, {
+                    outcome: "repair_required",
+                    planName,
+                    reason: "invalid_sequence",
+                });
+            }
             const policyOverrides = collectExecutionPolicyOverrides(params);
             effectiveMeta = { ...effectiveMeta, ...policyOverrides };
             try {
@@ -541,6 +577,37 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             }
             const previousPlan = planVersions.length > 1 ? planVersions.at(-2)?.plan : undefined;
 
+            if (sequenceDocuments) {
+                for (const document of sequenceDocuments) {
+                    const versions = reviewPlanVersions.get(document.planId) ?? [];
+                    if (versions.at(-1)?.plan !== document.plan) {
+                        versions.push({ plan: document.plan, timestamp: new Date().toISOString() });
+                    }
+                    reviewPlanVersions.set(document.planId, versions);
+                    document.planVersions = versions.map((version) => ({ ...version }));
+                    try {
+                        hostedSession.recordPlanAssociation({
+                            planId: document.planId,
+                            planName: document.planName,
+                            purpose: "review",
+                        });
+                    } catch (error) {
+                        emitSystemStatus(
+                            hostedSession,
+                            `Plan Association was not recorded for ${document.planName}: ${
+                                error instanceof Error ? error.message : String(error)
+                            }`,
+                            { level: "warning", header: "RunWield" },
+                        );
+                    }
+                    managedCapability?.registerArtifact({
+                        kind: "plan",
+                        path: `${PLANS_DIR_NAME}/${document.planName}.md`,
+                        title: document.planName,
+                        registeredBy: agentName,
+                    });
+                }
+            }
             const recoverableReview = await requestRecoverablePlanReview({
                 requestReview: () =>
                     requestHostedSessionInteraction(
@@ -553,6 +620,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                                 planId: canonicalReviewEvidence?.planId || planName,
                                 planName: canonicalReviewEvidence?.planName || planName,
                                 planPath,
+                                sequenceDocuments,
                                 classification: effectiveMeta.classification,
                                 expectedRevision: canonicalReviewEvidence?.revision,
                                 expectedStatus: canonicalReviewEvidence?.status,
@@ -605,6 +673,45 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             reviewUrl = "";
             updateToolBlock("Plan review decision received.");
             const reviewMeta = parsePlanReviewMeta(reviewResponse._meta);
+            if (
+                sequenceDocuments && reviewMeta.sequenceDecision &&
+                reviewResponse.outcome !== RuntimeInteractionOutcomes.CANCELED
+            ) {
+                const accepted = await applySequenceReviewDecision({
+                    cwd,
+                    documents: sequenceDocuments,
+                    decision: reviewMeta.sequenceDecision,
+                    hostedSession,
+                    toolCallId,
+                });
+                if (accepted.cancellationReason) {
+                    return textResult(accepted.feedback || "Refresh the Sequence review.", {
+                        outcome: "repair_required",
+                        planName,
+                        reason: "sequence_review_changed",
+                    });
+                }
+                const outcome = accepted.workflowOutcome!;
+                return textResult(
+                    accepted.approved
+                        ? accepted.approvalAction === "run"
+                            ? `Sequence approved. Starting ${outcome.planName}.`
+                            : "Sequence approved and saved for later execution."
+                        : buildFeedbackRequestText({ round: 1, planName, feedback: accepted.feedback }),
+                    { ...outcome, approvalAction: accepted.approvalAction },
+                    accepted.approved,
+                );
+            }
+            if (sequenceDocuments && reviewMeta.approved) {
+                return textResult(
+                    "The review response omitted the Sequence's child decisions. Reopen the complete review.",
+                    {
+                        outcome: "repair_required",
+                        planName,
+                        reason: "incomplete_sequence_review",
+                    },
+                );
+            }
             const reviewResult = {
                 canceled: reviewResponse.outcome === RuntimeInteractionOutcomes.CANCELED,
                 approved: reviewMeta.approved === true,
@@ -731,6 +838,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             };
             const action = normalizePlanApprovalAction({
                 classification: approvedMeta.classification,
+                type: approvedMeta.type,
                 action: reviewResult.approvalAction,
             });
 

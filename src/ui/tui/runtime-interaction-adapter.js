@@ -183,6 +183,7 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
                 uiAPI.setBusy?.(false);
                 const result = await submitPlanForReview({
                     cwd: meta.cwd,
+                    sequenceDocuments: meta.sequenceDocuments,
                     planName: meta.planName,
                     planPath: meta.planPath,
                     previousPlan: typeof meta.previousPlan === "string" ? meta.previousPlan : undefined,

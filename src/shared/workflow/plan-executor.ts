@@ -1,4 +1,5 @@
 // @ts-nocheck: extracted from checked JSDoc workflow.js; tightening types is out of scope for this structural split.
+import { isEpicPlan } from "../project-plan.ts";
 import { AGENTS, CLI_BIN, PLANS_DIR_NAME } from "../../constants.js";
 import { loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { join } from "@std/path";
@@ -9,7 +10,7 @@ import {
     RuntimeInteractionOutcomes,
     RuntimeInteractionTypes,
 } from "../session/session-runtime-interactions.js";
-import { isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
+import { isExecutablePlanStatus, isProjectPlan, recordPlanEvent } from "./plan-lifecycle.js";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "./plan-approval.js";
 import {
     appendSessionCompleteGuidance,
@@ -199,7 +200,7 @@ export async function executePlan({
                 };
             }
             if (!reviewMeta.approved) {
-                const planningAgentName = _triageMeta?.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
+                const planningAgentName = isEpicPlan(_triageMeta) ? AGENTS.ARCHITECT : AGENTS.PLANNER;
                 const revisionOutcome = await runPlanningAgent({
                     agentName: planningAgentName,
                     initialRequest: [
@@ -337,7 +338,7 @@ export async function executePlan({
         effectiveMeta.collaborationRecommendation = policy.policy.collaborationRecommendation;
     }
 
-    if (isEpicPlan(plan.attrs)) {
+    if (isProjectPlan(plan.attrs)) {
         const error = `Plan ${planName} is a PROJECT Epic container and cannot be executed directly.`;
         emitSystemStatus(hostedSession, `ERROR: ${error}`, { level: "error", header: "RunWield" });
         await recordWorkflowMetric({

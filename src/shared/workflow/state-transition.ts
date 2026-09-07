@@ -1175,6 +1175,26 @@ export async function runPlanReviewDecisionTransition<T>(
     });
 }
 
+/** One review decision owns the complete Sequence, including every child lock. */
+interface SequenceReviewTransitionOptions<T> extends TransitionOptionsBase {
+    approved: boolean;
+    planNames: string[];
+    decide: (ctx: RollbackTransitionContext) => Promise<T>;
+}
+
+export async function runSequenceReviewTransition<T>(
+    opts: SequenceReviewTransitionOptions<T>,
+): Promise<TransitionResult> {
+    return await runSemanticTransition({
+        projectRoot: opts.projectRoot,
+        planName: opts.planName,
+        operation: opts.approved ? "sequence_review_approved" : "sequence_review_feedback",
+        resources: [{ kind: "catalog" }, ...opts.planNames.map((id) => ({ kind: "plan" as const, id }))],
+        expectedEffects: ["sequence_review_prepared", "sequence_review_accepted"],
+        apply: opts.decide,
+    });
+}
+
 /**
  * Semantic boundary for reopening a Plan review and abandoning its recorded execution attempt.
  */

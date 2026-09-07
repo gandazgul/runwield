@@ -1,3 +1,4 @@
+import { validateSequenceReviewDecision } from "../../../../shared/workflow/sequence-review.ts";
 /** Review decision transport for Workspace-hosted review surfaces. */
 
 import { normalizePlanClassification } from "../../../../constants.js";
@@ -45,7 +46,9 @@ export function unregisterReviewDecision(token) {
 /** @param {any} ctx */
 export async function reviewDecisionApi(ctx) {
     return await resolveFromRequest(ctx, (body) => {
-        const executionPolicy = validateApprovedExecutionPolicy(body, ctx.state?.reviewPayload);
+        const executionPolicy = ctx.state?.reviewPayload?.sequenceDocuments
+            ? {}
+            : validateApprovedExecutionPolicy(body, ctx.state?.reviewPayload);
         if (executionPolicy instanceof Response) return executionPolicy;
         return {
             approved: true,
@@ -152,6 +155,7 @@ async function resolveFromRequest(ctx, createDecision) {
     if (expectedToken && token !== expectedToken) return jsonError("invalid_token", "Invalid review token.", 401);
     if (!reviewDecisions.has(token)) return jsonError("review_not_found", "Review expired or completed.", 404);
 
+    /** @type {import("../../../../shared/workflow/sequence-review.ts").SequenceReviewDecision} */
     let body = {};
     try {
         body = await (ctx.request || ctx.req).json();
@@ -161,6 +165,14 @@ async function resolveFromRequest(ctx, createDecision) {
 
     const decision = createDecision(body || {});
     if (decision instanceof Response) return decision;
+    if (ctx.state?.reviewPayload?.sequenceDocuments && !decision.exit) {
+        decision.documents = body.documents;
+        try {
+            await validateSequenceReviewDecision(ctx.state.cwd, ctx.state.reviewPayload.sequenceDocuments, decision);
+        } catch (error) {
+            return jsonError("stale_sequence_review", error instanceof Error ? error.message : String(error), 409);
+        }
+    }
     if (!resolveReviewDecision(token, decision)) {
         return jsonError("review_not_found", "Review expired or completed.", 404);
     }

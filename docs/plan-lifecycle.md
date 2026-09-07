@@ -12,9 +12,22 @@ controller stores execution mode, validation checkpoints and counters, review de
 publication state. These facts are not copied into Plan Front Matter and are never compared against obsolete copies
 there.
 
-Every PROJECT Plan is an Epic container. PROJECT Plans are decomposed interactively by the Slicer into child FEATURE
-Plans under `docs/plans/<epic-name>/` and are not executed as implementation work themselves. Child FEATURE Plans point
-back to the Epic with `parentPlan` and may list sibling `dependencies`.
+PROJECT Plans are non-executable containers. `type: epic` (or absent) uses Architect design and Slicer decomposition;
+`type: sequence` uses a brief Planner-authored overview and complete child Plans reviewed together. Both store children
+under `docs/plans/<container-name>/`, linked with `parentPlan`, ordered with `order`, and connected by sibling
+`dependencies` (stable Plan IDs or legacy names).
+
+Planner submits a Sequence through `plan_written({ planName, plans: [{ planName }, ...] })`. The optional `plans` list
+must match the complete child set in order; omitting it reloads that set for a later review. One tab per document
+retains its edits, annotations and child execution policy. Approve & Execute readies the complete group and starts its
+first child; Approve for Later saves the same ready group. Epics retain Approve & Slice. Unsupported PROJECT types
+require correction. Sequence children use ordinary validation and delivery targets; the container adds no aggregate gate
+or publication step.
+
+Grouped approval locks every member and journals all before/after documents before writing. A stale member invalidates
+the decision. Failed writes restore only revisions owned by that decision; interrupted or conflicting writes remain
+blocked with complete recovery evidence. Recovery can close a journal once every document matches its full before or
+after set. Child continuation follows the existing PROJECT order, dependency, hold and recovery rules.
 
 ## Statuses
 
