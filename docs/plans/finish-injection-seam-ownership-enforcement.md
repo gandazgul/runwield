@@ -1,352 +1,352 @@
 ---
-planId: "d9fa56fe-1ff7-4508-a29a-231cb5a6375e"
+planId: "bdc115ce-cfd3-4abe-a789-505a111369f6"
 classification: "PLANNED_CHANGE"
 workKind: "REFACTOR"
 complexity: "HIGH"
-summary: "Finish injection-seam ownership enforcement: declare the genuine external ports by name, reject required ports that expose RunWield-owned machinery, and split the mixed-ownership ValidationSessionPort."
 affectedPaths:
     - "AGENTS.md"
     - "docs/domain-language.md"
     - "docs/plans/deep-semantic-source-modules.md"
-    - "docs/plans/flag-test-seam-risks-during-init.md"
-    - "docs/plans/finish-injection-seam-ownership-enforcement.md"
     - "scripts/check-injection-seams.js"
     - "scripts/check-injection-seams.test.js"
     - "scripts/external-capability-ports.json"
-    - "src/cmd/load-plan/plan-recovery-flow.ts"
-    - "src/shared/extensions/wld-extension-manifest.js"
+    - "src/shared/git-port.ts"
     - "src/shared/package-resources.js"
+    - "src/shared/extensions/wld-extension-manifest.js"
+    - "src/shared/workflow/execution-start.ts"
+    - "src/cmd/load-plan/plan-recovery-flow.ts"
+    - "src/cmd/auth/index.ts"
+    - "src/cmd/sleep/index.ts"
+    - "src/cmd/registry.js"
+    - "src/cmd/router/index.ts"
+    - "src/cmd/agents/index.ts"
+    - "src/cmd/init/index.ts"
+    - "src/cmd/resume/index.ts"
+    - "src/ui/theme/theme-discovery.ts"
+    - "src/ui/tui/boot-banner.ts"
+    - "src/ui/tui/chat-session.ts"
+    - "src/ui/tui/system-notifications.ts"
+    - "src/ui/tui/interactive-session-port.ts"
+    - "src/shared/workflow/validation.ts"
+    - "src/shared/workflow/validation-*.ts"
+    - "src/shared/workflow/validation-test-helpers.js"
+    - "src/shared/workflow/validation-*.test.*"
     - "src/shared/session/architecture-boundary.test.js"
     - "src/shared/workflow/architecture-boundary.test.ts"
-    - "src/shared/workflow/validation.ts"
-    - "src/shared/workflow/execution-start.ts"
-    - "src/shared/workflow/validation-completion-gating.test.ts"
-    - "src/shared/workflow/validation-context.ts"
-    - "src/shared/workflow/validation-emit.ts"
-    - "src/shared/workflow/validation-engine.ts"
-    - "src/shared/workflow/validation-human-review.ts"
-    - "src/shared/workflow/validation-interactions.ts"
-    - "src/shared/workflow/validation-mechanical.ts"
-    - "src/shared/workflow/validation-merge-repair.ts"
-    - "src/shared/workflow/validation-ports.ts"
-    - "src/shared/workflow/validation-publication.ts"
-    - "src/shared/workflow/validation-semantic.ts"
-    - "src/shared/workflow/validation-session-adapter.ts"
-    - "src/shared/workflow/validation-test-helpers.js"
-    - "src/shared/workflow/validation-types.ts"
-    - "src/shared/workflow/validation-loop-*.test.js"
-    - "src/ui/tui/interactive-session-port.ts"
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
 createdAt: "2026-07-30T17:54:11.445Z"
-updatedAt: "2026-08-18T12:00:00-0400"
-status: "draft"
-origin: "user"
+status: "ready_for_work"
+origin: "internal"
+userVerifiedAt: null
 ---
 
 # Finish injection-seam ownership enforcement
 
 ## Context
 
-The original migration is complete. RunWield moved from 155 detected seams across 13 modules to a zero-seam baseline:
+The original migration is complete. RunWield moved from 155 detected injection seams across 13 modules to a zero-seam
+baseline. `scripts/check-injection-seams.js` scans production code under `src/` and `scripts/`, its empty baseline
+cannot adopt new entries, and `deno task ci` runs the check. Tests now use isolated projects, repositories, Plans,
+settings, SQLite stores, and home directories instead of replacing Plan, lifecycle, registry, lock, Work Record, Session
+Runtime, or transaction machinery.
 
-- `scripts/check-injection-seams.js` runs in `deno task ci` as `seams:check`;
-- `scripts/injection-seam-baseline.json` contains no module entries;
-- production command, workflow, session, Work Record, Workspace, and TUI tests use real RunWield machinery over isolated
-  projects, repositories, Plans, SQLite stores, and home directories;
-- only genuine external work such as Git/subprocess calls, Agent/model turns, browser launch, CI, clocks, network, and
-  Mnemoteca uses fakeable ports;
-- the bundled `write-tests` skill and Agent prompts state the ownership rule directly.
+The zero result does not yet prove ownership. The detector automatically accepts an imported required type whose name
+ends in `Port`, and it treats local all-required `Port`, `Ports`, or `Deps` objects as the desired replacement shape. A
+required parameter removes a silent fallback, but it can still let a test replace behavior that RunWield owns.
 
-As of 2026-08-18, the ratchet scans production modules under both `src/` and `scripts/`. Expanding it to `scripts/`
-exposed seven old optional fallback bags. They were removed without adopting a baseline: script entrypoints now provide
-required environment/process ports, and the Router golden-set script calls the canonical triage parser directly.
+A current audit found 23 TypeScript production port declarations, plus JavaScript JSDoc port shapes and port-like
+classes. The draft originally named only execution start, Plan recovery, interactive-session startup, package settings,
+and Workflow Validation. The user chose a complete production-port audit with no temporary ownership exceptions. The
+change must therefore classify every required behavioral collaborator that the strengthened detector finds, preserve
+genuine external capabilities, and remove or reshape every mixed or internal one.
 
-The migration fixed defects that the old `__deps` shape concealed. Validation tests had disabled lifecycle journals,
-locks, compare-and-set checks, and rollback. Workflow Slicer tests had bypassed the catalog lock and the decomposition
-transaction. Some tests used the developer checkout as their project root and wrote live `.wld` state. These failures
-are now covered through real fixture machinery.
+Known mixed or internal declarations include:
 
-The zero result is necessary, but it is not a full ownership proof. The detector still treats a required imported type
-whose name ends in `Port` as safe. Its own source says required constructor injection is the desired replacement shape.
-That rule is too broad: making an internal collaborator required removes the silent fallback, but it still lets tests
-replace machinery that RunWield owns.
+- `ExecutionStartPorts`, which combines Git and clock boundaries with Worktree lookup, branch policy, canonical Plan
+  loading, settings consent, user-confirmation policy, and metric recording;
+- `RecoveryFlowPorts`, which combines Git probing with RunWield metric storage;
+- both `InteractiveSessionPort` declarations, which make RunWield's own TUI and Session startup replaceable;
+- `AuthUiPort`, `SystemNotificationPort`, and Sleep's `MnemotecaPort`, which combine external interaction or host work
+  with RunWield presentation, settings, preflight, or session policy;
+- optional `BootRuntimeToolsPort` and unused `TerminalPairPort` test controls;
+- `resolveInstalledPackagePromptResources` and `resolveInstalledWldExtensionResources`, which still accept a
+  `settingsManager` override and call `Deno.cwd()` directly;
+- `ValidationSessionPort`, an 18-property aggregate containing workflow state, phase position, progress, Runtime event
+  emission, interaction cancellation, Agent turns, display-name lookup, and post-verification handoffs.
 
-## Remaining live gaps
-
-The expanded audit found that the remaining problem is no longer accurately described as “replace dependency bags.” The
-optional bags are gone from the enforced roots. What remains is ownership enforcement for required ports: a required
-object can still let tests replace RunWield machinery if the detector trusts the `Port` suffix.
-
-Confirmed mixed or internal ports that the current zero count does not reject:
-
-- `ExecutionStartPorts` exposes Worktree lookup, branch policy, canonical Plan loading, settings consent, and metric
-  recording. Keep the real functions and use fixture repositories, Plans, settings homes, and metric files. Retain
-  narrow ports only for the actual Git/subprocess, user-interaction, and clock boundaries.
-- `RecoveryFlowPorts` combines the genuine Git boundary with RunWield-owned workflow metric storage. Import metric
-  recording directly and exercise it over a fixture project home.
-- `InteractiveSessionPort` makes RunWield's own interactive-session startup replaceable by command tests. Commands
-  should exercise the real session composition with fake external Agent/browser/terminal capabilities.
-- `resolveInstalledPackagePromptResources` and `resolveInstalledWldExtensionResources` retain
-  `settingsManager || getSettingsManager()` fallbacks. Remove the settings override and use isolated fixture homes.
-- `ValidationSessionPort` remains the largest mixed-ownership port and is detailed below.
-
-### `ValidationSessionPort`
-
-The session-independent Workflow Validation extraction introduced
-`src/shared/workflow/validation-ports.ts#ValidationSessionPort`. It is a required engine argument, so the current
-detector reports zero seams. It has 16 members with mixed ownership:
-
-| Ownership                                 | Current members                                                                                | Required outcome                                                                                                                 |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| RunWield workflow state                   | `getActiveWorkflow`, `setActiveWorkflow`                                                       | Keep behind real Runtime state machinery. Tests observe the resulting workflow state; they do not implement these methods.       |
-| RunWield validation state                 | `getPosition`, `rememberPosition`, `clearPosition`, `getCurrentProgress`, `setCurrentProgress` | Keep as engine/runtime-owned state. `setCurrentProgress` currently has no caller and is removed.                                 |
-| RunWield event and cancellation machinery | `emitStatus`, `registerActiveInteraction`, `unregisterActiveInteraction`                       | Use the real Runtime event and active-interaction paths. Tests attach fixture consumers to real `HostedSession` objects.         |
-| Genuine external user boundary            | `requestInteraction`                                                                           | Move to a narrow required interaction port.                                                                                      |
-| Genuine external Agent/Pi boundary        | `runIndependentRepairTurn`, `createInMemorySessionManager`, `runIsolatedAgentSession`          | Move to a narrow required Agent-session port. This owns Pi handles and message translation.                                      |
-| RunWield registry machinery               | `getAgentDisplayName`                                                                          | Import and call the canonical Agent registry directly.                                                                           |
-| RunWield completion machinery             | `runPostVerificationHandoffs`                                                                  | Call the canonical Manual QA and Work Record handoff machinery directly. Only the actual external sub-capabilities remain ports. |
-
-The current adapter also has an optional external override:
-
-```ts
-createValidationSessionPort(hostedSession, { semanticReviewPort } = {});
-const isolatedSessions = semanticReviewPort || SYSTEM_SEMANTIC_REVIEW_PORT;
-```
-
-The public `ValidationLoopArgs` repeats `semanticReviewPort?: SemanticReviewPort`. Production callers already pass
-`SYSTEM_SEMANTIC_REVIEW_PORT`, while validation tests pass an explicit fake such as `NO_ISOLATED_AGENT_PORT`. The
-fallback is therefore unnecessary. It must become a required external capability at the composition root.
-
-`ValidationSessionPort` did deliver one valid architectural result: validation sequencing and phase policy do not import
-HostedSession or Pi directly. This Plan preserves that result. It removes the replaceable machinery aggregate; it does
-not couple phase modules back to Pi.
+The session-independent Workflow Validation extraction remains valid and must be preserved. Validation sequencing and
+phase policy stay independent of `HostedSession` and Pi. The repair policy also stays RunWield-owned: the engine chooses
+the Agent, prompt, retry, completion gate, and session-reuse policy; the external Agent capability only executes a
+specific requested turn and translates its external result into a typed outcome.
 
 ## Objective
 
-Make ownership, not parameter syntax, decide what can be replaced:
+Make ownership, not required-parameter syntax, decide what production behavior tests can replace:
 
-- retain the zero optional-seam baseline;
-- reject required ports and constructor arguments when they expose RunWield-owned behavioral machinery;
-- replace `ValidationSessionPort` with narrow required ports for only Agent/Pi execution and user interaction;
-- keep workflow state, position, progress, Runtime events, cancellation registration, display-name lookup, and
-  post-verification handoffs on real RunWield code paths;
-- preserve the session-independent validation engine for both Core Session execution and the future
-  `AttachedWorkflowCoordinator`;
-- keep every validation test isolated from the real checkout, Plans, settings, `~/.wld`, browser, LLM, and Mnemoteca
-  data.
+- keep the injection-seam baseline at zero with no temporary ownership exceptions;
+- declare each genuine external capability by exact source declaration and member set;
+- reject imported, local, JSDoc, and constructor-injected behavioral collaborators that are undeclared, stale, mixed, or
+  expose RunWield-owned machinery;
+- remove every current mixed or internal production port found by the complete audit;
+- replace `ValidationSessionPort` with narrow Agent and user-interaction capabilities plus a non-replaceable RunWield
+  runtime context;
+- preserve all command, TUI, execution, recovery, resource-loading, notification, and Workflow Validation behavior.
 
-## Ownership rules
+## Approach
 
-An injection seam is a public claim that a behavior is outside the product boundary.
+An injection seam is a public claim that a behavior can vary independently of RunWield. Apply these rules:
 
-- **External or independently operated capability:** Git, subprocess, network, browser, Agent/model call, Pi's low-level
-  session/JSONL facility, hosted CI, clock, Mnemoteca. Use a small required port with no fallback.
-- **RunWield-owned machinery:** Plan writes, lifecycle transitions, validation state, workflow state, registries,
-  Runtime events, transactions, locks, Work Record generation, and orchestration. Do not expose a replaceable
-  collaborator. Exercise the real implementation through a fixture environment.
-- **Data and policy input:** paths, ids, parsed settings, limits, and immutable request data are ordinary parameters,
-  not ports.
-- **Internal architecture boundary:** an interface between two RunWield modules does not become an external capability
-  because two runtime variants use it. If a module needs a RunWield-owned context, use a nominal, product-constructed
-  context that cannot be implemented with a test object.
+- Git, subprocesses, network, browser launch, Agent/model calls, low-level Pi sessions, hosted continuous integration
+  (CI), clocks, terminal host input/output, and Mnemoteca can use small required ports with no fallback.
+- Plan and Worktree writes, lifecycle transitions, validation and workflow state, settings policy, registries, Runtime
+  events, transactions, locks, Work Record generation, command routing, and orchestration stay on real RunWield paths.
+- Paths, identifiers, parsed settings, limits, and immutable request data are parameters, not ports.
+- A RunWield module boundary does not become external because more than one runtime uses it. When internal state must
+  cross modules, use a product-constructed nominal context that tests cannot replace with a plain object.
 
-Ports are behavioral capabilities, not one injected function per call site. A missing port is a type error. No callee
-selects a system implementation with `||`, `??`, a default parameter, an optional property, or a test-only branch.
+### Exact external-capability declarations
 
-## RunWield-internal named external ports
+Add `scripts/external-capability-ports.json` as a repository-private ownership manifest. Each entry identifies one
+source module and named TypeScript interface/type, JSDoc typedef, or other injected contract; records the external
+owner; and lists the exact callable members. Imported declarations are resolved to their source. A changed, missing,
+duplicate, or extra member makes the manifest stale and fails the check.
 
-This is repository-specific enforcement for RunWield's JavaScript and TypeScript source. It is not a format installed in
-customer projects and is not part of the `wld` product contract.
+The checker must stop trusting `Port`, `Ports`, `Deps`, `Dependencies`, or `Hooks` suffixes and all-required object
+shapes. It must inspect both local and imported required behavioral contracts. A type absent from the manifest is not
+automatically invalid when it is plain data, but an undeclared behavioral collaborator is reported. Renaming a mixed
+port or placing it behind a constructor must not evade the result.
 
-Do not infer ownership from a suffix or a broad verb list. Maintain `scripts/external-capability-ports.json` as
-RunWield's small, reviewed declaration of production behavior RunWield does not own. Each entry names:
+The manifest records contracts, not implementations. It cannot name `SYSTEM_*` values, fakes, convenience wrappers, or
+RunWield-owned modules. Valid entries include cohesive browser, Git, network, process, clock, Agent execution, CI,
+terminal-host, clipboard, and Mnemoteca capabilities. Mixed aggregates are split or removed before the production scan
+can pass. A generic `execute`, `invoke`, `dispatch`, or operation-code multiplexer is not cohesive merely because its
+adapter eventually starts a subprocess; the checker fixtures and semantic review must reject any declared capability
+that can route more than one external system or any RunWield-owned operation.
 
-- the exact exported Port type;
-- its source module;
-- the external system it represents, such as Git, browser, Pi/Agent execution, CI, clock, network, GitHub CLI, or
-  Mnemoteca;
-- the capability members that may be implemented by tests.
+This manifest and checker are only for this repository. The completed Init seam-risk guidance remains advisory and must
+not expose the manifest schema, source globs, naming rules, Deno tasks, or automated verdict to customer projects.
 
-The seam detector resolves required Port types and accepts them only when that exact type/module/member set is declared.
-Changing a port's members therefore requires an explicit architectural change to the manifest. A `Port`, `Deps`,
-`Hooks`, or constructor argument absent from the manifest receives normal machinery analysis; naming something
-`ExternalPort` is not an escape hatch.
+### Real composition for current mixed ports
 
-Keep the manifest about ownership, not implementations. It must not list `SYSTEM_*` objects, test fakes, convenience
-wrappers, or RunWield module boundaries. In particular, Plan storage, Worktree registries, settings, metrics, Runtime
-events, interactive-session startup, and validation state can never appear in it.
+Execution start and Plan recovery call canonical Worktree, Plan, settings, interaction-policy, and metric functions
+directly. Extend or reuse `GitPort` only for raw Git questions, and use one narrow clock capability where deterministic
+time is necessary. Tests use real Git repositories, Plans, settings homes, and metric files.
 
-Do not expose this manifest, its `path#exportedType` identity, the `Port` naming convention, the `src/` and `scripts/`
-roots, Deno tasks, or the seam detector through `wld init` or `wld check`. Customer repositories may use different
-languages, build systems, source layouts, and dependency-boundary idioms. The separate language-neutral project-checks
-Plan may export the general practice, but never this repository's implementation.
+Commands that launch a Session call the real interactive-session composition. Their parsing and validation can remain
+pure, but tests no longer replace startup through either `InteractiveSessionPort`. Auth keeps only a narrow user
+interaction capability; model registry, model selection, Session Runtime, and message policy remain real. Sleep reuses
+the shared Mnemoteca process capability, calls RunWield preflight directly, and enters the real Session composition.
+System notifications read RunWield settings directly and retain only host environment, process, and terminal-write
+operations as an external capability. Theme discovery uses real temporary files and a narrow external package-resource
+resolver. Boot-banner tests control `PATH` around the real binary probe instead of passing optional runtime tools. The
+unused `TerminalPairPort` is removed.
 
-## Validation design
+Package prompt and WLD-extension resolution always use the canonical settings manager and `getCwd()`. Tests select the
+wanted settings and package state through sandboxed homes and working directories; no `settingsManager` option or `any`
+cast remains.
 
-### 1. Narrow external ports
+### Validation ownership
 
-Replace the external members of `ValidationSessionPort` with two required contracts:
+`validation.ts` stays the Core Session composition root:
 
-- `ValidationAgentPort` owns completion-gated repair turns, isolated Reviewer and Reviewer-Feedback Engineer turns,
-  in-memory Pi session-manager handles, Pi message translation, and external execution failures;
-- `ValidationInteractionPort` owns user decisions and interaction cancellation as seen by the external presentation
-  boundary.
+```text
+runValidationLoop
+  create Core ValidationRuntimeContext from real HostedSession
+  bind required ValidationAgentPort and ValidationInteractionPort
+  bind Git, CI, and Mnemoteca external capabilities
+  run session-independent validation engine
+```
 
-The Core Session composition root binds both ports to the real HostedSession/Pi implementation. Attached Mode will bind
-the same semantic contracts to its External Agent Host. Neither port owns Plan state, workflow state, progress, Work
-Records, or lifecycle transitions.
+`ValidationAgentPort` has a deep two-operation shape: create an opaque external Agent conversation and execute a typed
+Agent-turn request in that conversation. The engine owns Agent selection, prompts, repair versus review purpose,
+completion gates, retries, continuation, and when a conversation is reused or cleared. The adapter owns Pi handles,
+external execution, raw-message translation, and external-failure classification. `SemanticReviewPort`,
+`runIndependentRepairTurn`, and `continueLastRepairTurn` do not survive as replaceable policy operations.
 
-`SemanticReviewPort` is folded into `ValidationAgentPort`. The public validation entry requires the resulting Agent
-port; there is no `SYSTEM_*` fallback inside `validation.ts` or `validation-session-adapter.ts`.
+`ValidationInteractionPort` only requests a typed user decision. The real adapter owns presentation details. Runtime
+event emission and active-interaction cancellation registration remain RunWield machinery and do not move onto this
+port.
 
-### 2. Non-replaceable RunWield runtime context
+A nominal `ValidationRuntimeContext` carries one run's authoritative Core bindings and engine-owned progress/repair
+conversation state. Its construction is private to approved Core Session composition and a future Attached Workflow
+composition path; plain structural objects and test subclasses are rejected. Tests obtain it only through a real fixture
+`HostedSession`. It delegates to canonical state and event modules rather than duplicating lifecycle, persistence,
+registry, or lock logic. Remove unused `setCurrentProgress`; import Agent display-name lookup directly, and let the
+nominal context invoke the canonical HostedSession-based post-verification handoff without exposing it as a replaceable
+port method.
 
-Create one product-owned `ValidationRuntimeContext` for the state that must remain session-independent but real. It is
-not a port:
+The main option set aside is a temporary allowlist for today's mixed ports. It would make this change smaller, but it
+would recreate an ownership baseline and let the checker report success before the repository satisfied its rule.
 
-- its constructor and implementation details are private to validation composition;
-- it has a nominal runtime brand, and the engine rejects plain structural lookalikes;
-- the Core Session factory requires a real `HostedSession`;
-- tests obtain it only by constructing a real fixture HostedSession through the same factory;
-- phase modules do not accept callbacks or object literals for workflow state, position, progress, Runtime event
-  emission, or active-interaction registration;
-- only approved Core Session and future Attached composition modules can create it; an architecture test rejects other
-  construction and direct engine invocation.
+## Expected Change Surface
 
-The context is an internal run handle, not an ownership exception and not an entry in the future external-capability
-manifest. Its methods delegate to canonical RunWield modules. It must not duplicate lifecycle or persistence logic.
+The boundaries below are guidance, not an allowlist: verify the real footprint during implementation and change whatever
+the Implementation Steps need, including files not named here. Stop and report only when discovery changes approved
+intent — the change reaches another subsystem, public behavior or architecture shifts, migration or compatibility risk
+grows, or the Verification Plan no longer proves the objective.
 
-Where state can move into the engine without a callback, prefer engine-owned data:
+- `scripts/check-injection-seams.js` and `scripts/check-injection-seams.test.js` — resolve and validate required
+  behavioral contracts against the exact ownership manifest; preserve optional-fallback and test-hook detection.
+- `scripts/external-capability-ports.json` — declare every current genuine production external capability with no debt
+  or internal-machinery entries.
+- `AGENTS.md` — state that required ports must be declared and cohesive, and that the zero result includes required-port
+  ownership.
+- `src/shared/git-port.ts`, `src/shared/workflow/execution-start.ts`, and `src/cmd/load-plan/plan-recovery-flow.ts` —
+  separate raw Git/clock work from RunWield execution and recovery policy.
+- `src/cmd/{auth,sleep,router,agents,init,resume}/`, `src/cmd/registry.js`, and `src/ui/tui/interactive-session-port.ts`
+  — remove replaceable Session startup and mixed command ports while preserving every CLI and slash-command route.
+- `src/ui/theme/theme-discovery.ts` and `src/ui/tui/{boot-banner,chat-session,system-notifications}.ts` — retain only
+  cohesive package/host capabilities; remove optional or dead test controls.
+- `src/shared/package-resources.js` and `src/shared/extensions/wld-extension-manifest.js` — use canonical settings,
+  `getCwd()`, and sandboxed environment state.
+- `src/shared/workflow/validation.ts`, `validation-session-adapter.ts`, `validation-ports.ts`, `validation-types.ts`,
+  `validation-engine.ts`, and phase modules — replace the mixed Session port with the nominal Runtime context and narrow
+  required external capabilities.
+- Command, TUI, Git, package-resource, recovery, execution-start, validation, Session Runtime, and architecture tests —
+  prove real composition and preserve behavior after the test-only replacement points disappear.
+- `docs/domain-language.md` — update **Session-Independent Validation Engine** to describe the implemented runtime
+  context and narrow Agent/interaction capabilities; do not present `ValidationSessionPort` as current truth.
+- `docs/plans/deep-semantic-source-modules.md` — update the future move map and checks to move the resulting
+  declarations, with no legacy `ValidationSessionPort` exception.
 
-- remove unused `setCurrentProgress`;
-- hold the current progress record in the validation run and emit it through the real Runtime event machinery;
-- keep phase position and active workflow updates authoritative across pause/resume; do not derive them from display
-  projections or fake stores.
+The completed and archived Init seam-risk Plan is deliberately outside the change surface. Its behavior is a
+compatibility constraint, not a document to revise.
 
-### 3. Direct RunWield machinery
+## Reuse Opportunities
 
-Phase code imports the canonical Agent display-name registry directly. Publication calls the canonical post-verification
-handoff function directly. If these functions need Runtime presentation or an external operation, they receive the
-non-replaceable runtime context and the already declared external port. No new wrapper interface is introduced for
-testability.
+- `src/shared/git-test-fixture.ts#defineGitFixture` — real Git repositories for execution, recovery, and Git-port
+  contract tests.
+- `src/shared/workflow/validation-test-helpers.js#makeValidationProjectRoot` and `attachRecorder` — isolated real Plans,
+  project state, `HostedSession`, and Runtime events.
+- `src/testing/process-global-lock.js#withProcessGlobalTestLock` — safe `HOME`, `PATH`, and working-directory mutation.
+- `src/ui/tui/testing/interactive-composition-fixture.ts` and existing Golden TUI fixtures — real command-to-TUI
+  composition without opening a browser or calling a model.
+- `src/shared/work-records/mnemoteca-port.ts#WorkRecordMnemotecaPort` — shared external Mnemoteca process execution for
+  Work Records and Sleep.
+- `src/shared/session/architecture-boundary.test.js` and `src/shared/workflow/architecture-boundary.test.ts` — existing
+  import and ownership fences for the validation engine.
+- Existing network, browser, clipboard, CI, process, and model-discovery ports — retain them when their complete member
+  set belongs to one external owner.
 
-## Current files and reuse
+## Implementation Steps
 
-- `src/shared/workflow/validation.ts` is the public Core Session composition root. It currently builds
-  `ValidationSessionPort` and rebinds Local CI over the real HostedSession.
-- `src/shared/workflow/validation-session-adapter.ts` is the only validation module coupled to HostedSession and Pi. It
-  currently owns the optional `SemanticReviewPort` fallback and all mixed port methods.
-- `src/shared/workflow/validation-ports.ts` owns the current 16-member contract plus its engine-facing types.
-- `src/shared/workflow/validation-test-helpers.js` already provides real Plan roots and HostedSession recorders. It also
-  provides explicit fakes only for Git, CI, Mnemoteca, and Agent calls.
-- `src/shared/workflow/validation-completion-gating.test.ts` already proves independent repair sessions through a real
-  HostedSession and proves private session-manager reuse after an external backend failure.
-- `src/shared/git-test-fixture.ts#defineGitFixture` and
-  `src/shared/workflow/validation-test-helpers.js#makeValidationProjectRoot` remain the standard fixtures.
-- `src/shared/session/architecture-boundary.test.js` already restricts session/Pi imports. Extend it to restrict runtime
-  context construction and direct engine use.
+- `scripts/external-capability-ports.json` has a validated, deterministic schema keyed by source declaration; every
+  entry has one external owner and an exact non-empty member set, and duplicate, missing, stale, or
+  implementation-valued entries fail `seams:check`.
+- `scripts/check-injection-seams.js` resolves local, imported, and JSDoc required behavioral types and constructor
+  arguments without a suffix exemption. Undeclared behavioral collaborators and mixed-owner aggregates fail while
+  ordinary data objects pass.
+- The complete current production-port inventory is accounted for: each genuine external contract is in the manifest,
+  each mixed or internal contract is split or removed, and `scripts/injection-seam-baseline.json` remains empty with no
+  second exception file or inline waiver. No declared contract multiplexes behavior through an opaque operation code,
+  generic payload, or catch-all dispatcher.
+- `ExecutionStartPorts`, `createExecutionStartPorts`, and `RecoveryFlowPorts` no longer exist. Execution start and Plan
+  recovery call RunWield Worktree, Plan, settings-consent, interaction-policy, and metric owners directly while raw Git
+  and clock operations use declared external capabilities.
+- `startActiveExecutionWorkflow` tests exercise real reusable-Worktree lookup, target-branch policy, canonical Plan
+  loading, consent persistence, and workflow metrics in isolated fixtures. A fake can supply Git/clock outcomes but
+  cannot report a RunWield-owned transition as successful.
+- Both `InteractiveSessionPort` declarations and `SYSTEM_INTERACTIVE_SESSION_PORT` are removed. Router, Agent, Init,
+  Resume, and Sleep CLI routes reach real interactive-session composition; unit tests cover pure argument behavior and
+  composed tests prove startup without replacing it.
+- `AuthUiPort`, Sleep's `MnemotecaPort`, `SystemNotificationPort`, `ThemeDiscoveryPorts`, `BootRuntimeToolsPort`,
+  `TerminalPairPort`, and `UpdateCheckPorts` no longer survive as mixed or multi-owner bags. Each caller either uses
+  real RunWield machinery or a declared narrow external user/package/network/clock/process/terminal/Mnemoteca
+  capability.
+- Package prompt and WLD-extension resolution have no settings-manager override or `any` cast, resolve cwd through
+  `getCwd()`, and read selected packages from sandboxed canonical settings.
+- `ValidationSessionPort` and `SemanticReviewPort` are removed. `ValidationAgentPort` and `ValidationInteractionPort`
+  are required at composition and contain no Plan, workflow, progress, Runtime event, registry, lifecycle, Work Record,
+  or handoff operations.
+- Validation repair and review policy is engine-owned: the engine creates typed Agent-turn requests, chooses Agents and
+  prompts, applies completion gates and retry limits, and owns opaque conversation reuse; the Agent adapter only runs
+  the request, translates external results, and reports external failures.
+- A nominal `ValidationRuntimeContext` created from the real `HostedSession` owns workflow state, position, progress,
+  Runtime event emission, active-interaction registration, assistant workflow messages, and current repair-conversation
+  state. Plain-object construction and imports outside approved composition and engine modules fail architecture tests.
+- Validation phase modules use canonical Agent display-name lookup directly, and the nominal runtime context invokes
+  canonical HostedSession-based post-verification handoffs. Unused `setCurrentProgress` is gone, and no replaceable
+  port, callback, or service-locator member exposes that machinery.
+- Existing command, TUI, execution, recovery, resource, and validation tests retain their behavioral assertions but use
+  real RunWield composition and fixture environments. Fakes remain only for manifest-declared external capabilities and
+  fail loudly if a scenario unexpectedly reaches a real browser, model, CI process, terminal host, network, or Mnemoteca
+  process.
+- `docs/domain-language.md`, `AGENTS.md`, and `docs/plans/deep-semantic-source-modules.md` describe the implemented
+  names, ownership rule, and move sequence. The glossary no longer names `ValidationSessionPort`, and no customer-facing
+  Init prompt or check exposes this repository-private manifest.
 
-## Implementation steps
+## Approval Confirmation
 
-- [x] **Freeze and ratchet the original problem.** `seams:check` is part of CI. The baseline is now zero modules and
-      zero seams; `--update` cannot be used to adopt a new seam.
-- [x] **Remove dependency bags and machinery overrides.** The original 51-module migration is complete. Plan, lifecycle,
-      transaction, registry, lock, Work Record, Workspace, SessionRuntime, command, and TUI machinery runs through real
-      fixture environments.
-- [x] **Create genuine external capability ports.** Git, Agent/model, CI, browser, network, process, clock, GitHub CLI,
-      and Mnemoteca boundaries are explicit at production composition roots and explicit in tests.
-- [x] **Scan production scripts.** The ratchet now walks both `src/` and `scripts/`, excludes tests and fixtures, and
-      pins this coverage in `check-injection-seams.test.js`. Seven newly visible optional bags were removed without a
-      baseline entry.
-- [ ] **Declare named external ports.** Add `scripts/external-capability-ports.json` with the exact approved type,
-      module, external owner, and member names. Validate the manifest itself and reject stale declarations.
-- [ ] **Make the detector ownership-aware for required ports.** Change the rule that automatically exempts required
-      imported `*Port` types. Accept only exact declarations from the named external-port manifest. Add positive cases
-      for `ValidationSessionPort`, `ExecutionStartPorts`, `RecoveryFlowPorts.recordWorkflowMetric`, and
-      `InteractiveSessionPort`; add negative cases for declared external ports and ordinary data parameters. The
-      detector must go red on the current ports before their production refactors make it green.
-- [ ] **Remove the other required machinery ports.** Exercise execution start and recovery through real Git/Plan/home
-      fixtures, call workflow metrics directly, and make command tests enter real interactive-session composition while
-      faking only the external Agent/browser/terminal capabilities.
-- [ ] **Remove internal settings overrides.** Make package and WLD-extension discovery read the real settings manager
-      from fixture homes; remove both optional `settingsManager` fallbacks and their `any` annotations.
-- [ ] **Split `ValidationSessionPort` by ownership.** Introduce the narrow required `ValidationAgentPort` and
-      `ValidationInteractionPort`; move no RunWield-owned member into either. Remove `ValidationSessionPort` completely.
-- [ ] **Remove the Agent-session fallback.** Make the Agent port required in `ValidationLoopArgs` and the Core Session
-      adapter. Update every production caller to compose the system implementation and every test to pass an explicit
-      external fake only when the scenario reaches an Agent boundary.
-- [ ] **Move internal state to real machinery.** Add the nominal `ValidationRuntimeContext`, remove unused progress
-      mutation, and route workflow state, phase position, progress, events, cancellation, registry lookup, and
-      post-verification handoffs through canonical RunWield implementations.
-- [ ] **Rewrite tests through public validation behavior.** Keep existing validation-loop behavior counts. Replace any
-      direct port-object construction with real HostedSession, Plan, Git, and Runtime fixtures. Retain loud fakes for
-      Agent/model, CI, browser, and Mnemoteca boundaries. Add a focused runtime-context suite and mutation proof for
-      each removed internal replacement point.
-- [ ] **Align downstream architecture documents.** Update `docs/domain-language.md` so it no longer defines the engine
-      by `ValidationSessionPort`. Update `deep-semantic-source-modules.md` so it moves the new context and narrow ports,
-      not the old 16-member aggregate. Update `flag-test-seam-risks-during-init.md` so public guidance explains the
-      ownership rule without exporting either RunWield type as a customer-facing capability declaration.
-- [ ] **Keep advisory Init guidance separate.** Coordinate with `flag-test-seam-risks-during-init.md`, which may teach
-      the ownership rule and surface possible issues but must not ship this detector, manifest schema, source globs,
-      Port naming, RunWield CI wiring, or an automated cross-language verdict to customer repositories.
+No Work Record is proposed for supersession. This Plan builds on the verified zero-seam migration and
+session-independent validation extraction rather than replacing their historical record.
 
-## Sequencing
+## Verification Plan
 
-Do not execute this Plan concurrently with `deep-semantic-source-modules.md`.
-
-Preferred order:
-
-1. complete this focused validation ownership refactor at the current paths;
-2. revise the ready source-tree Plan's file map and checks to move the resulting context and narrow ports;
-3. execute the source-tree move;
-4. execute `flag-test-seam-risks-during-init.md` independently; it must not consume these internal paths.
-
-If the source-tree move lands first, translate every current path in this Plan to `src/core/execution/validation/` and
-perform the same behavior change there. Do not use the move Plan's pre-existing-port allowlist to waive
-`ValidationSessionPort`.
-
-## Verification plan
-
-- Run OC1 through OC6 from Front Matter.
-- Run `deno task seams:check`; it must report zero after the refactor without an adopted baseline entry.
-- Run all validation-loop, completion-gating, validation-progress, validation-position, architecture-boundary,
-  SessionRuntime, orchestrator, and epic-continuation suites through `scripts/run-tests.js`.
-- Run full `deno task ci` through the isolated test runner.
-- Run the complete validation test set twice concurrently. Both runs must use sandboxed HOME, temporary project roots,
-  and separate fixture Plans without lock or journal contention.
+- Automated checker contract: `deno run -A scripts/run-tests.js scripts/check-injection-seams.test.js`. Tests must fail
+  for an undeclared imported `*Port`, a local all-required mixed port, a constructor-injected renamed collaborator, a
+  stale manifest member, a missing declaration, a manifest entry for known RunWield machinery, and a declared generic
+  dispatcher that routes an operation discriminator to both external and RunWield-owned work. They must pass for exact
+  cohesive external declarations and ordinary immutable data.
+- Automated focused behavior:
+  `deno run -A scripts/run-tests.js src/shared/git-port.test.js src/shared/package-resources.test.js src/shared/extensions/wld-extension-manifest.test.js src/cmd/load-plan/plan-recovery-flow.test.ts src/cmd/auth/index.test.ts src/cmd/sleep/index.test.ts src/cmd/router/index.test.ts src/cmd/agents/index.test.ts src/cmd/init/index.test.ts src/cmd/init/init-verification-confirmation.integration.test.ts src/cmd/resume/index.test.ts src/ui/theme/theme-discovery.test.ts src/ui/tui/boot-banner.test.ts src/ui/tui/system-notifications.test.ts src/shared/session/architecture-boundary.test.js src/shared/workflow/architecture-boundary.test.ts`.
+- Automated execution and validation behavior:
+  `deno run -A scripts/run-tests.js src/shared/workflow/workflow.test.js src/shared/workflow/execution-progress.test.ts src/shared/workflow/plan-location.integration.test.ts src/shared/workflow/authority-continuation.integration.test.ts src/shared/workflow/orchestrator.test.ts src/shared/workflow/validation-*.test.*`.
+- Automated repository gates: `deno task seams:check`, then `deno task ci`. The seam check reports zero without changing
+  `scripts/injection-seam-baseline.json` or creating another exception source.
+- Concurrency: run the complete `src/shared/workflow/validation-*.test.*` set twice in parallel through
+  `scripts/run-tests.js`. Both runs use separate sandboxed homes, projects, Plans, and repositories and produce no lock,
+  journal, or settings contention.
 - Mutation proof:
-  - replace the nominal Runtime context with a plain object and confirm the architecture/runtime-context test fails;
-  - restore `semanticReviewPort?:` plus its system fallback and confirm `seams:check` fails;
-  - move `setActiveWorkflow` or `runPostVerificationHandoffs` onto an external port and confirm the ownership test
-    fails;
-  - break one real Git contract call and confirm a Git contract test fails;
-  - remove one Agent fake from a scenario that reaches Semantic Review and confirm the test fails loudly instead of
-    calling a real model.
-- Confirm no test creates or changes files in the real checkout `.wld`, real Plan directories, real settings, or
-  `~/.wld`, and no test opens a browser or calls a real LLM or Mnemoteca database.
+  - add an internal method such as `recordWorkflowMetric` to a declared external port; the manifest/checker test fails;
+  - restore an optional `SemanticReviewPort` fallback; `seams:check` fails;
+  - replace `ValidationRuntimeContext` with a plain object or construct it from an unapproved module; the architecture
+    test fails;
+  - bypass real Worktree lookup, settings consent, workflow metric recording, Runtime event emission, or
+    post-verification handoffs; a focused behavioral test fails;
+  - remove the explicit Agent fake from a semantic-review scenario; the test fails loudly before any real model call.
+- Preserved behavior: Workflow Validation still protects phase order, lifecycle transitions, repair limits,
+  pause/resume, reviewer convergence, human review, publication, progress events, Manual QA, and Work Record outcomes.
+  Router, Agent, Init, Resume, Sleep, auth, theme, boot banner, notification, package, and extension behavior remains
+  unchanged.
+- Behavior expected to stop: production code no longer exports or accepts the removed aggregate ports, and tests can no
+  longer replace Session startup, settings managers, Worktree/Plan lookup, metrics, validation state, Runtime events,
+  display-name lookup, completion policy, or post-verification handoffs.
+- Semantic and manual inspection: trace every manifest member from its declaration through its production adapter and
+  callers. Confirm that it translates one named external system's operation and answer, has no RunWield operation-kind
+  switch or opaque multiplexer, and cannot report owned workflow work as complete. Confirm no entry names a `SYSTEM_*`
+  object or RunWield Plan, Worktree, settings, metric, Runtime, registry, lifecycle, transaction, lock, Work Record,
+  command-routing, or validation-state owner.
+- Safety: compare `git status --short` before and after focused and concurrent tests. No test may create or change files
+  in the real checkout `.wld`, real Plan directories, real settings, `~/.wld`, or the real Mnemoteca database, and no
+  test may open a browser or contact a real model or network service.
+- Documentation: confirm the glossary describes the implemented validation architecture, the source-move Plan uses the
+  resulting names, and the existing Init prompt-contract tests still prove that repository-private checker details do
+  not appear in customer guidance.
 
-## Preserved behavior
+## Edge Cases & Considerations
 
-- Workflow Validation keeps the same phase order, lifecycle transitions, repair limits, pause/resume behavior, review
-  convergence, human review, publication, progress events, Manual QA, and Work Record outcomes.
-- The engine remains independent of Pi and HostedSession implementation types. Only composition and the external Agent
-  adapter import them.
-- Native and Managed Session behavior remains unchanged.
-- The future Attached coordinator consumes the same validation engine and supplies only its real external Agent and user
-  interaction capabilities. It does not implement RunWield workflow or validation machinery as fakes.
-- No existing test is deleted because its setup depended on the old aggregate. Rewrite it against real machinery and
-  account for every changed test.
-
-## Edge cases and constraints
-
-- A required parameter is not automatically a valid port. Required syntax removes fallback ambiguity; it does not prove
-  external ownership.
-- A nominal internal context must not become a service locator. It contains only one validation run's state and Runtime
-  bindings, and it cannot expose Plan store, registry, lifecycle, or lock implementations for callers to replace.
-- Attached Mode is a second composition root, not evidence that RunWield-owned validation state is external.
-- Pi session management is external at the low-level package boundary. RunWield's policy for when and how to run a
-  Reviewer or repair Agent remains engine-owned.
-- A port aggregate is valid only when all members belong to one external capability. A mixed `ports`, `deps`, or
-  `context` object is still a dependency bag under a different name.
-- Pure formatters and data transforms need no port.
+- A required parameter is not automatically a valid external capability. Required syntax removes fallback ambiguity; it
+  does not prove ownership.
+- The checker must cover JavaScript JSDoc contracts and imported aliases as well as local TypeScript declarations. A
+  rename, re-export, or constructor wrapper must not create an escape hatch.
+- A port aggregate is valid only when all members belong to one external capability. A mixed `ports`, `deps`, `context`,
+  or options object remains a dependency bag under a different name. One generic method with an opaque operation code is
+  still an aggregate and must fail the ownership review.
+- The nominal validation context must not become a service locator. It contains one run's state and Runtime bindings and
+  cannot expose Plan storage, registries, lifecycle, settings, metrics, locks, or transactions for callers to replace.
+- Pi conversation execution is external. RunWield's decisions about Agent role, prompt, completion, repair continuation,
+  retry, and handoff remain engine-owned.
+- Attached Mode is a future second composition root, not evidence that RunWield validation state is external. Keep the
+  engine free of Pi and `HostedSession` implementation imports while reserving an approved product-owned context factory
+  path for the Attached Workflow coordinator.
+- Tests that mutate `HOME`, `PATH`, or cwd use `withProcessGlobalTestLock`; all source cwd/home reads use `getCwd()` and
+  `getHomeDir()` at call time.
+- Do not execute this Plan concurrently with `docs/plans/deep-semantic-source-modules.md`. Finish this ownership change
+  first and then update the source-move Plan to move the resulting modules. If the move lands first, translate paths to
+  the moved modules without restoring a legacy-port exception.
+- The archived Init seam-risk work is complete. Keep it advisory and language-neutral; do not modify its archived Plan
+  or introduce `wld check` ownership enforcement.
+- Pure formatters and data transforms do not need ports.
 
 [Mnemoteca]: https://github.com/gandazgul/mnemoteca
