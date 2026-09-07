@@ -28,6 +28,9 @@ workRecord:
     path: "docs/work-records/2026-09-01-guided-review-usage-reporting.md"
     lastAttemptAt: "2026-09-01T23:07:44.426Z"
 routingIntent: "PLANNED_CHANGE"
+archivedAt: "2026-09-07T21:22:08.126Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/expose-guided-review-runtime-usage.md"
 targetBranch: "main"
 ---
 
