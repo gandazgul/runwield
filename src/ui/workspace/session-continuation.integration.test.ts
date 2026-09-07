@@ -3,7 +3,7 @@ import { assertEquals, assertRejects } from "@std/assert";
 import { AGENTS } from "../../constants.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { manifestPath } from "../../shared/session/file-session-storage.ts";
-import { makeManagedSessionFixture } from "../../testing/managed-session-fixture.ts";
+import { makeManagedSessionFixture, readTranscriptEvidence } from "../../testing/managed-session-fixture.ts";
 import { readSessionName, WorkspaceSessionContinuationService } from "./server/session-continuation.js";
 
 async function waitForOperation(service, operationId) {
@@ -189,6 +189,86 @@ Deno.test("Workspace continuation publishes once and a TUI observer resumes from
             }
         },
     );
+});
+
+Deno.test("Workspace Session options and timeline expose supported Agy model facts", async () => {
+    await withRuntimeCommandFixture("workspace-agy-options-", async ({ homeDir, projectRoot }) => {
+        const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+        const workspaceStore = fixture.openStore();
+        const service = new WorkspaceSessionContinuationService({ store: workspaceStore });
+        try {
+            const options = await service.listSessionOptions(fixture.project.projectId);
+            assertEquals(
+                options.models
+                    .filter((model) => model.provider === "agy-cli")
+                    .map((model) => ({ id: model.id, backend: model.executionBackend })),
+                [
+                    { id: "gemini-3.8-flash", backend: "agy-cli" },
+                    { id: "gemini-3.1-pro", backend: "agy-cli" },
+                ],
+            );
+            assertEquals(options.thinkingLevels, ["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+            const activation = workspaceStore.inspectSessionActivation(fixture.session.runwieldSessionId);
+            const proof = workspaceStore.acquireSessionActivation({
+                runwieldSessionId: fixture.session.runwieldSessionId,
+                projectId: fixture.project.projectId,
+                ownerInstanceId: "workspace-agy-facts",
+                ownerProcessKind: "workspace",
+                expectedGeneration: 0,
+                expectedCurrentSegmentId: activation.generation?.currentSegmentId ?? null,
+                phase: "checkpointing",
+            });
+            await Deno.writeTextFile(
+                fixture.transcriptPath,
+                [
+                    { type: "model_change", id: "agy-model", provider: "agy-cli", modelId: "gemini-3.8-flash" },
+                    { type: "thinking_level_change", id: "agy-thinking", thinkingLevel: "high" },
+                    {
+                        type: "custom",
+                        id: "agy-backend",
+                        customType: "runwield.execution_backend",
+                        data: {
+                            version: 1,
+                            backend: "agy-cli",
+                            provider: "agy-cli",
+                            model: "gemini-3.8-flash",
+                            thinkingLevel: "high",
+                            effort: "high",
+                            backendModel: "gemini-3.8-flash-high",
+                        },
+                    },
+                ].map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+                { append: true },
+            );
+            workspaceStore.publishGenerationAndRelease(proof, {
+                generation: 1,
+                currentSegmentId: activation.generation?.currentSegmentId ?? null,
+                ...await readTranscriptEvidence(fixture.transcriptPath),
+            });
+
+            const timeline = await service.timeline(fixture.session.runwieldSessionId, {
+                projectId: fixture.project.projectId,
+                limit: 20,
+            });
+            assertEquals(timeline.snapshot.provider, "agy-cli");
+            assertEquals(timeline.snapshot.model, "gemini-3.8-flash");
+            assertEquals(timeline.snapshot.thinkingLevel, "high");
+            assertEquals(timeline.snapshot.executionBackend, {
+                backend: "agy-cli",
+                provider: "agy-cli",
+                model: "gemini-3.8-flash",
+                thinkingLevel: "high",
+                effort: "high",
+                backendModel: "gemini-3.8-flash-high",
+            });
+            assertEquals(JSON.stringify(timeline.events).includes("_meta"), false);
+        } finally {
+            service.close();
+            workspaceStore.close();
+            await fixture.cleanup();
+        }
+    });
 });
 
 Deno.test("Workspace configuration stages Agent changes during a local active operation", async () => {

@@ -24,6 +24,7 @@ interface AgyFixtureCall {
     prompt: string;
     agent: string;
     model: string;
+    effort: string;
     definition: string;
 }
 
@@ -235,13 +236,14 @@ async function main(): Promise<void> {
     const logPath = Deno.env.get("RUNWIELD_AGY_EXECUTION_LOG") || "";
     const agent = readArg(args, "--agent");
     const model = readArg(args, "--model");
-    const expectedModel = Deno.env.get("RUNWIELD_AGY_EXPECTED_MODEL") || "";
+    const effort = readArg(args, "--effort");
+    const reportedModel = Deno.env.get("RUNWIELD_AGY_REPORTED_MODEL") || model + "-" + effort;
     if (!agent || !agent.startsWith("runwield-")) {
         console.error("missing owned agent");
         Deno.exit(2);
     }
-    if (model !== expectedModel) {
-        console.error("model mismatch: " + model);
+    if (!model || !effort) {
+        console.error("missing model or effort");
         Deno.exit(2);
     }
     if (!hasArg(args, "--disable-slash-commands") || readArg(args, "--print-timeout") !== "24h" || hasArg(args, "--conversation") || hasArg(args, "--continue") || hasArg(args, "--dangerously-skip-permissions")) {
@@ -254,7 +256,7 @@ async function main(): Promise<void> {
         console.error("system prompt leaked into user text");
         Deno.exit(2);
     }
-    if (logPath) await Deno.writeTextFile(logPath, JSON.stringify({ args, prompt, agent, model, definition }) + "\n", { append: true, create: true });
+    if (logPath) await Deno.writeTextFile(logPath, JSON.stringify({ args, prompt, agent, model, effort, definition }) + "\n", { append: true, create: true });
     await maybeStartDescendant();
     if (Deno.env.get("RUNWIELD_AGY_FAIL_TURN") === "1") Deno.exit(4);
     await runConfiguredMcp(home);
@@ -275,7 +277,7 @@ async function main(): Promise<void> {
     }
 
     if (Deno.env.get("RUNWIELD_AGY_PERMISSION_RESULT") === "1") {
-        emit({ event: "init", conversation_id: "conversation-" + crypto.randomUUID(), init: { agent, model } });
+        emit({ event: "init", conversation_id: "conversation-" + crypto.randomUUID(), init: { agent, model: reportedModel } });
         emit({ event: "result", result: { response: "permission result", status: "blocked", error: "permission denied by Antigravity", usage: { input_tokens: 1, output_tokens: 2 } } });
         return;
     }
@@ -283,7 +285,7 @@ async function main(): Promise<void> {
     const resultText = prompt.includes("ASSISTANT: agy:first")
         ? "agy:second saw agy:first"
         : "agy:first plan_written task_completed review_complete";
-    emit({ event: "init", conversation_id: "conversation-" + crypto.randomUUID(), init: { agent, model } });
+    emit({ event: "init", conversation_id: "conversation-" + crypto.randomUUID(), init: { agent, model: reportedModel } });
     emit({ event: "step_update", step_update: { update_type: "tool_info", name: "display-only" } });
     emit({ event: "step_update", step_update: { step_type: "agent_response", text_delta: resultText.slice(0, 9) } });
     emit({ event: "step_update", step_update: { step_type: "agent_response", text_delta: resultText.slice(9) } });
@@ -310,6 +312,8 @@ async function withAgyExecutionFixture(
         const previousPath = Deno.env.get("PATH");
         const previousLog = Deno.env.get("RUNWIELD_AGY_EXECUTION_LOG");
         const previousExpectedModel = Deno.env.get("RUNWIELD_AGY_EXPECTED_MODEL");
+        const previousExpectedEffort = Deno.env.get("RUNWIELD_AGY_EXPECTED_EFFORT");
+        const previousReportedModel = Deno.env.get("RUNWIELD_AGY_REPORTED_MODEL");
         const previousFailAgents = Deno.env.get("RUNWIELD_AGY_FAIL_AGENTS");
         const previousFailTurn = Deno.env.get("RUNWIELD_AGY_FAIL_TURN");
         const previousFailAfterMcp = Deno.env.get("RUNWIELD_AGY_FAIL_AFTER_MCP");
@@ -330,7 +334,9 @@ async function withAgyExecutionFixture(
             Deno.env.set("HOME", home);
             Deno.env.set("PATH", `${binDir}:${previousPath || ""}`);
             Deno.env.set("RUNWIELD_AGY_EXECUTION_LOG", logPath);
-            Deno.env.set("RUNWIELD_AGY_EXPECTED_MODEL", "fixture-model");
+            Deno.env.set("RUNWIELD_AGY_EXPECTED_MODEL", "gemini-3.8-flash");
+            Deno.env.set("RUNWIELD_AGY_EXPECTED_EFFORT", "low");
+            Deno.env.delete("RUNWIELD_AGY_REPORTED_MODEL");
             Deno.env.delete("RUNWIELD_AGY_FAIL_AGENTS");
             Deno.env.delete("RUNWIELD_AGY_FAIL_TURN");
             Deno.env.delete("RUNWIELD_AGY_FAIL_AFTER_MCP");
@@ -352,6 +358,10 @@ async function withAgyExecutionFixture(
             else Deno.env.set("RUNWIELD_AGY_EXECUTION_LOG", previousLog);
             if (previousExpectedModel === undefined) Deno.env.delete("RUNWIELD_AGY_EXPECTED_MODEL");
             else Deno.env.set("RUNWIELD_AGY_EXPECTED_MODEL", previousExpectedModel);
+            if (previousExpectedEffort === undefined) Deno.env.delete("RUNWIELD_AGY_EXPECTED_EFFORT");
+            else Deno.env.set("RUNWIELD_AGY_EXPECTED_EFFORT", previousExpectedEffort);
+            if (previousReportedModel === undefined) Deno.env.delete("RUNWIELD_AGY_REPORTED_MODEL");
+            else Deno.env.set("RUNWIELD_AGY_REPORTED_MODEL", previousReportedModel);
             if (previousFailAgents === undefined) Deno.env.delete("RUNWIELD_AGY_FAIL_AGENTS");
             else Deno.env.set("RUNWIELD_AGY_FAIL_AGENTS", previousFailAgents);
             if (previousFailTurn === undefined) Deno.env.delete("RUNWIELD_AGY_FAIL_TURN");
@@ -386,13 +396,19 @@ function createHostedSession(cwd: string, manager: SessionManager, events: Runti
         sessionManager: manager as never,
         eventSink: (event: RuntimeEventRecord) => events.push(event),
     });
-    hostedSession.setActiveModelState("fixture-model", "agy-cli", true);
+    hostedSession.setActiveModelState("gemini-3.8-flash", "agy-cli", true);
     return hostedSession;
 }
 
 async function readCalls(logPath: string): Promise<AgyFixtureCall[]> {
     const text = await Deno.readTextFile(logPath);
     return text.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as AgyFixtureCall);
+}
+
+function expectedAgyEffort(modelId: string, thinkingLevel: string): string {
+    if (thinkingLevel === "off" || thinkingLevel === "minimal" || thinkingLevel === "low") return "low";
+    if (thinkingLevel === "medium") return modelId === "gemini-3.1-pro" ? "high" : "medium";
+    return "high";
 }
 
 async function assertNoTemporaryAgents(home: string): Promise<void> {
@@ -449,6 +465,56 @@ Deno.test("Agy lifecycle tools honor invocation ceilings and ignore caller repla
     }
 });
 
+Deno.test("Agy maps every RunWield thinking level to the verified backend model", async () => {
+    await withAgyExecutionFixture(async (home, cwd, logPath) => {
+        const thinkingLevels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+        const modelIds = ["gemini-3.8-flash", "gemini-3.1-pro"];
+        for (const modelId of modelIds) {
+            for (const thinkingLevel of thinkingLevels) {
+                const effort = expectedAgyEffort(modelId, thinkingLevel);
+                Deno.env.set("RUNWIELD_AGY_EXPECTED_MODEL", modelId);
+                Deno.env.set("RUNWIELD_AGY_EXPECTED_EFFORT", effort);
+                await Deno.writeTextFile(logPath, "");
+                const manager = SessionManager.inMemory(cwd);
+                const hostedSession = createHostedSession(cwd, manager);
+                const messages = await runIsolatedAgentSession({
+                    hostedSession,
+                    agentName: AGENTS.GUIDE,
+                    userRequest: `mapping ${modelId} ${thinkingLevel}`,
+                    modelOverride: `agy-cli/${modelId}`,
+                    thinkingLevelOverride: thinkingLevel as
+                        | "off"
+                        | "minimal"
+                        | "low"
+                        | "medium"
+                        | "high"
+                        | "xhigh"
+                        | "max",
+                    sessionManager: manager,
+                    ignoreManualModelOverride: true,
+                });
+
+                const calls = await readCalls(logPath);
+                assertEquals(calls.length, 1);
+                assertEquals(calls[0].model, modelId);
+                assertEquals(calls[0].effort, effort);
+                assertEquals(calls[0].args.filter((arg) => arg === "--model").length, 1);
+                assertEquals(calls[0].args.filter((arg) => arg === "--effort").length, 1);
+                assertEquals(messages.filter((message) => message.role === "assistant").length, 1);
+
+                const branch = getRootSessionBranchEntries(manager) as BranchEntryRecord[];
+                const branchText = JSON.stringify(branch);
+                assertStringIncludes(branchText, `"model":"${modelId}"`);
+                assertStringIncludes(branchText, `"thinkingLevel":"${thinkingLevel}"`);
+                assertStringIncludes(branchText, `"effort":"${effort}"`);
+                assertStringIncludes(branchText, `"backendModel":"${modelId}-${effort}"`);
+                assertStringIncludes(branchText, `"modelId":"${modelId}"`);
+                await assertNoTemporaryAgents(home);
+            }
+        }
+    });
+});
+
 Deno.test("Agy CLI selected root turn dispatches through agy and rebuilds RunWield transcript history", async () => {
     await withAgyExecutionFixture(async (home, cwd, logPath) => {
         const manager = SessionManager.inMemory(cwd);
@@ -462,7 +528,8 @@ Deno.test("Agy CLI selected root turn dispatches through agy and rebuilds RunWie
 
         const calls = await readCalls(logPath);
         assertEquals(calls.length, 2);
-        assertEquals(calls[0].model, "fixture-model");
+        assertEquals(calls[0].model, "gemini-3.8-flash");
+        assertEquals(calls[0].effort, "low");
         assertEquals(calls[0].args.includes("--disable-slash-commands"), true);
         assertEquals(calls[0].args[calls[0].args.indexOf("--print-timeout") + 1], "24h");
         assertEquals(calls[0].args.includes("--conversation"), false);
@@ -923,7 +990,7 @@ Deno.test("Agy CLI replay expands durable named invocations once", async () => {
             timestamp: Date.now(),
             api: "agy-cli",
             provider: "agy-cli",
-            model: "fixture-model",
+            model: "gemini-3.8-flash",
             usage: {
                 input: 0,
                 output: 0,
@@ -960,7 +1027,7 @@ Deno.test("Agy CLI isolated image requests fail before agent creation or transcr
                     agentName: AGENTS.GUIDE,
                     userRequest: "image request",
                     images: [{ base64: "abc", mimeType: "image/png" }],
-                    modelOverride: "agy-cli/fixture-model",
+                    modelOverride: "agy-cli/gemini-3.8-flash",
                     sessionManager: manager,
                 }),
             Error,
@@ -1018,6 +1085,35 @@ Deno.test("Agy CLI root process failure records sanitized status and keeps the r
     });
 });
 
+Deno.test("Agy CLI returned model mismatch records sanitized selection status", async () => {
+    await withAgyExecutionFixture(async (home, cwd) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        Deno.env.set("RUNWIELD_AGY_REPORTED_MODEL", "gemini-3.8-flash-low");
+        Deno.env.set("RUNWIELD_AGY_EXPECTED_EFFORT", "medium");
+
+        await assertRejects(
+            () =>
+                runIsolatedAgentSession({
+                    hostedSession,
+                    agentName: AGENTS.GUIDE,
+                    userRequest: "wrong suffix",
+                    modelOverride: "agy-cli/gemini-3.8-flash",
+                    thinkingLevelOverride: "medium",
+                    sessionManager: manager,
+                }),
+            Error,
+            "Antigravity CLI reported model",
+        );
+
+        const status = (getRootSessionBranchEntries(manager) as BranchEntryRecord[])
+            .find((entry) => entry.customType === "runwield.backend_status")?.data;
+        assertEquals(status?.kind, "selection_mismatch");
+        assertEquals(JSON.stringify(status).includes("wrong suffix"), false);
+        await assertNoTemporaryAgents(home);
+    });
+});
+
 Deno.test("HostedSession disposal reaches the Agy execution session", async () => {
     await withAgyExecutionFixture(async (home, cwd) => {
         const manager = SessionManager.inMemory(cwd);
@@ -1045,7 +1141,7 @@ Deno.test("Agy CLI root replacement disposes only the owned Agy root", async () 
         const root = await ensureRootAgentSession({
             hostedSession,
             agentName: AGENTS.GUIDE,
-            modelOverride: "agy-cli/fixture-model",
+            modelOverride: "agy-cli/gemini-3.8-flash",
         }) as never as AgyRootRef;
 
         assertEquals(previousPlainRootDisposed, false);
@@ -1062,7 +1158,7 @@ Deno.test("Agy CLI isolated turn uses its own temporary agent and cleans it up",
             hostedSession,
             agentName: AGENTS.GUIDE,
             userRequest: "isolated user marker",
-            modelOverride: "agy-cli/fixture-model",
+            modelOverride: "agy-cli/gemini-3.8-flash",
         });
         assertEquals(messages.at(-1)?.role, "assistant");
         assertStringIncludes(JSON.stringify(messages.at(-1)), "agy:first");
@@ -1123,7 +1219,7 @@ Deno.test("Agy CLI root setup failure keeps the previous root session usable", a
                 ensureRootAgentSession({
                     hostedSession,
                     agentName: AGENTS.PLANNER,
-                    modelOverride: "agy-cli/fixture-model",
+                    modelOverride: "agy-cli/gemini-3.8-flash",
                 }),
             Error,
             "RunWield could not verify its temporary Antigravity Agent",

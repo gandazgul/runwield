@@ -343,6 +343,38 @@ Deno.test("projection summary preserves stable attention event identity", () => 
     assertEquals(second.attention?.eventId, first.attention?.eventId);
 });
 
+Deno.test("projection summary keeps the latest valid Agy execution backend fact", () => {
+    const summary = summarizeProjectedEntries([
+        {
+            type: "custom",
+            customType: "runwield.execution_backend",
+            data: { backend: "agy-cli", provider: "agy-cli", model: "gemini-3.8-flash", thinkingLevel: "low" },
+        },
+        { type: "custom", customType: "runwield.execution_backend", data: { backend: 7, model: {} } },
+        {
+            type: "custom",
+            customType: "runwield.execution_backend",
+            data: {
+                backend: "agy-cli",
+                provider: "agy-cli",
+                model: "gemini-3.1-pro",
+                thinkingLevel: "medium",
+                effort: "high",
+                backendModel: "gemini-3.1-pro-high",
+            },
+        },
+    ]);
+
+    assertEquals(summary.executionBackend, {
+        backend: "agy-cli",
+        provider: "agy-cli",
+        model: "gemini-3.1-pro",
+        thinkingLevel: "medium",
+        effort: "high",
+        backendModel: "gemini-3.1-pro-high",
+    });
+});
+
 Deno.test("committed transcript authority facts are explicit projection extracts", () => {
     const facts = getCommittedTranscriptAuthorityFacts({
         snapshot: {

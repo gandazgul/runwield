@@ -31,7 +31,7 @@ function makeTui(): { tui: TUI; terminal: CompatibleVirtualTerminal; container: 
     return { tui, terminal, container, editor };
 }
 
-Deno.test("^TUI model selector exposes Pi and Claude CLI models without API auth$", async () => {
+Deno.test("^TUI model selector exposes Pi, Claude CLI, and Agy CLI models without API auth$", async () => {
     await withRuntimeCommandFixture("model-selector-mixed-", async () => {
         const { tui, container, editor } = makeTui();
         const selected: Array<{ id: string; provider: string }> = [];
@@ -56,18 +56,22 @@ Deno.test("^TUI model selector exposes Pi and Claude CLI models without API auth
             assertStringIncludes(initialScreen, "runtime-command-fixture/fixture-model");
             assertStringIncludes(initialScreen, "claude-cli/sonnet");
             assertStringIncludes(initialScreen, "Claude CLI");
-            assertStringIncludes(initialScreen, "Use /login to add API providers");
-            assertStringIncludes(initialScreen, "Claude CLI choices require Claude Code installed and signed in");
+            assertStringIncludes(initialScreen, "agy-cli/gemini-3.8-flash");
+            assertStringIncludes(initialScreen, "agy-cli/gemini-3.1-pro");
+            assertStringIncludes(initialScreen, "Antigravity CLI");
+            assertStringIncludes(initialScreen, "Use /login for API providers");
+            assertStringIncludes(initialScreen, "External CLI choices require their CLI installed and signed in");
             assertStringIncludes(initialScreen, "current");
 
-            selector.handleInput("haiku");
+            selector.handleInput("flash");
             const filteredScreen = selector.render(120).join("\n");
-            assertStringIncludes(filteredScreen, "claude-cli/haiku");
-            assertStringIncludes(filteredScreen, "Claude Code must be installed and signed in");
+            assertStringIncludes(filteredScreen, "agy-cli/gemini-3.8-flash");
+            assertStringIncludes(filteredScreen, "Agy must be installed and signed in");
+            assertStringIncludes(filteredScreen, "first use asks before RunWield MCP setup");
             assertEquals(filteredScreen.includes("runtime-command-fixture/fixture-model"), false);
 
             selector.handleInput("\r");
-            assertEquals(selected, [{ id: "haiku", provider: "claude-cli" }]);
+            assertEquals(selected, [{ id: "gemini-3.8-flash", provider: "agy-cli" }]);
         } finally {
             tui.stop();
         }

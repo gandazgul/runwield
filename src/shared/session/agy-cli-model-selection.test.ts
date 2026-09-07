@@ -11,6 +11,7 @@ import { SessionHost } from "./session-host.js";
 import { createSessionRuntime, SessionRuntime } from "./session-runtime.js";
 
 const FIXTURE_MODEL = "runtime-command-fixture/fixture-model";
+const AGY_FLASH = "agy-cli/gemini-3.8-flash";
 
 async function installAgyModelSelectionFixture(homeDir: string): Promise<string> {
     const binDir = join(homeDir, "agy-bin");
@@ -52,13 +53,65 @@ Deno.exit(0);
     return binDir;
 }
 
-Deno.test("configured Agy CLI model is registered and accepted by typed execution backend dispatch", () => {
-    const model = getModelRegistry().find("agy-cli", `selection-${crypto.randomUUID()}`);
-    assert(model);
-    assertModelExecutionBackendSupported(model);
+async function pathExists(path: string): Promise<boolean> {
+    try {
+        await Deno.stat(path);
+        return true;
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return false;
+        throw error;
+    }
+}
+
+Deno.test("approved Agy CLI models are registered and accepted by typed execution backend dispatch", () => {
+    for (const modelId of ["gemini-3.8-flash", "gemini-3.1-pro"]) {
+        const model = getModelRegistry().find("agy-cli", modelId);
+        assert(model);
+        assertEquals(model.id, modelId);
+        assertModelExecutionBackendSupported(model);
+    }
+    assertEquals(getModelRegistry().find("agy-cli", "fixture-model"), undefined);
 });
 
-Deno.test("declined Agy MCP setup keeps the selected model without launching agy", async () => {
+Deno.test("unsupported Agy CLI selection is rejected before approval, agy launch, or global files", async () => {
+    await withRuntimeCommandFixture("runwield-agy-cli-unsupported-", async ({ homeDir, projectRoot }) => {
+        const messages: Array<{ text: string; isError: boolean }> = [];
+        const runtime = createSessionRuntime();
+        const agyLaunchLog = join(homeDir, "agy-launched.log");
+        const previousPath = Deno.env.get("PATH") || "";
+        try {
+            const binDir = await installAgyModelSelectionFixture(homeDir);
+            await Deno.writeTextFile(
+                join(binDir, "agy"),
+                `#!/bin/sh\necho launched >> ${JSON.stringify(agyLaunchLog)}\nexit 2\n`,
+            );
+            await Deno.chmod(join(binDir, "agy"), 0o755);
+            Deno.env.set("PATH", `${binDir}:${previousPath}`);
+            const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+
+            await runModelsCommand(["agy-cli/fixture-model"], {
+                uiAPI: {
+                    appendSystemMessage: (message, isError = false) => messages.push({ text: message, isError }),
+                    promptSelect: () => Promise.resolve(null),
+                },
+                sessionId,
+                sessionRuntime: runtime,
+            });
+
+            assertEquals(messages.length, 1);
+            assertEquals(messages[0].isError, true);
+            assertStringIncludes(messages[0].text, "Unsupported Antigravity CLI model");
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, { model: "", provider: "" });
+            assertEquals(await pathExists(agyLaunchLog), false);
+            assertEquals(await pathExists(join(homeDir, ".gemini")), false);
+        } finally {
+            Deno.env.set("PATH", previousPath);
+            runtime.closeAllSessions();
+        }
+    }, { providerState: "none" });
+});
+
+Deno.test("declined Agy MCP setup keeps the approved selected model without launching agy", async () => {
     await withRuntimeCommandFixture("runwield-agy-cli-setup-decline-", async ({ homeDir, projectRoot }) => {
         let runtime: SessionRuntime | null = null;
         const agyLaunchLog = join(homeDir, "agy-launched.log");
@@ -91,19 +144,18 @@ Deno.test("declined Agy MCP setup keeps the selected model without launching agy
                 supportsInteraction: () => true,
             });
 
-            const modelId = `declined-${crypto.randomUUID()}`;
             const activeRuntime = runtime;
             await assertRejects(
-                () => activeRuntime.reconfigureSessionModel(hostedSession.id, modelId, "agy-cli"),
+                () => activeRuntime.reconfigureSessionModel(hostedSession.id, "gemini-3.8-flash", "agy-cli"),
                 Error,
                 "not approved",
             );
             assertEquals(interactionCount, 1);
             assertEquals(runtime.getSessionSnapshot(hostedSession.id)?.activeModel, {
-                model: modelId,
+                model: "gemini-3.8-flash",
                 provider: "agy-cli",
             });
-            await assertRejects(() => Deno.stat(agyLaunchLog), Deno.errors.NotFound);
+            assertEquals(await pathExists(agyLaunchLog), false);
         } finally {
             Deno.env.set("PATH", previousPath);
             runtime?.closeAllSessions();
@@ -111,11 +163,10 @@ Deno.test("declined Agy MCP setup keeps the selected model without launching agy
     });
 });
 
-Deno.test("explicit Agy CLI selection persists and updates the active runtime Session model", async () => {
+Deno.test("explicit approved Agy CLI selection persists and updates the active runtime Session model", async () => {
     await withRuntimeCommandFixture("runwield-agy-cli-selection-", async ({ homeDir, projectRoot }) => {
         const runtime = createSessionRuntime();
         const messages: string[] = [];
-        const modelId = `session-${crypto.randomUUID()}`;
         const previousPath = Deno.env.get("PATH") || "";
         try {
             const binDir = await installAgyModelSelectionFixture(homeDir);
@@ -139,7 +190,7 @@ Deno.test("explicit Agy CLI selection persists and updates the active runtime Se
             assertEquals((await runtime.switchAgent(sessionId, { agentName: AGENTS.GUIDE })).ok, true);
             messages.length = 0;
 
-            await runModelsCommand([`agy-cli/${modelId}`], {
+            await runModelsCommand([AGY_FLASH], {
                 uiAPI: {
                     appendSystemMessage: (message) => messages.push(message),
                     promptSelect: () => Promise.resolve(null),
@@ -149,12 +200,12 @@ Deno.test("explicit Agy CLI selection persists and updates the active runtime Se
             });
 
             assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
-                model: modelId,
+                model: "gemini-3.8-flash",
                 provider: "agy-cli",
             });
             assertEquals(getSettingsManager(projectRoot).getDefaultProvider(), "agy-cli");
-            assertEquals(getSettingsManager(projectRoot).getDefaultModel(), modelId);
-            assertStringIncludes(messages.at(-1) || "", `Switched model to agy-cli/${modelId}`);
+            assertEquals(getSettingsManager(projectRoot).getDefaultModel(), "gemini-3.8-flash");
+            assertStringIncludes(messages.at(-1) || "", `Switched model to ${AGY_FLASH}`);
         } finally {
             Deno.env.set("PATH", previousPath);
             runtime.closeAllSessions();

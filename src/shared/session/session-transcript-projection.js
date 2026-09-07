@@ -685,6 +685,27 @@ export async function syncTranscriptFileAndParent(transcriptPath) {
     }
 }
 
+/**
+ * @param {unknown} entry
+ * @returns {{ backend: string, provider: string | null, model: string | null, thinkingLevel: string | null, effort: string | null, backendModel: string | null } | null}
+ */
+function readExecutionBackendFact(entry) {
+    const value = /** @type {{ type?: string, customType?: string, data?: Record<string, unknown> }} */ (entry || {});
+    if (value.type !== "custom" || value.customType !== "runwield.execution_backend") return null;
+    const data = value.data && typeof value.data === "object" ? value.data : null;
+    if (!data) return null;
+    const backend = typeof data.backend === "string" ? data.backend : "";
+    if (backend !== "agy-cli" && backend !== "claude-cli") return null;
+    return {
+        backend,
+        provider: typeof data.provider === "string" && data.provider ? data.provider : null,
+        model: typeof data.model === "string" && data.model ? data.model : null,
+        thinkingLevel: typeof data.thinkingLevel === "string" && data.thinkingLevel ? data.thinkingLevel : null,
+        effort: typeof data.effort === "string" && data.effort ? data.effort : null,
+        backendModel: typeof data.backendModel === "string" && data.backendModel ? data.backendModel : null,
+    };
+}
+
 /** @param {unknown[]} entries */
 export function summarizeProjectedEntries(entries) {
     let activeAgent = null;
@@ -694,6 +715,7 @@ export function summarizeProjectedEntries(entries) {
     let provider = null;
     let thinkingLevel = null;
     let attention = null;
+    let executionBackend = null;
     const planAssociations = readPlanAssociations(entries);
     for (const entry of entries) {
         const value = /** @type {any} */ (entry || {});
@@ -717,10 +739,22 @@ export function summarizeProjectedEntries(entries) {
                 agentName,
             };
         }
+        const backendFact = readExecutionBackendFact(value);
+        if (backendFact) executionBackend = backendFact;
         const maybeWorkflow = readPersistedWorkflowContext(/** @type {any} */ ({ getEntries: () => [value] }));
         if (maybeWorkflow) workflowContext = maybeWorkflow;
     }
-    return { name, activeAgent, model, provider, thinkingLevel, workflowContext, attention, planAssociations };
+    return {
+        name,
+        activeAgent,
+        model,
+        provider,
+        thinkingLevel,
+        workflowContext,
+        attention,
+        planAssociations,
+        executionBackend,
+    };
 }
 
 /** @param {unknown} value @returns {string} */

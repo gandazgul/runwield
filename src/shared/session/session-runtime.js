@@ -1370,6 +1370,11 @@ export class SessionRuntime {
         const registry = getModelRegistry();
         const parsedModel = provider ? { ok: true, provider, id: model } : parseProviderModel(model);
         const targetModel = parsedModel.ok ? registry.find(parsedModel.provider, parsedModel.id) : undefined;
+        if (parsedModel.ok && parsedModel.provider === "agy-cli" && !targetModel) {
+            throw new Error(
+                `Unsupported Antigravity CLI model: agy-cli/${parsedModel.id}. Select agy-cli/gemini-3.8-flash or agy-cli/gemini-3.1-pro.`,
+            );
+        }
         assertModelExecutionBackendSupported(targetModel);
 
         const promptReadySession = this.#sessionHost.getSession(sessionId);

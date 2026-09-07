@@ -7,7 +7,7 @@ export interface AgyCliRunRequest {
     agentName: string;
     model: string;
     userRequest: string;
-    effort?: "low" | "medium" | "high";
+    effort: "low" | "medium" | "high";
     env?: Record<string, string>;
 }
 
@@ -23,7 +23,8 @@ export function prepareAgyCliStreamCommand(request: AgyCliRunRequest): PreparedA
     if (!request.userRequest) throw new Error("Agy user request is required");
     const model = request.model.trim();
     if (!model) throw new Error("Agy model selector is required");
-    const args = ["-p", request.userRequest, "--model", model];
+    if (!request.effort) throw new Error("Agy effort is required");
+    const args = ["-p", request.userRequest, "--model", model, "--effort", request.effort];
     args.push(
         "--agent",
         request.agentName,
@@ -33,7 +34,6 @@ export function prepareAgyCliStreamCommand(request: AgyCliRunRequest): PreparedA
         "--print-timeout",
         AGY_CLI_PRINT_TIMEOUT,
     );
-    if (request.effort) args.push("--effort", request.effort);
     return {
         command: "agy",
         args,

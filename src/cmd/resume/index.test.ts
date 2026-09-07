@@ -114,10 +114,9 @@ async function writeResumeThreshold(settingsPath: string, threshold: number): Pr
     __resetSettingsForTests();
 }
 
-Deno.test("getResumeModelSelection preserves explicit Agy CLI references with the conservative context window", () => {
-    const modelId = `resume-${crypto.randomUUID()}`;
-    assertEquals(getResumeModelSelection({ provider: "agy-cli", modelId }), {
-        modelOverride: `agy-cli/${modelId}`,
+Deno.test("getResumeModelSelection preserves supported Agy CLI references with the conservative context window", () => {
+    assertEquals(getResumeModelSelection({ provider: "agy-cli", modelId: "gemini-3.8-flash" }), {
+        modelOverride: "agy-cli/gemini-3.8-flash",
         contextWindow: 128000,
     });
 });

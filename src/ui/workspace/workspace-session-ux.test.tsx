@@ -345,6 +345,18 @@ Deno.test("Persisted Sessions expose the shared context sidebar tabs", async () 
     assertEquals(surface.includes("<dt>Epic</dt>"), true);
 });
 
+Deno.test("Session sidebar shows committed Agy backend facts without using pending composer state", async () => {
+    const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
+    assertEquals(surface.includes("const committedModelReference"), true);
+    assertEquals(surface.includes("Execution Backend"), true);
+    assertEquals(surface.includes("Antigravity CLI"), true);
+    assertEquals(surface.includes("Antigravity owns its native file, shell, and tool activity"), true);
+    assertEquals(surface.includes("<dd>{activeThinking}</dd>"), true);
+    assertEquals(surface.includes("<dd>{displayedThinking}</dd>"), false);
+    assertEquals(surface.includes("modelValue={stagedModelKey}"), true);
+    assertEquals(surface.includes("thinkingValue={displayedThinking}"), true);
+});
+
 Deno.test("Session image attachments use a Session-scoped draft key and request payload", () => {
     assertEquals(
         sessionAttachmentsKey("project-1", "session-1"),
