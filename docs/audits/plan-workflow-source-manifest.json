@@ -1,0 +1,342 @@
+{
+    "auditDate": "2026-09-07",
+    "inspectionStartCommit": "a201fc19737471b1d8f57ab384bb4412d65309a2",
+    "snapshotHead": "2d27a032bdd0d776a8b7ecb68b43f8a2abe6f46c",
+    "capturedAtUtc": "2026-09-07T17:12:19.742551+00:00",
+    "hashAlgorithm": "SHA-256",
+    "note": "Working-tree bytes, including uncommitted changes where present. This is an evidence snapshot, not a clean-checkout or production-certification claim. node_modules paths identify the installed Pi dependency used for the root probe.",
+    "files": [
+        {
+            "path": "deno.json",
+            "sha256": "6b3fef894a7886a9099fbd2c13cdfce824e7606c77d45dd96d1475c6642d0a99"
+        },
+        {
+            "path": "deno.lock",
+            "sha256": "88d8b39aa62fee0792047c0aea75925e5451d80d8811e777f59377f6cf583349"
+        },
+        {
+            "path": "docs/audits/probes/ci-repair-resume.probe.ts",
+            "sha256": "8b4cc0ba9ceecfbe138bfb7bb151722a17a4a4530eccc0edea89558939c1a7e7"
+        },
+        {
+            "path": "docs/audits/probes/epic-save.probe.js",
+            "sha256": "c76909ae36bda416d289f00ca712ecd98167786b355018279d11024c2cfb9901"
+        },
+        {
+            "path": "docs/audits/probes/root-completion.probe.ts",
+            "sha256": "ea6e40c370e6e923339b208bd2ad2abe550061e1256abc3696dc83da1e0316f4"
+        },
+        {
+            "path": "node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js",
+            "sha256": "43cc779ddaf90df41768d3d2d0f7d7ba8b8bce7bedc9dc6062ca8b4de84ae880"
+        },
+        {
+            "path": "node_modules/@earendil-works/pi-agent-core/package.json",
+            "sha256": "ac5e13d2a2aa0d6c78394417b59e18cb0fe92f482d2b075b39bf165312db6c06"
+        },
+        {
+            "path": "scripts/run-tests.js",
+            "sha256": "36db12b5d3645e06a8b6dc47a9ea8fc7841d8d500bfb52d472b60f3f9096c1ff"
+        },
+        {
+            "path": "src/cmd/load-plan/index.ts",
+            "sha256": "8e8ef1814975c15d7ab6837f1ce1e3d8e011ce0d5bf4094f85204ec399cb61ef"
+        },
+        {
+            "path": "src/cmd/load-plan/plan-epic-flow.ts",
+            "sha256": "10b6968fe1488b18a68880799aebaa00f2148630a358579b80cea015f6f8172d"
+        },
+        {
+            "path": "src/cmd/load-plan/plan-execution.ts",
+            "sha256": "32f3c8f21baf9cef0dfbefa512627cd5829bc609cbd8cd2e4bb63eb9ceec032b"
+        },
+        {
+            "path": "src/cmd/load-plan/plan-hold.ts",
+            "sha256": "a91a2eb2c0d7b44b18e0614d9e9579a90fde49f73cff6d42ac09cad48efd1073"
+        },
+        {
+            "path": "src/cmd/load-plan/plan-recovery-actions.ts",
+            "sha256": "f0c5da34068468ba559c53e14a3730a904e3129fb88a7084bd106266172d0b8b"
+        },
+        {
+            "path": "src/cmd/load-plan/plan-recovery-flow.ts",
+            "sha256": "d88c61c88304bfca0da0ccbcdd926db463566c0f3705dc966aa9c1f947c9f6c7"
+        },
+        {
+            "path": "src/cmd/load-plan/plan-recovery-reset.ts",
+            "sha256": "967c12f5ddc196bd337afec7b8746b88c86ab3a58176d8221974f4754a86bd14"
+        },
+        {
+            "path": "src/cmd/load-plan/plan-review-flow.ts",
+            "sha256": "9bf9eb73dc4b344c760a273e7647ca804756f6075645a80cd2acce494b9604da"
+        },
+        {
+            "path": "src/plan-store.js",
+            "sha256": "962dadedae3f7424e6021444dbbb053cbc4951bf6fa043213b1c66bf629956b2"
+        },
+        {
+            "path": "src/shared/isolated-publication.ts",
+            "sha256": "bf398de9fdc9529033bac600dea8fa886f76857437a9202207ed51bb2b60c83e"
+        },
+        {
+            "path": "src/shared/session/agent-handler.test.ts",
+            "sha256": "b8393286ebc08100efa7b574dad5613613d73b4646b178fa332e670cae2961c6"
+        },
+        {
+            "path": "src/shared/session/agent-handler.ts",
+            "sha256": "1dc23a8291a3f09b7d818aab3b5a36f11b46f9dc44529a58c54b701ede76e2d8"
+        },
+        {
+            "path": "src/shared/session/agent-workflow-step.ts",
+            "sha256": "e352566a3618f9f956d84ff1d303fcfce6916a45e01ab87551998b36586b8af3"
+        },
+        {
+            "path": "src/shared/session/backends/claude-cli/execution-session.ts",
+            "sha256": "65d58b857baf741509a2a714bab9e3659cf0d5c396dc53eab13eba90f2f91ab2"
+        },
+        {
+            "path": "src/shared/session/backends/claude-cli/mcp-bridge.test.ts",
+            "sha256": "5849a2020d6a3843a4809d2570cc54d87d09e568e230ed0be03945abe42e4dbc"
+        },
+        {
+            "path": "src/shared/session/backends/claude-cli/mcp-bridge.ts",
+            "sha256": "6de880d29cd95dec58dcc18862b13ba0e985365ba285f195dbf5e278168444d8"
+        },
+        {
+            "path": "src/shared/session/session-runtime.js",
+            "sha256": "7dfcbe187834fb3742bcacea15a1ca52afb9172a63dcb2acb9a4498779449e04"
+        },
+        {
+            "path": "src/shared/session/task-completion-session.ts",
+            "sha256": "b487653da5c811c1ed768781b23055a6fa56375b18ac6010807d23f48e1935f5"
+        },
+        {
+            "path": "src/shared/work-records/auto-generation.ts",
+            "sha256": "d5b560281f16e1221fe3d4f8d421364a374ef8f8aa6ccf68d3be84fb08056ae6"
+        },
+        {
+            "path": "src/shared/work-records/generation.js",
+            "sha256": "77fb103aa7bdfa5d78bdac8bb210fa7b95a676d05f2cc8fa952b038f9307e470"
+        },
+        {
+            "path": "src/shared/workflow/controller-registry.ts",
+            "sha256": "e300ffae0c167f86126531fcc4fc40d3afaa304822d8a8c740943183efe2225f"
+        },
+        {
+            "path": "src/shared/workflow/decisions.js",
+            "sha256": "d06dd10ab59b1d4b39caae06d0ed3067f620f275873f3b87f3c0c08af41698c3"
+        },
+        {
+            "path": "src/shared/workflow/engineer-runner.ts",
+            "sha256": "184eb7769c59769176736d86a0b4df4ef5b3370a417103c4fb06a2ad4570a898"
+        },
+        {
+            "path": "src/shared/workflow/epic-continuation.ts",
+            "sha256": "0f21331ac64258faf4182280ae6731e0f1710b49de3d62f7e3d5f66084767e3e"
+        },
+        {
+            "path": "src/shared/workflow/execution-collaboration.ts",
+            "sha256": "5eae7fcc4292888ef1baea9961027916c761efb7090ddb5dd3961970fa330883"
+        },
+        {
+            "path": "src/shared/workflow/execution-context.ts",
+            "sha256": "45ef0e9480a5dc47c839ccb96731be9472e96a3882f3d941b4c879e0757167d1"
+        },
+        {
+            "path": "src/shared/workflow/execution-start.ts",
+            "sha256": "db386e34735897d8388f4a56b47253ed85185426cb6b65d84c07c765590cbef3"
+        },
+        {
+            "path": "src/shared/workflow/implementation-checkpoint.ts",
+            "sha256": "951d096b4dec0e803fdb6ffde5b33abf0a8dcd19cb18c148311dea465f781732"
+        },
+        {
+            "path": "src/shared/workflow/orchestrator.ts",
+            "sha256": "f6b8b4e7afaa6d13f903d52d2a9d6051d4cec220353f3c301058c899b2b3c305"
+        },
+        {
+            "path": "src/shared/workflow/plan-actions.ts",
+            "sha256": "7e3538aac0684dce600ee0fffdd7f5518a7527f5466330ad4214a6ee10f3b839"
+        },
+        {
+            "path": "src/shared/workflow/plan-executor.ts",
+            "sha256": "063e6a7d2d664c8549a425628d7ce6f92110c5c560f50be3c9708a60b00c5f62"
+        },
+        {
+            "path": "src/shared/workflow/plan-lifecycle.js",
+            "sha256": "16f53452047f36b932374c61bf2e74c611d9f8b8c1bf96ba9a930229213ef76e"
+        },
+        {
+            "path": "src/shared/workflow/plan-location.ts",
+            "sha256": "b81f9fb04a4c16de0f5a21aee15f11864f8b853ac8ef7a1627bd2c47574a9d04"
+        },
+        {
+            "path": "src/shared/workflow/plan-review-actions.ts",
+            "sha256": "8bc45c68d2894186f81bd1088ce9c20b990cbd8e9c90a395b4fd830e7df31c5c"
+        },
+        {
+            "path": "src/shared/workflow/planning-agent.ts",
+            "sha256": "1b9758b00c8775b28a7233aed7f0bab287424b4de87ba013fd01e9f03577c767"
+        },
+        {
+            "path": "src/shared/workflow/publication-attempt.ts",
+            "sha256": "90469ff4635957a7ca090ca5c7c7d3a95f4b17f888834f5badef0d5134217452"
+        },
+        {
+            "path": "src/shared/workflow/publication-machine.failure-matrix.test.ts",
+            "sha256": "b11805f8e96b2a565c21ae4d3a315f2fb02aff131ea650c065161ca95e948b8b"
+        },
+        {
+            "path": "src/shared/workflow/publication-machine.ts",
+            "sha256": "b72c10fa96e97f60af12d1499ca056909d36b17ab78a8e6b4d117dff896d83dd"
+        },
+        {
+            "path": "src/shared/workflow/review-diff-tool.js",
+            "sha256": "e32d6c2af85c6abec36fe6d357cad908784d1e77d983124995130201510d66cd"
+        },
+        {
+            "path": "src/shared/workflow/review-ledger.ts",
+            "sha256": "0951fddefe11d5a79bb1862fb41c3ae7a57f5b01e8e902c15fd6f9263aab3903"
+        },
+        {
+            "path": "src/shared/workflow/state-transition.ts",
+            "sha256": "e710fa13326399e77f8bb568f7c8d83ea3017812e4b4cf4603b405cb987cc534"
+        },
+        {
+            "path": "src/shared/workflow/validation-checkpoint.ts",
+            "sha256": "6e5cae1161bb08ce198b4c8a4f80228ce38644a58d0956cf31441ebb71b9f71f"
+        },
+        {
+            "path": "src/shared/workflow/validation-completion-gating.test.ts",
+            "sha256": "5bf09ef637125017f8f76c1e04fd06aeeb3f81ca556db5f8eceed4d878948d22"
+        },
+        {
+            "path": "src/shared/workflow/validation-context.ts",
+            "sha256": "238494de006a95a876ea7c2fe14d2f697ccab5f8ef576303279c56bf8ebd1c70"
+        },
+        {
+            "path": "src/shared/workflow/validation-engine.ts",
+            "sha256": "85417003bfe28fe1dbc9e39628901468e007af6cd5aef94cf7e3880d7399a2bb"
+        },
+        {
+            "path": "src/shared/workflow/validation-helpers.ts",
+            "sha256": "d09772d420cda00ff8e59c89d038503469017850575c7b8d5f768a6a23f81568"
+        },
+        {
+            "path": "src/shared/workflow/validation-human-review.ts",
+            "sha256": "b2b09368c936be5f87b945407fdbd414c0bf14d409446e186c149edcb264ae6e"
+        },
+        {
+            "path": "src/shared/workflow/validation-interactions.ts",
+            "sha256": "0fda16079ef9cf2afe98a52e75700fba4c264cda1a375c34c77cbb05d583eb34"
+        },
+        {
+            "path": "src/shared/workflow/validation-local-ci.ts",
+            "sha256": "580290534fca489db9f31cf8a9da77e7681c423520fa932cdcb164cbd405b9cf"
+        },
+        {
+            "path": "src/shared/workflow/validation-mechanical.ts",
+            "sha256": "5fc2d1f6bb300f086de6b8c00a6458923ce923ff120eb933c2679297ae98e974"
+        },
+        {
+            "path": "src/shared/workflow/validation-merge-repair.ts",
+            "sha256": "ba0537bb1c5f537227fdcb23a98398f64aba2a3bc361b8ffe8297b60ff2a1ad3"
+        },
+        {
+            "path": "src/shared/workflow/validation-operational-errors.ts",
+            "sha256": "389c4e5c73c2e3dae004de9de4f734711cdfffe645bb12c80b952e2e576328ae"
+        },
+        {
+            "path": "src/shared/workflow/validation-plan-amendment.ts",
+            "sha256": "b508232fe1dee8d90ed3b0f011183ef87ff42af04c5b0302690d2d8ee2dba992"
+        },
+        {
+            "path": "src/shared/workflow/validation-publication.test.ts",
+            "sha256": "75312f6b280ea4c31ac9f1a7ef9ea70e78436711287ceecb878aaf167bc29346"
+        },
+        {
+            "path": "src/shared/workflow/validation-publication.ts",
+            "sha256": "aa9f4ca7407abc288d37f7b8951a1d6c7698c0033f86f41e9050473edc7bbbd4"
+        },
+        {
+            "path": "src/shared/workflow/validation-recovery.ts",
+            "sha256": "5681f494cb83717b33d49edcb37454ad74b7a4b9ef6d3f3645326fb484f5b691"
+        },
+        {
+            "path": "src/shared/workflow/validation-repair-resume.integration.test.ts",
+            "sha256": "c94c8c3d3928bd4cf93bb28285195ab94c27b98d577a1bbc0a20b0b9600d3771"
+        },
+        {
+            "path": "src/shared/workflow/validation-self-healing.integration.test.ts",
+            "sha256": "1132becf27e3718a0d0eb678af78f89f49ff89481a7763bed4fe5ef79f4380f3"
+        },
+        {
+            "path": "src/shared/workflow/validation-semantic.ts",
+            "sha256": "a250db811fea20f224d6020af5fb93f986f8ca3139de0a25d1af9064baf77905"
+        },
+        {
+            "path": "src/shared/workflow/validation-session-adapter.ts",
+            "sha256": "2fef6fa184e694384be5d9b6309d930c51a3fc6f8cbbb6760eab59e3e218fed7"
+        },
+        {
+            "path": "src/shared/workflow/validation-supervisor.ts",
+            "sha256": "daafcd3a11d5e2bd3f90de924c646176d2a303641a7b2e35457dcc1617fe87cc"
+        },
+        {
+            "path": "src/shared/workflow/validation-tool-continuation.integration.test.ts",
+            "sha256": "c879bc8c6b76dcd1adc7796d045408fc6f1124e28afd350bd87077c2535286de"
+        },
+        {
+            "path": "src/shared/workflow/validation.ts",
+            "sha256": "82065b448f7985f6975f2915c41131c101ec6d2e636227e299050b530fede1da"
+        },
+        {
+            "path": "src/shared/workflow/workflow-slicer.ts",
+            "sha256": "4a5c59eba5d3daa6602bc5f8d9839cb669919a4ae4107a56e0d06151aaaabc45"
+        },
+        {
+            "path": "src/shared/workflow/workflow-tool-events.test.ts",
+            "sha256": "f9ef865620350276f477fa6929bc86645dc5959f8cf750ae389354c35923022d"
+        },
+        {
+            "path": "src/shared/workflow/workflow-tool-events.ts",
+            "sha256": "6a00458d443e674b79a17cb51775f520744430735f30ac28d0f0ce6fc1c281fd"
+        },
+        {
+            "path": "src/shared/worktree.js",
+            "sha256": "15b9c3b7de071746ef49ee4e117eaf533e561ac549ddc5b470c9498f9e63dcf7"
+        },
+        {
+            "path": "src/tools/__tests__/plan-written.test.js",
+            "sha256": "7819de38d2b990fed315648ad11db1d822d8e3c55d3272c980109b2eddbdad69"
+        },
+        {
+            "path": "src/tools/delegate-agent.ts",
+            "sha256": "454849301de1ac01e5fbbd0b9ebac72fa81ce118d6a78646f0b53173ad4ae402"
+        },
+        {
+            "path": "src/tools/init-verification-command.ts",
+            "sha256": "74f839844f80ae5fcd3f256d3fa5e7680c3bdd1c59860f0ccbab7c2efcb0dc9e"
+        },
+        {
+            "path": "src/tools/pair-checkpoint.ts",
+            "sha256": "8adb3059ac5c820869eaccea314acfd1b7c236a8601748e2023bbe81b7663ac5"
+        },
+        {
+            "path": "src/tools/plan-written.ts",
+            "sha256": "a64532294aa4445bb17edaa6e8a853c483ab621d2a3a66168c82d93cccee09be"
+        },
+        {
+            "path": "src/tools/review-complete.ts",
+            "sha256": "6d0677d311f85003c936902ae52526675a68b55626c7fbf1c10f95385b1c8615"
+        },
+        {
+            "path": "src/tools/task-completed.ts",
+            "sha256": "068d8a9b5e4961c046e31ea7c27df6e69505671f6022e06dc6b2a821412a133f"
+        },
+        {
+            "path": "src/tools/user-interview.ts",
+            "sha256": "911ffe1cdeb7938dfd705038e035e5ecefce00dd68f3d4390976f1df44bd8669"
+        }
+    ]
+}

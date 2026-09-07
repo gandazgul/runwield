@@ -215,6 +215,8 @@ graph TD
 - [Releasing](releasing.md) - wld's repository-specific release policy, Candidate/Promotion flow, and recovery paths.
 - [Design System](design-system.md) - browser UI tokens, patterns, and Plannotator port guidance.
 - [Plan Lifecycle](plan-lifecycle.md) - durable plan and worktree state machine.
+- [Complete Plan workflow map](plan-workflow-map.md) - source-traced planner-to-merge tree, transition inputs, repair
+  and resume branches, with a [dated transition audit](audits/2026-09-07-plan-workflow-transitions.md).
 - [Product Rules](product-rules.md) - owner-stated rules that constrain RunWield's behavior; cite these in review.
 - [ACP Implementation Details and Gaps](acp-implementation-details.md) - current ACP v1 MVP behavior, conformance gaps,
   and optional protocol coverage.
