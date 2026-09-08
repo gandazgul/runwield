@@ -1,3 +1,9 @@
+import {
+    type BrowserNotificationPolicy,
+    buildSharedNotificationTitle,
+    getNotificationBaseMessage,
+} from "../../../shared/session/notification-content.ts";
+
 type AttentionItem = {
     attentionId: string;
     reason: "agentStopped";
@@ -13,6 +19,13 @@ type AttentionSnapshot = { generation: number | null; attention: AttentionItem[]
 type BrowserNotificationStatus = "enabled" | "blocked" | "unavailable";
 
 type PeerState = { tabId: string; focused: boolean; visible: boolean; seenAt: number };
+
+type BrowserAttentionEvent = {
+    type?: string;
+    reason?: string;
+    agentName?: string;
+    sessionName?: string;
+};
 
 const CHANNEL_NAME = "runwield:session-attention";
 const LEDGER_KEY = "runwield:browser-notification-ledger:v1";
@@ -205,10 +218,14 @@ export class SessionTabNotificationController {
             }
             if (!recordLedger(key, "reserved")) return;
             try {
-                const notification = new Notification(`${item.agentName}: Agent stopped — ${item.sessionName}`, {
-                    body: "The agent has stopped and is waiting for you.",
-                    tag: key,
-                });
+                const notification = new Notification(
+                    buildSharedNotificationTitle(
+                        "agentStopped",
+                        normalizedSessionName(item.sessionName),
+                        item.agentName,
+                    ),
+                    { body: getNotificationBaseMessage("agentStopped"), tag: key },
+                );
                 this.#notification = notification;
                 notification.onclick = () => {
                     notification.close();
@@ -246,4 +263,84 @@ export async function requestBrowserNotificationPermission() {
     const status = result === "granted" ? "enabled" : result === "denied" ? "blocked" : "unavailable";
     dispatchStatus(status);
     return status;
+}
+
+type TrackedNotification = {
+    close(): void;
+    onclick: ((event: Event) => void) | null;
+};
+
+export type OperationSessionTabNotificationController = {
+    notifyAgentStopped(event: BrowserAttentionEvent, policy: BrowserNotificationPolicy | null | undefined): void;
+    dispose(): void;
+};
+
+const DEFAULT_SESSION_NAME = "RunWield";
+
+export function createSessionTabNotificationController(): OperationSessionTabNotificationController {
+    const active = new Set<TrackedNotification>();
+
+    return {
+        notifyAgentStopped(event, policy) {
+            if (!canNotifyAgentStopped(event, policy)) return;
+            const NotificationConstructor = globalThis.Notification;
+            if (typeof NotificationConstructor !== "function" || NotificationConstructor.permission !== "granted") {
+                return;
+            }
+            if (
+                policy?.suppressWhenFocused !== false && document.visibilityState === "visible" && document.hasFocus()
+            ) return;
+
+            try {
+                const notification = new NotificationConstructor(
+                    buildSharedNotificationTitle(
+                        "agentStopped",
+                        normalizedSessionName(event.sessionName),
+                        event.agentName,
+                    ),
+                    { body: getNotificationBaseMessage("agentStopped") },
+                ) as TrackedNotification;
+                active.add(notification);
+                notification.onclick = () => {
+                    try {
+                        notification.close();
+                    } catch {
+                        // Browser-owned best effort.
+                    }
+                    active.delete(notification);
+                    try {
+                        globalThis.focus();
+                    } catch {
+                        // Browser-owned best effort.
+                    }
+                };
+            } catch {
+                // Notification delivery must not affect the Session turn.
+            }
+        },
+        dispose() {
+            for (const notification of active) {
+                try {
+                    notification.onclick = null;
+                    notification.close();
+                } catch {
+                    // Browser-owned best effort.
+                }
+            }
+            active.clear();
+        },
+    };
+}
+
+export function canNotifyAgentStopped(
+    event: BrowserAttentionEvent,
+    policy: BrowserNotificationPolicy | null | undefined,
+): boolean {
+    return event.type === "attention_requested" && event.reason === "agentStopped" && policy?.enabled !== false &&
+        policy?.events?.agentStopped !== false;
+}
+
+function normalizedSessionName(value: string | undefined): string {
+    const normalized = String(value || "").replace(/\s+/g, " ").trim();
+    return normalized || DEFAULT_SESSION_NAME;
 }

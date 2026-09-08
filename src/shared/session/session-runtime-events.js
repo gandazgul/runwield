@@ -3,6 +3,8 @@
  * Adapter-neutral SessionRuntime event vocabulary.
  */
 
+import { isRuntimeAttentionNotificationEventName } from "./notification-content.ts";
+
 export const RuntimeEventTypes = Object.freeze({
     SESSION_CREATED: "session_created",
     SESSION_LOADED: "session_loaded",
@@ -626,7 +628,7 @@ export function assertSessionRuntimeEvent(event) {
             break;
         case RuntimeEventTypes.ATTENTION_REQUESTED:
             requireRuntimeEvent(
-                ["agentStopped", "planWritten", "userInterview"].includes(value.reason),
+                typeof value.reason === "string" && isRuntimeAttentionNotificationEventName(value.reason),
                 event.type,
                 "reason is invalid",
             );

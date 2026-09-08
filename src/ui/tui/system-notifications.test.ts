@@ -350,4 +350,8 @@ Deno.test("command-based notification helpers are removed from active source", a
     for (const term of removedTerms) {
         assertEquals(source.includes(term), false);
     }
+    assertStringIncludes(source, "getNotificationBaseMessage");
+    assertStringIncludes(source, "normalizeNotificationPolicy");
+    assertEquals(source.includes("const EVENT_LABELS"), false);
+    assertEquals(source.includes("const EVENT_MESSAGES"), false);
 });
