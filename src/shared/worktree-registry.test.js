@@ -7,6 +7,7 @@ import {
     findByPlanId,
     findByPlanName,
     getWorktreeRegistryPath,
+    inspectWorktreeRegistryAtPath,
     listEntries,
     pruneStaleEntries,
     removeEntry,
@@ -34,6 +35,52 @@ function entry(overrides = {}) {
         ...overrides,
     };
 }
+
+Deno.test("exact-path worktree registry inspection is strict and read-only", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        const path = join(projectRoot, ".wld", "worktrees.json");
+        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.writeTextFile(
+            path,
+            JSON.stringify({ version: 1, entries: [entry({ planId: undefined })] }, null, 2),
+        );
+        const before = await Deno.readTextFile(path);
+
+        const inspected = await inspectWorktreeRegistryAtPath(path);
+
+        assertEquals(inspected.readError, undefined);
+        assertEquals(inspected.version, 1);
+        assertEquals(inspected.entries.length, 1);
+        assertEquals(inspected.integrityIssues, []);
+        assertEquals(await Deno.readTextFile(path), before);
+        try {
+            await Deno.lstat(join(projectRoot, ".wld", "worktree-registry-migration-issues.json"));
+            throw new Error("Exact-path inspection wrote a migration issue file.");
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        }
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("exact-path worktree registry inspection reports malformed roots", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        const path = join(projectRoot, ".wld", "worktrees.json");
+        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.writeTextFile(path, JSON.stringify({ version: 2, entries: "not an array" }));
+
+        const inspected = await inspectWorktreeRegistryAtPath(path);
+
+        assertEquals(inspected.readError, undefined);
+        assertEquals(inspected.integrityIssues[0].kind, "malformed_registry");
+        assertStringIncludes(inspected.integrityIssues[0].message, "entries field must be an array");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
 
 Deno.test("worktree registry supports add/update/find/list/remove", async () => {
     const projectRoot = await Deno.makeTempDir();
