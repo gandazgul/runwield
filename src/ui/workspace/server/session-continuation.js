@@ -4,8 +4,9 @@ import { createHash } from "node:crypto";
 import { AGENTS } from "../../../constants.js";
 import { findPlanEvidenceById } from "../../../plan-store.js";
 import { getModelRegistry } from "../../../shared/models/model-registry.ts";
-import { getSettingsManager } from "../../../shared/settings.js";
+import { getMergedCustomSetting, getSettingsManager } from "../../../shared/settings.js";
 import { listAvailableAgents } from "../../../shared/session/agents.js";
+import { normalizeBrowserNotificationPolicy } from "../../../shared/session/notification-content.ts";
 import { applySharedPlanReviewDecision } from "../../../shared/workflow/plan-review-actions.ts";
 import { getWorkflowDiff } from "../../../shared/workflow/git-snapshot.js";
 import {
@@ -60,6 +61,18 @@ function browserTimelineProjection(projection) {
             : projection.events,
         segments: Array.isArray(projection.segments) ? projection.segments : [],
     };
+}
+
+/** @param {unknown} event */
+function isAgentStoppedAttentionEvent(event) {
+    if (!event || typeof event !== "object") return false;
+    const value = /** @type {Record<string, unknown>} */ (event);
+    return value.type === "attention_requested" && value.reason === "agentStopped";
+}
+
+/** @param {unknown[]} events @param {unknown} event */
+function isFirstReservedAgentStoppedAttentionEvent(events, event) {
+    return isAgentStoppedAttentionEvent(event) && !events.some(isAgentStoppedAttentionEvent);
 }
 
 /** @param {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} request */
@@ -210,6 +223,7 @@ export async function readSessionName(transcriptPath) {
  * @property {number} [expectedGeneration]
  * @property {{ agentName?: string, model?: string, provider?: string }} [pendingConfiguration]
  * @property {{ interactionId: string, request: Record<string, unknown> }} [liveInteraction]
+ * @property {import('../../../shared/session/notification-content.ts').BrowserNotificationPolicy} [browserNotificationPolicy]
  * @property {{ resolve: (value: unknown) => void, reject: (error: Error) => void } | null} [answer]
  */
 
@@ -253,16 +267,28 @@ export class WorkspaceSessionContinuationService {
 
     /** @param {string} operationId @param {WorkspaceOperationRecord} record */
     setOperation(operationId, record) {
-        this.operations.set(operationId, record);
+        this.operations.set(operationId, {
+            ...record,
+            browserNotificationPolicy: this.resolveBrowserNotificationPolicy(record.projectId),
+        });
         this.notifyOperation(operationId);
     }
 
     /** @param {string} operationId @param {unknown} event */
     appendOperationEvent(operationId, event) {
         const record = this.operations.get(operationId);
-        if (!record || record.events.length >= 500) return;
+        if (!record) return;
+        const eventCount = record.events.length;
+        if (eventCount >= 500 && !isFirstReservedAgentStoppedAttentionEvent(record.events, event)) return;
         record.events.push(event);
         this.notifyOperation(operationId);
+    }
+
+    /** @param {string} projectId */
+    resolveBrowserNotificationPolicy(projectId) {
+        const project = typeof this.store.getProjectById === "function" ? this.store.getProjectById(projectId) : null;
+        const raw = project ? getMergedCustomSetting("notifications", project.currentRoot) : undefined;
+        return normalizeBrowserNotificationPolicy(raw);
     }
 
     /** @param {string} operationId @param {(snapshot: Record<string, unknown>) => void} listener */
@@ -1311,6 +1337,8 @@ export class WorkspaceSessionContinuationService {
             events: live?.events || [],
             liveInteraction: live?.liveInteraction || null,
             pendingConfiguration: live?.pendingConfiguration || null,
+            browserNotificationPolicy: live?.browserNotificationPolicy ||
+                (live?.projectId ? this.resolveBrowserNotificationPolicy(live.projectId) : undefined),
         };
     }
 }
