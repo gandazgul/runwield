@@ -1125,3 +1125,102 @@ button.danger-action:disabled {
     justify-content: flex-end;
     padding-top: 0.85rem;
 }
+
+/* Guided Review: Plannotator chapter cards with RunWield explanation blocks. */
+.rw-guide-explainer {
+    container: guided-review / inline-size;
+    height: 100%;
+    min-height: 0;
+    overflow: auto;
+    background: var(--rw-page-bg);
+    color: var(--rw-text);
+}
+
+.rw-guide-notes {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.rw-guide-callout,
+.rw-guide-checkpoint,
+.rw-guide-mermaid,
+.rw-guide-widget {
+    min-width: 0;
+    padding: 0.75rem;
+    border: 1px solid var(--rw-border);
+    border-radius: 6px;
+    background: var(--rw-surface);
+}
+
+.rw-guide-callout,
+.rw-guide-checkpoint {
+    border-color: color-mix(in oklab, var(--rw-accent) 35%, var(--rw-border));
+    background: color-mix(in oklab, var(--rw-accent) 10%, transparent);
+}
+
+.rw-guide-checkpoint {
+    border-style: dashed;
+}
+
+.rw-guide-callout > strong {
+    display: block;
+    margin-bottom: 0.35rem;
+}
+
+.rw-guide-notes p {
+    margin: 0.4rem 0;
+}
+
+.rw-guide-mermaid figcaption,
+.rw-guide-widget figcaption {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    margin-bottom: 0.75rem;
+}
+
+.rw-guide-mermaid figcaption span,
+.rw-guide-widget figcaption span {
+    color: var(--rw-text-muted);
+    font-size: 0.8rem;
+}
+
+.rw-guide-mermaid svg {
+    max-width: 100%;
+    height: auto;
+}
+
+.rw-guide-mermaid pre {
+    color: var(--rw-error);
+    white-space: pre-wrap;
+}
+
+.rw-guide-widget iframe {
+    width: 100%;
+    min-height: 18rem;
+    border: 1px solid var(--rw-border);
+    border-radius: 6px;
+    background: var(--rw-surface);
+}
+
+/* Review sidebars reduce the available space independently of viewport width. */
+@container guided-review (width < 760px) {
+    .rw-guide-explainer [data-guide-chapter-columns] {
+        display: block;
+    }
+
+    .rw-guide-explainer [data-guide-chapter-overview] {
+        border-right: 0;
+        border-bottom: 1px solid var(--rw-border);
+    }
+
+    .rw-guide-explainer [data-guide-chapter-overview] > div {
+        position: static;
+        max-height: none;
+        overflow: visible;
+        padding: 1rem;
+    }
+}

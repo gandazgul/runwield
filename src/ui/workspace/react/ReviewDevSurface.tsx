@@ -489,7 +489,7 @@ const GUIDED_REVIEW_FIXTURE = {
     schemaVersion: "1.0",
     title: "Review feedback flow explainer",
     intent:
-        "A single-column Guided Review Explainer that mixes prose, Mermaid, an exceptional widget, and live annotatable diffs.",
+        "Review feedback previously flattened annotations into text, losing their context. This change preserves inline locations, approval state, and images through the feedback handoff.",
     sections: [
         {
             title: "Core implementation",
@@ -498,7 +498,7 @@ const GUIDED_REVIEW_FIXTURE = {
                 {
                     type: "prose",
                     markdown:
-                        "The feedback path now preserves richer annotation context instead of flattening comments into unstructured text.",
+                        "The **feedback path** now preserves richer annotation context in `createFeedback` instead of flattening comments into unstructured text.",
                 },
                 {
                     type: "callout",
@@ -737,6 +737,13 @@ function buildCodeReviewDevPayload(variant) {
         ...base,
         devGuideCapabilities: { available: true, providers: [{ id: "guide", provider: "fixture", model: "ready" }] },
         guidedReviewFixture: GUIDED_REVIEW_FIXTURE,
+        devGuideJob: {
+            id: "dev-guide",
+            status: "done",
+            providerName: "fixture",
+            model: "dev-fixture",
+            thinkingLevel: "high",
+        },
     };
 }
 
