@@ -5,7 +5,45 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { setCustomSetting } from "../../shared/settings.js";
 import { manifestPath } from "../../shared/session/file-session-storage.ts";
 import { makeManagedSessionFixture } from "../../testing/managed-session-fixture.ts";
+import {
+    disposeOperationBrowserNotifications,
+    observeOperationBrowserNotifications,
+    syncOperationBrowserNotificationLifecycle,
+} from "./islands/SessionSurface.jsx";
 import { readSessionName, WorkspaceSessionContinuationService } from "./server/session-continuation.js";
+
+class BrowserNotification {
+    static permission = "granted";
+    static created = [];
+    closed = false;
+    onclick = null;
+
+    constructor(title, options = {}) {
+        this.title = title;
+        this.options = options;
+        BrowserNotification.created.push(this);
+    }
+
+    close() {
+        this.closed = true;
+    }
+}
+
+function installBrowserNotifications() {
+    BrowserNotification.created = [];
+    Reflect.set(globalThis, "Notification", BrowserNotification);
+    Reflect.set(globalThis, "document", { visibilityState: "hidden", hasFocus: () => false });
+    Reflect.set(globalThis, "focus", () => {});
+    return {
+        created: BrowserNotification.created,
+        cleanup() {
+            disposeOperationBrowserNotifications();
+            Reflect.deleteProperty(globalThis, "Notification");
+            Reflect.deleteProperty(globalThis, "document");
+            Reflect.deleteProperty(globalThis, "focus");
+        },
+    };
+}
 
 async function waitForOperation(service, operationId) {
     for (let index = 0; index < 400; index++) {
@@ -64,13 +102,14 @@ Deno.test("Workspace Session list prefers transcript name before stale catalog f
     }
 });
 
-Deno.test("Workspace operation snapshots expose browser policy and reserve first Agent stop past ordinary buffer", async () => {
+Deno.test("Workspace snapshots deliver Agent-stop browser notifications once through the Session observer", async () => {
     const fixture = await makeManagedSessionFixture();
+    const browser = installBrowserNotifications();
     await setCustomSetting(
         "notifications",
         {
             enabled: true,
-            events: { agentStopped: false, userInterview: false },
+            events: { agentStopped: true, userInterview: false },
             suppressWhenFocused: false,
             terminalBell: false,
         },
@@ -84,24 +123,80 @@ Deno.test("Workspace operation snapshots expose browser policy and reserve first
             service.appendOperationEvent("operation-full", { type: "system_status", message: `event ${index}` });
         }
         service.appendOperationEvent("operation-full", { type: "system_status", message: "dropped" });
-        service.appendOperationEvent("operation-full", { type: "attention_requested", reason: "agentStopped" });
+        service.appendOperationEvent("operation-full", {
+            type: "attention_requested",
+            reason: "agentStopped",
+            agentName: "Guide",
+            sessionName: "Managed fixture",
+        });
         service.appendOperationEvent("operation-full", { type: "attention_requested", reason: "agentStopped" });
 
         const getSnapshot = service.getOperation("operation-full");
         assertEquals(getSnapshot.browserNotificationPolicy, {
             enabled: true,
-            events: { agentStopped: false },
+            events: { agentStopped: true },
             suppressWhenFocused: false,
         });
         assertEquals(getSnapshot.events.length, 501);
-        assertEquals(getSnapshot.events.at(-1), { type: "attention_requested", reason: "agentStopped" });
+        assertEquals(getSnapshot.events.at(-1), {
+            type: "attention_requested",
+            reason: "agentStopped",
+            agentName: "Guide",
+            sessionName: "Managed fixture",
+        });
 
         let streamed = null;
         const unsubscribe = service.subscribeOperation("operation-full", (snapshot) => streamed = snapshot);
         unsubscribe();
         assertEquals(streamed.events.length, 501);
-        assertEquals(streamed.events.at(-1), { type: "attention_requested", reason: "agentStopped" });
+        assertEquals(streamed.events.at(-1), getSnapshot.events.at(-1));
+
+        const cursorRef = { current: null };
+        const operationKeyRef = { current: null };
+        const scopeKey = fixture.project.projectId;
+        const current = { operationId: "operation-full", attempts: 0, scopeKey };
+        syncOperationBrowserNotificationLifecycle({
+            operationId: current.operationId,
+            scopeKey,
+            operationKeyRef,
+            cursorRef,
+        });
+        observeOperationBrowserNotifications(current, streamed, cursorRef);
+        observeOperationBrowserNotifications(current, streamed, cursorRef);
+        observeOperationBrowserNotifications({ ...current, attempts: 1 }, getSnapshot, cursorRef);
+        assertEquals(browser.created.length, 1);
+        assertEquals(browser.created[0].title, "Guide: Agent stopped — Managed fixture");
+
+        observeOperationBrowserNotifications(
+            { ...current, operationId: "operation-restored", restored: true },
+            getSnapshot,
+            { current: null },
+        );
+        assertEquals(browser.created.length, 1);
+
+        service.setOperation("operation-full", {
+            status: "completed",
+            projectId: fixture.project.projectId,
+            events: [
+                ...getSnapshot.events,
+                { type: "attention_requested", reason: "agentStopped", agentName: "Guide", sessionName: "Done" },
+            ],
+        });
+        const terminalSnapshot = service.getOperation("operation-full");
+        observeOperationBrowserNotifications(current, terminalSnapshot, cursorRef);
+        syncOperationBrowserNotificationLifecycle({ operationId: null, scopeKey, operationKeyRef, cursorRef });
+        assertEquals(browser.created.length, 2);
+        assertEquals(browser.created[1].closed, false);
+
+        syncOperationBrowserNotificationLifecycle({
+            operationId: "operation-next",
+            scopeKey,
+            operationKeyRef,
+            cursorRef,
+        });
+        assertEquals(browser.created[1].closed, true);
     } finally {
+        browser.cleanup();
         service.close();
         service.store.close();
         await fixture.cleanup();
