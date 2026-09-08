@@ -9,7 +9,7 @@ affectedPaths:
     - "src/agent-definitions/workflow-prompts/reviewer-prompt.md"
     - "docs/plan-lifecycle.md"
     - "docs/settings.md"
-    - "docs/prd/semantic-code-review-convergence-prd.md"
+    - "docs/prd/runwield-core-prd.md"
     - "docs/user-facing-features.md"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
@@ -127,8 +127,8 @@ the existing `CODE_REVIEW` interaction. This plan does not require new Plannotat
   Focused Semantic Review before reopening Human Code Review, instead of saying validation simply reruns.
 - `docs/settings.md` — clarify that the `codereview` gate still opens after full semantic approval, and feedback repair
   uses focused semantic review plus repeated Human Code Review until approval/exit.
-- `docs/prd/semantic-code-review-convergence-prd.md` — replace the resolved assumption that post-human-review changes
-  start a new bounded full semantic attempt with the new focused-review rule.
+- `docs/prd/runwield-core-prd.md` — replace the resolved assumption that post-human-review changes start a new bounded
+  full semantic attempt with the new focused-review rule.
 - `docs/user-facing-features.md` — update the user-facing validation description to mention focused review after Human
   Code Review feedback.
 

@@ -29,7 +29,6 @@ parentPlan: "personal-remote-workspace-v2"
 order: 3
 dependencies:
     - "01-durable-plan-to-session-continuity"
-    - "02-durable-session-attention-and-browser-tab-notifications"
 planId: "1d9a226c-defb-4475-bbea-abfbb64bb691"
 ---
 
@@ -62,7 +61,7 @@ controller, worktree, and Session files.
 ```text
 registered Projects
   canonical Plan and workflow readers
-  Session association and attention projection
+  Session association, activation, and live Workspace interactions
   per-Project failure isolation
   Dashboard categories and Plan-first sidebar
   owning destination opens for action
@@ -109,8 +108,8 @@ Existing functions, modules, or patterns to reuse:
 - `src/ui/workspace/server/session-continuation.js` — stable Session listing and activation state.
 - `src/ui/workspace/server/owner-plan-progress.ts#loadOwnerPlanProgress` — joined Plan, controller, worktree,
   validation, delivery, and Session evidence.
-- `src/shared/session/session-transcript-projection.js#summarizeProjectedEntries` — projected attention and Plan
-  association data from committed Session evidence.
+- `src/shared/session/session-transcript-projection.js#summarizeProjectedEntries` — workflow and Plan association data
+  from committed Session evidence.
 - `src/shared/workflow/plan-lifecycle.js` — Plan status and lifecycle vocabulary.
 - `src/ui/design-system/` — existing Workspace cards, rows, badges, status labels, focus behavior, and responsive shell
   patterns.
@@ -121,7 +120,7 @@ Existing functions, modules, or patterns to reuse:
 - Dashboard rows classify Plans once into the highest applicable category with precedence Needs You, Ready to Continue,
   In Progress, then Recently Finished.
 - Needs You includes Plan review, Workspace-hosted Agent questions from this server, human review, recovery, failed
-  validation, committed Session attention, and damaged enabled Projects.
+  validation, and damaged enabled Projects. Browser alerts do not create Dashboard items.
 - Ready to Continue includes approved Plans ready to run, approved Epics ready for decomposition, and interrupted
   workflows with safe continuation.
 - In Progress includes active Agents, execution, tests and CI, AI code review, repair, and delivery.
@@ -140,16 +139,17 @@ Existing functions, modules, or patterns to reuse:
   and Plan action paths.
 - `docs/design-system.md` documents any reusable new visual patterns.
 - `docs/domain-language.md` describes implemented Dashboard category language, avoided aliases, and relationships to
-  Plans, Sessions, and attention.
+  Plans, Sessions, and live Workspace interactions.
 
 ## Verification Plan
 
 - Automated: run `deno run -A scripts/run-tests.js src/ui/workspace/personal-remote-workspace-v2.acceptance.test.ts`.
 - Automated: run `deno task workspace:check`, `deno task seams:check`, and `deno task ci` at Epic integration.
 - Automated: fixtures must use real registered Project fixtures, canonical Plan/controller/worktree readers, file-backed
-  Sessions, committed attention, and per-Project failure injection.
-- Automated: mutate committed Plan, controller, worktree, and Session-attention evidence after the first Dashboard read
-  and prove the next loaded projection changes category within five seconds without restart or manual cache clearing.
+  Sessions, live Workspace interactions, and per-Project failure injection.
+- Automated: mutate canonical Plan, controller, worktree, and live Workspace interaction evidence after the first
+  Dashboard read and prove the next loaded projection changes category within five seconds without restart or manual
+  cache clearing.
 - Automated: prove Dashboard and sidebar endpoints cannot submit messages or lifecycle events.
 - Automated: prove the Plan Progress route and links are gone and the stage sequence appears only in the Session context
   sidebar.
@@ -158,7 +158,7 @@ Existing functions, modules, or patterns to reuse:
   the owner before execution continues if the visual direction is uncertain.
 - Manual real-server check: use at least two registered Projects with same-named Plans, one Plan needing review, one
   approved Plan, one active Plan, one recently finished Plan, one On-Hold Plan, one standalone idle Session, one
-  TUI-owned Session needing attention, and one Project read failure.
+  Workspace-hosted Agent question, and one Project read failure.
 - Expected result: the owner opens Workspace, sees what needs them now, follows a row to the owning surface, and no
   longer has to inspect each Project separately.
 - When applicable: confirm the glossary describes implemented behavior and does not promote unimplemented proposals.
@@ -167,7 +167,9 @@ Existing functions, modules, or patterns to reuse:
 
 - A damaged Project must produce a source-specific diagnostic, not a generic degraded card with no reader evidence.
 - Legacy closed Plans without immutable terminal-time evidence remain searchable but do not enter Recently Finished.
-- A Session with no proven Plan association appears on the Dashboard only when it has unresolved attention or is
-  actively running.
+- A Session with no proven Plan association appears on the Dashboard only when it has a live Workspace question or is
+  actively running. Notifications are independent of Dashboard classification.
+- Preserve the Workspace-header notification permission control when present. Navigation can ship independently of
+  browser notifications.
 - Direct Plan and Session URLs must keep working.
 - Local Plan Board behavior remains protected even though the owner Workspace home changes.

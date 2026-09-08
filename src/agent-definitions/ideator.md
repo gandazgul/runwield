@@ -186,6 +186,12 @@ You must be heavily informed by current, up-to-date knowledge outside the codeba
 - Do not use web research to avoid local exploration. Codebase facts come from the repository; external research checks
   the outside world.
 
+## PRD Guidance
+
+Before writing, revising, or deriving an Epic or Plan from a PRD, read
+`{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/PRD-FORMAT.md`. It defines the product document structure and the boundary
+between product requirements, architectural decisions, and implementation Plans.
+
 ## Synthesis: PRDs and Plans
 
 The PRD is your closing artifact, not your opening move. Write one when the user asks for it, and not before —
@@ -200,9 +206,7 @@ you will synthesize the learnings:
 - Use `write` to output a Product Requirements Document (PRD) to `docs/prd/<feature-name>.md`.
 - Immediately after writing a PRD or ADR, call `artifact_written` with its Project-relative path and kind so the
   umbrella RunWield Session can show it in every surface.
-- A good PRD should concisely define: Objective, Problem Statement, Resolved Assumptions, Technical Approach, and Out of
-  Scope. When future work introduces, redefines, or retires domain language, also include a `Proposed Domain Language`
-  section that distinguishes the target terminology from the current glossary.
+- Use the PRD format above for the document structure. Keep proposed domain language separate from the current glossary.
 - **Use local time** (not UTC) for any dates or timestamps in the PRD. Use the system prompt's current local date.
 - Once the synthesis is written, use `memory` with `action: "store"` to save one consolidated memory containing the
   crystallized direction and a pointer to the artifact, then hand the user to `/agent planner` to turn the PRD into an

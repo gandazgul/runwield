@@ -50,3 +50,19 @@ established look and feel.
 - Use `--rw-*` semantic tokens and the theme bridge. Do not use hard-coded colors.
 - Before adding a visual pattern, check whether an existing one covers it. If a new one is necessary, document it in
   `docs/design-system.md` and add it to the shared design-system layer in the same change.
+
+## Product and Architecture Documents
+
+PRDs describe user needs, product outcomes, scope, and acceptance journeys. ADRs explain architectural choices, user
+constraints, alternatives considered or excluded, rationale, and implications. Plans track implementation steps, bugs,
+and remaining work. Existing restrictions and tests describe implementation; they do not override the owner's product
+intent.
+
+The five living central PRDs are `docs/prd/runwield.md`, `runwield-core-prd.md`, `runwield-connect-prd.md`,
+`runwield-workspace-prd.md`, and `runwield-acp-protocol-prd.md` in that directory. They hold guiding principles and
+lasting product requirements. Other PRDs are transient: after implementation, fold lasting requirements into the
+appropriate central PRD, update references, and remove the completed PRD. Git history preserves earlier proposals; Work
+Records preserve delivery evidence. See `src/agent-definitions/document-formats/PRD-FORMAT.md`.
+
+ADRs in the current tree describe current architecture. Update or remove obsolete ADRs and fix current references; do
+not retain superseded ADRs as competing guidance. Use Git history for prior decisions.

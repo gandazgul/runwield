@@ -1,5 +1,11 @@
 # Product Requirements Document: RunWield Connect
 
+**Document role: Living central PRD.** Principles and lasting requirements for using RunWield inside external agent
+hosts.
+
+Keep this document as current product guidance. Fold lasting requirements from completed feature PRDs here;
+implementation steps belong in Plans, architectural choices in ADRs, and delivery evidence in Work Records.
+
 Last updated: 2026-08-04
 
 ## Objective
@@ -121,16 +127,19 @@ host-local task state cannot independently make a Plan Ready For Work, Implement
   produce an existing non-verified outcome.
 - Host capability differences belong in a disclosed compatibility matrix rather than weaker durable truth.
 
-### Capability-Adaptive Integrations
+### Shared Product Behavior
 
-- Each first-party adapter should use the strongest reliable host-native capabilities available.
-- Claude Code may use true permission-mode controls, Skills, plugin hooks, MCP tools, subagents, and worktree hooks.
-- Codex may use its Skills, plugins, MCP, subagents, and command hooks while respecting documented hook coverage gaps.
-- OpenCode and Pi may use their deeper plugin or extension APIs without making those APIs prerequisites for the shared
-  Connect contract.
-- A shared product semantic may be implemented differently by each host. For example, the canonical RunWield Planning
-  Gate may use a real host Plan mode where available and deterministic mutation blocking elsewhere.
-- Unsupported capabilities must be surfaced before the workflow depends on them.
+The [Core PRD](runwield-core-prd.md) owns the lasting requirements for Epic decomposition, holding and resuming Plans,
+bounded semantic review and human review, frontend Pair execution, and Work Records. Connect preserves their applicable
+user outcomes with host-appropriate controls and disclosed limitations. It must not duplicate their policies or import
+TUI-specific theme, attachment-storage, or compaction implementation into the external host. The host continues to own
+its conversation and model calls.
+
+### Host Compatibility
+
+Each integration uses the host's reliable capabilities to deliver the same RunWield behavior. Unsupported actions and
+weaker guarantees must be disclosed before users depend on them. A host's API list alone is not evidence that a RunWield
+journey works there.
 
 ### Isolation-First Planned Execution
 
@@ -166,8 +175,8 @@ host-local task state cannot independently make a Plan Ready For Work, Implement
 
 - The first Connect release does not require an always-running daemon or Session Host.
 - The host adapter may invoke local RunWield Core capabilities on demand.
-- Durable artifacts, canonical Plan/worktree evidence, completed Pi interaction history, and recovery evidence must
-  allow safe continuation or explicit retry after process loss.
+- Saved Plans, work, review outcomes, and recovery evidence must allow useful continuation or explicit retry after
+  process loss.
 - A persistent local service may be added later for performance or cross-client continuity, but it is not part of the
   acquisition prerequisite.
 
@@ -255,7 +264,7 @@ The Claude Code Preview is complete only when a user can perform this bounded en
 
 ### Recovery Experience
 
-- Process loss must preserve Plans, worktrees, baselines, completed Pi results, and other durable recovery evidence.
+- Process loss must preserve Plans, implementation work, completed results, and useful recovery evidence.
 - RunWield must distinguish safe continuation from uncertain external side effects.
 - Recovery must ask the user when a host command, filesystem change, merge, or validation action may have partially
   completed.
@@ -275,108 +284,26 @@ The Claude Code Preview is complete only when a user can perform this bounded en
 - Core and Workspace comparisons may explain genuine workflow, integration, and collaboration advantages without
   suggesting that Connect is an intentionally incomplete trial.
 
-## Technical Approach
+## Product Constraints and Compatibility
 
-### Host-Neutral Attached Coordination Boundary
+Connect keeps the external host responsible for every model call while RunWield supplies consistent planning,
+validation, recovery, and records. ACP serves a different journey: an external client talks to a RunWield-executed
+Session. Users must understand which mode they are choosing.
 
-RunWield Core needs an agent-neutral coordination boundary for Attached Workflows. It must expose workflow capabilities
-without constructing or prompting RunWield's own Pi Agent Sessions.
+Before starting work, disclose whether the host can:
 
-This boundary is conceptually different from ACP:
+- prevent implementation changes until planning and approval permit them;
+- run isolated implementation and independent review;
+- use the required tools and review interactions;
+- cancel and recover work reliably;
+- install, update, disable, and remove the integration cleanly.
 
-- ACP makes an external application a client of a RunWield-executed Session.
-- RunWield Connect keeps the External Agent Host as the executor and asks Core to coordinate durable workflow truth.
+Do not claim a hard planning restriction when the host cannot enforce it, or independent verification when review lacks
+independence. Preserve the user's host permissions. A model's claim of completion cannot replace actual validation and
+delivery evidence.
 
-The exact transport is an architectural choice. MCP, stdio commands, a local protocol, or a bounded combination may be
-used, provided every host adapter consumes the same Core semantics and no adapter reimplements Plan Lifecycle or
-validation authority.
-
-### Decouple Workflow Authority From Model Invocation
-
-Current end-to-end orchestration frequently invokes RunWield-owned Pi `AgentSession` instances and interprets protected
-Pi tool results. Connect's attached architecture requires the workflow engine to distinguish:
-
-- deciding which role or workflow action is required;
-- delivering the relevant prompt, Skill, context, and tool contract to an External Agent Host;
-- accepting and validating a structured result from that host;
-- recording durable Plan Events and continuing workflow orchestration.
-
-Core Sessions may retain Pi or use other Execution Backends such as Claude CLI. Connect instead adds an External Agent
-Host adapter, where the host owns the conversation and every model call; it must not fork the domain state machine.
-
-### First-Party Host Adapter Responsibilities
-
-Each adapter may package host-native commands, Skills, Agent role prompts, subagents, hooks, and tool/MCP configuration.
-It is responsible for:
-
-- explicit activation and inactive no-op behavior;
-- host Session identity and Project-root evidence needed to bind the request safely;
-- injecting the current RunWield role contract without replacing unrelated host instructions;
-- applying the Planning Gate and other deterministic restrictions while the Attached Workflow requires them;
-- invoking Core operations and returning structured outcomes to the host model;
-- creating fresh host-native workers for implementation, review, repair, or recording when role isolation matters;
-- reporting host cancellation, completion, and tool evidence accurately;
-- preserving host-native permission prompts and never loosening user or organization security policy;
-- exposing compatibility diagnostics and a supported host-version range.
-
-### Core Responsibilities
-
-Core must provide reusable, host-neutral operations for:
-
-- Triage outcome acceptance and workflow dispatch decisions;
-- Plan creation/submission, review, readiness, lifecycle, and ownership;
-- worktree preparation, baseline capture, registry state, validation, merge-back, and recovery;
-- structured completion, review, repair, and recording contracts;
-- Work Record and memory synthesis from canonical evidence;
-- capability preflight and explicit fallback decisions;
-- idempotent continuation after supported interruptions.
-
-Core operations must validate current durable state rather than trust a host assertion blindly. A host calling a
-completion action is evidence for orchestration, not permission to skip lifecycle guards.
-
-### Planning Gate
-
-The product-level Planning Gate means mutation is prohibited until the relevant workflow permits it. Implementations may
-use:
-
-- a true host Plan or read-only mode;
-- deterministic pre-tool hooks that deny edit and mutating command paths;
-- host-native permission profiles;
-- post-turn working-tree inspection as defense in depth.
-
-An adapter must not claim a hard gate if the host exposes unobservable mutation paths. Such limitations must be
-preflighted and documented.
-
-### Role Isolation
-
-The invoking host conversation remains the user-facing coordinator. Fresh host-native workers should be used where
-independence materially affects trust, particularly for:
-
-- isolated implementation in the execution worktree;
-- Semantic Code Review after implementation;
-- independent re-verification after repairs;
-- bounded recording or other synthesis that should not inherit the full conversation.
-
-Where a host lacks worker isolation, the adapter must disclose the limitation and may not weaken Core's verification
-requirements to compensate.
-
-### Compatibility Matrix
-
-RunWield must maintain a versioned capability matrix for every supported External Agent Host. At minimum it should state
-support for:
-
-- install/distribution;
-- explicit invocation and namespaced actions;
-- prompt/Skill injection;
-- mutation gating and known unobservable tool paths;
-- structured tools or MCP;
-- worker/subagent isolation;
-- worktree creation or handoff;
-- review interactions;
-- cancellation and recovery evidence;
-- stable versus experimental host APIs.
-
-Preview labels and verification claims must reflect tested capabilities rather than assumed API similarity.
+Maintain tested host-version ranges and clear Preview or stable labels. Architecture and implementation Plans choose
+transports, role dispatch, tool contracts, and host-specific hooks; this PRD defines the outcomes those choices support.
 
 ## Release Strategy
 
@@ -461,8 +388,7 @@ and fail visibly when an invariant cannot be proven. Do not equate a prompt inst
 ### Split-Brain Workflow State
 
 The host and Core may both appear to track plans or completion. Core must remain the sole Plan Lifecycle authority.
-Session Activation plus action-time Plan status/revision and worktree checks prevent competing sessions or adapters from
-advancing stale Plan evidence.
+Users must see the current Plan and outcome consistently, and approval must apply to the version actually reviewed.
 
 ### Untrusted Host Assertions
 
@@ -483,9 +409,9 @@ inert outside Attached Workflows, never auto-loosen host permissions, and make d
 
 ### Workflow Deadlock
 
-A host turn, browser review, local Core process, or worker may wait indefinitely for another surface. Persist pending
-workflow state, surface the current waiting reason, support cancellation, and recover from stale interactions without
-assuming side effects did or did not occur.
+A host turn, browser review, local Core process, or worker may wait indefinitely for another surface. Show what is
+waiting and why, support cancellation, and offer recovery when an interaction is interrupted without assuming uncertain
+actions completed.
 
 ### Host Quota and Cost
 
@@ -536,16 +462,10 @@ capability evidence.
 - Withholding otherwise feasible Connect capabilities solely to encourage direct Core or Workspace adoption.
 - Replacing External Work Sources or adding ticket lifecycle synchronization.
 
-## Open Engineering Questions
+## Open Questions
 
-These questions are intentionally deferred to Architecture and implementation planning because they do not change the
-resolved product direction:
+- Which host versions can support the first complete journey, and what limitations need to be disclosed?
+- What installation and update experience best fits each host while keeping compatible local Core dependencies easy to
+  manage?
 
-- Which transport or combination of transports should expose the host-neutral Attached coordination boundary?
-- Which existing workflow services can become agent-neutral directly, and which need a model-invocation adapter seam?
-- How should host Session identity map to an Attached Workflow without importing the host transcript?
-- How should each host enter, supervise, and recover a RunWield-owned worktree worker?
-- What structured contracts should carry Triage, completion, semantic review, repair, and recorder results?
-- How should one host-native installation acquire, version, update, diagnose, and remove compatible local Core
-  dependencies?
-- Which host versions and experimental capabilities define each adapter's initial compatibility range?
+Transport, internal workflow contracts, and worker coordination belong in architecture and implementation planning.

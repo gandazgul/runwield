@@ -45,8 +45,7 @@ global "small-model mode" that silently changes every Agent Session.
 ### Workflow Semantics Stay in Core
 
 - Profiles may shape prompts, tools, recovery feedback, and bounded model-facing interventions.
-- Profiles must not own Routing Intent, Agent switching, Plan Status, Task Completion interpretation, validation,
-  worktrees, recovery, or Runtime event publication.
+- Selecting a profile must preserve routing, Agent responsibilities, Plan lifecycle, validation, and recovery behavior.
 - Protected tools and Core workflow invariants remain effective under every profile.
 - Operator remains non-code execution ownership; a profile must not let Operator repair source code instead of
   performing Scope Escalation.
@@ -55,7 +54,7 @@ global "small-model mode" that silently changes every Agent Session.
 
 - A profile is a named support policy, not one monolithic prompt.
 - Each intervention should be independently observable and removable for evaluation.
-- Disabled profiles should not add irrelevant instructions, tools, or event hooks to ordinary Agent Sessions.
+- Users who have not selected a profile should see no extra instructions or interruptions.
 - Interventions should return actionable recovery guidance rather than generic refusal whenever safe recovery exists.
 
 ### Initial Execution Experiments
@@ -96,9 +95,7 @@ not enter the initial profile merely because little-coder uses them.
 combination that does not change workflow ownership or lifecycle semantics. _Avoid_: Small-model mode, automatic
 local-model mode, Agent Definition
 
-This term remains proposed until an implementation Plan ships selectable profiles. Planner must then include the
-relevant `docs/domain-language.md` under Expected Change Surface, add an implementation step that publishes the
-definition and stable relationships, and verify that the glossary update lands with the implemented profile behavior.
+This term remains proposed until selectable profiles ship.
 
 ## Product Experience
 
@@ -114,33 +111,22 @@ When an intervention occurs, the Agent receives concise recovery guidance. Users
 when it explains a delay, refusal, repeated recovery, or final failure. Strong-model users who did not select the
 profile should experience no additional ceremony.
 
-## Functional Requirements
+## Product Requirements
 
-- Resolve an explicit Model Adaptation Profile per Agent Session alongside existing model, thinking-level, and
-  temperature resolution.
-- Compose only the profile mechanisms allowed for the active Agent and model preset.
-- Keep effective profile identity available to Runtime snapshots, diagnostics, debug logs, and evaluation reports
-  without leaking secrets.
-- Enforce profile interventions at the model/tool boundary rather than relying only on prompt instructions.
-- Cap automated corrections and fail transparently when the Agent does not recover.
-- Preserve cancellation, replay, tool-event, and validation semantics through SessionRuntime.
-- Record privacy-safe intervention counters through opt-in metrics and detailed outcomes during deliberate evaluation
-  runs.
-- Allow an experimental profile or individual intervention to be disabled without changing the selected model.
-- Document supported and unsupported Agent/model/profile combinations.
+- Users can select a profile for a supported Agent/model combination and inspect the effective choice in diagnostics and
+  evaluation reports without exposing secrets.
+- Automated corrections are bounded. If the Agent cannot recover, it explains the failure rather than looping.
+- Profiles preserve cancellation, visible tool activity, and validation behavior.
+- Opt-in metrics can show intervention counts without private content; deliberate evaluations can examine detailed
+  outcomes.
+- Users can disable an experimental profile or individual intervention without changing their selected model.
+- Documentation identifies supported and unsupported Agent/model/profile combinations.
 
-## Technical Approach
+## Delivery
 
-Build on RunWield's existing named model presets and layered extension/resource loading. Extend the effective Agent
-Session policy conceptually so an explicit preset can select a bounded model-facing behavior profile in addition to the
-model, thinking level, temperature, and vision fallback.
-
-Interventions should be implemented at the narrowest boundary that can enforce them consistently across Pi built-in and
-RunWield-provided tools. Their results must continue through RunWield's normalized tool and Runtime event contracts.
-Profile composition must remain deterministic and inspectable.
-
-The first reference profile should use one selected local execution model and a curated Engineer/Operator scenario set.
-Ablation runs should compare the complete profile and each load-bearing intervention against the unadapted baseline.
+Begin with one selected local execution model and a curated Engineer/Operator scenario set. Compare the complete profile
+and each proposed intervention with the unadapted baseline before claiming support. Architecture and implementation
+choices belong in the implementing Plan; profile selection does not itself require a new workflow.
 
 ## Success Criteria
 

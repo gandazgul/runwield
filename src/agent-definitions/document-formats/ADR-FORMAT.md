@@ -4,6 +4,24 @@ ADRs live in `docs/adr/` and use sequential numbering: `0001-slug.md`, `0002-slu
 
 Create the `docs/adr/` directory lazily — only when the first ADR is needed.
 
+## Purpose
+
+An ADR explains an architectural choice and why it fits. It guides future decisions by recording:
+
+- the problem and architectural context;
+- the user's decisions and constraints that shape the available choices;
+- the selected approach and why it fits this system;
+- alternatives evaluated and why they were rejected;
+- relevant options excluded before evaluation and the constraint or reason that excluded them;
+- implications, costs, trade-offs, and limits introduced by the choice.
+
+Do not invent alternatives, research, or user decisions. Distinguish an option actually evaluated from one ruled out by
+an existing constraint. Include only comparisons that help explain the decision.
+
+Implementation gaps, bugs, task lists, rollout steps, and completion status belong in Plans. An ADR is neither a code
+inventory nor a progress report. Include technical detail when it explains the architecture, not to narrate functions or
+list unfinished work.
+
 ## Template
 
 ```md
@@ -13,30 +31,33 @@ status: proposed
 
 # {Short title of the decision}
 
-{1-3 sentences: what's the context, what did we decide, and why.}
+## Context and Constraints
+
+{Problem, existing architecture, and relevant decisions or constraints set by the user.}
+
+## Decision and Rationale
+
+{What was chosen, why it fits, and the important alternatives evaluated or excluded.}
+
+## Implications
+
+{Benefits, costs, trade-offs, and consequences for the rest of the system.}
 ```
 
-That's it. An ADR can be a single paragraph. The value is in recording _that_ a decision was made and _why_ — not in
-filling out sections.
+Scale the detail to the decision. A short paragraph can cover these points; the headings are not a requirement to pad
+simple decisions.
 
-## Status
+## Status and Current Guidance
 
-Every ADR must include YAML front matter with exactly one machine-readable `status` value:
+Every ADR includes one machine-readable status:
 
-- `proposed` — under consideration, not yet an accepted rule
-- `accepted` — current authoritative architectural rule
-- `deprecated` — intentionally no longer recommended
-- `superseded` — replaced by a newer decision
+- `proposed` — an unaccepted architectural proposal, clearly distinguished from current guidance;
+- `accepted` — the current authoritative architectural decision.
 
-Do not encode a replacement target inside `status`. If a superseding ADR relationship becomes important, add a separate
-structured field in a later design.
-
-## Optional sections
-
-Only include these when they add genuine value. Most ADRs won't need them.
-
-- **Considered Options** — only when the rejected alternatives are worth remembering
-- **Consequences** — only when non-obvious downstream effects need to be called out
+Update an accepted ADR when the decision changes, or remove it when a replacement takes its place. Update current
+references in the same change. Do not keep obsolete ADRs as superseded or deprecated rules alongside the current
+decision. Git history preserves previous reasoning. Status records whether a decision was accepted, not whether its
+implementation is complete.
 
 ## Numbering
 

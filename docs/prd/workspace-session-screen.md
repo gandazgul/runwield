@@ -9,8 +9,8 @@ updatedAt: "2026-08-25T12:21:11-04:00"
 
 ## Objective
 
-Rewrite the Workspace Session screen as a complete browser UI for `SessionRuntime`, alongside the TUI and ACP adapters.
-The scope is the Session screen only. It covers the two Session states:
+Make the Workspace Session screen a complete browser conversation experience alongside the TUI and ACP clients. The
+scope is the Session screen only. It covers the two Session states:
 
 - **New Session**: the user has not submitted the first User Request.
 - **Existing Session**: the Session has been minted and has a committed conversation history.
@@ -111,10 +111,10 @@ The Workflow Rail follows `docs/prd/workflow-rail-prd.md`:
 - it does not appear for ordinary Ideator, Guide, or idle chat;
 - it does not become a second source of truth for Plans, validation, worktrees, recovery, or Session Control.
 
-The existing Session screen must preserve single-writer Session semantics without presenting control as a user contest.
-There is no **Take control** action. Opening an idle Session makes it usable in Workspace. If the Session is busy in the
-TUI, ACP, or another Workspace operation, Workspace shows the transcript read-only and overlays a clear Busy state on
-the disabled composer. When the Session becomes idle, the Workspace composer becomes available without a takeover flow.
+The existing Session screen serves one owner moving between screens. There is no **Take control** action. Opening an
+idle Session makes it usable in Workspace. If the Session is busy in the TUI, ACP, or another Workspace operation,
+Workspace shows the transcript read-only and overlays a clear Busy state on the disabled composer. When the Session
+becomes idle, the Workspace composer becomes available without a takeover flow.
 
 Control must not change while the user is composing. This product assumes one person moving between surfaces, not
 several people competing to write to one Session. Draft text and image previews remain intact while the composer is
@@ -323,10 +323,10 @@ choice interaction must support:
 
 The control must not force users to type a textual version of a choice when a button or keyboard selection is available.
 
-When the Agent emits `plan_written`, the Workspace navigates to the planning screen for the new Plan. Plan feedback,
-annotations, and approval resolve the waiting Session interaction and return their outcome to the Session. Code Review
-uses the same pattern: navigate to its dedicated review screen, then return feedback, annotations, or approval to the
-waiting Session.
+When the Agent presents a Plan for review, the Workspace navigates to the planning screen for the new Plan. Plan
+feedback, annotations, and approval resolve the waiting Session interaction and return their outcome to the Session.
+Code Review uses the same pattern: navigate to its dedicated review screen, then return feedback, annotations, or
+approval to the waiting Session.
 
 Prototype results open in a new browser tab. Resume, Load Plan, Plan list, and Work Record list flows use browser
 modals. Each slice may refine its modal content while preserving the common quick-filter, selection, keyboard, and
@@ -343,7 +343,8 @@ composer.
 
 Existing repair and recovery semantics remain unchanged. The browser must continue to use the current canonical
 workflow, Plan, worktree, and validation authorities. The change is the presentation: ambient progress moves to the
-Workflow Rail, while blocking choices use the same structured `user_interview` controls as other Runtime interactions.
+Workflow Rail, while blocking choices use the same structured question and choice controls as other Runtime
+interactions.
 
 Examples of blocking choices include:
 
@@ -432,26 +433,15 @@ The shared view preserves the Session timeline. User Requests and Agent messages
 are included as expandable groups that preserve their RunWield tool headers and start collapsed. Model thinking and
 temporary live waits are not included. The owner sees a preview of the snapshot before creating the link.
 
-## Technical Approach
+## Delivery and References
 
-Workspace will be a sibling adapter over the existing adapter-neutral `SessionRuntime` contract, like TUI and ACP. The
-Workspace Session screen must consume Runtime snapshots, semantic events, actions, and typed interactions rather than
-reimplementing Session lifecycle or workflow semantics.
+Build on the existing Workspace Session surface and [RunWield design system](../design-system.md). The Session screen
+must feel like the same product and preserve Project access permissions, Plan approval choices, and recovery behavior.
+An idle Session is immediately usable; no **Take control** action is part of this experience.
 
-The implementation should extend the existing Workspace Session surface and shared RunWield design system. It must
-preserve:
-
-- file-authoritative Session identity and transcript continuity;
-- Session Transcript and Session Transcript Segment semantics;
-- Session Control and Session Writer Lock rules;
-- canonical Plan, workflow, validation, and artifact authority;
-- exact evidence checks for consequential Plan actions;
-- interruption behavior when a process-local live wait is lost;
-- current Workspace security and Project boundaries.
-
-The browser UI should use the existing Workspace visual language and semantic `--rw-*` design tokens. It must not create
-a separate visual system for Sessions. The implementing Plan must update the current design-system guidance that
-describes a high-risk **Take control** action so it matches this PRD's single-user idle/Busy behavior.
+[ADR-015](../adr/015-file-authoritative-session-bundles.md) records Session architecture. Implementation steps and
+continuation defects belong in Plans, including
+[Workspace Session Continuation Readiness](../plans/workspace-session-continuation-readiness.md).
 
 ## Success Criteria
 
@@ -466,7 +456,8 @@ A successful Session screen will allow a user to:
 7. Observe, control, steer, queue, and resume Sessions according to existing Session Control rules.
 8. Complete structured Runtime interactions in the browser.
 9. Queue a normal message during active work or deliberately steer the active turn with a separate action.
-10. Move from `plan_written` to Plan Review and return feedback, annotations, or approval to the waiting Session.
+10. Move from a newly presented Plan to Plan Review and return feedback, annotations, or approval to the waiting
+    Session.
 11. Move from Code Review to the waiting Session with feedback, annotations, or approval.
 12. Use a prominent Load Plan action or `/load-plan` to select a Plan and complete browser recovery decisions.
 13. Use Agent and model selectors near the composer footer.
@@ -495,7 +486,7 @@ A successful Session screen will allow a user to:
   above.
 - During active work, Send queues and a separate Steer action guides the active turn, following the Codex composer
   pattern.
-- Workspace and TUI retain their existing single-writer Session relationship without a **Take control** action.
+- One owner can move between Workspace and TUI without a **Take control** action.
 - Opening an idle Session makes its composer available; a Busy Session shows a disabled-composer overlay until it
   becomes idle.
 - Session control does not change while the user is composing, and drafts remain intact while the composer is
@@ -503,7 +494,7 @@ A successful Session screen will allow a user to:
 - The selected-Session Workflow Rail is part of the Workspace Session screen and follows
   `docs/prd/workflow-rail-prd.md`.
 - Persistent validation-loop state appears in the Workflow Rail, not in the old full-width validation card.
-- Blocking repair, recovery, and review choices use structured `user_interview` controls.
+- Blocking repair, recovery, and review choices use structured question and choice controls.
 - Choice controls support click, keyboard selection plus Enter, and **Other** with typed submission.
 - Agent switching preserves current TUI and SessionRuntime behavior without a Workspace-only confirmation.
 - Agent and model selectors appear near the composer footer; thinking level is part of the model control.

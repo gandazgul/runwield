@@ -42,10 +42,9 @@ targetBranch: "main"
 
 ## Context
 
-`docs/prd/runwield-workspace-session-screen.md` defines a complete browser sibling for the terminal user interface
-(TUI), but that full product is too large for one executable Plan. A later Epic will cover intent cards, slash and `@`
-completion, queue and Steer controls, the full Workflow Rail, recovery flows, sharing, export, and complete TUI
-capability parity.
+`../../prd/workspace-session-screen.md` defines a complete browser sibling for the terminal user interface (TUI), but
+that full product is too large for one executable Plan. A later Epic will cover intent cards, slash and `@` completion,
+queue and Steer controls, the full Workflow Rail, recovery flows, sharing, export, and complete TUI capability parity.
 
 This Plan delivers the smaller product that must exist first: a reliable browser chat surface for starting and
 continuing a Session. The current `SessionSurface.jsx` already calls the canonical `SessionRuntime` path, preserves

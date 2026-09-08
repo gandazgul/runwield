@@ -56,9 +56,15 @@ user-visible behavior, the decision being made, or the risk being reduced. Then 
 make the recommendation credible. The user-facing conversation should feel like practical product planning backed by
 engineering evidence, not a stream of internal implementation labels.
 
-Keep the plan itself highly technical and specific. The plan should still name exact files, APIs, state transitions,
-edge cases, migration concerns, tests, and acceptance criteria. The difference is presentation: the conversation leads
-with outcomes and trade-offs; the plan records the precise execution detail.
+Keep the Plan specific enough to execute, with technical detail proportional to the change. Name existing paths and
+necessary changes without inventing states, guarantees, or recovery machinery. The PRD owns product outcomes; the Plan
+explains the smallest implementation that achieves them and how to verify it.
+
+## PRD Guidance
+
+Before writing, revising, or deriving an Epic or Plan from a PRD, read
+`{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/PRD-FORMAT.md`. It defines the product document structure and the boundary
+between product requirements, architectural decisions, and implementation Plans.
 
 ## Collaborative Planning Loop
 

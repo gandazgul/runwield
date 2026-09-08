@@ -7,6 +7,12 @@ updatedAt: "2026-08-12T10:29:00-04:00"
 
 # RunWield Workspace PRD
 
+**Document role: Living central PRD.** Principles and lasting requirements for the browser workspace, personal
+continuity, and later team collaboration.
+
+Keep this document as current product guidance. Fold lasting requirements from completed feature PRDs here;
+implementation steps belong in Plans, architectural choices in ADRs, and delivery evidence in Work Records.
+
 **Status:** Living roadmap — current local Plan Workspace implemented; Personal Remote Workspace v1 next\
 **Last Updated:** 2026-08-12
 
@@ -15,23 +21,14 @@ updatedAt: "2026-08-12T10:29:00-04:00"
 Evolve RunWield Workspace from a browser Plan Board for one checkout into the primary browser environment for working
 the RunWield way across multiple registered Projects.
 
-The next product milestone is **Personal Remote Workspace v1**: one trusted developer uses a persistent Workspace on
-their own machine through a private network. The developer can move among Projects, create and resume durable Sessions,
-observe synchronized committed Session state, answer live human gates while their owning process is active, review and
-execute Plans, receive attention signals, search durable project knowledge and selected source code, and open a
-subordinate Code Surface.
+The personal product serves one developer using their own machine through a private network. The same person can start
+work in the TUI, walk away with their phone, continue in Workspace, and return to the TUI with the conversation updated.
+They can move among Projects, review and execute Plans, receive notifications, and search project knowledge.
+Simultaneous multi-user collaboration is later scope. Reliable Session start and continuation are required for this
+product to be useful; completion of earlier implementation slices does not establish that readiness.
 
-This milestone must preserve RunWield Core's existing ownership of:
-
-- SessionRuntime semantics;
-- Plan Lifecycle and Workflow Validation;
-- RunWield-owned Plan worktrees;
-- Plan Recovery;
-- canonical repository artifacts;
-- local developer agency.
-
-The same Project Runtime model should later support isolated SaaS containers without turning the personal deployment
-into a throwaway prototype.
+The browser experience preserves existing Plan approval, validation, recovery, and local developer control. A later team
+product should build on the personal experience; future collaboration must not burden ordinary use today.
 
 ## 2. Problem Statement
 
@@ -43,10 +40,10 @@ That creates five product gaps:
 
 1. **No persistent multi-Project home.** The user cannot register trusted Projects and see attention, active work,
    Sessions, Plans, and recent outcomes across them.
-2. **No exclusive cross-surface Session activation.** Reopening the same transcript in another process is not equivalent
-   to continuing one durable Session and risks competing transcript writers unless writable activation is coordinated.
+2. **Moving between screens is unreliable.** The owner needs to continue their own conversation on a phone without
+   closing an idle TUI, losing context, or navigating repair controls for an ordinary resume.
 3. **No complete browser workflow.** Workspace cannot yet carry one Session through ideation, Plan review, execution,
-   validation, and recovery using semantic Runtime events.
+   validation, and recovery with clear progress and next actions.
 4. **Knowledge is fragmented.** Plans and Work Records can inform future work, but Workspace lacks a deliberate
    Project-level and cross-Project retrieval experience. Source-code search is likewise confined to the active Project.
 5. **Remote access is not a product boundary.** The current random launch token and loopback-oriented server are not
@@ -76,8 +73,8 @@ Product principles:
   product; code-server is subordinate.
 - **Projects are explicit trust boundaries.** Workspace accesses only registered roots and never treats an incidental
   local cache as authorization.
-- **Sessions are durable, not simultaneously writable.** TUI, Workspace, and ACP remain sibling Runtime consumers;
-  exactly one process may hold writable Session activation while other surfaces synchronize committed state.
+- **One owner, one conversation across screens.** Leaving a TUI or browser open does not reserve a Session. The owner
+  can continue it from another screen and see the resulting conversation when they return.
 - **Plans own planned-work lifecycle.** Once a Plan exists, its workflow surface becomes the durable center for review,
   execution, validation, recovery, changes, and associated Sessions.
 - **Approval is not execution authorization.** The user can approve and run now or approve for later.
@@ -88,11 +85,9 @@ Product principles:
   per-repository opt-in, not the default human review loop.
 - **Local-first does not mean browser-bound.** Work continues safely when the browser disconnects and stops only at
   completion, cancellation, failure, or the next required human decision.
-- **Writer recovery follows the operating-system lock.** Workspace never takes over a live TUI, Workspace, or ACP
-  writer. When that process exits, the operating system releases its lock; RunWield then compares the transcript with
-  committed or activation-baseline evidence and requires reconciliation when the result is not exact.
-- **Preserve local agency.** Personal mode does not force every QUICK_FIX, manual edit, or supported in-place workflow
-  into a Plan worktree.
+- **Continuity should be ordinary.** Opening, refreshing, or changing screens preserves the conversation and unsent
+  drafts. Both TUI and Workspace update automatically as new work is saved from the other screen. A long history or
+  completed Plan does not make the conversation read-only.
 - **Explicit scope beats ambient reach.** Cross-Project source search and future Agent access must never silently
   broaden from one Project to every registered Project.
 - **Use the RunWield Design System.** Workspace, Plannotator, and related browser surfaces should remain visually and
@@ -110,23 +105,39 @@ RunWield currently provides:
 - Work Records and Work Record retrieval;
 - a multi-session in-process Session Host and adapter-neutral SessionRuntime;
 - TUI and ACP as sibling Runtime adapters;
-- an ACP stdio MVP that can create, load, prompt, cancel, close, and replay Sessions;
+- an ACP stdio implementation that can create, load, prompt, cancel, close, and replay Sessions;
 - Cymbal as the current-Project, working-tree-aware code-intelligence layer.
 
-The current Session Host is an in-process Runtime boundary, not a cross-process authority. Personal Remote Workspace v1
-adds coordination below the sibling adapters through stable Session identity, OS writer locks, ordered Pi transcript
-segments, and committed generations. The current Workspace token model is also not the remote owner-authentication model
-described here.
+Workspace already provides browser Session and Plan surfaces. The remaining readiness work is to make the complete owner
+journey dependable, especially starting and continuing Sessions across TUI and phone. The architectural decisions are
+recorded in ADR-015. Continuation fixes are tracked in
+[Restore Ordinary Workspace Session Continuation](../plans/workspace-session-continuation-readiness.md); existing
+implementation restrictions are not product requirements.
 
 Existing local Plan management and Shared Plan collaboration remain supported foundations. Personal Remote Workspace v1
 expands their containing product model rather than replacing their lifecycle or canonical storage.
+
+### Local Plan Management
+
+`wld plans ui` remains a useful local browser board for the current checkout. It shows Plans by stage, separates active,
+held, and finished work, and presents Epics as top-level cards with child progress. Opening a Plan is read-first;
+editing has a clear action and saves explicitly. Refresh can recover an unsaved draft. Markdown structure and ordinary
+CLI use remain intact, and body editing does not accidentally change workflow fields.
+
+Manual board moves record the user's choices without claiming automated review or verification. Users can reflect
+externally started or completed work, close without verification, or hold work. Failure and hold offer the appropriate
+recovery or resume actions. Plan, Epic, and useful filtered-view links remain stable after renaming. Local links need a
+running Workspace; sharing access remains explicit.
+
+These local outcomes are the foundation, not a restriction to one Project in the personal multi-Project product. Later
+document surfaces should feel consistent while keeping Plan lifecycle controls specific to Plans.
 
 ## 5. Resolved Product Model
 
 ### 5.1 Workspace
 
 **Workspace** is the browser environment containing registered Projects, durable Sessions, Plans, PRDs, ADRs, Work
-Records, review surfaces, search, attention, and Code Surfaces.
+Records, review surfaces, search, and notifications
 
 The default home is the cross-Project **Attention Dashboard**, not a Project grid or a global Plan board.
 
@@ -135,12 +146,9 @@ The default home is the cross-Project **Attention Dashboard**, not a Project gri
 A **Project** is a trusted repository or project directory registered with Workspace. Registration authorizes Workspace
 to operate within that root; it does not make every path on the machine accessible.
 
-Each Project has a **Project Runtime** responsible for its Sessions, Plan workflows, artifact discovery, code search,
-health, and optional Code Surface. Several Projects may have live Sessions concurrently. Inactive Project Runtimes may
-be dormant and restart without losing durable Session or workflow identity.
-
-The first version operates on local roots on the owner's machine. A later SaaS mode mounts or clones each Project into
-an isolated container while retaining the same conceptual contract.
+Each Project contains its own Sessions, Plans, knowledge, and health information. Several Projects can make progress at
+once; returning to an inactive Project preserves its saved work. The first version uses local roots on the owner's
+machine. Hosted Projects are later scope.
 
 ### 5.3 Session and Agent Session
 
@@ -149,11 +157,8 @@ specialist Agent handoffs and has a stable identity and human-readable Session N
 
 An **Agent Session** is an internal specialist invocation within a Session. It is not the main navigation object.
 
-A Session may own multiple ordered private **Session Transcript Segments** backed by separate Pi JSONL files. Workspace
-projects those segments as one continuous owner-visible timeline, while only the current writable segment supplies model
-context. Planning-to-execution and semantic-repair rollovers therefore create fresh bounded model contexts without
-creating new user-visible Sessions or another Plan ownership model. Disposable read-only Reviewer invocations remain
-internal Agent Sessions and are not transcript segments.
+Agent and workflow handoffs stay within one continuous conversation. Users can review the full history even when a new
+phase receives only the context relevant to its task. Internal Agent invocations are not separate navigation objects.
 
 A Session may begin without a Plan for ideation, inquiry, operation, or QUICK_FIX work. When a Plan materializes, the
 Session becomes associated with it and the Plan workflow becomes the primary route. Starting from an existing artifact
@@ -199,8 +204,7 @@ workflow consequence while preserving exploration paths for users who want the b
 
 Default ordering:
 
-1. **Pinned:** user-pinned Sessions, Projects, Plans, or workflow items. Pinning changes attention priority only; it
-   does not grant writable activation, take over a Session, or bypass canonical Plan/worktree checks.
+1. **Pinned:** user-pinned Sessions, Projects, Plans, or workflow items. Pinning makes work easier to find.
 2. **Needs You:** blocking human gates such as approval, feedback, retry, recovery, human review, Pair checkpoint,
    repair-exhausted, failed validation, or unsafe/ambiguous workflow state.
 3. **Ready to Continue:** approved Plans ready for work, paused workflows, child Plans ready in a PROJECT sequence, or
@@ -213,12 +217,8 @@ The first screen should emphasize the top actionable queue and keep Running Quie
 filters, all-active views, Session transcripts, Plan details, validation evidence, Work Records, and Project health
 remain explorable, but users should not have to inspect every Project to discover blocked or finished work.
 
-The dashboard may observe multiple Sessions, committed transcript events, canonical Plans, and worktree evidence
-read-only. Mutating a Session still requires the owning process to acquire the Session Writer Lock at a safe boundary;
-observing or pinning a Session is not writable activation.
-
-Browser and system notifications should point back to the stable Session or Plan action that needs attention.
-Notifications are attention signals, not an alternate workflow state store.
+The Dashboard shows current work across Projects and links to the Session or Plan where the owner can act. It does not
+create an additional approval step or change which work the owner can continue.
 
 ### 6.3 Project experience
 
@@ -238,9 +238,8 @@ Plans, Work Records, Session history, branches, or RunWield worktrees.
 
 ### 6.4 Session experience
 
-Workspace must support creating, resuming, observing, and mutating Sessions through semantic `SessionRuntime` events
-only after the owning process has the Session Writer Lock. Non-owning surfaces synchronize committed Session generations
-through read-only projection. The primary timeline represents:
+The owner can create, reopen, follow, and continue Sessions in Workspace. The experience preserves the same conversation
+and selected Agent and model across TUI and browser. The primary timeline represents:
 
 - user and Agent messages;
 - Agent identity and handoffs;
@@ -251,43 +250,37 @@ through read-only projection. The primary timeline represents:
 - cancellation, failure, and recovery;
 - usage and Session status where useful.
 
-Terminal-byte streaming is not the primary Session UI. A raw WebTUI may remain an optional future advanced/debug
-surface.
+Terminal-byte streaming is not the primary Session UI.
 
 Several Sessions may run across several Projects. Closing a browser tab or losing network access does not cancel work.
-On reconnection, Workspace reloads the stable Session record, receives committed semantic state, and either remains a
-synchronized reader or acquires writable activation at a safe boundary before continuing.
+On reconnection, Workspace shows the latest saved conversation and current work. The user can continue when the Session
+is ready for input without a separate takeover or preparation step.
 
-### 6.5 Writer safety, Pi history, and synchronization
+### 6.5 Moving between TUI and phone
 
-Cross-surface Session behavior uses these mechanisms:
+- As the owner, I can start a conversation in the TUI, leave it open, and send the next message from my phone when the
+  Agent is ready for input, so I can keep working away from my desk.
+- When I return to the TUI, it shows the messages and results produced from my phone without reopening the Session. The
+  same applies when I move from Workspace back to the TUI.
+- I can read the conversation while work is running. Changing screens or refreshing does not cancel that work, repeat a
+  submitted request, or discard my draft.
+- I can answer an Agent question from my phone and have the same work continue. If the process handling that question
+  has stopped, the UI explains that the question needs to be retried and keeps the saved conversation available.
+- I can continue a long conversation without loading every older message first. Completed work remains available for
+  discussion and follow-up.
+- If work is still running, I see what is happening and what I can do next. Merely having another screen open is not a
+  reason to block me or ask me to recover the Session.
+- If an actual failure interrupts the Session, I keep my input and receive a concrete next action. Routine screen
+  changes do not require recovery steps or technical knowledge.
 
-- **Session Writer Lock:** before Workspace, TUI, ACP, or another process opens or mutates a writable Pi
-  `SessionManager`, it must acquire the Session bundle's exclusive OS file lock. The operating system releases the lock
-  when a process exits; there is no heartbeat timeout or unsafe lease takeover.
-- **Ordered Pi transcript segments:** one stable Session owns ordered Pi JSONL Session Transcript Segments. Pi persists
-  completed tool calls and results as committed history, projected as one timeline; pending structured interactions are
-  process-local waits and are retried if the owning process is lost before Pi writes the result.
-- **Canonical action checks:** Plan review actions, Feedback, **Approve & Run**, **Approve for Later**, Plan Recovery,
-  and human code review reload current Plan status/revision and worktree evidence immediately before mutation.
-- **Automatic read synchronization:** idle non-owning surfaces monitor committed Session generations, read transcript
-  updates through a non-mutating path, replay only unseen stable entries, refresh summaries, preserve unsent drafts and
-  local annotations, and show which surface currently holds the writer lock.
+### 6.6 Plan actions
 
-At a safe idle boundary, Workspace, TUI, and ACP may race to acquire the OS lock; the filesystem chooses one writer and
-all other surfaces remain synchronized readers. Mid-token, mid-command, mid-tool, and mid-filesystem-effect transfer is
-out of scope. Ambiguous transcript evidence, stale generation, stale Plan revision, changed Plan status, or uncertain
-worktree evidence requires visible recovery or refresh guidance rather than implicit last-writer-wins behavior.
+The owner can review, give feedback, approve for later, or approve and run the current Plan from Workspace. Opening a
+Plan or its associated Session does not give that screen permanent control of the work.
 
-### 6.6 Canonical Plan action authority
-
-Consequential Plan actions across TUI, Workspace, ACP, and future hosts run under the Session Writer Lock and current
-canonical evidence. Viewing or acting on a Plan does not give a Session persistent ownership of that Plan.
-
-Workspace must reload the Plan markdown revision, Plan Lifecycle status, and relevant worktree registry evidence before
-Plan mutation. A stale browser action, changed Plan, missing worktree, or conflicting evidence is rejected with refresh
-or recovery guidance. Endpoint operation receipts may deduplicate repeated delivery of one HTTP request, but they do not
-reserve a Plan, authorize another request, or record workflow progress.
+If a Plan changes after the owner opens it, Workspace shows the changed content before accepting an approval for the new
+version. Repeated delivery of the same click does not run the action twice. Actual failures explain what happened and
+how to continue without silently discarding work.
 
 ### 6.7 Plan workflow surface
 
@@ -332,15 +325,21 @@ Session Transcripts remain:
 Source code is also excluded from Workspace Intelligence. Artifact retrieval and source-code search are distinct modes
 with different scope and trust semantics.
 
+Work Record results show the summary, Project, source links, and completion confidence. Users can tell automated
+verification from user attestation, skipped verification, and a done-enough Epic. Default search favors current approved
+records. Explicit history views expose drafts, superseded, pending, and archived records with clear notices. Plan
+surfaces link the relevant outcome record or explain that generation needs retry. Retrieval must not treat a completed
+PRD, old Plan, or Work Record as proof that a current end-to-end journey works.
+
 ### 6.9 Human cross-Project code search
 
 Personal Remote Workspace v1 includes RunWield-owned Cymbal federation:
 
 - the user explicitly selects one or more registered Projects;
-- Workspace queries each selected Project's Cymbal index with bounded concurrency;
+- searching selected Projects remains responsive while other work continues;
 - results are grouped or clearly labeled by Project;
 - first-use indexing, refresh, partial results, failures, and freshness are visible;
-- absolute local paths are not exposed to the browser as ambient filesystem authority;
+- a result links only to content the owner authorized Workspace to access;
 - duplicate symbols across Projects are not silently collapsed;
 - relationship, reference, trace, and impact results remain Project-scoped unless a real cross-Project dependency is
   known.
@@ -382,12 +381,12 @@ device pairing:
 - bootstrap approval is short-lived and intentional;
 - paired-device sessions persist but are revocable;
 - Workspace provides a paired-device and revocation view;
-- WebSocket and ordinary browser requests share the same authorization boundary;
-- CSRF and Origin policy protect state-changing owner Workspace requests;
+- all browser activity respects the same device access permissions;
+- another website cannot act on the owner’s Workspace without authorization;
 - browser access requires a secure TLS boundary at non-loopback addresses, using a documented trusted terminator if
   RunWield does not manage certificates itself;
 - direct plaintext non-loopback exposure is not a safe default;
-- Project roots are allowlisted independently of browser authorization;
+- pairing a device grants access only to registered Projects;
 - consequential execution, terminal, filesystem, and destructive actions remain explicit and auditable;
 - secrets and bearer credentials do not enter Plan front matter, Session Transcripts, URLs beyond bootstrap necessity,
   or repository artifacts.
@@ -399,71 +398,21 @@ Shared Plan capability authorization remains separate from Workspace device auth
 does not automatically receive a Shared Plan capability, and possessing a Shared Plan link does not authorize the owner
 Workspace.
 
-## 7. Technical Approach
+## 7. Product Constraints and Architectural Reference
 
-This section describes product-level boundaries, not final implementation design.
+- Local TUI and ACP use must remain available without starting Workspace or maintaining its registration database.
+- Workspace accesses only Projects the owner registered, and the owner can revoke device access.
+- Project data and conversation history remain private according to their existing sharing choices. Viewing a Project
+  does not authorize wider Agent access.
+- Projects can make progress independently. One Project's indexing or failure should not make unrelated work unusable.
+- Browser, TUI, and ACP preserve the same Session identity and supported workflow behavior.
+- Existing repository artifacts remain usable outside Workspace. Workspace must not require users to move their Plans or
+  knowledge into a proprietary document store.
 
-### 7.1 Sibling Runtimes with file-authoritative Sessions
-
-TUI, Workspace, and ACP remain sibling consumers of the adapter-neutral `SessionRuntime` contract. Each process may own
-its own in-process `SessionHost`; Workspace is not a mandatory Runtime proxy or parent API for TUI or ACP. Cross-process
-correctness comes from a shared file-backed Session store below the adapters.
-
-A stable RunWield Session ID is the durable product identity. It maps to one registered Project and an ordered manifest
-of Pi Session Manager identities/JSONL locators, with one current writable transcript segment and immutable sealed
-predecessors. In-process Hosted Session IDs remain runtime implementation details and must not be used as cross-process
-ownership keys.
-
-Core owns stable Session identity, committed generations, ordered segment metadata, recovery evidence, and writer locks
-in file bundles under `~/.wld/sessions/`. The Workspace SQLite database stores Workspace registration, paired devices,
-bounded endpoint receipts, and rebuildable projections. TUI and ACP never need to open that database.
-
-Writable Runtime hydration must acquire the Session Writer Lock before constructing or mutating a writable Pi
-`SessionManager`. Every committed generation advances only after the transcript or repository effect is durable and the
-atomic manifest is replaced. If reconciliation finds changed transcript evidence or uncertain Plan/worktree evidence,
-Workspace must route to recovery rather than claiming that an arbitrary effect can be replayed.
-
-Segment rollover must use the same Session Writer Lock and committed-generation boundary. The initial execution segment
-and every semantic repair segment remain attached to the same stable Session and aggregate timeline. Repair segments are
-persisted because they mutate the execution worktree and may require interruption or process-loss recovery; isolated
-Reviewer sessions may remain disposable because they are read-only and never become the active root context.
-
-Workspace should use a native `SessionRuntime` adapter appropriate for browser clients. ACP remains the canonical
-host-agnostic external protocol for editors and replaceable external hosts, but first-party Workspace browser traffic
-does not need to route through ACP merely for symmetry.
-
-### 7.2 Project Runtime lifecycle
-
-The Workspace service coordinates registered Project Runtimes. A Project Runtime may activate when it has live Sessions,
-pending workflow work, indexing activity, or an open Code Surface and may otherwise become dormant. Dormancy must not
-change Session identity, committed segment evidence, canonical Plans, or recoverable worktree state.
-
-Resource limits must prevent one Project's indexing, validation, or Agent activity from starving unrelated Projects.
-
-### 7.3 Canonical storage
-
-Repository markdown remains canonical for Plans, PRDs, ADRs, Work Records, and project-specific context. Workspace-owned
-state may store registration, device authorization, Session indexing, attention projections, and runtime coordination,
-but it must not become a competing source of truth for repository artifacts.
-
-Session Transcripts remain private Session data. Shared and Agent-retrievable knowledge is derived from explicit durable
-artifacts, not transcript ingestion.
-
-### 7.4 Search boundaries
-
-Durable artifact search uses the Project registry to enforce eligible Project scope and contribution policy. Cymbal
-federation likewise uses the Project registry rather than Cymbal's global cache listing as authorization.
-
-The first version federates per-Project Cymbal queries rather than physically merging SQLite databases. This preserves
-Project boundaries and working-copy freshness while remaining operationally light for a personal Workspace.
-
-### 7.5 Browser and Code Surface
-
-The existing Astro/React Workspace and RunWield Design System remain the browser foundation. Plannotator remains the
-review foundation. code-server is integrated as a bounded subordinate service rather than used as the Workspace shell.
-
-Dense desktop workflow layouts should collapse to focused views or drawers on smaller screens. Remote continuation and
-human-gate handling must remain usable from a phone, although full code editing need not be optimized for mobile.
+Session storage, synchronization, and writer coordination are described in
+[ADR-015](../adr/015-file-authoritative-session-bundles.md). Product requirements above define the experience that
+design must support. Internal lock phases, file layouts, and recovery algorithms belong in architecture and
+implementation records, not as additional user obligations.
 
 ## 8. First-Version Acceptance Criteria
 
@@ -475,17 +424,17 @@ Personal Remote Workspace v1 is complete only when one trusted developer can:
    Finished, and Running Quietly work without requiring Project-by-Project inspection.
 4. Create a standalone Session in Workspace, resume it later, and retain one durable identity across Agent handoffs.
 5. Run live Sessions in at least two Projects concurrently without Session, tool, interaction, or workflow state bleed.
-6. Disconnect the browser during active work, let the activation owner continue to completion or its next durable human
-   gate, reconnect, and resume from committed Session state.
-7. Keep TUI and Workspace open on the same stable Session, allow exactly one writable activation owner at a time, and
-   synchronize non-owning surfaces from committed generations without creating simultaneous writers.
-8. Associate a Session with a Plan and ensure stale or conflicting consequential Plan actions are rejected by Session
-   Activation plus current Plan/worktree evidence checks.
+6. Start work in Workspace, disconnect the browser, and reconnect to the saved conversation and current progress without
+   repeating the request or losing the draft.
+7. Start a Session in TUI, leave its window open, send the next message from a phone when the Agent is ready, and return
+   to the updated TUI. Repeat in the other direction. Include a long conversation and a completed Plan follow-up.
+8. Associate a Session with a Plan, change the Plan after opening its review, and confirm Workspace shows the update
+   before accepting approval of the changed content.
 9. Complete a bounded FEATURE journey through planning, Plannotator review, **Approve & Run**, execution, Workflow
    Validation, and Work Record visibility from Workspace.
 10. Use **Approve for Later** to leave an approved Plan Ready For Work without starting execution.
-11. Recover an interrupted or uncertain Plan through an explicit operator-confirmed recovery path rather than blind
-    replay or silent lease deletion.
+11. After an interrupted operation, reopen the saved conversation and follow the stated next action without losing input
+    or silently repeating work whose outcome is uncertain.
 12. Search eligible Plans, PRDs, ADRs, and Work Records within one Project and across contributing registered Projects.
 13. Search source code across explicitly selected Projects through Cymbal federation, receive Project-labeled partial
     results when one index fails, and avoid Plan-worktree duplicates.
@@ -493,17 +442,17 @@ Personal Remote Workspace v1 is complete only when one trusted developer can:
     searchable by the owner for navigation.
 15. Open a Project's main checkout in code-server without granting it ownership of RunWield Plan worktrees.
 16. Receive an actionable attention signal for a required human interaction, return to the correct Session or Plan
-    workflow, and confirm that pinning changes attention priority without granting writable activation.
+    workflow. Pinning affects which work is easy to find; it does not change what the owner can do.
 
 ## 9. Success Measures
 
 The first version succeeds when:
 
 - the owner can complete the acceptance journey remotely without depending on an active TUI process;
-- browser reconnect and open TUI/ACP clients never create competing transcript writers or bypass canonical Plan checks;
+- the TUI → phone → TUI journey works with both screens left open and preserves the selected Agent, model, and history;
+- ordinary continuation needs no takeover, manual preparation, or full-history download;
 - multiple Projects can make progress concurrently while human attention remains understandable;
-- consequential Plan actions are rejected or recovered safely when activation or canonical Plan/worktree evidence is
-  ambiguous;
+- repeated requests do not duplicate work, and changed Plans are shown before approval;
 - artifact and code search return only eligible, explicitly scoped Project data;
 - repository artifacts remain usable through existing CLI and TUI workflows without migration to Workspace-only data;
 - users can distinguish durable knowledge, private transcript history, main-checkout code, and Plan-worktree changes;
@@ -511,18 +460,18 @@ The first version succeeds when:
 
 ## 10. Risks and Mitigations
 
-| Risk                                                                     | Product mitigation                                                                                                                                                                                                                                               |
-| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Persistent remote access expands the local attack surface.               | Require private networking, device pairing, revocation, trusted Project roots, shared authorization across HTTP/WebSocket paths, and explicit consequential actions.                                                                                             |
-| TUI, Workspace, or ACP can create split-brain Session or Plan execution. | Require the exclusive Session Writer Lock before writable Runtime access, synchronize idle readers from committed generations, persist completed Pi results, keep pending waits process-local, and revalidate canonical Plan/worktree evidence for every action. |
-| Background continuation surprises the user.                              | Show Running and Needs You state prominently, notify at human gates, expose cancellation, and preserve explicit execution authorization.                                                                                                                         |
-| Multi-Project concurrency exhausts a developer laptop.                   | Allow dormant Project Runtimes, bound indexing and Session concurrency, surface health, and degrade to partial results rather than blocking Workspace globally.                                                                                                  |
-| Cross-Project search leaks sensitive code or paths.                      | Query only explicitly selected registered Projects, sanitize absolute paths, keep Agent tools Project-scoped, and support artifact-intelligence opt-out.                                                                                                         |
-| Global search conflates incompatible symbol versions.                    | Keep Project identity visible, group results by Project, exclude Plan worktrees, and avoid invented cross-Project call graphs.                                                                                                                                   |
-| code-server becomes an unbounded filesystem or terminal backdoor.        | Treat it as a separately bounded Code Surface tied to the intended Project and never as authorization for other roots or Plan worktrees.                                                                                                                         |
-| Session history becomes accidental shared memory.                        | Keep Transcripts owner-private and out of Agent retrieval; require durable artifact creation for reusable knowledge.                                                                                                                                             |
-| Workspace drifts into generic Agent management or noisy multitasking.    | Organize around an attention-first queue, Projects, Sessions, and Plan workflows; keep Running Quietly secondary; do not add generic Tasks or Work Items.                                                                                                        |
-| Personal architecture cannot evolve to SaaS.                             | Keep Project Runtime, Session identity, authorization, and storage boundaries compatible with later per-Project isolated containers and organization policy.                                                                                                     |
+| Risk                                                                  | Product mitigation                                                                                                                                        |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Persistent remote access expands the local attack surface.            | Require private networking, device pairing, revocation, trusted Project roots, consistent access permissions, and explicit consequential actions.         |
+| Switching screens loses work or blocks ordinary continuation.         | Prove the TUI → phone → TUI journey with open clients, long history, preserved drafts, and follow-up after completed work.                                |
+| Background continuation surprises the user.                           | Show Running and Needs You state prominently, notify at human gates, expose cancellation, and preserve explicit execution authorization.                  |
+| Multi-Project concurrency exhausts a developer laptop.                | Keep inactive Projects inexpensive, show resource pressure, and return partial results when one Project is unavailable.                                   |
+| Cross-Project search leaks sensitive code or paths.                   | Query only explicitly selected registered Projects, sanitize absolute paths, keep Agent tools Project-scoped, and support artifact-intelligence opt-out.  |
+| Global search conflates incompatible symbol versions.                 | Keep Project identity visible, group results by Project, exclude Plan worktrees, and avoid invented cross-Project call graphs.                            |
+| code-server becomes an unbounded filesystem or terminal backdoor.     | Treat it as a separately bounded Code Surface tied to the intended Project and never as authorization for other roots or Plan worktrees.                  |
+| Session history becomes accidental shared memory.                     | Keep Transcripts owner-private and out of Agent retrieval; require durable artifact creation for reusable knowledge.                                      |
+| Workspace drifts into generic Agent management or noisy multitasking. | Organize around an attention-first queue, Projects, Sessions, and Plan workflows; keep Running Quietly secondary; do not add generic Tasks or Work Items. |
+| Personal architecture cannot evolve to SaaS.                          | Preserve independent Project access and a consistent Session experience so later team hosting can extend the product.                                     |
 
 ## 11. Out of Scope for Personal Remote Workspace v1
 
@@ -541,11 +490,9 @@ The first version succeeds when:
 - Bundling Sourcebot or depending on its services, authentication, or license.
 - Making a raw WebTUI the primary Session experience.
 - Blind workflow replay after a crash.
-- Transparent automatic takeover of uncertain Plan or worktree effects.
-- Per-Project isolated OS worker processes or containers; v1 keeps the Project Runtime boundary compatible with later
-  isolation but does not require a separate worker per Project.
-- Token-level cross-process mirroring of live model streams, tool output, or terminal bytes; v1 synchronizes settled
-  committed generations, transcript events, attention state, and canonical recovery evidence instead.
+- Silently repeating unfinished work after a crash without knowing its outcome.
+- Separate hosted execution environments for each Project.
+- Identical token-by-token animation on every open screen. Each screen must still update automatically as work is saved.
 - Hosted SaaS execution, billing, organization policy, or multi-tenant infrastructure.
 - Replacing Shared Plan capability links with Workspace device identity.
 
@@ -566,19 +513,18 @@ Retain and build on:
 ### Next: Personal Remote Workspace v1
 
 Deliver the complete first-version boundary in this PRD, including registered Projects, persistent Sessions, remote
-device pairing, Attention Dashboard, Session Writer Locks, ordered Pi transcript segments, automatic synchronization,
-canonical Plan action checks, unified Plan workflow, notifications, artifact intelligence, human cross-Project Cymbal
-search, and the code-server Code Surface.
+device pairing, Attention Dashboard, reliable Session continuation, automatic conversation updates, canonical Plan
+action checks, unified Plan workflow, notifications, artifact intelligence, human cross-Project Cymbal search, and the
+code-server Code Surface.
 
 Cross-Project search is part of the first version, not a later add-on: a multi-Project Workspace should support
 deliberate search across both durable planning artifacts and source code while preserving their different semantics.
 
 ### Following: OpenAB/Telegram compatibility
 
-After Personal Remote Workspace establishes stable Session identity, activation, segment synchronization, and canonical
-Plan action coordination, complete the OpenAB/Telegram Stage 1 proof against the same shared coordination model.
-Telegram remains a secondary notification and continuation channel rather than a parallel Session owner or primary
-product shell.
+After Personal Remote Workspace establishes reliable Session continuation, automatic updates, and consistent Plan action
+coordination, complete the OpenAB/Telegram Stage 1 proof against the same shared coordination model. Telegram remains a
+secondary notification and continuation channel rather than a parallel Session owner or primary product shell.
 
 ACP remains the replaceable external-client contract, and full ACP v1 compliance remains valuable independently of
 Telegram.
@@ -587,7 +533,7 @@ Telegram.
 
 Extend the same concepts with:
 
-- isolated Project Runtime containers;
+- independently hosted Projects;
 - team and organization membership;
 - Project-level authorization and policy;
 - collaborator-visible durable artifacts and review;
@@ -599,10 +545,10 @@ Extend the same concepts with:
   request carries correct human identities (author, reviewer, merger) for attribution and policy;
 - a merge-gate policy model that mirrors the settings and defaults teams know from their forge — required approvals,
   required checks, self-merge policy — so Workspace can replace branch protection without surprising semantics;
-- identity, audit, and person provenance through a GitHub App that supports both bot-style installation tokens and user
-  access tokens acting on behalf of each Workspace user with correct attribution; GitHub sign-in provides baseline
-  identity, and this integration is a high-priority roadmap item so teams can keep existing accounts;
-- per-repository or per-team review policy: RunWield-native review by default, forge-hosted review or Dual Review as
+- GitHub sign-in and actions attributed to the correct person, so teams can keep their existing accounts and review
+  responsibility remains clear; this is a high-priority roadmap item;
+
+- per-repository or per-team review policy: RunWield-native review by default, forge-hosted review, or Dual Review as
   explicit opt-ins, with no state synchronization between gates;
 - organization-scale Workspace Intelligence;
 - optional external cross-repository search providers;
@@ -626,23 +572,19 @@ durable results are committed. _Avoid_: pull request, PR review, review sync
 review and repository policy are RunWield capabilities that a team may explicitly delegate to the Forge per repository.
 _Avoid_: system of record for intent, review, or memory; required review gate
 
-These terms remain proposed until their respective Workspace capabilities are implemented. A Plan that makes either term
-true must include the relevant `docs/domain-language.md` under Expected Change Surface, add an implementation step that
-publishes the definition and stable relationships, and verify that the glossary update lands with the capability. A Plan
-implementing only Workspace Intelligence Search must not promote Project Evidence Graph prematurely.
+These terms remain proposed until their respective capabilities ship. Workspace Intelligence Search does not itself
+establish the proposed Project Evidence Graph.
 
 ## 14. References
 
 - [RunWield Core PRD](./runwield-core-prd.md)
 - [Session Host and ACP PRD](./runwield-acp-protocol-prd.md)
 - [Cymbal multi-Project federation research](../research/cymbal-multiproject-search-federation.md)
-- [Sourcebot integration research](../research/sourcebot-workspace-integration.md)
-- [Local-First Plan Management UI PRD](./done/local-first-plan-management-ui-PRD.md)
+- [Core product requirements](./runwield-core-prd.md#4-current-local-workspace-surface)
 - [Collaborative Planning PRD](./collaborative-planning-PRD.md)
 - [Forge Change Request Delivery PRD](./forge-change-request-delivery-prd.md)
 - [ADR-007: Local-First Workspace Plan Board](../adr/007-local-first-workspace-plan-board.md)
 - [ADR-008: Remote-Canonical Collaborative Shared Spaces](../adr/008-remote-canonical-collaborative-shared-spaces.md)
 - [ADR-010: SessionRuntime sibling adapters and ACP](../adr/010-session-runtime-sibling-adapters-and-acp.md)
-- [ADR-011: Exclusive Session Activation and Pi-Native Session Continuity](../adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md)
 - [ADR-015: File-Authoritative Session Bundles](../adr/015-file-authoritative-session-bundles.md)
 - [RunWield Design System](../design-system.md)
