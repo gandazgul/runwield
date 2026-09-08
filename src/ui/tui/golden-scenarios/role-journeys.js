@@ -300,7 +300,7 @@ export const engineerQuickFixMechanicalValidationScenario = {
             assertScreenIncludes(result, "The quick fix checks passed.");
         }),
         assertsGoldenCoverage("recovery:workflow-validation", (result) => {
-            assertScreenIncludes(result, "The test command is saved: true");
+            assertScreenIncludes(result, "Tests and CI passed");
         }),
         assertRuntimeEvent("recovery:steered-task-completion", "runtime:queue"),
         // QUICK_FIX drives the tests-and-CI panel. Asserting a `task_completed` tool
