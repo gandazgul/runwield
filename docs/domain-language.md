@@ -113,6 +113,23 @@ Requests. _Avoid_: Tab title, conversation name
 **Empty Project Directory**: A current working directory with no meaningful project files for RunWield to inspect.
 _Avoid_: Empty Workspace, new project, initialized project
 
+**Project Runtime State**: Machine-owned RunWield state inside a Project checkout. The current reserved root is
+`.wld/internal/`. User-derived `.wld/settings.json`, `.wld/agents/`, `.wld/skills/`, and `.wld/prompts/` are not Project
+Runtime State. _Avoid_: project settings, project config, all of `.wld/`
+
+**Project Internal Root**: The `.wld/internal/` directory in the checkout that owns a Project Runtime State item. It is
+a path contract only; it does not mean migration or writer cutover is complete. _Avoid_: `.wld`, runtime directory when
+the selected or primary checkout matters
+
+**Primary-Checkout Runtime State**: Project Runtime State shared through the primary checkout. It includes controller
+Plan records, the worktree registry and its lock, registry migration reports, publication staging, the project
+collaboration secret store, and the no-home fallback worktrees root. _Avoid_: global runtime state, selected-checkout
+locks
+
+**Selected-Checkout Runtime State**: Project Runtime State owned by the selected checkout. It includes Plan locks, the
+Plan catalog lock, transition journals, and Work Record supersession locks. _Avoid_: primary runtime state, shared
+registry state
+
 **User Request**: A natural-language request submitted by the user for triage and execution. _Avoid_: Prompt, input,
 query
 
