@@ -658,6 +658,7 @@ export function installWorkspaceShellBrowser() {
         document.addEventListener("DOMContentLoaded", installWorkspaceShell, { once: true });
     } else installWorkspaceShell();
     document.addEventListener("astro:page-load", installWorkspaceShell);
+    document.addEventListener("runwield:session-updated", installWorkspaceShell);
 }
 
 if (typeof document !== "undefined") installWorkspaceShellBrowser();

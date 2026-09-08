@@ -37,6 +37,19 @@ Inside the TUI:
 /share           # upload a secret GitHub Gist
 ```
 
+## Moving between TUI and Workspace
+
+Start `wld workspace serve --no-open`, open its URL, and approve the browser's pairing code with
+`wld workspace pair <code>`. Link the repository in Projects, then open the same Session. Leave the TUI open: a running
+turn appears in Workspace, and an idle Session accepts the next message from either screen.
+
+While the agent is working, **Steer** changes its direction and **Queue** saves a follow-up for after the turn.
+Questions can be answered from either screen. Returning to the TUI keeps the same conversation, agent, and model. Older
+messages load on demand in Workspace.
+
+For a remote machine, use your existing HTTPS proxy or private tunnel. For a container with a mounted repository, see
+[Workspace in a container](workspace-container.md).
+
 ## Session names and terminal titles
 
 Fresh sessions start with a terminal title of `wld - <current folder>`. When Router completes Triage, it provides a

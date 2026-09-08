@@ -56,6 +56,8 @@ type ProjectAggregateTranscriptOptions = {
     cursorEventId?: string | null;
     cursorEventOrdinal?: number | null;
     limit?: number;
+    latest?: boolean;
+    beforeEventId?: string;
 };
 
 type VerifiedSegmentMetadata = {
@@ -84,6 +86,7 @@ type AggregateProjectionResult = {
     snapshot: { [key: string]: unknown };
     segments: VerifiedSegmentMetadata[];
     cursorReset: boolean;
+    previousCursor?: string | null;
 };
 
 function requireOrderedManifest(options: ProjectAggregateTranscriptOptions) {
@@ -225,6 +228,26 @@ export async function projectAggregateTranscript(
                 cursorEventId: null,
                 limit: options.limit,
             });
+        }
+        // All segments above are verified regardless of how much history the reader displays.
+        if (options.latest || options.beforeEventId) {
+            const end = options.beforeEventId
+                ? replayEvents.findIndex((event) => event.eventId === options.beforeEventId)
+                : replayEvents.length;
+            if (end < 0) throw new Error("Earlier history cursor is no longer available. Reload the conversation.");
+            const start = Math.max(0, end - Math.max(1, Math.min(500, options.limit || 200)));
+            return {
+                ok: true,
+                generation: options.generation.generation,
+                events: replayEvents.slice(start, end),
+                nextCursor: replayEvents[end - 1]?.eventId || null,
+                nextCursorOrdinal: end > 0 ? end - 1 : null,
+                previousCursor: start > 0 ? replayEvents[start]?.eventId || null : null,
+                complete: start === 0,
+                snapshot: summarizeProjectedEntries(aggregateEntries),
+                segments: segmentMetadata,
+                cursorReset: false,
+            };
         }
         return {
             ok: true,

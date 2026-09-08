@@ -62,18 +62,6 @@ it is not shared project knowledge or a source for cross-Session Agent retrieval
 interaction results as committed transcript history; a live unanswered interaction is not committed history until its
 result is written. _Avoid_: Work Record, planning memory, shared conversation
 
-**Session Attention**: Committed Session Transcript evidence that an `agentStopped` event needs owner attention. One
-request has one stable attention ID, the stable RunWield Session ID, Agent and Session labels, recorded time, and the
-committed generation. A later committed user message or accepted interaction result resolves only the exact outstanding
-attention IDs from the start of that operation. _Avoid_: notification, Dashboard item, Pending Structured Interaction,
-workflow state
-
-**Browser notification delivery**: Best-effort Workspace adapter behavior by a loaded Session tab for Session Attention.
-A loaded tab watches only its exact Session, suppresses delivery when an exact Session tab is visible and focused, and
-uses browser-local coordination to avoid duplicate system notifications. Delivery never resolves Session Attention,
-authorizes workflow progress, creates an in-app notification list, or delivers attention that happened while no exact
-Session tab was loaded. _Avoid_: Session Attention, workflow authority, closed-tab delivery, notification center
-
 **Execution Backend**: The model-selected runtime that executes one RunWield Agent turn, such as Pi AgentSession or
 Claude CLI. It is distinct from a model provider and from an Agent Session object. Changing Execution Backend does not
 transfer Session Transcript, workflow, lifecycle, or replay authority away from RunWield.
@@ -694,9 +682,6 @@ continuation, database interaction record
   a **Session Transcript**.
 - An **Aggregate Transcript Projection** emits no part of a generation until every included **Sealed Session Transcript
   Segment** and the current committed segment prefix have verified.
-- Core writes **Session Attention** into the **Session Transcript** under the **Session Writer Lock**. Workspace, TUI,
-  and the **Attention Dashboard** only read or deliver it; browser notification delivery cannot resolve or authorize
-  work.
 - A **Verified Plan** has the same meaning in **RunWield Connect** and **RunWield Core**, regardless of which
   **Execution Backend** Core uses.
 - An **External Work Source** owns **Tickets** and demand management; RunWield owns planning, execution, **Plan

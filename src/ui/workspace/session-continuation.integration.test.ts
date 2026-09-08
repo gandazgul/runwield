@@ -1,10 +1,14 @@
 // @ts-nocheck: Workspace service is JavaScript and returns projected event records.
-import { assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { AGENTS } from "../../constants.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { setCustomSetting } from "../../shared/settings.js";
 import { manifestPath } from "../../shared/session/file-session-storage.ts";
-import { makeManagedSessionFixture } from "../../testing/managed-session-fixture.ts";
+import {
+    appendTranscriptEntry,
+    makeManagedSessionFixture,
+    readTranscriptEvidence,
+} from "../../testing/managed-session-fixture.ts";
 import {
     disposeOperationBrowserNotifications,
     observeOperationBrowserNotifications,
@@ -119,17 +123,16 @@ Deno.test("Workspace snapshots deliver Agent-stop browser notifications once thr
     const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
     try {
         service.setOperation("operation-full", { status: "running", projectId: fixture.project.projectId, events: [] });
-        for (let index = 0; index < 500; index += 1) {
+        for (let index = 0; index < 1100; index += 1) {
             service.appendOperationEvent("operation-full", { type: "system_status", message: `event ${index}` });
         }
-        service.appendOperationEvent("operation-full", { type: "system_status", message: "dropped" });
+        service.appendOperationEvent("operation-full", { type: "system_status", message: "latest progress" });
         service.appendOperationEvent("operation-full", {
             type: "attention_requested",
             reason: "agentStopped",
             agentName: "Guide",
             sessionName: "Managed fixture",
         });
-        service.appendOperationEvent("operation-full", { type: "attention_requested", reason: "agentStopped" });
 
         const getSnapshot = service.getOperation("operation-full");
         assertEquals(getSnapshot.browserNotificationPolicy, {
@@ -137,7 +140,7 @@ Deno.test("Workspace snapshots deliver Agent-stop browser notifications once thr
             events: { agentStopped: true },
             suppressWhenFocused: false,
         });
-        assertEquals(getSnapshot.events.length, 501);
+        assertEquals(getSnapshot.events.length, 1000);
         assertEquals(getSnapshot.events.at(-1), {
             type: "attention_requested",
             reason: "agentStopped",
@@ -148,7 +151,7 @@ Deno.test("Workspace snapshots deliver Agent-stop browser notifications once thr
         let streamed = null;
         const unsubscribe = service.subscribeOperation("operation-full", (snapshot) => streamed = snapshot);
         unsubscribe();
-        assertEquals(streamed.events.length, 501);
+        assertEquals(streamed.events.length, 1000);
         assertEquals(streamed.events.at(-1), getSnapshot.events.at(-1));
 
         const cursorRef = { current: null };
@@ -174,13 +177,14 @@ Deno.test("Workspace snapshots deliver Agent-stop browser notifications once thr
         );
         assertEquals(browser.created.length, 1);
 
-        service.setOperation("operation-full", {
-            status: "completed",
-            projectId: fixture.project.projectId,
-            events: [
-                ...getSnapshot.events,
-                { type: "attention_requested", reason: "agentStopped", agentName: "Guide", sessionName: "Done" },
-            ],
+        for (let index = 0; index < 1100; index++) {
+            service.appendOperationEvent("operation-full", { type: "system_status", message: `later ${index}` });
+        }
+        service.appendOperationEvent("operation-full", {
+            type: "attention_requested",
+            reason: "agentStopped",
+            agentName: "Guide",
+            sessionName: "Done",
         });
         const terminalSnapshot = service.getOperation("operation-full");
         observeOperationBrowserNotifications(current, terminalSnapshot, cursorRef);
@@ -299,7 +303,7 @@ Deno.test("Workspace continuation publishes once and a TUI observer resumes from
                 assertEquals(duplicate.operationId, started.operationId);
 
                 const completed = await waitForOperation(service, started.operationId);
-                assertEquals(completed.status, "completed");
+                assertEquals(completed.status, "completed", JSON.stringify(completed));
                 assertEquals(fixture.modelRequests.length, 1);
 
                 const observedGeneration =
@@ -377,7 +381,7 @@ Deno.test("Workspace configuration stages Agent changes during a local active op
 
                 releaseTurn();
                 const completed = await waitForOperation(service, started.operationId);
-                assertEquals(completed.status, "completed");
+                assertEquals(completed.status, "completed", JSON.stringify(completed));
                 assertEquals(completed.pendingConfiguration, null);
                 const timeline = await service.timeline(fixture.session.runwieldSessionId, {
                     projectId: fixture.project.projectId,
@@ -394,4 +398,351 @@ Deno.test("Workspace configuration stages Agent changes during a local active op
             }
         },
     );
+});
+
+Deno.test("Workspace answers a live question in a separate TUI process", async () => {
+    await withRuntimeCommandFixture("workspace-live-tui-", async ({ homeDir, projectRoot }) => {
+        const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+        const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+        const storeUrl = new URL("../../shared/owner-coordination/index.js", import.meta.url).href;
+        const runtimeUrl = new URL("../../shared/session/session-runtime.js", import.meta.url).href;
+        const code = `
+            import { openOwnerCoordinationStore } from ${JSON.stringify(storeUrl)};
+            import { createSessionRuntime } from ${JSON.stringify(runtimeUrl)};
+            const store = openOwnerCoordinationStore({ dbPath: ${JSON.stringify(fixture.dbPath)} });
+            const runtime = createSessionRuntime({ sessionStore: store, ownerProcessKind: "tui" });
+            const session = store.getSessionById(${JSON.stringify(fixture.session.runwieldSessionId)});
+            const adopted = runtime.adoptManagedSession({ session, generation: 0 });
+            let dismissed = false;
+            runtime.setInteractionAdapter(adopted.sessionId, {
+                supportsInteraction: () => true,
+                requestInteraction: (_request, signal) => new Promise(resolve => {
+                    signal.addEventListener("abort", () => { dismissed = true; resolve({ outcome: "canceled" }); }, { once: true });
+                }),
+            });
+            try {
+                const answer = await runtime.requestInteraction(adopted.sessionId, { type: "text", prompt: "What should we build?" });
+                console.log(JSON.stringify({ answer, dismissed }));
+            } finally {
+                await runtime.closeAllSessionsWhenIdle();
+                store.close();
+            }
+        `;
+        const child = new Deno.Command(Deno.execPath(), {
+            args: ["eval", "--config", new URL("../../../deno.json", import.meta.url).pathname, code],
+            cwd: projectRoot,
+            stdout: "piped",
+            stderr: "piped",
+        }).spawn();
+        const outputPromise = child.output();
+        let finished = false;
+        try {
+            let live;
+            for (let index = 0; index < 400; index++) {
+                live = await service.liveSession(fixture.project.projectId, fixture.session.runwieldSessionId);
+                if (live.operation?.liveInteraction) break;
+                await new Promise((resolve) => setTimeout(resolve, 25));
+            }
+            assert(live?.operation?.liveInteraction, "The TUI question should appear in Workspace.");
+            const operation = live.operation;
+            assertEquals(operation.remote, true);
+            const answer = {
+                projectId: fixture.project.projectId,
+                runwieldSessionId: fixture.session.runwieldSessionId,
+                operationId: operation.operationId,
+                interactionId: operation.liveInteraction.interactionId,
+                requestId: "phone-answer",
+                response: { outcome: "text", value: "A simple session screen." },
+            };
+            assertEquals((await service.answerInteraction(answer)).status, "accepted");
+            // A lost HTTP response can retry without answering twice.
+            assertEquals((await service.answerInteraction(answer)).status, "accepted");
+            const output = await outputPromise;
+            finished = true;
+            assertEquals(output.code, 0, new TextDecoder().decode(output.stderr));
+            assertEquals(JSON.parse(new TextDecoder().decode(output.stdout).trim()), {
+                answer: { outcome: "text", value: "A simple session screen." },
+                dismissed: true,
+            });
+            assertEquals((await service.refreshOperation(operation.operationId)).status, "completed");
+            assertEquals(
+                (await service.liveSession(fixture.project.projectId, fixture.session.runwieldSessionId)).operation,
+                null,
+            );
+            await assertRejects(
+                () => service.answerInteraction({ ...answer, requestId: "late-answer" }),
+                Error,
+                "not available",
+            );
+        } finally {
+            if (!finished) {
+                try {
+                    child.kill();
+                } catch { /* already stopped */ }
+                await outputPromise;
+            }
+            await service.runtime.closeAllSessionsWhenIdle();
+            service.close();
+            service.store.close();
+            await fixture.cleanup();
+        }
+    });
+});
+
+Deno.test("long Workspace history stays sendable and an open TUI continues the new conversation", async () => {
+    await withRuntimeCommandFixture(
+        "workspace-long-history-",
+        async ({ homeDir, projectRoot, setModelResponseFactory }) => {
+            const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+            const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+            let tui;
+            try {
+                let proof = fixture.store.acquireSessionActivation({
+                    runwieldSessionId: fixture.session.runwieldSessionId,
+                    projectId: fixture.project.projectId,
+                    ownerInstanceId: "history-fixture",
+                    ownerProcessKind: "test",
+                    expectedGeneration: 0,
+                    phase: "bootstrap",
+                });
+                const entries = Array.from({ length: 1700 }, (_, index) => ({
+                    type: "message",
+                    id: `long-${index}`,
+                    parentId: index ? `long-${index - 1}` : "entry-assistant",
+                    timestamp: new Date(1700000000000 + index).toISOString(),
+                    message: {
+                        role: index % 2 ? "assistant" : "user",
+                        content: [{ type: "text", text: `History message ${index}` }],
+                    },
+                }));
+                await Deno.writeTextFile(
+                    fixture.transcriptPath,
+                    entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+                    { append: true },
+                );
+                proof = fixture.store.changeSessionActivationPhase(proof, "checkpointing");
+                fixture.store.publishGenerationAndRelease(proof, {
+                    generation: 1,
+                    currentSegmentId:
+                        fixture.store.getCurrentSessionSegment(fixture.session.runwieldSessionId).segmentId,
+                    ...await readTranscriptEvidence(fixture.transcriptPath),
+                });
+                tui = fixture.openRuntime("tui", "idle-tui");
+                const latest = await service.timeline(fixture.session.runwieldSessionId, {
+                    projectId: fixture.project.projectId,
+                    latest: true,
+                    limit: 200,
+                });
+                assertEquals(latest.events.length, 200);
+                assert(latest.previousCursor);
+                assertEquals(latest.complete, false);
+                assert(JSON.stringify(latest.events).includes("History message 1699"));
+                const earlier = await service.timeline(fixture.session.runwieldSessionId, {
+                    projectId: fixture.project.projectId,
+                    beforeEventId: latest.previousCursor,
+                    limit: 200,
+                });
+                assertEquals(earlier.events.length, 200);
+                assertEquals(
+                    earlier.events.some((event) => latest.events.some((next) => event.eventId === next.eventId)),
+                    false,
+                );
+                setModelResponseFactory(fixture.recordedModelResponse("I replied from Workspace."));
+                const started = await service.startContinuation({
+                    projectId: fixture.project.projectId,
+                    runwieldSessionId: fixture.session.runwieldSessionId,
+                    expectedGeneration: 1,
+                    requestId: "long-history-message",
+                    text: "Continue from my phone.",
+                });
+                assertEquals((await waitForOperation(service, started.operationId)).status, "completed");
+                setModelResponseFactory(fixture.recordedModelResponse("Back at the terminal."));
+                const result = await tui.runtime.promptUserTurn(tui.adoptedSessionId, {
+                    initialRequest: "Continue here.",
+                });
+                assertEquals(result.ok, true);
+                assertEquals(fixture.modelRequests.length, 2);
+                assert(fixture.modelRequests[1].messages.includes("I replied from Workspace."));
+                assert(fixture.modelRequests[1].messages.includes("Continue from my phone."));
+                assertEquals(
+                    fixture.store.inspectSessionActivation(fixture.session.runwieldSessionId).generation.generation,
+                    3,
+                );
+            } finally {
+                await tui?.close();
+                await service.runtime.closeAllSessionsWhenIdle();
+                service.close();
+                service.store.close();
+                await fixture.cleanup();
+            }
+        },
+    );
+});
+
+Deno.test("Workspace steering reaches the running Agent once and appears in the conversation", async () => {
+    await withRuntimeCommandFixture(
+        "workspace-steering-",
+        async ({ homeDir, projectRoot, setModelResponseFactories }) => {
+            const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+            const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+            let release = () => {};
+            const held = new Promise((resolve) => {
+                release = resolve;
+            });
+            let modelStarted = false;
+            try {
+                setModelResponseFactories([async (context) => {
+                    if (!modelStarted) {
+                        modelStarted = true;
+                        await held;
+                    }
+                    return fixture.recordedModelResponse("Starting your work.")(context);
+                }, fixture.recordedModelResponse("Responding to your direction.")]);
+                const started = await service.startContinuation({
+                    projectId: fixture.project.projectId,
+                    runwieldSessionId: fixture.session.runwieldSessionId,
+                    requestId: "start-steer-turn",
+                    expectedGeneration: 0,
+                    text: "Start working.",
+                });
+                for (let index = 0; index < 400 && !modelStarted; index++) {
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                }
+                assert(modelStarted, JSON.stringify(service.getOperation(started.operationId)));
+                const request = {
+                    projectId: fixture.project.projectId,
+                    operationId: started.operationId,
+                    requestId: "steer-once",
+                    text: "Use the existing implementation.",
+                    images: [],
+                };
+                const results = await Promise.all([service.steerOperation(request), service.steerOperation(request)]);
+                assertEquals(results.map((result) => result.queued), [true, true]);
+                const live = await service.liveSession(fixture.project.projectId, fixture.session.runwieldSessionId);
+                assertEquals(live.operation.queuedMessages.filter((message) => message.delivery === "steer").length, 1);
+                release();
+                assertEquals((await waitForOperation(service, started.operationId)).status, "completed");
+                assertEquals(fixture.modelRequests.length, 2);
+                assert(fixture.modelRequests[1].messages.includes("Use the existing implementation."));
+                const timeline = await service.timeline(fixture.session.runwieldSessionId, {
+                    projectId: fixture.project.projectId,
+                });
+                assertEquals(
+                    timeline.events.filter((event) => event.type === "user_message" && event.text === request.text)
+                        .length,
+                    1,
+                );
+            } finally {
+                release();
+                await service.runtime.closeAllSessionsWhenIdle();
+                service.close();
+                service.store.close();
+                await fixture.cleanup();
+            }
+        },
+    );
+});
+
+Deno.test("a new Workspace Session is discoverable before its first response finishes", async () => {
+    await withRuntimeCommandFixture(
+        "workspace-first-message-",
+        async ({ homeDir, projectRoot, setModelResponseFactory }) => {
+            const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+            const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+            let release = () => {};
+            const held = new Promise((resolve) => {
+                release = resolve;
+            });
+            try {
+                setModelResponseFactory(async (context) => {
+                    await held;
+                    return fixture.recordedModelResponse("Your new Session is ready.")(context);
+                });
+                const started = await service.createSession({
+                    projectId: fixture.project.projectId,
+                    requestId: "first-message",
+                    text: "Start here.",
+                    agentName: AGENTS.IDEATOR,
+                });
+                let operation;
+                for (let index = 0; index < 400; index++) {
+                    operation = service.getOperation(started.operationId);
+                    if (operation.runwieldSessionId || operation.status !== "running") break;
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                }
+                assert(operation.runwieldSessionId, JSON.stringify(operation));
+                assertEquals(operation.status, "running");
+                assertEquals(
+                    (await service.liveSession(fixture.project.projectId, operation.runwieldSessionId)).operation
+                        .operationId,
+                    started.operationId,
+                );
+                release();
+                assertEquals((await waitForOperation(service, started.operationId)).status, "completed");
+                const timeline = await service.timeline(operation.runwieldSessionId, {
+                    projectId: fixture.project.projectId,
+                });
+                assert(timeline.events.some((event) => event.type === "user_message" && event.text === "Start here."));
+            } finally {
+                release();
+                await service.runtime.closeAllSessionsWhenIdle();
+                service.close();
+                service.store.close();
+                await fixture.cleanup();
+            }
+        },
+    );
+});
+
+Deno.test("Workspace opens an interrupted Session directly from its saved conversation", async () => {
+    await withRuntimeCommandFixture("workspace-restart-", async ({ homeDir, projectRoot, setModelResponseFactory }) => {
+        const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+        const writer = fixture.openStore();
+        let writerClosed = false;
+        const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+        try {
+            writer.acquireSessionActivation({
+                runwieldSessionId: fixture.session.runwieldSessionId,
+                projectId: fixture.project.projectId,
+                expectedGeneration: 0,
+                ownerInstanceId: "stopped-container",
+                ownerProcessKind: "tui",
+                operationId: "interrupted-turn",
+                phase: "preparing",
+            });
+            await appendTranscriptEntry(
+                fixture.transcriptPath,
+                "last-saved-message",
+                "Saved before the process stopped.",
+            );
+            writer.close();
+            writerClosed = true;
+            const timeline = await service.timeline(fixture.session.runwieldSessionId, {
+                projectId: fixture.project.projectId,
+                latest: true,
+            });
+            assertEquals(timeline.state, "idle");
+            assertEquals(timeline.generation, 1);
+            assert(
+                timeline.events.some((event) => JSON.stringify(event).includes("Saved before the process stopped.")),
+            );
+            setModelResponseFactory(fixture.recordedModelResponse("Continuing after restart."));
+            const started = await service.startContinuation({
+                projectId: fixture.project.projectId,
+                runwieldSessionId: fixture.session.runwieldSessionId,
+                expectedGeneration: timeline.generation,
+                requestId: "continue-after-restart",
+                text: "Continue from here.",
+            });
+            const completed = await waitForOperation(service, started.operationId);
+            assertEquals(completed.status, "completed", JSON.stringify(completed));
+            assert(fixture.modelRequests[0].messages.includes("Saved before the process stopped."));
+        } finally {
+            if (!writerClosed) writer.close();
+            await service.runtime.closeAllSessionsWhenIdle();
+            service.close();
+            service.store.close();
+            await fixture.cleanup();
+        }
+    });
 });

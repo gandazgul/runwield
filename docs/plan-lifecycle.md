@@ -435,16 +435,21 @@ Recovery actions are deliberately scoped to the execution worktree:
 - **Restore worktree record and continue**: Rebuilds RunWield's missing worktree registry entry from imported recovery
   hints and `git worktree list` evidence when the recorded path, branch, and target branch still agree. It does not
   delete the worktree or reset the user's work.
-- **Delete/recreate worktree and start over**: Removes the recorded worktree, marks the old registry entry abandoned,
-  creates a fresh execution worktree from recorded base metadata when available, records `recovery_reset`, and retries
-  from `ready_for_work`.
-- **Delete/abandon worktree**: Removes the worktree, marks the registry entry abandoned, clears worktree id/path/branch
-  from plan front matter, and leaves the plan recoverable for another choice.
+- **Delete/recreate worktree and start over**: Verifies the recorded path and branch, resolves the Plan id and starting
+  commit, and creates the replacement before discarding the old checkout. It records `recovery_reset` and retries from
+  `ready_for_work`.
+- **Delete/abandon worktree**: Verifies the exact recorded checkout against Git, removes it, settles the registry,
+  clears active controller references, and reloads the surviving Plan. The primary checkout is never an execution
+  worktree. Held-Plan delete/reset uses the same cleanup rules.
+- Cleanup deletes branches proven merged into the current checkout or unchanged from their recorded starting commit,
+  including missing-path attempts based on another target branch. Unique commits remain on a named rescue branch with an
+  abandoned registry record. The result says which artifacts remain. Incorrect identity or partial cleanup preserves
+  recovery evidence; each completed Git and registry effect is recorded for retry. Publication cleanup remains governed
+  by ADR-016.
 - **Re-open for review**: Moves the plan back to `feedback` so it can be revised instead of continued.
 
 Legacy plans that have an `executionBaselineTree` but no worktree metadata keep the older baseline-tree reset path. That
-path restores the primary checkout to the execution-start snapshot, so the confirmation must clearly state that
-unrelated changes made after that snapshot will be lost.
+path checks that the current checkout already matches the recorded snapshot and refuses to overwrite newer changes.
 
 ## Plan List Visibility
 

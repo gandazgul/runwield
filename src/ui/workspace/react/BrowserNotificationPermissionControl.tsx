@@ -1,67 +1,75 @@
 import { useEffect, useState } from "react";
-import {
-    readBrowserNotificationStatus,
-    requestBrowserNotificationPermission,
-} from "../browser/session-tab-notifications.ts";
 
-type Status = "default" | "enabled" | "blocked" | "unavailable";
-
-function statusLabel(status: Status) {
-    if (status === "enabled") return "Alerts enabled";
-    if (status === "blocked") return "Alerts blocked";
-    if (status === "unavailable") return "Alerts unavailable";
-    return "Enable alerts";
-}
-
-function detectStatus(): Status {
-    if (typeof window === "undefined") return "unavailable";
-    const status = readBrowserNotificationStatus();
-    if (status === "enabled" || status === "blocked" || status === "unavailable") {
-        if (
-            status === "unavailable" && "Notification" in globalThis && globalThis.isSecureContext &&
-            Notification.permission === "default"
-        ) {
-            return "default";
-        }
-        return status;
-    }
-    return "default";
+function readPermission(): NotificationPermission | "unsupported" {
+    if (typeof globalThis.Notification !== "function") return "unsupported";
+    return globalThis.Notification.permission;
 }
 
 export function BrowserNotificationPermissionControl() {
-    const [status, setStatus] = useState<Status>("unavailable");
+    const [permission, setPermission] = useState<NotificationPermission | "unsupported">("unsupported");
 
     useEffect(() => {
-        const update = () => setStatus(detectStatus());
-        update();
-        globalThis.addEventListener("runwield:browser-notification-status", update);
-        globalThis.addEventListener("storage", update);
-        globalThis.addEventListener("focus", update);
-        document.addEventListener("visibilitychange", update);
-        return () => {
-            globalThis.removeEventListener("runwield:browser-notification-status", update);
-            globalThis.removeEventListener("storage", update);
-            globalThis.removeEventListener("focus", update);
-            document.removeEventListener("visibilitychange", update);
-        };
+        setPermission(readPermission());
     }, []);
 
-    const label = statusLabel(status);
-    const title = status === "blocked" ? "Alerts blocked. Enable notifications in browser settings." : label;
+    const requestPermission = async () => {
+        if (typeof globalThis.Notification !== "function" || Notification.permission !== "default") return;
+        try {
+            setPermission(await Notification.requestPermission());
+        } catch {
+            setPermission(readPermission());
+        }
+    };
+
+    if (permission === "unsupported") {
+        return (
+            <span
+                className="rw-toolbar-button workspace-notification-control"
+                aria-label="Alerts unavailable"
+                title="Alerts unavailable"
+            >
+                <span aria-hidden="true">🔕</span>
+                <span>Alerts unavailable</span>
+            </span>
+        );
+    }
+
+    if (permission === "granted") {
+        return (
+            <span
+                className="rw-toolbar-button workspace-notification-control"
+                aria-label="Alerts enabled"
+                title="Alerts enabled"
+            >
+                <span aria-hidden="true">🔔</span>
+                <span>Alerts enabled</span>
+            </span>
+        );
+    }
+
+    if (permission === "denied") {
+        return (
+            <span
+                className="rw-toolbar-button workspace-notification-control"
+                aria-label="Alerts blocked. Change browser site settings to enable alerts."
+                title="Alerts blocked. Change browser site settings to enable alerts."
+            >
+                <span aria-hidden="true">🔕</span>
+                <span>Alerts blocked</span>
+            </span>
+        );
+    }
+
     return (
         <button
             type="button"
-            className={`rw-toolbar-button workspace-alerts-button workspace-alerts-button-${status}`}
-            title={title}
-            aria-label={label}
-            aria-disabled={status !== "default" ? true : undefined}
-            onClick={async () => {
-                if (status !== "default") return;
-                setStatus(await requestBrowserNotificationPermission());
-            }}
+            className="rw-toolbar-button workspace-notification-control"
+            onClick={requestPermission}
+            aria-label="Enable alerts"
+            title="Enable alerts"
         >
             <span aria-hidden="true">🔔</span>
-            <span className="workspace-alerts-label">{label}</span>
+            <span>Enable alerts</span>
         </button>
     );
 }

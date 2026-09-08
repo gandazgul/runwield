@@ -16,18 +16,12 @@ import {
     SESSION_SIDEBAR_TABS,
     sessionArtifactKindLabel,
 } from "../../../shared/session/session-sidebar.ts";
-import {
-    createSessionTabNotificationController,
-    SessionTabNotificationController,
-} from "../browser/session-tab-notifications.ts";
+import { createSessionTabNotificationController } from "../browser/session-tab-notifications.ts";
 
 export const SESSION_PAGE_SIZE = 30;
 const TIMELINE_PAGE_LIMIT = 200;
-export const TIMELINE_MAX_PAGES = 10;
-export const TIMELINE_MAX_EVENTS = 1500;
 const POLL_INTERVAL_MS = 1500;
 const AVAILABILITY_REFRESH_INTERVAL_MS = 5000;
-const MAX_POLL_ATTEMPTS = 240;
 
 /** @param {string} projectId @param {string} sessionId */
 export function sessionDraftKey(projectId, sessionId) {
@@ -178,7 +172,10 @@ export function shouldApplyOperationPoll(input) {
 
 /** @param {unknown} events */
 export function reduceOperationTransientItems(events) {
-    return reduceSessionEvents(Array.isArray(events) ? events : [], { source: "transient" });
+    return reduceSessionEvents(
+        Array.isArray(events) ? events.filter((event) => !event.eventId && event.type !== "interaction_requested") : [],
+        { source: "transient" },
+    );
 }
 
 let operationNotificationController = null;
@@ -196,18 +193,22 @@ export function disposeOperationBrowserNotifications() {
 }
 
 export function observeOperationBrowserNotifications(current, payload, cursorRef) {
-    const events = Array.isArray(payload.events) ? payload.events : [];
+    const events = (Array.isArray(payload.events) ? payload.events : [])
+        .filter((event) => !event.eventId && event.type === "attention_requested" && event.reason === "agentStopped");
     const key = `${current.scopeKey || ""}:${current.operationId}`;
     if (!cursorRef.current || cursorRef.current.key !== key) {
-        cursorRef.current = { key, next: current.restored && current.attempts === 0 ? events.length : 0 };
+        cursorRef.current = {
+            key,
+            seen: new Set(
+                current.restored && current.attempts === 0 ? events.map((event) => JSON.stringify(event)) : [],
+            ),
+        };
     }
-    const cursor = cursorRef.current;
-    for (let index = cursor.next; index < events.length; index += 1) {
-        const event = events[index];
-        cursor.next = index + 1;
-        if (event?.type === "attention_requested" && event.reason === "agentStopped") {
-            getOperationNotificationController().notifyAgentStopped(event, payload.browserNotificationPolicy);
-        }
+    for (const event of events) {
+        const identity = JSON.stringify(event);
+        if (cursorRef.current.seen.has(identity)) continue;
+        cursorRef.current.seen.add(identity);
+        getOperationNotificationController().notifyAgentStopped(event, payload.browserNotificationPolicy);
     }
 }
 
@@ -231,8 +232,7 @@ export function isAtLiveScrollEdge(input) {
 
 /** @param {{ mode: string, state?: string, localOperationActive?: boolean, queuedMessageCount?: number }} input */
 export function shouldRefreshSessionAvailability(input) {
-    return input.mode === "detail" && input.localOperationActive !== true &&
-        (input.state === "active" || (input.queuedMessageCount || 0) > 0);
+    return input.mode === "detail" && input.localOperationActive !== true;
 }
 
 /**
@@ -338,36 +338,11 @@ function resizeComposerTextArea(textarea) {
     textarea.style.height = `${textarea.scrollHeight}px`;
 }
 
-/** @param {string | null | undefined} value */
-function sessionSurfaceLabel(value) {
-    switch (String(value || "")) {
-        case "tui":
-            return "TUI";
-        case "acp":
-            return "ACP";
-        case "workspace":
-            return "Workspace";
-        case "test":
-            return "another surface";
-        default:
-            return String(value || "another surface");
-    }
-}
-
-/** @param {{ surface?: string | null, canRecover?: boolean, recovering?: boolean, onRecover?: () => void }} props */
-function SessionBusyPanel({ surface, canRecover = false, recovering = false, onRecover }) {
+function SessionBusyPanel() {
     return (
-        <section className="session-busy-panel" role="status" aria-live="polite" aria-busy="true">
-            <RunWieldThinkingDots label="Session busy" />
-            <p>This Session is busy in {sessionSurfaceLabel(surface)}.</p>
-            {canRecover
-                ? (
-                    <RunWieldButton type="button" onClick={onRecover} disabled={recovering}>
-                        {recovering ? "Recovering…" : "Recover stale Session"}
-                    </RunWieldButton>
-                )
-                : null}
-        </section>
+        <div className="session-inline-loader" role="status">
+            <RunWieldThinkingDots label="Working" />
+        </div>
     );
 }
 
@@ -380,6 +355,10 @@ function SessionComposer({
     submitting,
     onDraftChange,
     onSubmit,
+    onQueue = undefined,
+    onStop = undefined,
+    sendLabel = "Send",
+    steeringMessages = [],
     onPaste,
     imageAttachments = [],
     onRemoveImage,
@@ -419,6 +398,17 @@ function SessionComposer({
                             </li>
                         ))}
                     </ol>
+                )
+                : null}
+            {steeringMessages.length
+                ? (
+                    <ul className="session-composer-queue" aria-label="Pending steering messages">
+                        {steeringMessages.map((item) => (
+                            <li key={item.id}>
+                                <span>Steering · {item.text}</span>
+                            </li>
+                        ))}
+                    </ul>
                 )
                 : null}
             <textarea
@@ -487,16 +477,29 @@ function SessionComposer({
                     {thinkingFallback}
                     {thinkingLevels.map((level) => <option key={level} value={level}>{level}</option>)}
                 </select>
+                {onStop ? <button type="button" className="rw-toolbar-button" onClick={onStop}>Stop</button> : null}
+                {onQueue
+                    ? (
+                        <button
+                            type="button"
+                            className="rw-toolbar-button"
+                            disabled={!canSend || submitting}
+                            onClick={onQueue}
+                        >
+                            Queue
+                        </button>
+                    )
+                    : null}
                 <button
                     type="submit"
                     className="rw-toolbar-button session-send-button"
                     disabled={!canSend || submitting}
-                    aria-label={submitting ? "Sending" : "Send"}
+                    aria-label={submitting ? "Sending" : sendLabel}
                 >
                     {submitting ? <RunWieldThinkingDots label="Sending" /> : (
                         <>
                             <PaperAirplaneIcon />
-                            <span>Send</span>
+                            <span>{sendLabel}</span>
                         </>
                     )}
                 </button>
@@ -518,6 +521,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [workflowProgress, setWorkflowProgress] = useState(/** @type {any} */ (null));
     const [workflowProgressError, setWorkflowProgressError] = useState("");
     const [sessionSidebarTab, setSessionSidebarTab] = useState("session");
+    const [mobileContextOpen, setMobileContextOpen] = useState(false);
     const sidebarSessionRef = useRef("");
     const [detailError, setDetailError] = useState("");
     const [loadingDetail, setLoadingDetail] = useState(mode === "detail");
@@ -526,8 +530,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [queuedMessages, setQueuedMessages] = useState(/** @type {WorkspaceQueuedMessage[]} */ ([]));
     const [message, setMessage] = useState("");
     const [operation, setOperation] = useState(
-        /** @type {{ operationId: string, status: string, observed: number, attempts: number } | null} */ (null),
+        /** @type {{ operationId: string, status: string, observed: number, attempts: number, remote?: boolean } | null} */ (null),
     );
+    const [steeringMessages, setSteeringMessages] = useState([]);
     const [pendingConfiguration, setPendingConfiguration] = useState(
         /** @type {Record<string, string> | null} */ (null),
     );
@@ -538,7 +543,12 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [selectedModelKey, setSelectedModelKey] = useState("");
     const [selectedThinking, setSelectedThinking] = useState("default");
     const [submitting, setSubmitting] = useState(false);
-    const [recoveringSession, setRecoveringSession] = useState(false);
+    const [loadingEarlier, setLoadingEarlier] = useState(false);
+    const timelineLoadRef = useRef(0);
+    const timelineRef = useRef(timeline);
+    timelineRef.current = timeline;
+    const sessionIdentityRef = useRef(runwieldSessionId);
+    sessionIdentityRef.current = runwieldSessionId;
     const [interruptedOperation, setInterruptedOperation] = useState(false);
     const [operationStreamFailed, setOperationStreamFailed] = useState(false);
     const operationRef = useRef(operation);
@@ -621,76 +631,92 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }
     }
 
-    async function fetchTimeline() {
-        let cursor = "";
-        /** @type {Array<Record<string, any>>} */
-        const events = [];
-        let pageCount = 0;
-        let payload = null;
-        while (pageCount < TIMELINE_MAX_PAGES && events.length <= TIMELINE_MAX_EVENTS) {
-            const qs = new URLSearchParams({ limit: String(TIMELINE_PAGE_LIMIT) });
-            if (cursor) qs.set("cursorEventId", cursor);
-            payload = await ownerFetch(
-                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
-                    encodeURIComponent(runwieldSessionId)
-                }/timeline?${qs}`,
-                { method: "GET" },
-            );
-            events.push(...(Array.isArray(payload.events) ? payload.events : []));
-            pageCount += 1;
-            if (payload.complete !== false) break;
-            if (!payload.nextCursor || payload.nextCursor === cursor) {
-                throw new Error("Timeline cursor did not advance.");
-            }
-            cursor = payload.nextCursor;
+    async function fetchTimeline(beforeEventId = "") {
+        const existing = timelineRef.current;
+        const qs = new URLSearchParams({ limit: String(TIMELINE_PAGE_LIMIT) });
+        if (beforeEventId) qs.set("beforeEventId", beforeEventId);
+        else if (existing?.nextCursor) qs.set("cursorEventId", existing.nextCursor);
+        else qs.set("latest", "true");
+        const url = `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+            encodeURIComponent(runwieldSessionId)
+        }/timeline`;
+        let payload = await ownerFetch(`${url}?${qs}`, { method: "GET" });
+        if (beforeEventId || !existing?.nextCursor) return payload;
+        const events = [...(payload.cursorReset ? [] : existing.events), ...payload.events];
+        // Only catch up new events. Older history is loaded explicitly by the reader.
+        while (payload.complete === false) {
+            if (!payload.nextCursor || payload.nextCursor === qs.get("cursorEventId")) break;
+            qs.set("cursorEventId", payload.nextCursor);
+            payload = await ownerFetch(`${url}?${qs}`, { method: "GET" });
+            events.push(...payload.events);
         }
-        const truncated = Boolean(
-            payload?.complete === false || pageCount >= TIMELINE_MAX_PAGES || events.length > TIMELINE_MAX_EVENTS,
-        );
-        return {
-            ...(payload || {}),
-            events,
-            complete: !truncated && payload?.complete !== false,
-            truncated,
-        };
+        return { ...payload, events, previousCursor: existing.previousCursor };
     }
 
     function applyTimeline(nextTimeline) {
-        const events = Array.isArray(nextTimeline.events) ? nextTimeline.events : [];
-        setTimeline(nextTimeline);
+        const events = Array.isArray(nextTimeline.events)
+            ? [...new Map(nextTimeline.events.map((event) => [event.eventId, event])).values()]
+            : [];
+        const merged = { ...nextTimeline, events };
+        timelineRef.current = merged;
+        setTimeline(merged);
         setTimelineItems(reduceSessionEvents(events, { source: "committed" }));
         setPendingUserMessages((messages) => {
             const committedUserText = new Set(
-                events
-                    .filter((event) => event?.type === "user_message" && typeof event.text === "string")
-                    .map((event) => event.text),
+                events.filter((event) => event.type === "user_message").map((event) => event.text),
             );
             return messages.filter((item) => !committedUserText.has(item.text));
         });
-        setTransientItems([]);
-        setPendingConfiguration(null);
-        setLiveThinkingLevel("");
-        if (nextTimeline.truncated) {
-            setMessage(
-                "Timeline budget exceeded. Reload this Session to continue from the complete committed timeline.",
-            );
+        if (nextTimeline.state !== "active" && !operationRef.current) {
+            setTransientItems([]);
+            setPendingConfiguration(null);
+            setSteeringMessages([]);
+            setLiveThinkingLevel("");
         }
     }
 
     async function loadTimeline() {
         if (!runwieldSessionId) return null;
-        setLoadingDetail(true);
-        setDetailError("");
-        setMessage("");
+        const identity = runwieldSessionId;
+        const loadId = ++timelineLoadRef.current;
         try {
             const nextTimeline = await fetchTimeline();
+            if (sessionIdentityRef.current !== identity || loadId !== timelineLoadRef.current) return null;
             applyTimeline(nextTimeline);
+            setDetailError("");
             return nextTimeline;
         } catch (error) {
-            setDetailError(errorMessage(error));
+            if (sessionIdentityRef.current === identity) setDetailError(errorMessage(error));
             return null;
         } finally {
-            setLoadingDetail(false);
+            if (sessionIdentityRef.current === identity) setLoadingDetail(false);
+        }
+    }
+
+    async function loadEarlierMessages() {
+        const cursor = timelineRef.current?.previousCursor;
+        if (!cursor || loadingEarlier) return;
+        setLoadingEarlier(true);
+        const identity = runwieldSessionId;
+        const scroller = timelineScrollRef.current;
+        const height = scroller?.scrollHeight || 0;
+        try {
+            const earlier = await fetchTimeline(cursor);
+            if (sessionIdentityRef.current !== identity) return;
+            const current = timelineRef.current;
+            applyTimeline({
+                ...current,
+                events: [...earlier.events, ...current.events],
+                previousCursor: earlier.previousCursor,
+            });
+            followingLiveEdgeRef.current = false;
+            requestAnimationFrame(() => {
+                if (scroller) scroller.scrollTop += scroller.scrollHeight - height;
+            });
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setLoadingEarlier(false);
         }
     }
 
@@ -701,19 +727,15 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     }, [runwieldSessionId]);
 
     useEffect(() => {
-        if (mode !== "detail" || !projectId || !runwieldSessionId) return;
-        const controller = new SessionTabNotificationController({ projectId, runwieldSessionId });
-        controller.start();
-        return () => controller.close();
-    }, [mode, projectId, runwieldSessionId]);
-
-    useEffect(() => {
         didPinInitialTimelineRef.current = false;
         followingLiveEdgeRef.current = true;
         setFollowingLiveEdge(true);
         setLatestActivityAvailable(false);
         if (mode === "list") loadList(listPage);
         if (mode === "detail") {
+            timelineRef.current = null;
+            setTimeline(null);
+            setLoadingDetail(true);
             loadTimeline();
             loadSessionOptions();
         }
@@ -739,6 +761,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }
         const storedAttachments = readStored(attachmentsKey);
         setImageAttachments(Array.isArray(storedAttachments) ? storedAttachments : []);
+        setOperation(null);
         const storedRequest = asRecord(readStored(requestKey));
         if (storedRequest.operationId) {
             setOperation({
@@ -749,10 +772,10 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 restored: true,
             });
             setMessage(
-                "Reconnected to an accepted Session operation. Watching progress without replaying the request.",
+                "Reconnected.",
             );
         } else if (storedRequest.requestId && storedRequest.status === "network-error") {
-            setMessage("Previous response was lost. Send will retry the exact same request envelope.");
+            setMessage("The connection was interrupted. Send again to retry your message.");
         }
     }, [draftKey, requestKey, attachmentsKey]);
 
@@ -788,7 +811,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
 
     async function createSession() {
         const text = draft;
-        if (!text.trim() || submitting) return;
+        if ((!text.trim() && !imageAttachments.length) || submitting) return;
+        scrollToLiveEdge();
         setSubmitting(true);
         setMessage("");
         const [selectedProvider, selectedModel] = selectedModelKey ? selectedModelKey.split("\u001f") : ["", ""];
@@ -796,6 +820,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         const envelope = existing.requestId && existing.status === "network-error" ? existing : {
             requestId: crypto.randomUUID(),
             text,
+            images: imageAttachments.map(serializeSessionImageForRequest),
             agentName: selectedAgent,
             model: selectedModel || "",
             provider: selectedProvider || "",
@@ -804,12 +829,20 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             createdAt: new Date().toISOString(),
         };
         localStorage.setItem(requestKey, JSON.stringify(envelope));
+        setPendingUserMessages([{
+            kind: "message",
+            role: "user",
+            key: `pending-user:${envelope.requestId}`,
+            text: envelope.text,
+            source: "transient",
+        }]);
         try {
             const payload = await ownerFetch(`/api/owner/projects/${encodeURIComponent(projectId)}/sessions`, {
                 method: "POST",
                 body: JSON.stringify({
                     requestId: envelope.requestId,
                     text: envelope.text,
+                    images: envelope.images || [],
                     agentName: envelope.agentName,
                     model: envelope.model,
                     provider: envelope.provider,
@@ -826,6 +859,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             };
             localStorage.setItem(requestKey, JSON.stringify(stored));
             if (payload.runwieldSessionId) {
+                localStorage.setItem(sessionRequestKey(projectId, payload.runwieldSessionId), JSON.stringify(stored));
                 localStorage.removeItem(requestKey);
                 workspaceNavigate(
                     `/projects/${encodeURIComponent(projectId)}/sessions/${
@@ -842,7 +876,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                     observed: 0,
                     attempts: 0,
                 });
-                setMessage("Session creation accepted. Watching progress without replaying on refresh.");
+                setMessage("");
             }
         } catch (error) {
             localStorage.setItem(requestKey, JSON.stringify({ ...envelope, status: "network-error" }));
@@ -934,7 +968,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             observed: 0,
             attempts: 0,
         });
-        setMessage("Request accepted. Watching progress without replaying on refresh.");
+        setMessage("");
     }
 
     /** @param {Record<string, any>} envelope */
@@ -972,16 +1006,17 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         setMessage("Message queued in this browser tab. It will send when this Session becomes available.");
     }
 
-    async function sendRequest() {
+    async function sendRequest(queueOnly = false) {
         const text = draft;
-        const canSubmit = availability.canContinue || availability.key === "active";
+        const canSubmit = availability.canContinue || ["active", "workspace-running"].includes(availability.key);
         if ((!text.trim() && imageAttachments.length === 0) || !canSubmit || submitting || !timeline) {
             return;
         }
+        if (!queueOnly) scrollToLiveEdge();
         setSubmitting(true);
         setMessage("");
-        const freshTimeline = await loadTimeline();
-        if (!freshTimeline || freshTimeline.truncated || freshTimeline.complete === false) {
+        const freshTimeline = timelineRef.current;
+        if (!freshTimeline) {
             setSubmitting(false);
             setMessage("Could not refresh the Session state before sending. Try again.");
             return;
@@ -995,9 +1030,35 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             status: "pending",
             createdAt: new Date().toISOString(),
         };
-        if (freshTimeline.state === "active") {
-            queueContinuation(envelope);
-            setSubmitting(false);
+        if (freshTimeline.state === "active" || operationRef.current) {
+            try {
+                if (!queueOnly && operationRef.current) {
+                    const result = await ownerFetch(
+                        `/api/owner/projects/${encodeURIComponent(projectId)}/session-operations/${
+                            encodeURIComponent(operationRef.current.operationId)
+                        }/steer`,
+                        {
+                            method: "POST",
+                            body: JSON.stringify({
+                                requestId: envelope.requestId,
+                                text: envelope.text,
+                                images: envelope.images,
+                            }),
+                        },
+                    );
+                    if (result.ok && result.queued) {
+                        setDraft("");
+                        setImageAttachments([]);
+                        setMessage("");
+                        return;
+                    }
+                }
+                queueContinuation(envelope);
+            } catch (error) {
+                setMessage(errorMessage(error));
+            } finally {
+                setSubmitting(false);
+            }
             return;
         }
         localStorage.setItem(requestKey, JSON.stringify(envelope));
@@ -1043,14 +1104,19 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         setTransientItems(items);
         const next = {
             operationId: current.operationId,
+            remote: payload.remote === true,
             status: payload.status || "unknown",
             observed: events.length,
             attempts: current.attempts + 1,
         };
         setOperation(next);
         setPendingConfiguration(payload.pendingConfiguration || null);
-        if (!["completed", "failed", "unknown"].includes(next.status)) return;
+        setSteeringMessages((payload.queuedMessages || []).filter((item) => item.delivery === "steer"));
         if (mode === "new" && payload.runwieldSessionId) {
+            localStorage.setItem(
+                sessionRequestKey(projectId, payload.runwieldSessionId),
+                JSON.stringify({ ...asRecord(readStored(requestKey)), operationId: current.operationId }),
+            );
             localStorage.removeItem(requestKey);
             workspaceNavigate(
                 `/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(payload.runwieldSessionId)}`,
@@ -1058,20 +1124,24 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             );
             return;
         }
+        if (!["completed", "failed", "unknown"].includes(next.status)) return;
         if (next.status === "completed") {
             localStorage.removeItem(requestKey);
-            setMessage("Operation completed. Reconciled committed timeline.");
+            setMessage("");
         } else {
             if (next.status === "unknown") setInterruptedOperation(true);
             setMessage(
                 next.status === "unknown"
-                    ? "Operation is unknown after reconnect. Reloaded committed state; do not replay automatically."
-                    : payload.error || "Operation failed. Committed state reloaded.",
+                    ? "The agent was interrupted. Ask it to continue."
+                    : payload.error || "The response failed. Your conversation is saved.",
             );
         }
         setPendingConfiguration(null);
         setOperationStreamFailed(false);
         setOperation(null);
+        setTransientItems([]);
+        operationRef.current = null;
+        document.dispatchEvent(new CustomEvent("runwield:session-updated"));
         await loadTimeline();
     }
 
@@ -1093,7 +1163,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             );
             await applyOperationSnapshot(current, payload);
         };
-        if (typeof EventSource !== "undefined" && !operationStreamFailed) {
+        if (typeof EventSource !== "undefined" && !operationStreamFailed && !operation.remote) {
             const source = new EventSource(
                 `/api/owner/session-operations/${encodeURIComponent(operation.operationId)}/stream`,
             );
@@ -1108,7 +1178,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             };
             source.onerror = () => {
                 if (cancelled) return;
-                setMessage("Live Session updates paused. Checking operation status safely.");
+                setMessage("");
                 setOperationStreamFailed(true);
                 source.close();
             };
@@ -1119,7 +1189,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }
         const tick = async () => {
             const current = operationRef.current;
-            if (!current || cancelled || current.attempts >= MAX_POLL_ATTEMPTS) return;
+            if (!current || cancelled) return;
             try {
                 const payload = await ownerFetch(
                     `/api/owner/session-operations/${encodeURIComponent(current.operationId)}`,
@@ -1140,7 +1210,15 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             cancelled = true;
             clearInterval(id);
         };
-    }, [operation?.operationId, operationStreamFailed, requestKey, mode, projectId, notificationScopeKey]);
+    }, [
+        operation?.operationId,
+        operation?.remote,
+        operationStreamFailed,
+        requestKey,
+        mode,
+        projectId,
+        notificationScopeKey,
+    ]);
 
     useEffect(() => {
         if (
@@ -1151,16 +1229,41 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 queuedMessageCount: queuedMessages.length,
             })
         ) return undefined;
-        const refresh = () => {
-            void loadTimeline();
+        let cancelled = false;
+        let refreshing = false;
+        const refresh = async () => {
+            if (refreshing || cancelled) return;
+            refreshing = true;
+            try {
+                const live = await ownerFetch(
+                    `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                        encodeURIComponent(runwieldSessionId)
+                    }/live`,
+                );
+                if (cancelled) return;
+                if (live.generation !== timelineRef.current?.generation || live.state !== timelineRef.current?.state) {
+                    await loadTimeline();
+                }
+                if (live.operation && !operationRef.current && !cancelled) {
+                    document.dispatchEvent(new CustomEvent("runwield:session-updated"));
+                    const current = { operationId: live.operation.operationId, attempts: 0 };
+                    await applyOperationSnapshot(current, live.operation);
+                }
+            } catch (error) {
+                if (!cancelled) setMessage(errorMessage(error));
+            } finally {
+                refreshing = false;
+            }
         };
         const refreshWhenVisible = () => {
             if (document.visibilityState === "visible") refresh();
         };
         globalThis.addEventListener("focus", refresh);
         document.addEventListener("visibilitychange", refreshWhenVisible);
-        const id = setInterval(refresh, AVAILABILITY_REFRESH_INTERVAL_MS);
+        const id = setInterval(refresh, POLL_INTERVAL_MS);
+        void refresh();
         return () => {
+            cancelled = true;
             globalThis.removeEventListener("focus", refresh);
             document.removeEventListener("visibilitychange", refreshWhenVisible);
             clearInterval(id);
@@ -1181,8 +1284,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             try {
                 const freshTimeline = await loadTimeline();
                 if (
-                    cancelled || !freshTimeline || freshTimeline.state !== "idle" || freshTimeline.truncated ||
-                    freshTimeline.complete === false
+                    cancelled || !freshTimeline || freshTimeline.state !== "idle"
                 ) return;
                 const envelope = {
                     requestId: queued.id,
@@ -1279,7 +1381,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             return;
         }
         setLatestActivityAvailable(true);
-    }, [mode, loadingDetail, timelineItems.length, transientItems.length, interruptedOperation]);
+    }, [mode, loadingDetail, timelineItems, transientItems, pendingUserMessages, interruptedOperation]);
 
     useEffect(() => {
         if (!operation?.operationId) return undefined;
@@ -1290,39 +1392,22 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         return () => globalThis.removeEventListener("keydown", onKeyDown);
     }, [operation?.operationId]);
 
-    async function recoverSessionControl() {
-        if (!timeline || typeof timeline.generation !== "number" || recoveringSession) return;
-        const confirmed = globalThis.confirm?.(
-            "RunWield will recover this Session only if the other surface stopped renewing its lock. Continue?",
-        );
-        if (!confirmed) return;
-        setRecoveringSession(true);
-        setMessage("");
-        try {
-            await ownerFetch(
-                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
-                    encodeURIComponent(runwieldSessionId)
-                }/force-recovery`,
-                { method: "POST", body: JSON.stringify({ expectedGeneration: timeline.generation }) },
-            );
-            await loadTimeline();
-            setMessage("Recovered stale Session control. You can send now.");
-        } catch (error) {
-            setMessage(errorMessage(error));
-        } finally {
-            setRecoveringSession(false);
-        }
-    }
-
     async function answerInteraction(operationId, interactionId, response) {
         try {
             await ownerFetch(
                 `/api/owner/projects/${encodeURIComponent(projectId)}/session-operations/${
                     encodeURIComponent(operationId)
                 }/interactions/${encodeURIComponent(interactionId)}/answer`,
-                { method: "POST", body: JSON.stringify({ response }) },
+                {
+                    method: "POST",
+                    body: JSON.stringify({
+                        response,
+                        requestId: crypto.randomUUID(),
+                        runwieldSessionId: runwieldSessionId || undefined,
+                    }),
+                },
             );
-            setMessage("Interaction answer sent.");
+            setMessage("");
         } catch (error) {
             const message = errorMessage(error);
             setMessage(message);
@@ -1345,6 +1430,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
 
     if (mode === "new") {
         const newSessionItems = [
+            ...(transientItems.some((item) => item.kind === "message" && item.role === "user")
+                ? []
+                : pendingUserMessages),
             ...transientItems.map((item) =>
                 item.kind === "interaction"
                     ? {
@@ -1364,7 +1452,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 {optionsError
                     ? (
                         <p className="rw-plan-review-dev-notice session-dev-shell-bar" role="status">
-                            DEV MODE — Owner Session APIs are not connected.
+                            {optionsError}
                         </p>
                     )
                     : null}
@@ -1383,10 +1471,14 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             id="new-session-request-text"
                             draft={draft}
                             disabled={!canSendNew}
-                            canSend={canSendNew && Boolean(draft.trim())}
+                            canSend={canSendNew && Boolean(draft.trim() || imageAttachments.length)}
                             submitting={submitting || Boolean(operation?.operationId)}
                             onDraftChange={setDraft}
                             onSubmit={createSession}
+                            onStop={operation?.operationId ? cancelOperation : undefined}
+                            onPaste={handleComposerPaste}
+                            imageAttachments={imageAttachments}
+                            onRemoveImage={removeImageAttachment}
                             agents={agents}
                             models={models}
                             thinkingLevels={thinkingLevels}
@@ -1408,7 +1500,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
 
     const allItems = [
         ...timelineItems,
-        ...pendingUserMessages,
+        ...(transientItems.some((item) => item.kind === "message" && item.role === "user") ? [] : pendingUserMessages),
         ...transientItems.map((item) =>
             item.kind === "interaction"
                 ? {
@@ -1457,22 +1549,20 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const hasActivePlan = Boolean(workflowContext.planId || workflowContext.planName || progressUrl);
     const workflowStages = deriveWorkflowSidebarStages(workflowProgress);
     const localOperationActive = Boolean(operation && !["completed", "failed", "unknown"].includes(operation.status));
-    const canConfigureSession = availability.canContinue || localOperationActive;
+    const canConfigureSession = availability.canContinue || (localOperationActive && !operation?.remote);
     const stagedAgent = pendingConfiguration?.agentName || timeline?.snapshot?.activeAgent || "";
     const stagedModelKey = pendingConfiguration?.model
         ? `${pendingConfiguration.provider || ""}\u001f${pendingConfiguration.model}`
         : activeModelKey;
     const displayedThinking = liveThinkingLevel || activeThinking;
     const showBusyPanel = ["active", "workspace-running", "execution-workflow"].includes(availability.key);
-    const canRecoverBusySession = availability.key === "active" && typeof timeline?.generation === "number";
-    const busySurface = timeline?.activeSurface || (operation?.operationId ? "workspace" : null);
-    const canSubmitSession = availability.canContinue || availability.key === "active";
+    const canSubmitSession = availability.canContinue || ["active", "workspace-running"].includes(availability.key);
     return (
         <section className="session-surface session-surface-detail" aria-label="RunWield Session chat">
             {loadingDetail && !timeline
                 ? (
                     <p className="session-list-state" aria-busy="true">
-                        <RunWieldThinkingDots label="Loading committed Session timeline" />
+                        <RunWieldThinkingDots label="Loading conversation" />
                     </p>
                 )
                 : null}
@@ -1497,22 +1587,13 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                 {loadingDetail
                                     ? (
                                         <div className="session-inline-loader" aria-live="polite" aria-busy="true">
-                                            <RunWieldThinkingDots label="Updating committed Session timeline" />
+                                            <RunWieldThinkingDots label="Updating conversation" />
                                         </div>
                                     )
                                     : message
                                     ? <div className="session-surface-status" aria-live="polite">{message}</div>
                                     : null}
-                                {showBusyPanel
-                                    ? (
-                                        <SessionBusyPanel
-                                            surface={busySurface}
-                                            canRecover={canRecoverBusySession}
-                                            recovering={recoveringSession}
-                                            onRecover={recoverSessionControl}
-                                        />
-                                    )
-                                    : null}
+                                {showBusyPanel ? <SessionBusyPanel /> : null}
                                 {latestActivityAvailable
                                     ? (
                                         <div className="session-scroll-offer" role="status">
@@ -1521,6 +1602,17 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                                 Latest activity
                                             </button>
                                         </div>
+                                    )
+                                    : null}
+                                {timeline.previousCursor
+                                    ? (
+                                        <RunWieldButton
+                                            type="button"
+                                            onClick={loadEarlierMessages}
+                                            disabled={loadingEarlier}
+                                        >
+                                            {loadingEarlier ? "Loading…" : "Load earlier messages"}
+                                        </RunWieldButton>
                                     )
                                     : null}
                                 <SessionTimeline items={allItems} />
@@ -1534,7 +1626,15 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                 canSend={canSubmitSession && Boolean(draft.trim() || imageAttachments.length)}
                                 submitting={submitting}
                                 onDraftChange={setDraft}
-                                onSubmit={sendRequest}
+                                onSubmit={() => sendRequest()}
+                                onQueue={operation?.operationId ? () => sendRequest(true) : undefined}
+                                onStop={operation?.operationId ? cancelOperation : undefined}
+                                sendLabel={operation?.operationId
+                                    ? "Steer"
+                                    : timeline.state === "active"
+                                    ? "Queue"
+                                    : "Send"}
+                                steeringMessages={steeringMessages}
                                 onPaste={handleComposerPaste}
                                 imageAttachments={imageAttachments}
                                 onRemoveImage={removeImageAttachment}
@@ -1570,154 +1670,159 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                         <aside
                             className="session-workflow-sidebar session-context-sidebar"
                             aria-label="Session context"
+                            data-mobile-open={mobileContextOpen}
                         >
-                            <div className="session-context-tabs" role="tablist" aria-label="Session context views">
-                                {SESSION_SIDEBAR_TABS.map((tab) => (
-                                    <button
-                                        key={tab}
-                                        type="button"
-                                        role="tab"
-                                        aria-selected={sessionSidebarTab === tab}
-                                        onClick={() => setSessionSidebarTab(tab)}
-                                    >
-                                        {tab[0].toUpperCase() + tab.slice(1)}
-                                        {tab === "artifacts" && Array.isArray(timeline.artifacts) &&
-                                                timeline.artifacts.length
-                                            ? <span>{timeline.artifacts.length}</span>
-                                            : null}
-                                    </button>
-                                ))}
-                            </div>
-                            {sessionSidebarTab === "workflow"
-                                ? (
-                                    <div className="session-context-panel" role="tabpanel">
-                                        <p className="kicker">Workflow state</p>
-                                        {hasActivePlan
-                                            ? (
-                                                <>
-                                                    <dl>
-                                                        {workflowSidebar.epic
+                            <RunWieldButton
+                                type="button"
+                                className="session-context-toggle"
+                                aria-expanded={mobileContextOpen}
+                                onClick={() => setMobileContextOpen(!mobileContextOpen)}
+                            >
+                                {mobileContextOpen ? "Hide details" : "Session details"}
+                            </RunWieldButton>
+                            <div className="session-context-content">
+                                <div className="session-context-tabs" role="tablist" aria-label="Session context views">
+                                    {SESSION_SIDEBAR_TABS.map((tab) => (
+                                        <button
+                                            key={tab}
+                                            type="button"
+                                            role="tab"
+                                            aria-selected={sessionSidebarTab === tab}
+                                            onClick={() => setSessionSidebarTab(tab)}
+                                        >
+                                            {tab[0].toUpperCase() + tab.slice(1)}
+                                            {tab === "artifacts" && Array.isArray(timeline.artifacts) &&
+                                                    timeline.artifacts.length
+                                                ? <span>{timeline.artifacts.length}</span>
+                                                : null}
+                                        </button>
+                                    ))}
+                                </div>
+                                {sessionSidebarTab === "workflow"
+                                    ? (
+                                        <div className="session-context-panel" role="tabpanel">
+                                            <p className="kicker">Workflow state</p>
+                                            {hasActivePlan
+                                                ? (
+                                                    <>
+                                                        <dl>
+                                                            {workflowSidebar.epic
+                                                                ? (
+                                                                    <div>
+                                                                        <dt>Epic</dt>
+                                                                        <dd>{workflowSidebar.epic}</dd>
+                                                                    </div>
+                                                                )
+                                                                : null}
+                                                            <div>
+                                                                <dt>Plan</dt>
+                                                                <dd>{workflowSidebar.plan}</dd>
+                                                            </div>
+                                                        </dl>
+                                                        {workflowProgress
                                                             ? (
-                                                                <div>
-                                                                    <dt>Epic</dt>
-                                                                    <dd>{workflowSidebar.epic}</dd>
-                                                                </div>
+                                                                <ol
+                                                                    className="session-workflow-stage-list"
+                                                                    aria-label="Canonical workflow progress stages"
+                                                                >
+                                                                    {workflowStages.map((stage) => (
+                                                                        <li key={stage.id} data-state={stage.state}>
+                                                                            <span>{stage.label}</span>
+                                                                            <strong>
+                                                                                {String(stage.state || "unknown")
+                                                                                    .replaceAll(
+                                                                                        "_",
+                                                                                        " ",
+                                                                                    )}
+                                                                            </strong>
+                                                                            <p>{stage.detail}</p>
+                                                                        </li>
+                                                                    ))}
+                                                                </ol>
+                                                            )
+                                                            : (
+                                                                <p className="notice muted">
+                                                                    {workflowProgressError
+                                                                        ? "Workflow progress is temporarily unavailable."
+                                                                        : "Loading canonical workflow progress…"}
+                                                                </p>
+                                                            )}
+                                                        {progressUrl && !workflowProgressError
+                                                            ? (
+                                                                <RunWieldLink
+                                                                    variant="primary"
+                                                                    className="rw-plan-review-link"
+                                                                    href={progressUrl}
+                                                                >
+                                                                    Open progress
+                                                                </RunWieldLink>
                                                             )
                                                             : null}
-                                                        <div>
-                                                            <dt>Plan</dt>
-                                                            <dd>{workflowSidebar.plan}</dd>
-                                                        </div>
-                                                    </dl>
-                                                    {workflowProgress
-                                                        ? (
-                                                            <ol
-                                                                className="session-workflow-stage-list"
-                                                                aria-label="Canonical workflow progress stages"
-                                                            >
-                                                                {workflowStages.map((stage) => (
-                                                                    <li key={stage.id} data-state={stage.state}>
-                                                                        <span>{stage.label}</span>
-                                                                        <strong>
-                                                                            {String(stage.state || "unknown")
-                                                                                .replaceAll(
-                                                                                    "_",
-                                                                                    " ",
-                                                                                )}
-                                                                        </strong>
-                                                                        <p>{stage.detail}</p>
-                                                                    </li>
-                                                                ))}
-                                                            </ol>
-                                                        )
-                                                        : (
-                                                            <p className="notice muted">
-                                                                {workflowProgressError
-                                                                    ? "Workflow progress is temporarily unavailable."
-                                                                    : "Loading canonical workflow progress…"}
-                                                            </p>
-                                                        )}
-                                                    {progressUrl && !workflowProgressError
-                                                        ? (
-                                                            <RunWieldLink
-                                                                variant="primary"
-                                                                className="rw-plan-review-link"
-                                                                href={progressUrl}
-                                                            >
-                                                                Open progress
-                                                            </RunWieldLink>
-                                                        )
-                                                        : null}
-                                                </>
-                                            )
-                                            : (
-                                                <p className="session-context-empty">
-                                                    This Session does not have an active Plan workflow.
-                                                </p>
-                                            )}
-                                    </div>
-                                )
-                                : sessionSidebarTab === "session"
-                                ? (
-                                    <div className="session-context-panel" role="tabpanel">
-                                        <p className="kicker">Session</p>
-                                        <SessionActivationStatus availability={availability} compact />
-                                        <dl>
-                                            <div>
-                                                <dt>State</dt>
-                                                <dd>{timeline.state || "unknown"}</dd>
-                                            </div>
-                                            <div>
-                                                <dt>Agent</dt>
-                                                <dd>{timeline.snapshot?.activeAgent || "Not recorded"}</dd>
-                                            </div>
-                                            <div>
-                                                <dt>Model</dt>
-                                                <dd>{activeModelId || "Project default"}</dd>
-                                            </div>
-                                            <div>
-                                                <dt>Thinking</dt>
-                                                <dd>{displayedThinking}</dd>
-                                            </div>
-                                            <div>
-                                                <dt>Generation</dt>
-                                                <dd>{timeline.generation ?? "Not committed"}</dd>
-                                            </div>
-                                        </dl>
-                                    </div>
-                                )
-                                : (
-                                    <div className="session-context-panel" role="tabpanel">
-                                        <p className="kicker">Artifacts</p>
-                                        {Array.isArray(timeline.artifacts) && timeline.artifacts.length
-                                            ? (
-                                                <ul className="session-artifact-list">
-                                                    {timeline.artifacts.map((artifact) => (
-                                                        <li key={artifact.artifactId}>
-                                                            <a
-                                                                href={`/projects/${
-                                                                    encodeURIComponent(projectId)
-                                                                }/sessions/${
-                                                                    encodeURIComponent(runwieldSessionId)
-                                                                }/artifacts/${encodeURIComponent(artifact.artifactId)}`}
-                                                            >
-                                                                <span>{artifact.title}</span>
-                                                                <small>
-                                                                    {sessionArtifactKindLabel(artifact.kind)}
-                                                                </small>
-                                                            </a>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            )
-                                            : (
-                                                <p className="session-context-empty">
-                                                    Meaningful Markdown outputs will appear here when an agent declares
-                                                    them.
-                                                </p>
-                                            )}
-                                    </div>
-                                )}
+                                                    </>
+                                                )
+                                                : (
+                                                    <p className="session-context-empty">
+                                                        This Session does not have an active Plan workflow.
+                                                    </p>
+                                                )}
+                                        </div>
+                                    )
+                                    : sessionSidebarTab === "session"
+                                    ? (
+                                        <div className="session-context-panel" role="tabpanel">
+                                            <p className="kicker">Session</p>
+                                            <SessionActivationStatus availability={availability} compact />
+                                            <dl>
+                                                <div>
+                                                    <dt>Agent</dt>
+                                                    <dd>{timeline.snapshot?.activeAgent || "Not recorded"}</dd>
+                                                </div>
+                                                <div>
+                                                    <dt>Model</dt>
+                                                    <dd>{activeModelId || "Project default"}</dd>
+                                                </div>
+                                                <div>
+                                                    <dt>Thinking</dt>
+                                                    <dd>{displayedThinking}</dd>
+                                                </div>
+                                            </dl>
+                                        </div>
+                                    )
+                                    : (
+                                        <div className="session-context-panel" role="tabpanel">
+                                            <p className="kicker">Artifacts</p>
+                                            {Array.isArray(timeline.artifacts) && timeline.artifacts.length
+                                                ? (
+                                                    <ul className="session-artifact-list">
+                                                        {timeline.artifacts.map((artifact) => (
+                                                            <li key={artifact.artifactId}>
+                                                                <a
+                                                                    href={`/projects/${
+                                                                        encodeURIComponent(projectId)
+                                                                    }/sessions/${
+                                                                        encodeURIComponent(runwieldSessionId)
+                                                                    }/artifacts/${
+                                                                        encodeURIComponent(artifact.artifactId)
+                                                                    }`}
+                                                                >
+                                                                    <span>{artifact.title}</span>
+                                                                    <small>
+                                                                        {sessionArtifactKindLabel(artifact.kind)}
+                                                                    </small>
+                                                                </a>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                )
+                                                : (
+                                                    <p className="session-context-empty">
+                                                        Meaningful Markdown outputs will appear here when an agent
+                                                        declares them.
+                                                    </p>
+                                                )}
+                                        </div>
+                                    )}
+                            </div>
                         </aside>
                     </div>
                 )

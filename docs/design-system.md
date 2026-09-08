@@ -108,8 +108,8 @@ Do not add separate spinners for Session timeline waits.
 
 ### Session timeline and control patterns
 
-Session detail surfaces use one ordered timeline for committed history. Live Workspace-owned waits appear as temporary
-items and must look different from committed transcript entries. If the server process loses that wait, show the plain
+Session detail surfaces use one ordered timeline for committed history. Live Core waits appear as temporary items and
+must look different from committed transcript entries. If the server process loses that wait, show the plain
 interruption line: “The agent was interrupted. Ask it to continue.” Do not style it as transcript history.
 
 Treat the Session as one continuous work surface. Use dividers, subtle intent rails, and background shifts to
@@ -121,11 +121,15 @@ Mobile Session composers stay in the normal surface stack, preserve drafts, and 
 New Session composer uses a visible screen heading and an empty text field; do not add helper copy or dev/API messages
 inside the composer. Dev-only notices belong in a separate shell row above the Session surface.
 
-Busy Sessions stay read-only until the owning surface releases Session Control. Do not show a **Take control** action in
-the normal Session shell. Refresh availability and enable the composer automatically when committed state becomes idle.
-When the current Workspace owns the running operation, Agent and model controls can accept one pending change and must
-show **Applies after this response** until the server commits or clears it. Thinking changes can show immediately when
-the Runtime accepts them.
+The composer stays usable while a Session is working. **Steer** sends a message to the current agent; **Queue** saves a
+follow-up in the current browser tab. Show pending steering and queued follow-ups above the input. Discover running
+turns and questions by Session identity, including turns started in the TUI. A busy Session needs no takeover or
+recovery control. If the running process is briefly unavailable, keep the draft and allow queuing. Agent and model
+controls can accept one pending change when the current Workspace owns the operation; show **Applies after this
+response** until it is applied. Thinking changes can show immediately when Core accepts them.
+
+Open conversations at the latest messages and offer **Load earlier messages** above the timeline. Loading old history
+must not disable Send. Keep Session generations, locks, and request-delivery details out of the ordinary screen.
 
 Completed contiguous technical entries can collapse into one chronological **Activity** group after the next Agent
 message starts. Expansion must show the original tool names, thinking text, output, and errors. Running or trailing
@@ -142,9 +146,10 @@ the same placement immediately above its editor.
 ### Session context sidebar
 
 Every persisted Session has one durable context sidebar beside its transcript. Do not show the sidebar for the
-unsubmitted New Session composer. The sidebar has three peer tabs in this order: **Workflow**, **Session**, and
-**Artifacts**. Default to Workflow when the Session has an active workflow; otherwise default to Session. Preserve the
-reader's selected tab while the same Session remains open.
+unsubmitted New Session composer. On narrow screens, collapse it behind **Session details** so the conversation and
+composer stay visible. The sidebar has three peer tabs in this order: **Workflow**, **Session**, and **Artifacts**.
+Default to Workflow when the Session has an active workflow; otherwise default to Session. Preserve the reader's
+selected tab while the same Session remains open.
 
 Workflow shows canonical workflow stages and their state, not a second transcript. When the active Plan explicitly
 belongs to an Epic, show **Epic** and its name above **Plan** and the child Plan name; omit Epic for standalone Plans.

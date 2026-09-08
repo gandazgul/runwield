@@ -63,13 +63,10 @@ import {
     toProjectionFailure,
 } from "./session-transcript-projection.js";
 import { projectAggregateTranscript } from "./session-transcript-manifest.ts";
-import {
-    appendSessionAttentionRequest,
-    appendSessionAttentionResolution,
-    readUnresolvedSessionAttention,
-} from "./session-attention.ts";
 import { rollSessionTranscriptSegment } from "./segment-rollover.ts";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "./session-runtime-interactions.js";
+import { appendLiveSessionEvent } from "./live-session-events.ts";
+import { openLiveSessionConnection } from "./live-session-connection.ts";
 import {
     modelSupportsImageInput,
     persistImageAttachment,
@@ -304,7 +301,6 @@ class ManagedOperationCapability {
     /** @type {import('./file-session-store-types.ts').FileSessionStore} */
     #sessionStore;
     #settled = false;
-    #acceptedInteractionResult = false;
     #abortController = new AbortController();
 
     get proof() {
@@ -317,15 +313,6 @@ class ManagedOperationCapability {
 
     get signal() {
         return this.#abortController.signal;
-    }
-
-    get acceptedInteractionResult() {
-        return this.#acceptedInteractionResult;
-    }
-
-    markAcceptedInteractionResult() {
-        this.assertLive();
-        this.#acceptedInteractionResult = true;
     }
 
     cancel() {
@@ -466,33 +453,6 @@ function resolvePersistedResumeModel(sessionManager) {
 }
 
 /**
- * Decide whether a projected attention record is newly observed for a session.
- *
- * The projector reports the last attention entry in the entire committed
- * transcript, so the same record repeats on every sync. Matching it against the
- * freshly replayed event batch cannot work: `createReplayEvents` has no branch
- * for `runwield.attention` entries, so that eventId is never present in the
- * batch and the comparison was permanently false. Compare against the id
- * observed on the previous sync instead, and treat "never observed" as a silent
- * seed so adopting a session whose transcript already contains an attention
- * entry does not notify about history.
- *
- * @param {{ latestAttention?: { attentionId?: string | null } | null } | null | undefined} summary
- * @param {Set<string> | string | null | undefined} previousAttentionEventIds ids observed on the
- *   previous sync, `null` when that sync saw none, `undefined` when this session
- *   has never been synchronized
- * @returns {boolean}
- */
-export function shouldEmitProjectedAttention(summary, previousAttentionEventIds) {
-    const latestAttention = summary?.latestAttention || null;
-    const attentionId = typeof latestAttention?.attentionId === "string" ? latestAttention.attentionId : null;
-    if (!attentionId) return false;
-    if (previousAttentionEventIds === undefined) return false;
-    if (previousAttentionEventIds instanceof Set) return !previousAttentionEventIds.has(attentionId);
-    return attentionId !== previousAttentionEventIds;
-}
-
-/**
  * @param {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']> | null | undefined} previous
  * @param {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} next
  * @returns {boolean}
@@ -548,8 +508,10 @@ export class SessionRuntime {
     #pendingManagedCreationProjects;
     /** @type {Map<string, import('./session-runtime-events.js').SessionRuntimeEvent[]>} */
     #pendingReplayEvents;
-    /** @type {Map<string, Set<string> | null>} */
-    #observedAttentionEventIds;
+
+    /** @type {Map<string, import("./session-runtime-events.js").SessionRuntimeEvent[]>} */
+    #liveSessionEvents = new Map();
+    /** @type {Map<string, string | null>} */
     /** @type {WeakMap<import('./hosted-session.js').MinimalSessionManagerLike, { leafId: string | null, info: ReturnType<typeof buildProjectedSessionInfo> }>} */
     #activeSessionInfoCache;
     /** @type {FileSessionStoreOwner} */
@@ -573,7 +535,6 @@ export class SessionRuntime {
         this.#currentManagedOperationSettlements = new Map();
         this.#pendingManagedCreationProjects = new Map();
         this.#pendingReplayEvents = new Map();
-        this.#observedAttentionEventIds = new Map();
         this.#activeSessionInfoCache = new WeakMap();
         this.#sessionStoreOwner = new FileSessionStoreOwner(
             composition.sessionStore,
@@ -2760,7 +2721,6 @@ export class SessionRuntime {
             this.#pendingManagedCreations.delete(id);
             this.#pendingManagedCreationProjects.delete(id);
             this.#pendingReplayEvents.delete(id);
-            this.#observedAttentionEventIds.delete(id);
         }
         return { ok: true, closed };
     }
@@ -2862,6 +2822,8 @@ export class SessionRuntime {
             : undefined;
         const enrichedEvent = /** @type {any} */ (sessionName ? { ...event, sessionName } : event);
         const runtimeEvent = createSessionRuntimeEvent(sessionId, enrichedEvent);
+        const liveEvents = this.#liveSessionEvents.get(sessionId);
+        if (liveEvents) appendLiveSessionEvent(liveEvents, runtimeEvent);
         const listeners = this.#eventListeners.get(sessionId);
         if (!listeners) {
             if (runtimeEvent.type === RuntimeEventTypes.SYSTEM_STATUS) {
@@ -3411,33 +3373,10 @@ export class SessionRuntime {
             };
             hostedSession.setManagedMetadata(nextMetadata);
             managed = hostedSession.getManagedMetadata?.() || nextMetadata;
-            const projectedAttention = /** @type {Array<{ attentionId?: string }>} */ (
-                Array.isArray(summary.attention) ? summary.attention : []
-            );
-            // Record the observation on every sync, including non-emitting ones, so
-            // the adoption sync seeds the baseline and only genuinely new attention
-            // records reach the notifier.
-            const previousAttentionEventIds = this.#observedAttentionEventIds.get(sessionId);
-            this.#observedAttentionEventIds.set(
-                sessionId,
-                new Set(projectedAttention.map((entry) => entry.attentionId).filter((id) => typeof id === "string")),
-            );
             if (emitEvents) {
                 for (const event of events) this.#emitSessionEvent(sessionId, /** @type {any} */ (event));
                 if (summary.name) {
                     this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.SESSION_RENAMED, name: summary.name });
-                }
-                if (shouldEmitProjectedAttention(summary, previousAttentionEventIds)) {
-                    const latestAttention = summary.latestAttention;
-                    this.#emitSessionEvent(sessionId, {
-                        type: RuntimeEventTypes.ATTENTION_REQUESTED,
-                        eventId: latestAttention.attentionId,
-                        runwieldSessionId: latestAttention.runwieldSessionId,
-                        generation: latestAttention.generation,
-                        reason: latestAttention.reason || "agentStopped",
-                        agentName: latestAttention.agentName || undefined,
-                        sessionName: latestAttention.sessionName || undefined,
-                    });
                 }
             }
             if (managed.syncState && !isSameManagedSyncState(previousSyncState, managed.syncState)) {
@@ -3811,6 +3750,10 @@ export class SessionRuntime {
             }
         }
         if (!managed) throw new Error("SessionRuntime.promptUserTurn: segmented Session metadata is unavailable");
+        if (!isDeferredFirstTurn && !this.#currentManagedOperations.has(sessionId)) {
+            await this.synchronizeManagedSession(sessionId);
+            managed = hostedSession.getManagedMetadata() || managed;
+        }
         const requestOptions = deferredFirstTurnId
             ? { ...options, initialRequest: displayRequest, turnId: deferredFirstTurnId, emitInitialEvents: false }
             : { ...options, initialRequest: displayRequest };
@@ -3935,13 +3878,22 @@ export class SessionRuntime {
         );
         hostedSession.setManagedOperationCapability(capability);
         let hydrated = false;
-        /** @type {Set<string>} */
-        let priorUnresolvedAttentionIds = new Set();
+        /** @type {(() => Promise<void>) | null} */
+        let closeLiveConnection = null;
         /** @type {() => void} */
         let cleanupTurnStart = () => {};
         const shouldEmitBusyEvents = options.emitBusyEvents !== false;
         if (shouldEmitBusyEvents) this.#beginBusyOperation(sessionId);
         try {
+            /** @type {import("./session-runtime-events.js").SessionRuntimeEvent[]} */
+            const liveEvents = [];
+            this.#liveSessionEvents.set(sessionId, liveEvents);
+            closeLiveConnection = await openLiveSessionConnection(
+                this,
+                hostedSession,
+                activeProof.operationId,
+                liveEvents,
+            );
             const pendingIntent = hostedSession.getPendingManagedTurnIntent?.() || {};
             if (state.generation) {
                 const generationSegment = this.#sessionStore.listSessionTranscriptSegments(
@@ -3968,22 +3920,6 @@ export class SessionRuntime {
                         turns: 0,
                         error: "reconcile_required",
                     };
-                }
-                const aggregateProjection = await projectAggregateTranscript({
-                    cwd: hostedSession.cwd,
-                    sessionDir: dirname(managed.transcriptPath),
-                    runwieldSessionId: managed.runwieldSessionId,
-                    generation: state.generation,
-                    segments: this.#sessionStore.listSessionTranscriptSegments(managed.runwieldSessionId),
-                    limit: 0,
-                });
-                if (aggregateProjection.ok) {
-                    priorUnresolvedAttentionIds = new Set(
-                        readUnresolvedSessionAttention(
-                            /** @type {any} */ (aggregateProjection.snapshot.attention || []),
-                        )
-                            .map((entry) => entry.attentionId),
-                    );
                 }
             }
             const acceptedTurnId = options.turnId || crypto.randomUUID();
@@ -4089,32 +4025,6 @@ export class SessionRuntime {
                 hostedSession.getActiveModelState?.() || {},
                 managed,
             );
-            const rootSessionManager = hostedSession.getRootSessionManager?.() || null;
-            const responseResolution = capability.acceptedInteractionResult
-                ? "interaction_result"
-                : options.initialRequest !== undefined && /** @type {any} */ (result)?.ok === true
-                ? "user_message"
-                : null;
-            if (!capability.signal.aborted && responseResolution) {
-                for (const attentionId of priorUnresolvedAttentionIds) {
-                    appendSessionAttentionResolution(rootSessionManager, {
-                        attentionId,
-                        resolution: /** @type {"user_message" | "interaction_result"} */ (responseResolution),
-                        generation: nextGeneration,
-                    });
-                }
-            }
-            const attentionRequest = !capability.signal.aborted && /** @type {any} */ (result)?.ok === true
-                ? /** @type {any} */ (result).attentionRequest || null
-                : null;
-            const committedAttentionRequest = attentionRequest
-                ? appendSessionAttentionRequest(rootSessionManager, {
-                    runwieldSessionId: managed.runwieldSessionId,
-                    agentName: String(attentionRequest.agentName || hostedSession.getRootAgentName?.() || "Agent"),
-                    sessionName: rootSessionManager?.getSessionName?.() || managed.name || "Session",
-                    generation: nextGeneration,
-                })
-                : null;
             const nextManaged = {
                 ...managed,
                 generation: nextGeneration,
@@ -4142,21 +4052,6 @@ export class SessionRuntime {
             });
             hostedSession.setManagedMetadata(nextManaged);
             await this.synchronizeManagedSession(sessionId, { emitEvents: false });
-            if (committedAttentionRequest) {
-                const currentState = this.#sessionStore.inspectSessionActivation(managed.runwieldSessionId);
-                if (currentState.generation?.generation === nextGeneration) {
-                    this.#emitSessionEvent(sessionId, {
-                        type: RuntimeEventTypes.ATTENTION_REQUESTED,
-                        eventId: committedAttentionRequest.attentionId,
-                        runwieldSessionId: committedAttentionRequest.runwieldSessionId,
-                        generation: committedAttentionRequest.generation,
-                        reason: committedAttentionRequest.reason,
-                        agentName: committedAttentionRequest.agentName,
-                        sessionName: committedAttentionRequest.sessionName,
-                    });
-                }
-            }
-            if (result && typeof result === "object") delete (/** @type {any} */ (result)).attentionRequest;
             return result;
         } catch (error) {
             hostedSession.dehydrateManagedSession();
@@ -4193,6 +4088,8 @@ export class SessionRuntime {
             }
             throw error;
         } finally {
+            this.#liveSessionEvents.delete(sessionId);
+            await closeLiveConnection?.();
             cleanupTurnStart();
             capability.settle();
             this.#currentManagedOperations.delete(sessionId);
@@ -4817,7 +4714,7 @@ export class SessionRuntime {
             "workflow_operation",
             (activeSession, operationCapability) =>
                 requestHostedSessionInteraction(activeSession, request, signal, operationCapability),
-            { activateAgent: false },
+            { activateAgent: false, hydrate: false },
         );
     }
 
@@ -5151,13 +5048,7 @@ export class SessionRuntime {
             turns++;
             validationResult = /** @type {any} */ (turnResult)?.validationResult || null;
             ok = true;
-            result = {
-                ok: true,
-                turns,
-                ...(/** @type {any} */ (turnResult)?.attentionRequest
-                    ? { attentionRequest: /** @type {any} */ (turnResult).attentionRequest }
-                    : {}),
-            };
+            result = { ok: true, turns };
             return result;
         } catch (error) {
             this.#emitSessionEvent(hostedSession.id, {
@@ -5233,23 +5124,16 @@ export function deriveManagedSessionContinuationDecision(facts) {
     if (generation === null || generation !== facts.expectedGeneration) {
         return { ok: false, code: "stale_generation", message: "Refresh the Session before continuing." };
     }
-    if (!facts.projection?.ok || facts.projection.complete === false) {
+    if (!facts.projection?.ok) {
         return { ok: false, code: "incomplete_projection", message: "The committed timeline is not complete." };
     }
     const snapshot = facts.projection.snapshot || {};
-    if (snapshot.activeExecutionWorkflow) {
-        return {
-            ok: false,
-            code: "active_workflow_read_only",
-            message: "This Session is running work. It becomes available when that work finishes.",
-        };
-    }
     return {
         ok: true,
         code: "continue",
         agentName: typeof snapshot.activeAgent === "string" && snapshot.activeAgent
             ? snapshot.activeAgent
             : AGENTS.ROUTER,
-        message: "This idle conversational Session can continue.",
+        message: "Ready for your next message.",
     };
 }
