@@ -167,6 +167,22 @@ Deno.test("live footer controller subscribes to usage and rebinds on Session rep
     }
 });
 
+Deno.test("live footer controller tolerates startup before a Session exists", () => {
+    const controller = createChatFooterController({
+        runtime: {
+            getSessionSnapshot: () => null,
+            subscribeSessionEvents: () => () => {},
+        },
+        getSessionId: () => "pending-session",
+        requestRender: () => {},
+    });
+    try {
+        assertEquals(controller.component.render(100), ["", ""]);
+    } finally {
+        controller.dispose();
+    }
+});
+
 Deno.test("live footer controller renders and clears the Ctrl+C pending exit notice", async () => {
     const activeSessionId = "session-one";
     const runtime = makeFooterRuntime(activeSessionId);

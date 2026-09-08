@@ -465,7 +465,7 @@ export const loadPlanWorktreeInspectResetScenario = {
     assertions: [
         assertsGoldenCoverage("recovery:load-plan-worktree", (result: GoldenScenarioResult) => {
             assertEventIncludes(result, "project:worktree-seeded:recover-reset");
-            assertScreenIncludes(result, "Plan Recovery");
+            assertScreenIncludes(result, "Completed after recovery reset.");
             assert(
                 ["validated_ci", "verified"].includes(planStatus(result, "recover-reset")),
                 `Expected recovery reset to re-run and validate the Plan; got ${planStatus(result, "recover-reset")}`,

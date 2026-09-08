@@ -53,7 +53,7 @@ function assertHelpSlashVisible(result) {
 
 /** @param {GoldenScenarioResult} result */
 function assertKeyboardHelpVisible(result) {
-    assertScreenIncludes(result, "Usage:");
+    assertScreenIncludes(result, "Global flags:");
 }
 
 /** @param {GoldenScenarioResult} result */
