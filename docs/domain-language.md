@@ -169,8 +169,9 @@ remain `QUICK_FIX`. _Avoid_: INQUIRY, OPERATION, QUICK_FIX, Routing Intent
 **Legacy FEATURE Classification**: The old Routing Intent and Plan Classification value that means PLANNED_CHANGE rather
 than necessarily new functionality. _Avoid_: Enhancement, new feature
 
-**PROJECT**: The Routing Intent and non-executable Epic Plan Classification for work the Architect designs and the
-Slicer decomposes into child PLANNED_CHANGE Plans. _Avoid_: Initiative, refactor, task DAG
+**PROJECT**: The Routing Intent for architectural planning, and the non-executable container Plan Classification.
+`type: epic` (the default when absent) uses Architect and Slicer; `type: sequence` contains complete Planner-authored
+child Plans reviewed together. _Avoid_: Initiative, refactor, task DAG
 
 **Complexity**: A `LOW`, `MEDIUM`, or `HIGH` rating assigned during Triage. _Avoid_: Difficulty, effort, severity
 
@@ -417,9 +418,9 @@ orchestrator, classifier, triager
 
 **Operator**: The execution Agent for `OPERATION` work. _Avoid_: Executor, fixer, worker
 
-**Planner**: The planning Agent for `PLANNED_CHANGE` work. _Avoid_: Designer, strategist
+**Planner**: The planning Agent for `PLANNED_CHANGE` work and complete PROJECT Sequences. _Avoid_: Designer, strategist
 
-**Architect**: The planning Agent for `PROJECT` work. _Avoid_: Designer, lead
+**Architect**: The planning Agent for PROJECT Epics. _Avoid_: Designer, lead
 
 **Guide**: The read-mostly Agent for `INQUIRY` work that answers directly without materializing artifacts or running a
 Socratic interview. _Avoid_: Explainer, investigator, researcher
@@ -510,11 +511,16 @@ looks for ways an implementation could satisfy its outcomes, steps, and verifica
 intended behavior. Recommended for structural or high-risk Plans; never a required gate. _Avoid_: Plan reviewer,
 Reviewer, red team, adversarial validation
 
-**Epic**: A PROJECT Plan that contains design and decomposition context for child PLANNED_CHANGE Plans rather than
-executable implementation work. _Avoid_: Initiative, umbrella task, PROJECT subtype
+**Epic**: A PROJECT Plan with `type: epic` or no type, containing design and decomposition context. Its approval action
+is Approve & Slice. _Avoid_: Initiative, umbrella task
 
-**Child PLANNED_CHANGE Plan**: An executable PLANNED_CHANGE Plan linked to an Epic through `parentPlan`. _Avoid_: Child
-FEATURE Plan, subtask, ticket, DAG node
+**Sequence**: A PROJECT Plan with `type: sequence` whose brief context and complete child Plans are authored by Planner
+and reviewed together. Approve & Execute starts the first child; normal PROJECT continuation runs subsequent children in
+order. Each child retains its own validation and delivery. A Sequence has no aggregate validation, publication, or
+automatic Epic release branch. _Avoid_: Epic, separate chain manifest
+
+**Child PLANNED_CHANGE Plan**: An executable PLANNED_CHANGE Plan linked to a PROJECT container through `parentPlan`.
+_Avoid_: Child FEATURE Plan, subtask, ticket, DAG node
 
 **Epic Artifact**: A reserved non-Plan Markdown file stored beside an Epic's Child PLANNED_CHANGE Plans. The first Epic
 Artifact is `docs/plans/<epic>/manual-qa.md`. It is ordinary user-owned Markdown, has no Plan Lifecycle, and has no

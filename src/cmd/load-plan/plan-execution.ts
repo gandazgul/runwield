@@ -10,7 +10,7 @@
 import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
 import { loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { isGitRepositoryRequiredError } from "../../shared/git.js";
-import { isEpicPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { isProjectPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { decidePostExecution } from "../../shared/workflow/decisions.js";
 import { finalizePlanImplementation } from "../../shared/workflow/workflow.js";
 import { listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.js";
@@ -477,7 +477,7 @@ export async function prepareApprovedPlanForWork(
     uiAPI: UiAPI,
 ): Promise<boolean> {
     if (!validatePlanExecutionPolicyForReadiness(plan, uiAPI)) return false;
-    if (isEpicPlan(plan.attrs)) {
+    if (isProjectPlan(plan.attrs)) {
         await recordPlanEvent({
             cwd: projectRoot,
             planName: plan.planName,

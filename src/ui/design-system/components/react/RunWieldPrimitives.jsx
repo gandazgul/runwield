@@ -62,15 +62,28 @@ export function RunWieldThinkingDots({ label = "Thinking", className }) {
 }
 
 /**
- * @param {{ defaultValue: string, tabs: Array<{ value: string, label: string, children: any }> }} props
+ * @typedef {Object} RunWieldTab
+ * @property {string} value
+ * @property {string} label
+ * @property {import('react').ReactNode} children
+ * @typedef {Object} RunWieldTabsProps
+ * @property {string} defaultValue
+ * @property {RunWieldTab[]} tabs
+ * @property {string} [value]
+ * @property {(value: string) => void} [onValueChange]
+ * @property {boolean} [keepMounted]
+ * @property {string} [label]
+ * @param {RunWieldTabsProps} props
  */
-export function RunWieldTabs({ defaultValue, tabs }) {
+export function RunWieldTabs(
+    { defaultValue, tabs, value, onValueChange, keepMounted = false, label = "Review sections" },
+) {
     return React.createElement(
         Tabs.Root,
-        { defaultValue, className: "rw-react-tabs" },
+        { defaultValue, value, onValueChange, className: "rw-react-tabs" },
         React.createElement(
             Tabs.List,
-            { className: "tabs", "aria-label": "Review sections" },
+            { className: "tabs", "aria-label": label },
             tabs.map((tab) =>
                 React.createElement(
                     Tabs.Trigger,
@@ -82,7 +95,13 @@ export function RunWieldTabs({ defaultValue, tabs }) {
         tabs.map((tab) =>
             React.createElement(
                 Tabs.Content,
-                { key: tab.value, value: tab.value, className: "rw-react-tabs-content" },
+                {
+                    key: tab.value,
+                    value: tab.value,
+                    forceMount: keepMounted || undefined,
+                    hidden: keepMounted && value !== tab.value,
+                    className: "rw-react-tabs-content",
+                },
                 tab.children,
             )
         ),

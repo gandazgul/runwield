@@ -1,3 +1,4 @@
+import { projectPlanType } from "../project-plan.ts";
 import { resolve } from "node:path";
 import {
     getStoredPlanPath,
@@ -84,7 +85,7 @@ function reviewRejected(message: string): SharedPlanReviewActionResult {
  * controller-owned projections, and compare the body separately. The eventual
  * write still uses the current byte revision as its atomic compare-and-set.
  */
-function reviewSourceStillMatches(
+export function reviewSourceStillMatches(
     current: { attrs: PlanFrontMatter; body: string },
     originalAttrs: PlanFrontMatter,
     originalBody: string,
@@ -164,6 +165,13 @@ export async function applySharedPlanReviewDecision({
     } else if (location.plan && resolve(getStoredPlanPath(cwd, planName)) === resolve(planPath)) {
         return reviewRejected("The execution Plan is now the editable copy. Reload the review to continue.");
     }
+    try {
+        if (projectPlanType(location.plan?.attrs || originalAttrs) === "sequence") {
+            return reviewRejected("Review the Sequence and every child together through plan_written.");
+        }
+    } catch (error) {
+        return reviewRejected(error instanceof Error ? error.message : String(error));
+    }
     const approved = decision.approved === true;
     const canonicalClassification = validatedClassification(trustedClassification);
     if (!canonicalClassification) return reviewRejected("Plan review classification is not supported.");
@@ -188,6 +196,7 @@ export async function applySharedPlanReviewDecision({
     let reviewedPlan = typeof decision.plan === "string" ? decision.plan : planWithFrontMatter;
     const canonicalReviewOverrides = {
         classification: canonicalClassification,
+        type: originalAttrs.type,
         ...(trustedWorkKind ? { workKind: trustedWorkKind } : {}),
     };
     if (canonicalClassification === "PROJECT") {

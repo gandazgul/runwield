@@ -8,7 +8,7 @@
 
 import { CLI_BIN } from "../../constants.js";
 import { findPlansByParent } from "../../plan-store.js";
-import { isEpicPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { isProjectPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.js";
 import { runRecoveryTransition } from "../../shared/workflow/state-transition.ts";
 import { resolveWorkRecordSupersessionProposalsWithUi } from "../../shared/workflow/validation-helpers.ts";
@@ -155,7 +155,7 @@ export async function putPlanOnHold(
         return false;
     }
 
-    if (isEpicPlan(plan.attrs)) {
+    if (isProjectPlan(plan.attrs)) {
         const children = await findPlansByParent(projectRoot, plan.planName);
         const childSummary = children.length > 0 ? `\n\n${formatEpicProgressSummary(children)}` : "";
         const confirmed = await confirmHoldWarning(
@@ -568,7 +568,7 @@ export async function handleOnHoldPlan({
             const refreshed = await loadPlan(projectRoot, plan.planName);
             if (refreshed) Object.assign(plan, refreshed);
             uiAPI.appendSystemMessage(`Resumed from hold. Restored status: ${plan.attrs.status}.`, false, "RunWield");
-            if (isEpicPlan(plan.attrs)) {
+            if (isProjectPlan(plan.attrs)) {
                 const children = await findPlansByParent(projectRoot, plan.planName);
                 if (children.length > 0) {
                     uiAPI.appendSystemMessage(formatEpicProgressSummary(children), false, "RunWield");

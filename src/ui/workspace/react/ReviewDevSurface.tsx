@@ -613,7 +613,16 @@ const GUIDE_DEV_VARIANTS = [
     { id: "long-title", label: "Long title" },
 ];
 
-const PLAN_DEV_VARIANTS = ["feature", "project", "stale", "expired", "recovery", "read-plan", "read-work-record"];
+const PLAN_DEV_VARIANTS = [
+    "feature",
+    "project",
+    "sequence",
+    "stale",
+    "expired",
+    "recovery",
+    "read-plan",
+    "read-work-record",
+];
 
 function buildCodeReviewDevPayload(variant) {
     const base = {
@@ -810,6 +819,41 @@ export function ReviewDevSurface({ surface, presentation = "standalone", variant
             },
             reviewNotice: planNotice,
         };
+    if (planVariant === "sequence") {
+        planPayload.sequenceDocuments = [
+            {
+                planId: "sequence-demo",
+                planName: "review-improvements",
+                planPath: "review-improvements.md",
+                plan:
+                    "# Review improvements\n\n## Context\n\nKeep related changes together.\n\n## Objective\n\nImprove review in two ordered Plans.\n\n## Children\n\n1. Build review controls.\n2. Connect feedback after the controls are ready.",
+                frontmatter: { classification: "PROJECT", type: "sequence" },
+            },
+            {
+                planId: "controls-demo",
+                planName: "review-improvements/controls",
+                planPath: "controls.md",
+                plan: PLAN_FIXTURE,
+                frontmatter: {
+                    classification: "PLANNED_CHANGE",
+                    executionAgent: "frontend-engineer",
+                    collaborationRecommendation: "autonomous",
+                },
+            },
+            {
+                planId: "feedback-demo",
+                planName: "review-improvements/feedback",
+                planPath: "feedback.md",
+                plan: SECOND_PLAN_FIXTURE,
+                frontmatter: {
+                    classification: "PLANNED_CHANGE",
+                    executionAgent: "engineer",
+                    collaborationRecommendation: "pair",
+                },
+            },
+        ];
+        delete planPayload.executionPolicy;
+    }
     const readPlanPayload = {
         surface: "artifact-read",
         markdown: PLAN_FIXTURE,

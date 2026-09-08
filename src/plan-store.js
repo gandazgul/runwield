@@ -1,3 +1,5 @@
+import { isProjectPlan } from "./shared/project-plan.ts";
+export { isEpicPlan, isProjectPlan, isSequencePlan } from "./shared/project-plan.ts";
 /**
  * @module plan-store
  * Manages plan persistence: front matter injection, save/load/list, and
@@ -73,6 +75,7 @@ export const PLAN_AMENDMENT_DEFINITION_KEYS = Object.freeze([
 /** Front Matter fields that require a fresh Plan review instead of hot validation adoption. */
 export const PLAN_AMENDMENT_EXECUTION_SHAPING_KEYS = Object.freeze([
     PLAN_FRONT_MATTER_KEYS.classification,
+    PLAN_FRONT_MATTER_KEYS.type,
     PLAN_FRONT_MATTER_KEYS.planId,
     PLAN_FRONT_MATTER_KEYS.executionAgent,
     PLAN_FRONT_MATTER_KEYS.collaborationRecommendation,
@@ -231,6 +234,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string} [planId] - Durable project-scoped resource identity for URL/addressable Plan lookup
  * @property {"QUICK_FIX"|"PLANNED_CHANGE"|"FEATURE"|"PROJECT"} classification
  * @property {"BUG_FIX"|"FEATURE"|"REFACTOR"|"MAINTENANCE"|"DOCUMENTATION"} [workKind] - Optional nature of planned executable work; legacy classification FEATURE does not imply this.
+ * @property {string} [type] - PROJECT capability: epic (default) or sequence. Invalid values remain visible for correction.
  * @property {"LOW"|"MEDIUM"|"HIGH"} complexity
  * @property {string[]} affectedPaths - Files that will be created/modified
  * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Optional provider-neutral Ticket References identified by the user.
@@ -467,6 +471,7 @@ function formatFrontMatter(fm) {
     const lines = ["---"];
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.planId, fm.planId);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.classification, fm.classification);
+    if (fm.classification === "PROJECT") appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.type, fm.type);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.workKind, fm.workKind);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.complexity, fm.complexity);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.summary, fm.summary);
@@ -1151,6 +1156,7 @@ export function injectFrontMatter(markdown, overrides = {}) {
         restoredAt: optionalFrontMatterValue(overrides, existingFm, "restoredAt"),
         restoredFromPath: optionalFrontMatterValue(overrides, existingFm, "restoredFromPath"),
     };
+    if (fm.classification !== "PROJECT") delete fm.type;
     Object.assign(fm, normalizeCollaborationFrontMatter({ ...existingFm, ...overrides }));
     for (const key of OBSOLETE_OBJECTIVE_CHECK_FRONT_MATTER_KEYS) {
         delete /** @type {Record<string, unknown>} */ (fm)[key];
@@ -1193,11 +1199,13 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
         delete sourceAttrs[key];
     }
     delete sourceAttrs.collaborationMode;
+    delete sourceAttrs.type;
     return {
         attrs: {
             ...sourceAttrs,
             planId: normalizePlanId(attrs.planId),
             classification: normalizePlanClassification(attrs.classification || DEFAULT_FRONT_MATTER.classification),
+            ...(attrs.classification === "PROJECT" && attrs.type !== undefined ? { type: String(attrs.type) } : {}),
             workKind: normalizeWorkKind(attrs.workKind),
             complexity: attrs.complexity || DEFAULT_FRONT_MATTER.complexity,
             summary: summarizePlanBody(body) || attrs.summary || DEFAULT_FRONT_MATTER.summary,
@@ -3763,7 +3771,9 @@ export async function findPlanEvidenceById(cwd, planId) {
  */
 export async function loadPlanBodyById(cwd, planId) {
     const resource = await findPlanById(cwd, planId);
-    if (isEpicPlan(resource.attrs)) throw new Error("Epic Plan bodies are not editable in the workspace body editor.");
+    if (isProjectPlan(resource.attrs)) {
+        throw new Error("Epic Plan bodies are not editable in the workspace body editor.");
+    }
     const markdown = await Deno.readTextFile(resource.path);
     parsePlanFrontMatter(markdown);
     const { body } = splitPlanMarkdownBody(markdown);
@@ -3790,7 +3800,7 @@ export async function savePlanBodyById(cwd, planId, newBody, expectedBodyHash, o
         return await withPlanLock(getPlanDocumentRoot(resource.path), resource.planName || resource.name, async () => {
             const selected = await findPlanById(cwd, planId);
             if (selected.path !== resource.path) throw new StalePlanWriteError(resource.revision, selected.revision);
-            if (isEpicPlan(resource.attrs)) {
+            if (isProjectPlan(resource.attrs)) {
                 throw new Error("Epic Plan bodies are not editable in the workspace body editor.");
             }
             const result = await loadPlanFileStrict(resource.path);
@@ -3863,6 +3873,10 @@ export function resolveSiblingChildPlanDependencyStates(parentPlan, dependencies
     if (dependencyNames.length === 0) return [];
 
     const byName = new Map(siblings.map((plan) => [plan.name, plan]));
+    const byId = Map.groupBy(
+        siblings.filter((plan) => plan.planId || plan.attrs?.planId),
+        (plan) => plan.planId || plan.attrs?.planId,
+    );
     /** @type {Map<string, Array<{ name: string, planName?: string, planId?: string, path?: string, attrs?: any, status?: string }>>} */
     const byUnprefixedName = new Map();
     for (const sibling of siblings) {
@@ -3888,7 +3902,11 @@ export function resolveSiblingChildPlanDependencyStates(parentPlan, dependencies
             return { dependency, state: /** @type {const} */ ("missing") };
         }
 
-        let sibling = byName.get(candidateName);
+        const identityMatches = byId.get(dependency);
+        if (identityMatches && identityMatches.length !== 1) {
+            return { dependency, state: /** @type {const} */ ("missing") };
+        }
+        let sibling = identityMatches?.[0] || byName.get(candidateName);
         if (!sibling) {
             const fallbackMatches = byUnprefixedName.get(candidateName) || [];
             sibling = fallbackMatches.length === 1 ? fallbackMatches[0] : undefined;
@@ -3897,7 +3915,7 @@ export function resolveSiblingChildPlanDependencyStates(parentPlan, dependencies
         const status = sibling.status || sibling.attrs?.status;
         const resolved = {
             dependency,
-            planId: sibling.planId,
+            planId: sibling.planId || sibling.attrs?.planId,
             planName: sibling.planName || sibling.name,
             path: sibling.path,
             status,
@@ -3947,9 +3965,6 @@ export function isChildPlannedChangePlan(plan) {
  * @param {PlanFrontMatterInput | undefined} attrs
  * @returns {boolean}
  */
-export function isEpicPlan(attrs) {
-    return attrs?.classification === "PROJECT";
-}
 
 /**
  * @template {{ name: string, attrs: PlanFrontMatter }} T
@@ -3957,7 +3972,7 @@ export function isEpicPlan(attrs) {
  * @returns {{ epics: T[], childrenByParent: Map<string, T[]>, standalone: T[], orphanChildren: T[] }}
  */
 export function groupPlanHierarchy(plans) {
-    const epics = plans.filter((plan) => isEpicPlan(plan.attrs));
+    const epics = plans.filter((plan) => isProjectPlan(plan.attrs));
     const epicNames = new Set(epics.map((plan) => plan.name));
     /** @type {Map<string, T[]>} */
     const childrenByParent = new Map();
@@ -3967,7 +3982,7 @@ export function groupPlanHierarchy(plans) {
     const orphanChildren = [];
 
     for (const plan of plans) {
-        if (isEpicPlan(plan.attrs)) continue;
+        if (isProjectPlan(plan.attrs)) continue;
 
         if (isChildFeaturePlan(plan)) {
             const parentPlan = plan.attrs.parentPlan || "";

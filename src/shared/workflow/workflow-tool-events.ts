@@ -362,7 +362,6 @@ export function publishWorkflowToolEvent<K extends WorkflowToolEventKind>(
         claimed: false,
         settled: false,
     };
-    state.events.push(event);
     const sessionManager = getEventSessionManager(hostedSession);
     if (owner === "root" && sessionManager?.appendCustomEntry) {
         sessionManager.appendCustomEntry(WORKFLOW_TOOL_EVENT_CUSTOM_TYPE, {
@@ -380,6 +379,7 @@ export function publishWorkflowToolEvent<K extends WorkflowToolEventKind>(
             ...(event.validationGeneration ? { validationGeneration: event.validationGeneration } : {}),
         });
     }
+    state.events.push(event);
     wakeWaiters(hostedSession);
     return event;
 }

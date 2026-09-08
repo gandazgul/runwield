@@ -19,7 +19,8 @@ import {
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { SUBAGENT_DEFINITIONS } from "../session/subagent-definitions.ts";
 import { buildSlicerRequest } from "./workflow-prompts.js";
-import { isEpicPlan, recordPlanEvent } from "./plan-lifecycle.js";
+import { recordPlanEvent } from "./plan-lifecycle.js";
+import { isEpicPlan } from "../project-plan.ts";
 import { runEpicDecompositionFinalizeTransition } from "./state-transition.ts";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { TriageMeta } from "../../tools/plan-written.ts";
