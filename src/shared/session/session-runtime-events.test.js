@@ -386,6 +386,9 @@ Deno.test("Runtime attention reasons use shared notification vocabulary without 
         const event = createSessionRuntimeEvent("session-1", {
             type: RuntimeEventTypes.ATTENTION_REQUESTED,
             reason,
+            ...(reason === "agentStopped"
+                ? { eventId: "event-1", runwieldSessionId: "runwield-session-1", generation: 1 }
+                : {}),
         });
         if (event.type !== RuntimeEventTypes.ATTENTION_REQUESTED) throw new Error("unexpected event type");
         assertEquals(event.reason, reason);

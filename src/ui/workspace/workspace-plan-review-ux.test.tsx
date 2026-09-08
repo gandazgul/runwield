@@ -30,10 +30,10 @@ Deno.test("Workspace Plan Review uses the owner header and starts directly at th
     );
     assertStringIncludes(layout, 'class="workspace-main-session-name" data-workspace-surface-title');
     assertStringIncludes(shell, 'header.querySelector("[data-workspace-main-session-name]")?.remove()');
-    assertStringIncludes(layout, '<BrowserNotificationPermissionControl client:only="react" />');
+    assertStringIncludes(layout, "<BrowserNotificationPermissionControl client:load />");
     assertStringIncludes(layout, "data-workspace-header-actions");
     assertEquals(
-        layout.indexOf('<BrowserNotificationPermissionControl client:only="react" />') <
+        layout.indexOf("<BrowserNotificationPermissionControl client:load />") <
             layout.indexOf("data-workspace-header-actions"),
         true,
     );
