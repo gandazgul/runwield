@@ -178,7 +178,21 @@ export function reduceOperationTransientItems(events) {
     return reduceSessionEvents(Array.isArray(events) ? events : [], { source: "transient" });
 }
 
-export function observeOperationBrowserNotifications(current, payload, cursorRef, notifier) {
+let operationNotificationController = null;
+
+function getOperationNotificationController() {
+    if (!operationNotificationController) {
+        operationNotificationController = createSessionTabNotificationController();
+    }
+    return operationNotificationController;
+}
+
+export function disposeOperationBrowserNotifications() {
+    operationNotificationController?.dispose();
+    operationNotificationController = null;
+}
+
+export function observeOperationBrowserNotifications(current, payload, cursorRef) {
     const events = Array.isArray(payload.events) ? payload.events : [];
     const key = `${current.scopeKey || ""}:${current.operationId}`;
     if (!cursorRef.current || cursorRef.current.key !== key) {
@@ -189,9 +203,21 @@ export function observeOperationBrowserNotifications(current, payload, cursorRef
         const event = events[index];
         cursor.next = index + 1;
         if (event?.type === "attention_requested" && event.reason === "agentStopped") {
-            notifier.notifyAgentStopped(event, payload.browserNotificationPolicy);
+            getOperationNotificationController().notifyAgentStopped(event, payload.browserNotificationPolicy);
         }
     }
+}
+
+export function syncOperationBrowserNotificationLifecycle({ operationId, scopeKey, operationKeyRef, cursorRef }) {
+    const nextKey = operationId ? `${scopeKey || ""}:${operationId}` : null;
+    const previousKey = operationKeyRef.current;
+    if (!nextKey) {
+        cursorRef.current = null;
+        return;
+    }
+    if (previousKey && previousKey !== nextKey) disposeOperationBrowserNotifications();
+    if (previousKey !== nextKey) cursorRef.current = null;
+    operationKeyRef.current = nextKey;
 }
 
 /** @param {{ scrollHeight: number, scrollTop: number, clientHeight: number, threshold?: number }} input */
@@ -515,10 +541,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const operationRef = useRef(operation);
     operationRef.current = operation;
     const notificationCursorRef = useRef(null);
-    const notificationControllerRef = useRef(null);
-    if (!notificationControllerRef.current) {
-        notificationControllerRef.current = createSessionTabNotificationController();
-    }
+    const notificationOperationKeyRef = useRef(null);
     const queuedDispatchActiveRef = useRef(false);
     const queuedSessionRef = useRef(runwieldSessionId);
     const timelineEndRef = useRef(/** @type {HTMLDivElement | null} */ (null));
@@ -534,13 +557,24 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const requestKey = sessionStorageId ? sessionRequestKey(projectId, sessionStorageId) : "";
     const attachmentsKey = sessionStorageId ? sessionAttachmentsKey(projectId, sessionStorageId) : "";
 
+    const notificationScopeKey = `${projectId}:${runwieldSessionId || sessionStorageId}`;
+
     useEffect(() => {
-        notificationCursorRef.current = null;
         return () => {
-            notificationControllerRef.current?.dispose();
+            disposeOperationBrowserNotifications();
             notificationCursorRef.current = null;
+            notificationOperationKeyRef.current = null;
         };
-    }, [projectId, runwieldSessionId, operation?.operationId]);
+    }, [notificationScopeKey]);
+
+    useEffect(() => {
+        syncOperationBrowserNotificationLifecycle({
+            operationId: operation?.operationId,
+            scopeKey: notificationScopeKey,
+            operationKeyRef: notificationOperationKeyRef,
+            cursorRef: notificationCursorRef,
+        });
+    }, [notificationScopeKey, operation?.operationId]);
 
     async function loadList(requestedPage = listPage) {
         setLoadingList(true);
@@ -1043,10 +1077,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 })
             ) return;
             observeOperationBrowserNotifications(
-                { ...current, scopeKey: `${projectId}:${runwieldSessionId || sessionStorageId}` },
+                { ...current, scopeKey: notificationScopeKey },
                 payload,
                 notificationCursorRef,
-                notificationControllerRef.current,
             );
             await applyOperationSnapshot(current, payload);
         };
@@ -1097,7 +1130,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             cancelled = true;
             clearInterval(id);
         };
-    }, [operation?.operationId, operationStreamFailed, requestKey, mode, projectId]);
+    }, [operation?.operationId, operationStreamFailed, requestKey, mode, projectId, notificationScopeKey]);
 
     useEffect(() => {
         if (
