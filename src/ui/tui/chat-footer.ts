@@ -294,13 +294,9 @@ export function createChatFooterController(options: CreateChatFooterControllerOp
             runtimeUsage.cost += event.usage.costUsd;
         });
     }
-    function getRuntimeSnapshot(): FooterRuntimeSnapshot {
-        const snapshot = options.runtime.getSessionSnapshot(options.getSessionId());
-        if (!snapshot) throw new Error("Active runtime session is missing.");
-        return snapshot;
-    }
-    function getModelAndProvider(): { model: string; provider: string; thinkingLevel: string } {
-        const snapshot = getRuntimeSnapshot();
+    function getModelAndProvider(
+        snapshot: FooterRuntimeSnapshot,
+    ): { model: string; provider: string; thinkingLevel: string } {
         const settingsManager = getSettingsManager(snapshot.cwd);
         let model = settingsManager.getDefaultModel() ?? "";
         let provider = settingsManager.getDefaultProvider() ?? "";
@@ -320,11 +316,12 @@ export function createChatFooterController(options: CreateChatFooterControllerOp
     const component: Component = {
         invalidate: () => {},
         render: (w: number) => {
-            const { model, provider, thinkingLevel } = getModelAndProvider();
+            const snapshot = options.runtime.getSessionSnapshot(options.getSessionId());
+            if (!snapshot) return ["", ctrlCPendingExit ? theme.fg("warning", "Ctrl+C - Press again to exit") : ""];
+            const { model, provider, thinkingLevel } = getModelAndProvider(snapshot);
             const modelStr = model
                 ? provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model
                 : "";
-            const snapshot = getRuntimeSnapshot();
             const rootAgentName = snapshot.activeAgent || "";
             const activeAgentInfo = snapshot.activeAgentInfo ||
                 {

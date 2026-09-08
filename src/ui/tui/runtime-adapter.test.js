@@ -585,6 +585,35 @@ Deno.test("TUI adapter renders Agent switch notices only for marked root handoff
     assertEquals(transcript, ["system:info:RunWield:Agent switched to Operator"]);
 });
 
+Deno.test("TUI adapter suppresses triage report tool blocks", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("adapter-triage-report");
+    const { transcript, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.TOOL_START,
+        toolCallId: "tool-triage",
+        toolName: "triage_report",
+        title: "triage_report",
+        kind: "other",
+    });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.TOOL_END,
+        toolCallId: "tool-triage",
+        toolName: "triage_report",
+        title: "triage_report",
+        kind: "other",
+        content: [{ type: "text", text: "Triage complete." }],
+        output: "Triage complete.",
+        details: null,
+        isError: false,
+        durationMs: 10,
+    });
+    adapter.dispose();
+
+    assertEquals(transcript, []);
+});
+
 Deno.test("TUI adapter renders normalized thinking deltas and one tool start", () => {
     const { runtime, sessionId } = makeRuntimeHarness("adapter-coalesce");
     const { transcript, uiAPI } = makeUi();

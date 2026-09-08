@@ -5,7 +5,7 @@ import chalk from "chalk";
 chalk.level = 3;
 
 // Initialize the runwield theme before importing blocks (theme must be ready)
-import { initRunWieldTheme } from "../theme/theme.js";
+import { initRunWieldTheme, theme } from "../theme/theme.js";
 initRunWieldTheme();
 
 import {
@@ -23,7 +23,7 @@ import {
     UserPromptBlock,
     ValidationHandoffBlock,
 } from "./blocks.js";
-import { Text } from "@earendil-works/pi-tui";
+import { getCapabilities, setCapabilities, Text } from "@earendil-works/pi-tui";
 import stripAnsi from "strip-ansi";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -537,6 +537,20 @@ Deno.test("ToolExecutionBlock expansion and truncation logic", () => {
     assertEquals(expandedLines.length > collapsedLines.length, true);
 });
 
+Deno.test("ToolExecutionGroupBlock bolds only the tool name in compact rows", () => {
+    const block = new ToolExecutionBlock("set_session_name", "set_session_name Name Here");
+    block.endExecution(false, 10);
+    const group = new ToolExecutionGroupBlock();
+    group.addBlock(block);
+
+    const rendered = group.render(80).join("\n");
+    const plain = stripAnsi(rendered);
+
+    assertEquals(plain.includes("set_session_name Name Here"), true);
+    assertEquals(rendered.includes(`${chalk.bold("set_session_name")} Name Here`), true);
+    assertEquals(rendered.includes(chalk.bold("set_session_name Name Here")), false);
+});
+
 Deno.test("ToolExecutionGroupBlock renders compact rows inside padded block lines", () => {
     const w = 80;
     const group = new ToolExecutionGroupBlock();
@@ -563,7 +577,11 @@ Deno.test("ToolExecutionGroupBlock renders compact rows inside padded block line
     const bgCodes = lines.map((line) => line.slice(0, line.indexOf("m") + 1));
     assertEquals(bgCodes[0], bgCodes.at(-1));
     assertEquals(bgCodes[0], bgCodes[2]);
-    assertEquals(new Set(bgCodes.slice(1, -1)).size, 3);
+    // Terminal palettes can map two semantic backgrounds to the same color.
+    const pendingBg = theme.bg("toolPendingBg", " ");
+    assertEquals(bgCodes[1], pendingBg.slice(0, pendingBg.indexOf("m") + 1));
+    const errorBg = theme.bg("toolErrorBg", " ");
+    assertEquals(bgCodes[3], errorBg.slice(0, errorBg.indexOf("m") + 1));
 });
 
 Deno.test("ToolExecutionGroupBlock uses error padding only when all compact children fail", () => {
@@ -636,31 +654,37 @@ Deno.test("ToolExecutionGroupBlock keeps compact rows within tiny widths", () =>
 });
 
 Deno.test("ToolExecutionGroupBlock expands complete output and images, then collapses them", () => {
-    const w = 100;
-    const group = new ToolExecutionGroupBlock();
-    const block = new ToolExecutionBlock("read", "read image.md");
-    for (let i = 0; i < 10; i++) block.appendOutput(`line ${i}\n`);
-    block.appendDisplayImage(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-        "image/png",
-    );
-    block.endExecution(false, 20);
-    group.addBlock(block);
+    const capabilities = getCapabilities();
+    setCapabilities({ ...capabilities, images: "kitty" });
+    try {
+        const w = 100;
+        const group = new ToolExecutionGroupBlock();
+        const block = new ToolExecutionBlock("read", "read image.md");
+        for (let i = 0; i < 10; i++) block.appendOutput(`line ${i}\n`);
+        block.appendDisplayImage(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+            "image/png",
+        );
+        block.endExecution(false, 20);
+        group.addBlock(block);
 
-    const compact = stripAnsi(group.render(w).join("\n"));
-    assertEquals(compact.includes("line 0"), false);
-    assertEquals(compact.includes("image/png"), false);
+        const compact = stripAnsi(group.render(w).join("\n"));
+        assertEquals(compact.includes("line 0"), false);
+        assertEquals(compact.includes("image/png"), false);
 
-    group.setExpanded(true);
-    const expanded = stripAnsi(group.render(w).join("\n"));
-    assertEquals(expanded.includes("line 0"), true);
-    assertEquals(expanded.includes("line 9"), true);
-    assertEquals(expanded.includes("iVBORw0KGgo"), true);
+        group.setExpanded(true);
+        const expanded = stripAnsi(group.render(w).join("\n"));
+        assertEquals(expanded.includes("line 0"), true);
+        assertEquals(expanded.includes("line 9"), true);
+        assertEquals(expanded.includes("iVBORw0KGgo"), true);
 
-    group.setExpanded(false);
-    const collapsed = stripAnsi(group.render(w).join("\n"));
-    assertEquals(collapsed.includes("line 0"), false);
-    assertEquals(collapsed.includes("image/png"), false);
+        group.setExpanded(false);
+        const collapsed = stripAnsi(group.render(w).join("\n"));
+        assertEquals(collapsed.includes("line 0"), false);
+        assertEquals(collapsed.includes("image/png"), false);
+    } finally {
+        setCapabilities(capabilities);
+    }
 });
 
 // ─── PromptSelectBlock ───────────────────────────────────────────────────────
