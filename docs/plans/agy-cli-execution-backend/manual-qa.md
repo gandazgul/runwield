@@ -88,3 +88,23 @@ Manual verification steps for agy-cli-execution-backend/05-harden-agy-cli-failur
       without raw secrets, paths, URLs, environment data, or temporary Agent selectors.
 
 <!-- runwield:manual-qa:end child="agy-cli-execution-backend/05-harden-agy-cli-failures-and-continuations" -->
+
+<!-- runwield:manual-qa:start child="agy-cli-execution-backend/06-surface-agy-cli-selection-and-caveats" -->
+
+## Surface Agy CLI Selection and Caveats
+
+Manual verification steps for agy-cli-execution-backend/06-surface-agy-cli-selection-and-caveats
+
+- [ ] Start without a RunWield API provider, choose **Use Antigravity CLI**, and verify that only Gemini 3.8 Flash and
+      Gemini 3.1 Pro appear; verify that setup does not request a RunWield API key.
+- [ ] With authenticated Agy, run Flash and Pro sessions at the thinking-level boundaries and verify the original
+      RunWield thinking remains visible while Agy uses the expected low, medium, or high concrete model.
+- [ ] On first Agy use, verify that selection alone does not create persistent MCP files; confirm that separate setup
+      approval is requested, and that declining it starts no turn.
+- [ ] Open the linked Agy Session fixture at desktop and narrow widths, and verify the committed model, thinking level,
+      **Execution Backend: Antigravity CLI**, and replay notice; stage a model or thinking change and verify that
+      committed sidebar values do not change before application.
+- [ ] Verify keyboard access, readable notice wrapping, existing focus styles, and no browser console errors in the
+      Workspace Session view.
+
+<!-- runwield:manual-qa:end child="agy-cli-execution-backend/06-surface-agy-cli-selection-and-caveats" -->
