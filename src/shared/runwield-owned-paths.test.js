@@ -91,4 +91,8 @@ Deno.test("temporary Git safety exports protect current and legacy runtime paths
     assertEquals(runwieldOwnedPathspecExclusions.includes(":(exclude).wld/internal/**"), true);
     assertEquals(runwieldOwnedPathspecExclusions.includes(":(exclude).wld/plan-locks/**"), true);
     assertEquals(runwieldOwnedPathspecExclusions.includes(":(exclude).wld/worktrees.json"), true);
+    assertEquals(runwieldOwnedPathspecExclusions.includes(":(exclude).wld/worktrees.json.*.tmp"), true);
+    assertEquals(runwieldOwnedPathspecExclusions.includes(":(exclude).wld/collaboration-secrets.json.*.tmp"), true);
+    assertStringIncludes(RUNWIELD_GITIGNORE_BLOCK, ".wld/worktrees.json.*.tmp");
+    assertStringIncludes(RUNWIELD_GITIGNORE_BLOCK, ".wld/collaboration-secrets.json.*.tmp");
 });

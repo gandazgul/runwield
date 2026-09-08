@@ -36,10 +36,16 @@ const LEGACY_RUNTIME_FILES = [
     underRunWield("work-record-supersession-recovery.lock"),
 ];
 
+const LEGACY_RUNTIME_TEMP_FILE_PATTERNS = [
+    `${underRunWield(WORKTREE_REGISTRY_FILE)}.*.tmp`,
+    `${PROJECT_SECRET_STORE_RELATIVE_PATH}.*.tmp`,
+];
+
 export const CURRENT_PROJECT_RUNTIME_PATHS = Object.freeze([CURRENT_RUNTIME_ROOT]);
 export const LEGACY_PROJECT_RUNTIME_HAZARD_PATHS = Object.freeze([
     ...LEGACY_RUNTIME_DIRECTORIES,
     ...LEGACY_RUNTIME_FILES,
+    ...LEGACY_RUNTIME_TEMP_FILE_PATTERNS,
 ]);
 export const RUNWIELD_OWNED_RUNTIME_PATHS = Object.freeze([
     ...CURRENT_PROJECT_RUNTIME_PATHS,
