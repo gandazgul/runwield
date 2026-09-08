@@ -32,10 +32,10 @@ archivedFromPath: "docs/plans/personal-remote-workspace-v1/01-align-personal-wor
 ## Context
 
 Personal Remote Workspace v1 uses the architecture accepted in
-[`ADR-011`](../../../adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md): TUI, Workspace, and ACP
-remain sibling `SessionRuntime` consumers with independent in-process Runtimes. Cross-surface continuity comes from
-exclusive writable Session activation, Durable Workflow Checkpoints, committed Session generations, automatic read
-synchronization, and a separate Session-owned Plan Workflow Lease—not a central Workspace-owned Runtime proxy.
+[`ADR-015`](../../../adr/015-file-authoritative-session-bundles.md): TUI, Workspace, and ACP remain sibling
+`SessionRuntime` consumers with independent in-process Runtimes. Cross-surface continuity comes from exclusive writable
+Session activation, Durable Workflow Checkpoints, committed Session generations, automatic read synchronization, and a
+separate Session-owned Plan Workflow Lease—not a central Workspace-owned Runtime proxy.
 
 The Workspace, Core, and ACP PRDs contain a mixture of the implemented sibling Runtime foundation and superseded
 language about one authoritative persistent Session Host. Aligning these durable product documents first gives later
