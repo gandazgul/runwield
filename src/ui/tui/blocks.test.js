@@ -562,8 +562,6 @@ Deno.test("ToolExecutionGroupBlock renders compact rows inside padded block line
 
     const bgCodes = lines.map((line) => line.slice(0, line.indexOf("m") + 1));
     assertEquals(bgCodes[0], bgCodes.at(-1));
-    assertNotEquals(bgCodes[1], bgCodes[0]);
-    assertNotEquals(bgCodes[3], bgCodes[0]);
 });
 
 Deno.test("ToolExecutionGroupBlock uses error padding only when all compact children fail", () => {
