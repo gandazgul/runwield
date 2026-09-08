@@ -4,38 +4,28 @@
  */
 
 import { getMergedCustomSetting } from "../../shared/settings.js";
+import {
+    buildSharedNotificationTitle,
+    type CommonNotificationPolicy,
+    getNotificationBaseMessage,
+    isNotificationEventName,
+    normalizeNotificationPolicy,
+    type NotificationEventName,
+    type NotificationSettingsRecord,
+} from "../../shared/session/notification-content.ts";
 import { formatSessionTerminalTitle } from "../../shared/session/session-name.js";
 import { getCurrentTerminalFocusState, type TerminalFocusState } from "./terminal-focus-state.ts";
-
-const EVENT_LABELS = {
-    agentStopped: "Agent stopped",
-    planWritten: "Plan ready",
-    userInterview: "Input requested",
-    compactionFinished: "Compaction finished",
-} as const;
-
-const EVENT_MESSAGES = {
-    agentStopped: "The agent has stopped and is waiting for you.",
-    planWritten: "A plan is ready for review or approval.",
-    userInterview: "The agent is asking you a question.",
-    compactionFinished: "The /compact command finished. Return to view the result.",
-} as const;
 
 const TERMINAL_BELL_BYTES = new Uint8Array([7]);
 const TEXT_ENCODER = new TextEncoder();
 
-type NotificationEventName = keyof typeof EVENT_LABELS;
 type NotificationActivationMode = "tab" | "app" | "none";
 export type NativeNotificationProtocol = "osc99" | "osc777" | "osc9" | "unsupported";
 
-type NotificationEventSettings = Partial<Record<NotificationEventName, boolean>>;
-
-export interface NotificationSettings {
-    enabled: boolean;
+export interface NotificationSettings extends CommonNotificationPolicy {
     activation: NotificationActivationMode;
     events: Record<NotificationEventName, boolean>;
     terminalBell: boolean;
-    suppressWhenFocused: boolean;
 }
 
 export interface TerminalIdentity {
@@ -120,7 +110,7 @@ export function createSystemNotificationNotifier(port: SystemNotificationPort): 
             oscEmitted: false,
         } satisfies NotificationResult;
 
-        if (!isKnownEvent(eventName)) {
+        if (!isNotificationEventName(eventName)) {
             return { ...baseResult, reason: "unknown_event" };
         }
 
@@ -169,24 +159,14 @@ export function notifyRunWieldEventQuietly(eventName: string, options: NotifyRun
 }
 
 export function resolveNotificationSettings(raw: ReturnType<typeof getMergedCustomSetting>): NotificationSettings {
+    const common = normalizeNotificationPolicy(raw as NotificationSettingsRecord | null | undefined);
     const record = raw && typeof raw === "object" && !Array.isArray(raw)
-        ? raw as Record<string, boolean | string | NotificationEventSettings>
+        ? raw as NotificationSettingsRecord & { activation?: string; terminalBell?: boolean }
         : {};
-    const eventsRaw = record.events && typeof record.events === "object" && !Array.isArray(record.events)
-        ? record.events as NotificationEventSettings
-        : {};
-
     return {
-        enabled: record.enabled !== false,
+        ...common,
         activation: normalizeActivation(record.activation),
-        events: {
-            agentStopped: eventsRaw.agentStopped !== false,
-            planWritten: eventsRaw.planWritten !== false,
-            userInterview: eventsRaw.userInterview !== false,
-            compactionFinished: eventsRaw.compactionFinished !== false,
-        },
         terminalBell: record.terminalBell !== false,
-        suppressWhenFocused: record.suppressWhenFocused !== false,
     };
 }
 
@@ -268,9 +248,7 @@ function emitTerminalBell(terminal: Pick<SystemNotificationPort, "writeTerminal"
     }
 }
 
-function normalizeActivation(
-    value: string | boolean | NotificationEventSettings | undefined,
-): NotificationActivationMode {
+function normalizeActivation(value: string | undefined): NotificationActivationMode {
     return value === "app" || value === "none" || value === "tab" ? value : "tab";
 }
 
@@ -278,19 +256,17 @@ function normalizeLabel(value: string | undefined): string {
     return String(value || "").replace(/\s+/g, " ").trim();
 }
 
-function isKnownEvent(eventName: string): eventName is NotificationEventName {
-    return eventName === "agentStopped" || eventName === "planWritten" || eventName === "userInterview" ||
-        eventName === "compactionFinished";
-}
-
 function buildNotificationTitle(eventName: string, terminal: TerminalIdentity, agentName: string | undefined): string {
-    const label = isKnownEvent(eventName) ? EVENT_LABELS[eventName] : "Attention needed";
-    const agentPrefix = agentName ? `${agentName}: ` : "";
-    return `${agentPrefix}${label} — ${terminal.sessionLabel}`;
+    if (isNotificationEventName(eventName)) {
+        return buildSharedNotificationTitle(eventName, terminal.sessionLabel, agentName);
+    }
+    return `Attention needed — ${terminal.sessionLabel}`;
 }
 
 function buildNotificationMessage(eventName: string, terminal: TerminalIdentity): string {
-    const base = isKnownEvent(eventName) ? EVENT_MESSAGES[eventName] : "RunWield needs your attention.";
+    const base = isNotificationEventName(eventName)
+        ? getNotificationBaseMessage(eventName)
+        : "RunWield needs your attention.";
     return `${base}\nSession: ${terminal.terminalTitle}`;
 }
 

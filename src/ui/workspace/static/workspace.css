@@ -3100,6 +3100,18 @@
     flex: 0 0 auto;
 }
 
+.workspace-main-header-action-row {
+    align-items: center;
+    display: flex;
+    gap: 0.45rem;
+    margin-left: auto;
+    min-width: 0;
+}
+
+.workspace-notification-control {
+    white-space: nowrap;
+}
+
 .workspace-main-header-left {
     align-items: center;
     display: flex;
@@ -3111,7 +3123,6 @@
 .workspace-main-header-actions {
     align-items: center;
     display: flex;
-    margin-left: auto;
     min-width: 0;
 }
 
@@ -3455,9 +3466,14 @@
         padding-block: 0.55rem;
     }
 
-    .workspace-main-header-actions {
+    .workspace-main-header-action-row {
+        flex-wrap: wrap;
         margin-left: 1.05rem;
         width: calc(100% - 1.8rem);
+    }
+
+    .workspace-main-header-actions {
+        flex: 1 1 auto;
     }
 
     .workspace-main-header-actions .rw-plannotator-actions {

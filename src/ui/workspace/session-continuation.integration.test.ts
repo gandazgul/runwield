@@ -2,6 +2,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { AGENTS } from "../../constants.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { setCustomSetting } from "../../shared/settings.js";
 import { manifestPath } from "../../shared/session/file-session-storage.ts";
 import { makeManagedSessionFixture } from "../../testing/managed-session-fixture.ts";
 import { readSessionName, WorkspaceSessionContinuationService } from "./server/session-continuation.js";
@@ -56,6 +57,50 @@ Deno.test("Workspace Session list prefers transcript name before stale catalog f
 
         const result = await service.listSessions(fixture.project.projectId);
         assertEquals(result.sessions[0].displayName, "Managed fixture");
+    } finally {
+        service.close();
+        service.store.close();
+        await fixture.cleanup();
+    }
+});
+
+Deno.test("Workspace operation snapshots expose browser policy and reserve first Agent stop past ordinary buffer", async () => {
+    const fixture = await makeManagedSessionFixture();
+    await setCustomSetting(
+        "notifications",
+        {
+            enabled: true,
+            events: { agentStopped: false, userInterview: false },
+            suppressWhenFocused: false,
+            terminalBell: false,
+        },
+        "project",
+        fixture.projectRoot,
+    );
+    const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+    try {
+        service.setOperation("operation-full", { status: "running", projectId: fixture.project.projectId, events: [] });
+        for (let index = 0; index < 500; index += 1) {
+            service.appendOperationEvent("operation-full", { type: "system_status", message: `event ${index}` });
+        }
+        service.appendOperationEvent("operation-full", { type: "system_status", message: "dropped" });
+        service.appendOperationEvent("operation-full", { type: "attention_requested", reason: "agentStopped" });
+        service.appendOperationEvent("operation-full", { type: "attention_requested", reason: "agentStopped" });
+
+        const getSnapshot = service.getOperation("operation-full");
+        assertEquals(getSnapshot.browserNotificationPolicy, {
+            enabled: true,
+            events: { agentStopped: false },
+            suppressWhenFocused: false,
+        });
+        assertEquals(getSnapshot.events.length, 501);
+        assertEquals(getSnapshot.events.at(-1), { type: "attention_requested", reason: "agentStopped" });
+
+        let streamed = null;
+        const unsubscribe = service.subscribeOperation("operation-full", (snapshot) => streamed = snapshot);
+        unsubscribe();
+        assertEquals(streamed.events.length, 501);
+        assertEquals(streamed.events.at(-1), { type: "attention_requested", reason: "agentStopped" });
     } finally {
         service.close();
         service.store.close();

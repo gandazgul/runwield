@@ -6,6 +6,7 @@ import {
     draftRecoveryDecision,
     isAtLiveScrollEdge,
     newSessionDraftInstanceStorageKey,
+    observeOperationBrowserNotifications,
     reduceOperationTransientItems,
     serializeSessionImageForRequest,
     sessionAttachmentsKey,
@@ -205,6 +206,39 @@ Deno.test("Workspace new Session creation uses Workspace navigation instead of r
         ),
         false,
     );
+});
+
+Deno.test("Workspace operation notification observation claims positions once", () => {
+    const delivered = [];
+    const notifier = { notifyAgentStopped: (event) => delivered.push(event) };
+    const cursorRef = { current: null };
+    const current = { operationId: "op-1", attempts: 0, scopeKey: "project:session" };
+    const snapshot = {
+        status: "running",
+        browserNotificationPolicy: { enabled: true, events: { agentStopped: true }, suppressWhenFocused: true },
+        events: [{ type: "attention_requested", reason: "agentStopped", agentName: "Guide" }],
+    };
+
+    observeOperationBrowserNotifications(current, snapshot, cursorRef, notifier);
+    observeOperationBrowserNotifications(current, snapshot, cursorRef, notifier);
+    observeOperationBrowserNotifications({ ...current, attempts: 1 }, snapshot, cursorRef, notifier);
+    assertEquals(delivered.length, 1);
+
+    observeOperationBrowserNotifications(
+        { ...current, operationId: "op-restored", restored: true },
+        { ...snapshot, events: [...snapshot.events, { type: "attention_requested", reason: "agentStopped" }] },
+        cursorRef,
+        notifier,
+    );
+    assertEquals(delivered.length, 1);
+
+    observeOperationBrowserNotifications(
+        { ...current, operationId: "op-2" },
+        { ...snapshot, events: [{ type: "agentStopped" }, { type: "attention_requested", reason: "planWritten" }] },
+        cursorRef,
+        notifier,
+    );
+    assertEquals(delivered.length, 1);
 });
 
 Deno.test("Workspace-owned Session operations use live updates instead of browser polling", async () => {
