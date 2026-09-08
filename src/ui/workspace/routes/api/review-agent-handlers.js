@@ -1,6 +1,9 @@
 /** Review-surface Guided Review agent/job routes. */
 
-import { parseGuidedReviewUsageEventLine } from "../../../../cmd/guided-review/protocol.ts";
+import {
+    parseGuidedReviewMetadataLine,
+    parseGuidedReviewUsageEventLine,
+} from "../../../../cmd/guided-review/protocol.ts";
 import { buildGuidedReviewPrompt, validateGuidedReviewExplainer } from "../../../../shared/workflow/guided-review.js";
 import { recordWorkflowMetric } from "../../../../shared/workflow/metrics.js";
 import { parseDiffFiles } from "../../../../shared/workflow/review-diff-tool.js";
@@ -38,7 +41,7 @@ import { createReviewWidgetStore } from "./review-widget-handlers.js";
  * @property {Map<string, ReviewGuideJobEntry>} jobs
  * @property {Set<ReadableStreamDefaultController<Uint8Array>>} streams
  * @property {ReturnType<typeof createReviewWidgetStore>} widgets
- * @property {(prompt: string, signal: AbortSignal, cwd: string, progress?: { onUsage?: (usage: GuideUsageTotals) => void }) => Promise<{ stdout: string, stderr?: string, provider: string, model?: string, usage?: GuideUsageTotals, cost?: GuideCostTotals }>} runGuideCommand
+ * @property {(prompt: string, signal: AbortSignal, cwd: string, progress?: { onUsage?: (usage: GuideUsageTotals) => void }) => Promise<{ stdout: string, stderr?: string, provider: string, model?: string, thinkingLevel?: string, usage?: GuideUsageTotals, cost?: GuideCostTotals }>} runGuideCommand
  */
 
 /**
@@ -238,8 +241,8 @@ function finishGuideJobUsage(entry) {
 async function runGuideJob(state, entry, changedFiles) {
     try {
         let raw;
-        /** @type {{ provider?: unknown, model?: unknown }} */
-        let meta = { provider: entry.info.engine, model: entry.info.model };
+        /** @type {import("../../../../cmd/guided-review/protocol.ts").GuidedReviewMetadata} */
+        let meta = { provider: String(entry.info.engine), model: String(entry.info.model) };
         if (state.reviewPayload.guidedReviewFixture) {
             raw = JSON.stringify(state.reviewPayload.guidedReviewFixture);
             meta = { provider: "fixture", model: "dev-fixture" };
@@ -259,7 +262,11 @@ async function runGuideJob(state, entry, changedFiles) {
                 onUsage: (usage) => addGuideJobUsage(state, entry, usage),
             });
             raw = result.stdout;
-            meta = result;
+            meta = {
+                provider: result.provider,
+                model: result.model || String(entry.info.model),
+                thinkingLevel: result.thinkingLevel,
+            };
             if (result.usage && entry.info.usageState !== "available") setGuideJobUsage(state, entry, result.usage);
         }
         finishGuideJobUsage(entry);
@@ -271,6 +278,7 @@ async function runGuideJob(state, entry, changedFiles) {
         entry.info.status = "done";
         entry.info.providerName = meta.provider;
         entry.info.model = meta.model || entry.info.model;
+        entry.info.thinkingLevel = meta.thinkingLevel;
         entry.info.endedAt = Date.now();
         entry.info.summary = {
             correctness: "Guide Generated",
@@ -408,6 +416,7 @@ async function readStreamText(stream) {
  * @typedef {Object} GuideStderrReadResult
  * @property {string} stderr
  * @property {GuideUsageTotals} [usage]
+ * @property {import("../../../../cmd/guided-review/protocol.ts").GuidedReviewMetadata} [metadata]
  * @property {Error} [protocolError]
  */
 
@@ -426,6 +435,8 @@ async function readGuideStderr(stream, parseInternalFrames, progress) {
     let usage = null;
     /** @type {Error | null} */
     let protocolError = null;
+    /** @type {import("../../../../cmd/guided-review/protocol.ts").GuidedReviewMetadata | null} */
+    let metadata = null;
     /** @param {string} line */
     function handleLine(line) {
         if (!parseInternalFrames) {
@@ -434,6 +445,11 @@ async function readGuideStderr(stream, parseInternalFrames, progress) {
         }
         let event;
         try {
+            const details = parseGuidedReviewMetadataLine(line);
+            if (details) {
+                metadata = details;
+                return;
+            }
             event = parseGuidedReviewUsageEventLine(line);
         } catch (error) {
             protocolError = error instanceof Error ? error : new Error(String(error));
@@ -469,6 +485,7 @@ async function readGuideStderr(stream, parseInternalFrames, progress) {
         return {
             stderr,
             ...(usage ? { usage } : {}),
+            ...(metadata ? { metadata } : {}),
             ...(protocolError ? { protocolError } : {}),
         };
     } finally {
@@ -518,8 +535,10 @@ export async function runConfiguredGuideCommand(prompt, signal, cwd, progress = 
     return {
         stdout: stdoutResult.value,
         stderr: stderrResult.value.stderr,
-        provider,
-        model: Deno.env.get("RUNWIELD_GUIDED_REVIEW_MODEL") || (configured ? "configured-command" : "wld"),
+        provider: stderrResult.value.metadata?.provider || provider,
+        model: stderrResult.value.metadata?.model || Deno.env.get("RUNWIELD_GUIDED_REVIEW_MODEL") ||
+            (configured ? "configured-command" : "wld"),
+        thinkingLevel: stderrResult.value.metadata?.thinkingLevel,
         ...(stderrResult.value.usage
             ? { usage: stderrResult.value.usage, cost: { usd: stderrResult.value.usage.costUsd } }
             : {}),

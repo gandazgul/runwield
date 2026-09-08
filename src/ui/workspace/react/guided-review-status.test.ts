@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { formatGuidedReviewUsageStatus } from "./guided-review-status.ts";
+import { formatGuidedReviewGenerator, formatGuidedReviewUsageStatus } from "./guided-review-status.ts";
 
 Deno.test("Guided Review usage status distinguishes pending from unavailable", () => {
     assertEquals(formatGuidedReviewUsageStatus({ usageState: "pending", tokens: null, cost: null }), {
@@ -50,4 +50,15 @@ Deno.test("Guided Review usage status keeps reported zero usage available", () =
             cost: "cost $0.000",
         },
     );
+});
+
+Deno.test("Guided Review attribution uses actual metadata and omits missing fields", () => {
+    assertEquals(
+        formatGuidedReviewGenerator({ providerName: "openai", model: "gpt-model", thinkingLevel: "high" }),
+        "openai/gpt-model (high)",
+    );
+    assertEquals(formatGuidedReviewGenerator({ providerName: "custom", model: "model" }), "custom/model");
+    assertEquals(formatGuidedReviewGenerator({ model: "wld" }), undefined);
+    assertEquals(formatGuidedReviewGenerator({ providerName: "wld", model: "wld" }), undefined);
+    assertEquals(formatGuidedReviewGenerator(null), undefined);
 });

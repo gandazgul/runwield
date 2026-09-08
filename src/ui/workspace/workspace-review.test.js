@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
+import { encodeGuidedReviewMetadata } from "../../cmd/guided-review/protocol.ts";
 
 import { PLAN_UI_TOKEN_HEADER } from "../../constants.js";
 import { RUNWIELD_ROOT } from "../../../runtime-root.js";
@@ -457,6 +458,13 @@ Deno.test("default review guide usage frames update a running job and remain aft
                     "#!/bin/sh",
                     `echo '${firstFrame}' >&2`,
                     `echo '${secondFrame}' >&2`,
+                    `echo '${
+                        encodeGuidedReviewMetadata({
+                            provider: "test-provider",
+                            model: "test-model",
+                            thinkingLevel: "high",
+                        }).trim()
+                    }' >&2`,
                     `while [ ! -f '${gatePath}' ]; do sleep 0.05; done`,
                     `cat <<'JSON'`,
                     makeGuideJson("Usage guide"),
@@ -517,6 +525,9 @@ Deno.test("default review guide usage frames update a running job and remain aft
             assertEquals(doneJob?.status, "done");
             assertEquals(doneJob?.usageState, "available");
             assertEquals(doneJob?.tokens, runningJob?.tokens);
+            assertEquals(doneJob?.providerName, "test-provider");
+            assertEquals(doneJob?.model, "test-model");
+            assertEquals(doneJob?.thinkingLevel, "high");
             await state.widgets.cleanup();
         } finally {
             if (previousPath === undefined) Deno.env.delete("PATH");
