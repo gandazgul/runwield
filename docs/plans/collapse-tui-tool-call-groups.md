@@ -19,7 +19,7 @@ tickets:
 executionAgent: "engineer"
 collaborationRecommendation: "pair"
 createdAt: "2026-09-07T16:36:57-04:00"
-status: "implemented"
+status: "validated_reviewer"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"

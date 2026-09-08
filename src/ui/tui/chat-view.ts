@@ -227,7 +227,6 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         tui,
         editor,
         container: composerContainer,
-        messageList,
         getProjectRoot: () => {
             const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
             if (!snapshot) throw new Error("Active runtime session is missing.");

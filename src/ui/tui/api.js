@@ -1,5 +1,7 @@
-import { isFocusable, Spacer } from "@earendil-works/pi-tui";
+import { Image, isFocusable, Spacer } from "@earendil-works/pi-tui";
 import { getSettingsManager } from "../../shared/settings.js";
+import { WORKFLOW_ADVANCEMENT_TOOL_NAMES } from "../../tools/registry.js";
+import { imageTheme } from "../theme/theme.js";
 import {
     AgentMessageBlock,
     KeyboardHelpBlock,
@@ -16,7 +18,7 @@ import {
 } from "./blocks.js";
 
 const MAX_MESSAGE_LIST_CHILDREN = 1000;
-const STANDALONE_TOOL_BLOCK_NAMES = new Set(["plan_written", "triage_report"]);
+const WORKFLOW_ADVANCEMENT_TOOL_NAME_SET = new Set(WORKFLOW_ADVANCEMENT_TOOL_NAMES);
 
 /**
  * @typedef {Object} ToolElapsedTimerState
@@ -221,6 +223,15 @@ export function createUiApi(
         currentToolGroup = null;
     };
 
+    const trimCompletedToolGroupChildren = () => {
+        const activeBlocks = new Set(activeToolBlocks.values());
+        for (const child of messageList.children) {
+            if (child instanceof ToolExecutionGroupBlock) {
+                child.trimCompletedChildren(activeBlocks, MAX_MESSAGE_LIST_CHILDREN);
+            }
+        }
+    };
+
     /** @param {any} child */
     const appendMessageListChild = (child) => {
         messageList.addChild(child);
@@ -354,6 +365,19 @@ export function createUiApi(
             closeCurrentToolGroup();
             const block = new UserPromptBlock(text);
             appendMessageListChild(block);
+            appendMessageListChild(new Spacer(1));
+            tui.requestRender();
+        },
+
+        appendImage: (base64, mimeType) => {
+            if (outputSuppressed) return;
+            closeCurrentToolGroup();
+            appendMessageListChild(
+                new Image(base64, mimeType, imageTheme, {
+                    maxWidthCells: 60,
+                    maxHeightCells: 20,
+                }),
+            );
             appendMessageListChild(new Spacer(1));
             tui.requestRender();
         },
@@ -517,10 +541,11 @@ export function createUiApi(
                 clearToolElapsedTimer(id);
                 originalEndExecution(isError, durationMs);
                 if (activeToolBlocks.get(id) === block) activeToolBlocks.delete(id);
+                trimCompletedToolGroupChildren();
                 if (!outputSuppressed) tui.requestRender();
             };
             activeToolBlocks.set(id, block);
-            if (STANDALONE_TOOL_BLOCK_NAMES.has(toolName)) {
+            if (WORKFLOW_ADVANCEMENT_TOOL_NAME_SET.has(toolName)) {
                 closeCurrentToolGroup();
                 block.setExpanded(toolsExpanded);
                 appendMessageListChild(block);
@@ -533,6 +558,7 @@ export function createUiApi(
                     appendMessageListChild(new Spacer(1));
                 }
                 currentToolGroup.addBlock(block);
+                trimCompletedToolGroupChildren();
             }
             startToolElapsedTimer(id, block);
             tui.requestRender();
@@ -833,6 +859,5 @@ export function createUiApi(
         disableInput: () => {},
         enableInput: () => {},
         showModelSelector: () => ({ selected: false }),
-        appendImage: () => {}, // chat-session implements this currently
     };
 }
