@@ -48,17 +48,8 @@ Teams need different cost and confidence policies:
 
 ### Post-Verification QA Policy
 
-Add one global-and-project policy object. Project values take precedence over global values by the established settings
-rules.
-
-```jsonc
-{
-    "postVerificationQa": {
-        "plannedChanges": "automated",
-        "quickFixes": "ask"
-    }
-}
-```
+Users can set different QA preferences for Planned Changes and QUICK_FIX work, globally or per Project. Project
+preferences take precedence.
 
 Both scopes support these values:
 
@@ -79,35 +70,8 @@ PRD does not make it configurable.
 
 ### `manual` and `automated` are different positions in the flow
 
-These two values are not the same step with a different actor. They run at different places, and the implementation must
-keep both positions.
-
-```text
-today
-  mechanical validation   (status: implemented)
-  semantic review         (status: validated_ci)
-  delivery                (status: validated_reviewer)
-      human code review
-      publication attempt
-          artifact_preparation   <- `manual` checklist and Work Record generated here,
-                                    inside the execution worktree, after human review
-          candidate_sealing      <- commits them
-          merge / push
-
-with `automated`
-  mechanical validation
-  semantic review
-  delivery
-      automated Tester QA        <- new, before human code review
-      human code review
-      publication attempt
-          artifact_preparation
-          candidate_sealing
-          merge / push
-```
-
-`manual` keeps its current position at `artifact_preparation`. `automated` runs earlier, before optional Human Code
-Review, so a QA repair cannot invalidate a human approval that already happened.
+Manual checklists retain their existing place after human review. Automated Tester QA runs before optional Human Code
+Review, so a QA repair cannot invalidate an approval the user has already given. Both happen before publication.
 
 ### QA scope
 
@@ -171,25 +135,14 @@ read profile
 Tester proposes profile content. The user approves it. RunWield writes the file, the same way RunWield writes the Work
 Record. Tester never writes into the repository itself.
 
-#### Where the profile write lands
+#### Saving Confirmed Setup
 
-| Situation                                                                                  | Write target                              | Why                                                          |
-| ------------------------------------------------------------------------------------------ | ----------------------------------------- | ------------------------------------------------------------ |
-| Profile is missing, or missing a step Tester had to discover                               | primary checkout, on approval             | the discovery is true whether or not this Plan lands         |
-| This Plan changed how to run the app, such as a renamed dev task or a new required service | execution worktree, ships with the change | it only becomes true when the Plan lands                     |
-| Profile is wrong for reasons unrelated to this Plan                                        | nowhere; reported as drift                | a branch that may not land must not rewrite shared knowledge |
+With user approval, newly discovered setup is saved immediately and remains useful even if the current Plan never ships.
+Setup changes introduced by the Plan travel with that change. Unrelated stale guidance is reported rather than silently
+rewritten by an unshipped branch.
 
-The first row writes during QA, immediately after approval, not at `artifact_preparation`. The whole point of the
-profile is that discovery is expensive and should be paid once. Deferring the write to publication would make it
-conditional on an outcome that has nothing to do with whether the discovery was correct.
-
-Accepted limits:
-
-- A primary-checkout write lands as an untracked file. The user commits it as usual. If it is lost, the next run
-  rediscovers and re-proposes. That is annoying, not lossy.
-- QUICK_FIX work has no worktree, so both write cases collapse to the primary checkout.
-- If the user declines the write, Tester rediscovers the setup next run, and the report states that the profile was
-  declined.
+Saving the profile does not commit it. If the user declines or later discards it, the next QA run may need to rediscover
+setup; the report should make this clear. QUICK_FIX uses the current checkout.
 
 ### Risk and cost approval
 
@@ -241,14 +194,14 @@ general RunWield question that this PRD does not solve.
 Automated QA activates Tester as the visible workflow Agent. Tester retains conversational control until one of these
 conditions occurs:
 
-- Tester calls `qa_completed`;
+- Tester completes QA with its report;
 - the user skips QA through an offered workflow action;
 - the user stops the workflow.
 
 The user can answer questions, supply missing context, and help Tester continue. Tester remains manually selectable for
 one-off QA outside post-verification workflows.
 
-If Tester is blocked, it must not call `qa_completed`. It ends its turn with a plain-language state report, consistent
+If Tester is blocked, it must not claim QA is complete. It ends its turn with a plain-language state report, consistent
 with blocked Engineer behavior:
 
 - work done and its result;
@@ -262,79 +215,30 @@ does not consume the one allowed repair.
 
 ### Tester authority and workspace hygiene
 
-Tester needs to write files. It builds harnesses, seed scripts, and driver scripts, and it needs `bash`, which writes
-files as a matter of course. So the boundary cannot be drawn by removing tools. It is drawn by **location**.
+Tester may create temporary harnesses, seed scripts, driver scripts, and captured evidence. It must leave the
+implementation unchanged and keep temporary QA files out of the published change. Unexpected repository changes block
+publication and are reported for resolution.
 
-```text
-per-run scratch directory, outside the repository
-    harnesses, seed scripts, driver scripts, captured output
-    Tester writes freely here
-    removed after the run, never committed
-
-execution worktree
-    Tester must leave it exactly as it found it
-```
-
-The worktree rule needs a check, not a request. `checkpointExecutionWorktree` commits all dirty state, including
-untracked files, and QA runs before it. Without a gate, a scratch file Tester left behind would enter the published
-commit with nobody looking at it. So RunWield captures worktree status before QA, compares it after, and treats any new
-or changed file as a blocker in the report instead of letting sealing absorb it.
-
-Workflow-dispatched Tester therefore:
-
-- keeps `bash`, `write`, and the read and code-intelligence tools;
-- loses `edit` and `multi_file_edit`, which exist for sweeping existing files and are the repair authority being
-  withheld;
-- loses `task_completed` and receives `qa_completed` instead, so the only terminal signal carries a structured report.
-
-A harness that deserves to become a permanent regression test is not scratch. Tester proposes it in the QA Report with
-the script attached, and the repair Engineer or a follow-up Plan lands it through normal review. Tester never lands its
-own tests past its own verdict.
-
-Accepted cost: a test framework that only discovers tests under a fixed in-repo directory cannot be driven from a
-scratch directory. Tester converts those procedures to human procedures and says so. This is rare, and the alternative
-is letting Tester write into the shipped diff.
+A useful permanent regression test is proposed in the report for a repair Engineer or follow-up Plan to land through
+normal review. Tester cannot approve and ship its own fixes or tests. If a test can only run by modifying the shipped
+change, provide an exact human procedure and explain the limitation.
 
 ### Cleanup
 
-Tester must shut down what it started: dev servers, bound ports, seeded data, and browser sessions. RunWield already
-namespaces `agent-browser` and closes browsers when the invocation ends, so browsers are covered. Everything else is
-Tester's responsibility through prompt instruction.
-
-This is an instruction, not a guarantee. The QA Report must state anything Tester knows it left running, so the user can
-finish the cleanup by hand.
+Tester should shut down the servers, browser sessions, and other temporary resources it started. Cleanup is not an
+absolute guarantee: the report states anything known to remain running so the user can finish cleanup.
 
 ### Crash resume
 
-Validation's durable position is the Plan status, and QA lives entirely inside `validated_reviewer`. A crash after
-twelve executed procedures and one approved destructive action would otherwise re-enter delivery from the top and run
-everything again, including the expensive parts.
+After interruption, resume the same QA conversation with the evidence retained so far. A restart must not grant a second
+automatic repair or cause an already completed costly or destructive procedure to run again merely because QA reopened.
 
-Three durable fields in the file-backed controller record, next to the existing validation checkpoints and counters, fix
-this:
-
-```text
-qaPhase        entered | reported
-qaRepairsUsed  0 | 1
-qaSessionId    -> the Tester Session to re-activate
-```
-
-On restart, RunWield re-activates that Session instead of dispatching a fresh Tester. Sessions are file-backed and
-written as work happens, so the Tester transcript survives the crash. `qaRepairsUsed` must survive the same way, so a
-restart cannot buy a second repair.
-
-**Stated limit:** procedure results are not individually durable. Resume fidelity is whatever the transcript retained,
-and Tester may repeat a cheap procedure it already ran. That is acceptable. What must not repeat is a destructive or
-costly procedure the user already approved and paid for, so Tester's prompt requires it to review its own prior
-transcript first and re-report those results rather than re-execute them.
-
-Per-procedure durability was considered and set aside. It would need a schema, a writer, and a migration, and it buys
-protection only against a crash that also destroys the transcript.
+Cheap procedures may need repeating when the saved conversation does not establish their result. Explain uncertainty; do
+not claim exact per-procedure recovery. Implementation Plans choose how to retain the progress needed for this behavior.
 
 ### Terminal QA report
 
-Tester receives a workflow-only `qa_completed` tool. It calls this tool only when no blockers remain. The tool requires
-a structured JSON report that accounts for all QA work.
+Tester declares completion only when no blockers remain and provides a complete report of the QA work.
 
 The report must contain, at the product level:
 
@@ -376,9 +280,8 @@ Tester uses Project conventions, the QA Environment Profile, and memories to cho
 
 ### Planned Change QA Report
 
-Each automated Planned Change QA run produces a separate durable Markdown **QA Report**. The report links to its source
-Plan through Front Matter, and the Plan stores a neutral backlink to the report. This follows the existing Work Record
-backlink principle: the backlink is evidence bookkeeping and does not redefine approved Plan intent.
+Each automated Planned Change QA run produces a durable Markdown **QA Report**, linked from its source Plan and back to
+it. Adding evidence does not change the approved Plan's intent.
 
 The QA Report preserves:
 
@@ -465,44 +368,20 @@ accumulate in the Epic artifacts for the user to work through.
 ### `manual` and `none` behavior
 
 `manual` preserves the current advisory behavior, including today's standalone checklist presentation, its position at
-`artifact_preparation`, and Epic `manual-qa.md` handling. It does not create an automated QA Report and does not create
-a QA Environment Profile.
+publication preparation, and Epic checklist handling. It does not create an automated QA Report and does not create a QA
+Environment Profile.
 
 `none` suppresses the post-verification checklist and automated Tester phase. It does not suppress Mechanical
 Validation, Semantic Review, optional Human Code Review, Work Record generation, or publication evidence.
 
-## Technical Approach
+## Delivery
 
-The implementation should extend the existing settings, Workflow Validation, Agent activation, lifecycle recovery, and
-artifact authorities rather than create a second validation path.
+Preserve current behavior by default, then allow explicit per-Project selection of automated QA. The first useful
+release includes a reachable product, visible Tester work, evidence and human procedures, one bounded repair, and useful
+continuation after interruption. Exercise standalone Planned Changes, QUICK_FIX, and unattended Epic children.
 
-Conceptually:
-
-- resolve Post-Verification QA Policy through the established merged global/project setting rules;
-- preserve exact execution-worktree setting behavior where validation already requires it;
-- place automated QA between Semantic Review approval and Human Code Review/publication, and leave the `manual`
-  checklist at its current `artifact_preparation` position;
-- activate the existing top-level Tester as a visible workflow owner with report-only authority: no `edit`, no
-  `multi_file_edit`, no `task_completed`, and `write` aimed at a per-run scratch directory outside the repository;
-- add `qa_completed` as the only terminal QA workflow signal;
-- gate the worktree: capture status before QA, compare after, and report any residue as a blocker before
-  `candidate_sealing` can commit it;
-- keep blocked-state behavior conversational and resumable rather than add a second completion tool;
-- persist `qaPhase`, `qaRepairsUsed`, and `qaSessionId` in the existing file-backed controller record, and re-activate
-  the recorded Tester Session on resume instead of dispatching a fresh one;
-- read the QA Environment Profile from `docs/qa-environment.md` when present, and let Tester propose content that
-  RunWield writes after user approval — to the primary checkout for discovered setup, to the execution worktree when
-  this Plan changed how the product runs, and nowhere when the profile is merely stale;
-- treat standing approvals as profile content scoped to the profile's stated environment, and re-ask when Tester cannot
-  confirm that environment;
-- generate the human-readable QA Report from the trusted structured `qa_completed` result;
-- use the existing Plan backlink pattern for reciprocal report linkage;
-- keep QA Report generation and Plan linkage safe across publication, archive, restore, retry, and recovery;
-- continue the Epic child chain except on post-repair `failed` or an unfinishable blocker;
-- preserve the existing Manual QA path unchanged when policy resolves to `manual`.
-
-The structured report is the workflow authority. Free-form Tester prose is presentation and blocking context, not a
-terminal verdict.
+Implementation Plans own settings syntax, tool contracts, checkpoint fields, worktree checks, and report-writing steps.
+Those choices must support the product behavior above without introducing another validation workflow.
 
 ## Success Criteria
 
@@ -517,7 +396,7 @@ terminal verdict.
 - The QA Environment Profile contains only steps Tester used successfully.
 - A standing approval never authorizes an action outside the environment it was scoped to.
 - Destructive or costly actions never execute without explicit informed approval.
-- `qa_completed` cannot advance the workflow without a complete structured report and no blockers.
+- QA cannot advance as complete without a complete report and no blockers.
 - Automated QA never adds a file to the published commit; worktree residue is reported as a blocker.
 - Every observed failure contains enough detail for the repair Agent to reproduce and address it.
 - Automated QA causes at most one repair.

@@ -156,7 +156,11 @@ Deno.test("loadAgentDef loads Guide with read-only tools", async () => {
     assert(def.systemPrompt.includes("Plans, PRDs, ADRs, `docs/domain-language.md`, `docs/domain-language-map.md`"));
     assert(def.systemPrompt.includes("context\n  `domain-language.md`, Work Records, Agent Definitions, Skills"));
     assert(def.systemPrompt.includes("## Durable Evidence for Project Questions"));
-    assert(def.systemPrompt.includes("root `PRD.md`; `docs/prd/**/*.md`, including `docs/prd/done/**`"));
+    assert(
+        def.systemPrompt.includes(
+            "root `PRD.md`; living central PRDs and transient feature PRDs in `docs/prd/**/*.md`",
+        ),
+    );
     assert(def.systemPrompt.includes("Intent and direction only; never proof of implementation"));
     assert(def.systemPrompt.includes("`status: accepted` is an authoritative current rule"));
     assert(def.systemPrompt.includes("Approved/current Work Records are authoritative retrospective outcomes"));

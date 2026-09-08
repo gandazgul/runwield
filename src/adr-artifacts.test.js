@@ -3,7 +3,7 @@ import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { join } from "@std/path";
 
 const ADR_DIR = "docs/adr";
-const ALLOWED_ADR_STATUSES = new Set(["proposed", "accepted", "deprecated", "superseded"]);
+const ALLOWED_ADR_STATUSES = new Set(["proposed", "accepted"]);
 
 /**
  * @param {string} dir

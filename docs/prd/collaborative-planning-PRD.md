@@ -1,7 +1,6 @@
 # Collaborative Planning — PRD
 
-**Status:** Current self-hosted SQLite implementation with hardening follow-up **Author:** Gandazgul **Last Updated:**
-2026-07-18
+**Scope:** Self-hosted collaborative Plan review. **Author:** Gandazgul
 
 ---
 
@@ -22,82 +21,52 @@ RunWield is local-first. Users can create durable markdown Plans locally, but te
 - server-side privacy where semantic Plan/comment content remains ciphertext.
 
 Chat-based feedback fragments long-form review. Immutable snapshot links fragment discussion across multiple URLs. A
-remote-canonical Shared Space with explicit local Shared Plan Lock keeps one collaboration surface while preserving
-local Plan lifecycle semantics.
+Shared Space keeps review and revisions together while preserving the local Plan lifecycle.
 
-## 3. Resolved Decisions
+## 3. Product Experience
 
-| Decision                                                        | Current product reality                                                                                                                                                                                         |
-| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Shared Space, not immutable snapshots**                       | One Shared Space contains Revisions and per-Revision comments. Comments do not carry over to new Revisions.                                                                                                     |
-| **Self-hosted SQLite first**                                    | V1 is a source-built Deno/Astro/React Workspace Plan Server with SQLite, `Containerfile`, and `compose.yml` for Podman/OCI. Published images, Cloudflare/D1, and hosted RunWield Workspace are deferred.        |
-| **Remote-canonical while shared**                               | Local Plans carry non-secret collaboration Front Matter and enter a hard Shared Plan Lock. Pull/push/unshare are the controlled mutation paths.                                                                 |
-| **Encryption: client-side only**                                | Plan bodies, comment bodies, display names, selected/original text, and annotation metadata are encrypted before upload. Content keys live in URL fragments and local secret stores.                            |
-| **Authorization: bearer capabilities, no accounts**             | Reviewer and maintainer links carry capability material. The server stores only capability hashes. Reverse proxies must preserve `Authorization: Bearer`; generic Basic Auth is not recommended.                |
-| **Accountless public operation is bounded, not solved by auth** | Public self-hosting may be placed behind Nginx/equivalent rate limits and optional inactivity retention. A separate creation credential is deferred until its CLI storage/rotation UX is designed.              |
-| **CLI-owned destructive lifecycle**                             | Browser review supports read/comment/resolve/reopen/revision switching. Push, close, browser Plan body editing, and destructive unshare/delete controls are not exposed in the browser v1; unshare is CLI-only. |
-| **Planner/Architect incorporation on pull**                     | `wld plans pull` decrypts Revisions/comments locally and launches the appropriate planning Agent with review context.                                                                                           |
+- A Shared Space gives reviewers one stable link to successive Plan Revisions. Comments belong to the Revision they
+  discuss and do not silently carry forward.
+- Reviewers can read, comment on selected text or the whole Revision, resolve and reopen comments, and switch Revisions
+  in a browser without accounts or local tools.
+- A maintainer can share a Plan, collect feedback, pull it into Planner or Architect, revise locally, and publish the
+  next Revision. Maintainer access can be handed to another person without an account system.
+- While shared, the Plan has one agreed review version. Local editing and publishing must not silently overwrite newer
+  shared work. Unsharing returns it to ordinary local use.
+- The server cannot read Plan bodies, comments, display names, or annotations. Reviewer and maintainer links confer
+  access; users need clear guidance on which link to share and how to protect it.
+- V1 browser actions cover review. Publishing Revisions and ending sharing remain CLI actions.
 
-## 4. Architecture Overview
+## 4. CLI Experience
 
-```text
-wld CLI                         Plan Server                         Browser reviewer
-share/pull/push/unshare  <-->   /api/spaces + SQLite ciphertext  <--> /p/<space-id>#key=...&cap=...
-```
+| Command                                              | User outcome                                                                                                                                            |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wld plans share <plan-name-or-id>`                  | Start shared review and receive reviewer and maintainer links. Show expiry when enabled.                                                                |
+| `wld plans pull <maintainer-url-or-plan-name-or-id>` | Receive the latest Revision and comments, take over maintenance when given a maintainer link, and continue with Planner or Architect.                   |
+| `wld plans push <plan-name-or-id>`                   | Publish the accepted local changes as the next Revision at the same link.                                                                               |
+| `wld plans unshare <plan-name-or-id>`                | End sharing, delete the remote content, and return the local Plan to independent use. Explain recovery when the remote content has already disappeared. |
 
-- The Plan Server serves HTTP inside the deployment boundary. Operators own TLS termination through Nginx or an
-  equivalent reverse proxy.
-- Podman Compose binds the container to host loopback by default. Public exposure is intentional proxy configuration.
-- SQLite is file-backed under `/data`, uses WAL, and is intended for a single active Plan Server container.
-- `/healthz` is liveness; `/readyz` checks SQLite readiness.
-- `RUNWIELD_REMOTE_MAX_REQUEST_BYTES` defaults to 5 MiB for complete JSON request bodies.
-- Optional `RUNWIELD_REMOTE_RETENTION_DAYS` adds visible inactivity expiry. Writes refresh expiry; reads do not; cleanup
-  hard-deletes expired ciphertext and capability hashes.
+## 5. Delivery
 
-## 5. Implemented Shared Space API Contract
+V1 is a self-hosted, source-built package. Operators need setup, public-access, abuse-control, optional inactivity
+expiry, and backup/restore guidance. Users must see when a Shared Space will expire. Hosting must preserve private
+content and accountless review.
 
-All semantic payloads are ciphertext. API errors are structured JSON with `error`, `message`, and `status`.
+Hosted RunWield Workspace, Cloudflare deployment, and published container images remain follow-up work.
 
-| Endpoint                                                 | Authorization                 | Purpose                                                                                  |
-| -------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------- |
-| `POST /api/spaces`                                       | none in v1                    | Create a Shared Space from capability hashes and an encrypted initial Revision.          |
-| `GET /api/spaces/:spaceId`                               | reviewer or maintainer bearer | Read Shared Space metadata, status, latest Revision, optional expiry, and Revision list. |
-| `GET /api/spaces/:spaceId/revisions/:revision`           | reviewer or maintainer bearer | Read one encrypted Revision payload.                                                     |
-| `POST /api/spaces/:spaceId/revisions`                    | maintainer bearer             | Append the next encrypted Revision.                                                      |
-| `GET /api/spaces/:spaceId/revisions/:revision/comments`  | reviewer or maintainer bearer | List encrypted comments scoped to one Revision.                                          |
-| `POST /api/spaces/:spaceId/revisions/:revision/comments` | reviewer or maintainer bearer | Append one encrypted comment.                                                            |
-| `POST /api/spaces/:spaceId/comments/:commentId/state`    | reviewer or maintainer bearer | Resolve or reopen a comment.                                                             |
-| `POST /api/spaces/:spaceId/lifecycle`                    | maintainer bearer             | Close or destructively delete the Shared Space.                                          |
+Architecture is documented in [ADR-008](../adr/008-remote-canonical-collaborative-shared-spaces.md). API, deployment,
+storage, and operational instructions belong in the [collaboration documentation](../collaboration.md).
 
-Plaintext server metadata is limited to ids, `planId`, status, Revision numbers, timestamps, resolved flags, optional
-`expiresAt`, and capability hashes. Deleted and expired Shared Spaces use not-found/deleted semantics so local Plans
-remain locked until explicit maintainer recovery.
+## 6. Audience
 
-## 6. CLI Commands
+Plan maintainers and technical or non-technical reviewers who need asynchronous feedback without joining another
+service.
 
-| Command                                              | Description                                                                                                                                                                                     |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `wld plans share <plan-name-or-id>`                  | Encrypt a local Plan, create a remote Shared Space, store local secrets, lock the local Plan, and print reviewer/maintainer URLs once. Reports expiry when retention is enabled.                |
-| `wld plans pull <maintainer-url-or-plan-name-or-id>` | Fetch and decrypt latest Revision/comments, import maintainer secrets when a URL is provided, update/create a locked local Plan, report expiry when present, and launch Planner/Architect.      |
-| `wld plans push <plan-name-or-id>`                   | Encrypt the accepted local Plan body and append it as the next remote Revision.                                                                                                                 |
-| `wld plans unshare <plan-name-or-id>`                | CLI-only destructive delete/recovery command using maintainer authorization; clears local matching secrets and lock metadata only after safe remote delete or confirmed deleted-remote cleanup. |
+## 7. Risks and Mitigations
 
-## 7. Deployment Model
-
-### Self-hosted source-built package
-
-- Deno remote Workspace Plan Server.
-- Astro/React remote review UI reusing Plannotator annotation primitives.
-- SQLite under a persistent `/data` volume.
-- `Containerfile` and `compose.yml` in the repository.
-- Loopback-only host port by default.
-- Nginx example for public TLS termination, bearer-header preservation, request-size limits, and rate limits.
-- Backup/restore/upgrade guidance based on stopped-service SQLite volume copies.
-
-### Hosted / Cloudflare follow-up
-
-Cloudflare/D1 and hosted RunWield Workspace remain deferred. They must preserve the ciphertext-only semantic-content
-invariant, capability model, and remote-canonical local lock behavior.
+- Forwarding a privileged link can give unintended access. Clearly distinguish reviewer and maintainer links.
+- Public hosting can attract abuse. Give operators practical access, rate-limit, and retention guidance.
+- Local and shared changes can diverge. Make the version being reviewed and the next publishing action clear.
 
 ## 8. Out of Scope for Current V1
 
@@ -114,13 +83,12 @@ invariant, capability model, and remote-canonical local lock behavior.
 
 ## 9. Success Metrics
 
-- A maintainer can self-host the source-built Plan Server, share a Plan, receive comments from at least two reviewers,
-  pull comments locally, revise through Planner/Architect, push a new Revision, and unshare safely.
-- A network capture and SQLite inspection show only ciphertext for Plan/comment semantic content.
-- A public trial deployment can be placed behind a reverse proxy with request/rate limits and optional seven-day
-  inactivity retention without RunWield owning TLS or adding accounts.
-- Backup/restore instructions recover Revisions/comments/capability hashes from the SQLite volume and `/readyz` confirms
-  the restored server.
+- A maintainer can self-host, share a Plan, receive comments from at least two reviewers, revise through Planner or
+  Architect, publish a new Revision at the same link, and unshare.
+- Semantic Plan and comment content is unreadable to the hosting service.
+- Operators can expose a trial deployment with abuse controls and optional inactivity expiry without adding reviewer
+  accounts or requiring RunWield to manage certificates.
+- Following the backup/restore guide recovers access to the shared Revisions and comments.
 
 ## 10. Future Work
 

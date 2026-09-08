@@ -8,7 +8,8 @@ Create a repeatable, privacy-safe evaluation capability that measures whether a 
 fulfills its role contract and completes the surrounding workflow reliably.
 
 Evaluation should let RunWield compare models, prompts, tools, extensions, and Model Adaptation Profiles using evidence
-rather than intuition. The execution machinery is defined separately in `docs/prd/end-to-end-benchmark-harness-prd.md`.
+rather than intuition. The [benchmark harness PRD](end-to-end-benchmark-harness-prd.md) describes the evaluation-running
+experience.
 
 ## Problem Statement
 
@@ -82,12 +83,9 @@ can show that they improve the target Agent contract without causing unacceptabl
 
 - RunWield should reuse established benchmark datasets, task preparation, deterministic verifiers, retry semantics, and
   reporting patterns when their licenses and methodology are suitable.
-- RunWield should not reuse a transport that bypasses SessionRuntime, Agent Definitions, protected tools, workflows, or
-  Model Adaptation Profiles.
+- Evaluations must exercise the real RunWield Agent configuration, tools, and workflow, including any selected profile.
 - little-coder's Apache-2.0 benchmark code is useful reference material. Directly reused source requires the applicable
   license, attribution, NOTICE content, and changed-file notices; external benchmark datasets retain their own licenses.
-- RunWield-owned benchmark code should follow the project's JavaScript/JSDoc language policy. Python adapters should not
-  become the common evaluation core merely because an external harness uses Python.
 - Public external benchmarks complement RunWield-native Agent contract evaluation; they do not replace it.
 
 ## Proposed Domain Language
@@ -95,9 +93,7 @@ can show that they improve the target Agent contract without causing unacceptabl
 **Agent Behavior Evaluation**: A repeatable evaluation of whether an Agent/model configuration fulfills its RunWield
 role contract and reaches the expected workflow outcome. _Avoid_: Generic model benchmark, model leaderboard, unit test
 
-This term remains proposed until an implementation Plan ships the evaluation capability. Planner must then include the
-relevant `docs/domain-language.md` under Expected Change Surface, add an implementation step that publishes the
-definition and stable relationships, and verify that the glossary update lands with the implemented evaluation behavior.
+This term remains proposed until the evaluation capability ships.
 
 ## Initial Evaluation Portfolio
 
@@ -178,21 +174,14 @@ These scenarios complement automated source tests; they do not replace them.
 
 ### External Benchmark Adapters
 
-After the WLD-native suite establishes a stable scenario/result model:
+After the WLD-native suite produces trustworthy comparisons:
 
-1. **Aider Polyglot over ACP** should be the first external adapter. Reuse or adapt the exercise preparation,
-   language-specific verification, two-attempt retry, resumable result, and reporting machinery. Replace little-coder's
-   Pi-specific RPC transport with a RunWield ACP client so the compiled product, SessionRuntime, Agent handoffs, tools,
-   and validation behavior remain in the measured path.
-2. **Harbor / Terminal-Bench** should follow after RunWield has a clean benchmark-container execution boundary. Prefer a
-   normal RunWield installation inside the task environment over a benchmark-only shell proxy when feasible.
+1. **Aider Polyglot over ACP** is the first external benchmark. Preserve its canonical exercises, verification, and
+   two-attempt methodology while measuring RunWield's actual product behavior. Report any narrower workflow coverage.
+2. **Harbor / Terminal-Bench** follows when RunWield can run representative tasks in the benchmark environment.
 
-The current little-coder `aider_polyglot.py` on `main` is partial and should be treated as source material rather than a
-drop-in complete six-language runner. A RunWield adapter should verify behavior against the canonical Aider/Exercism
-fixtures and licenses.
-
-Black-box workflow fixtures must use an explicit deterministic interaction policy. They must not silently approve every
-production interaction, and benchmark-only approval behavior must not leak into normal ACP clients.
+External source and dataset reuse must respect their licenses and attribution. Fixture-supplied answers must be explicit
+and reproducible; unexpected interactions must not be silently approved or alter normal client behavior.
 
 ## Functional Requirements
 
@@ -209,24 +198,14 @@ production interaction, and benchmark-only approval behavior must not leak into 
 - Make unsupported, unscored, interrupted, and infrastructure-failed runs visible rather than dropping them from the
   denominator.
 
-## Technical Approach
+## Delivery
 
-Build one RunWield-owned scenario and result model with two production-representative runners:
+Start with curated RunWield workflows and the Agent scorecards above. Use the effective Agent configuration and normal
+product behavior. Keep external infrastructure, dataset, interaction, and Agent failures distinguishable in reports.
 
-- an in-process SessionRuntime runner for precise WLD-native workflow fixtures and deterministic semantic interactions;
-- a black-box ACP runner for compiled-product and external benchmark integration.
-
-Agent-specific evaluators should supply scenarios and scorecards while the common evaluation core owns isolation,
-timeout, event capture, usage accounting, repetitions, checkpointing, and baseline comparison. The ACP runner should
-collect RunWield's normalized updates rather than reconstructing raw Pi events.
-
-Evaluation should use the effective Agent Definition, tools, extensions, model preset, and workflow behavior rather than
-a simplified mock prompt. External infrastructure, dataset, sandbox, interaction-policy, and Agent contract failures
-must remain separate result categories.
-
-Existing privacy-safe workflow metrics can provide field observations about intervention frequency and outcomes, but
-benchmark decisions should remain grounded in curated reproducible runs. Optional external adapters may depend on their
-native harnesses without making those dependencies part of normal RunWield installation or Runtime behavior.
+Detailed evaluation is deliberate and local. External benchmark dependencies must not become requirements for normal
+RunWield use. Implementation choices belong in the implementing Plans; this PRD defines the measurements and support
+claims they need to enable.
 
 ## Success Criteria
 
@@ -248,8 +227,8 @@ native harnesses without making those dependencies part of normal RunWield insta
 
 ## Dependencies and Sequencing
 
-`docs/prd/end-to-end-benchmark-harness-prd.md` provides the shared scenario, runner, isolation, interaction, and
-reporting machinery for these scorecards. This PRD remains the measurement and support-policy foundation for
+The [benchmark harness PRD](end-to-end-benchmark-harness-prd.md) defines how maintainers run and compare these
+evaluations. This PRD remains the measurement and support-policy foundation for
 `docs/prd/selective-execution-model-adaptation-prd.md`.
 
 Session Context Resilience can develop in parallel, but its long-run scenarios should become part of this shared
