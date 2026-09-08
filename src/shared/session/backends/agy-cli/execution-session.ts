@@ -308,7 +308,6 @@ export class AgyCliExecutionSession {
                 attemptId: options.attemptId,
                 thinkingLevel: this.thinkingLevel || "off",
                 effort,
-                backendModel: expectedBackendModel,
             });
 
             const messageId = `agy-cli-assistant:${crypto.randomUUID()}`;
@@ -372,7 +371,7 @@ export class AgyCliExecutionSession {
                 externalConversationId: parsed.metadata.sessionId,
                 thinkingLevel: this.thinkingLevel || "off",
                 effort,
-                backendModel: parsed.metadata.model || expectedBackendModel,
+                backendModel: parsed.metadata.model,
             });
             this.messages.push(assistantMessage as AgentMessage);
             emitHostedSessionRuntimeEvent(this.hostedSession, {

@@ -190,12 +190,15 @@ Deno.test("terminal auth setup can choose Antigravity CLI without provider crede
             terminal.pressEnter();
             await waitForScreen(terminal, "Only showing models from configured providers");
             await waitForScreen(terminal, "agy-cli/gemini-3.8-flash");
+            await waitForScreen(terminal, "agy-cli/gemini-3.1-pro");
             terminal.pressEnter();
             const result = await setup;
 
             assertEquals(result.status, "ready");
             assertEquals(getSettingsManager(Deno.cwd()).getDefaultProvider(), "agy-cli");
-            assertEquals(getSettingsManager(Deno.cwd()).getDefaultModel(), "gemini-3.8-flash");
+            assert(
+                ["gemini-3.8-flash", "gemini-3.1-pro"].includes(getSettingsManager(Deno.cwd()).getDefaultModel() || ""),
+            );
             assertEquals(await pathExists(join(homeDir, ".gemini")), false);
             await assertNoRunWieldSessionState(homeDir);
         } finally {

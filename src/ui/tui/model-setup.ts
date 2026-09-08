@@ -171,7 +171,7 @@ export async function runSharedModelSetup(options: RunSharedModelSetupOptions): 
             modelSelectionShown = true;
             const modelSelectionAccepted = await runModelSelection(
                 options,
-                choice === "claude-cli" ? "claude-cli/sonnet" : "agy-cli/gemini-3.8-flash",
+                choice === "claude-cli" ? "claude-cli/sonnet" : "agy-cli/",
             );
             return selectedDefaultResult(options.projectRoot, modelSelectionShown, modelSelectionAccepted);
         }

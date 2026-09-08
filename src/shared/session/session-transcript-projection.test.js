@@ -363,6 +363,43 @@ Deno.test("projection summary keeps the latest valid Agy execution backend fact"
                 backendModel: "gemini-3.1-pro-high",
             },
         },
+        { type: "custom", customType: "runwield.execution_backend", data: { backend: "agy-cli" } },
+        {
+            type: "custom",
+            customType: "runwield.execution_backend",
+            data: {
+                backend: "agy-cli",
+                provider: "agy-cli",
+                model: "gemini-unknown",
+                thinkingLevel: "medium",
+                effort: "high",
+                backendModel: "gemini-unknown-high",
+            },
+        },
+        {
+            type: "custom",
+            customType: "runwield.execution_backend",
+            data: {
+                backend: "agy-cli",
+                provider: "agy-cli",
+                model: "gemini-3.1-pro",
+                thinkingLevel: "medium",
+                effort: "low",
+                backendModel: "gemini-3.1-pro-low",
+            },
+        },
+        {
+            type: "custom",
+            customType: "runwield.execution_backend",
+            data: {
+                backend: "agy-cli",
+                provider: "agy-cli",
+                model: "gemini-3.1-pro",
+                thinkingLevel: "medium",
+                effort: "high",
+                backendModel: "gemini-3.1-pro-low",
+            },
+        },
     ]);
 
     assertEquals(summary.executionBackend, {

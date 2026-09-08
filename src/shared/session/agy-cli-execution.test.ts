@@ -45,7 +45,7 @@ interface AgyRootRef {
 interface BranchEntryRecord {
     type?: string;
     customType?: string;
-    data?: { kind?: string; afterAcceptedTerminal?: boolean; level?: string };
+    data?: Record<string, unknown>;
     message?: { role?: string };
 }
 
@@ -95,9 +95,22 @@ function getStandaloneWldProxyPath(): Promise<string> {
 function processAlive(pid: number): boolean {
     try {
         Deno.kill(pid, "SIGCONT");
-        return true;
     } catch {
         return false;
+    }
+    if (Deno.build.os === "windows") return true;
+    try {
+        const command = new Deno.Command("ps", {
+            args: ["-o", "stat=", "-p", String(pid)],
+            stdout: "piped",
+            stderr: "null",
+        });
+        const { success, stdout } = command.outputSync();
+        if (!success) return false;
+        const state = new TextDecoder().decode(stdout).trim();
+        return !state.startsWith("Z");
+    } catch {
+        return true;
     }
 }
 
@@ -1110,6 +1123,9 @@ Deno.test("Agy CLI returned model mismatch records sanitized selection status", 
             .find((entry) => entry.customType === "runwield.backend_status")?.data;
         assertEquals(status?.kind, "selection_mismatch");
         assertEquals(JSON.stringify(status).includes("wrong suffix"), false);
+        const backendEntries = (getRootSessionBranchEntries(manager) as BranchEntryRecord[])
+            .filter((entry) => entry.customType === "runwield.execution_backend");
+        assertEquals(backendEntries.some((entry) => typeof entry.data?.backendModel === "string"), false);
         await assertNoTemporaryAgents(home);
     });
 });
