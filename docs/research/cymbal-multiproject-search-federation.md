@@ -7,8 +7,7 @@
 Can RunWield Workspace provide explicit multi-Project code search by federating existing per-Project Cymbal indexes,
 without adding Sourcebot or merging every Project into one shared index?
 
-This research informs the Workspace code-search boundary and follows
-[`sourcebot-workspace-integration.md`](./sourcebot-workspace-integration.md).
+This research informs the Workspace code-search boundary.
 
 ## Decision
 
