@@ -37,7 +37,7 @@ interface TestUi extends UiAPI {
 }
 
 interface RunRecoveryResult {
-    result: "handled" | "review" | "settled";
+    result: "handled" | "review" | "settled" | "verified";
     plan: RecoveryFlowPlan;
     ui: TestUi;
 }

@@ -311,7 +311,7 @@ export async function reviewLoadedPlanDirectly({
         planningAgentName: agentName,
         fallbackTriageMeta: plan.attrs,
     });
-    await executePostPlanningDecision({
+    const postPlanningResult = await executePostPlanningDecision({
         decision: planningDecision,
         fallbackPlanContent: plan.markdown || plan.body || "",
         uiAPI,
@@ -320,5 +320,7 @@ export async function reviewLoadedPlanDirectly({
         runSlicerAgent,
         session,
     });
-    return { keepPlanAgentActive: shouldKeepPlanningAgentActive(planningDecision) };
+    return {
+        keepPlanAgentActive: postPlanningResult === "verified" || shouldKeepPlanningAgentActive(planningDecision),
+    };
 }
