@@ -19,9 +19,14 @@ tickets:
 executionAgent: "engineer"
 collaborationRecommendation: "pair"
 createdAt: "2026-09-07T16:36:57-04:00"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "b44de949-fa27-4c59-b7b4-eda624c44dfe"
+    path: "docs/work-records/2026-09-08-collapsed-tui-tool-calls-into-compact-groups.md"
+    lastAttemptAt: "2026-09-08T13:12:53.925Z"
 targetBranch: "main"
 ---
 
