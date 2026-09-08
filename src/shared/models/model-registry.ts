@@ -122,6 +122,11 @@ const CLAUDE_CLI_DISPLAY_NAMES: Record<(typeof CLAUDE_CLI_ALIASES)[number], stri
     haiku: "Claude CLI Haiku",
     fable: "Claude CLI Fable",
 };
+const AGY_CLI_MODEL_IDS = ["gemini-3.8-flash", "gemini-3.1-pro"] as const;
+const AGY_CLI_DISPLAY_NAMES: Record<(typeof AGY_CLI_MODEL_IDS)[number], string> = {
+    "gemini-3.8-flash": "Antigravity CLI Gemini 3.8 Flash",
+    "gemini-3.1-pro": "Antigravity CLI Gemini 3.1 Pro",
+};
 
 interface ExternalCliProviderDefinition {
     provider: ExternalCliExecutionBackend;
@@ -132,6 +137,7 @@ interface ExternalCliProviderDefinition {
     contextWindow: number;
     maxTokens: number;
     aliases?: readonly string[];
+    supportedModels?: readonly string[];
     modelDisplayNames?: Record<string, string>;
 }
 
@@ -155,6 +161,8 @@ const EXTERNAL_CLI_PROVIDER_DEFINITIONS: Record<ExternalCliExecutionBackend, Ext
         reasoning: true,
         contextWindow: 128000,
         maxTokens: 16384,
+        supportedModels: AGY_CLI_MODEL_IDS,
+        modelDisplayNames: AGY_CLI_DISPLAY_NAMES,
     },
 };
 
@@ -428,6 +436,7 @@ function createExternalCliModelDescriptor(provider: string, selector: string): R
     const id = selector.trim();
     if (!id) return undefined;
     const definition = EXTERNAL_CLI_PROVIDER_DEFINITIONS[provider];
+    if (definition.supportedModels && !definition.supportedModels.includes(id)) return undefined;
     return {
         provider,
         id,
@@ -447,9 +456,9 @@ function createExternalCliModelDescriptor(provider: string, selector: string): R
 
 function getExternalCliAliasModels(): RunWieldModel[] {
     return Object.values(EXTERNAL_CLI_PROVIDER_DEFINITIONS).flatMap((definition) =>
-        (definition.aliases || []).map((alias) => createExternalCliModelDescriptor(definition.provider, alias)).filter((
-            model,
-        ): model is RunWieldModel => Boolean(model))
+        [...(definition.aliases || []), ...(definition.supportedModels || [])]
+            .map((selector) => createExternalCliModelDescriptor(definition.provider, selector))
+            .filter((model): model is RunWieldModel => Boolean(model))
     );
 }
 
@@ -721,6 +730,7 @@ export async function discoverProviderModel(
     network: ModelDiscoveryNetworkPort,
     options: DiscoverProviderModelOptions = {},
 ): Promise<RunWieldModel | undefined> {
+    if (isExternalCliProvider(provider)) return undefined;
     const existing = modelRegistry.find(provider, modelId);
     if (existing) return existing;
 

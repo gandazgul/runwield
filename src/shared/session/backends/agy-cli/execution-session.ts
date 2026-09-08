@@ -197,7 +197,8 @@ export class AgyCliExecutionSession {
         if (options.images && options.images.length > 0) {
             throw new Error("Agy CLI execution backend does not support image attachments in this slice");
         }
-        const effort = thinkingLevelToEffort(this.thinkingLevel);
+        const effort = thinkingLevelToEffort(this.model.id, this.thinkingLevel);
+        const expectedBackendModel = concreteAgyModel(this.model.id, effort);
         const conversation = this.readConversation();
         conversation.push({ role: "user", text: options.userRequest });
         const serializedConversation = serializeConversation(conversation);
@@ -305,6 +306,8 @@ export class AgyCliExecutionSession {
             appendExecutionBackendEntry(this.sessionManager, this.model, {
                 requestId: options.requestId,
                 attemptId: options.attemptId,
+                thinkingLevel: this.thinkingLevel || "off",
+                effort,
             });
 
             const messageId = `agy-cli-assistant:${crypto.randomUUID()}`;
@@ -335,7 +338,7 @@ export class AgyCliExecutionSession {
                 stderrText,
                 bridgeDisconnected,
                 expectedAgent: this.ownership.name,
-                expectedModel: this.model.id,
+                expectedModel: expectedBackendModel,
                 signalAborted: combinedSignal.aborted,
             });
             if (failure) {
@@ -366,6 +369,9 @@ export class AgyCliExecutionSession {
                 requestId: options.requestId,
                 attemptId: options.attemptId,
                 externalConversationId: parsed.metadata.sessionId,
+                thinkingLevel: this.thinkingLevel || "off",
+                effort,
+                backendModel: parsed.metadata.model,
             });
             this.messages.push(assistantMessage as AgentMessage);
             emitHostedSessionRuntimeEvent(this.hostedSession, {
@@ -517,11 +523,17 @@ function classifyTurnFailure(options: {
         return { kind: "malformed_stream", exitCode: status.code, message: parseError.message };
     }
     if (!parsed) return { kind: "empty_result", exitCode: status.code };
-    if (
-        (parsed.metadata.agent && parsed.metadata.agent !== expectedAgent) ||
-        (parsed.metadata.model && parsed.metadata.model !== expectedModel)
-    ) {
+    if (parsed.metadata.agent && parsed.metadata.agent !== expectedAgent) {
         return { kind: "selection_mismatch", exitCode: status.code };
+    }
+    if (parsed.metadata.model !== expectedModel) {
+        return {
+            kind: "selection_mismatch",
+            exitCode: status.code,
+            message: `Antigravity CLI reported model ${
+                parsed.metadata.model || "[missing]"
+            } instead of ${expectedModel}.`,
+        };
     }
     if (!isResultStatusSuccess(parsed.metadata.status)) {
         if (parsed.text && (parsed.metadata.permissionDenied || parsed.metadata.mcpUnavailable)) return null;
@@ -575,10 +587,25 @@ function makeTemporaryAgentSelector(agentName: string): string {
     return `runwield-${sanitized}-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 }
 
-function thinkingLevelToEffort(thinkingLevel: string | undefined): "low" | "medium" | "high" | undefined {
-    if (!thinkingLevel || thinkingLevel === "off") return undefined;
-    if (thinkingLevel === "low" || thinkingLevel === "medium" || thinkingLevel === "high") return thinkingLevel;
-    throw new Error(`Agy CLI does not support thinkingLevel "${thinkingLevel}".`);
+function thinkingLevelToEffort(modelId: string, thinkingLevel: string | undefined): "low" | "medium" | "high" {
+    switch (thinkingLevel || "off") {
+        case "off":
+        case "minimal":
+        case "low":
+            return "low";
+        case "medium":
+            return modelId === "gemini-3.1-pro" ? "high" : "medium";
+        case "high":
+        case "xhigh":
+        case "max":
+            return "high";
+        default:
+            throw new Error(`Unknown RunWield thinkingLevel "${thinkingLevel}".`);
+    }
+}
+
+function concreteAgyModel(modelId: string, effort: "low" | "medium" | "high"): string {
+    return `${modelId}-${effort}`;
 }
 
 type JsonScalar = string | number | boolean | null;
@@ -682,7 +709,14 @@ function serializeConversation(messages: ConversationMessage[]): string {
 function appendExecutionBackendEntry(
     sessionManager: SessionManager,
     model: RunWieldModel,
-    options: { requestId?: string; attemptId?: string; externalConversationId?: string },
+    options: {
+        requestId?: string;
+        attemptId?: string;
+        externalConversationId?: string;
+        thinkingLevel?: string;
+        effort?: "low" | "medium" | "high";
+        backendModel?: string;
+    },
 ): void {
     sessionManager.appendCustomEntry("runwield.execution_backend", {
         version: 1,
@@ -690,6 +724,9 @@ function appendExecutionBackendEntry(
         provider: model.provider,
         model: model.id,
         outputFormat: "stream-json",
+        ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}),
+        ...(options.effort ? { effort: options.effort } : {}),
+        ...(options.backendModel ? { backendModel: options.backendModel } : {}),
         ...(options.requestId ? { requestId: options.requestId } : {}),
         ...(options.attemptId ? { attemptId: options.attemptId } : {}),
         ...(options.externalConversationId ? { externalConversationId: options.externalConversationId } : {}),

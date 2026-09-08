@@ -242,7 +242,10 @@ function filterCustomWorkflowAdvancementTools(tools, shouldFilter) {
  */
 function assertThinkingLevelSupportedForInvocation(model, thinkingLevel, explicit) {
     if (!explicit || !thinkingLevel || thinkingLevel === "off") return;
-    if (model?.executionBackend === "agy-cli" && ["low", "medium", "high"].includes(thinkingLevel)) return;
+    if (
+        model?.executionBackend === "agy-cli" &&
+        ["minimal", "low", "medium", "high", "xhigh", "max"].includes(thinkingLevel)
+    ) return;
     if (model?.reasoning === true) return;
     throw new Error(
         `Model ${model?.provider || ""}/${model?.id || ""} does not support thinkingLevel "${thinkingLevel}".`,
@@ -253,7 +256,7 @@ function assertThinkingLevelSupportedForInvocation(model, thinkingLevel, explici
 function assertThinkingLevelBackendSupportedForInvocation(model, thinkingLevel) {
     if (!thinkingLevel || thinkingLevel === "off") return;
     if (model?.executionBackend === "agy-cli") {
-        if (["low", "medium", "high"].includes(thinkingLevel)) return;
+        if (["minimal", "low", "medium", "high", "xhigh", "max"].includes(thinkingLevel)) return;
         throw new Error(
             `Model ${model?.provider || ""}/${
                 model?.id || ""
@@ -1296,6 +1299,11 @@ async function resolveModel(
                     agentName,
                     details: { reason: "unknown_candidate", source: candidate.source, parsed: true },
                 });
+                if (parsed.provider === "agy-cli") {
+                    throw new Error(
+                        `Unsupported Antigravity CLI model: ${candidate.model}. Select agy-cli/gemini-3.8-flash or agy-cli/gemini-3.1-pro.`,
+                    );
+                }
                 throw new Error(`Unknown ${candidate.source}: ${candidate.model}`);
             }
             continue;

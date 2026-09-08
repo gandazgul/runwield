@@ -304,32 +304,31 @@ Deno.test("runModelsCommand sets the fixture-scoped default from the standalone 
     }, { providerState: "provider-no-model" });
 });
 
-Deno.test("runModelsCommand accepts explicit Agy CLI references without catalog entries", async () => {
+Deno.test("runModelsCommand completes and accepts only supported Agy CLI base models", async () => {
     await withRuntimeCommandFixture("runwield-model-command-agy-cli-", async ({ alternateRoot }) => {
-        const modelIds = [
-            `model-${crypto.randomUUID()}`,
-            `vendor/path/${crypto.randomUUID()}`,
-            `very-long-${"x".repeat(4087)}`,
-        ];
-
         const completions = await getModelCompletions("agy-cli/");
-        assertEquals(completions.some((completion) => completion.value.startsWith("agy-cli/")), false);
+        assertEquals(completions.map((completion) => completion.value), [
+            "agy-cli/gemini-3.1-pro",
+            "agy-cli/gemini-3.8-flash",
+        ]);
 
-        for (const modelId of modelIds) {
-            const reference = `agy-cli/${modelId}`;
-            const logs = await captureLogs(() => runModelsCommand([reference]));
-            assertEquals(logs, [`Set default model to ${reference}`]);
-            assertEquals(getSettingsManager(alternateRoot).getDefaultModel(), modelId);
-            assertEquals(getSettingsManager(alternateRoot).getDefaultProvider(), "agy-cli");
-        }
+        const logs = await captureLogs(() => runModelsCommand(["agy-cli/gemini-3.8-flash"]));
+        assertEquals(logs, ["Set default model to agy-cli/gemini-3.8-flash"]);
+        assertEquals(getSettingsManager(alternateRoot).getDefaultModel(), "gemini-3.8-flash");
+        assertEquals(getSettingsManager(alternateRoot).getDefaultProvider(), "agy-cli");
+
+        const rejected = await captureLogs(() => runModelsCommand(["agy-cli/gemini-3.8-flash-high"]));
+        assertEquals(rejected, [
+            "Unsupported Antigravity CLI model: agy-cli/gemini-3.8-flash-high. Select agy-cli/gemini-3.8-flash or agy-cli/gemini-3.1-pro.",
+        ]);
+        assertEquals(getSettingsManager(alternateRoot).getDefaultModel(), "gemini-3.8-flash");
     }, { providerState: "provider-no-model" });
 });
 
-Deno.test("runModelsCommand activates explicit Agy CLI model selection for the current Session", async () => {
-    await withRuntimeCommandFixture("runwield-model-command-agy-deferred-", async ({ projectRoot }) => {
+Deno.test("runModelsCommand rejects unsupported Agy CLI model selection for the current Session", async () => {
+    await withRuntimeCommandFixture("runwield-model-command-agy-reject-", async ({ projectRoot }) => {
         const ui = makeUi();
         const runtime = createSessionRuntime();
-        const modelId = `future-${crypto.randomUUID()}`;
         try {
             const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
             await runModelsCommand([FIXTURE_MODEL], {
@@ -341,23 +340,23 @@ Deno.test("runModelsCommand activates explicit Agy CLI model selection for the c
                 model: "fixture-model",
                 provider: "runtime-command-fixture",
             });
-            const firstTurn = await runtime.promptUserTurn(sessionId, { initialRequest: "Prime the fixture model" });
-            assertEquals(firstTurn.ok, true);
             ui.messages.length = 0;
 
-            await runModelsCommand([`agy-cli/${modelId}`], {
+            await runModelsCommand(["agy-cli/fixture-model"], {
                 uiAPI: ui.uiAPI,
                 sessionId,
                 sessionRuntime: runtime,
             });
 
             assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
-                model: modelId,
-                provider: "agy-cli",
+                model: "fixture-model",
+                provider: "runtime-command-fixture",
             });
-            assertEquals(getSettingsManager(projectRoot).getDefaultModel(), modelId);
-            assertEquals(getSettingsManager(projectRoot).getDefaultProvider(), "agy-cli");
-            assertStringIncludes(ui.messages.at(-1)?.text || "", `Switched model to agy-cli/${modelId}`);
+            assertEquals(ui.messages, [{
+                text:
+                    "Unsupported Antigravity CLI model: agy-cli/fixture-model. Select agy-cli/gemini-3.8-flash or agy-cli/gemini-3.1-pro.",
+                isError: true,
+            }]);
         } finally {
             runtime.closeAllSessions();
         }

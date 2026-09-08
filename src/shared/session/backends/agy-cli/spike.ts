@@ -98,7 +98,7 @@ export async function proveAgyCustomAgentExecution(
     try {
         ownership = await materializeAgyCustomAgent(agentName, agentDefinition);
         await verifyAgyCustomAgentListed(agentName);
-        const command = prepareAgyCliStreamCommand({ agentName, model: modelSelector, userRequest });
+        const command = prepareAgyCliStreamCommand({ agentName, model: modelSelector, effort: "low", userRequest });
         const userArgument = command.args[command.args.indexOf("-p") + 1];
         if (
             userArgument !== userRequest || userArgument.includes(agentMarker) || userArgument.includes(agentDefinition)

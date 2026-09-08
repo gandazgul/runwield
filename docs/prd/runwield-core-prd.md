@@ -392,6 +392,8 @@ Current requirements:
 - support Pi/API-authenticated model Execution Backends through configured providers
 - support `claude-cli/sonnet`, `claude-cli/opus`, `claude-cli/haiku`, and `claude-cli/fable` as Claude CLI Core
   Execution Backend aliases
+- support `agy-cli/gemini-3.8-flash` and `agy-cli/gemini-3.1-pro` as Antigravity CLI Core Execution Backend model
+  families
 - support OpenAI-compatible provider discovery through `/models`
 - support local/custom providers through `models.json`
 - support vision fallback configuration for pasted images when the active model is text-only
@@ -402,11 +404,34 @@ Code CLI and signing in with Claude Code; it does not require a RunWield API-key
 executable or authentication state is reported by the first-turn backend preflight, not by provider credential
 onboarding.
 
-In the MVP Claude CLI transcript projection, Claude Code owns its internal file/Bash/tool activity. That internal
-file/Bash/tool activity can affect the worktree, but RunWield persists native RunWield tool events for Bridged Tools
-exposed through the loopback MCP bridge. Claude Code's internal file, Bash, and native tool activity stays unrecorded as
-native RunWield tool events. RunWield Connect remains the separate product mode where Claude Code is the External Agent
-Host and owns the user conversation and model calls.
+Antigravity CLI is also a Core Execution Backend. Setup requires installing `agy` and signing in to Antigravity. It does
+not require a RunWield API-key or subscription login. RunWield selects only these base models:
+
+- `agy-cli/gemini-3.8-flash`
+- `agy-cli/gemini-3.1-pro`
+
+RunWield keeps the selected base model and original RunWield thinking level as Session state. For each Agy turn it runs
+`agy` with `--model <base>` and `--effort <mapped-effort>`. The mapping is:
+
+| RunWield thinking | Flash 3.8 effort | Pro 3.1 effort |
+| ----------------- | ---------------- | -------------- |
+| `off`             | `low`            | `low`          |
+| `minimal`         | `low`            | `low`          |
+| `low`             | `low`            | `low`          |
+| `medium`          | `medium`         | `high`         |
+| `high`            | `high`           | `high`         |
+| `xhigh`           | `high`           | `high`         |
+| `max`             | `high`           | `high`         |
+
+Agy reports a concrete backend model such as `gemini-3.8-flash-high`. RunWield records that concrete model as execution
+evidence, not as the committed Session model. Unsupported Agy IDs, including concrete `-low`, `-medium`, and `-high`
+IDs, are rejected before Agy starts or RunWield writes Agy-owned global files.
+
+In the MVP CLI backend transcript projection, Claude Code and Antigravity own their native file, shell, and internal
+tool activity. That activity can affect the worktree, but RunWield persists native RunWield tool events for Bridged
+Tools exposed through the loopback MCP bridge. Native CLI-internal activity stays unrecorded as RunWield tool events.
+RunWield Connect remains the separate product mode where an External Agent Host owns the user conversation and model
+calls.
 
 Future/open requirements:
 

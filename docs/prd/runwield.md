@@ -74,8 +74,13 @@ requirements live in [runwield-connect-prd.md](./runwield-connect-prd.md). That 
 **Attached Workflow** as internal architectural terms while using RunWield Connect as the public product name.
 
 When RunWield Core owns the Session and invokes another harness non-interactively, such as Claude Code through
-`claude -p`, that harness is an **Execution Backend** alongside Pi. Execution Backends are Core capabilities, not
-RunWield Connect plugins or separately branded product modes.
+`claude -p` or Antigravity through `agy`, that harness is an **Execution Backend** alongside Pi. Execution Backends are
+Core capabilities, not RunWield Connect plugins or separately branded product modes. Core currently exposes two
+Antigravity model families: `agy-cli/gemini-3.8-flash` and `agy-cli/gemini-3.1-pro`. Agy setup requires the external CLI
+to be installed and signed in; it does not use RunWield API-key login. RunWield maps thinking to Agy effort as follows:
+`off`, `minimal`, and `low` -> `low`; `medium` -> Flash `medium` or Pro `high`; `high`, `xhigh`, and `max` -> `high`.
+RunWield replay for Agy includes committed assistant messages, RunWield tool activity, and backend status. It does not
+include Antigravity native file, shell, or internal tool activity.
 
 ### 2.4 Naming
 

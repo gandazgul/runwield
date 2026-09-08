@@ -49,6 +49,7 @@ type AgyCliStreamEvent =
         kind: "result";
         text: string;
         usage: AgyCliUsage;
+        model?: string;
         sessionId?: string;
         status: string;
         errorText: string;
@@ -168,6 +169,7 @@ export function parseAgyCliJsonLine(line: string): AgyCliStreamEvent | null {
             kind: "result",
             text: readResultText(parsed),
             usage: readUsage(result.usage || parsed.usage),
+            model: asString(result.model) || asString(parsed.model) || undefined,
             sessionId: asString(parsed.conversation_id) || asString(result.conversation_id) ||
                 asString(result.session_id) ||
                 asString(result.sessionId) || undefined,
@@ -221,6 +223,7 @@ export async function parseAgyCliStream(
         status = event.status;
         errorText = event.errorText;
         deniedActions = event.deniedActions;
+        if (event.model) model = event.model;
         if (event.sessionId) sessionId = event.sessionId;
     };
 

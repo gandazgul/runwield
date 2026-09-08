@@ -1,8 +1,10 @@
 import { assert, assertEquals, assertObjectMatch, assertThrows } from "@std/assert";
 import { join } from "@std/path";
 import { assertModelExecutionBackendSupported, UnsupportedModelExecutionBackendError } from "./model-execution.ts";
-import { RunWieldCredentialStore, RunWieldModelRegistry } from "./model-registry.ts";
-import { parseProviderModel, resolveTemplateModel } from "./model-validation.ts";
+import { discoverProviderModel, RunWieldCredentialStore, RunWieldModelRegistry } from "./model-registry.ts";
+import { resolveTemplateModel } from "./model-validation.ts";
+
+const AGY_MODELS = ["gemini-3.8-flash", "gemini-3.1-pro"];
 
 async function makeRegistry(): Promise<{ registry: RunWieldModelRegistry; tempDir: string }> {
     const tempDir = await Deno.makeTempDir({ prefix: "runwield-agy-cli-models-" });
@@ -15,30 +17,19 @@ async function makeRegistry(): Promise<{ registry: RunWieldModelRegistry; tempDi
     };
 }
 
-function generatedModelIds(): string[] {
-    return [
-        `model-${crypto.randomUUID()}`,
-        `vendor/path/${crypto.randomUUID()}`,
-        "x",
-        `short-${"x".repeat(58)}`,
-        `long-${"x".repeat(252)}`,
-        `very-long-${"x".repeat(4087)}`,
-    ];
-}
-
-Deno.test("Agy CLI lookup preserves every parser-accepted non-empty selector without catalog or length rules", async () => {
+Deno.test("Agy CLI exposes exactly the supported selectable base models", async () => {
     const { registry, tempDir } = await makeRegistry();
     try {
-        for (const modelId of generatedModelIds()) {
-            const reference = `agy-cli/${modelId}`;
-            const parsed = parseProviderModel(reference);
-            if (!parsed.ok) throw new Error(`Fixture reference was rejected by the shared parser: ${reference}`);
-
-            const model = registry.find(parsed.provider, parsed.id);
-            assert(model);
+        const selectable = registry.getSelectable().filter((model) => model.provider === "agy-cli");
+        assertEquals(selectable.map((model) => model.id), AGY_MODELS);
+        assertEquals(
+            registry.getAll().filter((model) => model.provider === "agy-cli").map((model) => model.id),
+            AGY_MODELS,
+        );
+        assertEquals(registry.getAvailable().some((model) => model.provider === "agy-cli"), false);
+        for (const model of selectable) {
             assertObjectMatch(model, {
                 provider: "agy-cli",
-                id: modelId,
                 executionBackend: "agy-cli",
                 authenticationKind: "external-cli",
                 healthCheck: "execution-preflight",
@@ -56,31 +47,48 @@ Deno.test("Agy CLI lookup preserves every parser-accepted non-empty selector wit
                 error: "No API auth for external CLI provider agy-cli",
             });
             assertEquals(registry.isUsingOAuth(model), false);
-            assertEquals(resolveTemplateModel(reference, registry), { ok: true, provider: "agy-cli", id: modelId });
-
             assertModelExecutionBackendSupported(model);
         }
-
-        assertEquals(registry.getAll().some((model) => model.provider === "agy-cli"), false);
-        assertEquals(registry.getSelectable().some((model) => model.provider === "agy-cli"), false);
-        assertEquals(registry.getAvailable().some((model) => model.provider === "agy-cli"), false);
     } finally {
         await Deno.remove(tempDir, { recursive: true });
     }
 });
 
-Deno.test("Agy CLI rejects empty selectors without weakening unknown provider failures", async () => {
+Deno.test("Agy CLI lookup accepts only the supported base models", async () => {
     const { registry, tempDir } = await makeRegistry();
     try {
-        assertEquals(registry.find("agy-cli", "   "), undefined);
-        assertEquals(resolveTemplateModel("agy-cli/", registry), { ok: false });
+        for (const modelId of AGY_MODELS) {
+            const model = registry.find("agy-cli", modelId);
+            assert(model);
+            assertEquals(resolveTemplateModel(`agy-cli/${modelId}`, registry), {
+                ok: true,
+                provider: "agy-cli",
+                id: modelId,
+            });
+        }
+        for (
+            const modelId of [
+                "",
+                "   ",
+                "fixture-model",
+                "gemini-3.8-flash-low",
+                "gemini-3.8-flash-medium",
+                "gemini-3.8-flash-high",
+                "gemini-3.1-pro-low",
+                "gemini-3.1-pro-high",
+                `vendor/path/${crypto.randomUUID()}`,
+            ]
+        ) {
+            assertEquals(registry.find("agy-cli", modelId), undefined);
+        }
+        assertEquals(resolveTemplateModel("agy-cli/gemini-3.8-flash-low", registry), { ok: false });
         assertEquals(resolveTemplateModel("missing-provider/future-model", registry), { ok: false });
     } finally {
         await Deno.remove(tempDir, { recursive: true });
     }
 });
 
-Deno.test("Agy CLI remains outside API auth even when files contain misleading provider entries", async () => {
+Deno.test("Agy CLI ignores misleading configured providers and live discovery", async () => {
     const { registry, tempDir } = await makeRegistry();
     try {
         const store = new RunWieldCredentialStore(join(tempDir, "auth.json"));
@@ -99,11 +107,9 @@ Deno.test("Agy CLI remains outside API auth even when files contain misleading p
                     "agy-cli": {
                         name: "Wrong API Provider",
                         apiKey: "fake",
+                        baseUrl: "https://agy.example.test/v1",
+                        api: "openai-completions",
                         models: [{ id: "configured-only", name: "Wrong" }],
-                    },
-                    "claude-cli": {
-                        apiKey: "also-fake",
-                        models: [{ id: "sonnet", name: "Wrong" }],
                     },
                     local: {
                         baseUrl: "https://local.example.test/v1",
@@ -115,26 +121,18 @@ Deno.test("Agy CLI remains outside API auth even when files contain misleading p
             }),
         );
 
-        const model = registry.find("agy-cli", "configured-only");
-        assert(model);
-        assertObjectMatch(model, {
-            provider: "agy-cli",
-            id: "configured-only",
-            name: "Antigravity CLI configured-only",
-            executionBackend: "agy-cli",
-            authenticationKind: "external-cli",
-            healthCheck: "execution-preflight",
-        });
+        assertEquals(registry.find("agy-cli", "configured-only"), undefined);
+        assertEquals(
+            await discoverProviderModel(registry, "agy-cli", "configured-only", { fetch: fetch.bind(globalThis) }),
+            undefined,
+        );
         assertEquals(await store.read("agy-cli"), undefined);
         assertEquals(await store.read("claude-cli"), undefined);
         assertEquals(await store.list(), [{ providerId: "openai", type: "api_key" }]);
         assertEquals(registry.getProvider("agy-cli"), undefined);
         assertEquals(registry.getRegisteredProviderConfig("agy-cli"), undefined);
         assertEquals(registry.getRegisteredProviderIds(), ["local"]);
-        assertEquals(registry.getAll().some((entry) => entry.provider === "agy-cli"), false);
         assertEquals(registry.getConfiguredModels().some((entry) => entry.provider === "agy-cli"), false);
-        assertEquals(registry.hasConfiguredAuth(model), false);
-        assertEquals(await registry.getApiKeyForProvider("agy-cli"), undefined);
         assertEquals(registry.find("local", "configured")?.provider, "local");
     } finally {
         await Deno.remove(tempDir, { recursive: true });
