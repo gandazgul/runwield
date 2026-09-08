@@ -29,7 +29,6 @@ import { runValidationAgentUntilEvent } from "../session/agent-workflow-step.ts"
 import { settleWorkflowToolEvent } from "./workflow-tool-events.ts";
 import { createManualQaCompletedTool } from "../../tools/manual-qa-completed.ts";
 import { logValidationFailure } from "./validation-state-errors.ts";
-import { AGY_CLI_MCP_PROVENANCE, CLAUDE_CLI_MCP_PROVENANCE } from "../session/bridged-tools/mcp-bridge.ts";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { runActiveAgentTurn, switchActiveAgent } from "../session/agent-switching.js";
 import {
@@ -399,34 +398,6 @@ async function runCompletionGatedRepair({
     if (!event) return false;
     settleWorkflowToolEvent(hostedSession, event);
     return true;
-}
-
-/**
- * Whether the latest accepted `review_complete` result came from a trusted
- * opaque MCP bridge.
- *
- * External CLI backends own their internal read/shell tool loop and RunWield
- * does not ingest that internal transcript, so a bridge-stamped accepted result
- * waives only the Pi-specific `review_diff`-before-verdict prerequisite. The
- * waiver says nothing about what the reviewer actually inspected; it is not
- * proof of inspection and must not generalize to Pi, Attached Mode, arbitrary
- * external results, or approval with incomplete/open findings.
- *
- * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
- * @returns {boolean}
- */
-export function hasTrustedOpaqueMcpReview(messages: import("@earendil-works/pi-agent-core").AgentMessage[]) {
-    if (!Array.isArray(messages)) return false;
-    for (let i = messages.length - 1; i >= 0; i--) {
-        const msg = messages[i];
-        if (!msg || typeof msg !== "object" || !("role" in msg) || msg.role !== "toolResult") continue;
-        if (!("toolName" in msg) || msg.toolName !== "review_complete") continue;
-        const details = (msg as { details?: { outcome?: unknown; provenance?: unknown } }).details || {};
-        const outcome = details.outcome;
-        if (outcome !== "approved" && outcome !== "feedback") continue;
-        return details.provenance === CLAUDE_CLI_MCP_PROVENANCE || details.provenance === AGY_CLI_MCP_PROVENANCE;
-    }
-    return false;
 }
 
 /**

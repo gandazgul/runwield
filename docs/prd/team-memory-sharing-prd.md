@@ -18,11 +18,8 @@ Mnemoteca currently gives RunWield durable project and global Memory across Agen
 local to one user. Consequently, a useful project fact learned by one contributor is unavailable to teammates unless it
 is repeated elsewhere or communicated manually.
 
-Committing the SQLite database would distribute those Memories, but it would also introduce an opaque binary artifact
-that Git cannot meaningfully diff or merge. Routine Memory writes would dirty the repository; parallel contributors
-would conflict over the whole database; embeddings and search indexes would bloat history; model or schema changes could
-rewrite derived data; and an active WAL-mode database could be captured inconsistently. A committed database would also
-make it difficult to review sensitive content or detect a malicious Core Memory before it influenced Agents.
+Sharing opaque local storage would make changes hard to review, expose unrelated private information, and create
+conflicts between contributors. Teams need readable changes that fit their existing repository review process.
 
 Requiring users to approve or promote every Memory individually would avoid some disclosure risk but create enough
 friction that sharing would likely be skipped. RunWield needs an agent-classified, Git-reviewed lifecycle that shares
@@ -67,18 +64,13 @@ Project Memories have two independent dimensions:
 - Existing artifact synchronization and indexing retain their current roles.
 - RunWield must not use Team Memory promotion as a reason to duplicate or rewrite unrelated durable artifacts.
 
-### Canonical Text, Derived Database
+### Reviewable Repository Text
 
-- Mnemoteca's SQLite database, embeddings, FTS structures, vector indexes, WAL files, and local document IDs are never
-  committed.
-- A Team Memory has one canonical, deterministic, human-readable repository representation.
-- Once promoted, canonical text owns the Team Memory; local Mnemoteca records are derived searchable copies.
-- Canonical Team Memory text must support meaningful Git diffs, ordinary code review, parallel additions, stable
-  identity, updates, supersession, and deletion without relying on local database IDs.
-- Generated or machine-specific values that create diff churn, including embeddings and export timestamps, do not belong
-  in canonical text.
-- The exact serialization and repository path are reversible implementation choices, provided they satisfy these
-  requirements.
+- Shared Memories appear as human-readable repository text with meaningful diffs and ordinary review.
+- Sharing excludes local databases, embeddings, indexes, and machine-specific metadata.
+- Contributors can add unrelated Memories in parallel, then edit, replace, or remove accepted Memories without managing
+  local database identifiers.
+- Reviewed repository text is enough to restore the team's knowledge on a new machine.
 
 ### Promotion Uses Git Review Instead of Per-Memory Approval
 
@@ -104,19 +96,13 @@ Project Memories have two independent dimensions:
 - Trusting Team Memories follows repository authority: anyone able to merge into the Trusted Branch can approve shared
   Agent context.
 
-### Reconciliation Is Convergent
+### Consistent Team Knowledge
 
-- RunWield reconciles the accepted Trusted Branch snapshot into the local Mnemoteca database before using Team Memories
-  as active shared context.
-- Repeated reconciliation must be idempotent and must not append duplicate Memories.
-- Added canonical Memories create derived local records.
-- Updated canonical Memories update their corresponding derived records.
-- Removed or superseded canonical Memories cease to participate in active local retrieval and Core injection.
-- Reconciliation must distinguish derived Team Memories from independent Local Memories, even when their text is
-  similar.
-- A contributor must be able to rebuild all derived Team Memory state from canonical text without a database backup.
-- Reconciliation failure must leave the last known trusted state usable or fail closed; it must not partially activate
-  an untrusted or inconsistent snapshot.
+- Contributors receive accepted additions, updates, and removals from the Trusted Branch without duplicate Memories.
+- Removed or replaced Team Memories stop influencing retrieval and Core context.
+- Updating Team knowledge must preserve independent Local Memories, even when their wording is similar.
+- A failed update must not activate untrusted or inconsistent content. Explain the problem while preserving access to
+  previously trusted knowledge where possible.
 
 ## Product Experience
 
@@ -147,41 +133,19 @@ for normal Core injection. Contributors do not import exports or copy database f
 Checking out an external or unmerged branch may display proposed Team Memory changes, but those changes do not persist
 into active shared Memory. Returning to another branch must not leave behind untrusted derived records.
 
-## Technical Approach
+## Privacy and Review Requirements
 
-### Agent Memory Contract
+- Exclude credentials, personal data, sensitive machine details, and content that cannot confidently be shared with the
+  repository's audience.
+- Agent classification does not replace repository review. Unreviewed Team Core Memories must not influence teammates'
+  Agents merely because someone checks out a branch.
+- Team Memories have the same audience as the repository; per-Memory access control is outside this proposal.
+- Reports identify proposed or accepted Team changes without unnecessarily exposing Local Memory content.
 
-RunWield's project-Memory creation capability must carry an audience classification independently from Core importance.
-Agent instructions must define the Team classification criteria consistently and preserve Local as the fallback for
-uncertain content. Mnemoteca may retain the classification as local metadata, but local representation does not define
-the canonical Team Memory format.
+## Delivery
 
-### Candidate Materialization
-
-RunWield owns promotion from local candidates to repository text. Materialization must:
-
-- operate only at safe checkpoints rather than modifying the repository on every Memory tool call;
-- produce deterministic, reviewable text without embeddings;
-- retain stable identity across edits and local database rebuilds;
-- batch changes without hiding the individual Memories being proposed;
-- avoid repeatedly emitting rejected or unchanged candidates;
-- never commit on the user's behalf.
-
-### Trusted Snapshot Reconciler
-
-RunWield owns synchronization between canonical Team Memory text and local Mnemoteca derived state. The reconciler must
-read the accepted Trusted Branch snapshot rather than trusting arbitrary working-tree content. It requires stable
-external identity and create/update/remove behavior; Mnemoteca's current backup-oriented, append-only import behavior is
-insufficient as the synchronization contract by itself.
-
-### Safety Controls
-
-- Team classification must exclude likely credentials, tokens, personal data, local paths with sensitive information,
-  and content the Agent cannot confidently classify as repository-safe.
-- Repository review remains required even when agent classification is confident.
-- Untrusted Team Core Memories must never enter automatic prompt injection.
-- Team Memory text has the same audience as the repository; per-Memory access control is not implied.
-- Sync and promotion reporting must identify what changed without exposing Local Memory content unnecessarily.
+The smallest useful release lets two contributors propose, review, receive, update, and remove shared Memories through
+normal Git collaboration. Implementation planning determines storage, export timing, identity, and synchronization.
 
 ## Success Criteria
 
@@ -218,8 +182,8 @@ checking out or reviewing the branch does not activate them; repository merge au
 ### Local and Team Divergence
 
 A Local Memory may overlap with a later Team Memory, or a canonical Team Memory may be revised while an older local copy
-exists. Stable canonical identity and provenance-aware reconciliation must update derived copies without deleting
-independent Local knowledge solely because its text is similar.
+exists. Updates must replace the shared version without deleting independent Local knowledge solely because its text is
+similar.
 
 ## Out of Scope
 

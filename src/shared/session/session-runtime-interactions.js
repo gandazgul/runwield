@@ -214,7 +214,25 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
             operationSignal?.removeEventListener("abort", abort);
         };
     }
-    hostedSession.addActiveInteraction?.(id, { request: interaction, abortController });
+    const remoteAnswer = new Promise((resolve) => {
+        hostedSession.addActiveInteraction(id, {
+            request: interaction,
+            abortController,
+            answer: (response) => {
+                if (!hostedSession.getActiveInteractions().has(id)) {
+                    throw new Error("This question has already been answered.");
+                }
+                const normalized = normalizeInteractionResponse(response);
+                if (
+                    normalized.outcome === "text" && !interaction.allowEmpty && !String(normalized.value || "").trim()
+                ) {
+                    throw new Error("An answer is required.");
+                }
+                hostedSession.removeActiveInteraction(id);
+                resolve(normalized);
+            },
+        });
+    });
     try {
         if (signal?.aborted || operationSignal?.aborted || abortController.signal.aborted) {
             const response = { outcome: RuntimeInteractionOutcomes.CANCELED, message: "Interaction canceled." };
@@ -237,6 +255,7 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
         const response = normalizeInteractionResponse(
             /** @type {Partial<RuntimeInteractionResponse>} */ (await Promise.race([
                 adapter.requestInteraction(interaction, abortController.signal),
+                remoteAnswer,
                 canceled,
             ])),
         );
@@ -265,5 +284,7 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
     } finally {
         removeAbortListener?.();
         hostedSession.removeActiveInteraction?.(id);
+        // Dismiss the other surface's prompt after either surface answers.
+        abortController.abort();
     }
 }

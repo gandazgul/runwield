@@ -11,7 +11,7 @@ affectedPaths:
     - "src/ui/workspace/"
     - "src/ui/review/"
     - "docs/prd/workflow-rail-prd.md"
-    - "docs/prd/runwield-workspace-session-screen.md"
+    - "docs/prd/workspace-session-screen.md"
     - "docs/design-system.md"
     - "docs/domain-language.md"
 devServerCommand: "deno task workspace:dev"
@@ -142,8 +142,8 @@ the user, not to the file list.
   destinations under existing Project and owner checks.
 - `src/ui/workspace/react/ArtifactReadSurface.tsx`, review types, and `src/ui/review/review-launcher.ts` — generalize
   the read-only viewer and then reuse its Markdown presentation in an optional authored-artifact review mode.
-- `docs/prd/workflow-rail-prd.md` and `docs/prd/runwield-workspace-session-screen.md` — align the product contract with
-  a persistent Session Sidebar and explicit artifact catalog instead of a workflow-only rail.
+- `docs/prd/workflow-rail-prd.md` and `../../prd/workspace-session-screen.md` — align the product contract with a
+  persistent Session Sidebar and explicit artifact catalog instead of a workflow-only rail.
 - `docs/design-system.md` and the shared browser design-system layer — document only the sidebar tabs, stage treatment,
   artifact rows, responsive panel, and document-review patterns that implementation makes real.
 - `docs/domain-language.md` — define Session Artifact, Session Artifact Catalog, Session Sidebar, and Authored Artifact

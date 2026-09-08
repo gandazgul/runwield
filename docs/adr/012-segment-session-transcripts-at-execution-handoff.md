@@ -29,9 +29,9 @@ segment under the same stable Session. That segment receives the bounded repair 
 and remains current through the repair attempt and its recovery boundaries. Each later semantic repair receives another
 successor segment. The Engineer remains active after validation until a new request requires fresh Router triage.
 
-This changes ADR-011's one-to-one mapping between a stable RunWield Session ID and one Pi Session Manager ID/JSONL path:
-the stable Session ID instead owns an ordered set of segment IDs and paths, with one current writable segment. Session
-Activation and Plan Workflow Lease ownership remain keyed to the stable RunWield Session.
+The stable Session ID owns an ordered set of segment IDs and paths, with one current writable segment. The Session
+Writer Lock covers segment changes as described in [ADR-015](./015-file-authoritative-session-bundles.md). Plan
+Lifecycle and worktree records own workflow facts; there is no separate Plan Workflow Lease.
 
 ## Consequences
 

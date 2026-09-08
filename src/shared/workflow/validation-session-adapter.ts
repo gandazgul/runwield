@@ -31,7 +31,7 @@ import {
     setCurrentValidationProgress,
 } from "./validation-progress.ts";
 import { clearValidationPosition, rememberValidationPosition } from "./validation-position.ts";
-import { hasTrustedOpaqueMcpReview, runFeaturePostVerificationHandoffs } from "./validation-helpers.ts";
+import { runFeaturePostVerificationHandoffs } from "./validation-helpers.ts";
 import { runValidationAgentUntilEvent } from "../session/agent-workflow-step.ts";
 import { logValidationFailure } from "./validation-state-errors.ts";
 import { loadPlan, updatePlanFrontMatter } from "../../plan-store.js";
@@ -276,7 +276,10 @@ async function runIsolatedRequest(
             outcome: "completed",
             reviewOutcome,
             usedDiffTool: Boolean(diffEvent),
-            trustedOpaqueMcpReview: hasTrustedOpaqueMcpReview(messages),
+            trustedOpaqueMcpReview: Boolean(
+                reviewEvent?.owningSession && "kind" in reviewEvent.owningSession &&
+                    (reviewEvent.owningSession.kind === "claude-cli" || reviewEvent.owningSession.kind === "agy-cli"),
+            ),
         };
     }
     if (request.kind === "manual_qa") {

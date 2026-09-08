@@ -3,11 +3,14 @@ import {
     Container,
     Editor,
     Image,
+    isViewportTUI,
+    ScrollView,
     Spacer,
     Text,
     truncateToWidth,
     TUI,
     visibleWidth,
+    VStack,
 } from "@earendil-works/pi-tui";
 import {
     applyPersistedTheme,
@@ -117,7 +120,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         }`;
         const compactHelp = theme.fg(
             "muted",
-            ["? help", "esc interrupt", "ctrl+c clear/exit", "/ commands", "! bash", "ctrl+o tool output"].join(" · "),
+            ["? help", "esc interrupt", "ctrl+c clear/exit", "/ commands", "! bash", "ctrl+o tool groups"].join(" · "),
         );
         const helpText = new Text(compactHelp, 0, 0);
         const updateNoticeText = new Text("", 0, 0);
@@ -176,31 +179,59 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         options.getSessionId,
         () => options.sessionRuntime.getSessionSnapshot(options.getSessionId()),
     );
-    const rootWrapper: Component = {
+    const bottomDock: Component = {
         invalidate: () => {
-            container.invalidate();
             composerContainer.invalidate();
-            sessionSidebar.invalidate();
             footerContainer.invalidate();
         },
         render: (w: number) => {
             const availableWidth = Math.max(10, w - 2);
-            const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
-            const bottomDockLines = [
+            return [
                 ...composerContainer.render(availableWidth),
                 ...footerContainer.render(availableWidth),
             ];
+        },
+    };
+    const transcriptArea: Component = {
+        invalidate: () => {
+            container.invalidate();
+            sessionSidebar.invalidate();
+        },
+        render: (w: number) => {
+            const availableWidth = Math.max(10, w - 2);
+            const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
             if (!snapshot?.managed || availableWidth < SESSION_SIDEBAR_MIN_WIDTH) {
-                return [...container.render(availableWidth), ...bottomDockLines];
+                return container.render(availableWidth);
             }
             const sidebarWidth = Math.min(34, Math.max(28, Math.floor(availableWidth * 0.28)));
             const mainWidth = Math.max(48, availableWidth - sidebarWidth - 1);
             const mainLines = container.render(mainWidth);
             const sidebarLines = sessionSidebar.render(sidebarWidth, snapshot);
-            return composePinnedSessionSidebar(mainLines, sidebarLines, mainWidth, tui.terminal.rows, bottomDockLines);
+            return composePinnedSessionSidebar(mainLines, sidebarLines, mainWidth, tui.terminal.rows);
         },
     };
-    tui.addChild(rootWrapper);
+    const rootWrapper: Component = {
+        invalidate: () => {
+            transcriptArea.invalidate();
+            bottomDock.invalidate();
+        },
+        render: (w: number) => [...transcriptArea.render(w), ...bottomDock.render(w)],
+    };
+    if (isViewportTUI(tui)) {
+        tui.setLayoutRoot(
+            new VStack([
+                {
+                    component: new ScrollView(transcriptArea, { follow: "end", primary: true, scrollbar: "auto" }),
+                    basis: 0,
+                    grow: 1,
+                    minSize: 1,
+                },
+                { component: bottomDock, basis: "auto", shrink: 1, minSize: 1 },
+            ]),
+        );
+    } else {
+        tui.addChild(rootWrapper);
+    }
     const removeSidebarKeyListener = tui.addInputListener((data) => {
         if (!isSessionSidebarCycleKey(data)) return undefined;
         sessionSidebar.cycleTab();
@@ -227,7 +258,6 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         tui,
         editor,
         container: composerContainer,
-        messageList,
         getProjectRoot: () => {
             const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
             if (!snapshot) throw new Error("Active runtime session is missing.");
@@ -345,6 +375,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
             removeSidebarKeyListener();
             clearInterval(clipboardPollingInterval);
             unsubscribeThemeChange();
+            if (isViewportTUI(tui)) tui.setLayoutRoot(undefined);
             endBlink();
         },
     };

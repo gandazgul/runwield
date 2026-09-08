@@ -83,9 +83,9 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
     }
 
     const state = readSemanticRoundState(args, context);
-    let round = state.semanticRound;
-    let ledger = state.reviewLedger;
-    let diffText = await getDiffText(context.baselineTree, context.executionCwd);
+    const round = state.semanticRound;
+    const ledger = state.reviewLedger;
+    const diffText = await getDiffText(context.baselineTree, context.executionCwd);
     if (requiresImplementationDiff(args.triageMeta) && !hasImplementationDiff(diffText, args.planName)) {
         const planOnly = Boolean(diffText.trim());
         const reason = planOnly
@@ -142,7 +142,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 prompt: buildValidationUserMessage({ kind: "repair_feedback_prompt" }),
                 defaultValue: buildValidationUserMessage({ kind: "repair_feedback_default" }),
             });
-            if (response.outcome !== "text" && response.outcome !== "submitted") {
+            if (response.outcome !== "text") {
                 return {
                     kind: "paused",
                     planName: args.planName,
@@ -338,17 +338,13 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                     "Reviewer-Feedback Engineer stopped without task_completed during semantic repair.";
                 return { kind: "paused", planName: args.planName, projectRoot: context.projectRoot, reason };
             }
-            const ciResult = await args.localCI.run({ cwd: context.executionCwd });
-            if (ciResult.kind !== "completed" || ciResult.exitCode !== 0) {
-                const reason = ciResult.kind === "completed" ? ciResult.output : "The repair checks did not complete.";
-                return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
-            }
-            await recordLifecycleEvent(args, context.projectRoot, "mechanical_validation_passed", "implemented");
-            round = nextRound;
-            ledger = review.ledger;
-            state.lastRepairReport = repair.report;
-            diffText = await getDiffText(context.baselineTree, context.executionCwd);
-            continue;
+            return {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                continueValidation: true,
+                reason: "The repair is complete. Running checks before another review.",
+            };
         }
         emitStatus(args, buildValidationUserMessage({ kind: "review_repair", repairKind: "semantic" }), "warning");
         return {

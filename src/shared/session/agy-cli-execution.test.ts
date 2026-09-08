@@ -10,6 +10,7 @@ import { installAgyCliMcpSetup } from "./backends/agy-cli/mcp-setup.ts";
 import { getRootSessionBranchEntries } from "./root-session.js";
 import { runActiveAgentTurn } from "./agent-switching.js";
 import { listPendingWorkflowToolEvents } from "../workflow/workflow-tool-events.ts";
+import { createValidationSessionPort } from "../workflow/validation-session-adapter.ts";
 import {
     abortActiveSession,
     composeAgyCliBridgedTools,
@@ -694,6 +695,25 @@ Deno.test("every eligible Agy role invokes its real lifecycle tool through confi
         assertEquals(reviewEvents[0].kind, "review_complete");
         assertEquals(reviewEvents[0].validationGeneration, "agy-review-generation");
         assertStringIncludes(JSON.stringify(reviewEvents[0]), reviewTitle);
+
+        // The validation driver stops the CLI when the tool is accepted. Its
+        // result must survive without waiting for a returned transcript.
+        const validation = createValidationSessionPort(reviewSession);
+        const reviewResult = await validation.runIsolatedAgentSession({
+            kind: "reviewer",
+            agentName: AGENTS.REVIEWER,
+            userRequest: "review the change through validation",
+            cwd,
+            reviewerMode: "discovery",
+            customTools: [],
+            sessionManager: validation.createInMemorySessionManager(cwd),
+        });
+        assertEquals(reviewResult.outcome, "completed");
+        if (reviewResult.outcome !== "completed") throw new Error("Agy review did not complete");
+        assertEquals(reviewResult.usedDiffTool, false);
+        assertEquals(reviewResult.trustedOpaqueMcpReview, true);
+        assertEquals(reviewResult.reviewOutcome?.approved, false);
+        assertStringIncludes(JSON.stringify(reviewResult.reviewOutcome), reviewTitle);
         assertStringIncludes(await Deno.readTextFile(logPath), "runwield_review_complete");
     });
 });

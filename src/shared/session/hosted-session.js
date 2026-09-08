@@ -81,6 +81,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @typedef {Object} ActiveInteractionRecord
  * @property {import('./session-runtime-interactions.js').RuntimeInteractionRequest} [request]
  * @property {AbortController} [abortController]
+ * @property {(response: import('./session-runtime-interactions.js').RuntimeInteractionResponse) => void} [answer]
  */
 
 /**

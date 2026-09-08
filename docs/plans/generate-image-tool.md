@@ -1,7 +1,6 @@
 ---
 classification: "PROJECT"
 complexity: "HIGH"
-summary: "Add a Pi-backed generate_image tool with OpenRouter, official Codex App Server, Agy CLI, and Google Gen AI SDK providers, configurable models and supported thinking controls."
 affectedPaths:
     - "src/tools/generate-image.ts"
     - "src/shared/models/image-model-registry.ts"
@@ -19,6 +18,7 @@ affectedPaths:
 createdAt: "2026-09-06"
 status: "draft"
 origin: "internal"
+planId: "3fff46f4-f3d0-4247-8709-e03d80dfbdca"
 ---
 
 # Generate Image Tool

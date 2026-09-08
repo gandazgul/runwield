@@ -82,8 +82,9 @@ discardable only while it contains no entries beyond its header, lineage marker,
 Partial segment, dangling Session, recovery segment
 
 **Session Writer Lock**: The exclusive operating-system file lock that permits one RunWield process to mutate a Session.
-It is released by the operating system when that process exits. _Avoid_: Session lease, heartbeat takeover, database
-lock
+Core releases it when the active managed operation settles; the operating system also releases it on process exit. An
+idle open TUI or browser does not retain it merely by remaining open. _Avoid_: Session lease, heartbeat takeover,
+database lock
 
 **Session Control**: The right of one attached client to submit user messages or answer process-local pending
 interactions for a live Session; observation does not require control. Session Control is not mutation authority without

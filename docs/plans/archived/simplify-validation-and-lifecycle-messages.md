@@ -26,6 +26,9 @@ workRecord:
     recordId: "eb3b6ea6-e9f3-4021-bfd7-5d3b8d0f6b4f"
     path: "docs/work-records/2026-08-29-simplified-validation-and-lifecycle-messages.md"
     lastAttemptAt: "2026-08-29T03:38:32.492Z"
+archivedAt: "2026-09-07T21:21:04.130Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/simplify-validation-and-lifecycle-messages.md"
 targetBranch: "main"
 ---
 

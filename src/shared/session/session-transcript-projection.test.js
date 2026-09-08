@@ -315,32 +315,13 @@ Deno.test("projection cursor selection returns only later events and advances su
     assertEquals(summaryOnly.nextCursor, null);
 });
 
-Deno.test("projection summary preserves stable attention event identity", () => {
-    const first = summarizeProjectedEntries([
+Deno.test("projection ignores old notification records", () => {
+    const summary = summarizeProjectedEntries([
         { type: "custom", id: "agent-entry", customType: "runwield.active_agent", data: { agentName: "Ideator" } },
-        {
-            type: "custom",
-            id: "attention-entry",
-            customType: "runwield.attention",
-            data: { reason: "agentStopped", agentName: "Ideator" },
-        },
+        { type: "custom", id: "old-alert", customType: "runwield.attention", data: { reason: "agentStopped" } },
     ]);
-    const second = summarizeProjectedEntries([
-        { type: "custom", id: "agent-entry", customType: "runwield.active_agent", data: { agentName: "Ideator" } },
-        {
-            type: "custom",
-            id: "attention-entry",
-            customType: "runwield.attention",
-            data: { reason: "agentStopped", agentName: "Ideator" },
-        },
-    ]);
-
-    assertEquals(first.attention, {
-        eventId: "attention-entry:attention_requested:0",
-        reason: "agentStopped",
-        agentName: "Ideator",
-    });
-    assertEquals(second.attention?.eventId, first.attention?.eventId);
+    assertEquals("attention" in summary, false);
+    assertEquals(summary.activeAgent, "ideator");
 });
 
 Deno.test("projection summary keeps the latest valid Agy execution backend fact", () => {

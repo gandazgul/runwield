@@ -23,20 +23,15 @@ shared harness for complete model-driven workflows. Existing tests cannot answer
 - Can a long Agent Session compact, continue, cancel, and recover without state corruption?
 - Does the compiled `wld` product behave the same way as the in-process Runtime path?
 
-Little-coder contains useful benchmark machinery for Aider Polyglot and Terminal-Bench: isolated task preparation,
-deterministic verification, retries, resumable result files, pilot scripts, shell proxies, trajectory logs, and
-intervention counters. Its transport is not reusable as RunWield's benchmark boundary because it launches raw Pi RPC,
-manually loads little-coder extensions, replaces the system prompt, and bypasses RunWield's SessionRuntime and workflow
-semantics.
-
-RunWield needs a common benchmark core that can reuse external methodology while measuring the actual product.
+Little-coder offers useful external benchmark examples, but measuring a differently configured Agent would not establish
+RunWield quality. We need repeatable comparisons of the actual product, using established methodology where appropriate.
 
 ## Relationship to Agent Behavior Evaluation
 
 `docs/prd/agent-behavior-evaluation-prd.md` defines what RunWield should evaluate, how Agent contracts differ, how
 support claims graduate, and which score dimensions matter.
 
-This PRD defines the execution machinery that makes those evaluations repeatable:
+This PRD defines what maintainers need to run those evaluations repeatably:
 
 - scenario lifecycle;
 - production-representative runners;
@@ -67,17 +62,11 @@ Initial scenarios should include:
 These scenarios are the primary RunWield product signal because they exercise role boundaries, structured Custom Tool
 outcomes, Runtime events, interactions, validation, and lifecycle behavior together.
 
-### One Scenario and Result Model, Two Runners
+### Comparable Product Entry Points
 
-The harness should use one RunWield-owned scenario and result model with two production-representative execution paths:
-
-1. **SessionRuntime runner** — runs in process for precise WLD-native workflow fixtures, deterministic semantic
-   interactions, focused diagnostics, and fast iteration.
-2. **ACP runner** — launches the compiled or source-run `wld acp` product as a black box, drives the public protocol,
-   and verifies packaging, process, protocol, Runtime, and adapter behavior together.
-
-The runners may expose different diagnostics, but they should report compatible scenario identity, configuration,
-outcomes, failures, usage, timing, and captured semantic activity.
+Maintainers can compare native RunWield workflows and the public ACP product against equivalent scenarios. Reports
+identify the entry point used and make configuration, outcomes, failures, usage, and timing comparable. A narrower ACP
+pilot must not be presented as proof of untested workflow support.
 
 ### Production Fidelity Over Benchmark Convenience
 
@@ -117,23 +106,12 @@ review shares as benchmark shortcuts.
 - External service, provider, model-server, sandbox, dataset, and verifier failures remain separate from Agent failures.
 - The harness should checkpoint results incrementally so a long batch can resume without losing completed trials.
 
-### Semantic Capture, Not Raw Pi Reconstruction
+### Useful Results
 
-- The SessionRuntime runner should capture normalized Runtime events and workflow outcomes.
-- The ACP runner should capture ACP responses, session updates, elicitations, stop reasons, and process diagnostics.
-- The common result should preserve tool identity, status, duration, usage, Agent changes, interventions, terminal-tool
-  outcomes, validation verdicts, and final workflow state when available.
-- Reports may retain detailed benchmark trajectories in deliberate local output directories, but passive workflow
-  metrics remain content-free and privacy-safe.
-- Missing, interrupted, unscored, and infrastructure-failed runs stay visible in denominators and reports.
-
-### JavaScript/JSDoc Common Core
-
-- The RunWield-owned harness and adapters should follow the repository's JavaScript/JSDoc language policy.
-- External harnesses may impose their own integration language or process contract, but that must remain a thin optional
-  adapter rather than the shared evaluation core.
-- Python code from little-coder should not be copied wholesale merely because its current benchmark runner is written in
-  Python.
+- Reports preserve observed Agent changes, tool outcomes, validation verdicts, timing, usage, and final workflow status
+  when available.
+- Detailed benchmark activity stays in deliberate local reports; passive workflow metrics remain content-free.
+- Missing, interrupted, unscored, and infrastructure-failed runs stay visible in reports and denominators.
 
 ### External Reuse and Attribution
 
@@ -166,32 +144,18 @@ quality and failure classification are trustworthy.
 
 ### Phase 2: Aider Polyglot Over ACP
 
-Use the canonical Aider Polyglot / Exercism exercises to measure code implementation and retry behavior. Adapt the
-useful little-coder machinery:
+Use canonical Aider Polyglot / Exercism exercises through `wld acp`. Preserve protected test fixtures and the
+two-attempt methodology: an initial attempt, then one retry with test feedback. Reports distinguish first-pass success,
+retry success, failure, timeout, and infrastructure errors, with elapsed time and usage. Long batches can resume without
+losing completed results.
 
-- exercise preparation and protected test fixtures;
-- language-specific verification commands and transforms;
-- first attempt followed by bounded test-output feedback;
-- atomic per-exercise checkpoints and resumable batches;
-- pass-on-first, pass-on-retry, fail, timeout, and infrastructure outcomes;
-- elapsed time, usage, turns, tool activity, interventions, and compaction counts.
-
-Replace `PiRpc` with a RunWield ACP client that launches `wld acp`, initializes a session in the exercise directory,
-submits the User Request, handles declared interactions, collects normalized updates, and closes the session.
-
-The first adapter may target the QUICK_FIX/Engineer path. Its results measure implementation and adaptation quality, not
-the full value of Plan-by-Default workflows.
+The first pilot may cover QUICK_FIX/Engineer. Its results measure implementation and adaptation quality, not the full
+value of Plan-by-Default workflows.
 
 ### Phase 3: Harbor / Terminal-Bench
 
-Add long-horizon containerized tasks after deciding how RunWield should operate against the benchmark environment.
-Prefer installing and running normal `wld` inside the task container when its runtime dependencies and model access can
-be supplied cleanly. A host-side shell proxy is an alternative only if it preserves realistic RunWield tool semantics
-and is clearly identified in results.
-
-Reuse Harbor's official runner, task registry, sandboxing, verifiers, and result conventions. Treat little-coder's
-Harbor adapter as a design reference for command proxying, output normalization, timeouts, and metadata—not as the
-RunWield transport.
+Add longer containerized tasks once RunWield can operate representatively in that environment. Preserve the canonical
+instructions, verifiers, and result conventions. Document any methodology deviation that affects comparison.
 
 ## Functional Requirements
 
@@ -208,45 +172,19 @@ RunWield transport.
 - Compare a candidate run against a fixed baseline and show improvements, regressions, variance, and missing results.
 - Preserve enough local trajectory detail for diagnosis without writing private benchmark content into passive metrics.
 
-### SessionRuntime Runner
+### Product Coverage
 
-- Create an isolated Hosted Session at the fixture's absolute project root.
-- Install only the declared deterministic interaction policy.
-- Exercise normal routing and workflow operations for the scenario.
-- Capture Runtime events, snapshots, workflow outcomes, usage, and cancellation settlement.
-- Close all sessions and processes even when setup, prompting, interaction, or verification fails.
+- Exercise normal routing, declared user interactions, cancellation, and validation through native workflows and ACP.
+- Show unsupported capabilities, unexpected interactions, protocol failures, and process exits clearly.
+- Demonstrate equivalent intended outcomes in development and the compiled product.
+- Check benchmark prerequisites before spending model calls.
+- Record methodology deviations and preserve canonical external task instructions and verification.
 
-### ACP Runner
+## Delivery
 
-- Launch `wld acp` with stdout reserved for protocol frames and stderr retained as diagnostics.
-- Drive initialize, session creation, prompting, updates, declared elicitations, cancellation, and close.
-- Correlate tool and message updates by their stable Runtime/ACP identities.
-- Fail visibly on malformed protocol output, unexpected interactions, unsupported required capabilities, or process
-  exit.
-- Support the compiled binary and source-run development command without changing scenario semantics.
-
-### External Adapters
-
-- Keep benchmark-specific preparation and verification outside the common runner.
-- Preserve canonical task instructions and verifier behavior unless a documented RunWield adaptation is required.
-- Record every methodology deviation that affects comparability.
-- Verify required dataset, sandbox, language toolchain, and model-server prerequisites before consuming model calls.
-
-## Technical Approach
-
-Organize the harness conceptually into four layers:
-
-1. **Scenario catalog** — fixture source, requested workflow, declared interactions, timeout, cleanup, and verifier.
-2. **Runner ports** — SessionRuntime and ACP implementations that emit one normalized run record.
-3. **Evaluators** — Agent- and benchmark-specific deterministic scoring plus optional judge/human annotations.
-4. **Reports and baselines** — incremental results, comparisons, summaries, and retained trajectory locations.
-
-The common run record should be additive and stable enough for Router, execution, context-resilience, Aider, and Harbor
-scenarios. Benchmark-specific detail can remain nested rather than forcing every adapter into one flat universal schema.
-
-The first vertical slice should run one QUICK_FIX scenario through SessionRuntime and the compiled ACP process, verify
-the same repository outcome, and compare their semantic results. This proves the common boundary before scaling the
-fixture catalog.
+Start with one small workflow that can be compared through native RunWield and compiled ACP, then expand the curated
+suite. Implementation Plans choose the runner structure, result format, and process management needed for these
+outcomes. This PRD does not prescribe a shared schema or additional runtime layers.
 
 ## Success Criteria
 
@@ -269,17 +207,15 @@ fixture catalog.
 - Benchmarking raw models without RunWield Agent and workflow behavior.
 - Uploading trajectories, repositories, prompts, or results to hosted analytics.
 - Automatic approval of arbitrary production interactions.
-- Making Python a supported RunWield implementation language.
 - Running the full Aider or Terminal-Bench corpus in normal CI.
 - Treating one external benchmark as proof that every RunWield workflow is reliable.
 
 ## Dependencies and Sequencing
 
-1. Stabilize the common scenario/result model with WLD-native SessionRuntime fixtures.
-2. Add the ACP runner and prove parity on a narrow production workflow.
-3. Use the harness for Session Context Resilience and Engineer/Operator adaptation experiments.
-4. Add Aider Polyglot as the first external benchmark adapter.
-5. Add Harbor / Terminal-Bench only after the container execution boundary is production-representative.
+1. Establish repeatable results for a small native workflow suite.
+2. Demonstrate equivalent outcomes through ACP on a supported workflow.
+3. Evaluate Session Context Resilience and Engineer/Operator adaptation.
+4. Add Aider Polyglot, then Harbor / Terminal-Bench when its environment can represent normal product behavior.
 
-Agent Behavior Evaluation supplies scorecards and support policy. Session Context Resilience and Selective Execution
-Model Adaptation supply the first cross-cutting capabilities evaluated by this harness.
+[Agent Behavior Evaluation](agent-behavior-evaluation-prd.md) supplies scorecards and support policy. Session Context
+Resilience and Selective Execution Model Adaptation supply the first cross-cutting capabilities evaluated here.

@@ -32,9 +32,7 @@ review, and memory live in RunWield. Change Request Delivery therefore builds th
 
 ## Problem Statement
 
-RunWield currently completes worktree-backed FEATURE Plans by validating the implementation, staging `validation_passed`
-and verified Plan metadata in the execution branch, and merging implementation plus Plan metadata into the target
-branch. This is correct for Direct Delivery and avoids a separate metadata commit.
+Direct Delivery currently validates planned work and merges it into the local target branch with its Plan outcome.
 
 That finalization model is incompatible with repositories where code must arrive through a pull request or merge
 request:
@@ -124,17 +122,9 @@ Folding is strictly additive:
   authority over lifecycle state;
 - feedback that invalidates a PRD or ADR assumption should route upstream to that artifact, because a Work Record cannot
   correct the source of the error;
-- when later work proves an earlier record's premise wrong, the correcting Plan's Work Record should supersede the
-  earlier record. The primary path is an approved Plan declaration: the Planner records each confirmed predecessor Work
-  Record ID in Plan `supersedes`, and Work Record generation applies the declaration after the successor Work Record
-  exists. If the correction becomes clear only during execution or review, the Recorder stores each suggested relation
-  in the successor Work Record's pending `supersessionProposal`. A pending proposal has no effect on default search or
-  Agent retrieval. RunWield asks for a separate decision for each target in the interactive TUI and after interactive
-  backfill, including backfill started with `--yes`. Headless completion keeps proposals pending and reports
-  `wld wr
-  supersede <successorRecordId>` for later confirmation or rejection. A Work Record becomes superseded only
-  after that confirmed successor relation is written. Supersession preserves every completion mode and its applicable
-  confidence notices on explicit retrieval.
+- when later work corrects an earlier Work Record, users can confirm the replacement relationship. An approved Plan can
+  declare it; otherwise the suggestion stays pending until explicitly accepted. Headless completion does not imply
+  approval. Earlier records remain available with their original completion and confidence labels.
 
 The same folding rule applies to feedback from any review source: Forge review today, and Workspace-hosted review later.
 
@@ -223,51 +213,17 @@ The inverse is false — no merge is required to have a Plan or a Work Record:
 - GitHub.com and GitLab.com receive certified support.
 - GitHub Enterprise Server and GitLab Self-Managed receive best-effort support when compatible with authenticated
   official CLIs.
-- V1 should use provider-neutral orchestration with `gh` and `glab` as local authenticated clients rather than duplicate
-  full Forge clients.
-- Direct provider APIs or hosted integrations may be added later without changing lifecycle semantics.
+- V1 uses the contributor’s existing local Forge authentication. Provider differences must not change the promised
+  delivery and verification behavior.
 
-## Classification Recommendation
+## Delivery
 
-Classify implementation as a **PROJECT** with **HIGH** complexity.
+The [Forge Change Request Delivery Epic](../plans/forge-change-request-delivery.md) owns implementation decomposition.
+The first release covers GitHub and GitLab, shared repositories and forks, and planned work plus QUICK_FIX. Delivery can
+proceed through a complete reference path, a second provider, then fork and recovery coverage. These milestones must not
+silently remove either provider or publication model from the agreed release.
 
-This work is too broad and too costly to reverse safely as one executable FEATURE because it:
-
-- introduces a second delivery transaction while preserving Direct Delivery as the unchanged default;
-- changes Plan Lifecycle, validation evidence, worktree publication, recovery, and Work Record finalization semantics;
-- spans GitHub and GitLab across shared-repository and fork publication models;
-- must support both FEATURE and QUICK_FIX without weakening either workflow;
-- adds long-lived In Review and finalization-pending states that may survive local process shutdown;
-- crosses Core orchestration, Forge integration, TUI/Workspace experience, and protected-branch failure handling.
-
-The PROJECT should be decomposed into independently verifiable vertical FEATUREs rather than frontend, backend, or
-provider-library layers. Recommended capability boundaries are:
-
-1. establish the conditional delivery/lifecycle foundation and prove Direct Delivery regression safety;
-2. deliver one complete shared-repository Forge path as the reference vertical slice;
-3. add the second Forge through the same provider-neutral product contract;
-4. add fork publication and authoritative upstream participation consent;
-5. complete review continuation, offline reconciliation, and post-merge finalization across both Forges;
-6. extend the proven Change Request Delivery contract to QUICK_FIX and best-effort enterprise/self-managed hosts.
-
-The Architect and Slicer may refine these boundaries after code-level discovery, but they must not collapse the work
-into one FEATURE or defer either GitHub/GitLab or shared/fork support out of the first-release PROJECT.
-
-## Technical Approach
-
-### 1. Delivery Boundary
-
-Introduce delivery policy as an explicit workflow decision shared by FEATURE and QUICK_FIX execution.
-
-- **Direct Delivery:** retain the current validation, `stageValidationPassedInExecutionWorktree()`, merge-back, and
-  verified Plan handoff unchanged.
-- **Change Request Delivery:** branch after local validation succeeds, before terminal Plan staging or local merge-back.
-  Prepare and publish a Publication Candidate while leaving the canonical Plan nonterminal.
-
-The two paths may share execution, repair, diff calculation, local CI, and Semantic Code Review. They must not share the
-final delivery transaction blindly.
-
-### 2. Change Request Lifecycle
+## Product Journey
 
 The user-visible conceptual lifecycle is:
 
@@ -281,70 +237,7 @@ The user-visible conceptual lifecycle is:
 8. RunWield proves delivery and performs Change Request Finalization.
 9. FEATURE reaches Verified and receives its normal Work Record; QUICK_FIX completes under its existing no-Plan policy.
 
-Exact Plan Status and Plan Event names should be decided during architecture and planning, but the nonterminal boundary
-before remote merge is mandatory.
-
-### 3. Provider-Neutral Forge Adapter
-
-A Forge adapter should support the product operations required by both GitHub and GitLab:
-
-- resolve the target repository, source repository, and target branch;
-- verify authentication and publication permission;
-- publish or update the source branch;
-- create or find the Forge Change Request for that source/target pair;
-- expose its URL, draft/readiness state, published revision, review/CI summary, mergeability, and terminal outcome;
-- prove the merged result and relevant target revision;
-- distinguish open, merged, closed-unmerged, superseded, inaccessible, and temporarily unavailable outcomes.
-
-Provider-specific vocabulary and APIs remain inside the adapter. RunWield surfaces **Forge Change Request**
-consistently.
-
-### 4. Publication Projection
-
-The execution worktree may continue containing Plan context needed by existing execution and validation behavior, but
-Change Request Delivery must construct a separately defined publication payload.
-
-- Code-only is the default for upstream contributions.
-- An upstream participation declaration may add an approved Plan snapshot suitable for maintainer adoption.
-- Terminal Plan status, worktree pointers, local registry data, and final Work Records are never pre-published as if
-  delivery had completed.
-- The final validation evidence must cover the actual publication payload and its code changes.
-
-This preserves the current execution model without conflating every file available during execution with every file
-appropriate for upstream publication.
-
-### 5. Review and Repair Continuation
-
-RunWield binds local readiness evidence to the published revision.
-
-- Foreground refresh identifies changed heads and marks readiness stale.
-- A user explicitly selects Forge feedback and resumes the existing workflow.
-- Engineer repair occurs in the retained execution context or a safely reconstructed equivalent.
-- Tests and applicable reviews rerun before a replacement candidate is published.
-- Authentication, network, push, CI, conflict, and closed-unmerged failures preserve recovery evidence rather than
-  resetting or verifying the work.
-
-### 6. Merge Proof and Finalization
-
-Finalization requires both:
-
-1. RunWield validation evidence for the delivered code revision or an equivalent delivered result; and
-2. Forge evidence that the intended Change Request merged into the intended target.
-
-The proof model must account for merge commits, squash merges, rebase merges, merge queues, and target-branch movement
-without weakening the requirement that the delivered changes match what RunWield validated.
-
-After proof succeeds, the canonical repository records:
-
-- terminal Plan state for FEATURE work;
-- durable Forge Change Request and merge provenance;
-- Work Record generation or reconciliation under existing policy;
-- cleanup or retention of local execution state according to normal recovery guarantees.
-
-These updates form a separate post-merge metadata transaction. Failure to publish that transaction leaves finalization
-pending and recoverable.
-
-### 7. Workspace and TUI Experience
+### Workspace and TUI Experience
 
 Users should be able to:
 
@@ -360,20 +253,21 @@ Users should be able to:
 
 The interface should use presets rather than expose a large independent matrix of review and delivery toggles.
 
-### 8. Security and Trust
+### Delivery Evidence and Failure
 
-- Issue bodies, comments, and review feedback are untrusted external content, not executable Agent instructions.
-- Upstream artifact consent must be read from the authoritative target revision and cannot be spoofed by a contributor's
-  fork.
-- Forge credentials remain user-owned and local in V1.
-- Workspace-era Forge integration uses a GitHub App with two token modes: an installation token for unattended bot-style
-  operations (the Dependabot model), and a user access token for attribution-sensitive actions. GitHub attributes
-  user-token actions to the acting user alongside the app badge, so Change Request authorship, review, and merge can
-  carry correct human identities. User-token permissions are additionally bounded by what that user can do on the
-  repository, which gives a future Workspace merge gate a real enforcement hook.
-- RunWield requests no issue-state mutation capability for this workflow.
-- Any privileged metadata-finalization path must be restricted to RunWield lifecycle and Work Record artifacts and must
-  prove an already-merged delivery; it must not become a general protected-branch bypass.
+The delivered result must match what RunWield validated, including when a Forge uses squash, rebase, or merge queues.
+Users can distinguish open, merged, closed without merge, inaccessible, and temporarily unavailable requests. A merged
+change awaiting its Plan or Work Record update remains visibly pending and recoverable.
+
+Publication, authentication, CI, conflicts, and metadata-update failures preserve the work. Any special permission to
+finalize RunWield records must not become authority to bypass repository policy for unrelated changes.
+
+### Privacy and Attribution
+
+Review comments and issue content remain external evidence until the user selects an action. Only the upstream
+repository can consent to receiving RunWield artifacts. V1 credentials remain local. Later Workspace integration must
+attribute authorship, review, and merge to the correct people and respect their repository permissions; its token and
+API design belongs in architecture documents.
 
 ## Success Criteria
 

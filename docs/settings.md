@@ -357,7 +357,7 @@ These keys are read by RunWield outside the upstream Pi `SettingsManager` schema
 | `guidedReview`                             | string            | `none`, `ask`, `auto`, `always`; default `auto` | global + project | Guided Review Explainer generation policy inside human code review. Invalid values fall back to `none`; manual generation remains available when supported.                                                                                           |
 | `cleanupMergedWorktrees`                   | boolean           | default `true`                                  | global + project | When true, successful merge-back removes a clean execution checkout, deletes its registry entry, and clears Plan worktree metadata. Unexpected dirty state is preserved rather than force-deleted. Set false to keep merged worktrees for inspection. |
 | `workRecords.autoGenerateOnPlanCompletion` | boolean           | default `true`                                  | global + project | Automatically generates or reconciles eligible Work Records after terminal planned-work outcomes. Only literal `false` disables automation; explicit `wld wr` commands still work.                                                                    |
-| `notifications`                            | object            | enabled by default                              | global + project | Terminal bell and native terminal OSC attention notifications for agent stops, `plan_written`, `user_interview` prompts, and `/compact` completion. Focused TUI terminals stay quiet by default.                                                      |
+| `notifications`                            | object            | enabled by default                              | global + project | Attention notifications. TUI uses terminal BEL/OSC for agent stops, `plan_written`, `user_interview`, and `/compact`. Workspace uses browser alerts for live `agentStopped` events. Focused surfaces stay quiet by default.                           |
 | `workflowMetrics`                          | boolean or object | default disabled                                | global + project | Opt-in local-only JSONL workflow metrics under `~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl`. Linked worktrees write to the primary project file. Accepts `true` or `{ "enabled": true }`.                                           |
 | `enableExternalSkills`                     | boolean           | default `true`                                  | global           | When true, RunWield includes skills from `~/.agents/skills` after local, home, and bundled RunWield skills.                                                                                                                                           |
 | `enableExternalGlobalAgentsMd`             | boolean           | default `true`                                  | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.wld/RUNWIELD.md` and `~/.wld/AGENTS.md`.                                                                                                                                    |
@@ -448,22 +448,23 @@ Example:
 
 ### `notifications`
 
-`notifications` controls TUI attention notifications. RunWield sends these when an agent stops and returns control
-without an automated continuation, when `plan_written` starts plan review/approval, when `user_interview` starts a
-structured prompt, and when an interactive `/compact` command finishes.
+`notifications` controls attention notifications. TUI sends alerts when an agent stops and returns control without an
+automated continuation, when `plan_written` starts plan review/approval, when `user_interview` starts a structured
+prompt, and when an interactive `/compact` command finishes. Workspace browser alerts use the same setting for live
+`agentStopped` Session events only.
 
 Defaults:
 
-- `enabled`: `true`; disables both terminal BEL and native OSC notification delivery when set to `false`.
-- `terminalBell`: `true`; emits one ASCII BEL byte from the RunWield TUI for each enabled attention event that is not
-  suppressed by terminal focus. Your terminal emulator and multiplexer settings decide whether BEL becomes a sound,
-  visual flash, urgency marker, tab badge, or no visible effect.
-- `suppressWhenFocused`: `true`; when RunWield has received terminal focus reporting that proves the TUI terminal is
-  focused, attention events emit no BEL and no OSC notification. Unknown focus is not treated as focused. Set this to
-  `false` to restore always-alert behavior for enabled events.
-- `activation`: `tab`; kept for compatibility with existing config, but RunWield no longer executes activation commands.
-  Native terminal OSC notifications own click-to-focus behavior where the terminal implements it.
-- `events.agentStopped`, `events.planWritten`, `events.userInterview`, `events.compactionFinished`: all `true`.
+- `enabled`: `true`; disables TUI terminal delivery and Workspace browser alerts when set to `false`.
+- `suppressWhenFocused`: `true`; focused TUI terminals stay quiet. Workspace tabs stay quiet only when the tab is
+  visible and focused. Set this to `false` to allow alerts in focused surfaces.
+- `events.agentStopped`: `true`; controls TUI agent-stop notifications and Workspace browser alerts for live Agent
+  stops.
+- `events.planWritten`, `events.userInterview`, `events.compactionFinished`: all `true`; TUI-only delivery.
+- `terminalBell`: `true`; TUI-only. Emits one ASCII BEL byte for each enabled TUI attention event that is not suppressed
+  by terminal focus.
+- `activation`: `tab`; TUI-only compatibility key. RunWield no longer executes activation commands. Native terminal OSC
+  notifications own click-to-focus behavior where the terminal implements it.
 
 RunWield no longer shells out to `terminal-notifier`, `osascript`, or AppleScript activation helpers for TUI attention
 notifications. Native terminal support is selected conservatively: Kitty receives OSC 99 notifications with
@@ -708,3 +709,21 @@ RunWield and Pi migrate a few older key shapes while loading settings:
 - `websockets: true` becomes `transport: "websocket"`; `websockets: false` becomes `transport: "sse"`.
 - Old object-shaped `skills` settings become `enableSkillCommands` and/or a `skills` path array.
 - `retry.maxDelayMs` becomes `retry.provider.maxRetryDelayMs` when the provider field is not already set.
+
+## Antigravity CLI
+
+Install `agy` and sign in to Antigravity before selecting an Antigravity model. RunWield uses that CLI sign-in rather
+than requesting an API key. Supported model references are `agy-cli/gemini-3.8-flash` and `agy-cli/gemini-3.1-pro`.
+
+RunWield preserves the selected model and thinking level in the Session. It maps thinking to CLI effort for each turn:
+
+| Thinking level    | Flash effort | Pro effort |
+| ----------------- | ------------ | ---------- |
+| off, minimal, low | low          | low        |
+| medium            | medium       | high       |
+| high, xhigh, max  | high         | high       |
+
+Concrete CLI model names ending in `-low`, `-medium`, or `-high` are execution details, not selectable model references.
+This backend does not accept image attachments. Setup explains and requests approval before installing its global custom
+agent and MCP configuration. Replay includes assistant messages, RunWield tool results, and backend status;
+Antigravity's internal file, shell, and tool activity stays in the CLI.

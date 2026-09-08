@@ -775,7 +775,6 @@ export function summarizeProjectedEntries(entries) {
     let model = null;
     let provider = null;
     let thinkingLevel = null;
-    let attention = null;
     let executionBackend = null;
     const planAssociations = readPlanAssociations(entries);
     for (const entry of entries) {
@@ -791,15 +790,6 @@ export function summarizeProjectedEntries(entries) {
         if (value.type === "thinking_level_change" && typeof value.thinkingLevel === "string") {
             thinkingLevel = value.thinkingLevel;
         }
-        if (value.type === "custom" && value.customType === "runwield.attention") {
-            const reason = typeof value.data?.reason === "string" ? value.data.reason : "agentStopped";
-            const agentName = typeof value.data?.agentName === "string" ? value.data.agentName : activeAgent;
-            attention = {
-                eventId: makeEventId(value, RuntimeEventTypes.ATTENTION_REQUESTED, 0),
-                reason,
-                agentName,
-            };
-        }
         const backendFact = readExecutionBackendFact(value);
         if (backendFact) executionBackend = backendFact;
         const maybeWorkflow = readPersistedWorkflowContext(/** @type {any} */ ({ getEntries: () => [value] }));
@@ -812,7 +802,6 @@ export function summarizeProjectedEntries(entries) {
         provider,
         thinkingLevel,
         workflowContext,
-        attention,
         planAssociations,
         executionBackend,
     };

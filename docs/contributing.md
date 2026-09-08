@@ -15,12 +15,14 @@ RunWield has strong workflow opinions. Before changing behavior, read the docs t
 - [Settings Reference](settings.md) documents configuration files, precedence, and commands.
 - [Themes](themes.md) and the [Design System](design-system.md) cover user-facing UI conventions.
 
-Product and architecture history:
+Product and architecture guidance:
 
 - [ADRs](adr/) hold Architecture Decision Records. Read the relevant ADRs for any architectural seam you touch.
-- [PRDs](prd/) hold product requirements and living specifications. Start with
-  [RunWield Core PRD](prd/runwield-core-prd.md) when behavior affects routing, sessions, plans, validation, Workspace,
-  or core agent policy.
+- Five living central PRDs hold current principles and lasting requirements: [RunWield](prd/runwield.md),
+  [Core](prd/runwield-core-prd.md), [Connect](prd/runwield-connect-prd.md), [Workspace](prd/runwield-workspace-prd.md),
+  and [ACP](prd/runwield-acp-protocol-prd.md). Other PRDs are transient proposals. After implementation, fold lasting
+  requirements into the central owner, update references, and remove the completed PRD. Git history preserves proposals;
+  Work Records preserve delivery evidence.
 
 ## Development setup
 

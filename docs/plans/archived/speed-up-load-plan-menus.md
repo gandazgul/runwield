@@ -27,6 +27,9 @@ workRecord:
     lastAttemptAt: "2026-09-01T19:22:16.042Z"
 routingIntent: "PLANNED_CHANGE"
 sessionName: "load plan latency"
+archivedAt: "2026-09-07T21:20:52.380Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/speed-up-load-plan-menus.md"
 targetBranch: "main"
 ---
 
