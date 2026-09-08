@@ -120,7 +120,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         }`;
         const compactHelp = theme.fg(
             "muted",
-            ["? help", "esc interrupt", "ctrl+c clear/exit", "/ commands", "! bash", "ctrl+o tool output"].join(" · "),
+            ["? help", "esc interrupt", "ctrl+c clear/exit", "/ commands", "! bash", "ctrl+o tool groups"].join(" · "),
         );
         const helpText = new Text(compactHelp, 0, 0);
         const updateNoticeText = new Text("", 0, 0);
@@ -258,7 +258,6 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         tui,
         editor,
         container: composerContainer,
-        messageList,
         getProjectRoot: () => {
             const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
             if (!snapshot) throw new Error("Active runtime session is missing.");

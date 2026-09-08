@@ -9,7 +9,7 @@ Deno.test("Session keyboard help preserves current shortcut order and copy", () 
             { key: "ctrl+c", description: "to clear input" },
             { key: "ctrl+c twice", description: "to exit" },
             { key: "shift+tab", description: "to cycle thinking level" },
-            { key: "ctrl+o", description: "to expand tool outputs" },
+            { key: "ctrl+o", description: "to expand/collapse tool groups" },
             { key: "ctrl+]", description: "to switch Session sidebar tabs" },
             { key: "ctrl+t", description: "to toggle thinking block visibility" },
             { key: "ctrl+g", description: "for external editor (not-implemented)" },

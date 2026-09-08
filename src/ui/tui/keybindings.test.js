@@ -210,7 +210,7 @@ Deno.test({
     },
 });
 
-Deno.test("installKeybindings toggles only tool output on Ctrl+O", async () => {
+Deno.test("installKeybindings toggles tool groups on Ctrl+O", async () => {
     const ctx = makeContext();
     installKeybindings(ctx);
 

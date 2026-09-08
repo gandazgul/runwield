@@ -233,12 +233,13 @@ export function attachTuiRuntimeAdapter({
             }
             case RuntimeEventTypes.TOOL_END: {
                 const block = uiAPI.getActiveToolBlock?.(value.toolCallId);
+                const images = collectRuntimeDisplayImages(value);
                 if (block) {
                     block.setOutput(value.output);
+                    for (const image of images) block.appendDisplayImage?.(image.base64, image.mimeType);
                     block.endExecution(value.isError, value.durationMs);
-                }
-                for (const image of collectRuntimeDisplayImages(value)) {
-                    uiAPI.appendImage?.(image.base64, image.mimeType);
+                } else {
+                    for (const image of images) uiAPI.appendImage?.(image.base64, image.mimeType);
                 }
                 break;
             }
