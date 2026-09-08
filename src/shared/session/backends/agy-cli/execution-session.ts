@@ -3,7 +3,6 @@ import type { SessionManager, ToolDefinition } from "@earendil-works/pi-coding-a
 import type { RunWieldModel } from "../../../models/model-registry.ts";
 import type { HostedSession } from "../../hosted-session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "../../session-runtime-events.js";
-import { getRootSessionBranchEntries } from "../../root-session.js";
 import {
     cleanupAgyCustomAgent,
     materializeAgyCustomAgent,
@@ -31,28 +30,7 @@ import {
 import { RUNWIELD_MCP_BRIDGE_TOKEN_ENV, RUNWIELD_MCP_BRIDGE_URL_ENV } from "../../bridged-tools/stdio-transport.ts";
 import { AgyCliStreamError, parseAgyCliStream } from "./stream-parser.ts";
 import type { AgyCliParseResult, AgyCliUsage } from "./stream-parser.ts";
-
-interface TranscriptTextBlock {
-    type?: string;
-    text?: string;
-}
-
-interface TranscriptMessage {
-    role?: string;
-    content?: TranscriptTextBlock[] | string;
-}
-
-interface TranscriptEntry {
-    type?: string;
-    message?: TranscriptMessage;
-    customType?: string;
-    data?: { version?: number; expandedRequest?: string; compactInvocation?: string };
-}
-
-interface ConversationMessage {
-    role: "user" | "assistant";
-    text: string;
-}
+import { readExternalCliConversation, serializeExternalCliConversation } from "../../external-cli-conversation.ts";
 
 type SessionAppendMessage = Parameters<SessionManager["appendMessage"]>[0];
 
@@ -81,6 +59,11 @@ interface ClassifiedFailure {
     kind: AgyCliBackendStatusKind;
     exitCode: number | null;
     message?: string;
+}
+
+interface AgyParseOutcome {
+    parsed: AgyCliParseResult | null;
+    parseError: Error | null;
 }
 
 export class AgyCliExecutionSession {
@@ -199,9 +182,9 @@ export class AgyCliExecutionSession {
         }
         const effort = thinkingLevelToEffort(this.model.id, this.thinkingLevel);
         const expectedBackendModel = concreteAgyModel(this.model.id, effort);
-        const conversation = this.readConversation();
+        const conversation = readExternalCliConversation(this.sessionManager);
         conversation.push({ role: "user", text: options.userRequest });
-        const serializedConversation = serializeConversation(conversation);
+        const serializedConversation = serializeExternalCliConversation(conversation);
         if (serializedConversation.includes(this.finalSystemPrompt)) {
             throw new Error("Agy user text cannot contain the Agent Definition");
         }
@@ -311,25 +294,26 @@ export class AgyCliExecutionSession {
             });
 
             const messageId = `agy-cli-assistant:${crypto.randomUUID()}`;
-            let parsed: AgyCliParseResult | null = null;
-            let parseError: Error | null = null;
-            try {
-                parsed = await parseAgyCliStream(process.stdout, {
-                    onDelta: (delta) => {
-                        emitHostedSessionRuntimeEvent(this.hostedSession, {
-                            type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
-                            messageId,
-                            delta: delta.text,
-                            agentName: this.agentDisplayName,
-                            messageKind: "assistant",
-                        });
-                    },
-                });
-            } catch (error) {
-                parseError = error instanceof Error ? error : new Error(String(error));
-            }
-
-            const [status, stderrText] = await Promise.all([process.completed, process.stderrText]);
+            const parseOutcomePromise = parseAgyCliStream(process.stdout, {
+                onDelta: (delta) => {
+                    emitHostedSessionRuntimeEvent(this.hostedSession, {
+                        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+                        messageId,
+                        delta: delta.text,
+                        agentName: this.agentDisplayName,
+                        messageKind: "assistant",
+                    });
+                },
+            }).then(
+                (parsed): AgyParseOutcome => ({ parsed, parseError: null }),
+                (error): AgyParseOutcome => ({
+                    parsed: null,
+                    parseError: error instanceof Error ? error : new Error(String(error)),
+                }),
+            );
+            const status = await waitForAgyProcessExit(process, parseOutcomePromise);
+            process.kill();
+            const [{ parsed, parseError }, stderrText] = await Promise.all([parseOutcomePromise, process.stderrText]);
             const acceptedTerminal = bridge?.acceptedTerminal === true;
             const failure = classifyTurnFailure({
                 parsed,
@@ -404,37 +388,24 @@ export class AgyCliExecutionSession {
     }
 
     private readMessages(): AgentMessage[] {
-        return this.readConversation().map((message) => {
+        return readExternalCliConversation(this.sessionManager).map((message) => {
             return message.role === "user"
                 ? makeUserMessage(message.text) as AgentMessage
                 : makeAssistantMessage(message.text, this.model, zeroUsage()) as AgentMessage;
         });
     }
+}
 
-    private readConversation(): ConversationMessage[] {
-        const messages: ConversationMessage[] = [];
-        let skipNextCompactInvocation = "";
-        for (const entry of getRootSessionBranchEntries(this.sessionManager)) {
-            const transcriptEntry = entry as TranscriptEntry;
-            const expanded = readNamedInvocationExpandedText(transcriptEntry);
-            if (expanded) {
-                messages.push({ role: "user", text: expanded });
-                skipNextCompactInvocation = transcriptEntry.data?.compactInvocation || "";
-                continue;
-            }
-            for (const message of normalizeTranscriptEntry(transcriptEntry)) {
-                if (
-                    skipNextCompactInvocation && message.role === "user" && message.text === skipNextCompactInvocation
-                ) {
-                    skipNextCompactInvocation = "";
-                    continue;
-                }
-                skipNextCompactInvocation = "";
-                messages.push(message);
-            }
-        }
-        return messages;
-    }
+async function waitForAgyProcessExit(
+    process: AgyCliProcessResult,
+    parseOutcomePromise: Promise<AgyParseOutcome>,
+): Promise<AgyCliProcessStatus> {
+    const first = await Promise.race([
+        process.completed.then((status) => ({ kind: "status" as const, status })),
+        parseOutcomePromise.then((outcome) => ({ kind: "parse" as const, outcome })),
+    ]);
+    if (first.kind === "status") return first.status;
+    return await process.completed;
 }
 
 function classifySetupFailure(error: Error | string): ClassifiedFailure {
@@ -636,26 +607,6 @@ function agentListContainsExactName(value: JsonValue, expected: string): boolean
     return Boolean(agents?.some((agent) => agentEntryMatchesName(agent, expected)));
 }
 
-function readNamedInvocationExpandedText(entry: TranscriptEntry): string {
-    if (entry.type !== "custom" || entry.customType !== "runwield.named_invocation") return "";
-    if (entry.data?.version !== 1 || typeof entry.data.expandedRequest !== "string") return "";
-    return entry.data.expandedRequest;
-}
-
-function normalizeTranscriptEntry(entry: TranscriptEntry): ConversationMessage[] {
-    const message = entry.message;
-    if (entry.type !== "message" || !message) return [];
-    if (message.role !== "user" && message.role !== "assistant") return [];
-    const text = extractText(message.content);
-    return text ? [{ role: message.role, text }] : [];
-}
-
-function extractText(content: TranscriptTextBlock[] | string | undefined): string {
-    if (typeof content === "string") return content;
-    if (!Array.isArray(content)) return "";
-    return content.map((block) => block.type === "text" && typeof block.text === "string" ? block.text : "").join("");
-}
-
 function makeUserMessage(text: string): SessionAppendMessage {
     return {
         role: "user",
@@ -700,10 +651,6 @@ function toRuntimeUsage(usage: AgyCliUsage) {
         cacheWriteTokens: 0,
         costUsd: 0,
     };
-}
-
-function serializeConversation(messages: ConversationMessage[]): string {
-    return messages.map((message) => `${message.role.toUpperCase()}: ${message.text}`).join("\n\n");
 }
 
 function appendExecutionBackendEntry(

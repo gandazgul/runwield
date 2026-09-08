@@ -388,6 +388,19 @@ Deno.test("Agy parser reports non-success, permission, and MCP evidence without 
     assertEquals(JSON.stringify(result.metadata).includes("cat token"), false);
 });
 
+Deno.test("Agy parser ignores empty denied-action lists", async () => {
+    const result = await parseAgyCliStream(streamFromText(
+        JSON.stringify({
+            event: "result",
+            denied_actions: [],
+            result: { response: "completed", status: "success" },
+        }) + "\n",
+    ));
+
+    assertEquals(result.text, "completed");
+    assertEquals(result.metadata.permissionDenied, false);
+});
+
 Deno.test("Agy backend status covers all closed kinds and sanitizes persisted messages", () => {
     const kinds = [
         "missing_executable",

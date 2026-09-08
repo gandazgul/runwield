@@ -151,6 +151,26 @@ Deno.test({
 });
 
 Deno.test({
+    name: "spawnForegroundProcess writes optional stdin and closes it",
+    ignore: IS_WINDOWS,
+    fn: async () => {
+        const process = spawnForegroundProcess({
+            command: "cat",
+            cwd: Deno.cwd(),
+            stdinText: "stdin marker",
+        });
+        const [outcome, stdout, stderr] = await Promise.all([
+            process.done,
+            readAll(process.stdout),
+            readAll(process.stderr),
+        ]);
+        assertEquals(outcome, { exitCode: 0, terminatedBy: null });
+        assertEquals(stdout, "stdin marker");
+        assertEquals(stderr, "");
+    },
+});
+
+Deno.test({
     name: "spawnForegroundProcess reports a missing executable as a spawn error",
     ignore: IS_WINDOWS,
     fn: () => {

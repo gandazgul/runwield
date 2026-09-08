@@ -2458,69 +2458,23 @@ export async function composeClaudeCliBridgedTools({
 }
 
 /**
- * Compose only the Agy CLI lifecycle Bridged Tools. Agy gets the same
- * `runwield_` external aliases as Claude, but it does not receive Claude
- * capability tools or caller-supplied MCP/root tools in this child.
+ * Compose the Agy CLI Bridged Tools through the same policy as Claude CLI.
+ * The host-specific backend still owns its command, parser, and setup.
  *
  * @param {{
  *   agentDef: import('./types.js').AgentDefinition,
  *   agentName: string,
  *   hostedSession: import('./hosted-session.js').HostedSession | null,
  *   triageMeta: import('../../tools/plan-written.ts').TriageMeta | undefined,
+ *   cwd: string,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
- *   invocationToolNames?: string[],
+ *   mcpRootTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
  *   workflowAuthority?: boolean,
  * }} opts
  * @returns {Promise<import('@earendil-works/pi-coding-agent').ToolDefinition[]>}
  */
-export async function composeAgyCliBridgedTools({
-    agentDef,
-    agentName,
-    hostedSession,
-    triageMeta,
-    invocationToolNames,
-    workflowAuthority = true,
-}) {
-    /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
-    const finalCustomTools = [];
-    const declared = new Set(filterWorkflowAdvancementTools(
-        resolveEffectiveSessionToolNames(agentDef.tools, invocationToolNames, []),
-        workflowAuthority === false,
-    ));
-    const plannerRoles = new Set([AGENTS.PLANNER, AGENTS.ARCHITECT]);
-    const executionRoles = new Set([
-        AGENTS.ENGINEER,
-        AGENTS.PLAN_ENGINEER,
-        AGENTS.FRONTEND_ENGINEER,
-        AGENTS.REVIEWER_FEEDBACK_ENGINEER,
-    ]);
-    const eligible = new Set([
-        ...(plannerRoles.has(agentName) ? ["plan_written"] : []),
-        ...(executionRoles.has(agentName) ? ["task_completed"] : []),
-        ...(agentName === AGENTS.REVIEWER ? ["review_complete"] : []),
-    ]);
-    /** @param {string} name */
-    const hasTool = (name) => finalCustomTools.find((tool) => tool.name === name);
-
-    if (eligible.has("plan_written") && declared.has("plan_written") && hostedSession && !hasTool("plan_written")) {
-        const { createPlanWrittenTool } = await import("../../tools/plan-written.ts");
-        finalCustomTools.push(createPlanWrittenTool({ triageMeta, agentName, hostedSession }));
-    }
-    if (
-        eligible.has("task_completed") && declared.has("task_completed") && hostedSession &&
-        !hasTool("task_completed")
-    ) {
-        const { createTaskCompletedTool } = await import("../../tools/task-completed.ts");
-        finalCustomTools.push(createTaskCompletedTool({ hostedSession, agentName: agentDef.displayName }));
-    }
-    if (
-        eligible.has("review_complete") && declared.has("review_complete") && hostedSession &&
-        !hasTool("review_complete")
-    ) {
-        const { createReviewCompletedTool } = await import("../../tools/review-complete.ts");
-        finalCustomTools.push(createReviewCompletedTool({ hostedSession, agentName: agentDef.displayName }));
-    }
-    return finalCustomTools.filter((tool) => eligible.has(tool.name));
+export async function composeAgyCliBridgedTools(opts) {
+    return await composeClaudeCliBridgedTools(opts);
 }
 
 /**
@@ -2621,20 +2575,19 @@ export async function buildExecutionSession(opts) {
             agentName: opts.agentName,
             hostedSession: targetHostedSession,
             triageMeta: opts.triageMeta,
+            cwd: sessionCwd,
             customTools: filterCustomWorkflowAdvancementTools(opts.customTools || [], opts.workflowAuthority === false),
-            invocationToolNames: opts.toolNames,
             workflowAuthority: opts.workflowAuthority !== false,
+            mcpRootTools: opts.mcpRootTools,
         });
-    const rebuildToolNames = backend === "agy-cli"
-        ? finalCustomTools.map((tool) => tool.name)
-        : filterWorkflowAdvancementTools(
-            resolveEffectiveSessionToolNames(
-                agentDef.tools,
-                opts.toolNames,
-                finalCustomTools.map((tool) => tool.name),
-            ),
-            opts.workflowAuthority === false,
-        );
+    const rebuildToolNames = filterWorkflowAdvancementTools(
+        resolveEffectiveSessionToolNames(
+            agentDef.tools,
+            opts.toolNames,
+            finalCustomTools.map((tool) => tool.name),
+        ),
+        opts.workflowAuthority === false,
+    );
     const { prompt: finalSystemPrompt, projection: contextProjection } =
         await assembleFinalSystemPromptWithContextProjection(
             agentDef,

@@ -1,7 +1,6 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { Type } from "@earendil-works/pi-ai";
-import { defineTool, SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { AGENTS, SUBAGENTS } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
@@ -14,6 +13,7 @@ import { createValidationSessionPort } from "../workflow/validation-session-adap
 import {
     abortActiveSession,
     composeAgyCliBridgedTools,
+    composeClaudeCliBridgedTools,
     ensureRootAgentSession,
     runIsolatedAgentSession,
     runRootTurn,
@@ -165,14 +165,14 @@ function emit(value: JsonRecord): void {
 async function maybeStartDescendant(): Promise<void> {
     const pidPath = Deno.env.get("RUNWIELD_AGY_DESCENDANT_PID") || "";
     if (!pidPath) return;
-    const child = new Deno.Command("sleep", {
-        args: ["30"],
+    const holdsPipes = Deno.env.get("RUNWIELD_AGY_DESCENDANT_HOLDS_PIPES") === "1";
+    const shell = new Deno.Command("sh", {
+        args: ["-c", "sleep 30 & echo $! > " + pidPath + "; exit 0"],
         stdin: "null",
-        stdout: "null",
-        stderr: "null",
+        stdout: holdsPipes ? "inherit" : "null",
+        stderr: holdsPipes ? "inherit" : "null",
     }).spawn();
-    await Deno.writeTextFile(pidPath, String(child.pid));
-    child.status.then(() => {}, () => {});
+    await shell.status;
 }
 
 async function runConfiguredMcp(home: string): Promise<void> {
@@ -337,6 +337,7 @@ async function withAgyExecutionFixture(
         const previousPermissionResult = Deno.env.get("RUNWIELD_AGY_PERMISSION_RESULT");
         const previousSleepAgentsPid = Deno.env.get("RUNWIELD_AGY_SLEEP_AGENTS_PID");
         const previousDescendantPid = Deno.env.get("RUNWIELD_AGY_DESCENDANT_PID");
+        const previousDescendantHoldsPipes = Deno.env.get("RUNWIELD_AGY_DESCENDANT_HOLDS_PIPES");
         const previousMcpCalls = Deno.env.get("RUNWIELD_AGY_EXECUTION_MCP_CALLS");
         const home = await Deno.makeTempDir({ prefix: "runwield-agy-exec-home-" });
         const cwd = join(home, "project");
@@ -360,6 +361,7 @@ async function withAgyExecutionFixture(
             Deno.env.delete("RUNWIELD_AGY_PERMISSION_RESULT");
             Deno.env.delete("RUNWIELD_AGY_SLEEP_AGENTS_PID");
             Deno.env.delete("RUNWIELD_AGY_DESCENDANT_PID");
+            Deno.env.delete("RUNWIELD_AGY_DESCENDANT_HOLDS_PIPES");
             Deno.env.delete("RUNWIELD_AGY_EXECUTION_MCP_CALLS");
             await installAgyCliMcpSetup();
             await callback(home, cwd, logPath);
@@ -396,6 +398,8 @@ async function withAgyExecutionFixture(
             else Deno.env.set("RUNWIELD_AGY_SLEEP_AGENTS_PID", previousSleepAgentsPid);
             if (previousDescendantPid === undefined) Deno.env.delete("RUNWIELD_AGY_DESCENDANT_PID");
             else Deno.env.set("RUNWIELD_AGY_DESCENDANT_PID", previousDescendantPid);
+            if (previousDescendantHoldsPipes === undefined) Deno.env.delete("RUNWIELD_AGY_DESCENDANT_HOLDS_PIPES");
+            else Deno.env.set("RUNWIELD_AGY_DESCENDANT_HOLDS_PIPES", previousDescendantHoldsPipes);
             if (previousMcpCalls === undefined) Deno.env.delete("RUNWIELD_AGY_EXECUTION_MCP_CALLS");
             else Deno.env.set("RUNWIELD_AGY_EXECUTION_MCP_CALLS", previousMcpCalls);
             await removeTempDir(home);
@@ -437,43 +441,35 @@ async function assertNoTemporaryAgents(home: string): Promise<void> {
     assertEquals(names.filter((name) => name.startsWith("runwield-")).length, 0);
 }
 
-Deno.test("Agy lifecycle tools honor invocation ceilings and ignore caller replacements", async () => {
+Deno.test("Agy bridged tool composition matches Claude CLI", async () => {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-agy-compose-" });
     try {
         const manager = SessionManager.inMemory(cwd);
         const hostedSession = createHostedSession(cwd, manager);
-        const agentDef = { displayName: "Engineer", tools: ["task_completed"] } as never;
-        const callerTool = defineTool({
-            name: "task_completed",
-            label: "Caller Task Completed",
-            description: "Caller-owned completion.",
-            parameters: Type.Object({ message: Type.String() }),
-            execute() {
-                return Promise.resolve({ content: [{ type: "text" as const, text: "caller" }], details: {} });
-            },
-        });
+        const agentDef = {
+            displayName: "Engineer",
+            tools: ["task_completed", "memory", "code_search", "web_search"],
+        } as never;
 
-        const withoutCeiling = await composeAgyCliBridgedTools({
+        const agyTools = await composeAgyCliBridgedTools({
             agentDef,
             agentName: AGENTS.ENGINEER,
             hostedSession,
             triageMeta: undefined,
-            customTools: [callerTool],
-            invocationToolNames: ["task_completed"],
+            cwd,
         });
-        assertEquals(withoutCeiling.length, 1);
-        assertEquals(withoutCeiling[0].name, "task_completed");
-        assertEquals(withoutCeiling[0] === callerTool, false);
-
-        const withCeiling = await composeAgyCliBridgedTools({
+        const claudeTools = await composeClaudeCliBridgedTools({
             agentDef,
             agentName: AGENTS.ENGINEER,
             hostedSession,
             triageMeta: undefined,
-            customTools: [callerTool],
-            invocationToolNames: [],
+            cwd,
         });
-        assertEquals(withCeiling, []);
+        assertEquals(agyTools.map((tool) => tool.name), claudeTools.map((tool) => tool.name));
+        assertEquals(agyTools.map((tool) => tool.name).includes("task_completed"), true);
+        assertEquals(agyTools.map((tool) => tool.name).includes("memory"), true);
+        assertEquals(agyTools.map((tool) => tool.name).includes("code_search"), true);
+        assertEquals(agyTools.map((tool) => tool.name).includes("web_search"), true);
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => undefined);
     }
@@ -526,6 +522,53 @@ Deno.test("Agy maps every RunWield thinking level to the verified backend model"
                 await assertNoTemporaryAgents(home);
             }
         }
+    });
+});
+
+Deno.test("Agy CLI prompt replay preserves RunWield tool history", async () => {
+    await withAgyExecutionFixture(async (_home, cwd, logPath) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        manager.appendMessage({
+            role: "assistant",
+            timestamp: Date.now(),
+            content: [{
+                type: "toolCall",
+                id: "tool-call-1",
+                name: "task_completed",
+                arguments: { message: "tool-call-marker" },
+            }],
+            api: "anthropic",
+            provider: "agy-cli",
+            model: "gemini-3.8-flash",
+            usage: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 0,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
+            stopReason: "toolUse",
+        } as never);
+        manager.appendMessage({
+            role: "toolResult",
+            timestamp: Date.now(),
+            toolCallId: "tool-call-1",
+            toolName: "task_completed",
+            content: [{ type: "text", text: "tool-result-marker" }],
+            isError: false,
+        } as never);
+
+        const root = await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE }) as never as AgyRootRef;
+        await runRootTurn({ hostedSession, agentName: AGENTS.GUIDE, userRequest: "after tool history" });
+
+        const calls = await readCalls(logPath);
+        assertStringIncludes(calls[0].prompt, "Tool call task_completed");
+        assertStringIncludes(calls[0].prompt, "tool-call-marker");
+        assertStringIncludes(calls[0].prompt, "Tool result task_completed");
+        assertStringIncludes(calls[0].prompt, "tool-result-marker");
+        await root.session.dispose();
     });
 });
 
@@ -783,6 +826,27 @@ Deno.test("Agy abort stops the custom-agent preflight before committing the requ
             branch.filter((entry) => entry.type === "message" && entry.message?.role === "user").length,
             0,
         );
+        await root.session.dispose();
+    });
+});
+
+Deno.test("Agy successful turns close descendant-held output pipes", async () => {
+    if (Deno.build.os === "windows") return;
+    await withAgyExecutionFixture(async (_home, cwd) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        const root = await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE }) as never as AgyRootRef;
+        const pidPath = join(cwd, "success-descendant.pid");
+        Deno.env.set("RUNWIELD_AGY_DESCENDANT_PID", pidPath);
+        Deno.env.set("RUNWIELD_AGY_DESCENDANT_HOLDS_PIPES", "1");
+
+        await Promise.race([
+            runRootTurn({ hostedSession, agentName: AGENTS.GUIDE, userRequest: "successful descendant turn" }),
+            new Promise((_resolve, reject) => setTimeout(() => reject(new Error("Agy turn did not settle")), 5000)),
+        ]);
+
+        const descendantPid = Number((await Deno.readTextFile(pidPath)).trim());
+        assertEquals(await waitForProcessDeath(descendantPid), true);
         await root.session.dispose();
     });
 });

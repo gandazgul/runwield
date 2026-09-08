@@ -117,9 +117,13 @@ function readErrorText(record: JsonRecord, result: JsonRecord): string {
     return asString(error?.message) || asString(error?.text);
 }
 
+function hasItems(value: JsonValue | undefined): value is JsonArray {
+    return Array.isArray(value) && value.length > 0;
+}
+
 function hasDeniedActions(record: JsonRecord, result: JsonRecord): boolean {
-    return Array.isArray(record.denied_actions) || Array.isArray(result.denied_actions) ||
-        Array.isArray(record.deniedActions) || Array.isArray(result.deniedActions);
+    return hasItems(record.denied_actions) || hasItems(result.denied_actions) ||
+        hasItems(record.deniedActions) || hasItems(result.deniedActions);
 }
 
 export function parseAgyCliJsonLine(line: string): AgyCliStreamEvent | null {

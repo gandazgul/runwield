@@ -25,6 +25,8 @@ export interface SpawnForegroundProcessOptions {
     cwd: string;
     /** Extra environment merged over the inherited environment. */
     env?: Record<string, string>;
+    /** Optional stdin text written to the child, then closed. */
+    stdinText?: string;
     /** User cancellation trigger; aborting terminates the whole process tree. */
     signal?: AbortSignal;
     /** Optional timeout in milliseconds; expiry terminates the whole process tree. */
@@ -123,7 +125,7 @@ function terminateProcessTree(child: Deno.ChildProcess): void {
 }
 
 function spawnOwnedProcess(options: SpawnForegroundProcessOptions): ForegroundProcess {
-    const { command, args = [], cwd, env, signal, timeoutMs } = options;
+    const { command, args = [], cwd, env, stdinText, signal, timeoutMs } = options;
 
     if (signal?.aborted) {
         return {
@@ -154,7 +156,7 @@ function spawnOwnedProcess(options: SpawnForegroundProcessOptions): ForegroundPr
             args,
             cwd,
             env,
-            stdin: "null",
+            stdin: stdinText === undefined ? "null" : "piped",
             stdout: "piped",
             stderr: "piped",
             // Group leadership is what makes the whole tree terminable on
@@ -167,6 +169,11 @@ function spawnOwnedProcess(options: SpawnForegroundProcessOptions): ForegroundPr
         throw error;
     }
     child = spawned;
+    if (stdinText !== undefined) {
+        const writer = spawned.stdin.getWriter();
+        const stdin = new TextEncoder().encode(stdinText);
+        writer.write(stdin).then(() => writer.close()).catch(() => undefined);
+    }
     // Close the pre-spawn race: if the abort fired while `child` was still null,
     // `terminatedBy` is already set and this call sends the kill exactly once.
     if (signal?.aborted) terminate("abort");
