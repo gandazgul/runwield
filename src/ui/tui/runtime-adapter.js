@@ -9,7 +9,7 @@ import { formatImageAttachmentMarker } from "../../shared/session/image-attachme
 import { createTuiInteractionAdapter } from "./runtime-interaction-adapter.js";
 import { setTerminalTitleForName } from "./terminal-title.ts";
 
-const HIDDEN_TOOL_BLOCK_NAMES = new Set(["task_completed", "review_complete", "user_interview"]);
+const HIDDEN_TOOL_BLOCK_NAMES = new Set(["task_completed", "review_complete", "triage_report", "user_interview"]);
 
 /**
  * @typedef {{ base64: string, mimeType: string }} RuntimeDisplayImage

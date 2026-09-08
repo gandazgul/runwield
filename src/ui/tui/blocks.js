@@ -903,7 +903,11 @@ export class ToolExecutionGroupBlock {
         const leftPadding = Math.min(2, Math.max(0, width));
         const rightPadding = Math.min(2, Math.max(0, width - leftPadding));
         const innerWidth = Math.max(0, width - leftPadding - rightPadding);
-        const title = theme.fg("text", theme.bold(child.headerText));
+        const titlePrefix = child.headerText === child.toolName || child.headerText.startsWith(`${child.toolName} `)
+            ? child.toolName
+            : child.headerText.split(" ")[0] || child.headerText;
+        const titleSuffix = child.headerText.slice(titlePrefix.length);
+        const title = theme.fg("text", `\x1b[1m${titlePrefix}\x1b[22m${titleSuffix}`);
         const durationText = child.durationStr ||
             (child.showElapsedTime && !child.ended ? child.formatElapsedTime() : "");
         const duration = durationText ? theme.fg("dim", durationText) : "";

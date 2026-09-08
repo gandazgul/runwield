@@ -120,13 +120,13 @@ export function createTriageReportTool(
                 // Footer-context persistence is fail-open and must not block triage.
             }
 
-            emitSystemStatus(
-                hostedSession || undefined,
-                `Routing Intent: ${routingIntent}${
-                    workKind ? `, Work Kind: ${workKind}` : ""
-                }, Complexity: ${complexity}. Summary: ${summary}`,
-                { header: "Triage" },
-            );
+            const triageLines = [
+                `Routing Intent: ${routingIntent}`,
+                ...(workKind ? [`Work Kind: ${workKind}`] : []),
+                `Complexity: ${complexity}`,
+                `Summary: ${summary}`,
+            ];
+            emitSystemStatus(hostedSession || undefined, `\n\n${triageLines.join("\n")}`, { header: "Triage" });
 
             if (hostedSession) {
                 await recordWorkflowMetric({
