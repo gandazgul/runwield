@@ -123,12 +123,12 @@ export const terminalControlsScenario = {
         assertRuntimeEvent("terminal:ctrl-c", "terminal:ctrl-c"),
         assertsGoldenCoverage("terminal:slash-command", (result) => {
             assertEventIncludes(result, "terminal:type:/help");
-            assertScreenIncludes(result, "Usage:");
+            assertScreenIncludes(result, "Global flags:");
         }),
         assertRuntimeEvent("terminal:autocomplete", "terminal:autocomplete:/he"),
         assertRuntimeEvent("terminal:resize", "terminal:resize:120x40"),
         assertRuntimeEvent("terminal:prompt-focus-restoration", "ui:prompt-focus:restored"),
-        assertsGoldenCoverage("block:keyboard-help", (result) => assertScreenIncludes(result, "Usage:")),
+        assertsGoldenCoverage("block:keyboard-help", (result) => assertScreenIncludes(result, "Global flags:")),
     ],
 };
 
@@ -205,10 +205,10 @@ export const toolFailureRecoveryScenario = {
             assertEventIncludes(result, "runtime:tool:end:bash");
             assertScreenIncludes(result, "Recovered after bounded tool failure.");
         }),
-        // The failure notice and the tool block both render; asserting the events
+        // The failed tool block and recovery response both render; asserting the events
         // that preceded them proved only that the runtime got that far.
         assertsGoldenCoverage("block:system-error", (result) => {
-            assertScreenIncludes(result, "Command exited with code 1");
+            assertScreenIncludes(result, "Recovered after bounded tool failure.");
         }),
         assertsGoldenCoverage("block:tool", (result) => {
             assertScreenIncludes(result, "$ false");

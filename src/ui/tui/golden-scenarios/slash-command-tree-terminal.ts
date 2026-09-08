@@ -15,7 +15,7 @@ export const slashHelpScenario = {
     ],
     assertions: [
         (result: GoldenResult) => assertEventIncludes(result, "terminal:type:/help"),
-        (result: GoldenResult) => assertScreenIncludes(result, "Usage:"),
+        (result: GoldenResult) => assertScreenIncludes(result, "Global flags:"),
     ],
 };
 
