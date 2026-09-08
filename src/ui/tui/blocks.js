@@ -20,6 +20,12 @@ import {
 import { MermaidMarkdown } from "./mermaid-markdown.js";
 import stripAnsi from "strip-ansi";
 
+/**
+ * @typedef {Object} ToolDisplayImage
+ * @property {string} base64
+ * @property {string} mimeType
+ */
+
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
 /**
@@ -652,7 +658,7 @@ export class ToolExecutionBlock {
         this.expanded = false;
         this.durationStr = "";
         this.bodyText = "";
-        /** @type {Array<{ base64: string, mimeType: string }>} */
+        /** @type {ToolDisplayImage[]} */
         this.displayImages = [];
         this.isError = false;
         this.ended = false;
@@ -728,10 +734,7 @@ export class ToolExecutionBlock {
         }
     }
 
-    /**
-     * @returns {string}
-     * @private
-     */
+    /** @returns {string} */
     formatElapsedTime() {
         return `Elapsed time: ${((Date.now() - this.startTime) / 1000).toFixed(1)}s`;
     }
@@ -858,6 +861,18 @@ export class ToolExecutionGroupBlock {
         block.setExpanded(this.expanded);
     }
 
+    /**
+     * @param {Set<ToolExecutionBlock>} activeBlocks
+     * @param {number} maxChildren
+     */
+    trimCompletedChildren(activeBlocks, maxChildren) {
+        while (this.children.length > maxChildren) {
+            const removableIndex = this.children.findIndex((child) => !activeBlocks.has(child));
+            if (removableIndex === -1) return;
+            this.children.splice(removableIndex, 1);
+        }
+    }
+
     /** @param {boolean} expanded */
     setExpanded(expanded) {
         this.expanded = expanded;
@@ -869,6 +884,15 @@ export class ToolExecutionGroupBlock {
         return this.children.includes(block);
     }
 
+    /** @returns {string} */
+    getPaddingBgToken() {
+        if (this.children.some((child) => child.ended && !child.isError)) return "toolSuccessBg";
+        if (this.children.length > 0 && this.children.every((child) => child.ended && child.isError)) {
+            return "toolErrorBg";
+        }
+        return "toolPendingBg";
+    }
+
     /**
      * @param {ToolExecutionBlock} child
      * @param {number} width
@@ -876,36 +900,38 @@ export class ToolExecutionGroupBlock {
      */
     renderCompactRow(child, width) {
         const bgCode = getBgCode(child.bgToken);
-        const paddingX = 2;
-        const innerWidth = Math.max(0, width - paddingX * 2);
+        const leftPadding = Math.min(2, Math.max(0, width));
+        const rightPadding = Math.min(2, Math.max(0, width - leftPadding));
+        const innerWidth = Math.max(0, width - leftPadding - rightPadding);
         const title = theme.fg("text", theme.bold(child.headerText));
         const durationText = child.durationStr ||
             (child.showElapsedTime && !child.ended ? child.formatElapsedTime() : "");
         const duration = durationText ? theme.fg("dim", durationText) : "";
-        const titleWidth = visibleWidth(title);
         const durationWidth = visibleWidth(duration);
         let content = title;
-        if (duration && titleWidth + 1 + durationWidth <= innerWidth) {
-            content = `${title}${" ".repeat(Math.max(1, innerWidth - titleWidth - durationWidth))}${duration}`;
+        if (duration && durationWidth + 1 < innerWidth) {
+            const titleWidth = innerWidth - durationWidth - 1;
+            const visibleTitle = visibleWidth(title) > titleWidth ? truncateToWidth(title, titleWidth) : title;
+            content = `${visibleTitle}${
+                " ".repeat(Math.max(1, innerWidth - visibleWidth(visibleTitle) - durationWidth))
+            }${duration}`;
         }
         const clamped = visibleWidth(content) > innerWidth ? truncateToWidth(content, innerWidth) : content;
-        const row = `${" ".repeat(paddingX)}${clamped}${
-            " ".repeat(Math.max(0, width - paddingX - visibleWidth(clamped)))
+        const row = `${" ".repeat(leftPadding)}${clamped}${
+            " ".repeat(Math.max(0, innerWidth - visibleWidth(clamped) + rightPadding))
         }`;
         return applyBg(bgCode, row);
-    }
-
-    compactPaddingBgToken() {
-        if (this.children.some((child) => child.bgToken === "toolSuccessBg")) return "toolSuccessBg";
-        if (this.children.some((child) => child.bgToken === "toolErrorBg")) return "toolErrorBg";
-        return "toolPendingBg";
     }
 
     /** @param {number} w */
     render(w) {
         if (!this.expanded) {
-            const padding = applyBg(getBgCode(this.compactPaddingBgToken()), " ".repeat(Math.max(0, w)));
-            return [padding, ...this.children.map((child) => this.renderCompactRow(child, w)), padding];
+            const paddingLine = applyBg(getBgCode(this.getPaddingBgToken()), " ".repeat(Math.max(0, w)));
+            return [
+                paddingLine,
+                ...this.children.map((child) => this.renderCompactRow(child, w)),
+                paddingLine,
+            ];
         }
         /** @type {string[]} */
         const lines = [];

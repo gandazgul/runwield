@@ -1,9 +1,7 @@
-/** Chat-session-specific input, model-selection, and pasted-image behavior. */
+/** Chat-session-specific input and model-selection behavior. */
 
-import { Image, Spacer } from "@earendil-works/pi-tui";
 import type { Container, Editor, TUI } from "@earendil-works/pi-tui";
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
-import { imageTheme } from "../theme/theme.js";
 import { RunWieldModelSelectorComponent } from "./model-selector.ts";
 
 interface ActiveModelState {
@@ -21,7 +19,6 @@ interface InstallUiApiOverridesOptions {
     tui: TUI;
     editor: Editor;
     container: Container;
-    messageList: Container;
     getProjectRoot(): string;
     setActiveModel(
         model: string,
@@ -35,7 +32,6 @@ export function installUiApiOverrides({
     tui,
     editor,
     container,
-    messageList,
     getProjectRoot: _getProjectRoot,
     setActiveModel,
     getActiveModelState = () => ({ model: "", provider: "" }),
@@ -161,17 +157,5 @@ export function installUiApiOverrides({
                 reject(error);
             }
         });
-    };
-
-    uiAPI.appendImage = (base64, mimeType) => {
-        if (uiAPI.isOutputSuppressed?.()) return;
-        messageList.addChild(
-            new Image(base64, mimeType, imageTheme, {
-                maxWidthCells: 60,
-                maxHeightCells: 20,
-            }),
-        );
-        messageList.addChild(new Spacer(1));
-        tui.requestRender();
     };
 }
