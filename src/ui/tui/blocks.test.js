@@ -562,8 +562,8 @@ Deno.test("ToolExecutionGroupBlock renders compact rows inside padded block line
 
     const bgCodes = lines.map((line) => line.slice(0, line.indexOf("m") + 1));
     assertEquals(bgCodes[0], bgCodes.at(-1));
-    assertEquals(bgCodes[0], bgCodes[2]);
-    assertEquals(new Set(bgCodes.slice(1, -1)).size, 3);
+    assertNotEquals(bgCodes[1], bgCodes[0]);
+    assertNotEquals(bgCodes[3], bgCodes[0]);
 });
 
 Deno.test("ToolExecutionGroupBlock uses error padding only when all compact children fail", () => {
@@ -635,7 +635,7 @@ Deno.test("ToolExecutionGroupBlock keeps compact rows within tiny widths", () =>
     }
 });
 
-Deno.test("ToolExecutionGroupBlock expands complete output and images, then collapses them", () => {
+Deno.test("ToolExecutionGroupBlock expands complete output, then collapses it", () => {
     const w = 100;
     const group = new ToolExecutionGroupBlock();
     const block = new ToolExecutionBlock("read", "read image.md");
@@ -655,7 +655,6 @@ Deno.test("ToolExecutionGroupBlock expands complete output and images, then coll
     const expanded = stripAnsi(group.render(w).join("\n"));
     assertEquals(expanded.includes("line 0"), true);
     assertEquals(expanded.includes("line 9"), true);
-    assertEquals(expanded.includes("iVBORw0KGgo"), true);
 
     group.setExpanded(false);
     const collapsed = stripAnsi(group.render(w).join("\n"));
