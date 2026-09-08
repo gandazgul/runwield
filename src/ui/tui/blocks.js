@@ -1,5 +1,6 @@
 import {
     Container,
+    Image,
     Input,
     Key,
     Markdown,
@@ -10,7 +11,7 @@ import {
     truncateToWidth,
     visibleWidth,
 } from "@earendil-works/pi-tui";
-import { getMarkdownTheme, getSelectListTheme, theme } from "../theme/theme.js";
+import { getMarkdownTheme, getSelectListTheme, imageTheme, theme } from "../theme/theme.js";
 import { buildActiveConversationStatusMessage } from "../../shared/session/session-user-messages.ts";
 import {
     validationProgressCheckSummary,
@@ -651,6 +652,8 @@ export class ToolExecutionBlock {
         this.expanded = false;
         this.durationStr = "";
         this.bodyText = "";
+        /** @type {Array<{ base64: string, mimeType: string }>} */
+        this.displayImages = [];
         this.isError = false;
         this.ended = false;
         this.showElapsedTime = false;
@@ -709,6 +712,14 @@ export class ToolExecutionBlock {
         // live review URLs stay clickable.
         this.bodyText += stripAnsiPreservingOsc8(text);
         this.updateBodyText();
+    }
+
+    /**
+     * @param {string} base64
+     * @param {string} mimeType
+     */
+    appendDisplayImage(base64, mimeType) {
+        this.displayImages.push({ base64, mimeType });
     }
 
     enableElapsedTime() {
@@ -775,6 +786,16 @@ export class ToolExecutionBlock {
             }
         }
 
+        if (this.expanded) {
+            for (const image of this.displayImages) {
+                const imageBlock = new Image(image.base64, image.mimeType, imageTheme, {
+                    maxWidthCells: 60,
+                    maxHeightCells: 20,
+                });
+                allLines.push(...imageBlock.render(innerW));
+            }
+        }
+
         // ── Footer: duration + expand/collapse hint, with vertical padding ──
         const footerContent = this.renderFooterContent(innerW);
         if (footerContent.length > 0) {
@@ -822,6 +843,80 @@ export class ToolExecutionBlock {
         const rightPad = " ".repeat(Math.max(0, innerW - rightLen));
         return [left, `${rightPad}${right}`];
     }
+}
+
+export class ToolExecutionGroupBlock {
+    constructor() {
+        /** @type {ToolExecutionBlock[]} */
+        this.children = [];
+        this.expanded = false;
+    }
+
+    /** @param {ToolExecutionBlock} block */
+    addBlock(block) {
+        this.children.push(block);
+        block.setExpanded(this.expanded);
+    }
+
+    /** @param {boolean} expanded */
+    setExpanded(expanded) {
+        this.expanded = expanded;
+        for (const child of this.children) child.setExpanded(expanded);
+    }
+
+    /** @param {ToolExecutionBlock} block */
+    contains(block) {
+        return this.children.includes(block);
+    }
+
+    /**
+     * @param {ToolExecutionBlock} child
+     * @param {number} width
+     * @returns {string}
+     */
+    renderCompactRow(child, width) {
+        const bgCode = getBgCode(child.bgToken);
+        const paddingX = 2;
+        const innerWidth = Math.max(0, width - paddingX * 2);
+        const title = theme.fg("text", theme.bold(child.headerText));
+        const durationText = child.durationStr ||
+            (child.showElapsedTime && !child.ended ? child.formatElapsedTime() : "");
+        const duration = durationText ? theme.fg("dim", durationText) : "";
+        const titleWidth = visibleWidth(title);
+        const durationWidth = visibleWidth(duration);
+        let content = title;
+        if (duration && titleWidth + 1 + durationWidth <= innerWidth) {
+            content = `${title}${" ".repeat(Math.max(1, innerWidth - titleWidth - durationWidth))}${duration}`;
+        }
+        const clamped = visibleWidth(content) > innerWidth ? truncateToWidth(content, innerWidth) : content;
+        const row = `${" ".repeat(paddingX)}${clamped}${
+            " ".repeat(Math.max(0, width - paddingX - visibleWidth(clamped)))
+        }`;
+        return applyBg(bgCode, row);
+    }
+
+    compactPaddingBgToken() {
+        if (this.children.some((child) => child.bgToken === "toolSuccessBg")) return "toolSuccessBg";
+        if (this.children.some((child) => child.bgToken === "toolErrorBg")) return "toolErrorBg";
+        return "toolPendingBg";
+    }
+
+    /** @param {number} w */
+    render(w) {
+        if (!this.expanded) {
+            const padding = applyBg(getBgCode(this.compactPaddingBgToken()), " ".repeat(Math.max(0, w)));
+            return [padding, ...this.children.map((child) => this.renderCompactRow(child, w)), padding];
+        }
+        /** @type {string[]} */
+        const lines = [];
+        this.children.forEach((child, index) => {
+            lines.push(...child.render(w));
+            if (index < this.children.length - 1) lines.push("");
+        });
+        return lines;
+    }
+
+    invalidate() {}
 }
 
 // ─── Prompt Blocks ───────────────────────────────────────────────────────────

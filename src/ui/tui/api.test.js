@@ -9,6 +9,7 @@ import {
     SystemMessageBlock,
     ThinkingBlock,
     ToolExecutionBlock,
+    ToolExecutionGroupBlock,
     UserPromptBlock,
     ValidationHandoffBlock,
 } from "./blocks.js";
@@ -172,13 +173,96 @@ Deno.test("createUiApi does not hide duplicate tool-start events", () => {
     const second = ui.startToolExecution("tool-1", "code_search", "code_search createAgentJobHandler");
 
     assertEquals(second === first, false);
+    const groups = messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionGroupBlock);
+    assertEquals(groups.length, 1);
+    assertEquals(groups[0].children.length, 2);
+
+    first.endExecution(false, 1);
+    second.endExecution(false, 1);
+});
+
+Deno.test("createUiApi leaves workflow tools as standalone blocks", () => {
+    const { tui, messageList } = makeTuiHarness();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
+
+    ui.startToolExecution("tool-1", "bash", "$ echo before");
+    ui.startToolExecution("plan-1", "plan_written", "plan_written docs/plans/example.md");
+    ui.startToolExecution("tool-2", "read", "read README.md");
+    ui.startToolExecution("triage-1", "triage_report", "triage_report FEATURE");
+
+    const groups = messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionGroupBlock);
+    assertEquals(groups.length, 2);
+    assertEquals(groups[0].children.length, 1);
+    assertEquals(groups[1].children.length, 1);
     assertEquals(
         messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionBlock).length,
         2,
     );
+});
 
-    first.endExecution(false, 1);
-    second.endExecution(false, 1);
+Deno.test("createUiApi groups contiguous tool calls and closes the group at conversation boundaries", () => {
+    const { tui, messageList } = makeTuiHarness();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
+
+    ui.startToolExecution("tool-1", "bash", "$ false");
+    ui.startToolExecution("tool-2", "read", "read README.md");
+    ui.appendAgentMessageStart("Agent").appendText("done");
+    ui.startToolExecution("tool-3", "code_search", "code_search ToolExecution");
+
+    const groups = messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionGroupBlock);
+    assertEquals(groups.length, 2);
+    assertEquals(groups[0].children.length, 2);
+    assertEquals(groups[1].children.length, 1);
+    assertEquals(messageList.children.filter((/** @type {any} */ child) => child instanceof Spacer).length, 3);
+});
+
+Deno.test("createUiApi toggles completed and active visible tool groups and new groups inherit the mode", () => {
+    const { tui, messageList } = makeTuiHarness();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
+
+    const completed = ui.startToolExecution("tool-1", "bash", "$ echo done");
+    completed.setOutput("output");
+    completed.endExecution(false, 1);
+    ui.appendAgentMessageStart("Agent").appendText("boundary");
+    const active = ui.startToolExecution("tool-2", "read", "read file");
+
+    ui.toggleToolOutputsExpanded();
+    const groups = messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionGroupBlock);
+    assertEquals(groups.map((/** @type {any} */ group) => group.expanded), [true, true]);
+
+    ui.appendSystemMessage("boundary");
+    const inherited = ui.startToolExecution("tool-3", "grep", "grep pattern");
+    const newGroup = messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionGroupBlock)
+        .at(-1);
+    assertEquals(newGroup.expanded, true);
+
+    active.endExecution(false, 1);
+    inherited.endExecution(false, 1);
+    ui.toggleToolOutputsExpanded();
+    assertEquals(
+        messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionGroupBlock).map(
+            (/** @type {any} */ group) => group.expanded,
+        ),
+        [false, false, false],
+    );
+});
+
+Deno.test("createUiApi keeps an active tool group while pruning bounded history", () => {
+    const { tui, messageList } = makeTuiHarness();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
+
+    const active = ui.startToolExecution("tool-active", "bash", "$ sleep 10");
+    for (let index = 0; index < 700; index++) {
+        ui.appendUserMessage(`message ${index}`);
+    }
+
+    assertEquals(messageList.children.length <= 1000, true);
+    assertEquals(
+        messageList.children.some((/** @type {any} */ child) => child instanceof ToolExecutionGroupBlock),
+        true,
+    );
+    assertEquals(ui.getActiveToolBlock("tool-active"), active);
+    active.endExecution(false, 1);
 });
 
 Deno.test("createUiApi releases old message blocks during long-running TUI sessions", () => {
