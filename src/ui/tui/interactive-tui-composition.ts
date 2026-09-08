@@ -1,4 +1,4 @@
-import { type Terminal, type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
+import { type Terminal, type TUI, TuiAltScreen } from "@earendil-works/pi-tui";
 import { endBlink } from "./boot-logo.ts";
 import { getTUI, initTUIWithPair, stopTUI } from "./tui.ts";
 import {
@@ -45,7 +45,7 @@ export async function createInteractiveTuiComposition(
     try {
         if (options.terminal) {
             const terminalPair = options.terminal as Terminal;
-            initTUIWithPair({ terminal: terminalPair, tui: new TuiMainScreen(terminalPair) });
+            initTUIWithPair({ terminal: terminalPair, tui: new TuiAltScreen(terminalPair) });
         }
         uiAPI = await startInteractiveSession(initialUserRequest, {
             ...options,

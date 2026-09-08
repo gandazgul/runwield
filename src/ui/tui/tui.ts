@@ -3,7 +3,7 @@
  * TUI singleton manager.
  */
 
-import { ProcessTerminal, type Terminal, type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
+import { ProcessTerminal, type Terminal, type TUI, TuiAltScreen } from "@earendil-works/pi-tui";
 import { createTuiCrashGuards } from "./tui-crash-guards.ts";
 import { createTuiManager } from "./tui-manager.ts";
 import { cleanupAgentBrowserSessionSync } from "../../shared/agent-browser-session.ts";
@@ -15,7 +15,7 @@ export interface TuiPair {
 
 const tuiManager = createTuiManager<Terminal, TUI>({
     TerminalCtor: ProcessTerminal,
-    TuiCtor: TuiMainScreen as new (terminal: Terminal) => TUI,
+    TuiCtor: TuiAltScreen as new (terminal: Terminal) => TUI,
     installCrashGuards: () => crashGuards.install(),
     uninstallCrashGuards: () => crashGuards.uninstall(),
 });
