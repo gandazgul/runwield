@@ -32,11 +32,16 @@ Deno.test("Workspace creates one Router Session and resumes idle conversational 
             snapshot: { activeAgent: "Engineer", activeExecutionWorkflow: { planName: "feature-a" } },
         },
     });
-    assertEquals(executionWorkflowDecision.ok, false);
-    assertEquals(executionWorkflowDecision.code, "active_workflow_read_only");
+    assertEquals(executionWorkflowDecision.ok, true);
+    assertEquals(executionWorkflowDecision.agentName, "Engineer");
     assertEquals(
-        executionWorkflowDecision.message,
-        "This Session is running work. It becomes available when that work finishes.",
+        deriveManagedSessionContinuationDecision({
+            activation: { state: "idle" },
+            generation: { generation: 3 },
+            expectedGeneration: 3,
+            projection: { ok: true, complete: false, snapshot: { activeAgent: "Guide" } },
+        }).ok,
+        true,
     );
 
     const timeline = reduceSessionEvents([

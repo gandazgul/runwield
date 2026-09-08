@@ -22,7 +22,7 @@ let recoveryCurrentSegmentId = null;
 try {
     plan = await loadOwnerProjectPlanDetail(projectId, planId);
     if (runwieldSessionId && operationId && interactionId) {
-        liveReview = getAstroOwnerWorkspaceSessionContinuation()?.getLivePlanReview?.({
+        liveReview = await getAstroOwnerWorkspaceSessionContinuation()?.getLivePlanReview?.({
             projectId,
             planId,
             runwieldSessionId,

@@ -14,8 +14,8 @@ or crowding the Agent transcript.
 
 The first rendering is a collapsible right-side **Workflow Rail** in the TUI. The same underlying product concept
 supports a selected-Session rail in Workspace and the Workspace Attention Dashboard's read-only workflow summaries. The
-Workspace Session screen PRD (`docs/prd/runwield-workspace-session-screen.md`) includes the selected-Session browser
-rail as part of its implementation scope.
+Workspace Session screen PRD (`workspace-session-screen.md`) includes the selected-Session browser rail as part of its
+implementation scope.
 
 ## 2. Problem Statement
 
@@ -51,16 +51,11 @@ available whenever RunWield owns a multi-step workflow.
 - Above-input cards are reserved for blocking decisions or urgent intervention, such as approval, retry, recovery, Pair
   checkpoint, or destructive confirmation.
 - The footer remains the collapsed summary and re-open affordance.
-- Pinning or prioritizing a workflow elsewhere in Workspace does not grant writable activation or Plan ownership.
+- Pinning a workflow changes what the user sees first; it does not change the workflow or its available actions.
 
-## 4. Technical Approach
+## 4. Product Experience
 
-This PRD intentionally defines the product contract rather than an implementation design.
-
-RunWield should expose a shared active-workflow projection per Session. The projection should be consumer-neutral and
-safe for TUI, Workspace, and ACP-facing clients to render without making presentation surfaces sources of truth.
-
-The projection should answer:
+The same Session should show consistent workflow facts across the TUI and Workspace. Users need to see:
 
 - whether the Session has an active workflow;
 - workflow kind: `QUICK_FIX`, `PLANNED_CHANGE`, or `PROJECT`;
@@ -80,11 +75,11 @@ TUI rendering:
 - use above-input cards only for blocking user decisions;
 - preserve the existing validation-loop information by relocating it into the rail.
 
-Workspace rendering later:
+Workspace rendering:
 
-- show the same active-workflow projection beside the selected Session's browser chat;
+- show the same workflow information beside the selected Session's browser chat;
 - feed read-only workflow-step summaries into the Attention Dashboard;
-- allow observing many workflows while requiring a Session Activation Lease before Workspace mutates one Session.
+- let the owner follow several workflows and continue the selected Session when it is ready for input.
 
 ## 5. Experience Requirements
 
@@ -110,7 +105,7 @@ front-matter events, or activation implementation details.
 
 - A generic Session metadata sidebar for ordinary Guide, Ideator, or Operator chat.
 - A second source of truth for Plan Lifecycle, validation, worktree state, Session activation, or recovery.
-- Concurrent writable control of the same Session across TUI, Workspace, and ACP.
+- Active multi-user collaboration. One owner moving between TUI and Workspace remains supported product scope.
 - Replacing the transcript, footer, or blocking interaction cards entirely.
 - Token-level cross-process mirroring of live model streams for Workspace.
 - Detailed schema, widget, keybinding, or layout implementation decisions.
@@ -122,19 +117,16 @@ front-matter events, or activation implementation details.
 - Long validation or repair loops remain visible without hiding streaming Agent output.
 - Collapsing the rail leaves a useful footer summary and an obvious re-open path.
 - No rail appears for ordinary one-turn or conversational flows without active workflow state.
-- TUI and future Workspace renderings can consume the same active-workflow projection without presentation surfaces
-  becoming sources of truth.
+- TUI and Workspace show consistent stage, ownership, and next actions for the same Session.
 
 ## Proposed Domain Language
 
 ### Active Workflow Surface
 
-A shared user-facing projection of one Session's active multi-step workflow state. It is not a source of truth and does
-not own Plan Lifecycle, Session activation, validation, or worktree state. It supplies the workflow facts that TUI,
-Workspace, and future clients render.
+A user-facing summary of one Session's active multi-step workflow: current stage, responsible Agent or user, subject,
+and next actions. TUI and Workspace present the same workflow facts.
 
-Affected existing terms: Session, Routing Intent, Plan, Workflow Validation, Session Activation Lease, Plan Workflow
-Lease.
+Affected existing terms: Session, Routing Intent, Plan, Workflow Validation.
 
 Avoided aliases: workflow cockpit, agent dashboard, session sidebar, plan status cache.
 

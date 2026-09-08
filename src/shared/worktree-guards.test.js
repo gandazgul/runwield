@@ -19,9 +19,11 @@ import {
     checkpointExecutionWorktree,
     deleteMergedWorktreeBranch,
     deleteRemotelyPublishedWorktreeBranch,
+    discardWorktreeGitArtifacts,
     mergeExecutionWorktree,
     prepareTargetBranchRef,
     removeWorktreeGitArtifacts,
+    validateWorktreeDiscard,
 } from "./worktree.js";
 
 import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.js";
@@ -305,5 +307,62 @@ Deno.test("remote publication cleanup deletes only empty source-branch commits a
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("discard blocks primary and reports branch checkout races after directory removal", async () => {
+    const projectRoot = await makeRepo();
+    const parent = await Deno.makeTempDir();
+    try {
+        await assertRejects(
+            () => validateWorktreeDiscard({ projectRoot, path: projectRoot, branch: "missing" }),
+            Error,
+            "primary checkout",
+        );
+        await assertRejects(
+            () => removeWorktreeGitArtifacts({ projectRoot, path: projectRoot, force: true }),
+            Error,
+            "primary checkout",
+        );
+        const attempt = await createTestWorktreeAttempt({ projectRoot, planName: "discard", worktreeRoot: parent });
+        const cleanup = discardWorktreeGitArtifacts({ projectRoot, ...attempt });
+        const removed = await cleanup.next();
+        assertEquals(removed.value?.status, "path_removed");
+        const rescuePath = `${parent}/rescue`;
+        await git(projectRoot, ["worktree", "add", rescuePath, attempt.branch]);
+        await Deno.writeTextFile(`${rescuePath}/keep.txt`, "keep the new checkout\n");
+        const blocked = await cleanup.next();
+        assertEquals(blocked.value?.status, "blocked");
+        assertEquals(blocked.value?.branchDeleted, false);
+        assertEquals(await Deno.readTextFile(`${rescuePath}/keep.txt`), "keep the new checkout\n");
+        assertEquals(await git(projectRoot, ["branch", "--show-current"]), "main");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(parent, { recursive: true });
+    }
+});
+
+Deno.test("discard removes a missing linked checkout through its saved symlinked parent", async () => {
+    const projectRoot = await makeRepo();
+    const parent = await Deno.makeTempDir();
+    try {
+        const realParent = `${parent}/real`;
+        const aliasParent = `${parent}/alias`;
+        await Deno.mkdir(realParent);
+        await Deno.symlink(realParent, aliasParent);
+        const attempt = await createTestWorktreeAttempt({
+            projectRoot,
+            planName: "missing",
+            worktreeRoot: aliasParent,
+        });
+        await Deno.remove(attempt.path, { recursive: true });
+        const results = [];
+        for await (const result of discardWorktreeGitArtifacts({ projectRoot, ...attempt })) results.push(result);
+        assertEquals(results.at(-1)?.status, "complete");
+        assertEquals(await git(projectRoot, ["branch", "--list", attempt.branch]), "");
+        assertEquals((await git(projectRoot, ["worktree", "list", "--porcelain"])).includes(attempt.branch), false);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(parent, { recursive: true });
     }
 });

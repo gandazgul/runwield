@@ -687,7 +687,6 @@ export function summarizeProjectedEntries(entries) {
     let model = null;
     let provider = null;
     let thinkingLevel = null;
-    let attention = null;
     const planAssociations = readPlanAssociations(entries);
     for (const entry of entries) {
         const value = /** @type {any} */ (entry || {});
@@ -702,19 +701,10 @@ export function summarizeProjectedEntries(entries) {
         if (value.type === "thinking_level_change" && typeof value.thinkingLevel === "string") {
             thinkingLevel = value.thinkingLevel;
         }
-        if (value.type === "custom" && value.customType === "runwield.attention") {
-            const reason = typeof value.data?.reason === "string" ? value.data.reason : "agentStopped";
-            const agentName = typeof value.data?.agentName === "string" ? value.data.agentName : activeAgent;
-            attention = {
-                eventId: makeEventId(value, RuntimeEventTypes.ATTENTION_REQUESTED, 0),
-                reason,
-                agentName,
-            };
-        }
         const maybeWorkflow = readPersistedWorkflowContext(/** @type {any} */ ({ getEntries: () => [value] }));
         if (maybeWorkflow) workflowContext = maybeWorkflow;
     }
-    return { name, activeAgent, model, provider, thinkingLevel, workflowContext, attention, planAssociations };
+    return { name, activeAgent, model, provider, thinkingLevel, workflowContext, planAssociations };
 }
 
 /** @param {unknown} value @returns {string} */

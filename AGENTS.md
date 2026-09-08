@@ -1,4 +1,5 @@
-Stop using jargon and speak coherently. State things simply and concisely, like one human talking to another.
+Stop using jargon and speak coherently. State things simply and concisely, like one human talking to another. Be
+extremely concise. Sacrifice grammar for the sake of concision.
 
 ## Local Type Style
 
@@ -10,9 +11,9 @@ type. Do not define complex inline types.
 
 ## Running Tests
 
-Run the suite with `deno task test` or `deno run -A scripts/run-tests.js <deno test args>`. Never run `deno test`
-directly. It puts every test file in one process and uses the real `HOME`, which can rewrite your own `~/.wld` and
-Mnemoteca database. `scripts/run-tests.js` gives each file its own process and a sandboxed `HOME` and
+When you need to run the test suite use `deno task test` or `deno run -A scripts/run-tests.js <deno test args>`. Never
+run `deno test` directly. It puts every test file in one process and uses the real `HOME`, which can rewrite your own
+`~/.wld` and Mnemoteca database. `scripts/run-tests.js` gives each file its own process and a sandboxed `HOME` and
 `MNEMOTECA_DB_PATH`.
 
 Two rules keep tests safe:
@@ -50,4 +51,18 @@ established look and feel.
 - Before adding a visual pattern, check whether an existing one covers it. If a new one is necessary, document it in
   `docs/design-system.md` and add it to the shared design-system layer in the same change.
 
-[Mnemoteca]: https://github.com/gandazgul/mnemoteca
+## Product and Architecture Documents
+
+PRDs describe user needs, product outcomes, scope, and acceptance journeys. ADRs explain architectural choices, user
+constraints, alternatives considered or excluded, rationale, and implications. Plans track implementation steps, bugs,
+and remaining work. Existing restrictions and tests describe implementation; they do not override the owner's product
+intent.
+
+The five living central PRDs are `docs/prd/runwield.md`, `runwield-core-prd.md`, `runwield-connect-prd.md`,
+`runwield-workspace-prd.md`, and `runwield-acp-protocol-prd.md` in that directory. They hold guiding principles and
+lasting product requirements. Other PRDs are transient: after implementation, fold lasting requirements into the
+appropriate central PRD, update references, and remove the completed PRD. Git history preserves earlier proposals; Work
+Records preserve delivery evidence. See `src/agent-definitions/document-formats/PRD-FORMAT.md`.
+
+ADRs in the current tree describe current architecture. Update or remove obsolete ADRs and fix current references; do
+not retain superseded ADRs as competing guidance. Use Git history for prior decisions.

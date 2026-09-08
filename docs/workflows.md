@@ -111,7 +111,7 @@ recovery, has unmet dependencies, or has an unsupported status. A `draft` or `fe
 Session; an `approved` child records readiness and executes; a `ready_for_work` child executes immediately. Explicit
 planning outcomes such as "approve for later" stop the chain instead of being converted into execution.
 
-Project decomposition is described in [Project Decomposition PRD](prd/done/project-decomposition-PRD.md).
+Project decomposition is described in [Core product requirements](prd/runwield-core-prd.md#epic-decomposition-and-hold).
 
 ## Delegated Agent Sessions
 

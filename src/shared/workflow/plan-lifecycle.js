@@ -583,6 +583,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "hold_reset_to_draft") {
+        updates.documentWorktreeId = null;
         updates.heldFromStatus = null;
         updates.heldAt = null;
         updates.holdReason = null;

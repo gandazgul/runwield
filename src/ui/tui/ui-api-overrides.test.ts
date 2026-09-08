@@ -5,7 +5,7 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { getSettingsManager } from "../../shared/settings.js";
 import { getEditorTheme, initRunWieldTheme } from "../theme/theme.js";
 import { createUiApi } from "./api.js";
-import { SpinnerBlock } from "./blocks.js";
+import { SpinnerBlock, ToolExecutionGroupBlock } from "./blocks.js";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
 import { installUiApiOverrides } from "./ui-api-overrides.ts";
 
@@ -52,7 +52,6 @@ function makeHarness(projectRoot = "/fixture/project"): OverridesHarness {
         tui,
         editor,
         container,
-        messageList,
         getProjectRoot: () => projectRoot,
         setActiveModel: () => {},
     });
@@ -139,6 +138,22 @@ Deno.test("installUiApiOverrides appends real images unless output is suppressed
         harness.uiAPI.suppressOutput?.();
         harness.uiAPI.appendImage?.(ONE_PIXEL_PNG, "image/png");
         assertEquals(harness.messageList.children.length, 2);
+    } finally {
+        harness.tui.stop();
+    }
+});
+
+Deno.test("installUiApiOverrides closes a visible tool group before appending an image", () => {
+    const harness = makeHarness();
+    try {
+        harness.uiAPI.startToolExecution?.("tool-1", "read", "read before.png");
+        harness.uiAPI.appendImage?.(ONE_PIXEL_PNG, "image/png");
+        harness.uiAPI.startToolExecution?.("tool-2", "bash", "$ echo after");
+
+        const groups = harness.messageList.children.filter((child) => child instanceof ToolExecutionGroupBlock);
+        assertEquals(groups.length, 2);
+        assertInstanceOf(harness.messageList.children[2], Image);
+        assertEquals(groups.map((group) => group.children.length), [1, 1]);
     } finally {
         harness.tui.stop();
     }

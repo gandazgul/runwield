@@ -37,7 +37,7 @@ Deno.test("Workspace Session projects code-review interactions to one stable in-
 
     assertStringIncludes(continuation, 'request.type === "code_review"');
     assertStringIncludes(continuation, 'const planTitle = typeof meta.planTitle === "string" && meta.planTitle.trim()');
-    assertStringIncludes(continuation, "/review/code?operation=${encodeURIComponent(options.operationId)}");
+    assertStringIncludes(continuation, "/review/code?operation=${encodeURIComponent(operationId)}");
     assertStringIncludes(continuation, "getLiveCodeReview(options)");
     assertStringIncludes(sessionSurface, 'isCodeReview ? "code-review"');
     assertStringIncludes(timeline, 'item.kind === "code-review"');

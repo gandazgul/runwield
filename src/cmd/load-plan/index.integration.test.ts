@@ -17,6 +17,7 @@ import {
 import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
 import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
 import { createPlanSessionSurface } from "./plan-session-surface.ts";
+import { discardWorktreeGitArtifacts } from "../../shared/worktree.js";
 import { addEntry, findById, removeEntry } from "../../shared/worktree-registry.js";
 import { executePlanAction, loadPlanActionEvidence } from "../../shared/workflow/plan-actions.ts";
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
@@ -417,6 +418,10 @@ Deno.test("load-plan offers lifecycle actions for a validated Plan already publi
 
 Deno.test("load-plan abandons unregistered legacy recovery before archiving a User Verified Plan", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+        await git(projectRoot, ["init", "-b", "main"]);
+        await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+        await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+        await git(projectRoot, ["commit", "--allow-empty", "-m", "recovery fixture"]);
         const lostPath = `${projectRoot}/lost-worktree`;
         await writePlan(projectRoot, "finished-with-stale-worktree", {
             planId: "lost-plan",
@@ -1620,6 +1625,41 @@ Deno.test("activateForPlan renames the Session exactly once across repeated cont
             assertEquals(afterRepeat, afterFirst);
         } finally {
             runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan abandon names a rescue branch and cleanup can be retried after merging it", async () => {
+    await withRuntimeCommandFixture("runwield-discard-rescue-", async ({ projectRoot }) => {
+        const attempt = await prepareImplementedFollowUpPlan(projectRoot);
+        await Deno.writeTextFile(`${attempt.worktreePath}/rescue.txt`, "keep this work\n");
+        await git(attempt.worktreePath, ["add", "rescue.txt"]);
+        await git(attempt.worktreePath, ["commit", "-m", "unique work"]);
+        const beforeHead = await git(projectRoot, ["rev-parse", "HEAD"]);
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["abandon", "confirm", null]);
+        try {
+            await runLoadPlanCommand([attempt.planName], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+            assertStringIncludes(ui.messages.join("\n"), `Branch ${attempt.worktreeBranch} was kept for manual rescue`);
+            assertEquals(await git(projectRoot, ["rev-parse", "HEAD"]), beforeHead);
+            assertEquals(await git(projectRoot, ["branch", "--show-current"]), "main");
+            assertEquals((await findById(projectRoot, "follow-up-worktree"))?.status, "abandoned");
+            assertEquals(await git(projectRoot, ["show", `${attempt.worktreeBranch}:rescue.txt`]), "keep this work");
+            await git(projectRoot, ["merge", "--ff-only", attempt.worktreeBranch]);
+            const entry = await findById(projectRoot, "follow-up-worktree");
+            if (!entry) throw new Error("rescue record missing");
+            const results = [];
+            for await (const result of discardWorktreeGitArtifacts({ projectRoot, ...entry })) results.push(result);
+            assertEquals(results.at(-1)?.status, "complete");
+            assertEquals(await git(projectRoot, ["branch", "--list", attempt.worktreeBranch]), "");
+        } finally {
+            runtime.closeAllSessions();
+            await Deno.remove(attempt.worktreePath, { recursive: true }).catch(() => {});
         }
     });
 });

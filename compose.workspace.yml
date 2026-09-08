@@ -1,0 +1,37 @@
+# Build bin/wld for your container's Linux architecture first. See docs/workspace-container.md.
+services:
+    workspace:
+        build:
+            context: .
+            dockerfile: Containerfile.wld-ux
+            target: wld-ux-current
+        image: runwield-workspace:local
+        container_name: runwield-workspace
+        restart: unless-stopped
+        init: true
+        working_dir: /workspace/project
+        command:
+            - workspace
+            - serve
+            - --bind
+            - 0.0.0.0
+            - --port
+            - "8787"
+            - --public-origin
+            - ${RUNWIELD_WORKSPACE_ORIGIN:?Set the HTTPS origin used by your proxy or private tunnel}
+            - --trust-tls-terminator
+            - --no-open
+        environment:
+            - ANTHROPIC_API_KEY
+            - OPENAI_API_KEY
+            - GOOGLE_API_KEY
+        ports:
+            - "127.0.0.1:8787:8787"
+        volumes:
+            - ${RUNWIELD_PROJECT_ROOT:?Set the absolute path to your cloned repository}:/workspace/project
+            - runwield-workspace-state:/home/deno/.wld
+            - runwield-workspace-memory:/home/deno/.local/share/mnemoteca
+
+volumes:
+    runwield-workspace-state:
+    runwield-workspace-memory:

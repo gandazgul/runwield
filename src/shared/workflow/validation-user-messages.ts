@@ -389,6 +389,7 @@ export type PlanRecoveryMessageRequest =
     | { kind: "git_delete_skipped" }
     | { kind: "record_already_gone" }
     | { kind: "abandon_done"; removed: boolean }
+    | { kind: "worktree_cleanup_result"; detail: string; failed?: boolean }
     | { kind: "abandon_definition_missing" }
     | {
         kind: "publication_cleanup_resumed";
@@ -482,6 +483,8 @@ export function buildPlanRecoveryUserMessage(request: PlanRecoveryMessageRequest
             return "Git is not ready. RunWield will clear only the saved details.";
         case "record_already_gone":
             return "The saved worktree details were already gone. RunWield will go on.";
+        case "worktree_cleanup_result":
+            return request.failed ? `Cleanup stopped. ${request.detail}` : request.detail;
         case "abandon_done":
             return request.removed
                 ? "The worktree is gone. The work is stopped."

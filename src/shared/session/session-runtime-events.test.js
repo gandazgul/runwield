@@ -381,6 +381,29 @@ Deno.test("Runtime event factory validates session replacement events", () => {
     );
 });
 
+Deno.test("Runtime attention reasons use shared notification vocabulary without TUI-only compaction", () => {
+    for (const reason of /** @type {const} */ (["agentStopped", "planWritten", "userInterview"])) {
+        const event = createSessionRuntimeEvent("session-1", {
+            type: RuntimeEventTypes.ATTENTION_REQUESTED,
+            reason,
+        });
+        if (event.type !== RuntimeEventTypes.ATTENTION_REQUESTED) throw new Error("unexpected event type");
+        assertEquals(event.reason, reason);
+    }
+    assertThrows(
+        () =>
+            createSessionRuntimeEvent(
+                "session-1",
+                /** @type {any} */ ({
+                    type: RuntimeEventTypes.ATTENTION_REQUESTED,
+                    reason: "compactionFinished",
+                }),
+            ),
+        TypeError,
+        "reason is invalid",
+    );
+});
+
 Deno.test("Runtime sync state event is sanitized and validated", () => {
     const event = createSessionRuntimeEvent("session-1", {
         type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,

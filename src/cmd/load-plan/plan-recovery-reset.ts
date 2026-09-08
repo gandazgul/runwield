@@ -5,9 +5,10 @@ import { runRecoveryTransition } from "../../shared/workflow/state-transition.ts
 import { buildPlanRecoveryUserMessage, planRecoveryMessage } from "../../shared/workflow/validation-user-messages.ts";
 import {
     createWorktreeGitArtifacts,
-    deleteMergedWorktreeBranch,
-    removeWorktreeGitArtifacts,
+    discardWorktreeGitArtifacts,
     settleWorktreeAttempt,
+    validateWorktreeDiscard,
+    validateWorktreeRecreation,
 } from "../../shared/worktree.js";
 import { restoreWorktreeTree } from "../../shared/workflow/git-snapshot.js";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../../shared/git.js";
@@ -22,6 +23,7 @@ import {
 } from "./plan-recovery-worktree.ts";
 import { executeReadyPlanWithRepair } from "./plan-execution.ts";
 import { updateEntry as updateWorktreeRegistryEntry } from "../../shared/worktree-registry.js";
+import { settleDiscardedRecoveryAttempt } from "./plan-recovery-discard.ts";
 import { transitionFailureError } from "./transition-failure.ts";
 
 import type { PlanFrontMatter } from "../../plan-store.js";
@@ -56,7 +58,7 @@ export async function resetRecoveryPlan(
         );
         return { kind: "menu" };
     }
-    if (gitRecoveryBlocked) {
+    if (gitRecoveryBlocked && !hasWorktree) {
         if (!(await confirmMetadataOnlyRecoveryCleanup(plan.planName, uiAPI))) {
             return { kind: "menu" };
         }
@@ -190,7 +192,15 @@ async function recreateRecoveryWorktree(context: RecoveryActionContext): Promise
         return null;
     }
     const recreateBaseBranch = worktreeContext?.baseBranch;
+    let cleanupMessage = "";
     try {
+        const resolvedBaseCommit = await validateWorktreeRecreation({
+            projectRoot,
+            planName: plan.planName,
+            planId: plan.attrs.planId,
+            baseRef: recreateBaseRef,
+        });
+        await validateWorktreeDiscard({ projectRoot, ...worktreeContext });
         const transition = await runRecoveryTransition({
             projectRoot,
             planName: plan.planName,
@@ -198,26 +208,11 @@ async function recreateRecoveryWorktree(context: RecoveryActionContext): Promise
             worktreeId: worktreeContext?.id,
             action: "recreate",
             recover: async ({ markEffect, registerRollback }) => {
-                if (worktreeContext?.path) {
-                    await removeWorktreeGitArtifacts({
-                        projectRoot,
-                        path: worktreeContext.path,
-                        force: true,
-                    });
-                    if (worktreeContext.branch) {
-                        await deleteMergedWorktreeBranch({ projectRoot, branch: worktreeContext.branch });
-                    }
-                }
-                if (worktreeContext?.id) {
-                    await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, {
-                        status: "abandoned",
-                    });
-                }
                 const nextWorktree = await createWorktreeGitArtifacts({
                     projectRoot,
                     planName: plan.planName,
                     planId: plan.attrs.planId as string,
-                    baseRef: recreateBaseRef,
+                    baseRef: resolvedBaseCommit,
                     baseBranch: recreateBaseBranch,
                 });
                 await markEffect("recovery_recreate_git_worktree_created", {
@@ -227,15 +222,25 @@ async function recreateRecoveryWorktree(context: RecoveryActionContext): Promise
                     baseCommit: nextWorktree.baseCommit,
                 });
                 registerRollback("remove recreated recovery worktree", async () => {
-                    await removeWorktreeGitArtifacts({
-                        projectRoot,
-                        path: nextWorktree.path,
-                        force: true,
-                    });
-                    if (nextWorktree.branch) {
-                        await deleteMergedWorktreeBranch({ projectRoot, branch: nextWorktree.branch });
+                    for await (const cleanup of discardWorktreeGitArtifacts({ projectRoot, ...nextWorktree })) {
+                        if (cleanup.status === "blocked") throw new Error(cleanup.message);
                     }
                 });
+                let retained = false;
+                for await (const cleanup of discardWorktreeGitArtifacts({ projectRoot, ...worktreeContext })) {
+                    if (cleanup.status === "blocked") throw new Error(cleanup.message);
+                    await markEffect(`recovery_discard_${cleanup.status}`, { ...worktreeContext, ...cleanup });
+                    retained = cleanup.status === "retained";
+                    cleanupMessage = cleanup.message;
+                }
+                await settleDiscardedRecoveryAttempt(
+                    projectRoot,
+                    plan.planName,
+                    plan.attrs.planId,
+                    worktreeContext,
+                    retained,
+                );
+                await markEffect("recovery_discard_registry_settled", { worktreeId: worktreeContext?.id, retained });
                 await settleWorktreeAttempt(projectRoot, nextWorktree);
                 registerRollback("abandon recreated recovery registry entry", async () => {
                     await updateWorktreeRegistryEntry(projectRoot, nextWorktree.id, {
@@ -289,6 +294,11 @@ async function recreateRecoveryWorktree(context: RecoveryActionContext): Promise
             plan.attrs = refreshedPlan.attrs;
             plan.revision = refreshedPlan.revision;
         }
+        uiAPI.appendSystemMessage(
+            buildPlanRecoveryUserMessage({ kind: "worktree_cleanup_result", detail: cleanupMessage }),
+            false,
+            "RunWield",
+        );
         return {
             id: recreated.id,
             path: recreated.path,
@@ -306,7 +316,11 @@ async function recreateRecoveryWorktree(context: RecoveryActionContext): Promise
             ? error.message
             : String(error);
         console.error("[RunWield] Worktree recreation failed", message);
-        uiAPI.appendSystemMessage(planRecoveryMessage("worktree_recreate_failed"), true, "RunWield");
+        uiAPI.appendSystemMessage(
+            buildPlanRecoveryUserMessage({ kind: "worktree_cleanup_result", failed: true, detail: message }),
+            true,
+            "RunWield",
+        );
         return null;
     }
 }
