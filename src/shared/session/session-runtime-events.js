@@ -213,7 +213,7 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeEventBase & { type: "attention_requested", reason: "agentStopped" | "planWritten" | "userInterview", agentName?: string, sessionName?: string }} RuntimeAttentionRequestedEvent
+ * @typedef {RuntimeEventBase & { type: "attention_requested", reason: "agentStopped" | "planWritten" | "userInterview", agentName?: string, sessionName?: string, runwieldSessionId?: string, generation?: number }} RuntimeAttentionRequestedEvent
  */
 
 /**
@@ -630,6 +630,15 @@ export function assertSessionRuntimeEvent(event) {
                 event.type,
                 "reason is invalid",
             );
+            if (value.reason === "agentStopped") {
+                requireString("eventId");
+                requireString("runwieldSessionId");
+                requireRuntimeEvent(
+                    Number.isInteger(value.generation) && value.generation >= 0,
+                    event.type,
+                    "generation must be a non-negative integer",
+                );
+            }
             break;
         case RuntimeEventTypes.KEYBOARD_HELP:
             requireString("title");

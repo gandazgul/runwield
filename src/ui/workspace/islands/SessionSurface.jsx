@@ -16,6 +16,7 @@ import {
     SESSION_SIDEBAR_TABS,
     sessionArtifactKindLabel,
 } from "../../../shared/session/session-sidebar.ts";
+import { SessionTabNotificationController } from "../browser/session-tab-notifications.ts";
 
 export const SESSION_PAGE_SIZE = 30;
 const TIMELINE_PAGE_LIMIT = 200;
@@ -632,6 +633,13 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         queuedSessionRef.current = runwieldSessionId;
         setQueuedMessages([]);
     }, [runwieldSessionId]);
+
+    useEffect(() => {
+        if (mode !== "detail" || !projectId || !runwieldSessionId) return;
+        const controller = new SessionTabNotificationController({ projectId, runwieldSessionId });
+        controller.start();
+        return () => controller.close();
+    }, [mode, projectId, runwieldSessionId]);
 
     useEffect(() => {
         didPinInitialTimelineRef.current = false;
