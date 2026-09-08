@@ -24,7 +24,7 @@ import { requestHostedSessionInteraction } from "../session/session-runtime-inte
 import { getAgentDisplayName as getSessionAgentDisplayName } from "../session/agents.js";
 import { ClaudeCliBackendError } from "../session/backends/claude-cli/failure.ts";
 import { REVIEWER_SUBAGENT_TOOLS } from "../session/subagent-definitions.ts";
-import { SUBAGENTS } from "../../constants.js";
+import { AGENTS, SUBAGENTS } from "../../constants.js";
 import {
     emitRunWieldSystemStatus,
     getCurrentValidationProgress,
@@ -42,6 +42,7 @@ import { recordValidationRepairCompletion } from "./validation-supervisor.ts";
 import { createReviewDiffTool } from "./review-diff-tool.js";
 import { createQaChecklistGeneratedTool } from "../../tools/qa-checklist-generated.ts";
 import { settleWorkflowToolEvent } from "./workflow-tool-events.ts";
+import { switchActiveAgent } from "../session/agent-switching.js";
 import type {
     AgentTurnOutcome,
     IsolatedAgentSessionOutcome,
@@ -520,6 +521,13 @@ export function createValidationSessionPort(
             }
         },
         getAgentDisplayName: (agentName, projectRoot) => getSessionAgentDisplayName(agentName, projectRoot),
+        handoffVerifiedPublication: async (projectRoot) => {
+            await switchActiveAgent(hostedSession, {
+                agentName: AGENTS.ENGINEER,
+                cwd: projectRoot,
+                forceRebuild: true,
+            });
+        },
         runPostVerificationHandoffs: async ({ planName, planContent, projectRoot, mnemotecaPort }) => {
             await runFeaturePostVerificationHandoffs({
                 hostedSession,

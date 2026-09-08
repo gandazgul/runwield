@@ -922,6 +922,12 @@ export class HostedSession {
         return this.activeExecutionWorkflow;
     }
 
+    /** @param {string} cwd */
+    rebindProjectRoot(cwd) {
+        this.assertActive();
+        this.cwd = requireAbsoluteProjectRoot(cwd, "cwd");
+    }
+
     getActiveExecutionCwd() {
         return this.activeExecutionWorkflow?.executionCwd || this.cwd;
     }

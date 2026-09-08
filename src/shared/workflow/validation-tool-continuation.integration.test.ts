@@ -2,7 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
-import { loadPlan } from "../../plan-store.js";
+import { loadPlan, savePlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { createValidationSessionPort } from "./validation-session-adapter.ts";
 import { attachRecorder, makeUi, makeValidationProjectRoot, runValidationLoop } from "./validation-test-helpers.js";
@@ -12,6 +12,8 @@ import { createGitPort } from "../git-port.ts";
 import { createWorkRecordMnemotecaFixture } from "../work-records/test-fixtures/mnemoteca-port.ts";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { runValidationAgentUntilEvent } from "../session/agent-workflow-step.ts";
+import { createTestWorktreeAttempt, git as runGit, makeRepo } from "../worktree-test-helpers.js";
+import { switchActiveAgent } from "../session/agent-switching.js";
 
 for (const outcome of ["canceled", "blocked"] as const) {
     Deno.test(`canceling human review (${outcome}) cannot publish through the outer driver`, async () => {
@@ -51,6 +53,141 @@ for (const outcome of ["canceled", "blocked"] as const) {
         hostedSession.dispose();
     });
 }
+
+Deno.test("verified publication moves the root Session to Engineer in the primary checkout", async () => {
+    await withRuntimeCommandFixture("published-handoff-", async () => {
+        const projectRoot = await makeRepo();
+        const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-validation-worktree-" });
+        const planName = "published-follow-up";
+        try {
+            await savePlan(projectRoot, planName, `# ${planName}\n\nvalidation fixture\n`, {
+                classification: "PLANNED_CHANGE",
+                status: "validated_reviewer",
+                summary: "validation fixture",
+                affectedPaths: ["published-marker.txt"],
+                planId: "published-follow-up-plan",
+                executionAgent: "engineer",
+                executionMode: "worktree",
+                humanReviewMode: "none",
+            });
+            await runGit(projectRoot, ["add", "."]);
+            await runGit(projectRoot, ["commit", "-m", "add plan"]);
+            const baseTree = await runGit(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+            const worktree = await createTestWorktreeAttempt({
+                projectRoot,
+                planName,
+                planId: "published-follow-up-plan",
+                worktreeRoot,
+                attemptId: "attempt-1",
+            });
+            const worktreePlan = await loadPlan(worktree.path, planName);
+            if (!worktreePlan) throw new Error("worktree Plan fixture disappeared");
+            await savePlan(worktree.path, planName, `# ${planName}\n\nvalidation fixture\n`, {
+                classification: "PLANNED_CHANGE",
+                status: "validated_reviewer",
+                summary: "validation fixture",
+                affectedPaths: ["published-marker.txt"],
+                planId: "published-follow-up-plan",
+                executionAgent: "engineer",
+                executionMode: "worktree",
+                humanReviewMode: "none",
+                executionBaselineTree: baseTree,
+                worktreeId: worktree.id,
+                worktreePath: worktree.path,
+                worktreeBranch: worktree.branch,
+                worktreeBaseBranch: "main",
+            }, { expectedRevision: worktreePlan.revision });
+            await Deno.writeTextFile(join(worktree.path, "published-marker.txt"), "from worktree\n");
+            const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: worktree.path });
+            await switchActiveAgent(hostedSession, { agentName: "planner", cwd: worktree.path });
+            hostedSession.setActiveExecutionWorkflow({
+                planName,
+                triageMeta: { classification: "PLANNED_CHANGE", status: "validated_reviewer" },
+                executionAgent: "engineer",
+                projectRoot,
+                executionCwd: worktree.path,
+                executionMode: "worktree",
+                baselineTree: baseTree,
+                worktreeId: worktree.id,
+                worktreeBranch: worktree.branch,
+                worktreeBaseBranch: "main",
+            });
+
+            const result = await runWorkflowValidationToStableBoundary({
+                hostedSession,
+                planName,
+                planContent: `# ${planName}`,
+                triageMeta: { classification: "PLANNED_CHANGE", status: "validated_reviewer" },
+                git: createGitPort(),
+                localCI: {
+                    run: () => {
+                        throw new Error("Publication regression should not run CI");
+                    },
+                },
+                workRecordMnemotecaPort: createWorkRecordMnemotecaFixture(),
+            });
+
+            assertEquals(result.kind, "verified");
+            assertEquals(await Deno.stat(worktree.path).then(() => true).catch(() => false), false);
+            assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
+            assertEquals(hostedSession.getRootAgentName(), "engineer");
+            const canonicalProjectRoot = await Deno.realPath(projectRoot);
+            assertEquals(hostedSession.cwd, canonicalProjectRoot);
+            const shell = await new Deno.Command("sh", {
+                cwd: hostedSession.cwd,
+                args: ["-c", "pwd && git branch --show-current && cat published-marker.txt"],
+                stdout: "piped",
+                stderr: "piped",
+            }).output();
+            assertEquals(shell.success, true, new TextDecoder().decode(shell.stderr));
+            assertStringIncludes(new TextDecoder().decode(shell.stdout), canonicalProjectRoot);
+            assertStringIncludes(new TextDecoder().decode(shell.stdout), "main");
+            assertStringIncludes(new TextDecoder().decode(shell.stdout), "from worktree");
+            hostedSession.dispose();
+        } finally {
+            await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+            await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+        }
+    });
+});
+
+Deno.test("paused validation keeps the execution workflow cwd", async () => {
+    const projectRoot = await makeValidationProjectRoot("paused-context", {
+        classification: "PLANNED_CHANGE",
+        status: "validated_reviewer",
+        humanReviewMode: "ask",
+        humanReviewDecision: null,
+    });
+    const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot });
+    hostedSession.setInteractionAdapter({
+        requestInteraction: () => Promise.resolve({ outcome: "canceled" }),
+    });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "paused-context",
+        triageMeta: { classification: "PLANNED_CHANGE", status: "validated_reviewer" },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        executionMode: "non_git_in_place",
+        nonGitInPlace: true,
+    });
+    const result = await runWorkflowValidationToStableBoundary({
+        hostedSession,
+        planName: "paused-context",
+        planContent: "# paused-context",
+        triageMeta: { classification: "PLANNED_CHANGE", status: "validated_reviewer" },
+        git: createGitPort(),
+        localCI: {
+            run: () => {
+                throw new Error("Paused validation regression should not run CI");
+            },
+        },
+        workRecordMnemotecaPort: createWorkRecordMnemotecaFixture(),
+    });
+    assertEquals(result.kind, "paused");
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionCwd, projectRoot);
+    hostedSession.dispose();
+});
 
 for (const repaired of [true, false]) {
     Deno.test(`third repair is checked before ${repaired ? "continuing" : "stopping without a fourth repair"}`, async () => {

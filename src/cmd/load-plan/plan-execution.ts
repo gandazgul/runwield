@@ -29,6 +29,9 @@ import type { PlanFrontMatter } from "../../plan-store.js";
 import type { UiAPI } from "../../ui/tui/types.js";
 import type { PlanSessionSurface, RecoveryWorktreeContext, ReviewImage } from "./plan-session-types.ts";
 import type { WorkflowDecision } from "../../shared/workflow/decisions.js";
+import type { WorkflowValidationResult } from "../../shared/workflow/validation-types.ts";
+
+export type ValidationStartResult = false | WorkflowValidationResult | true;
 
 /** The execution workflow the session is told about when execution starts. */
 export interface ExecutionWorkflowState {
@@ -170,7 +173,7 @@ export async function confirmAffectedPathChangesBeforeExecution({
  * @param {RecoveryWorktreeContext | null} worktreeContext
  * @param {PlanSessionSurface} session
  * @param {import('../../ui/tui/types.js').UiAPI} [uiAPI]
- * @returns {Promise<boolean>}
+ * @returns {Promise<ValidationStartResult>}
  */
 export async function validateCompletedExecution(
     executionResult: unknown,
@@ -181,7 +184,7 @@ export async function validateCompletedExecution(
     worktreeContext: RecoveryWorktreeContext | null,
     session: PlanSessionSurface,
     uiAPI?: UiAPI,
-): Promise<boolean> {
+): Promise<ValidationStartResult> {
     const projectRoot = session.cwd;
     if (!(executionResult && typeof executionResult === "object" && "executionComplete" in executionResult)) {
         return false;
@@ -325,13 +328,13 @@ export async function validateCompletedExecution(
     // are behind us and the Workflow Validation run begins.
     await session.activateForPlan(planName);
     await session.setActiveExecutionWorkflow(workflow);
-    await continueWorkflowValidation({
+    const validationResult = await continueWorkflowValidation({
         planName,
         planContent,
         triageMeta: effectiveMeta,
         executionContext: workflow,
     });
-    return true;
+    return validationResult || true;
 }
 
 /**
@@ -342,7 +345,7 @@ export async function validateCompletedExecution(
  * @param {PlanSessionSurface["runValidation"]} opts.continueWorkflowValidation
  * @param {PlanSessionSurface} opts.session
  * @param {import('../../ui/tui/types.js').UiAPI} [opts.uiAPI]
- * @returns {Promise<void>}
+ * @returns {Promise<ValidationStartResult>}
  */
 export async function validatePostExecutionDecision({
     executionDecision,
@@ -351,13 +354,13 @@ export async function validatePostExecutionDecision({
     continueWorkflowValidation,
     session,
     uiAPI,
-}: ValidatePostExecutionDecisionOptions): Promise<void> {
-    if (executionDecision.kind !== "run_validation") return;
+}: ValidatePostExecutionDecisionOptions): Promise<ValidationStartResult> {
+    if (executionDecision.kind !== "run_validation") return false;
 
     const planName = executionDecision.payload.planName as string;
     const triageMeta = executionDecision.payload.triageMeta as PlanFrontMatter;
 
-    await validateCompletedExecution(
+    return await validateCompletedExecution(
         executionResult,
         planName,
         fallbackPlanContent,
@@ -381,7 +384,7 @@ export async function validatePostExecutionDecision({
  * @param {PlanSessionSurface["runValidation"]} opts.continueWorkflowValidation
  * @param {PlanSessionSurface["runSlicerAgent"]} opts.runSlicerAgent
  * @param {PlanSessionSurface} opts.session
- * @returns {Promise<boolean>}
+ * @returns {Promise<boolean | "verified">}
  */
 export async function executePostPlanningDecision({
     decision,
@@ -391,7 +394,7 @@ export async function executePostPlanningDecision({
     continueWorkflowValidation,
     runSlicerAgent,
     session,
-}: ExecutePostPlanningDecisionOptions): Promise<boolean> {
+}: ExecutePostPlanningDecisionOptions): Promise<boolean | "verified"> {
     const projectRoot = session.cwd;
     if (decision.kind === "start_slicer") {
         await runSlicerAgent({
@@ -430,7 +433,7 @@ export async function executePostPlanningDecision({
         triageMeta,
         executionAgentName: policy.ok ? policy.policy.executionAgent : AGENTS.ENGINEER,
     });
-    await validatePostExecutionDecision({
+    const validationResult = await validatePostExecutionDecision({
         executionDecision,
         executionResult: execRes,
         fallbackPlanContent,
@@ -438,7 +441,9 @@ export async function executePostPlanningDecision({
         session,
         uiAPI,
     });
-    return true;
+    return validationResult && typeof validationResult === "object" && validationResult.kind === "verified"
+        ? "verified"
+        : true;
 }
 
 /**
@@ -518,7 +523,7 @@ export async function prepareApprovedPlanForWork(
  * @param {PlanSessionSurface["runValidation"]} opts.continueWorkflowValidation
  * @param {PlanSessionSurface} opts.session
  * @param {boolean} [opts.affectedPathsAlreadyConfirmed]
- * @returns {Promise<void>}
+ * @returns {Promise<ValidationStartResult>}
  */
 export async function executeReadyPlanWithRepair({
     projectRoot,
@@ -529,14 +534,14 @@ export async function executeReadyPlanWithRepair({
     session,
     uiAPI,
     affectedPathsAlreadyConfirmed = false,
-}: ExecuteReadyPlanOptions): Promise<void> {
+}: ExecuteReadyPlanOptions): Promise<ValidationStartResult> {
     const confirmed = affectedPathsAlreadyConfirmed || await confirmAffectedPathChangesBeforeExecution({
         projectRoot,
         planName: plan.planName,
         triageMeta: plan.attrs,
         uiAPI,
     });
-    if (!confirmed) return;
+    if (!confirmed) return false;
 
     // The final execution confirmation is behind us. Claim the managed Session
     // name immediately before Agent execution starts.
@@ -552,7 +557,7 @@ export async function executeReadyPlanWithRepair({
         triageMeta: /** @type {import('../../tools/plan-written.ts').TriageMeta} */ (plan.attrs),
         executionAgentName: executionOwner,
     });
-    await validatePostExecutionDecision({
+    return await validatePostExecutionDecision({
         executionDecision,
         executionResult: execRes,
         fallbackPlanContent: plan.markdown || plan.body || "",

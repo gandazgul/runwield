@@ -105,12 +105,13 @@ export async function switchActiveAgent(hostedSession, options) {
         return persisted.provider ? `${persisted.provider}/${persisted.model}` : persisted.model;
     })();
     const modelOverride = options.model ?? inheritedManualModel;
+    const cwdProvided = Object.hasOwn(options, "cwd") && typeof options.cwd === "string" && options.cwd.length > 0;
+    const requestedCwd = cwdProvided ? String(options.cwd) : "";
     const configuredModel = modelOverride === undefined
-        ? getConfiguredAgentModel(agentName, hostedSession.cwd)
+        ? getConfiguredAgentModel(agentName, requestedCwd || hostedSession.cwd)
         : undefined;
     const requestedModel = modelOverride ?? configuredModel;
     const modelChanged = requestedModel !== undefined && requestedModel !== effectiveModel;
-    const cwdProvided = Object.hasOwn(options, "cwd") && typeof options.cwd === "string" && options.cwd.length > 0;
     const effectiveCwd = rootSwitchState?.cwd ?? previousSwitch?.cwd ?? hostedSession.cwd;
     const cwdChanged = cwdProvided && options.cwd !== effectiveCwd;
     const customRootConfigurationProvided = Boolean(
@@ -122,7 +123,7 @@ export async function switchActiveAgent(hostedSession, options) {
     const rootOptions = {
         agentName,
         modelOverride,
-        cwd: cwdProvided ? options.cwd : effectiveCwd,
+        cwd: requestedCwd || effectiveCwd,
         sessionManager: options.sessionManager,
         triageMeta: options.triageMeta,
         subAgentDefinition: options.subAgentDefinition,
@@ -141,7 +142,7 @@ export async function switchActiveAgent(hostedSession, options) {
     const nextMetadata = {
         agentName,
         model: requestedModel ?? effectiveModel,
-        cwd: cwdProvided ? options.cwd : effectiveCwd,
+        cwd: requestedCwd || effectiveCwd,
     };
     const previousHandlerMetadata = typeof previousHandler === "function" ? handlerMetadata.get(previousHandler) : null;
     const canReuseHandler = Boolean(
@@ -193,6 +194,7 @@ export async function switchActiveAgent(hostedSession, options) {
     }
     hostedSession.completeAgentTransition(transitionId);
     hostedSession.assertActive();
+    if (requestedCwd) hostedSession.rebindProjectRoot(requestedCwd);
     // Clear only after a successful switch; a failed build must preserve the
     // previous Agent and its manual model selection.
     if (changesAgent) {

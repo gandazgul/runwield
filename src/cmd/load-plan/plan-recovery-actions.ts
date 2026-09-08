@@ -40,7 +40,7 @@ import type { RecoveryFlowPlan, UnresolvedTransitionRecord } from "./plan-recove
 
 export type RecoveryActionOutcome =
     | { kind: "menu" }
-    | { kind: "handled" }
+    | { kind: "handled"; verified?: boolean }
     | { kind: "review" }
     | { kind: "settled" };
 export type RecoveryMetricDetailValue = string | number | boolean | null | undefined;
@@ -321,7 +321,12 @@ export async function validateRecoveryPlan(context: RecoveryActionContext): Prom
         return { kind: "menu" };
     }
     await context.recordRecoveryResult("validate", "handled");
-    return { kind: "handled" };
+    return {
+        kind: "handled",
+        ...(validationStarted && typeof validationStarted === "object" && validationStarted.kind === "verified"
+            ? { verified: true }
+            : {}),
+    };
 }
 
 export async function openFollowUpRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
