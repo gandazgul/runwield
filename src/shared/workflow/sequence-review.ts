@@ -282,7 +282,6 @@ export async function applySequenceReviewDecision(
     }
     let outcome: PlanWrittenEventPayload | undefined;
     let result: SequenceReviewResult = { approved: false };
-    let handoffPublished = false;
     const transition = await runSequenceReviewTransition({
         projectRoot: cwd,
         planName: parent.planName,
@@ -375,9 +374,6 @@ export async function applySequenceReviewDecision(
             });
             for (const write of writes) {
                 registerRollback(`Restore ${write.doc.planName}`, async () => {
-                    if (handoffPublished) {
-                        throw new Error("The accepted workflow handoff must be recovered before restoring Plans.");
-                    }
                     const now = await loadPlan(cwd, write.doc.planName);
                     if (now?.revision === write.doc.revision) return;
                     if (now?.revision !== write.revision) {
@@ -407,9 +403,6 @@ export async function applySequenceReviewDecision(
                 feedback,
                 ...(images.length ? { images } : {}),
             };
-            // Publish inside the journaled transition: a process exit before dispatch leaves a replayable handoff.
-            publishWorkflowToolEvent({ hostedSession, toolCallId, kind: "plan_written", payload: outcome });
-            handoffPublished = true;
             await markEffect("sequence_review_accepted", { planIds: documents.map((doc) => doc.planId), toolCallId });
             result = {
                 approved: decision.approved === true,
@@ -431,6 +424,21 @@ export async function applySequenceReviewDecision(
             ...(transition.status === "needs_recovery"
                 ? { recoveryRequired: { message: feedback, entryIds: [transition.transitionId] } }
                 : {}),
+        };
+    }
+    // Publication wakes live consumers immediately. Only a committed decision may start a child;
+    // acceptance or commit failures above must remain fully compensatable without a Session event.
+    try {
+        publishWorkflowToolEvent({ hostedSession, toolCallId, kind: "plan_written", payload: outcome! });
+    } catch (error) {
+        // The documents are already committed. Preserve them so reopening the saved review can retry.
+        return {
+            ...result,
+            cancellationReason: "sequence_handoff_failed",
+            feedback:
+                `The Sequence decision was saved, but its workflow handoff could not be published. Reopen the saved Sequence to retry. ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
         };
     }
     return result;

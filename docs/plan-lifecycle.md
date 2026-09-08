@@ -27,7 +27,9 @@ or publication step.
 Grouped approval locks every member and journals all before/after documents before writing. A stale member invalidates
 the decision. Failed writes restore only revisions owned by that decision; interrupted or conflicting writes remain
 blocked with complete recovery evidence. Recovery can close a journal once every document matches its full before or
-after set. Child continuation follows the existing PROJECT order, dependency, hold and recovery rules.
+after set. The live first-child handoff is published only after the acceptance transition commits. If the process exits
+before publication, or publication fails, the group stays saved and can be reopened for execution. Child continuation
+follows the existing PROJECT order, dependency, hold and recovery rules.
 
 ## Statuses
 

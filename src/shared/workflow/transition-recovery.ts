@@ -118,7 +118,7 @@ export function buildEffectProver(
             return {
                 settled: true,
                 reason:
-                    "the complete decision and durable workflow handoff were accepted; document proof is checked separately",
+                    "the complete decision was accepted; document proof is checked separately, and dispatch requires transition commit",
             };
         }
         if (REGISTRY_STATUS_EFFECTS.has(effect.effect)) {

@@ -688,7 +688,9 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                     return textResult(accepted.feedback || "Refresh the Sequence review.", {
                         outcome: "repair_required",
                         planName,
-                        reason: "sequence_review_changed",
+                        reason: accepted.cancellationReason === "sequence_handoff_failed"
+                            ? accepted.cancellationReason
+                            : "sequence_review_changed",
                     });
                 }
                 const outcome = accepted.workflowOutcome!;

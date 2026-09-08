@@ -1,10 +1,13 @@
+import { dirname } from "@std/path";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
+import { getTransitionJournalPath } from "./state-transition.ts";
 import { assertEquals, assertExists, assertRejects, assertStringIncludes } from "@std/assert";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { HostedSession } from "../session/hosted-session.js";
 import { defineCommittedGitFixture } from "../git-test-fixture.ts";
 import { loadPlan, resolveSiblingChildPlanDependencies, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { applySequenceReviewDecision, prepareSequenceReview } from "./sequence-review.ts";
-import { listPendingWorkflowToolEvents } from "./workflow-tool-events.ts";
+import { listPendingWorkflowToolEvents, waitForWorkflowToolEvent } from "./workflow-tool-events.ts";
 import { normalizePlanApprovalAction, primaryPlanApprovalActionForClassification } from "./plan-approval.js";
 import { isEpicPlan, isProjectPlan, isSequencePlan, projectPlanType } from "../project-plan.ts";
 import { createPlanWrittenTool } from "../../tools/plan-written.ts";
@@ -353,6 +356,193 @@ Deno.test("Sequence continuation uses sibling IDs and stops at a held child", as
             "child_on_hold",
         );
     } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+interface SequenceJournalState {
+    state: string;
+    completedEffects: Array<{ effect: string }>;
+}
+
+for (const failurePoint of ["acceptance", "commit"] as const) {
+    Deno.test(`Sequence ${failurePoint} persistence failure cannot dispatch a child and permits retry`, async () => {
+        await withProcessGlobalTestLock(async () => {
+            const { cwd, hostedSession } = await setup();
+            const originalRename = Deno.rename;
+            const abort = new AbortController();
+            const waiting = waitForWorkflowToolEvent(hostedSession, {
+                kinds: ["plan_written"],
+                owningSession: null,
+                signal: abort.signal,
+            }).catch((error) => {
+                if (!abort.signal.aborted) throw error;
+                return null;
+            });
+            try {
+                const documents = await prepareSequenceReview(cwd, "sequence");
+                const journalDir = dirname(getTransitionJournalPath(cwd, "unused"));
+                let failed = false;
+                // Fail the filesystem replacement, keeping real Plan writes, locks and journals.
+                Deno.rename = async (from, to) => {
+                    if (!failed && dirname(String(to)) === journalDir) {
+                        const record: SequenceJournalState = JSON.parse(await Deno.readTextFile(from));
+                        const atFailure = failurePoint === "commit"
+                            ? record.state === "committed"
+                            : record.state === "applying" &&
+                                record.completedEffects.some((effect) => effect.effect === "sequence_review_accepted");
+                        if (atFailure) {
+                            failed = true;
+                            throw new Deno.errors.PermissionDenied(`injected ${failurePoint} persistence failure`);
+                        }
+                    }
+                    return await originalRename(from, to);
+                };
+                const result = await applySequenceReviewDecision({
+                    cwd,
+                    documents,
+                    hostedSession,
+                    toolCallId: "retry-approval",
+                    decision: {
+                        approved: true,
+                        approvalAction: "run",
+                        documents: documents.map((doc) => ({ planId: doc.planId, plan: doc.plan })),
+                    },
+                });
+                assertEquals(failed, true);
+                assertEquals(result.approved, false);
+                assertStringIncludes(result.feedback || "", `injected ${failurePoint}`);
+                abort.abort();
+                assertEquals(await waiting, null, "a failed decision must not wake the execution consumer");
+                assertEquals(listPendingWorkflowToolEvents(hostedSession), []);
+                const reopened = new HostedSession({
+                    id: "reopened",
+                    cwd,
+                    sessionManager: hostedSession.getRootSessionManager(),
+                });
+                assertEquals(
+                    listPendingWorkflowToolEvents(reopened),
+                    [],
+                    "no failed approval may replay from the Session",
+                );
+                for (const doc of documents) {
+                    assertEquals((await loadPlan(cwd, doc.planName))?.revision, doc.revision);
+                }
+                Deno.rename = originalRename;
+                const retry = await applySequenceReviewDecision({
+                    cwd,
+                    documents: await prepareSequenceReview(cwd, "sequence"),
+                    hostedSession,
+                    toolCallId: "retry-approval",
+                    decision: {
+                        approved: true,
+                        approvalAction: "run",
+                        documents: documents.map((doc) => ({ planId: doc.planId, plan: doc.plan })),
+                    },
+                });
+                assertEquals(retry.approved, true, retry.feedback);
+                assertEquals(listPendingWorkflowToolEvents(hostedSession).length, 1);
+                assertEquals(retry.workflowOutcome?.planName, "sequence/index");
+            } finally {
+                Deno.rename = originalRename;
+                abort.abort();
+                await waiting;
+                await Deno.remove(cwd, { recursive: true });
+            }
+        });
+    });
+}
+
+Deno.test("Sequence live consumer sees committed approval before receiving the child handoff", async () => {
+    const { cwd, hostedSession } = await setup();
+    const abort = new AbortController();
+    const waiting = waitForWorkflowToolEvent(hostedSession, {
+        kinds: ["plan_written"],
+        owningSession: null,
+        signal: abort.signal,
+    }).then((event) => {
+        const dir = dirname(getTransitionJournalPath(cwd, "unused"));
+        const journals = [...Deno.readDirSync(dir)].filter((entry) => entry.name.endsWith(".json"));
+        const states = journals.map((entry) => {
+            const record: SequenceJournalState = JSON.parse(Deno.readTextFileSync(`${dir}/${entry.name}`));
+            return record.state;
+        });
+        return { event, states };
+    }).catch((error) => {
+        if (!abort.signal.aborted) throw error;
+        return null;
+    });
+    try {
+        const documents = await prepareSequenceReview(cwd, "sequence");
+        await applySequenceReviewDecision({
+            cwd,
+            documents,
+            hostedSession,
+            toolCallId: "committed-approval",
+            decision: {
+                approved: true,
+                approvalAction: "run",
+                documents: documents.map((doc) => ({ planId: doc.planId, plan: doc.plan })),
+            },
+        });
+        abort.abort();
+        const dispatched = await waiting;
+        assertExists(dispatched);
+        assertEquals(
+            dispatched.states.every((state) => state === "committed"),
+            true,
+            "handoff preceded durable commit",
+        );
+        assertEquals("planName" in dispatched.event.payload && dispatched.event.payload.planName, "sequence/index");
+    } finally {
+        abort.abort();
+        await waiting;
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Sequence preserves committed approval when Session publication fails and can retry", async () => {
+    const { cwd, hostedSession } = await setup();
+    const manager = hostedSession.getRootSessionManager()!;
+    assertExists(manager.appendCustomEntry);
+    const append = manager.appendCustomEntry.bind(manager);
+    try {
+        const documents = await prepareSequenceReview(cwd, "sequence");
+        manager.appendCustomEntry = () => {
+            throw new Error("Session storage unavailable");
+        };
+        const decision = {
+            approved: true,
+            approvalAction: "run" as const,
+            documents: documents.map((doc) => ({ planId: doc.planId, plan: doc.plan })),
+        };
+        const result = await applySequenceReviewDecision({
+            cwd,
+            documents,
+            decision,
+            hostedSession,
+            toolCallId: "publish-retry",
+        });
+        assertEquals(result.cancellationReason, "sequence_handoff_failed");
+        assertStringIncludes(result.feedback || "", "decision was saved");
+        assertEquals(listPendingWorkflowToolEvents(hostedSession), []);
+        for (const doc of documents) {
+            assertEquals((await loadPlan(cwd, doc.planName))?.attrs.status, "ready_for_work");
+        }
+        manager.appendCustomEntry = append;
+        const fresh = await prepareSequenceReview(cwd, "sequence");
+        const retry = await applySequenceReviewDecision({
+            cwd,
+            documents: fresh,
+            hostedSession,
+            toolCallId: "publish-retry",
+            decision: { ...decision, documents: fresh.map((doc) => ({ planId: doc.planId, plan: doc.plan })) },
+        });
+        assertEquals(retry.approved, true, retry.feedback);
+        assertEquals(retry.cancellationReason, undefined);
+        assertEquals(listPendingWorkflowToolEvents(hostedSession).length, 1);
+    } finally {
+        manager.appendCustomEntry = append;
         await Deno.remove(cwd, { recursive: true });
     }
 });

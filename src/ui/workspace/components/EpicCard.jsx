@@ -1,7 +1,45 @@
 import { detailHref } from "./PlanCard.jsx";
 import { RunWieldCard } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
-/** @param {any} plan */
+/**
+ * @typedef {Object} ProjectCardChild
+ * @property {string} planId
+ *
+ * @typedef {Object} ProjectCardHealth
+ * @property {ProjectCardChild[]} [held]
+ * @property {ProjectCardChild[]} [failed]
+ * @property {ProjectCardChild[]} [blocked]
+ * @property {ProjectCardChild[]} [missingDependencies]
+ *
+ * @typedef {Object} ProjectCardDragActions
+ * @property {string[]} [allowedTargetStatuses]
+ *
+ * @typedef {Object} ProjectCardActions
+ * @property {ProjectCardDragActions} [dnd]
+ * @property {string[]} [allowedManualTargetStatuses]
+ *
+ * @typedef {Object} ProjectCardData
+ * @property {string} planId
+ * @property {string} planName
+ * @property {string} status
+ * @property {Pick<import("../../../../plan-store.js").PlanFrontMatter, "type">} [attrs]
+ * @property {string} [summary]
+ * @property {string} [heldFromStatus]
+ * @property {string} [heldAt]
+ * @property {string} [holdReason]
+ * @property {ReturnType<typeof import("../../../../plan-store.js").countChildPlanProgress>} [childProgress]
+ * @property {ProjectCardHealth} [childHealth]
+ * @property {ProjectCardActions} [actions]
+ * @property {number} [childCount]
+ * @property {boolean} [doneEnough]
+ *
+ * @typedef {Object} ProjectCardProps
+ * @property {ProjectCardData} epic
+ * @property {URL | string} url
+ * @property {boolean} [draggableCard]
+ */
+
+/** @param {ProjectCardData} plan */
 function holdMetadata(plan) {
     const metadata = [];
     if (plan.heldFromStatus) metadata.push(`held from ${plan.heldFromStatus}`);
@@ -10,7 +48,7 @@ function holdMetadata(plan) {
     return metadata.length ? metadata.join("; ") : "No hold metadata provided.";
 }
 
-/** @param {{ epic: any, url: URL | string, draggableCard?: boolean }} props */
+/** @param {ProjectCardProps} props */
 export function EpicCard({ epic, url, draggableCard = false }) {
     const label = epic.attrs?.type === "sequence" ? "Sequence" : "Epic";
     const progress = epic.childProgress ||
