@@ -6,7 +6,7 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { assertModelExecutionBackendSupported } from "../models/model-execution.ts";
 import { getModelRegistry } from "../models/model-registry.ts";
 import { getSettingsManager } from "../settings.js";
-import { installAgyCliMcpSetup } from "./backends/agy-cli/mcp-setup.ts";
+import { installAgyCliMcpSetup, resolveInstalledWldExecutable } from "./backends/agy-cli/mcp-setup.ts";
 import { SessionHost } from "./session-host.js";
 import { createSessionRuntime, SessionRuntime } from "./session-runtime.js";
 
@@ -16,7 +16,8 @@ const AGY_FLASH = "agy-cli/gemini-3.8-flash";
 async function installAgyModelSelectionFixture(homeDir: string): Promise<string> {
     const binDir = join(homeDir, "agy-bin");
     await Deno.mkdir(binDir, { recursive: true });
-    await Deno.writeTextFile(join(binDir, "wld"), "#!/bin/sh\necho wld fixture\n");
+    // MCP setup inspects this binary header; the model-selection fixture never executes wld.
+    await Deno.writeFile(join(binDir, "wld"), new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 0x00]));
     await Deno.chmod(join(binDir, "wld"), 0o755);
     const agySource = String.raw`
 function readArg(args: string[], flag: string): string {
@@ -124,6 +125,7 @@ Deno.test("declined Agy MCP setup keeps the approved selected model without laun
             );
             await Deno.chmod(join(binDir, "agy"), 0o755);
             Deno.env.set("PATH", `${binDir}:${previousPath}`);
+            assertEquals(await resolveInstalledWldExecutable(), await Deno.realPath(join(binDir, "wld")));
 
             const sessionHost = new SessionHost();
             const hostedSession = sessionHost.createSession({ cwd: projectRoot });
@@ -171,6 +173,7 @@ Deno.test("explicit approved Agy CLI selection persists and updates the active r
         try {
             const binDir = await installAgyModelSelectionFixture(homeDir);
             Deno.env.set("PATH", `${binDir}:${previousPath}`);
+            assertEquals(await resolveInstalledWldExecutable(), await Deno.realPath(join(binDir, "wld")));
             await installAgyCliMcpSetup();
             const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
             await runModelsCommand([FIXTURE_MODEL], {
