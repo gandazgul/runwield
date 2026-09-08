@@ -3,6 +3,7 @@ import {
     advancePublicationAttempt,
     assertPublicationAttempt,
     createPublicationAttempt,
+    isPublicationAttemptCleanupComplete,
     publicationPhaseAtLeast,
     recordPublicationFailure,
 } from "./publication-attempt.ts";
@@ -74,6 +75,38 @@ Deno.test("publication phases reject missing evidence, skipped phases, and backw
         Error,
         "cannot move backward",
     );
+});
+
+Deno.test("only cleanup-complete publication attempts are safe for runtime migration", () => {
+    const sealed = candidate();
+    const artifacts = advancePublicationAttempt(sealed, "artifacts_committed", {
+        artifactCommit: "b".repeat(40),
+        planPaths: ["docs/plans/demo.md"],
+    });
+    const integrated = advancePublicationAttempt(artifacts, "target_integrated", {
+        targetBaseCommit: "c".repeat(40),
+        integrationCommit: "d".repeat(40),
+    });
+    const published = advancePublicationAttempt(integrated, "target_published", {
+        publicationMode: "local",
+        publishedCommit: "d".repeat(40),
+    });
+    const verified = advancePublicationAttempt(published, "publication_verified", {
+        verifiedAt: "2026-01-01T00:02:00.000Z",
+    });
+    const complete = advancePublicationAttempt(verified, "cleanup_complete", {
+        cleanedAt: "2026-01-01T00:03:00.000Z",
+    });
+    const repaired = recordPublicationFailure(complete, {
+        kind: "repair_needed",
+        message: "repair",
+        repairRoot: "/tmp/repair",
+    });
+
+    assertEquals(isPublicationAttemptCleanupComplete(sealed), false);
+    assertEquals(isPublicationAttemptCleanupComplete(verified), false);
+    assertEquals(isPublicationAttemptCleanupComplete(complete), true);
+    assertEquals(isPublicationAttemptCleanupComplete(repaired), false);
 });
 
 Deno.test("publication failures annotate the current phase without changing proven progress", () => {
