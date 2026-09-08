@@ -1075,25 +1075,22 @@ Deno.test("SessionRuntime does not apply dormant local mutations when Session ev
     store.close();
 });
 
-Deno.test("SessionRuntime emits projected attention only when the attention record changes", () => {
+Deno.test("SessionRuntime emits projected attention only when the attention ID is new", () => {
     const summary = {
-        attention: {
-            eventId: "attention-entry:attention_requested:0",
-            reason: "agentStopped",
-            agentName: "Planner",
-        },
+        attention: [{ attentionId: "attention-1" }],
+        latestAttention: { attentionId: "attention-1" },
     };
 
     // First observation seeds the baseline: a transcript adopted with an attention
     // entry already in it must not notify about that history.
     assertEquals(shouldEmitProjectedAttention(summary, undefined), false);
     // Repeat syncs project the same record and must stay silent.
-    assertEquals(shouldEmitProjectedAttention(summary, "attention-entry:attention_requested:0"), false);
+    assertEquals(shouldEmitProjectedAttention(summary, new Set(["attention-1"])), false);
     // A newly appended attention entry notifies once.
-    assertEquals(shouldEmitProjectedAttention(summary, "older-entry:attention_requested:0"), true);
+    assertEquals(shouldEmitProjectedAttention(summary, new Set(["older-entry"])), true);
     assertEquals(shouldEmitProjectedAttention(summary, null), true);
     // No attention in the projection is never an emission.
-    assertEquals(shouldEmitProjectedAttention({ attention: null }, "older-entry:attention_requested:0"), false);
+    assertEquals(shouldEmitProjectedAttention({ latestAttention: null }, new Set(["older-entry"])), false);
     assertEquals(shouldEmitProjectedAttention(undefined, undefined), false);
 });
 

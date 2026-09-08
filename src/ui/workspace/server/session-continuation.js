@@ -21,6 +21,7 @@ import {
     validateExpiredControlTranscriptEvidence,
 } from "../../../shared/session/session-transcript-projection.js";
 import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
+import { SessionAttentionObserver } from "./session-attention.ts";
 
 /** @typedef {{ type?: string, text?: string }} TranscriptContentPart */
 /** @typedef {"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"} WorkspaceThinkingLevel */
@@ -232,10 +233,12 @@ export class WorkspaceSessionContinuationService {
         this.createRequests = new Map();
         /** @type {Map<string, { cwd: string, baselineTree?: string }>} */
         this.codeReviewRefreshContexts = new Map();
+        this.attentionObserver = new SessionAttentionObserver(this.store);
     }
 
     close() {
         this.runtime.closeAllSessionsWhenIdle?.();
+        this.attentionObserver.close();
         this.operationListeners.clear();
         this.codeReviewRefreshContexts.clear();
     }
@@ -438,6 +441,20 @@ export class WorkspaceSessionContinuationService {
             artifacts: this.store.listSessionArtifacts(runwieldSessionId),
             ...browserTimelineProjection(projection),
         };
+    }
+
+    /** @param {string} runwieldSessionId @param {{ projectId?: string }} [options] */
+    async currentAttention(runwieldSessionId, options = {}) {
+        return await this.attentionObserver.current(runwieldSessionId, options);
+    }
+
+    /**
+     * @param {string} runwieldSessionId
+     * @param {(snapshot: Record<string, unknown>) => void} subscriber
+     * @param {{ projectId?: string }} [options]
+     */
+    subscribeAttention(runwieldSessionId, subscriber, options = {}) {
+        return this.attentionObserver.subscribe(runwieldSessionId, subscriber, options);
     }
 
     /**

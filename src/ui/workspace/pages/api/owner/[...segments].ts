@@ -71,6 +71,9 @@ export const GET = ({ request, params }: { request: Request; params: { segments?
         if (segments[2] === "sessions" && segments[4] === "timeline") {
             return json(devOwnerTimeline(segments[3] || ""));
         }
+        if (segments[2] === "sessions" && segments[4] === "attention" && segments[5] === "stream") {
+            return eventStream(`data: ${JSON.stringify({ generation: null, attention: [] })}\n\n`);
+        }
     }
 
     return json({ error: "Dev owner API route not found." }, 404);

@@ -146,6 +146,20 @@ export function isApprovalAcceptedValue(request, value) {
 }
 
 /**
+ * @param {RuntimeInteractionResponse} response
+ * @param {import('./managed-operation.ts').ManagedOperationCapability | null} capability
+ */
+function markAcceptedInteractionResponse(response, capability) {
+    if (
+        response.outcome === RuntimeInteractionOutcomes.SELECTED ||
+        response.outcome === RuntimeInteractionOutcomes.TEXT ||
+        response.outcome === RuntimeInteractionOutcomes.ACCEPTED
+    ) {
+        capability?.markAcceptedInteractionResult?.();
+    }
+}
+
+/**
  * @param {import('./hosted-session.js').HostedSession} hostedSession
  * @param {RuntimeInteractionRequest} request
  * @param {AbortSignal} [signal]
@@ -249,6 +263,7 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
             outcome: response.outcome,
             message: response.message,
         });
+        markAcceptedInteractionResponse(response, capability);
         return response;
     } catch (error) {
         const response = interactionErrorToResponse(error);

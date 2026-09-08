@@ -246,32 +246,44 @@ Deno.test("projection cursor selection returns only later events and advances su
     assertEquals(summaryOnly.nextCursor, null);
 });
 
-Deno.test("projection summary preserves stable attention event identity", () => {
+Deno.test("projection summary preserves strict unresolved Session Attention", () => {
+    const request = {
+        version: 1,
+        state: "requested",
+        attentionId: "attention-1",
+        reason: "agentStopped",
+        runwieldSessionId: "session-1",
+        agentName: "Ideator",
+        sessionName: "Planning",
+        recordedAt: "2025-01-01T00:00:00.000Z",
+        generation: 4,
+    };
     const first = summarizeProjectedEntries([
         { type: "custom", id: "agent-entry", customType: "runwield.active_agent", data: { agentName: "Ideator" } },
-        {
-            type: "custom",
-            id: "attention-entry",
-            customType: "runwield.attention",
-            data: { reason: "agentStopped", agentName: "Ideator" },
-        },
+        { type: "custom", id: "legacy-attention", customType: "runwield.attention", data: { reason: "agentStopped" } },
+        { type: "custom", id: "attention-entry", customType: "runwield.attention", data: request },
     ]);
     const second = summarizeProjectedEntries([
-        { type: "custom", id: "agent-entry", customType: "runwield.active_agent", data: { agentName: "Ideator" } },
+        { type: "custom", id: "attention-entry", customType: "runwield.attention", data: request },
         {
             type: "custom",
-            id: "attention-entry",
+            id: "resolution-entry",
             customType: "runwield.attention",
-            data: { reason: "agentStopped", agentName: "Ideator" },
+            data: {
+                version: 1,
+                state: "resolved",
+                attentionId: "attention-1",
+                resolution: "user_message",
+                recordedAt: "2025-01-01T00:01:00.000Z",
+                generation: 5,
+            },
         },
     ]);
 
-    assertEquals(first.attention, {
-        eventId: "attention-entry:attention_requested:0",
-        reason: "agentStopped",
-        agentName: "Ideator",
-    });
-    assertEquals(second.attention?.eventId, first.attention?.eventId);
+    assertEquals(first.attention, [request]);
+    assertEquals(first.latestAttention, request);
+    assertEquals(second.attention, []);
+    assertEquals(second.latestAttention, null);
 });
 
 Deno.test("committed transcript authority facts are explicit projection extracts", () => {

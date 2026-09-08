@@ -64,6 +64,7 @@ import { authenticateOwnerRequest, authorizeOwnerUpgradeRequest, isOwnerUpgradeR
 import { createWorkspaceSessionContinuationService } from "./server/session-continuation.js";
 import {
     ownerProjectSessionsApi,
+    ownerSessionAttentionStreamApi,
     ownerSessionBootstrapApi,
     ownerSessionConfigureApi,
     ownerSessionContinuationStartApi,
@@ -302,6 +303,10 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects/:projectId/sessions", ownerProjectSessionsApi);
     app.post("/api/owner/projects/:projectId/sessions", ownerSessionCreateApi);
     app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/timeline", ownerSessionTimelineApi);
+    app.get(
+        "/api/owner/projects/:projectId/sessions/:runwieldSessionId/attention/stream",
+        ownerSessionAttentionStreamApi,
+    );
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/bootstrap", ownerSessionBootstrapApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/continue", ownerSessionContinuationStartApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/configure", ownerSessionConfigureApi);

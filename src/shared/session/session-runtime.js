@@ -63,6 +63,11 @@ import {
     toProjectionFailure,
 } from "./session-transcript-projection.js";
 import { projectAggregateTranscript } from "./session-transcript-manifest.ts";
+import {
+    appendSessionAttentionRequest,
+    appendSessionAttentionResolution,
+    readUnresolvedSessionAttention,
+} from "./session-attention.ts";
 import { rollSessionTranscriptSegment } from "./segment-rollover.ts";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "./session-runtime-interactions.js";
 import {
@@ -299,6 +304,7 @@ class ManagedOperationCapability {
     /** @type {import('./file-session-store-types.ts').FileSessionStore} */
     #sessionStore;
     #settled = false;
+    #acceptedInteractionResult = false;
     #abortController = new AbortController();
 
     get proof() {
@@ -311,6 +317,15 @@ class ManagedOperationCapability {
 
     get signal() {
         return this.#abortController.signal;
+    }
+
+    get acceptedInteractionResult() {
+        return this.#acceptedInteractionResult;
+    }
+
+    markAcceptedInteractionResult() {
+        this.assertLive();
+        this.#acceptedInteractionResult = true;
     }
 
     cancel() {
@@ -462,17 +477,19 @@ function resolvePersistedResumeModel(sessionManager) {
  * seed so adopting a session whose transcript already contains an attention
  * entry does not notify about history.
  *
- * @param {{ attention?: { eventId?: string | null } | null } | null | undefined} summary
- * @param {string | null | undefined} previousAttentionEventId id observed on the
+ * @param {{ latestAttention?: { attentionId?: string | null } | null } | null | undefined} summary
+ * @param {Set<string> | string | null | undefined} previousAttentionEventIds ids observed on the
  *   previous sync, `null` when that sync saw none, `undefined` when this session
  *   has never been synchronized
  * @returns {boolean}
  */
-export function shouldEmitProjectedAttention(summary, previousAttentionEventId) {
-    const attentionEventId = typeof summary?.attention?.eventId === "string" ? summary.attention.eventId : null;
-    if (!attentionEventId) return false;
-    if (previousAttentionEventId === undefined) return false;
-    return attentionEventId !== previousAttentionEventId;
+export function shouldEmitProjectedAttention(summary, previousAttentionEventIds) {
+    const latestAttention = summary?.latestAttention || null;
+    const attentionId = typeof latestAttention?.attentionId === "string" ? latestAttention.attentionId : null;
+    if (!attentionId) return false;
+    if (previousAttentionEventIds === undefined) return false;
+    if (previousAttentionEventIds instanceof Set) return !previousAttentionEventIds.has(attentionId);
+    return attentionId !== previousAttentionEventIds;
 }
 
 /**
@@ -531,7 +548,7 @@ export class SessionRuntime {
     #pendingManagedCreationProjects;
     /** @type {Map<string, import('./session-runtime-events.js').SessionRuntimeEvent[]>} */
     #pendingReplayEvents;
-    /** @type {Map<string, string | null>} */
+    /** @type {Map<string, Set<string> | null>} */
     #observedAttentionEventIds;
     /** @type {WeakMap<import('./hosted-session.js').MinimalSessionManagerLike, { leafId: string | null, info: ReturnType<typeof buildProjectedSessionInfo> }>} */
     #activeSessionInfoCache;
@@ -3394,23 +3411,32 @@ export class SessionRuntime {
             };
             hostedSession.setManagedMetadata(nextMetadata);
             managed = hostedSession.getManagedMetadata?.() || nextMetadata;
-            const projectedAttention = summary.attention || null;
+            const projectedAttention = /** @type {Array<{ attentionId?: string }>} */ (
+                Array.isArray(summary.attention) ? summary.attention : []
+            );
             // Record the observation on every sync, including non-emitting ones, so
             // the adoption sync seeds the baseline and only genuinely new attention
             // records reach the notifier.
-            const previousAttentionEventId = this.#observedAttentionEventIds.get(sessionId);
-            this.#observedAttentionEventIds.set(sessionId, projectedAttention?.eventId ?? null);
+            const previousAttentionEventIds = this.#observedAttentionEventIds.get(sessionId);
+            this.#observedAttentionEventIds.set(
+                sessionId,
+                new Set(projectedAttention.map((entry) => entry.attentionId).filter((id) => typeof id === "string")),
+            );
             if (emitEvents) {
                 for (const event of events) this.#emitSessionEvent(sessionId, /** @type {any} */ (event));
                 if (summary.name) {
                     this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.SESSION_RENAMED, name: summary.name });
                 }
-                if (projectedAttention && shouldEmitProjectedAttention(summary, previousAttentionEventId)) {
+                if (shouldEmitProjectedAttention(summary, previousAttentionEventIds)) {
+                    const latestAttention = summary.latestAttention;
                     this.#emitSessionEvent(sessionId, {
                         type: RuntimeEventTypes.ATTENTION_REQUESTED,
-                        eventId: projectedAttention.eventId,
-                        reason: projectedAttention.reason || "agentStopped",
-                        agentName: projectedAttention.agentName || undefined,
+                        eventId: latestAttention.attentionId,
+                        runwieldSessionId: latestAttention.runwieldSessionId,
+                        generation: latestAttention.generation,
+                        reason: latestAttention.reason || "agentStopped",
+                        agentName: latestAttention.agentName || undefined,
+                        sessionName: latestAttention.sessionName || undefined,
                     });
                 }
             }
@@ -3909,6 +3935,8 @@ export class SessionRuntime {
         );
         hostedSession.setManagedOperationCapability(capability);
         let hydrated = false;
+        /** @type {Set<string>} */
+        let priorUnresolvedAttentionIds = new Set();
         /** @type {() => void} */
         let cleanupTurnStart = () => {};
         const shouldEmitBusyEvents = options.emitBusyEvents !== false;
@@ -3940,6 +3968,22 @@ export class SessionRuntime {
                         turns: 0,
                         error: "reconcile_required",
                     };
+                }
+                const aggregateProjection = await projectAggregateTranscript({
+                    cwd: hostedSession.cwd,
+                    sessionDir: dirname(managed.transcriptPath),
+                    runwieldSessionId: managed.runwieldSessionId,
+                    generation: state.generation,
+                    segments: this.#sessionStore.listSessionTranscriptSegments(managed.runwieldSessionId),
+                    limit: 0,
+                });
+                if (aggregateProjection.ok) {
+                    priorUnresolvedAttentionIds = new Set(
+                        readUnresolvedSessionAttention(
+                            /** @type {any} */ (aggregateProjection.snapshot.attention || []),
+                        )
+                            .map((entry) => entry.attentionId),
+                    );
                 }
             }
             const acceptedTurnId = options.turnId || crypto.randomUUID();
@@ -4045,6 +4089,32 @@ export class SessionRuntime {
                 hostedSession.getActiveModelState?.() || {},
                 managed,
             );
+            const rootSessionManager = hostedSession.getRootSessionManager?.() || null;
+            const responseResolution = capability.acceptedInteractionResult
+                ? "interaction_result"
+                : options.initialRequest !== undefined && /** @type {any} */ (result)?.ok === true
+                ? "user_message"
+                : null;
+            if (!capability.signal.aborted && responseResolution) {
+                for (const attentionId of priorUnresolvedAttentionIds) {
+                    appendSessionAttentionResolution(rootSessionManager, {
+                        attentionId,
+                        resolution: /** @type {"user_message" | "interaction_result"} */ (responseResolution),
+                        generation: nextGeneration,
+                    });
+                }
+            }
+            const attentionRequest = !capability.signal.aborted && /** @type {any} */ (result)?.ok === true
+                ? /** @type {any} */ (result).attentionRequest || null
+                : null;
+            const committedAttentionRequest = attentionRequest
+                ? appendSessionAttentionRequest(rootSessionManager, {
+                    runwieldSessionId: managed.runwieldSessionId,
+                    agentName: String(attentionRequest.agentName || hostedSession.getRootAgentName?.() || "Agent"),
+                    sessionName: rootSessionManager?.getSessionName?.() || managed.name || "Session",
+                    generation: nextGeneration,
+                })
+                : null;
             const nextManaged = {
                 ...managed,
                 generation: nextGeneration,
@@ -4072,6 +4142,21 @@ export class SessionRuntime {
             });
             hostedSession.setManagedMetadata(nextManaged);
             await this.synchronizeManagedSession(sessionId, { emitEvents: false });
+            if (committedAttentionRequest) {
+                const currentState = this.#sessionStore.inspectSessionActivation(managed.runwieldSessionId);
+                if (currentState.generation?.generation === nextGeneration) {
+                    this.#emitSessionEvent(sessionId, {
+                        type: RuntimeEventTypes.ATTENTION_REQUESTED,
+                        eventId: committedAttentionRequest.attentionId,
+                        runwieldSessionId: committedAttentionRequest.runwieldSessionId,
+                        generation: committedAttentionRequest.generation,
+                        reason: committedAttentionRequest.reason,
+                        agentName: committedAttentionRequest.agentName,
+                        sessionName: committedAttentionRequest.sessionName,
+                    });
+                }
+            }
+            if (result && typeof result === "object") delete (/** @type {any} */ (result)).attentionRequest;
             return result;
         } catch (error) {
             hostedSession.dehydrateManagedSession();
@@ -4732,7 +4817,7 @@ export class SessionRuntime {
             "workflow_operation",
             (activeSession, operationCapability) =>
                 requestHostedSessionInteraction(activeSession, request, signal, operationCapability),
-            { activateAgent: false, hydrate: false },
+            { activateAgent: false },
         );
     }
 
@@ -5066,7 +5151,13 @@ export class SessionRuntime {
             turns++;
             validationResult = /** @type {any} */ (turnResult)?.validationResult || null;
             ok = true;
-            result = { ok: true, turns };
+            result = {
+                ok: true,
+                turns,
+                ...(/** @type {any} */ (turnResult)?.attentionRequest
+                    ? { attentionRequest: /** @type {any} */ (turnResult).attentionRequest }
+                    : {}),
+            };
             return result;
         } catch (error) {
             this.#emitSessionEvent(hostedSession.id, {

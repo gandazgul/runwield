@@ -26,7 +26,8 @@ import {
 import { runWorkflowValidationToStableBoundary } from "../workflow/validation-supervisor.ts";
 import { switchActiveAgent } from "./agent-switching.js";
 import { getAgentDisplayName } from "./agents.js";
-import { emitHostedSessionRuntimeEvent, emitSystemStatus, RuntimeEventTypes } from "./session-runtime-events.js";
+import { emitSystemStatus } from "./session-runtime-events.js";
+import type { AgentStoppedAttentionIntent } from "./session-attention.ts";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "./session-runtime-interactions.js";
 import {
     acknowledgeTaskCompletion,
@@ -64,6 +65,7 @@ interface RootAgentSessionState {
 interface AgentHandlerCompleteResult {
     kind: "complete";
     validationResult?: WorkflowValidationResult;
+    attentionRequest?: AgentStoppedAttentionIntent;
 }
 
 type AgentHandlerTurnResult = AgentHandlerCompleteResult;
@@ -279,15 +281,20 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
         }
         const rootAgentSession = hostedSession.getRootAgentSession() as RootAgentSessionState | null;
         let agentStoppedAttentionRequested = false;
+        let attentionRequest: AgentStoppedAttentionIntent | undefined;
+        const completeResult = (result: Omit<AgentHandlerCompleteResult, "kind" | "attentionRequest"> = {}) => ({
+            kind: "complete" as const,
+            ...result,
+            ...(attentionRequest ? { attentionRequest } : {}),
+        });
         const requestAgentStoppedAttention = () => {
             if (agentStoppedAttentionRequested) return;
             if (hostedSession.consumeSuppressedAgentStoppedAttention()) return;
             agentStoppedAttentionRequested = true;
-            emitHostedSessionRuntimeEvent(hostedSession, {
-                type: RuntimeEventTypes.ATTENTION_REQUESTED,
+            attentionRequest = {
                 reason: "agentStopped",
                 agentName: hostedSession.getRootAgentName() || agentName,
-            });
+            };
         };
 
         let taskCompletion: PendingTaskCompletionClaim | null = claimPendingTaskCompletion(
@@ -331,8 +338,8 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 localCI: systemLocalCIPort,
             });
             if (triageEvent) settleWorkflowToolEvent(hostedSession, triageEvent);
-            if (validationResult) return { kind: "complete", validationResult };
-            return { kind: "complete" };
+            if (validationResult) return completeResult({ validationResult });
+            return completeResult();
         }
 
         // If plan_written publishes an accepted event, dispatch from that event.
@@ -394,7 +401,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 await switchActiveAgent(hostedSession, { agentName });
             }
             requestAgentStoppedAttention();
-            return { kind: "complete" };
+            return completeResult();
         }
         if (planningDecision.kind === "execute_plan") {
             await recordWorkflowMetricImpl({
@@ -440,7 +447,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 );
                 await switchActiveAgent(hostedSession, { agentName: executionOwner });
                 requestAgentStoppedAttention();
-                return { kind: "complete" };
+                return completeResult();
             }
 
             let planContent = "";
@@ -506,11 +513,11 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     supportsSemanticRepairHandoff: true,
                 });
                 requestAgentStoppedAttention();
-                return { kind: "complete", validationResult };
+                return completeResult({ validationResult });
             } else if (executionDecision.kind === "stay_with_agent") {
                 if (executionCanceledBeforeStart) {
                     requestAgentStoppedAttention();
-                    return { kind: "complete" };
+                    return completeResult();
                 }
                 const nextAgentName = typeof executionDecision.payload.agentName === "string"
                     ? executionDecision.payload.agentName
@@ -546,7 +553,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 await switchActiveAgent(hostedSession, { agentName: executionOwner });
                 requestAgentStoppedAttention();
             }
-            return { kind: "complete" };
+            return completeResult();
         }
 
         if (planningDecision.kind === "stay_with_agent" || planningDecision.kind === "save_plan") {
@@ -566,7 +573,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
         }
 
         if (outcome) {
-            return { kind: "complete" };
+            return completeResult();
         }
 
         // If the agent declared they finished an assigned workflow task, consume the session-scoped
@@ -581,17 +588,17 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
             if (workflow?.executionStarted === false) {
                 acknowledgeCompletion();
                 requestAgentStoppedAttention();
-                return { kind: "complete" };
+                return completeResult();
             }
             if (workflow?.pairPauseReason || workflow?.pairStopRequested) {
                 acknowledgeCompletion();
                 requestAgentStoppedAttention();
-                return { kind: "complete" };
+                return completeResult();
             }
             if (workflow && !canCompleteActiveExecutionWorkflow(agentName, workflow)) {
                 acknowledgeCompletion();
                 requestAgentStoppedAttention();
-                return { kind: "complete" };
+                return completeResult();
             }
 
             if (workflow?.triageMeta?.classification === "QUICK_FIX") {
@@ -606,14 +613,14 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 acknowledgeCompletion();
                 hostedSession.setActiveExecutionWorkflow(refreshedQuickFixWorkflow(workflow));
                 requestAgentStoppedAttention();
-                return { kind: "complete" };
+                return completeResult();
             }
 
             if (workflow && !shouldRunWorkflowValidation(workflow.triageMeta)) {
                 hostedSession.clearActiveExecutionWorkflow();
                 acknowledgeCompletion();
                 requestAgentStoppedAttention();
-                return { kind: "complete" };
+                return completeResult();
             }
 
             if (workflow) {
@@ -647,7 +654,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                                     );
                                 }
                                 requestAgentStoppedAttention();
-                                return { kind: "complete" };
+                                return completeResult();
                             }
                         }
                     }
@@ -684,13 +691,13 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 });
                 if (!validationResult?.retainTaskCompletionClaim) acknowledgeCompletion();
                 requestAgentStoppedAttention();
-                return { kind: "complete", validationResult };
+                return completeResult({ validationResult });
             } else {
                 acknowledgeCompletion();
             }
         }
 
         requestAgentStoppedAttention();
-        return { kind: "complete" };
+        return completeResult();
     };
 }

@@ -63,6 +63,8 @@ export type ManagedOperationCapability = {
     ): import("./file-session-store-types.ts").ManifestPlanAssociation;
     getCurrentSegmentKind?(): string;
     cancel?(): void;
+    readonly acceptedInteractionResult?: boolean;
+    markAcceptedInteractionResult?(): void;
     updateProof(proof: ActivationProof): void;
     assertLive(): void;
     settle(): void;

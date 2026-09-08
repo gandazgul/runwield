@@ -301,3 +301,38 @@ export function ownerSessionOperationStreamApi(ctx) {
     headers.set("connection", "keep-alive");
     return new Response(body, { headers });
 }
+
+/** @param {any} ctx */
+export function ownerSessionAttentionStreamApi(ctx) {
+    const encoder = new TextEncoder();
+    let unsubscribe = () => {};
+    let closed = false;
+    /** @type {ReturnType<typeof setInterval> | null} */
+    let keepalive = null;
+    const body = new ReadableStream({
+        start(controller) {
+            requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+            const send = (/** @type {Record<string, unknown>} */ snapshot) => {
+                if (!closed) controller.enqueue(encoder.encode(`data: ${JSON.stringify(snapshot)}\n\n`));
+            };
+            unsubscribe = ctx.state.sessionContinuation.subscribeAttention(
+                ctx.params.runwieldSessionId,
+                send,
+                { projectId: ctx.params.projectId },
+            );
+            keepalive = setInterval(() => {
+                if (!closed) controller.enqueue(encoder.encode(": keepalive\n\n"));
+            }, 15000);
+        },
+        cancel() {
+            closed = true;
+            if (keepalive) clearInterval(keepalive);
+            unsubscribe();
+        },
+    });
+    const headers = ownerSecurityHeaders(new Headers());
+    headers.set("content-type", "text/event-stream");
+    headers.set("connection", "keep-alive");
+    headers.set("cache-control", "no-store");
+    return new Response(body, { headers });
+}
