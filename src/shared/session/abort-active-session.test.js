@@ -119,3 +119,13 @@ Deno.test("^abortActiveSession unwraps claude-cli execution-session wrapper and 
     assertEquals(inner._abortCalls, 1);
     assertEquals(inner._clearQueueCalls, 1);
 });
+
+Deno.test("abortActiveSession unwraps agy-cli execution-session wrapper and aborts the inner session", () => {
+    const hostedSession = makeHostedSession("abort-agy-wrapper");
+    const inner = makeFakeSession({ isStreaming: true });
+    hostedSession.setRootAgentSession(/** @type {any} */ ({ kind: "agy-cli", session: inner }));
+
+    assertEquals(abortActiveSession(hostedSession), true);
+    assertEquals(inner._abortCalls, 1);
+    assertEquals(inner._clearQueueCalls, 1);
+});

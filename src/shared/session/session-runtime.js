@@ -73,6 +73,7 @@ import {
     preflightImageAttachments,
     resolveVisionFallbackModel,
 } from "./image-attachments.js";
+import { assertModelExecutionBackendSupported } from "../models/model-execution.ts";
 import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../models/model-registry.ts";
 import { parseProviderModel } from "../models/model-validation.ts";
 import { spawnForegroundShell } from "../foreground-process.ts";
@@ -434,6 +435,11 @@ function normalizeManagedActiveModelState(modelState, managed) {
         if (parsed.ok && parsed.provider === provider) return { model: parsed.id, provider };
     }
     return { model, provider };
+}
+
+/** @param {unknown} error */
+function isAgyCliMcpSetupApprovalError(error) {
+    return error instanceof Error && error.name === "AgyCliMcpSetupApprovalError";
 }
 
 /**
@@ -1339,6 +1345,16 @@ export class SessionRuntime {
      * @param {string} [provider]
      */
     async reconfigureSessionModel(sessionId, model, provider = "") {
+        const registry = getModelRegistry();
+        const parsedModel = provider ? { ok: true, provider, id: model } : parseProviderModel(model);
+        const targetModel = parsedModel.ok ? registry.find(parsedModel.provider, parsedModel.id) : undefined;
+        if (parsedModel.ok && parsedModel.provider === "agy-cli" && !targetModel) {
+            throw new Error(
+                `Unsupported Antigravity CLI model: agy-cli/${parsedModel.id}. Select agy-cli/gemini-3.8-flash or agy-cli/gemini-3.1-pro.`,
+            );
+        }
+        assertModelExecutionBackendSupported(targetModel);
+
         const promptReadySession = this.#sessionHost.getSession(sessionId);
         if (
             promptReadySession &&
@@ -1373,10 +1389,12 @@ export class SessionRuntime {
                     model,
                 );
             } catch (error) {
-                if (previousUserOverride) {
-                    session.setActiveModelState(previousModelState.model, previousModelState.provider || "", true);
-                } else {
-                    session.clearUserModelOverride?.();
+                if (!isAgyCliMcpSetupApprovalError(error)) {
+                    if (previousUserOverride) {
+                        session.setActiveModelState(previousModelState.model, previousModelState.provider || "", true);
+                    } else {
+                        session.clearUserModelOverride?.();
+                    }
                 }
                 throw error;
             }

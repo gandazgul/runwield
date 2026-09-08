@@ -28,15 +28,17 @@ export function createAgentBrowserSessionCleanup(
     runtime: AgentBrowserCommandRuntime = createSystemRuntime(),
 ) {
     const namespace = createNamespace();
+    let initialized = false;
     let cleanedUp = false;
 
     function initialize(): string {
+        initialized = true;
         runtime.envSet("AGENT_BROWSER_NAMESPACE", namespace);
         return namespace;
     }
 
     function cleanupSync(): void {
-        if (cleanedUp) return;
+        if (!initialized || cleanedUp) return;
         cleanedUp = true;
         try {
             runtime.spawnCleanup();

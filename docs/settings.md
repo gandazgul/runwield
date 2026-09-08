@@ -709,3 +709,21 @@ RunWield and Pi migrate a few older key shapes while loading settings:
 - `websockets: true` becomes `transport: "websocket"`; `websockets: false` becomes `transport: "sse"`.
 - Old object-shaped `skills` settings become `enableSkillCommands` and/or a `skills` path array.
 - `retry.maxDelayMs` becomes `retry.provider.maxRetryDelayMs` when the provider field is not already set.
+
+## Antigravity CLI
+
+Install `agy` and sign in to Antigravity before selecting an Antigravity model. RunWield uses that CLI sign-in rather
+than requesting an API key. Supported model references are `agy-cli/gemini-3.8-flash` and `agy-cli/gemini-3.1-pro`.
+
+RunWield preserves the selected model and thinking level in the Session. It maps thinking to CLI effort for each turn:
+
+| Thinking level    | Flash effort | Pro effort |
+| ----------------- | ------------ | ---------- |
+| off, minimal, low | low          | low        |
+| medium            | medium       | high       |
+| high, xhigh, max  | high         | high       |
+
+Concrete CLI model names ending in `-low`, `-medium`, or `-high` are execution details, not selectable model references.
+This backend does not accept image attachments. Setup explains and requests approval before installing its global custom
+agent and MCP configuration. Replay includes assistant messages, RunWield tool results, and backend status;
+Antigravity's internal file, shell, and tool activity stays in the CLI.

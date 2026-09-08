@@ -484,7 +484,7 @@ export async function runReviewerRound(
                 };
             }
             if (sessionOutcome.usedDiffTool) inspectedDiff = true;
-            const trustedClaudeMcpReview = sessionOutcome.trustedClaudeMcpReview;
+            const trustedOpaqueMcpReview = sessionOutcome.trustedOpaqueMcpReview;
             const outcome = sessionOutcome.reviewOutcome;
             const unaccounted = unaccountedOpenItems(state.reviewLedger, outcome?.findings);
             if (!outcome) {
@@ -519,7 +519,7 @@ export async function runReviewerRound(
                         recovery: decision.result,
                     },
                 };
-            } else if (!inspectedDiff && !trustedClaudeMcpReview) {
+            } else if (!inspectedDiff && !trustedOpaqueMcpReview) {
                 const failure = classifyValidationOperationalError({
                     source: "reviewer_protocol",
                     kind: "diff_not_read",

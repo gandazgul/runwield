@@ -18,7 +18,11 @@ import { createRequire } from "node:module";
 import { parseArgs } from "@std/cli/parse-args";
 import { cleanupAgentBrowserSessionSync, initializeAgentBrowserSession } from "./shared/agent-browser-session.ts";
 
-initializeAgentBrowserSession();
+function isProtocolOnlyStartup(argv: string[]): boolean {
+    return argv[0] === "mcp" || (argv[0] === "--mode" && argv[1] === "acp");
+}
+
+if (!isProtocolOnlyStartup(Deno.args)) initializeAgentBrowserSession();
 
 if (Deno.build.standalone) {
     Object.defineProperty(globalThis, "require", {
@@ -85,6 +89,12 @@ async function main(): Promise<void> {
 
     if (parsed.version) {
         await runVersionCommand();
+        return;
+    }
+
+    if (normalizedArgs[0] === "mcp") {
+        const { runMcpCommand } = await import("./cmd/mcp/index.ts");
+        await runMcpCommand(normalizedArgs.slice(1));
         return;
     }
 
@@ -169,11 +179,13 @@ async function main(): Promise<void> {
 try {
     await main();
 } catch (err) {
-    try {
-        const { stopTUI } = await import("./ui/tui/tui.ts");
-        stopTUI();
-    } catch (_error) {
-        // Ignore cleanup failures during fatal error reporting.
+    if (!isProtocolOnlyStartup(Deno.args)) {
+        try {
+            const { stopTUI } = await import("./ui/tui/tui.ts");
+            stopTUI();
+        } catch (_error) {
+            // Ignore cleanup failures during fatal error reporting.
+        }
     }
     if (err instanceof Error && err.message.includes("Mnemoteca binary not found")) {
         console.error(err.message);

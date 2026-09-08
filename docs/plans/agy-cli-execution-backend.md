@@ -2,7 +2,6 @@
 planId: "1b472bff-c31a-4e66-aab7-060dfc9b94d7"
 classification: "PROJECT"
 complexity: "HIGH"
-summary: "Add Antigravity CLI (`agy -p`) as a RunWield Execution Backend through a vertical spike first, then parity work against the existing Claude CLI backend."
 affectedPaths:
     - "src/shared/models/model-registry.ts"
     - "src/shared/models/model-execution.ts"
@@ -18,14 +17,17 @@ affectedPaths:
     - "src/ui/workspace/"
     - "docs/prd/runwield.md"
 createdAt: "2026-08-23T15:34:14-04:00"
-updatedAt: "2026-08-23T20:02:05.524Z"
-status: "ready_for_work"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
-humanReviewMode: null
-humanReviewDecision: null
-validationCheckpoint: null
-worktreeStatus: "abandoned"
+workRecord:
+    status: "generated"
+    recordId: "62d5a3ca-fd72-4ab4-bff4-e69c061663c5"
+    path: "docs/work-records/2026-09-08-antigravity-cli-backend-delivered.md"
+    lastAttemptAt: "2026-09-08T04:09:35.006Z"
+epicCompletionMode: "done_enough"
+epicDoneEnoughAt: "2026-09-08T04:09:09.766Z"
+epicDoneEnoughSummary: "All 6 child plans are completed after agy-cli-execution-backend/06-surface-agy-cli-selection-and-caveats."
 ---
 
 # Antigravity CLI Execution Backend

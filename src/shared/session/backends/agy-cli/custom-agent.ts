@@ -109,6 +109,21 @@ export async function materializeAgyCustomAgent(
     };
 }
 
+export async function verifyAgyCustomAgentOwnership(ownership: AgyCustomAgentOwnership): Promise<void> {
+    const directoryInfo = await lstatOrNull(ownership.agentDirectoryPath);
+    if (!directoryInfo || directoryInfo.isSymlink || !directoryInfo.isDirectory) {
+        throw new Error("Agy custom agent directory is missing or invalid");
+    }
+    const definitionInfo = await lstatOrNull(ownership.definitionPath);
+    if (!definitionInfo || definitionInfo.isSymlink || !definitionInfo.isFile) {
+        throw new Error("Agy custom agent definition is missing or invalid");
+    }
+    const currentText = await Deno.readTextFile(ownership.definitionPath);
+    if (currentText !== ownership.definition) {
+        throw new Error("Agy custom agent definition changed");
+    }
+}
+
 export async function cleanupAgyCustomAgent(ownership: AgyCustomAgentOwnership): Promise<void> {
     if (ownership.createdDefinition) {
         const definitionInfo = await lstatOrNull(ownership.definitionPath);

@@ -93,7 +93,50 @@ Deno.test("committed projection verifies exact prefix and ignores later tail", a
     });
 });
 
-Deno.test("committed projection replays Claude CLI final messages as ordinary transcript text", async () => {
+Deno.test("committed projection replays Agy backend status as display-only system status", () => {
+    const events = createReplayEvents("projection", [
+        {
+            type: "custom",
+            customType: "runwield.backend_status",
+            data: {
+                version: 1,
+                backend: "agy-cli",
+                kind: "non_zero_exit",
+                message: "Antigravity CLI exited before completing the turn.",
+            },
+        },
+        {
+            type: "custom",
+            id: "agy-warning",
+            customType: "runwield.backend_status",
+            data: {
+                version: 1,
+                backend: "agy-cli",
+                kind: "non_zero_exit",
+                afterAcceptedTerminal: true,
+                message: "Late Agy host failure after accepted workflow result.",
+            },
+        },
+        {
+            type: "custom",
+            customType: "runwield.backend_status",
+            data: {
+                version: 1,
+                backend: "claude-cli",
+                kind: "canceled",
+                message: "Claude Code turn canceled.",
+            },
+        },
+    ], { projectRoot: Deno.cwd() });
+
+    assertEquals(events.map((event) => event.type), ["system_status", "system_status", "system_status"]);
+    assertEquals(events.map((event) => event.level), ["error", "warning", "warning"]);
+    assertEquals(events[0].messageId.includes("agy-cli-backend-status"), true);
+    assertEquals(events[2].messageId.includes("claude-cli-backend-status"), true);
+    assertEquals(JSON.stringify(events).includes("workflow_tool_event"), false);
+});
+
+Deno.test("committed projection replays CLI backend final messages as ordinary transcript text", async () => {
     await withHome(async (home) => {
         const cwd = `${home}/project`;
         await Deno.mkdir(cwd, { recursive: true });
@@ -104,16 +147,39 @@ Deno.test("committed projection replays Claude CLI final messages as ordinary tr
             { type: "session", id: "claude", cwd, timestamp: "2026-01-01T00:00:00.000Z" },
             {
                 type: "custom",
-                id: "backend",
+                id: "backend-claude",
                 customType: "runwield.execution_backend",
                 data: { backend: "claude-cli" },
             },
-            { type: "message", id: "user", message: { role: "user", content: [{ type: "text", text: "hi claude" }] } },
-            { type: "model_change", id: "model", provider: "claude-cli", modelId: "sonnet" },
             {
                 type: "message",
-                id: "assistant",
+                id: "user-claude",
+                message: { role: "user", content: [{ type: "text", text: "hi claude" }] },
+            },
+            { type: "model_change", id: "model-claude", provider: "claude-cli", modelId: "sonnet" },
+            {
+                type: "message",
+                id: "assistant-claude",
                 message: { role: "assistant", content: [{ type: "text", text: "stream complete" }] },
+            },
+            {
+                type: "custom",
+                id: "agent-agy",
+                customType: "runwield.active_agent",
+                data: { agentName: "planner" },
+            },
+            {
+                type: "custom",
+                id: "backend-agy",
+                customType: "runwield.execution_backend",
+                data: { backend: "agy-cli", model: "gemini-fixture" },
+            },
+            { type: "message", id: "user-agy", message: { role: "user", content: [{ type: "text", text: "hi agy" }] } },
+            { type: "model_change", id: "model-agy", provider: "agy-cli", modelId: "gemini-fixture" },
+            {
+                type: "message",
+                id: "assistant-agy",
+                message: { role: "assistant", content: [{ type: "text", text: "agy complete" }] },
             },
         ].map((entry) => JSON.stringify(entry)).join("\n") + "\n";
         await Deno.writeTextFile(sessionPath, committed);
@@ -131,11 +197,14 @@ Deno.test("committed projection replays Claude CLI final messages as ordinary tr
             terminalEntryId: evidence.terminalEntryId,
             digestHex: evidence.digestHex,
         });
-        assertEquals(projected.events.map((event) => event.type), ["user_message", "assistant_text_delta"]);
-        assertEquals(
-            projected.events.map((event) => "text" in event ? event.text : "delta" in event ? event.delta : ""),
-            ["hi claude", "stream complete"],
+        const replayedText = projected.events.map((event) =>
+            "text" in event ? event.text : "delta" in event ? event.delta : ""
         );
+        assertEquals(replayedText.includes("hi claude"), true);
+        assertEquals(replayedText.includes("stream complete"), true);
+        assertEquals(replayedText.includes("hi agy"), true);
+        assertEquals(replayedText.includes("agy complete"), true);
+        assertEquals(JSON.stringify(projected.events).includes("runwield-planner-"), false);
     });
 });
 
@@ -253,6 +322,75 @@ Deno.test("projection ignores old notification records", () => {
     ]);
     assertEquals("attention" in summary, false);
     assertEquals(summary.activeAgent, "ideator");
+});
+
+Deno.test("projection summary keeps the latest valid Agy execution backend fact", () => {
+    const summary = summarizeProjectedEntries([
+        {
+            type: "custom",
+            customType: "runwield.execution_backend",
+            data: { backend: "agy-cli", provider: "agy-cli", model: "gemini-3.8-flash", thinkingLevel: "low" },
+        },
+        { type: "custom", customType: "runwield.execution_backend", data: { backend: 7, model: {} } },
+        {
+            type: "custom",
+            customType: "runwield.execution_backend",
+            data: {
+                backend: "agy-cli",
+                provider: "agy-cli",
+                model: "gemini-3.1-pro",
+                thinkingLevel: "medium",
+                effort: "high",
+                backendModel: "gemini-3.1-pro-high",
+            },
+        },
+        { type: "custom", customType: "runwield.execution_backend", data: { backend: "agy-cli" } },
+        {
+            type: "custom",
+            customType: "runwield.execution_backend",
+            data: {
+                backend: "agy-cli",
+                provider: "agy-cli",
+                model: "gemini-unknown",
+                thinkingLevel: "medium",
+                effort: "high",
+                backendModel: "gemini-unknown-high",
+            },
+        },
+        {
+            type: "custom",
+            customType: "runwield.execution_backend",
+            data: {
+                backend: "agy-cli",
+                provider: "agy-cli",
+                model: "gemini-3.1-pro",
+                thinkingLevel: "medium",
+                effort: "low",
+                backendModel: "gemini-3.1-pro-low",
+            },
+        },
+        {
+            type: "custom",
+            customType: "runwield.execution_backend",
+            data: {
+                backend: "agy-cli",
+                provider: "agy-cli",
+                model: "gemini-3.1-pro",
+                thinkingLevel: "medium",
+                effort: "high",
+                backendModel: "gemini-3.1-pro-low",
+            },
+        },
+    ]);
+
+    assertEquals(summary.executionBackend, {
+        backend: "agy-cli",
+        provider: "agy-cli",
+        model: "gemini-3.1-pro",
+        thinkingLevel: "medium",
+        effort: "high",
+        backendModel: "gemini-3.1-pro-high",
+    });
 });
 
 Deno.test("committed transcript authority facts are explicit projection extracts", () => {

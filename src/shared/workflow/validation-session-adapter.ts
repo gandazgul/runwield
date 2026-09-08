@@ -34,9 +34,8 @@ import { clearValidationPosition, rememberValidationPosition } from "./validatio
 import { runFeaturePostVerificationHandoffs } from "./validation-helpers.ts";
 import { runValidationAgentUntilEvent } from "../session/agent-workflow-step.ts";
 import { logValidationFailure } from "./validation-state-errors.ts";
-import { updatePlanFrontMatter } from "../../plan-store.js";
+import { loadPlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { makeValidationCheckpoint } from "./validation-checkpoint.ts";
-import { loadPlan } from "../../plan-store.js";
 import { renderOpenItems } from "./review-ledger.ts";
 import { recordValidationRepairCompletion } from "./validation-supervisor.ts";
 import { createReviewDiffTool } from "./review-diff-tool.js";
@@ -277,9 +276,9 @@ async function runIsolatedRequest(
             outcome: "completed",
             reviewOutcome,
             usedDiffTool: Boolean(diffEvent),
-            trustedClaudeMcpReview: Boolean(
+            trustedOpaqueMcpReview: Boolean(
                 reviewEvent?.owningSession && "kind" in reviewEvent.owningSession &&
-                    reviewEvent.owningSession.kind === "claude-cli",
+                    (reviewEvent.owningSession.kind === "claude-cli" || reviewEvent.owningSession.kind === "agy-cli"),
             ),
         };
     }

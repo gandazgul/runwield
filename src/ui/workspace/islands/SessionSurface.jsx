@@ -1543,9 +1543,15 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         : timeline?.snapshot?.provider || "";
     const activeModelId = typeof activeModel.model === "string" ? activeModel.model : timeline?.snapshot?.model || "";
     const activeModelKey = activeModelId ? `${activeProvider}\u001f${activeModelId}` : "";
+    const committedModelReference = activeModelId
+        ? activeProvider ? `${activeProvider}/${activeModelId}` : activeModelId
+        : "Project default";
     const activeThinking = typeof timeline?.snapshot?.thinkingLevel === "string"
         ? timeline.snapshot.thinkingLevel
         : "default";
+    const executionBackend = asRecord(timeline?.snapshot?.executionBackend || {});
+    const isAgyExecutionBackend = executionBackend.backend === "agy-cli" ||
+        (executionBackend.provider === "agy-cli" && activeProvider === "agy-cli");
     const hasActivePlan = Boolean(workflowContext.planId || workflowContext.planName || progressUrl);
     const workflowStages = deriveWorkflowSidebarStages(workflowProgress);
     const localOperationActive = Boolean(operation && !["completed", "failed", "unknown"].includes(operation.status));
@@ -1779,13 +1785,31 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                                 </div>
                                                 <div>
                                                     <dt>Model</dt>
-                                                    <dd>{activeModelId || "Project default"}</dd>
+                                                    <dd>{committedModelReference}</dd>
                                                 </div>
                                                 <div>
                                                     <dt>Thinking</dt>
-                                                    <dd>{displayedThinking}</dd>
+                                                    <dd>{activeThinking}</dd>
                                                 </div>
+                                                {isAgyExecutionBackend
+                                                    ? (
+                                                        <div>
+                                                            <dt>Execution Backend</dt>
+                                                            <dd>Antigravity CLI</dd>
+                                                        </div>
+                                                    )
+                                                    : null}
                                             </dl>
+                                            {isAgyExecutionBackend
+                                                ? (
+                                                    <p className="notice muted">
+                                                        Antigravity owns its native file, shell, and tool activity.
+                                                        RunWield replay includes assistant messages, RunWield tool
+                                                        activity, and backend status. Antigravity internal activity is
+                                                        not included.
+                                                    </p>
+                                                )
+                                                : null}
                                         </div>
                                     )
                                     : (

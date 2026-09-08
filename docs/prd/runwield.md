@@ -82,8 +82,8 @@ requirements live in [runwield-connect-prd.md](./runwield-connect-prd.md). That 
 **Attached Workflow** as internal architectural terms while using RunWield Connect as the public product name.
 
 When RunWield Core owns the Session and invokes another harness non-interactively, such as Claude Code through
-`claude -p`, that harness is an **Execution Backend** alongside Pi. Execution Backends are Core capabilities, not
-RunWield Connect plugins or separately branded product modes.
+`claude -p` or Antigravity CLI, that harness is an **Execution Backend** alongside Pi. Execution Backends are Core
+capabilities, not RunWield Connect plugins or separately branded product modes.
 
 ### 2.4 Naming
 
