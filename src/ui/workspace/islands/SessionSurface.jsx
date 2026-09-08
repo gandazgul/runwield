@@ -16,6 +16,7 @@ import {
     SESSION_SIDEBAR_TABS,
     sessionArtifactKindLabel,
 } from "../../../shared/session/session-sidebar.ts";
+import { createSessionTabNotificationController } from "../browser/session-tab-notifications.ts";
 
 export const SESSION_PAGE_SIZE = 30;
 const TIMELINE_PAGE_LIMIT = 200;
@@ -175,6 +176,22 @@ export function shouldApplyOperationPoll(input) {
 /** @param {unknown} events */
 export function reduceOperationTransientItems(events) {
     return reduceSessionEvents(Array.isArray(events) ? events : [], { source: "transient" });
+}
+
+export function observeOperationBrowserNotifications(current, payload, cursorRef, notifier) {
+    const events = Array.isArray(payload.events) ? payload.events : [];
+    const key = `${current.scopeKey || ""}:${current.operationId}`;
+    if (!cursorRef.current || cursorRef.current.key !== key) {
+        cursorRef.current = { key, next: current.restored && current.attempts === 0 ? events.length : 0 };
+    }
+    const cursor = cursorRef.current;
+    for (let index = cursor.next; index < events.length; index += 1) {
+        const event = events[index];
+        cursor.next = index + 1;
+        if (event?.type === "attention_requested" && event.reason === "agentStopped") {
+            notifier.notifyAgentStopped(event, payload.browserNotificationPolicy);
+        }
+    }
 }
 
 /** @param {{ scrollHeight: number, scrollTop: number, clientHeight: number, threshold?: number }} input */
@@ -497,6 +514,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [operationStreamFailed, setOperationStreamFailed] = useState(false);
     const operationRef = useRef(operation);
     operationRef.current = operation;
+    const notificationCursorRef = useRef(null);
+    const notificationControllerRef = useRef(null);
+    if (!notificationControllerRef.current) {
+        notificationControllerRef.current = createSessionTabNotificationController();
+    }
     const queuedDispatchActiveRef = useRef(false);
     const queuedSessionRef = useRef(runwieldSessionId);
     const timelineEndRef = useRef(/** @type {HTMLDivElement | null} */ (null));
@@ -511,6 +533,14 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const draftKey = sessionStorageId ? sessionDraftKey(projectId, sessionStorageId) : "";
     const requestKey = sessionStorageId ? sessionRequestKey(projectId, sessionStorageId) : "";
     const attachmentsKey = sessionStorageId ? sessionAttachmentsKey(projectId, sessionStorageId) : "";
+
+    useEffect(() => {
+        notificationCursorRef.current = null;
+        return () => {
+            notificationControllerRef.current?.dispose();
+            notificationCursorRef.current = null;
+        };
+    }, [projectId, runwieldSessionId, operation?.operationId]);
 
     async function loadList(requestedPage = listPage) {
         setLoadingList(true);
@@ -672,6 +702,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 status: "running",
                 observed: 0,
                 attempts: 0,
+                restored: true,
             });
             setMessage(
                 "Reconnected to an accepted Session operation. Watching progress without replaying the request.",
@@ -1011,6 +1042,12 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                     polledOperationId: current.operationId,
                 })
             ) return;
+            observeOperationBrowserNotifications(
+                { ...current, scopeKey: `${projectId}:${runwieldSessionId || sessionStorageId}` },
+                payload,
+                notificationCursorRef,
+                notificationControllerRef.current,
+            );
             await applyOperationSnapshot(current, payload);
         };
         if (typeof EventSource !== "undefined" && !operationStreamFailed) {
