@@ -117,7 +117,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         }`;
         const compactHelp = theme.fg(
             "muted",
-            ["? help", "esc interrupt", "ctrl+c clear/exit", "/ commands", "! bash", "ctrl+o tool output"].join(" · "),
+            ["? help", "esc interrupt", "ctrl+c clear/exit", "/ commands", "! bash", "ctrl+o tool groups"].join(" · "),
         );
         const helpText = new Text(compactHelp, 0, 0);
         const updateNoticeText = new Text("", 0, 0);

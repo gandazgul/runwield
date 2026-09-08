@@ -58,6 +58,13 @@ function makeUi() {
                     this.bodyText = text;
                     transcript.push(`tool:update:${id}:${text}`);
                 },
+                /**
+                 * @param {string} base64
+                 * @param {string} mimeType
+                 */
+                appendDisplayImage(base64, mimeType) {
+                    transcript.push(`tool:image:${id}:${mimeType}:${base64}`);
+                },
                 /** @param {boolean} isError */
                 endExecution(isError) {
                     transcript.push(`tool:end:${id}:${isError ? "error" : "ok"}`);
@@ -287,9 +294,38 @@ Deno.test("TUI adapter renders display images from read tool results", () => {
     assertEquals(transcript, [
         "tool:start:tool-1:read:read image.png",
         "tool:update:tool-1:Read image file [image/png]",
+        "tool:image:tool-1:image/png:abc",
         "tool:end:tool-1:ok",
-        "image:image/png:abc",
     ]);
+});
+
+Deno.test("TUI adapter keeps standalone image fallback when a tool block is hidden", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("hidden-tool-image-display");
+    const { transcript, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.TOOL_START,
+        toolCallId: "hidden-1",
+        toolName: "task_completed",
+        title: "task_completed",
+        kind: "execute",
+    });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.TOOL_END,
+        toolCallId: "hidden-1",
+        toolName: "task_completed",
+        title: "task_completed",
+        kind: "execute",
+        content: [{ type: "image", data: "abc", mimeType: "image/png" }],
+        output: "done",
+        details: null,
+        isError: false,
+        durationMs: 10,
+    });
+    adapter.dispose();
+
+    assertEquals(transcript, ["image:image/png:abc"]);
 });
 
 Deno.test("TUI adapter updates validation panel only for structured progress and clears terminal panel on next user message", () => {

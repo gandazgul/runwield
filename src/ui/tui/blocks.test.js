@@ -19,6 +19,7 @@ import {
     SystemMessageBlock,
     ThinkingBlock,
     ToolExecutionBlock,
+    ToolExecutionGroupBlock,
     UserPromptBlock,
     ValidationHandoffBlock,
 } from "./blocks.js";
@@ -534,6 +535,76 @@ Deno.test("ToolExecutionBlock expansion and truncation logic", () => {
 
     // The expanded render should be taller than the collapsed render
     assertEquals(expandedLines.length > collapsedLines.length, true);
+});
+
+Deno.test("ToolExecutionGroupBlock renders one compact row per pending, success, and error call", () => {
+    const w = 80;
+    const group = new ToolExecutionGroupBlock();
+    const pending = new ToolExecutionBlock("bash", "$ sleep 1");
+    const success = new ToolExecutionBlock("read", "read docs/domain-language.md");
+    const error = new ToolExecutionBlock("code_search", "code_search ToolExecution");
+
+    success.endExecution(false, 120);
+    error.endExecution(true, 80);
+    group.addBlock(pending);
+    group.addBlock(success);
+    group.addBlock(error);
+
+    const lines = group.render(w);
+    assertEquals(lines.length, 5);
+    assertBlockBackground(lines, w, "ToolExecutionGroupBlock(compact)");
+    assertEquals(stripAnsi(lines[0]).trim(), "");
+    assertEquals(stripAnsi(lines[1]).startsWith("  $ sleep 1"), true);
+    assertEquals(stripAnsi(lines[4]).trim(), "");
+    assertEquals(stripAnsi(lines.join("\n")).includes("Elapsed time:"), false);
+    assertEquals(stripAnsi(lines.join("\n")).includes("Took 0.1s"), true);
+
+    const bgCodes = lines.map((line) => line.match(/^\x1b\[(?:48;2;\d+;\d+;\d+|48;5;\d+)m/)?.[0]);
+    assertEquals(new Set(bgCodes.slice(1, 4)).size, 3);
+    assertEquals(bgCodes[0], bgCodes[2]);
+    assertEquals(bgCodes[4], bgCodes[2]);
+});
+
+Deno.test("ToolExecutionGroupBlock keeps long multiline compact titles on one physical row", () => {
+    const w = 30;
+    const group = new ToolExecutionGroupBlock();
+    const block = new ToolExecutionBlock("bash", "first line\nsecond line with enough text to overflow");
+    group.addBlock(block);
+
+    const lines = group.render(w);
+
+    assertEquals(lines.length, 3);
+    assertBlockBackground(lines, w, "ToolExecutionGroupBlock(narrow title)");
+    assertEquals(lines[1].includes("\n"), false);
+    assertEquals(stripAnsi(lines[1]).includes("second"), true);
+});
+
+Deno.test("ToolExecutionGroupBlock expands complete output and images, then collapses them", () => {
+    const w = 100;
+    const group = new ToolExecutionGroupBlock();
+    const block = new ToolExecutionBlock("read", "read image.md");
+    for (let i = 0; i < 10; i++) block.appendOutput(`line ${i}\n`);
+    block.appendDisplayImage(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "image/png",
+    );
+    block.endExecution(false, 20);
+    group.addBlock(block);
+
+    const compact = stripAnsi(group.render(w).join("\n"));
+    assertEquals(compact.includes("line 0"), false);
+    assertEquals(compact.includes("image/png"), false);
+
+    group.setExpanded(true);
+    const expanded = stripAnsi(group.render(w).join("\n"));
+    assertEquals(expanded.includes("line 0"), true);
+    assertEquals(expanded.includes("line 9"), true);
+    assertEquals(expanded.includes("iVBORw0KGgo"), true);
+
+    group.setExpanded(false);
+    const collapsed = stripAnsi(group.render(w).join("\n"));
+    assertEquals(collapsed.includes("line 0"), false);
+    assertEquals(collapsed.includes("image/png"), false);
 });
 
 // ─── PromptSelectBlock ───────────────────────────────────────────────────────
