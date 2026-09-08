@@ -1,3 +1,4 @@
+import type { SequenceReviewDocument } from "../../shared/workflow/sequence-review.ts";
 /**
  * @module ui/review/review-launcher
  * Hosts human Plan, code, and artifact review surfaces in Workspace.
@@ -41,6 +42,7 @@ interface ReviewSurfaceServer<TDecision> {
 }
 
 interface PlanReviewPayload {
+    sequenceDocuments?: SequenceReviewDocument[];
     plan: string;
     planPath?: string;
     previousPlan?: string;
@@ -72,6 +74,7 @@ export interface ReviewConversation {
 }
 
 interface PlanReviewSurfaceOptions {
+    sequenceDocuments?: SequenceReviewDocument[];
     cwd: string;
     plan: string;
     planPath?: string;
@@ -288,6 +291,7 @@ function workspaceServer<TDecision>(
 
 export async function startPlanReviewSurface<TDecision = ReviewDecisionValue>({
     cwd,
+    sequenceDocuments,
     plan,
     planPath,
     previousPlan,
@@ -306,6 +310,7 @@ export async function startPlanReviewSurface<TDecision = ReviewDecisionValue>({
     const executionPolicy = policy.ok ? policy.policy : undefined;
     const resolvedAgentLabel = agentLabel || reviewConversation?.agentLabel || "Planner";
     const reviewPayload = {
+        sequenceDocuments,
         plan,
         planPath,
         ...(previousPlan && { previousPlan }),

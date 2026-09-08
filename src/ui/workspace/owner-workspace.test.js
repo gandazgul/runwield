@@ -774,3 +774,76 @@ Deno.test("owner Workspace exposes read-only Project Plan progress route and API
         await Deno.remove(dir, { recursive: true });
     }
 });
+
+Deno.test("owner Workspace reviews a complete Sequence and rejects stale sibling evidence", async () => {
+    const { prepareSequenceReview } = await import("../../shared/workflow/sequence-review.ts");
+    const { WorkspaceSessionContinuationService } = await import("./server/session-continuation.js");
+    const dir = await Deno.makeTempDir({ prefix: "runwield-owner-sequence-review-" });
+    const root = `${dir}/project`;
+    await Deno.mkdir(root);
+    const store = openOwnerCoordinationStore({ dbPath: `${dir}/owner.sqlite3` });
+    try {
+        await savePlan(root, "sequence", "# Sequence", {
+            classification: "PROJECT",
+            type: "sequence",
+            status: "draft",
+        });
+        for (const [index, name] of ["first", "second"].entries()) {
+            await savePlan(root, `sequence/${name}`, `# ${name}`, {
+                classification: "PLANNED_CHANGE",
+                status: "draft",
+                parentPlan: "sequence",
+                order: index + 1,
+            });
+        }
+        const project = store.registerProject({ root, displayName: "Sequence project" });
+        const service = new WorkspaceSessionContinuationService({ store });
+        const documents = await prepareSequenceReview(root, "sequence");
+        const answers = [];
+        service.operations.set("sequence-review", {
+            status: "running",
+            projectId: project.projectId,
+            runwieldSessionId: "sequence-session",
+            events: [],
+            liveInteraction: {
+                interactionId: "sequence-interaction",
+                request: {
+                    type: "plan_review",
+                    prompt: "Review Sequence",
+                    planReview: { planId: documents[0].planId, sequenceDocuments: documents },
+                },
+            },
+            answer: { resolve: (answer) => answers.push(answer), reject: () => {} },
+        });
+        const second = documents[2];
+        await Deno.writeTextFile(second.planPath, `${second.plan}\nNew requirements.`);
+        const decision = {
+            approved: true,
+            approvalAction: "run",
+            documents: documents.map((doc) => ({ planId: doc.planId, plan: doc.plan })),
+        };
+        const request = {
+            deviceId: "sequence-device",
+            projectId: project.projectId,
+            operationId: "sequence-review",
+            interactionId: "sequence-interaction",
+            runwieldSessionId: "sequence-session",
+            requestId: "stale-sequence",
+            response: decision,
+        };
+        await assertRejects(() => service.answerInteraction(request), Error, "changed while review was open");
+        assertEquals(answers.length, 0);
+        assertEquals((await loadPlan(root, "sequence/first"))?.attrs.status, "draft");
+        await Deno.writeTextFile(second.planPath, second.plan);
+        await service.answerInteraction({ ...request, requestId: "current-sequence" });
+        assertEquals(answers.length, 1);
+        assertEquals(
+            answers[0]._meta.sequenceDecision.documents.map((doc) => doc.planId),
+            documents.map((doc) => doc.planId),
+        );
+        assertEquals((await loadPlan(root, "sequence"))?.attrs.status, "draft", "the workflow owns the grouped commit");
+    } finally {
+        store.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});

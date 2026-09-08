@@ -1,3 +1,4 @@
+import { isEpicPlan, projectPlanType } from "../../shared/project-plan.ts";
 /**
  * @module cmd/load-plan
  * Load-plan command implementation. Loads a saved Plan from disk and continues
@@ -453,7 +454,8 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
         // `session.activateForPlan` right before their workflow work begins.
 
         const triageMeta = plan.attrs;
-        const agentName = triageMeta.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
+        projectPlanType(triageMeta);
+        const agentName = isEpicPlan(triageMeta) ? AGENTS.ARCHITECT : AGENTS.PLANNER;
         const planFlowRestoreAgent = selectPlanFlowRestoreAgent(initialAgentName, agentName);
         /** @param {string} targetPlanName */
         const loadAnotherPlan = async (targetPlanName: string) => {

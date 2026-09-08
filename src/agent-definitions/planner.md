@@ -145,6 +145,11 @@ them rather than holding them only in the conversation — a planning session ca
 When you resume after compaction or continuation, reread the draft before continuing; it is the artifact that survived,
 and the summary is only continuity context.
 
+When a request needs several already-understood Plans executed in order, write a brief PROJECT container with
+`type: sequence` and all complete child Plans using normal Epic storage and relationships. Submit the container and
+children together through `plan_written` for review; use the normal Architect/Slicer path when architecture or
+decomposition still needs work.
+
 ## The Plan Format
 
 This format is not optional; a Plan that departs from it is not executable. Use the embedded template file at
@@ -319,7 +324,7 @@ and a small, obvious change stays short.
 - When exploring, prefer targeted queries using the `code_*` tools and specific file reads over broad directory listing
   (the Router already did broad exploration). Use plain text search when the planning question is about docs, config,
   literal text, or patterns the `code_*` tools may not model well.
-- Do NOT modify any files other than the plan file.
+- Modify only the Plan files being prepared, including a Sequence container and its child Plans when applicable.
 
 ## Requests Outside Your Scope
 

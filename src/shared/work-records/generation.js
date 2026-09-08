@@ -8,7 +8,7 @@ import {
     compareChildPlansByOrder,
     ensurePlanIdentity,
     isChildFeaturePlan,
-    isEpicPlan,
+    isProjectPlan,
     listArchivedPlans,
     listPlans,
     loadArchivedPlan,
@@ -197,7 +197,7 @@ export function parseRecorderSections(text) {
  * @returns {"verified"|"closed_without_verification"|"user_verified"|"done_enough"|""}
  */
 export function deriveWorkRecordCompletionMode(source) {
-    if (isEpicPlan(source.attrs) && source.attrs.epicCompletionMode === "done_enough") return "done_enough";
+    if (isProjectPlan(source.attrs) && source.attrs.epicCompletionMode === "done_enough") return "done_enough";
     if (source.attrs.status === "closed_without_verification") return "closed_without_verification";
     if (source.attrs.status === "user_verified") return "user_verified";
     if (source.attrs.status === "validated" || source.attrs.status === "verified") return "verified";
@@ -209,7 +209,7 @@ export function deriveWorkRecordCompletionMode(source) {
  * @returns {"planned_change"|"epic"|""}
  */
 export function deriveWorkRecordScope(source) {
-    if (isEpicPlan(source.attrs)) return "epic";
+    if (isProjectPlan(source.attrs)) return "epic";
     if (isPlannedChangeClassification(source.attrs.classification) && !isChildFeaturePlan(source)) {
         return "planned_change";
     }
@@ -329,7 +329,7 @@ export function buildActiveWorkRecordSource(name, loaded) {
  */
 export function attachEpicChildren(sources) {
     return sources.map((source) => {
-        if (!isEpicPlan(source.attrs)) return source;
+        if (!isProjectPlan(source.attrs)) return source;
         const children = sources.filter((candidate) =>
             isPlannedChangeClassification(candidate.attrs.classification) && candidate.attrs.parentPlan === source.name
         ).sort(compareChildPlansByOrder);

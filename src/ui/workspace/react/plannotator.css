@@ -1527,3 +1527,101 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
         box-shadow: none;
     }
 }
+
+/* Sequence tabs retain document state while one shared review header stays active. */
+.rw-sequence-review,
+.rw-sequence-review > .rw-react-tabs {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+}
+.rw-sequence-review > .rw-react-tabs > .tabs {
+    display: flex;
+    flex: 0 0 auto;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--rw-border);
+}
+.rw-sequence-review .rw-react-tabs-trigger {
+    flex-shrink: 0;
+}
+.rw-sequence-review > .rw-react-tabs > .rw-react-tabs-content {
+    flex: 1;
+    min-height: 0;
+}
+.rw-sequence-review > .rw-react-tabs > .rw-react-tabs-content[hidden] {
+    display: none;
+}
+.rw-sequence-review-scope {
+    color: var(--rw-text-muted);
+    white-space: nowrap;
+}
+
+.rw-sequence-review {
+    height: 100dvh;
+    overflow: hidden;
+}
+.rw-sequence-review.rw-sequence-review-embedded {
+    height: 100%;
+}
+.rw-sequence-review > .rw-react-tabs {
+    gap: 0;
+}
+.rw-sequence-review .rw-react-tabs-content > .rw-plan-review {
+    height: 100%;
+    min-height: 0;
+}
+.rw-sequence-review > .rw-react-tabs > .tabs {
+    margin: 0;
+    border-radius: 0;
+}
+
+.rw-sequence-review > .rw-react-tabs > .tabs {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    max-width: 100%;
+}
+.rw-sequence-review .rw-react-tabs-trigger {
+    max-width: min(24rem, 80vw);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+@media (max-width: 759px) {
+    .rw-plannotator-actions.rw-sequence-review-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        width: 100%;
+        min-width: 0;
+    }
+    .rw-sequence-review-actions .rw-sequence-review-scope {
+        grid-row: 1;
+        grid-column: 1;
+    }
+    .rw-sequence-review-actions .rw-approval-split-menu {
+        grid-row: 1;
+        grid-column: 2;
+    }
+    .rw-sequence-review-actions .rw-plan-review-execution-policy {
+        grid-row: 2;
+        grid-column: 1 / -1;
+        min-width: 0;
+        width: 100%;
+    }
+}
+.workspace-main-shell:has(.rw-sequence-review) {
+    grid-template-columns: minmax(0, 1fr);
+}
+.workspace-main-shell:has(.rw-sequence-review) > main {
+    min-width: 0;
+}
+.rw-sequence-review > .rw-react-tabs > .rw-react-tabs-content {
+    margin-top: 0;
+}
+@media (max-width: 980px) {
+    .rw-sequence-review .rw-plan-review .rw-plannotator-plan-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

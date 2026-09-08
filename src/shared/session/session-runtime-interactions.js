@@ -167,6 +167,7 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
     const interaction = { ...request, id };
     const reviewMeta = request.type === RuntimeInteractionTypes.PLAN_REVIEW && request._meta
         ? {
+            sequenceDocuments: request._meta.sequenceDocuments,
             planId: typeof request._meta.planId === "string" ? request._meta.planId : undefined,
             planName: typeof request._meta.planName === "string" ? request._meta.planName : undefined,
             classification: typeof request._meta.classification === "string" ? request._meta.classification : undefined,

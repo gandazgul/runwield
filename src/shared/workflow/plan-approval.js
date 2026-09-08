@@ -1,3 +1,4 @@
+import { projectPlanType } from "../project-plan.ts";
 /**
  * @module shared/workflow/plan-approval
  * Approval-intent contract shared by Plan Review transport and workflow routing.
@@ -36,10 +37,11 @@ function normalizeActionValue(action) {
  * Return the immediate approval action for a Plan Classification.
  *
  * @param {unknown} classification
+ * @param {string} [type]
  * @returns {PlanApprovalAction}
  */
-export function primaryPlanApprovalActionForClassification(classification) {
-    return normalizePlanClassification(classification) === "PROJECT"
+export function primaryPlanApprovalActionForClassification(classification, type) {
+    return projectPlanType({ classification: normalizePlanClassification(classification), type }) === "epic"
         ? PLAN_APPROVAL_ACTIONS.DECOMPOSE
         : PLAN_APPROVAL_ACTIONS.RUN;
 }
@@ -49,18 +51,22 @@ export function primaryPlanApprovalActionForClassification(classification) {
  * Missing, unknown, or classification-incompatible values intentionally become
  * `later` so approval never grants accidental immediate execution/decomposition.
  *
- * @param {{ classification?: unknown, action?: unknown }} opts
+ * @param {{ classification?: unknown, type?: string, action?: unknown }} opts
  * @returns {PlanApprovalAction}
  */
-export function normalizePlanApprovalAction({ classification, action }) {
+export function normalizePlanApprovalAction({ classification, type, action }) {
     const planClassification = normalizePlanClassification(classification);
     const requestedAction = normalizeActionValue(action);
 
+    const projectType = projectPlanType({ classification: planClassification, type });
     if (requestedAction === PLAN_APPROVAL_ACTIONS.LATER) return PLAN_APPROVAL_ACTIONS.LATER;
-    if (planClassification === "PROJECT" && requestedAction === PLAN_APPROVAL_ACTIONS.DECOMPOSE) {
+    if (projectType === "epic" && requestedAction === PLAN_APPROVAL_ACTIONS.DECOMPOSE) {
         return PLAN_APPROVAL_ACTIONS.DECOMPOSE;
     }
-    if (planClassification === "PLANNED_CHANGE" && requestedAction === PLAN_APPROVAL_ACTIONS.RUN) {
+    if (
+        (planClassification === "PLANNED_CHANGE" || projectType === "sequence") &&
+        requestedAction === PLAN_APPROVAL_ACTIONS.RUN
+    ) {
         return PLAN_APPROVAL_ACTIONS.RUN;
     }
     return PLAN_APPROVAL_ACTIONS.LATER;

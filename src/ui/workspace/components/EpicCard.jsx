@@ -1,7 +1,45 @@
 import { detailHref } from "./PlanCard.jsx";
 import { RunWieldCard } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
-/** @param {any} plan */
+/**
+ * @typedef {Object} ProjectCardChild
+ * @property {string} planId
+ *
+ * @typedef {Object} ProjectCardHealth
+ * @property {ProjectCardChild[]} [held]
+ * @property {ProjectCardChild[]} [failed]
+ * @property {ProjectCardChild[]} [blocked]
+ * @property {ProjectCardChild[]} [missingDependencies]
+ *
+ * @typedef {Object} ProjectCardDragActions
+ * @property {string[]} [allowedTargetStatuses]
+ *
+ * @typedef {Object} ProjectCardActions
+ * @property {ProjectCardDragActions} [dnd]
+ * @property {string[]} [allowedManualTargetStatuses]
+ *
+ * @typedef {Object} ProjectCardData
+ * @property {string} planId
+ * @property {string} planName
+ * @property {string} status
+ * @property {Pick<import("../../../../plan-store.js").PlanFrontMatter, "type">} [attrs]
+ * @property {string} [summary]
+ * @property {string} [heldFromStatus]
+ * @property {string} [heldAt]
+ * @property {string} [holdReason]
+ * @property {ReturnType<typeof import("../../../../plan-store.js").countChildPlanProgress>} [childProgress]
+ * @property {ProjectCardHealth} [childHealth]
+ * @property {ProjectCardActions} [actions]
+ * @property {number} [childCount]
+ * @property {boolean} [doneEnough]
+ *
+ * @typedef {Object} ProjectCardProps
+ * @property {ProjectCardData} epic
+ * @property {URL | string} url
+ * @property {boolean} [draggableCard]
+ */
+
+/** @param {ProjectCardData} plan */
 function holdMetadata(plan) {
     const metadata = [];
     if (plan.heldFromStatus) metadata.push(`held from ${plan.heldFromStatus}`);
@@ -10,8 +48,9 @@ function holdMetadata(plan) {
     return metadata.length ? metadata.join("; ") : "No hold metadata provided.";
 }
 
-/** @param {{ epic: any, url: URL | string, draggableCard?: boolean }} props */
+/** @param {ProjectCardProps} props */
 export function EpicCard({ epic, url, draggableCard = false }) {
+    const label = epic.attrs?.type === "sequence" ? "Sequence" : "Epic";
     const progress = epic.childProgress ||
         { verified: 0, userVerified: 0, total: 0, active: 0, remaining: 0, failed: 0, byStatus: {} };
     const held = epic.childHealth?.held?.length || 0;
@@ -39,7 +78,7 @@ export function EpicCard({ epic, url, draggableCard = false }) {
             <a className="card-hit-area" href={href} aria-label={`Open ${epic.planName} details`}></a>
             <div className="card-header">
                 <div>
-                    <p className="card-kicker">Epic</p>
+                    <p className="card-kicker">{label}</p>
                     <span className="card-title">{epic.planName}</span>
                 </div>
                 {canDrag
@@ -53,13 +92,14 @@ export function EpicCard({ epic, url, draggableCard = false }) {
             {canDrag
                 ? (
                     <span id={`drag-help-${epic.planId}`} className="sr-only">
-                        Drag this Epic Card to an allowed status column: {allowedTargetStatuses.replaceAll(" ", ", ")}.
+                        Drag this {label} Card to an allowed status column:{" "}
+                        {allowedTargetStatuses.replaceAll(" ", ", ")}.
                     </span>
                 )
                 : null}
-            <p>{epic.summary || "No Epic summary provided."}</p>
+            <p>{epic.summary || `No ${label} summary provided.`}</p>
             {epic.status === "on_hold" ? <p className="hold-summary">{holdMetadata(epic)}</p> : null}
-            <div className="progress-meter" aria-label="Epic child progress">
+            <div className="progress-meter" aria-label={`${label} child progress`}>
                 <span>
                     {progress.verified} RunWield / {progress.userVerified || 0} user / {progress.total} complete
                 </span>

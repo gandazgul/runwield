@@ -400,6 +400,7 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
                     return Response.json({
                         agentLabel: reviewConversation.agentLabel,
                         revision: reviewConversation.revision,
+                        sequenceDocuments: reviewPayload.sequenceDocuments,
                         plan: typeof reviewPayload.plan === "string" ? reviewPayload.plan : "",
                         rawPatch: typeof reviewPayload.rawPatch === "string" ? reviewPayload.rawPatch : "",
                         gitRef: typeof reviewPayload.gitRef === "string" ? reviewPayload.gitRef : "",
