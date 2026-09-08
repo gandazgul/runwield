@@ -76,9 +76,15 @@ function makeEventId(entry, eventKind, blockIndex, segmentId = null) {
     return `${entryId}:${eventKind}:${blockIndex}`;
 }
 
-/** @param {string} kind @returns {"warning" | "error"} */
-function claudeBackendStatusLevel(kind) {
-    return kind === "canceled" || kind === "bridge_disconnected" ? "warning" : "error";
+/**
+ * @param {{ kind?: string, backend?: string, afterAcceptedTerminal?: boolean }} status
+ * @returns {"warning" | "error"}
+ */
+function backendStatusLevel(status) {
+    if (status.afterAcceptedTerminal) return "warning";
+    const kind = status.kind || "non_zero_exit";
+    if (kind === "canceled" || kind === "bridge_disconnected" || kind === "cleanup_failed") return "warning";
+    return "error";
 }
 
 /**
@@ -362,15 +368,15 @@ export function createReplayEvents(sessionId, entries, options = {}) {
             continue;
         }
         if (value.type === "custom" && value.customType === "runwield.backend_status") {
-            const kind = typeof value.data?.kind === "string" ? value.data.kind : "non_zero_exit";
-            const message = typeof value.data?.message === "string" ? value.data.message : "Claude CLI backend status.";
+            const backend = typeof value.data?.backend === "string" ? value.data.backend : "cli";
+            const message = typeof value.data?.message === "string" ? value.data.message : "CLI backend status.";
             events.push({
                 ...common,
                 type: RuntimeEventTypes.SYSTEM_STATUS,
                 eventId: makeEventId(value, RuntimeEventTypes.SYSTEM_STATUS, 0, segmentId),
-                messageId: entryMessageId(value, `${sessionId}:claude-backend-status`, segmentId),
+                messageId: entryMessageId(value, `${sessionId}:${backend}-backend-status`, segmentId),
                 message,
-                level: claudeBackendStatusLevel(kind),
+                level: backendStatusLevel(value.data || {}),
             });
             continue;
         }
@@ -679,6 +685,88 @@ export async function syncTranscriptFileAndParent(transcriptPath) {
     }
 }
 
+const AGY_CLI_BACKEND_FACT_MODELS = new Set(["gemini-3.8-flash", "gemini-3.1-pro"]);
+const AGY_CLI_BACKEND_FACT_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+const AGY_CLI_BACKEND_FACT_EFFORTS = new Set(["low", "medium", "high"]);
+
+/** @param {Record<string, unknown>} data @param {string} key */
+function readNonEmptyString(data, key) {
+    const value = data[key];
+    return typeof value === "string" && value ? value : null;
+}
+
+/**
+ * @param {string} model
+ * @param {string} effort
+ * @param {string} backendModel
+ */
+function isVerifiedAgyBackendModel(model, effort, backendModel) {
+    return backendModel === `${model}-${effort}`;
+}
+
+/**
+ * @param {string} model
+ * @param {string} thinkingLevel
+ * @returns {"low" | "medium" | "high" | null}
+ */
+function expectedAgyBackendEffort(model, thinkingLevel) {
+    switch (thinkingLevel) {
+        case "off":
+        case "minimal":
+        case "low":
+            return "low";
+        case "medium":
+            return model === "gemini-3.1-pro" ? "high" : "medium";
+        case "high":
+        case "xhigh":
+        case "max":
+            return "high";
+        default:
+            return null;
+    }
+}
+
+/**
+ * @param {Record<string, unknown>} data
+ * @returns {{ backend: "agy-cli", provider: string, model: string, thinkingLevel: string, effort: string, backendModel: string } | null}
+ */
+function readAgyExecutionBackendFact(data) {
+    const provider = readNonEmptyString(data, "provider");
+    const model = readNonEmptyString(data, "model");
+    const thinkingLevel = readNonEmptyString(data, "thinkingLevel");
+    const effort = readNonEmptyString(data, "effort");
+    const backendModel = readNonEmptyString(data, "backendModel");
+    if (provider !== "agy-cli") return null;
+    if (!model || !AGY_CLI_BACKEND_FACT_MODELS.has(model)) return null;
+    if (!thinkingLevel || !AGY_CLI_BACKEND_FACT_THINKING_LEVELS.has(thinkingLevel)) return null;
+    if (!effort || !AGY_CLI_BACKEND_FACT_EFFORTS.has(effort)) return null;
+    if (effort !== expectedAgyBackendEffort(model, thinkingLevel)) return null;
+    if (!backendModel || !isVerifiedAgyBackendModel(model, effort, backendModel)) return null;
+    return { backend: "agy-cli", provider, model, thinkingLevel, effort, backendModel };
+}
+
+/**
+ * @param {unknown} entry
+ * @returns {{ backend: string, provider: string | null, model: string | null, thinkingLevel: string | null, effort: string | null, backendModel: string | null } | null}
+ */
+function readExecutionBackendFact(entry) {
+    const value = /** @type {{ type?: string, customType?: string, data?: Record<string, unknown> }} */ (entry || {});
+    if (value.type !== "custom" || value.customType !== "runwield.execution_backend") return null;
+    const data = value.data && typeof value.data === "object" ? value.data : null;
+    if (!data) return null;
+    const backend = typeof data.backend === "string" ? data.backend : "";
+    if (backend === "agy-cli") return readAgyExecutionBackendFact(data);
+    if (backend !== "claude-cli") return null;
+    return {
+        backend,
+        provider: typeof data.provider === "string" && data.provider ? data.provider : null,
+        model: typeof data.model === "string" && data.model ? data.model : null,
+        thinkingLevel: typeof data.thinkingLevel === "string" && data.thinkingLevel ? data.thinkingLevel : null,
+        effort: typeof data.effort === "string" && data.effort ? data.effort : null,
+        backendModel: typeof data.backendModel === "string" && data.backendModel ? data.backendModel : null,
+    };
+}
+
 /** @param {unknown[]} entries */
 export function summarizeProjectedEntries(entries) {
     let activeAgent = null;
@@ -687,6 +775,7 @@ export function summarizeProjectedEntries(entries) {
     let model = null;
     let provider = null;
     let thinkingLevel = null;
+    let executionBackend = null;
     const planAssociations = readPlanAssociations(entries);
     for (const entry of entries) {
         const value = /** @type {any} */ (entry || {});
@@ -701,10 +790,21 @@ export function summarizeProjectedEntries(entries) {
         if (value.type === "thinking_level_change" && typeof value.thinkingLevel === "string") {
             thinkingLevel = value.thinkingLevel;
         }
+        const backendFact = readExecutionBackendFact(value);
+        if (backendFact) executionBackend = backendFact;
         const maybeWorkflow = readPersistedWorkflowContext(/** @type {any} */ ({ getEntries: () => [value] }));
         if (maybeWorkflow) workflowContext = maybeWorkflow;
     }
-    return { name, activeAgent, model, provider, thinkingLevel, workflowContext, planAssociations };
+    return {
+        name,
+        activeAgent,
+        model,
+        provider,
+        thinkingLevel,
+        workflowContext,
+        planAssociations,
+        executionBackend,
+    };
 }
 
 /** @param {unknown} value @returns {string} */

@@ -1,3 +1,4 @@
+import { spawnForegroundProcess } from "../../../foreground-process.ts";
 import type { PreparedClaudeCliCommand } from "./command.ts";
 import { ClaudeCliBackendError } from "./failure.ts";
 
@@ -17,41 +18,34 @@ export class DenoClaudeCliProcessPort {
         cwd: string,
         signal?: AbortSignal,
     ): ClaudeCliProcessResult {
-        let child: Deno.ChildProcess;
+        let process: ReturnType<typeof spawnForegroundProcess>;
         try {
-            child = new Deno.Command(command.command, {
+            process = spawnForegroundProcess({
+                command: command.command,
                 args: command.args,
                 cwd,
-                stdin: "piped",
-                stdout: "piped",
-                stderr: "piped",
                 env: command.env,
+                stdinText,
                 signal,
-            }).spawn();
+            });
         } catch (error) {
             if (error instanceof Deno.errors.NotFound) {
                 throw new ClaudeCliBackendError("missing_executable");
             }
             throw error;
         }
-        const writer = child.stdin.getWriter();
-        const stdin = new TextEncoder().encode(stdinText);
-        writer.write(stdin)
-            .then(() => writer.close())
-            .catch(() => undefined);
-        const stderrText = new Response(child.stderr).text();
         return {
             success: true,
             code: 0,
-            stdout: child.stdout,
-            stderrText,
-            completed: child.status,
+            stdout: process.stdout,
+            stderrText: new Response(process.stderr).text(),
+            completed: process.done.then((outcome) => ({
+                success: outcome.terminatedBy === null && outcome.exitCode === 0,
+                code: outcome.exitCode ?? 1,
+                signal: null,
+            })),
             kill() {
-                try {
-                    child.kill("SIGKILL");
-                } catch {
-                    // The child may have already exited.
-                }
+                process.kill();
             },
         };
     }

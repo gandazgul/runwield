@@ -38,6 +38,7 @@
         "@modelcontextprotocol/sdk/client/streamableHttp": "npm:@modelcontextprotocol/sdk@^1.30.0/client/streamableHttp.js",
         "@modelcontextprotocol/sdk/server": "npm:@modelcontextprotocol/sdk@^1.30.0/server",
         "@modelcontextprotocol/sdk/server/webStandardStreamableHttp": "npm:@modelcontextprotocol/sdk@^1.30.0/server/webStandardStreamableHttp.js",
+        "@modelcontextprotocol/sdk/server/stdio": "npm:@modelcontextprotocol/sdk@^1.30.0/server/stdio.js",
         "@modelcontextprotocol/sdk/types": "npm:@modelcontextprotocol/sdk@^1.30.0/types.js",
         "@base-ui/react": "npm:@base-ui/react@^1.7.0",
         "dockview-react": "npm:dockview-react@^8.2.0",

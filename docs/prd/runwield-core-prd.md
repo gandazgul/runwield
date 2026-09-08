@@ -401,6 +401,7 @@ Current requirements:
 - support Pi/API-authenticated model Execution Backends through configured providers
 - support `claude-cli/sonnet`, `claude-cli/opus`, `claude-cli/haiku`, and `claude-cli/fable` as Claude CLI Core
   Execution Backend aliases
+- support Antigravity CLI model selection using an existing Antigravity sign-in
 - support OpenAI-compatible provider discovery through `/models`
 - support local/custom providers through `models.json`
 - support vision fallback configuration for pasted images when the active model is text-only
@@ -414,6 +415,13 @@ onboarding.
 Users need an honest account of what activity a backend can display and replay. Backend coverage and implementation gaps
 belong in its technical documentation and Plans. RunWield Connect is the separate mode where an external host, such as
 Claude Code, owns the conversation and model calls.
+
+Antigravity CLI users can select the supported Flash and Pro model families and their thinking level from normal model
+controls. Setup uses their installed CLI and existing sign-in. Unsupported selections and attachments explain what must
+change before a turn starts. Session history shows the selected model, thinking level, and Antigravity backend
+independently of unsent composer changes. Replay includes assistant messages and RunWield tool activity; the CLI's
+internal activity is not available in RunWield history. Configuration details are in
+[Settings](../settings.md#antigravity-cli).
 
 Future/open requirements:
 

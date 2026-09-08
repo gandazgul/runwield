@@ -62,9 +62,10 @@ it is not shared project knowledge or a source for cross-Session Agent retrieval
 interaction results as committed transcript history; a live unanswered interaction is not committed history until its
 result is written. _Avoid_: Work Record, planning memory, shared conversation
 
-**Execution Backend**: The model-selected runtime that executes one RunWield Agent turn, such as Pi AgentSession or
-Claude CLI. It is distinct from a model provider and from an Agent Session object. Changing Execution Backend does not
-transfer Session Transcript, workflow, lifecycle, or replay authority away from RunWield.
+**Execution Backend**: The model-selected runtime that executes one RunWield Agent turn, such as Pi AgentSession, Claude
+CLI, or Antigravity CLI. It is distinct from a model provider and from an Agent Session object. Changing Execution
+Backend does not transfer Session Transcript, Workflow Tool Event, Plan Lifecycle, or replay authority away from
+RunWield.
 
 **Session Transcript Segment**: An ordered durable portion of a Session Transcript that supplies one isolated
 model-history context while remaining part of the Session's continuous user-visible history. _Avoid_: Sub-session, new
@@ -592,11 +593,13 @@ _Avoid_: settings key, Custom Tool definition
 **MCP Tool**: A tool discovered from a trusted MCP server. RunWield gives it a stable `mcp_<server>_<tool>` name and
 keeps the original server and tool names in the description. _Avoid_: RunWield built-in tool, Custom Tool
 
-**Bridged Tool**: A RunWield Tool exposed to one Claude CLI turn over the authenticated loopback MCP bridge. Lifecycle
-Bridged Tools can advance workflow state and keep the legacy `runwield_` aliases for `plan_written`, `task_completed`,
-`review_complete`, and `triage_report`. Capability Bridged Tools do memory, Cymbal code intelligence, web access, Work
-Record, interview, edit, MCP, or caller-supplied work and use their internal names, avoiding new aliases such as
-`runwield_memory` or `runwield_code_search`. _Avoid_: Claude native tool, MCP plugin
+**Bridged Tool**: A RunWield Tool exposed to an eligible external CLI Execution Backend turn over an authenticated MCP
+bridge. Claude CLI and Antigravity CLI are the current examples. Lifecycle Bridged Tools can advance workflow state and
+keep the shared external `runwield_` aliases for `plan_written`, `task_completed`, and `review_complete`; Claude CLI
+also keeps its existing `runwield_triage_report` alias. Capability Bridged Tools do memory, Cymbal code intelligence,
+web access, Work Record, interview, edit, MCP, or caller-supplied work and use their internal names, avoiding new
+aliases such as `runwield_memory` or `runwield_code_search`. A Session Transcript can display and audit the tool
+exchange, but a Workflow Tool Event remains the workflow authority. _Avoid_: CLI native tool, MCP plugin
 
 **Memory Tool**: The `memory` Custom Tool that recalls, stores, or deletes Mnemoteca memories through an explicit
 `action`. `action: "recall"` searches project and global memories together and labels each result group.

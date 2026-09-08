@@ -209,7 +209,7 @@ export type IsolatedAgentSessionOutcome =
         outcome: "completed";
         reviewOutcome: ValidationReviewOutcome | null;
         usedDiffTool: boolean;
-        trustedClaudeMcpReview: boolean;
+        trustedOpaqueMcpReview: boolean;
     }
     | {
         kind: "feedback_engineer";

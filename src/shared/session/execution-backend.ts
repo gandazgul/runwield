@@ -1,18 +1,27 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { ClaudeCliExecutionSession } from "./backends/claude-cli/execution-session.ts";
+import type { AgyCliExecutionSession } from "./backends/agy-cli/execution-session.ts";
 
 export interface PiExecutionSession {
     kind: "pi";
     session: AgentSession;
+    dispose(): void;
 }
 
 export interface ClaudeExecutionSession {
     kind: "claude-cli";
     session: ClaudeCliExecutionSession;
+    dispose(): void | Promise<void>;
 }
 
-export type ExecutionSession = PiExecutionSession | ClaudeExecutionSession;
+export interface AgyExecutionSession {
+    kind: "agy-cli";
+    session: AgyCliExecutionSession;
+    dispose(): Promise<void>;
+}
+
+export type ExecutionSession = PiExecutionSession | ClaudeExecutionSession | AgyExecutionSession;
 
 export interface ExecutionRunOptions {
     userRequest: string;
@@ -21,11 +30,15 @@ export interface ExecutionRunOptions {
 }
 
 export function createPiExecutionSession(session: AgentSession): PiExecutionSession {
-    return { kind: "pi", session };
+    return { kind: "pi", session, dispose: () => session.dispose() };
 }
 
 export function createClaudeExecutionSession(session: ClaudeCliExecutionSession): ClaudeExecutionSession {
-    return { kind: "claude-cli", session };
+    return { kind: "claude-cli", session, dispose: () => session.dispose() };
+}
+
+export function createAgyExecutionSession(session: AgyCliExecutionSession): AgyExecutionSession {
+    return { kind: "agy-cli", session, dispose: () => session.dispose() };
 }
 
 export function getRootExecutionMessages(rootSession: ExecutionSession | AgentSession | null): AgentMessage[] {
@@ -36,14 +49,17 @@ export function getRootExecutionMessages(rootSession: ExecutionSession | AgentSe
     return rootSession.agent.state.messages;
 }
 
-export function getExecutionSteeringTarget(rootSession: ExecutionSession): AgentSession | ClaudeCliExecutionSession {
+export function getExecutionSteeringTarget(
+    rootSession: ExecutionSession,
+): AgentSession | ClaudeCliExecutionSession | AgyCliExecutionSession {
     return rootSession.session;
 }
 
 export function disposeExecutionSession(rootSession: ExecutionSession): void | Promise<void> {
-    return rootSession.session.dispose();
+    return rootSession.dispose();
 }
 
 export function isExecutionSession(rootSession: ExecutionSession | AgentSession): rootSession is ExecutionSession {
-    return "kind" in rootSession && (rootSession.kind === "pi" || rootSession.kind === "claude-cli");
+    return "kind" in rootSession &&
+        (rootSession.kind === "pi" || rootSession.kind === "claude-cli" || rootSession.kind === "agy-cli");
 }

@@ -133,17 +133,16 @@ function matchesActiveWorkflow(event: AcceptedTaskCompletionEvent, activeWorkflo
  * Whether the owning steering-target session is the root's own session.
  *
  * Pi roots store the AgentSession directly as both steering target and root
- * session, so a plain identity comparison holds. Claude CLI roots store the
- * `{ kind: "claude-cli", session }` wrapper as the root session while the
- * steering target is the inner execution session, so the wrapper must be
- * unwrapped before comparing.
+ * session, so a plain identity comparison holds. External CLI roots store a
+ * `{ kind, session }` wrapper as the root session while the steering target is
+ * the inner execution session, so the wrapper must be unwrapped before comparing.
  */
 function isRootOwnedSession(owningSession: OwningSession, rootSession: OwningSession): boolean {
     if (owningSession === null || owningSession === rootSession) return true;
     if (!owningSession || !rootSession) return false;
     if (typeof owningSession !== "object" || typeof rootSession !== "object") return false;
     const wrapper = rootSession as { kind?: unknown; session?: unknown };
-    return wrapper.kind === "claude-cli" && wrapper.session === owningSession;
+    return (wrapper.kind === "claude-cli" || wrapper.kind === "agy-cli") && wrapper.session === owningSession;
 }
 
 /**

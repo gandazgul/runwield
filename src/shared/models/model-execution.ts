@@ -24,6 +24,6 @@ export function isUnsupportedModelExecutionBackendError(
 export function assertModelExecutionBackendSupported(model: RunWieldModel | undefined): void {
     if (!model) return;
     const backend = model.executionBackend || "pi";
-    if (backend === "pi" || backend === "claude-cli") return;
+    if (backend === "pi" || backend === "claude-cli" || backend === "agy-cli") return;
     throw new UnsupportedModelExecutionBackendError(model);
 }

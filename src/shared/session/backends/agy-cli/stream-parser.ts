@@ -1,3 +1,6 @@
+import type { AgyCliBackendStatusKind } from "./failure.ts";
+import { isAgyAuthFailure, isAgyMcpUnavailable, isAgyPermissionDenied } from "./failure.ts";
+
 export interface AgyCliUsage {
     inputTokens: number;
     outputTokens: number;
@@ -5,9 +8,16 @@ export interface AgyCliUsage {
 
 export interface AgyCliMetadata {
     agent?: string;
+    model?: string;
     sessionId?: string;
     usage: AgyCliUsage;
-    toolInfo: string[];
+    toolInfoCount: number;
+    status: string;
+    errorText: string;
+    deniedActions: boolean;
+    authFailed: boolean;
+    permissionDenied: boolean;
+    mcpUnavailable: boolean;
 }
 
 export interface AgyCliParseResult {
@@ -32,12 +42,31 @@ interface JsonRecord {
 type JsonValue = JsonScalar | JsonArray | JsonRecord;
 
 type AgyCliStreamEvent =
-    | { kind: "init"; agent?: string; sessionId?: string }
+    | { kind: "init"; agent?: string; model?: string; sessionId?: string }
     | { kind: "text_delta"; text: string }
-    | { kind: "tool_info"; text: string }
-    | { kind: "result"; text: string; usage: AgyCliUsage; sessionId?: string };
+    | { kind: "tool_info" }
+    | {
+        kind: "result";
+        text: string;
+        usage: AgyCliUsage;
+        model?: string;
+        sessionId?: string;
+        status: string;
+        errorText: string;
+        deniedActions: boolean;
+    };
 
 const emptyUsage: AgyCliUsage = { inputTokens: 0, outputTokens: 0 };
+
+export class AgyCliStreamError extends Error {
+    readonly kind: Extract<AgyCliBackendStatusKind, "malformed_stream" | "empty_result" | "result_mismatch">;
+
+    constructor(kind: AgyCliStreamError["kind"], message: string) {
+        super(message);
+        this.name = "AgyCliStreamError";
+        this.kind = kind;
+    }
+}
 
 function isJsonRecord(value: JsonValue | undefined): value is JsonRecord {
     return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -74,11 +103,27 @@ function readResultText(record: JsonRecord): string {
     return asString(result?.response) || asString(result?.text) || asString(result?.output);
 }
 
-function readToolInfo(record: JsonRecord): string {
-    const direct = asString(record.tool_info) || asString(record.text) || asString(record.message);
+function readStatus(record: JsonRecord, result: JsonRecord): string {
+    return (asString(result.status) || asString(record.status) || asString(result.outcome) ||
+        asString(record.outcome) ||
+        "success").toLowerCase();
+}
+
+function readErrorText(record: JsonRecord, result: JsonRecord): string {
+    const direct = asString(result.error) || asString(record.error) || asString(result.message) ||
+        asString(record.message);
     if (direct) return direct;
-    const toolInfo = isJsonRecord(record.tool_info) ? record.tool_info : undefined;
-    return asString(toolInfo?.name) || asString(toolInfo?.title) || JSON.stringify(record);
+    const error = isJsonRecord(result.error) ? result.error : isJsonRecord(record.error) ? record.error : undefined;
+    return asString(error?.message) || asString(error?.text);
+}
+
+function hasItems(value: JsonValue | undefined): value is JsonArray {
+    return Array.isArray(value) && value.length > 0;
+}
+
+function hasDeniedActions(record: JsonRecord, result: JsonRecord): boolean {
+    return hasItems(record.denied_actions) || hasItems(result.denied_actions) ||
+        hasItems(record.deniedActions) || hasItems(result.deniedActions);
 }
 
 export function parseAgyCliJsonLine(line: string): AgyCliStreamEvent | null {
@@ -88,7 +133,7 @@ export function parseAgyCliJsonLine(line: string): AgyCliStreamEvent | null {
     try {
         parsed = JSON.parse(trimmed) as JsonValue;
     } catch {
-        throw new Error("Agy CLI emitted malformed JSON output");
+        throw new AgyCliStreamError("malformed_stream", "Agy CLI emitted malformed JSON output");
     }
     if (!isJsonRecord(parsed)) return null;
     const type = asString(parsed.type) || asString(parsed.event);
@@ -97,6 +142,7 @@ export function parseAgyCliJsonLine(line: string): AgyCliStreamEvent | null {
         return {
             kind: "init",
             agent: asString(init.agent) || undefined,
+            model: asString(init.model) || asString(parsed.model) || undefined,
             sessionId: asString(parsed.conversation_id) || asString(init.conversation_id) ||
                 asString(init.session_id) ||
                 asString(init.sessionId) || undefined,
@@ -108,9 +154,7 @@ export function parseAgyCliJsonLine(line: string): AgyCliStreamEvent | null {
             const text = readTextDelta(parsed);
             return text ? { kind: "text_delta", text } : null;
         }
-        if (updateType === "tool_info") {
-            return { kind: "tool_info", text: readToolInfo(parsed) };
-        }
+        if (updateType === "tool_info") return { kind: "tool_info" };
         const nested = isJsonRecord(parsed.step_update) ? parsed.step_update : undefined;
         if (nested) {
             const nestedType = asString(nested.type) || asString(nested.update_type) || asString(nested.kind);
@@ -118,20 +162,24 @@ export function parseAgyCliJsonLine(line: string): AgyCliStreamEvent | null {
                 const text = readTextDelta(nested);
                 return text ? { kind: "text_delta", text } : null;
             }
-            if (nestedType === "tool_info") return { kind: "tool_info", text: readToolInfo(nested) };
+            if (nestedType === "tool_info") return { kind: "tool_info" };
         }
         return null;
     }
     if (type === "result") {
         const result = isJsonRecord(parsed.result) ? parsed.result : parsed;
-        const text = readResultText(parsed);
+        const errorText = readErrorText(parsed, result);
         return {
             kind: "result",
-            text,
+            text: readResultText(parsed),
             usage: readUsage(result.usage || parsed.usage),
+            model: asString(result.model) || asString(parsed.model) || undefined,
             sessionId: asString(parsed.conversation_id) || asString(result.conversation_id) ||
                 asString(result.session_id) ||
                 asString(result.sessionId) || undefined,
+            status: readStatus(parsed, result),
+            errorText,
+            deniedActions: hasDeniedActions(parsed, result),
         };
     }
     return null;
@@ -148,13 +196,19 @@ export async function parseAgyCliStream(
     let rawResultText = "";
     let sawResult = false;
     let agent: string | undefined;
+    let model: string | undefined;
     let sessionId: string | undefined;
     let usage = emptyUsage;
-    const toolInfo: string[] = [];
+    let status = "success";
+    let errorText = "";
+    let deniedActions = false;
+    let toolInfoCount = 0;
+    let streamError: AgyCliStreamError | null = null;
 
     const applyEvent = (event: AgyCliStreamEvent) => {
         if (event.kind === "init") {
             if (event.agent) agent = event.agent;
+            if (event.model) model = event.model;
             if (event.sessionId) sessionId = event.sessionId;
             return;
         }
@@ -164,12 +218,16 @@ export async function parseAgyCliStream(
             return;
         }
         if (event.kind === "tool_info") {
-            toolInfo.push(event.text);
+            toolInfoCount += 1;
             return;
         }
         sawResult = true;
         rawResultText = event.text;
         usage = event.usage;
+        status = event.status;
+        errorText = event.errorText;
+        deniedActions = event.deniedActions;
+        if (event.model) model = event.model;
         if (event.sessionId) sessionId = event.sessionId;
     };
 
@@ -180,25 +238,61 @@ export async function parseAgyCliStream(
         const lines = buffered.split(/\r?\n/);
         buffered = lines.pop() || "";
         for (const line of lines) {
-            const event = parseAgyCliJsonLine(line);
+            let event: AgyCliStreamEvent | null = null;
+            try {
+                event = parseAgyCliJsonLine(line);
+            } catch (error) {
+                if (!streamError) {
+                    streamError = error instanceof AgyCliStreamError
+                        ? error
+                        : new AgyCliStreamError("malformed_stream", String(error));
+                }
+            }
             if (event) applyEvent(event);
         }
     }
     buffered += decoder.decode();
     if (buffered.trim()) {
-        const event = parseAgyCliJsonLine(buffered);
+        let event: AgyCliStreamEvent | null = null;
+        try {
+            event = parseAgyCliJsonLine(buffered);
+        } catch (error) {
+            if (!streamError) {
+                streamError = error instanceof AgyCliStreamError
+                    ? error
+                    : new AgyCliStreamError("malformed_stream", String(error));
+            }
+        }
         if (event) applyEvent(event);
     }
+    if (streamError) throw streamError;
     if (!sawResult) {
-        if (!visibleText) throw new Error("Agy CLI stream ended without output");
-        throw new Error("Agy CLI stream ended without a terminal result");
+        if (!visibleText) throw new AgyCliStreamError("empty_result", "Agy CLI stream ended without output");
+        throw new AgyCliStreamError("empty_result", "Agy CLI stream ended without a terminal result");
     }
-    if (rawResultText !== visibleText) {
-        throw new Error("Agy CLI terminal result did not match streamed assistant text");
+    const successfulStatus = !status || status === "success" || status === "ok" || status === "completed";
+    if (successfulStatus && !rawResultText) {
+        throw new AgyCliStreamError("empty_result", "Agy CLI stream ended with an empty terminal result");
     }
+    if (successfulStatus && visibleText && rawResultText !== visibleText) {
+        throw new AgyCliStreamError("result_mismatch", "Agy CLI terminal result did not match streamed assistant text");
+    }
+    const combinedText = `${status}\n${errorText}`;
     return {
         text: rawResultText,
         rawResultText,
-        metadata: { ...(agent ? { agent } : {}), ...(sessionId ? { sessionId } : {}), usage, toolInfo },
+        metadata: {
+            ...(agent ? { agent } : {}),
+            ...(model ? { model } : {}),
+            ...(sessionId ? { sessionId } : {}),
+            usage,
+            toolInfoCount,
+            status,
+            errorText,
+            deniedActions,
+            authFailed: isAgyAuthFailure(combinedText),
+            permissionDenied: deniedActions || isAgyPermissionDenied(combinedText),
+            mcpUnavailable: isAgyMcpUnavailable(combinedText),
+        },
     };
 }
