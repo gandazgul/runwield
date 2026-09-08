@@ -91,8 +91,12 @@ or construct a writable Pi manager. Event pagination is a display concern: a suc
 page is not corrupt history. Writable hydration uses the current segment; the browser need not render every historical
 event before Core can accept a new request.
 
-Open readers use committed generations to discover saved changes without replaying model calls or tool effects. The
-owning adapter receives live events. Cross-process live token streaming is not supplied by file projection.
+Open readers use committed generations to discover saved changes without replaying model calls or tool effects. During
+an operation, Core exposes a private local socket identified by the existing Session and operation IDs. Workspace reads
+Core's live events, pending question, and steering queue through that socket. Answers, steering messages, and Stop reach
+the same running agent. The socket closes with the operation; it stores no conversation or recovery state. Both surfaces
+run as the same OS user on the same machine or inside the same container. File projection supplies saved history; the
+socket supplies live activity.
 
 Pi persists completed tool calls and interaction answers. A pending interaction remains an in-memory wait in its live
 process. An answer must reach that process to continue the wait; it does not require a separate durable interaction

@@ -13,7 +13,6 @@ import { formatTaskCompletedMarkdown, readManualQaChecklistMessage } from "./wor
 import { isPathInside, readCatalogSafeRootSessionLocator } from "./root-session.js";
 import { namedInvocationDisplayText, namedInvocationImageReferences } from "./named-invocation.ts";
 import { getAgentDisplayName, normalizeAgentInternalName } from "./agents.js";
-import { readUnresolvedSessionAttention } from "./session-attention.ts";
 
 /** @param {unknown} value @returns {string} */
 function toReplayText(value) {
@@ -688,8 +687,6 @@ export function summarizeProjectedEntries(entries) {
     let model = null;
     let provider = null;
     let thinkingLevel = null;
-    const attention = readUnresolvedSessionAttention(entries);
-    const latestAttention = attention.length ? attention[attention.length - 1] : null;
     const planAssociations = readPlanAssociations(entries);
     for (const entry of entries) {
         const value = /** @type {any} */ (entry || {});
@@ -707,17 +704,7 @@ export function summarizeProjectedEntries(entries) {
         const maybeWorkflow = readPersistedWorkflowContext(/** @type {any} */ ({ getEntries: () => [value] }));
         if (maybeWorkflow) workflowContext = maybeWorkflow;
     }
-    return {
-        name,
-        activeAgent,
-        model,
-        provider,
-        thinkingLevel,
-        workflowContext,
-        attention,
-        latestAttention,
-        planAssociations,
-    };
+    return { name, activeAgent, model, provider, thinkingLevel, workflowContext, planAssociations };
 }
 
 /** @param {unknown} value @returns {string} */

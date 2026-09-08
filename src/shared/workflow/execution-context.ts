@@ -370,6 +370,24 @@ export async function resolveValidationExecutionContext({
             `RunWield found that "${planName}" should validate from a worktree, but the recorded worktree identity is incomplete. Use /load-plan ${planName}, inspect the recovery report, then choose "Delete/recreate worktree and start over" or "Re-open for review".`,
         );
     }
+    let attachedWorktrees: AttachedWorktree[];
+    try {
+        attachedWorktrees = await listAttachedWorktrees(projectRoot);
+    } catch {
+        return blocked(
+            "worktree_inspection_failed",
+            "Git could not verify the recorded execution worktree. Recovery was left unchanged.",
+        );
+    }
+    const primaryPath = await realPath(attachedWorktrees[0]?.path);
+    const recordedPath = await realPath(worktreePath);
+    const branchCheckout = attachedWorktrees.find((entry) => entry.branch === worktreeBranch);
+    if (primaryPath && (recordedPath === primaryPath || await realPath(branchCheckout?.path) === primaryPath)) {
+        return blocked(
+            "primary_checkout_is_not_execution_worktree",
+            "Recovery cannot use the primary checkout as an execution worktree. Its branch and files were left unchanged.",
+        );
+    }
     const authoritativePlan = await loadPlan(worktreePath, planName).catch(() => null);
     if (authoritativePlan) {
         plan = authoritativePlan;
@@ -457,7 +475,6 @@ export async function resolveValidationExecutionContext({
             `RunWield found the worktree for "${planName}", but it cannot recover the execution baseline needed for validation. Use /load-plan ${planName}, inspect the recovery report, then choose "Delete/recreate worktree and start over" or "Re-open for review".`,
         );
     }
-    const attachedWorktrees = await listAttachedWorktrees(projectRoot);
     const attachedForBranch = attachedWorktrees.filter((entry) => entry.branch === worktreeBranch);
     let canonicalRegistryPath = await realPath(registryEntry.path);
     let canonicalWorktreePath = await realPath(worktreePath);

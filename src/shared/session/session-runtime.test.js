@@ -9,12 +9,7 @@ import { SessionHost } from "./session-host.js";
 import { switchActiveAgent } from "./agent-switching.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { RuntimeInteractionTypes } from "./session-runtime-interactions.js";
-import {
-    createSessionRuntime,
-    SessionRuntime,
-    SessionTurnInProgressError,
-    shouldEmitProjectedAttention,
-} from "./session-runtime.js";
+import { createSessionRuntime, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.js";
 import { getRootSessionRebuildOptions } from "./session.js";
 import { createRootSessionManager, getRunWieldSessionDir, resolveCreatedRootSessionPath } from "./root-session.js";
 import { openFileSessionStore } from "./file-session-store.ts";
@@ -1073,25 +1068,6 @@ Deno.test("SessionRuntime does not apply dormant local mutations when Session ev
     assertEquals(snapshot?.activeModel, { model: "", provider: "" });
     assertEquals(snapshot?.thinkingLevel, "off");
     store.close();
-});
-
-Deno.test("SessionRuntime emits projected attention only when the attention ID is new", () => {
-    const summary = {
-        attention: [{ attentionId: "attention-1" }],
-        latestAttention: { attentionId: "attention-1" },
-    };
-
-    // First observation seeds the baseline: a transcript adopted with an attention
-    // entry already in it must not notify about that history.
-    assertEquals(shouldEmitProjectedAttention(summary, undefined), false);
-    // Repeat syncs project the same record and must stay silent.
-    assertEquals(shouldEmitProjectedAttention(summary, new Set(["attention-1"])), false);
-    // A newly appended attention entry notifies once.
-    assertEquals(shouldEmitProjectedAttention(summary, new Set(["older-entry"])), true);
-    assertEquals(shouldEmitProjectedAttention(summary, null), true);
-    // No attention in the projection is never an emission.
-    assertEquals(shouldEmitProjectedAttention({ latestAttention: null }, new Set(["older-entry"])), false);
-    assertEquals(shouldEmitProjectedAttention(undefined, undefined), false);
 });
 
 Deno.test("SessionRuntime keeps dormant managed projection separate from runtime authority", () => {

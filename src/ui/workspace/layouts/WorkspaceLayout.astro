@@ -1,7 +1,7 @@
 ---
 import { ClientRouter } from "astro:transitions";
-import { PLAN_SEARCH_QUERY_PARAM, PLAN_UI_TOKEN_QUERY } from "../constants.js";
 import { BrowserNotificationPermissionControl } from "../react/BrowserNotificationPermissionControl.tsx";
+import { PLAN_SEARCH_QUERY_PARAM, PLAN_UI_TOKEN_QUERY } from "../constants.js";
 
 const {
     title = "RunWield Workspace",
@@ -91,7 +91,7 @@ function linkWithToken(path: string) {
                             <slot name="toolbar" />
                         </div>
                         <div class="workspace-main-header-action-row">
-                            <BrowserNotificationPermissionControl client:load />
+                            <BrowserNotificationPermissionControl client:only="react" />
                             <div class="workspace-main-header-actions" data-workspace-header-actions></div>
                         </div>
                     </header>

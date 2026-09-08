@@ -136,8 +136,7 @@ export function reduceSessionEvents(events, options = {}) {
         const segmentOrdinal = Number.isInteger(event.segmentOrdinal) ? event.segmentOrdinal : null;
         const segmentKind = text(event.segmentKind || "session");
         const segmentKey = segmentOrdinal === null ? null : `${segmentOrdinal}:${segmentKind}`;
-        if (segmentKey && segmentKey !== lastSegmentKey) {
-            lastSegmentKey = segmentKey;
+        if (segmentKey && lastSegmentKey && segmentKey !== lastSegmentKey) {
             const label = text(event.agentName) ||
                 (segmentKind === "planning"
                     ? "Planner"
@@ -157,6 +156,7 @@ export function reduceSessionEvents(events, options = {}) {
                 source,
             });
         }
+        if (segmentKey) lastSegmentKey = segmentKey;
         if (type === "user_message") {
             ensure(`user:${id}`, {
                 kind: "message",

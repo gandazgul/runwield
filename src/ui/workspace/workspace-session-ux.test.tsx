@@ -45,7 +45,7 @@ Deno.test("Session surface preserves drafts and replaces a lost live wait with o
     const items = reduceOperationTransientItems([
         { type: "interaction_requested", interactionId: "wait-1", interactionType: "text", prompt: "Answer?" },
     ]);
-    assertEquals(items[0]?.kind, "interaction");
+    assertEquals(items.length, 0);
     const reviewItems = reduceSessionEvents([
         {
             type: "interaction_requested",
@@ -77,11 +77,11 @@ Deno.test("file-locked Sessions wait for the active surface without offering tak
     assertEquals(availability.key, "active");
     assertEquals(
         availability.explanation,
-        "Another RunWield surface is using this Session. New messages queue here and send when it stops.",
+        "Steer the agent or queue a follow-up.",
     );
 });
 
-Deno.test("Session timeline renders safe segment and recovery events as system blocks", () => {
+Deno.test("Session timeline labels transitions without inventing an initial Agent", () => {
     const items = reduceSessionEvents([
         {
             type: "user_message",
@@ -112,7 +112,6 @@ Deno.test("Session timeline renders safe segment and recovery events as system b
     ]);
     const systemEvents = items.filter((item) => item.kind === "system-event");
     assertEquals(systemEvents.map((item) => item.text), [
-        "Planner",
         "Plan Engineer",
         "Semantic Repair",
         "Recovered stale action.\nRestarted validation.",
@@ -147,13 +146,13 @@ Deno.test("Session interaction answers preserve Runtime outcome identity", () =>
     });
 });
 
-Deno.test("Session availability refreshes only while another surface is active", () => {
+Deno.test("Session availability observes idle Sessions too, so TUI turns appear automatically", () => {
     assertEquals(shouldRefreshSessionAvailability({ mode: "detail", state: "active" }), true);
     assertEquals(
         shouldRefreshSessionAvailability({ mode: "detail", state: "active", localOperationActive: true }),
         false,
     );
-    assertEquals(shouldRefreshSessionAvailability({ mode: "detail", state: "idle" }), false);
+    assertEquals(shouldRefreshSessionAvailability({ mode: "detail", state: "idle" }), true);
     assertEquals(
         shouldRefreshSessionAvailability({ mode: "detail", state: "idle", queuedMessageCount: 1 }),
         true,
@@ -171,10 +170,10 @@ Deno.test("busy Session messages remain sendable and render above the Workspace 
     const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
     const continuation = await Deno.readTextFile(new URL("./server/session-continuation.js", import.meta.url));
     const css = await Deno.readTextFile(new URL("./static/workspace.css", import.meta.url));
-    assertEquals(surface.includes('availability.key === "active"'), true);
+    assertEquals(surface.includes('["active", "workspace-running"].includes(availability.key)'), true);
     assertEquals(surface.includes("const [queuedMessages, setQueuedMessages] = useState"), true);
     assertEquals(surface.includes("setQueuedMessages((current) => ["), true);
-    assertEquals(surface.includes('if (freshTimeline.state === "active")'), true);
+    assertEquals(surface.includes('if (freshTimeline.state === "active" || operationRef.current)'), true);
     assertEquals(surface.includes("const queued = queuedMessages[0]"), true);
     assertEquals(surface.includes("queuedMessages={queuedMessages}"), true);
     assertEquals(surface.includes("timeline.queuedMessages"), false);
@@ -221,8 +220,8 @@ Deno.test("Workspace-owned Session operations use live updates instead of browse
     );
     assertEquals(surface.includes("setOperationStreamFailed(true)"), true);
     assertEquals(surface.includes("/api/owner/session-operations/${encodeURIComponent(current.operationId)}"), true);
-    assertEquals(surface.includes("Recover stale Session"), true);
-    assertEquals(surface.includes("/force-recovery"), true);
+    assertEquals(surface.includes("Recover stale Session"), false);
+    assertEquals(surface.includes("/force-recovery"), false);
     assertEquals(server.includes("/api/owner/session-operations/:operationId/stream"), true);
 });
 
@@ -356,7 +355,7 @@ Deno.test("Session image attachments use a Session-scoped draft key and request 
     );
 });
 
-Deno.test("planning workflow Sessions can continue while live execution workflows stay read-only", () => {
+Deno.test("idle Sessions can continue with planning or execution history", () => {
     const planning = deriveSessionAvailability({
         state: "idle",
         generation: 4,
@@ -370,7 +369,6 @@ Deno.test("planning workflow Sessions can continue while live execution workflow
         generation: 4,
         snapshot: { activeAgent: "Engineer", activeExecutionWorkflow: { planName: "feature-a" } },
     });
-    assertEquals(execution.key, "execution-workflow");
-    assertEquals(execution.canContinue, false);
-    assertEquals(execution.explanation, "This Session is running work. Use the Plan progress view for current state.");
+    assertEquals(execution.key, "available");
+    assertEquals(execution.canContinue, true);
 });

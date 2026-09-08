@@ -64,17 +64,18 @@ import { authenticateOwnerRequest, authorizeOwnerUpgradeRequest, isOwnerUpgradeR
 import { createWorkspaceSessionContinuationService } from "./server/session-continuation.js";
 import {
     ownerProjectSessionsApi,
-    ownerSessionAttentionStreamApi,
     ownerSessionBootstrapApi,
     ownerSessionConfigureApi,
     ownerSessionContinuationStartApi,
     ownerSessionCreateApi,
     ownerSessionForceRecoverApi,
     ownerSessionInteractionAnswerApi,
+    ownerSessionLiveApi,
     ownerSessionOperationCancelApi,
     ownerSessionOperationStatusApi,
     ownerSessionOperationStreamApi,
     ownerSessionOptionsApi,
+    ownerSessionSteerApi,
     ownerSessionTimelineApi,
 } from "./routes/owner-session-api.js";
 import {
@@ -303,10 +304,7 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects/:projectId/sessions", ownerProjectSessionsApi);
     app.post("/api/owner/projects/:projectId/sessions", ownerSessionCreateApi);
     app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/timeline", ownerSessionTimelineApi);
-    app.get(
-        "/api/owner/projects/:projectId/sessions/:runwieldSessionId/attention/stream",
-        ownerSessionAttentionStreamApi,
-    );
+    app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/live", ownerSessionLiveApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/bootstrap", ownerSessionBootstrapApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/continue", ownerSessionContinuationStartApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/configure", ownerSessionConfigureApi);
@@ -315,6 +313,7 @@ export function createOwnerWorkspaceApp(options) {
         "/api/owner/projects/:projectId/session-operations/:operationId/interactions/:interactionId/answer",
         ownerSessionInteractionAnswerApi,
     );
+    app.post("/api/owner/projects/:projectId/session-operations/:operationId/steer", ownerSessionSteerApi);
     app.post("/api/owner/session-operations/:operationId/cancel", ownerSessionOperationCancelApi);
     app.get("/api/owner/session-operations/:operationId/stream", ownerSessionOperationStreamApi);
     app.get("/api/owner/session-operations/:operationId", ownerSessionOperationStatusApi);

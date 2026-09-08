@@ -72,15 +72,11 @@ messages, and common setting interpretation. The TUI keeps Deno environment acce
 settings, OSC sequences, BEL output, and its `Session: W. - <name>` message line. The Workspace server resolves the same
 project-over-global setting for the operation's registered Project and sends only the browser-applicable policy.
 
-`SessionSurface` observes the existing cumulative operation snapshots. It claims unseen array positions synchronously
-before best-effort delivery, so overlapping server-sent event (SSE) callbacks cannot alert twice. A restored operation
-seeds its first snapshot as history. A newly accepted operation starts at position zero before its first snapshot, so a
-fast completion remains live. The cursor survives SSE-to-GET fallback for that mounted Session and resets when the
-Session or operation identity changes.
-
-The current 500-event operation buffer remains bounded. It reserves at most one additional position for the first live
-`agentStopped` attention event when ordinary events fill the buffer. This keeps the stop observable without a new event
-service or changing the existing event-index behavior used by review conversations.
+`SessionSurface` observes live operation snapshots. It remembers observed stop events in memory for the mounted Session
+and operation, claiming each event before browser delivery. Restored snapshots seed this set silently; newly accepted
+operations can alert immediately. Repeated SSE snapshots and GET fallback reuse the same set. The shared live-operation
+buffer retains the latest 1,000 events and coalesces text deltas. Observation follows event identity, so buffer rotation
+does not hide a later stop. Historical replay events cannot trigger an alert.
 
 A compact bell control in the shared Workspace header requests browser permission only after a click. It shows enable,
 enabled, blocked, or unavailable state and coexists with Plan Review actions. The local Plan Board shell remains
@@ -153,23 +149,19 @@ Core** meanings without adding or redefining a product term.
    project.currentRoot)` for that
    operation's registered Project. Safe GET and SSE responses expose no root path, raw settings, or unrelated custom
    values.
-5. `WorkspaceSessionContinuationService.appendOperationEvent` keeps at most 500 ordinary events and, when that capacity
-   is already full, one first `attention_requested` event whose reason is `agentStopped`. The reserved event is appended
-   at a new stable position and reaches both `subscribeOperation` and `getOperation`; later overflow stays dropped and
-   memory remains bounded.
+5. Workspace and Core use the shared rolling live-operation buffer. Both subscription and GET snapshots expose the
+   latest 1,000 events, including live `attention_requested` events. Replayed transcript events are excluded.
 6. `session-tab-notifications.ts` uses the browser's real `Notification`, `document.visibilityState`,
    `document.hasFocus()`, and `window.focus()` boundaries. It delivers only permitted, enabled `agentStopped` events;
    suppresses only when the document is both visible and focused and the setting enables suppression; uses shared title
    and base message text; closes and focuses the originating tab on click; catches constructor/click failures; and
    closes tracked notifications and clears handlers on disposal. It adds no persistence, service worker, Web Lock,
    delivery ledger, or product-owned dependency-injection seam.
-7. `SessionSurface` has one Session/operation-scoped observation cursor. It recognizes the production event shape
-   `{ type: "attention_requested", reason: "agentStopped" }`; a status change or shorthand `{ type: "agentStopped" }`
-   cannot synthesize an alert. Restored operation snapshots seed the cursor without delivery; newly accepted operation
-   snapshots scan from position zero; each position is claimed before browser delivery starts; repeated snapshots and
-   overlapping callbacks do not alert twice; SSE-to-GET fallback keeps the same cursor; and Session identity, operation
-   identity, or unmount disposes old browser notifications and resets observation. A terminal operation snapshot is
-   scanned before `setOperation(null)` and timeline reload.
+7. `SessionSurface` remembers seen live stop events per Session and operation in memory. It recognizes the event shape
+   `{ type: "attention_requested", reason: "agentStopped" }`; status changes and historical replay cannot alert.
+   Restored snapshots seed observation silently. New operations scan immediately. Repeated snapshots, overlapping
+   callbacks, and SSE-to-GET fallback do not duplicate delivery. Session or operation changes reset observation.
+   Terminal snapshots are scanned before clearing the operation and reloading history.
 8. `BrowserNotificationPermissionControl.tsx` renders in every owner Workspace header as a compact accessible bell.
    `default` permission offers **Enable alerts** and calls `Notification.requestPermission()` only from that click;
    `granted` shows **Alerts enabled**; `denied` shows **Alerts blocked** with browser-settings guidance; and missing API
@@ -217,13 +209,14 @@ No Work Record supersession is proposed.
   title/body plus click-driven close and focus; a stub that returns success without constructing `Notification` must
   fail. Cover denied and missing APIs, disabled settings, visible-and-focused suppression, background delivery,
   constructor failure, and disposal. The service integration must use a registered Project setting, observe the
-  production operation snapshot boundary, fill 500 ordinary events, append a stop, and prove both SSE subscription and
-  GET snapshots expose that bounded final event. One vertical test must pass that returned, still-`running` snapshot
-  unmodified into the exact observation function used by `SessionSurface`; its event must have
-  `{ type: "attention_requested", reason: "agentStopped" }`, and it must construct exactly one Notification before any
-  completed status exists. Repeat the same snapshot through overlapping SSE-style calls and GET fallback, then assert no
-  duplicate. Also prove restored history is quiet and terminal cleanup does not skip a newly observed stop. A shorthand
-  event or a synthetic notification caused only by `status: "completed"` must fail this test.
+  production operation snapshot boundary, overflow the 1,000-event buffer, append a stop, and prove both SSE
+  subscription and GET snapshots expose it. Rotate the buffer again and verify that a later stop remains observable. One
+  vertical test must pass that returned, still-`running` snapshot unmodified into the exact observation function used by
+  `SessionSurface`; its event must have `{ type: "attention_requested", reason: "agentStopped" }`, and it must construct
+  exactly one Notification before any completed status exists. Repeat the same snapshot through overlapping SSE-style
+  calls and GET fallback, then assert no duplicate. Also prove restored history is quiet and terminal cleanup does not
+  skip a newly observed stop. A shorthand event or a synthetic notification caused only by `status: "completed"` must
+  fail this test.
 - Mechanical checks:
   ```sh
   deno task workspace:check
@@ -260,8 +253,8 @@ Session, workflow, Plan, Dashboard, or transcript state is removed or replaced.
 - `window.focus()` and notification clicks are browser-controlled and best effort. Failure changes no Session or
   workflow state.
 - A reloaded, disconnected, or closed Session tab can miss an alert. Historical snapshots do not replay alerts.
-- Each loaded tab owns its in-memory cursor. Duplicate tabs may both alert; no tab is the notification authority for
-  another tab.
+- Each loaded tab owns its in-memory observation set. Duplicate tabs may both alert; no tab is the notification
+  authority for another tab.
 - Browser delivery covers only live Workspace `agentStopped` events. Separate TUI and Agent Client Protocol processes
   keep their own notification surfaces; this Plan adds no cross-process transport.
 - The existing project-over-global settings merge remains shallow. No settings migration or schema change is required.

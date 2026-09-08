@@ -77,15 +77,14 @@ function resolvedImportTargets(file, source) {
 }
 
 /**
- * Workspace Session, Plan progress, and attention projections need `getRunWieldSessionDir` to locate committed
- * transcript files for read-only projection. They must not import other root-session internals or use root-session as a
- * writable Runtime escape hatch.
+ * Workspace Session and Plan progress projections need `getRunWieldSessionDir` to locate committed transcript files for
+ * read-only projection. They must not import other root-session internals or use root-session as a writable Runtime
+ * escape hatch.
  * @param {string} path
  * @param {string} source
  */
 function sourceWithoutApprovedWorkspaceRootSessionDirImport(path, source) {
     const allowed = new Set([
-        "src/ui/workspace/server/session-attention.ts",
         "src/ui/workspace/server/session-continuation.js",
         "src/ui/workspace/server/owner-plan-progress.ts",
     ]);

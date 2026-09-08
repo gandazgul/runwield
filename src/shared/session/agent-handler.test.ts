@@ -78,8 +78,15 @@ Deno.test("agent handler completes a real root turn and requests user attention"
 
         const result = await fixture.handler("Explain the fixture.", [], fixture.sessionManager);
 
-        assertEquals(result, { kind: "complete", attentionRequest: { reason: "agentStopped", agentName: "guide" } });
-        assertEquals(events.some((event) => event.type === RuntimeEventTypes.ATTENTION_REQUESTED), false);
+        assertEquals(result, { kind: "complete" });
+        assertEquals(
+            events.some((event) =>
+                event.type === RuntimeEventTypes.ATTENTION_REQUESTED &&
+                event.reason === "agentStopped" &&
+                event.agentName === "guide"
+            ),
+            true,
+        );
         fixture.hostedSession.dispose();
     });
 });
@@ -243,13 +250,13 @@ Deno.test("agent handler replays accepted task_completed after HostedSession rep
 
         const result = await handler("resume", [], sessionManager);
 
-        assertEquals(result, {
-            kind: "complete",
-            attentionRequest: { reason: "agentStopped", agentName: "plan-engineer" },
-        });
+        assertEquals(result, { kind: "complete" });
         assertEquals(resumed.getActiveExecutionWorkflow(), null);
         assertEquals(listPendingTaskCompletions(resumed), []);
-        assertEquals(events.some((event) => event.type === RuntimeEventTypes.ATTENTION_REQUESTED), false);
+        assertEquals(
+            events.some((event) => event.type === RuntimeEventTypes.ATTENTION_REQUESTED),
+            true,
+        );
         resumed.dispose();
     });
 });

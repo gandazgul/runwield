@@ -230,14 +230,7 @@ Deno.test("TUI and ACP adapters consume the same semantic runtime transcript", (
             },
             { type: RuntimeEventTypes.BUSY_CHANGED, busy: true },
             { type: RuntimeEventTypes.BUSY_CHANGED, busy: false },
-            {
-                type: RuntimeEventTypes.ATTENTION_REQUESTED,
-                eventId: "attention-1",
-                runwieldSessionId: "session-1",
-                generation: 1,
-                reason: "agentStopped",
-                agentName: "Guide",
-            },
+            { type: RuntimeEventTypes.ATTENTION_REQUESTED, reason: "agentStopped", agentName: "Guide" },
         ]);
 
     for (const event of fixture) runtime.emitSessionEvent(sessionId, event);
