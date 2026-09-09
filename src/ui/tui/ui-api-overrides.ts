@@ -2,6 +2,7 @@
 
 import type { Container, Editor, TUI } from "@earendil-works/pi-tui";
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
+import { AgyCliMcpSetupApprovalError } from "../../shared/session/backends/agy-cli/mcp-setup.ts";
 import { RunWieldModelSelectorComponent } from "./model-selector.ts";
 
 interface ActiveModelState {
@@ -141,6 +142,11 @@ export function installUiApiOverrides({
                             );
                             restoreSelector(true);
                         } catch (error) {
+                            if (error instanceof AgyCliMcpSetupApprovalError) {
+                                uiAPI.appendSystemMessage(error.message, true, "RunWield");
+                                restoreSelector(false);
+                                return;
+                            }
                             restoreSelector(false);
                             reject(error);
                         }

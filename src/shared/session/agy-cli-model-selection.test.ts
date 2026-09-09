@@ -6,7 +6,11 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { assertModelExecutionBackendSupported } from "../models/model-execution.ts";
 import { getModelRegistry } from "../models/model-registry.ts";
 import { getSettingsManager } from "../settings.js";
-import { installAgyCliMcpSetup, resolveInstalledWldExecutable } from "./backends/agy-cli/mcp-setup.ts";
+import {
+    inspectAgyCliMcpSetup,
+    installAgyCliMcpSetup,
+    resolveInstalledWldExecutable,
+} from "./backends/agy-cli/mcp-setup.ts";
 import { SessionHost } from "./session-host.js";
 import { createSessionRuntime, SessionRuntime } from "./session-runtime.js";
 
@@ -37,7 +41,15 @@ if (prompt === "/agents" && outputFormat === "json") {
     const agents: Array<{ name: string }> = [];
     try {
         for await (const entry of Deno.readDir(agentsRoot)) {
-            if (entry.isDirectory) agents.push({ name: entry.name });
+            if (!entry.isDirectory) continue;
+            try {
+                const definition = await Deno.readTextFile(joinPath(agentsRoot, entry.name, "agent.md"));
+                if (definition.includes("\nname: " + entry.name + "\n") || definition.startsWith("---\nname: " + entry.name + "\n")) {
+                    agents.push({ name: entry.name });
+                }
+            } catch {
+                // Ignore malformed agent directories.
+            }
         }
     } catch {
         // No agents directory yet.
@@ -161,6 +173,51 @@ Deno.test("declined Agy MCP setup keeps the approved selected model without laun
         } finally {
             Deno.env.set("PATH", previousPath);
             runtime?.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("fresh Agy CLI model selection offers first-time MCP setup before the first turn", async () => {
+    await withRuntimeCommandFixture("runwield-agy-cli-first-select-", async ({ homeDir, projectRoot }) => {
+        const runtime = createSessionRuntime();
+        const messages: string[] = [];
+        const previousPath = Deno.env.get("PATH") || "";
+        try {
+            const binDir = await installAgyModelSelectionFixture(homeDir);
+            Deno.env.set("PATH", `${binDir}:${previousPath}`);
+            const { sessionId } = await runtime.createInteractiveSession({
+                cwd: projectRoot,
+                mode: "new",
+                deferManagedActivationUntilAgentReady: true,
+            });
+            let interactionCount = 0;
+            runtime.setInteractionAdapter(sessionId, {
+                requestInteraction: () => {
+                    interactionCount += 1;
+                    return { outcome: "accepted", value: "approve" };
+                },
+                supportsInteraction: () => true,
+            });
+
+            await runModelsCommand([AGY_FLASH], {
+                uiAPI: {
+                    appendSystemMessage: (message) => messages.push(message),
+                    promptSelect: () => Promise.resolve(null),
+                },
+                sessionId,
+                sessionRuntime: runtime,
+            });
+
+            assertEquals(interactionCount, 1);
+            assertEquals((await inspectAgyCliMcpSetup()).ok, true);
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                model: "gemini-3.8-flash",
+                provider: "agy-cli",
+            });
+            assertStringIncludes(messages.at(-1) || "", `Switched model to ${AGY_FLASH}`);
+        } finally {
+            Deno.env.set("PATH", previousPath);
+            runtime.closeAllSessions();
         }
     });
 });

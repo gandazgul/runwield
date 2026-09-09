@@ -105,7 +105,11 @@ export class AgyCliExecutionSession {
 
     static async create(options: AgyCliExecutionSessionOptions): Promise<AgyCliExecutionSession> {
         const selector = makeTemporaryAgentSelector(options.agentName);
-        const definition = formatAgyCustomAgentDefinition(options.finalSystemPrompt, options.agentDisplayName);
+        const definition = formatAgyCustomAgentDefinition(
+            selector,
+            options.finalSystemPrompt,
+            options.agentDisplayName,
+        );
         const paths = resolveAgyCustomAgentPaths(selector);
         const pendingOwnership: AgyCustomAgentOwnership = {
             name: selector,
@@ -542,9 +546,10 @@ function getErrorText(error: Error | string): string {
     return error instanceof Error ? error.message : String(error);
 }
 
-function formatAgyCustomAgentDefinition(systemPrompt: string, displayName: string): string {
+function formatAgyCustomAgentDefinition(selector: string, systemPrompt: string, displayName: string): string {
     return [
         "---",
+        `name: ${selector}`,
         `description: Temporary RunWield ${displayName} execution agent`,
         "---",
         "",
@@ -592,7 +597,12 @@ function isJsonRecord(value: JsonValue | undefined): value is JsonRecord {
 
 function readAgentList(value: JsonValue): JsonArray | null {
     if (Array.isArray(value)) return value;
-    if (isJsonRecord(value) && Array.isArray(value.agents)) return value.agents;
+    if (!isJsonRecord(value)) return null;
+    if (Array.isArray(value.agents)) return value.agents;
+    if (isJsonRecord(value.data) && Array.isArray(value.data.agents)) return value.data.agents;
+    if (isJsonRecord(value.command) && isJsonRecord(value.command.data) && Array.isArray(value.command.data.agents)) {
+        return value.command.data.agents;
+    }
     return null;
 }
 

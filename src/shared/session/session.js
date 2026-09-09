@@ -2493,7 +2493,7 @@ function assertAgyCliImageInputSupported(images) {
  * Build the model-selected execution session for root and HostedSession-backed isolated turns.
  * Pi models continue through buildAgentSession(); Claude CLI models bypass Pi entirely.
  *
- * @param {Parameters<typeof buildAgentSession>[0]} opts
+ * @param {Parameters<typeof buildAgentSession>[0] & { managedOperationCapability?: import('./managed-operation.ts').ManagedOperationCapability }} opts
  * @returns {Promise<{
  *   executionSession: import('./execution-backend.ts').ExecutionSession,
  *   session: any,
@@ -2607,7 +2607,11 @@ export async function buildExecutionSession(opts) {
         text: opts.workflowAuthority === false ? `${backendPrompt}\n\n${NO_WORKFLOW_AUTHORITY_PROMPT}` : backendPrompt,
     };
     if (backend === "agy-cli") {
-        await ensureAgyCliMcpSetup({ hostedSession: targetHostedSession });
+        await ensureAgyCliMcpSetup({
+            hostedSession: targetHostedSession,
+            capability: opts.managedOperationCapability || targetHostedSession?.getManagedOperationCapability?.() ||
+                null,
+        });
     }
     const session = backend === "claude-cli"
         ? new ClaudeCliExecutionSession({

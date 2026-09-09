@@ -236,14 +236,18 @@ async function main(): Promise<void> {
         const agents: JsonRecord[] = [];
         try {
             for await (const entry of Deno.readDir(agentsRoot)) {
-                if (entry.isDirectory && await fileExists(joinPath(agentsRoot, entry.name, "agent.md"))) {
-                    agents.push({ name: entry.name });
+                const definitionPath = joinPath(agentsRoot, entry.name, "agent.md");
+                if (entry.isDirectory && await fileExists(definitionPath)) {
+                    const definition = await Deno.readTextFile(definitionPath);
+                    if (definition.includes("\nname: " + entry.name + "\n") || definition.startsWith("---\nname: " + entry.name + "\n")) {
+                        agents.push({ name: entry.name });
+                    }
                 }
             }
         } catch {
             // No agents directory yet.
         }
-        console.log(JSON.stringify({ agents }));
+        console.log(JSON.stringify({ command: { name: "agents", data: { agents } } }));
         return;
     }
 
@@ -775,7 +779,7 @@ Deno.test("Agy CLI rejects custom-agent drift before the next root turn commits 
         await assertRejects(
             () => runRootTurn({ hostedSession, agentName: AGENTS.GUIDE, userRequest: "second user marker" }),
             Error,
-            "RunWield could not verify its temporary Antigravity Agent",
+            "Antigravity CLI works, but it did not load RunWield's temporary Agent",
         );
 
         assertEquals(await Deno.readTextFile(definitionPath), "changed by another owner\n");
@@ -1322,7 +1326,7 @@ Deno.test("Agy CLI root setup failure keeps the previous root session usable", a
                     modelOverride: "agy-cli/gemini-3.8-flash",
                 }),
             Error,
-            "RunWield could not verify its temporary Antigravity Agent",
+            "Antigravity CLI works, but it did not load RunWield's temporary Agent",
         );
         assertEquals(hostedSession.getRootAgentSession() === root as never, true);
         assertEquals(hostedSession.getRootAgentName(), AGENTS.GUIDE);

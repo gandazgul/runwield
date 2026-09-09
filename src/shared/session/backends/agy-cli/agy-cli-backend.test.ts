@@ -85,8 +85,12 @@ async function main(): Promise<void> {
         const agents: string[] = [];
         try {
             for await (const entry of Deno.readDir(agentsRoot)) {
-                if (entry.isDirectory && await fileExists(joinPath(agentsRoot, entry.name, "agent.md"))) {
-                    agents.push(entry.name);
+                const definitionPath = joinPath(agentsRoot, entry.name, "agent.md");
+                if (entry.isDirectory && await fileExists(definitionPath)) {
+                    const definition = await Deno.readTextFile(definitionPath);
+                    if (definition.includes("\nname: " + entry.name + "\n") || definition.startsWith("---\nname: " + entry.name + "\n")) {
+                        agents.push(entry.name);
+                    }
                 }
             }
         } catch {
@@ -524,10 +528,22 @@ Deno.test("Agy subprocess proof rejects Agent marker with surrounding terminal t
 
 Deno.test("Agy preflight requires the exact name from /agents output", async () => {
     await withAgyFixture(async () => {
-        await materializeAgyCustomAgent("runwield-listed-agent", "AGENT_MARKER=listed\n");
+        await materializeAgyCustomAgent(
+            "runwield-listed-agent",
+            "---\nname: runwield-listed-agent\ndescription: Listed test agent\n---\n\nAGENT_MARKER=listed\n",
+        );
         const output = await verifyAgyCustomAgentListed("runwield-listed-agent");
         assert(output.includes("runwield-listed-agent"));
         await assertRejects(() => verifyAgyCustomAgentListed("runwield-missing-agent"), Error, "did not list exact");
+
+        Deno.env.set(
+            "RUNWIELD_AGY_FIXTURE_AGENTS_JSON",
+            JSON.stringify({
+                command: { name: "agents", data: { agents: [{ name: "runwield-nested-agent" }] } },
+            }),
+        );
+        const nestedOutput = await verifyAgyCustomAgentListed("runwield-nested-agent");
+        assert(nestedOutput.includes("runwield-nested-agent"));
 
         Deno.env.set(
             "RUNWIELD_AGY_FIXTURE_AGENTS_JSON",
