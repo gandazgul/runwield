@@ -166,7 +166,6 @@ export async function restorePreviousAgentFlow(
         await session.switchAgent(executionAgent, workflow?.executionCwd ? { cwd: workflow.executionCwd } : {});
         return;
     }
-    if (session.getEffectiveAgentName() === AGENTS.ENGINEER && agentName !== AGENTS.ENGINEER) return;
     // A restore that switches to the Agent the Session already has changes
     // nothing but still costs a managed mutation: the switch hydrates and
     // publishes a new Session generation. Menus that never continued work must

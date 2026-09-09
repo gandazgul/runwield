@@ -1,6 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
@@ -13,7 +14,9 @@ import { createWorkRecordMnemotecaFixture } from "../work-records/test-fixtures/
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { runValidationAgentUntilEvent } from "../session/agent-workflow-step.ts";
 import { createTestWorktreeAttempt, git as runGit, makeRepo } from "../worktree-test-helpers.js";
-import { switchActiveAgent } from "../session/agent-switching.js";
+import { runActiveAgentTurn, switchActiveAgent } from "../session/agent-switching.js";
+import { __getRootSessionMetadataForTests } from "../session/session.js";
+import { runEpicChildContinuation } from "./epic-continuation.ts";
 
 for (const outcome of ["canceled", "blocked"] as const) {
     Deno.test(`canceling human review (${outcome}) cannot publish through the outer driver`, async () => {
@@ -54,20 +57,43 @@ for (const outcome of ["canceled", "blocked"] as const) {
     });
 }
 
-Deno.test("verified publication moves the root Session to Engineer in the primary checkout", async () => {
-    await withRuntimeCommandFixture("published-handoff-", async () => {
+Deno.test("verified Epic-child publication leaves the removed worktree before continuing the parent Epic", async () => {
+    await withRuntimeCommandFixture("published-handoff-", async ({ setModelResponseFactories }) => {
         const projectRoot = await makeRepo();
         const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-validation-worktree-" });
-        const planName = "published-follow-up";
+        const parentPlan = "published-epic";
+        const planName = `${parentPlan}/01-published-follow-up`;
+        const nextPlanName = `${parentPlan}/02-frontend-follow-up`;
         try {
+            await savePlan(projectRoot, parentPlan, `# ${parentPlan}\n\nEpic fixture\n`, {
+                classification: "PROJECT",
+                status: "ready_for_work",
+                summary: "Epic fixture",
+                affectedPaths: [],
+                planId: "published-epic-plan",
+            });
             await savePlan(projectRoot, planName, `# ${planName}\n\nvalidation fixture\n`, {
                 classification: "PLANNED_CHANGE",
                 status: "validated_reviewer",
                 summary: "validation fixture",
                 affectedPaths: ["published-marker.txt"],
                 planId: "published-follow-up-plan",
+                parentPlan,
+                order: 1,
                 executionAgent: "engineer",
                 executionMode: "worktree",
+                humanReviewMode: "none",
+            });
+            await savePlan(projectRoot, nextPlanName, `# ${nextPlanName}\n\nfrontend fixture\n`, {
+                classification: "PLANNED_CHANGE",
+                status: "ready_for_work",
+                summary: "frontend fixture",
+                affectedPaths: [],
+                planId: "frontend-follow-up-plan",
+                parentPlan,
+                order: 2,
+                executionAgent: "frontend-engineer",
+                executionMode: "non_git_in_place",
                 humanReviewMode: "none",
             });
             await runGit(projectRoot, ["add", "."]);
@@ -88,6 +114,8 @@ Deno.test("verified publication moves the root Session to Engineer in the primar
                 summary: "validation fixture",
                 affectedPaths: ["published-marker.txt"],
                 planId: "published-follow-up-plan",
+                parentPlan,
+                order: 1,
                 executionAgent: "engineer",
                 executionMode: "worktree",
                 humanReviewMode: "none",
@@ -102,7 +130,7 @@ Deno.test("verified publication moves the root Session to Engineer in the primar
             await switchActiveAgent(hostedSession, { agentName: "planner", cwd: worktree.path });
             hostedSession.setActiveExecutionWorkflow({
                 planName,
-                triageMeta: { classification: "PLANNED_CHANGE", status: "validated_reviewer" },
+                triageMeta: { classification: "PLANNED_CHANGE", status: "validated_reviewer", parentPlan },
                 executionAgent: "engineer",
                 projectRoot,
                 executionCwd: worktree.path,
@@ -117,7 +145,7 @@ Deno.test("verified publication moves the root Session to Engineer in the primar
                 hostedSession,
                 planName,
                 planContent: `# ${planName}`,
-                triageMeta: { classification: "PLANNED_CHANGE", status: "validated_reviewer" },
+                triageMeta: { classification: "PLANNED_CHANGE", status: "validated_reviewer", parentPlan },
                 git: createGitPort(),
                 localCI: {
                     run: () => {
@@ -133,16 +161,54 @@ Deno.test("verified publication moves the root Session to Engineer in the primar
             assertEquals(hostedSession.getRootAgentName(), "engineer");
             const canonicalProjectRoot = await Deno.realPath(projectRoot);
             assertEquals(hostedSession.cwd, canonicalProjectRoot);
-            const shell = await new Deno.Command("sh", {
-                cwd: hostedSession.cwd,
-                args: ["-c", "pwd && git branch --show-current && cat published-marker.txt"],
-                stdout: "piped",
-                stderr: "piped",
-            }).output();
-            assertEquals(shell.success, true, new TextDecoder().decode(shell.stderr));
-            assertStringIncludes(new TextDecoder().decode(shell.stdout), canonicalProjectRoot);
-            assertStringIncludes(new TextDecoder().decode(shell.stdout), "main");
-            assertStringIncludes(new TextDecoder().decode(shell.stdout), "from worktree");
+            const rootAgentSession = hostedSession.getRootAgentSession() as AgentSession | null;
+            if (!rootAgentSession) throw new Error("Root Agent session was not rebuilt");
+            assertEquals(__getRootSessionMetadataForTests(rootAgentSession)?.cwd, canonicalProjectRoot);
+            const events: Array<{ type?: string; output?: string }> = [];
+            hostedSession.setEventSink((event: { type?: string; output?: string }) => events.push(event));
+            setModelResponseFactories([
+                () =>
+                    fauxAssistantMessage(fauxToolCall("bash", {
+                        command: "pwd && git branch --show-current && cat published-marker.txt",
+                    })),
+                () => fauxAssistantMessage(fauxText("Tool checked.")),
+            ]);
+            await runActiveAgentTurn({
+                hostedSession,
+                agentName: "engineer",
+                userRequest: "Check the rebuilt root tools.",
+            });
+            const shellOutput = events.find((event) =>
+                event.type === "tool_end" && event.output?.includes("from worktree")
+            )
+                ?.output || "";
+            assertStringIncludes(shellOutput, canonicalProjectRoot);
+            assertStringIncludes(shellOutput, "main");
+            assertStringIncludes(shellOutput, "from worktree");
+            const continuation = result.epicContinuation;
+            if (!continuation?.resolution) {
+                throw new Error("Epic continuation resolution was not captured before cleanup");
+            }
+            assertEquals(continuation.completedPlanName, planName);
+            assertEquals(continuation.projectRoot, canonicalProjectRoot);
+            assertEquals(continuation.resolution.parentPlanName, parentPlan);
+            assertEquals(continuation.resolution.childPlanName, nextPlanName);
+            assertEquals(continuation.resolution.kind, "execute");
+            setModelResponseFactories([() => fauxAssistantMessage(fauxText("Need more work."))]);
+            const continuationResult = await runEpicChildContinuation({
+                hostedSession,
+                resolution: continuation.resolution,
+            });
+            assertEquals(continuationResult, null);
+            assertEquals(hostedSession.getRootAgentName(), "frontend-engineer");
+            const nextExecutionCwd = hostedSession.getActiveExecutionWorkflow()?.executionCwd;
+            assertEquals(hostedSession.cwd, nextExecutionCwd);
+            assertEquals(hostedSession.cwd === worktree.path, false);
+            assertEquals(hostedSession.getActiveExecutionWorkflow()?.planName, nextPlanName);
+            assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
+            const continuationRootSession = hostedSession.getRootAgentSession() as AgentSession | null;
+            if (!continuationRootSession) throw new Error("Continuation root Agent session was not retained");
+            assertEquals(__getRootSessionMetadataForTests(continuationRootSession)?.cwd, nextExecutionCwd);
             hostedSession.dispose();
         } finally {
             await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
@@ -151,42 +217,95 @@ Deno.test("verified publication moves the root Session to Engineer in the primar
     });
 });
 
-Deno.test("paused validation keeps the execution workflow cwd", async () => {
-    const projectRoot = await makeValidationProjectRoot("paused-context", {
-        classification: "PLANNED_CHANGE",
-        status: "validated_reviewer",
-        humanReviewMode: "ask",
-        humanReviewDecision: null,
+Deno.test("paused validation keeps the execution Agent and worktree cwd", async () => {
+    await withRuntimeCommandFixture("paused-context-", async () => {
+        const projectRoot = await makeRepo();
+        const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-paused-worktree-" });
+        const planName = "paused-context";
+        try {
+            await savePlan(projectRoot, planName, `# ${planName}\n`, {
+                classification: "PLANNED_CHANGE",
+                status: "validated_reviewer",
+                summary: "paused fixture",
+                affectedPaths: ["paused-marker.txt"],
+                planId: "paused-context-plan",
+                executionAgent: "engineer",
+                executionMode: "worktree",
+                humanReviewMode: "ask",
+                humanReviewDecision: null,
+            });
+            await runGit(projectRoot, ["add", "."]);
+            await runGit(projectRoot, ["commit", "-m", "add paused plan"]);
+            const baseTree = await runGit(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+            const worktree = await createTestWorktreeAttempt({
+                projectRoot,
+                planName,
+                planId: "paused-context-plan",
+                worktreeRoot,
+                attemptId: "paused-attempt",
+            });
+            const worktreePlan = await loadPlan(worktree.path, planName);
+            if (!worktreePlan) throw new Error("worktree Plan fixture disappeared");
+            await savePlan(worktree.path, planName, worktreePlan.markdown || `# ${planName}\n`, {
+                ...worktreePlan.attrs,
+                classification: "PLANNED_CHANGE",
+                status: "validated_reviewer",
+                summary: "paused fixture",
+                affectedPaths: ["paused-marker.txt"],
+                planId: "paused-context-plan",
+                executionAgent: "engineer",
+                executionMode: "worktree",
+                humanReviewMode: "ask",
+                humanReviewDecision: null,
+                executionBaselineTree: baseTree,
+                worktreeId: worktree.id,
+                worktreePath: worktree.path,
+                worktreeBranch: worktree.branch,
+                worktreeBaseBranch: "main",
+            }, { expectedRevision: worktreePlan.revision });
+            const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: worktree.path });
+            await switchActiveAgent(hostedSession, { agentName: "engineer", cwd: worktree.path });
+            hostedSession.setInteractionAdapter({
+                requestInteraction: () => Promise.resolve({ outcome: "canceled" }),
+            });
+            hostedSession.setActiveExecutionWorkflow({
+                planName,
+                triageMeta: { classification: "PLANNED_CHANGE", status: "validated_reviewer" },
+                executionAgent: "engineer",
+                projectRoot,
+                executionCwd: worktree.path,
+                executionMode: "worktree",
+                baselineTree: baseTree,
+                worktreeId: worktree.id,
+                worktreeBranch: worktree.branch,
+                worktreeBaseBranch: "main",
+            });
+            const result = await runWorkflowValidationToStableBoundary({
+                hostedSession,
+                planName,
+                planContent: `# ${planName}`,
+                triageMeta: { classification: "PLANNED_CHANGE", status: "validated_reviewer" },
+                git: createGitPort(),
+                localCI: {
+                    run: () => {
+                        throw new Error("Paused validation regression should not run CI");
+                    },
+                },
+                workRecordMnemotecaPort: createWorkRecordMnemotecaFixture(),
+            });
+            assertEquals(result.kind, "paused");
+            assertEquals(await Deno.stat(worktree.path).then(() => true).catch(() => false), true);
+            assertEquals(hostedSession.getRootAgentName(), "engineer");
+            assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionCwd, worktree.path);
+            const rootAgentSession = hostedSession.getRootAgentSession() as AgentSession | null;
+            if (!rootAgentSession) throw new Error("Root Agent session was not retained");
+            assertEquals(__getRootSessionMetadataForTests(rootAgentSession)?.cwd, worktree.path);
+            hostedSession.dispose();
+        } finally {
+            await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+            await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+        }
     });
-    const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot });
-    hostedSession.setInteractionAdapter({
-        requestInteraction: () => Promise.resolve({ outcome: "canceled" }),
-    });
-    hostedSession.setActiveExecutionWorkflow({
-        planName: "paused-context",
-        triageMeta: { classification: "PLANNED_CHANGE", status: "validated_reviewer" },
-        executionAgent: "engineer",
-        projectRoot,
-        executionCwd: projectRoot,
-        executionMode: "non_git_in_place",
-        nonGitInPlace: true,
-    });
-    const result = await runWorkflowValidationToStableBoundary({
-        hostedSession,
-        planName: "paused-context",
-        planContent: "# paused-context",
-        triageMeta: { classification: "PLANNED_CHANGE", status: "validated_reviewer" },
-        git: createGitPort(),
-        localCI: {
-            run: () => {
-                throw new Error("Paused validation regression should not run CI");
-            },
-        },
-        workRecordMnemotecaPort: createWorkRecordMnemotecaFixture(),
-    });
-    assertEquals(result.kind, "paused");
-    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionCwd, projectRoot);
-    hostedSession.dispose();
 });
 
 for (const repaired of [true, false]) {
