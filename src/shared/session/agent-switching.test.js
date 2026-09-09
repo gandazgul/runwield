@@ -27,6 +27,27 @@ function makeSession(projectRoot) {
     return { hostedSession, sessionManager };
 }
 
+Deno.test("switchActiveAgent rebuilds same Agent roots when cwd changes", async () => {
+    await withRuntimeCommandFixture("agent-switch-cwd-rebuild-", async ({ projectRoot }) => {
+        const nextRoot = await Deno.makeTempDir({ prefix: "runwield-agent-switch-next-" });
+        const { hostedSession, sessionManager } = makeSession(projectRoot);
+        await switchActiveAgent(hostedSession, { agentName: "guide", sessionManager });
+        const firstRoot = hostedSession.getRootAgentSession();
+
+        await switchActiveAgent(hostedSession, {
+            agentName: "guide",
+            cwd: nextRoot,
+            sessionManager,
+        });
+
+        const secondRoot = hostedSession.getRootAgentSession();
+        assert(secondRoot && secondRoot !== firstRoot);
+        assertEquals(hostedSession.cwd, nextRoot);
+        assertEquals(__getRootSessionMetadataForTests(/** @type {any} */ (secondRoot))?.cwd, nextRoot);
+        hostedSession.dispose();
+    });
+});
+
 Deno.test("switchActiveAgent installs a real matching Agent root and handler", async () => {
     await withRuntimeCommandFixture("agent-switch-install-", async ({ projectRoot }) => {
         const { hostedSession, sessionManager } = makeSession(projectRoot);

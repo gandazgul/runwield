@@ -561,6 +561,10 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 recordedAttempt,
                 ports: SYSTEM_RECOVERY_FLOW_PORTS,
             });
+            if (result === "verified") {
+                skipRouterRestore = true;
+                return;
+            }
             if (result === "handled") return;
         }
 
@@ -679,7 +683,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         }
                     }
 
-                    await executeReadyPlanWithRepair({
+                    const executionResult = await executeReadyPlanWithRepair({
                         projectRoot,
                         plan,
                         agentName,
@@ -688,6 +692,9 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         continueWorkflowValidation,
                         session,
                     });
+                    if (executionResult && typeof executionResult === "object" && executionResult.kind === "verified") {
+                        skipRouterRestore = true;
+                    }
                     return;
                 }
 
@@ -715,7 +722,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         planningAgentName: agentName,
                         fallbackTriageMeta: plan.attrs,
                     });
-                    await executePostPlanningDecision({
+                    const postPlanningResult = await executePostPlanningDecision({
                         decision: planningDecision,
                         fallbackPlanContent: plan.markdown || plan.body || "",
                         uiAPI,
@@ -724,7 +731,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         runSlicerAgent,
                         session,
                     });
-                    if (shouldKeepPlanningAgentActive(planningDecision)) {
+                    if (postPlanningResult === "verified" || shouldKeepPlanningAgentActive(planningDecision)) {
                         skipRouterRestore = true;
                     }
                     return;
@@ -828,7 +835,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             planningAgentName: agentName,
             fallbackTriageMeta: plan.attrs,
         });
-        await executePostPlanningDecision({
+        const postPlanningResult = await executePostPlanningDecision({
             decision: planningDecision,
             fallbackPlanContent: plan.markdown || plan.body || "",
             uiAPI,
@@ -837,7 +844,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             runSlicerAgent,
             session,
         });
-        if (shouldKeepPlanningAgentActive(planningDecision)) {
+        if (postPlanningResult === "verified" || shouldKeepPlanningAgentActive(planningDecision)) {
             skipRouterRestore = true;
         }
     } catch (error) {
