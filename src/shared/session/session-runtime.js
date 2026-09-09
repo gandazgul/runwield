@@ -94,6 +94,7 @@ import { dirname, isAbsolute } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { resolveMcpConfig } from "../mcp/config.ts";
 import { startMcpToolPool } from "../mcp/pool.ts";
+import { ensureAgyCliMcpSetup } from "./backends/agy-cli/mcp-setup.ts";
 
 /**
  * @typedef {Object} ManagedOperationContext
@@ -1362,6 +1363,9 @@ export class SessionRuntime {
             !promptReadySession.getManagedMetadata?.()
         ) {
             promptReadySession.setActiveModelState(model, provider, true);
+            if (parsedModel.ok && parsedModel.provider === "agy-cli") {
+                await ensureAgyCliMcpSetup({ hostedSession: promptReadySession });
+            }
             promptReadySession.mergePendingManagedTurnIntent?.({ model, provider, manualModel: true });
             this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.MODEL_CHANGED, model, provider });
             return { ok: true, model, provider };

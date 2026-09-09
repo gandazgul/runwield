@@ -75,6 +75,9 @@ class FakeElement {
         this.children = [];
         this._textContent = String(value);
     }
+    get textContent() {
+        return this._textContent || this.children.map((child) => child.textContent).join("");
+    }
     addEventListener(type, listener) {
         const listeners = this.listeners.get(type) || [];
         listeners.push(listener);
@@ -89,9 +92,6 @@ class FakeElement {
     }
     setPointerCapture(pointerId) {
         this.capturedPointer = pointerId;
-    }
-    get textContent() {
-        return this._textContent || this.children.map((child) => child.textContent).join("");
     }
     set innerHTML(value) {
         this.children = [];

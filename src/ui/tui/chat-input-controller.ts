@@ -10,6 +10,8 @@ import { type ChatView, createPastedImagePreview } from "./chat-view.ts";
 import type { ImageAttachment } from "../../shared/session/types.js";
 import type { UiAPI } from "./types.js";
 import { ClaudeCliBackendError } from "../../shared/session/backends/claude-cli/failure.ts";
+import { AgyCliBackendError } from "../../shared/session/backends/agy-cli/failure.ts";
+import { AgyCliMcpSetupApprovalError } from "../../shared/session/backends/agy-cli/mcp-setup.ts";
 
 type ThinkingLevel = Parameters<typeof persistThinkingLevel>[0];
 
@@ -62,14 +64,17 @@ function imageWarningKey(image: ImageAttachment): string {
 }
 
 function userTurnFailureMessage(error: Error | string): string | null {
-    if (error instanceof ClaudeCliBackendError) {
+    if (error instanceof ClaudeCliBackendError || error instanceof AgyCliBackendError) {
         // The backend already emitted its sanitized message as a system status.
         return null;
     }
-    console.error("[RunWield] tui_submit_failed", error);
+    if (error instanceof AgyCliMcpSetupApprovalError) {
+        return error.message;
+    }
     if (error instanceof Error && error.message.includes("model")) {
         return "RunWield could not send the message because model setup is not ready. Choose a model, then try again.";
     }
+    console.error("[RunWield] tui_submit_failed", error);
     return "RunWield could not send that message. Your draft was restored. Try again.";
 }
 

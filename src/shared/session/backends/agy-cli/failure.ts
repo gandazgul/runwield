@@ -44,7 +44,7 @@ const DEFAULT_MESSAGES: Record<AgyCliBackendStatusKind, string> = {
         "Antigravity CLI is not available. Install `agy` and ensure it is on PATH, then retry this turn.",
     auth_failed: "Antigravity CLI authentication failed. Sign in to Antigravity, then retry this turn.",
     custom_agent_invalid:
-        "RunWield could not verify its temporary Antigravity Agent. Start a fresh Agy execution session, then retry.",
+        "Antigravity CLI works, but it did not load RunWield's temporary Agent. Restart this RunWield session, then retry. If it still fails, run `wld mcp agy-cli --setup`.",
     permission_denied:
         "Antigravity denied a requested action. Adjust Antigravity permissions or the request, then retry.",
     mcp_unavailable: "Antigravity could not use the RunWield MCP bridge. Check MCP setup and retry this turn.",

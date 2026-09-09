@@ -10,6 +10,8 @@ import { createInteractiveTuiComposition, type InteractiveTuiComposition } from 
 import { createInteractiveCompositionHarness } from "./testing/interactive-composition-fixture.ts";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
 import { ClaudeCliBackendError } from "../../shared/session/backends/claude-cli/failure.ts";
+import { AgyCliBackendError } from "../../shared/session/backends/agy-cli/failure.ts";
+import { AgyCliMcpSetupApprovalError } from "../../shared/session/backends/agy-cli/mcp-setup.ts";
 
 interface DeferredSignal {
     promise: Promise<void>;
@@ -494,6 +496,63 @@ Deno.test("chat input controller does not replace a reported Claude failure", as
             await waitFor(() => terminal.getScreenText().includes("keep this draft"), "restored Claude-failure draft");
             assertEquals(terminal.getScrollbackText().includes("RunWield could not send that message"), false);
         } finally {
+            await composition.dispose();
+        }
+    });
+});
+
+Deno.test("chat input controller does not replace or log a reported Agy backend failure", async () => {
+    await withRuntimeCommandFixture("chat-input-agy-backend-error-", async () => {
+        const { composition, terminal } = await startComposition();
+        const originalConsoleError = console.error;
+        const consoleErrors: unknown[][] = [];
+        console.error = (...args: unknown[]) => {
+            consoleErrors.push(args);
+        };
+        try {
+            composition.runtime.promptUserTurn = () =>
+                Promise.reject(
+                    new AgyCliBackendError("custom_agent_invalid", {
+                        message:
+                            "Antigravity CLI works, but it did not load RunWield's temporary Agent. Restart this RunWield session, then retry. If it still fails, run `wld mcp agy-cli --setup`.",
+                    }),
+                );
+            await submitText(terminal, "keep this draft");
+            await waitFor(() => terminal.getScreenText().includes("keep this draft"), "restored Agy-failure draft");
+            assertEquals(terminal.getScrollbackText().includes("RunWield could not send that message"), false);
+            assertEquals(terminal.getScrollbackText().includes("at async"), false);
+            assertEquals(consoleErrors.length, 0);
+        } finally {
+            console.error = originalConsoleError;
+            await composition.dispose();
+        }
+    });
+});
+
+Deno.test("chat input controller shows Agy MCP setup approval action without spilling a stack", async () => {
+    await withRuntimeCommandFixture("chat-input-agy-setup-error-", async () => {
+        const { composition, terminal } = await startComposition();
+        const originalConsoleError = console.error;
+        const consoleErrors: unknown[][] = [];
+        console.error = (...args: unknown[]) => {
+            consoleErrors.push(args);
+        };
+        try {
+            composition.runtime.promptUserTurn = () =>
+                Promise.reject(
+                    new AgyCliMcpSetupApprovalError(
+                        "Antigravity MCP setup needs approval. Run wld mcp agy-cli --setup.",
+                    ),
+                );
+            await submitText(terminal, "keep this draft");
+            await waitFor(() => terminal.getScrollbackText().includes("wld mcp agy-cli --setup"), "Agy setup action");
+            assertEquals(terminal.getScrollbackText().includes("RunWield could not send that message"), false);
+            assertEquals(terminal.getScrollbackText().includes("at async"), false);
+            assertEquals(consoleErrors.length, 0);
+            await waitFor(() => terminal.getScreenText().includes("keep this draft"), "restored Agy setup draft");
+            assertStringIncludes(terminal.getScreenText(), "keep this draft");
+        } finally {
+            console.error = originalConsoleError;
             await composition.dispose();
         }
     });

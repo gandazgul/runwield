@@ -37,6 +37,7 @@ interface SetupPaths {
 interface EnsureAgyCliMcpSetupOptions {
     hostedSession?: HostedSession | null;
     signal?: AbortSignal;
+    capability?: Parameters<typeof requestHostedSessionInteraction>[3];
 }
 
 export class AgyCliMcpSetupApprovalError extends Error {
@@ -376,7 +377,12 @@ export async function ensureAgyCliMcpSetup(options: EnsureAgyCliMcpSetupOptions 
             { value: "decline", label: "Do not change Antigravity files", _meta: { accepted: false } },
         ],
     };
-    const response = await requestHostedSessionInteraction(hostedSession, request, options.signal);
+    const response = await requestHostedSessionInteraction(
+        hostedSession,
+        request,
+        options.signal,
+        options.capability || null,
+    );
     const value = typeof response.value === "string" ? response.value : String(response.value || "");
     if (response.outcome !== RuntimeInteractionOutcomes.ACCEPTED || !isApprovalAcceptedValue(request, value)) {
         throw new AgyCliMcpSetupApprovalError("Antigravity MCP setup was not approved.");
