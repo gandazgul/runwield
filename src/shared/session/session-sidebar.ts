@@ -65,6 +65,50 @@ export function defaultSessionSidebarTab(hasWorkflow: boolean): SessionSidebarTa
     return hasWorkflow ? "workflow" : "session";
 }
 
+export interface SessionSidebarField {
+    label: string;
+    value: string;
+}
+
+function formatTokens(tokens: number | null): string {
+    return tokens === null ? "Unknown" : tokens.toLocaleString();
+}
+
+function formatShare(tokens: number | null, usedTokens: number | null): string {
+    if (tokens === null) return "Unknown";
+    if (usedTokens === null || usedTokens <= 0) return `~${formatTokens(tokens)}`;
+    return `~${formatTokens(tokens)} · ${((tokens / usedTokens) * 100).toFixed(1)}% of used`;
+}
+
+/** Identical Session-tab fields for the TUI and Workspace. */
+export function sessionSidebarFields(session: SessionSidebarProjection["session"]): SessionSidebarField[] {
+    const fields = [{ label: "Session", value: session.name }];
+    const { stats, context } = session;
+    if (stats) {
+        fields.push(
+            {
+                label: "Messages",
+                value: `${stats.totalMessages} · ${stats.userMessages} user / ${stats.assistantMessages} assistant`,
+            },
+            { label: "Tool calls", value: String(stats.toolCalls) },
+            { label: "Compactions", value: stats.compactionCount === 0 ? "None" : String(stats.compactionCount) },
+        );
+        if (stats.queuedMessages > 0) fields.push({ label: "Queued prompts", value: String(stats.queuedMessages) });
+    }
+    if (context) {
+        const percent = context.percent === null ? "" : ` · ${context.percent.toFixed(1)}%`;
+        fields.push(
+            {
+                label: "Context",
+                value: `${formatTokens(context.usedTokens)} / ${formatTokens(context.contextWindow)}${percent}`,
+            },
+            { label: "System & setup", value: formatShare(context.systemTokens, context.usedTokens) },
+            { label: "Conversation", value: formatShare(context.conversationTokens, context.usedTokens) },
+        );
+    }
+    return fields;
+}
+
 export function sessionArtifactKindLabel(kind: SessionArtifactReference["kind"]): string {
     switch (kind) {
         case "prd":

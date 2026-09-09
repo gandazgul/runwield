@@ -1224,3 +1224,19 @@ button.danger-action:disabled {
         padding: 1rem;
     }
 }
+.rw-panel-toggle {
+    flex-shrink: 0;
+}
+
+.rw-panel-resize-handle {
+    width: 6px;
+    cursor: col-resize;
+    touch-action: none;
+}
+
+.rw-panel-resize-handle:hover,
+.rw-panel-resize-handle:focus-visible,
+.rw-panel-resize-handle[data-resizing="true"] {
+    background: var(--rw-accent);
+    outline: none;
+}

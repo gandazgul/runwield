@@ -146,13 +146,15 @@ the same placement immediately above its editor.
 ### Session context sidebar
 
 Every persisted Session has one durable context sidebar beside its transcript. Do not show the sidebar for the
-unsubmitted New Session composer. On narrow screens, collapse it behind **Session details** so the conversation and
-composer stay visible. The sidebar has three peer tabs in this order: **Workflow**, **Session**, and **Artifacts**.
-Default to Workflow when the Session has an active workflow; otherwise default to Session. Preserve the reader's
-selected tab while the same Session remains open.
+unsubmitted New Session composer. Use `RunWieldPanelToggle` for collapse and restore, matching the review sidebars:
+collapse at the left edge before the tabs, restore in the main header. Do not repeat tab titles as inner headings.
+Remember the choice; default to collapsed on narrow screens so the conversation and composer stay visible. The sidebar
+has three peer tabs: **Workflow**, **Session**, and **Artifacts**. Default to Workflow when the Session has an active
+workflow; otherwise default to Session. Preserve the reader's selected tab while the same Session remains open.
 
 Workflow shows canonical workflow stages and their state, not a second transcript. When the active Plan explicitly
 belongs to an Epic, show **Epic** and its name above **Plan** and the child Plan name; omit Epic for standalone Plans.
+Workspace and TUI render the same `sessionSidebarFields` list, including labels, precision, and unavailable values.
 Session shows durable, user-facing facts such as its name, message and tool-call counts, compaction count, queued
 prompts, and context composition. Context composition shows used versus model capacity and splits the used context into
 **System & setup** (agent instructions, tools, instruction files, memories, skills, and Project state) versus
@@ -171,6 +173,12 @@ visible terminal viewport while transcript blocks scroll independently, and cycl
 two-line footer remains full width below both panes. Narrow terminals retain the existing transcript-only layout. If a
 TUI user opens an artifact, prefer the configured Workspace reader and fall back to the short-lived local read-only
 reader.
+
+Workspace navigation uses a draggable `.rw-panel-resize-handle` on its right edge. Keep the sidebar between 220 and
+480px while reserving at least 420px for the main pane. Remember its width separately from its collapsed state. The
+handle is a focusable separator: arrow keys adjust width, Home/End select the limits, and double-click restores 280px.
+Hide the handle in the narrow-screen overlay layout. Session lists use saved names (including rename entries), never the
+first prompt. Omit unnamed, empty Sessions by default; keep named, nonempty, and unreadable Sessions accessible.
 
 ## Token model
 

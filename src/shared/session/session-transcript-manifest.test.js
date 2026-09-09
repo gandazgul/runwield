@@ -120,6 +120,12 @@ Deno.test("aggregate projection adds safe segment context without exposing segme
             `${fixture.secondSegment.segmentId}:duplicate:assistant_text_delta:0`,
         ]);
         assertEquals(projected.snapshot.name, null);
+        assertEquals(projected.snapshot.sessionStats, {
+            userMessages: 1,
+            assistantMessages: 1,
+            toolCalls: 0,
+            compactionCount: 0,
+        });
         assertEquals(projected.events.map((event) => [event.segmentOrdinal, event.segmentKind]), [
             [0, "planning"],
             [1, "execution"],

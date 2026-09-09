@@ -19,11 +19,16 @@ type LiveSessionCommand = {
 };
 type SteeringReceipt = { input: string; result: Promise<SteerSessionResult> };
 type LiveSessionCommandResult = { ok: boolean; queued?: boolean; error?: string };
+export type LiveSessionInfo = Pick<
+    NonNullable<ReturnType<SessionRuntime["getSessionSnapshot"]>>,
+    "name" | "sessionStats" | "contextUsage" | "systemContextTokens"
+>;
 type LiveSessionSnapshot = {
     operationId: string;
     events: SessionRuntimeEvent[];
     interaction: RuntimeInteractionRequest | null;
     queuedMessages: RuntimeQueuedMessage[];
+    sessionInfo?: LiveSessionInfo | null;
 };
 
 function socketPath(sessionId: string, operationId: string) {
@@ -47,10 +52,19 @@ export async function openLiveSessionConnection(
             session.getManagedOperationCapability()?.assertLive();
             if (!session.getManagedOperationCapability()) throw new Error("The turn has finished.");
             if (request.method === "GET") {
+                const snapshot = runtime.getSessionSnapshot(session.id);
                 response.end(JSON.stringify({
                     operationId,
                     events,
                     queuedMessages: runtime.getQueuedMessages(session.id),
+                    sessionInfo: snapshot
+                        ? {
+                            name: snapshot.name,
+                            sessionStats: snapshot.sessionStats,
+                            contextUsage: snapshot.contextUsage,
+                            systemContextTokens: snapshot.systemContextTokens,
+                        }
+                        : null,
                     interaction: [...session.getActiveInteractions().values()][0]?.request || null,
                 }));
                 return;

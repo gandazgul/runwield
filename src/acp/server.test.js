@@ -640,7 +640,8 @@ Deno.test("ACP session/prompt resolves Prompt Template invocations through Core"
             const { response, messages } = await readThroughResponse(handle, "named-prompt");
 
             assertEquals(response.result, { stopReason: "end_turn" });
-            assertStringIncludes(JSON.stringify(messages), "/acp-template evidence");
+            assertStringIncludes(JSON.stringify(messages), "ACP expanded request for {{input}}\\n\\nevidence");
+            assert(!JSON.stringify(messages).includes("/acp-template evidence"));
             assertStringIncludes(modelRequests[0] || "", "ACP expanded request for {{input}}\\n\\nevidence");
             assert(!modelRequests[0]?.includes("/acp-template evidence"));
             assertStringIncludes(joinedAgentText(messages), "named ACP response");

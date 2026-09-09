@@ -6,6 +6,7 @@
 import { dirname, resolve } from "@std/path";
 import { isPathInside, readCatalogSafeRootSessionLocator } from "./root-session.js";
 import {
+    buildProjectedSessionInfo,
     captureTranscriptEvidence,
     createReplayEvents,
     selectProjectedEventsAfterCursor,
@@ -211,6 +212,19 @@ export async function projectAggregateTranscript(
                 current: segment.segmentId === current.segmentId,
             });
         }
+        const info = buildProjectedSessionInfo(aggregateEntries, {
+            sessionId: options.runwieldSessionId,
+            cwd: options.cwd,
+        });
+        const snapshot = {
+            ...summarizeProjectedEntries(aggregateEntries),
+            sessionStats: {
+                userMessages: info.userMessages,
+                assistantMessages: info.assistantMessages,
+                toolCalls: info.toolCalls,
+                compactionCount: info.compactionCount,
+            },
+        };
         let cursorReset = false;
         let selected;
         try {
@@ -244,7 +258,7 @@ export async function projectAggregateTranscript(
                 nextCursorOrdinal: end > 0 ? end - 1 : null,
                 previousCursor: start > 0 ? replayEvents[start]?.eventId || null : null,
                 complete: start === 0,
-                snapshot: summarizeProjectedEntries(aggregateEntries),
+                snapshot,
                 segments: segmentMetadata,
                 cursorReset: false,
             };
@@ -256,7 +270,7 @@ export async function projectAggregateTranscript(
             nextCursor: selected.nextCursor,
             nextCursorOrdinal: selected.nextCursorOrdinal,
             complete: selected.complete,
-            snapshot: summarizeProjectedEntries(aggregateEntries),
+            snapshot,
             segments: segmentMetadata,
             cursorReset,
         };

@@ -101,7 +101,11 @@ export async function ownerProjectSessionsApi(ctx) {
         requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
         const page = readPageValue(ctx.url.searchParams.get("page"), "page", 0, 10_000);
         const pageSize = readPageValue(ctx.url.searchParams.get("pageSize"), "pageSize", 30, 100);
-        const result = await ctx.state.sessionContinuation.listSessions(ctx.params.projectId, { page, pageSize });
+        const result = await ctx.state.sessionContinuation.listSessions(ctx.params.projectId, {
+            page,
+            pageSize,
+            includeEmpty: ctx.url.searchParams.get("includeEmpty") === "true",
+        });
         return ownerJson({ ...result, diagnostics: (result.diagnostics || []).map(safeDiagnostic) });
     } catch (error) {
         return ownerErrorJson(error, 400);

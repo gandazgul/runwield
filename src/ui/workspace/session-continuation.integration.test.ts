@@ -58,7 +58,7 @@ async function waitForOperation(service, operationId) {
     return service.getOperation(operationId);
 }
 
-Deno.test("Workspace Session names prefer real metadata before first-message fallback", async () => {
+Deno.test("Workspace Session names use saved renames and never substitute the first message", async () => {
     const namedPath = await Deno.makeTempFile({ prefix: "runwield-named-session-", suffix: ".jsonl" });
     const fallbackPath = await Deno.makeTempFile({ prefix: "runwield-fallback-session-", suffix: ".jsonl" });
     try {
@@ -67,6 +67,7 @@ Deno.test("Workspace Session names prefer real metadata before first-message fal
             [
                 { type: "session", id: "pi-1", name: "Real Session Name", timestamp: "2026-01-01T00:00:00.000Z" },
                 { type: "message", message: { role: "user", content: "first message text" } },
+                { type: "session_info", name: "Renamed Session" },
             ].map((entry) => JSON.stringify(entry)).join("\n"),
         );
         await Deno.writeTextFile(
@@ -80,8 +81,12 @@ Deno.test("Workspace Session names prefer real metadata before first-message fal
             ].map((entry) => JSON.stringify(entry)).join("\n"),
         );
 
-        assertEquals(await readSessionName(namedPath), "Real Session Name");
-        assertEquals(await readSessionName(fallbackPath), "fallback first message");
+        assertEquals(await readSessionName(namedPath), "Renamed Session");
+        await Deno.writeTextFile(namedPath, '\n{"type":"session_info","name":"Renamed again"}\n{"type":', {
+            append: true,
+        });
+        assertEquals(await readSessionName(namedPath), "Renamed again");
+        assertEquals(await readSessionName(fallbackPath), "Untitled Session");
     } finally {
         await Deno.remove(namedPath).catch(() => undefined);
         await Deno.remove(fallbackPath).catch(() => undefined);
@@ -102,6 +107,46 @@ Deno.test("Workspace Session list prefers transcript name before stale catalog f
     } finally {
         service.close();
         service.store.close();
+        await fixture.cleanup();
+    }
+});
+
+Deno.test("Workspace hides only unnamed empty Sessions and paginates the visible list", async () => {
+    const fixture = await makeManagedSessionFixture();
+    const store = fixture.openStore();
+    const service = new WorkspaceSessionContinuationService({ store });
+    try {
+        for (const [index, name, content] of [[1, "", ""], [2, "Named empty", ""], [3, "", "Hello"]]) {
+            const transcriptPath = `${fixture.sessionDir}/2026-01-0${index + 1}T00-00-00-000Z_list-${index}.jsonl`;
+            const entries = [{
+                type: "session",
+                id: `list-${index}`,
+                cwd: fixture.projectRoot,
+                timestamp: `2026-01-0${index + 1}T00:00:00.000Z`,
+            }];
+            if (name) entries.push({ type: "session_info", name });
+            if (content) entries.push({ type: "message", message: { role: "user", content } });
+            await Deno.writeTextFile(transcriptPath, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+            await store.ensureSessionCatalogRecord({
+                projectId: fixture.project.projectId,
+                piSessionId: `list-${index}`,
+                transcriptPath,
+                transcriptCwd: fixture.projectRoot,
+                source: "catalog",
+            });
+        }
+        const first = await service.listSessions(fixture.project.projectId, { pageSize: 1 });
+        const second = await service.listSessions(fixture.project.projectId, { pageSize: 1, page: 1 });
+        const third = await service.listSessions(fixture.project.projectId, { pageSize: 1, page: 2 });
+        assertEquals(first.total, 3);
+        assertEquals(first.sessions[0].displayName, "Untitled Session");
+        assertEquals(second.sessions[0].displayName, "Named empty");
+        assertEquals(third.sessions[0].displayName, "Managed fixture");
+        assertEquals(third.hasNext, false);
+        assertEquals((await service.listSessions(fixture.project.projectId, { includeEmpty: true })).total, 4);
+    } finally {
+        service.close();
+        store.close();
         await fixture.cleanup();
     }
 });
@@ -221,6 +266,12 @@ Deno.test("Workspace continuation publishes once and a TUI observer resumes from
                 const initialTimeline = await service.timeline(fixture.session.runwieldSessionId, {
                     projectId: fixture.project.projectId,
                     limit: 20,
+                });
+                assertEquals(initialTimeline.snapshot.sessionStats, {
+                    userMessages: 1,
+                    assistantMessages: 1,
+                    toolCalls: 0,
+                    compactionCount: 0,
                 });
                 assertEquals(
                     workspaceStore.inspectSessionActivation(fixture.session.runwieldSessionId).activation?.state,

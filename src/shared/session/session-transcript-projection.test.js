@@ -43,6 +43,18 @@ async function withHome(callback) {
     });
 }
 
+Deno.test("Session projection reads the last persisted Session rename", () => {
+    assertEquals(
+        summarizeProjectedEntries([
+            { type: "session", name: "Original" },
+            { type: "session_info", name: "First rename" },
+            { type: "message", message: { role: "user", content: "Not the name" } },
+            { type: "session_info", name: "Saved name" },
+        ]).name,
+        "Saved name",
+    );
+});
+
 Deno.test("committed projection verifies exact prefix and ignores later tail", async () => {
     await withHome(async (home) => {
         const cwd = `${home}/project`;

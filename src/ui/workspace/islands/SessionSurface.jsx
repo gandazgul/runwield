@@ -5,18 +5,21 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
     RunWieldButton,
     RunWieldLink,
+    RunWieldPanelToggle,
     RunWieldThinkingDots,
 } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { SessionList } from "../components/SessionList.jsx";
-import { deriveSessionAvailability, SessionActivationStatus } from "../components/SessionActivationStatus.jsx";
+import { deriveSessionAvailability } from "../components/SessionActivationStatus.jsx";
 import { reduceSessionEvents, SessionTimeline } from "../components/SessionTimeline.jsx";
 import {
     buildSessionSidebarProjection,
     defaultSessionSidebarTab,
     SESSION_SIDEBAR_TABS,
     sessionArtifactKindLabel,
+    sessionSidebarFields,
 } from "../../../shared/session/session-sidebar.ts";
 import { createSessionTabNotificationController } from "../browser/session-tab-notifications.ts";
+import { WorkspaceHeaderActionsPortal } from "../react/WorkspaceHeaderActionsPortal.tsx";
 
 export const SESSION_PAGE_SIZE = 30;
 const TIMELINE_PAGE_LIMIT = 200;
@@ -521,7 +524,22 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [workflowProgress, setWorkflowProgress] = useState(/** @type {any} */ (null));
     const [workflowProgressError, setWorkflowProgressError] = useState("");
     const [sessionSidebarTab, setSessionSidebarTab] = useState("session");
-    const [mobileContextOpen, setMobileContextOpen] = useState(false);
+    const [contextCollapsed, setContextCollapsed] = useState(false);
+    useEffect(() => {
+        try {
+            const stored = localStorage.getItem("runwield:owner:session-context-collapsed");
+            setContextCollapsed(
+                stored === null ? globalThis.matchMedia("(max-width: 900px)").matches : stored === "true",
+            );
+        } catch { /* Sidebar state is optional. */ }
+    }, []);
+    function toggleContext() {
+        const collapsed = !contextCollapsed;
+        setContextCollapsed(collapsed);
+        try {
+            localStorage.setItem("runwield:owner:session-context-collapsed", String(collapsed));
+        } catch { /* Sidebar state is optional. */ }
+    }
     const sidebarSessionRef = useRef("");
     const [detailError, setDetailError] = useState("");
     const [loadingDetail, setLoadingDetail] = useState(mode === "detail");
@@ -660,6 +678,13 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         const merged = { ...nextTimeline, events };
         timelineRef.current = merged;
         setTimeline(merged);
+        if (typeof merged.snapshot?.name === "string") {
+            document.dispatchEvent(
+                new CustomEvent("runwield:session-named", {
+                    detail: { projectId, runwieldSessionId, name: merged.snapshot.name },
+                }),
+            );
+        }
         setTimelineItems(reduceSessionEvents(events, { source: "committed" }));
         setPendingUserMessages((messages) => {
             const committedUserText = new Set(
@@ -1543,15 +1568,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         : timeline?.snapshot?.provider || "";
     const activeModelId = typeof activeModel.model === "string" ? activeModel.model : timeline?.snapshot?.model || "";
     const activeModelKey = activeModelId ? `${activeProvider}\u001f${activeModelId}` : "";
-    const committedModelReference = activeModelId
-        ? activeProvider ? `${activeProvider}/${activeModelId}` : activeModelId
-        : "Project default";
     const activeThinking = typeof timeline?.snapshot?.thinkingLevel === "string"
         ? timeline.snapshot.thinkingLevel
         : "default";
-    const executionBackend = asRecord(timeline?.snapshot?.executionBackend || {});
-    const isAgyExecutionBackend = executionBackend.backend === "agy-cli" ||
-        (executionBackend.provider === "agy-cli" && activeProvider === "agy-cli");
     const hasActivePlan = Boolean(workflowContext.planId || workflowContext.planName || progressUrl);
     const workflowStages = deriveWorkflowSidebarStages(workflowProgress);
     const localOperationActive = Boolean(operation && !["completed", "failed", "unknown"].includes(operation.status));
@@ -1563,8 +1582,28 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const displayedThinking = liveThinkingLevel || activeThinking;
     const showBusyPanel = ["active", "workspace-running", "execution-workflow"].includes(availability.key);
     const canSubmitSession = availability.canContinue || ["active", "workspace-running"].includes(availability.key);
+    const sessionSidebar = buildSessionSidebarProjection({
+        sessionName: timeline?.snapshot?.name,
+        ...timeline?.snapshot?.sessionStats,
+        queuedMessages: queuedMessages.length,
+        contextUsedTokens: timeline?.snapshot?.contextUsage?.tokens,
+        contextWindowTokens: timeline?.snapshot?.contextUsage?.contextWindow,
+        contextPercent: timeline?.snapshot?.contextUsage?.percent,
+        systemContextTokens: timeline?.snapshot?.systemContextTokens,
+    }).session;
     return (
         <section className="session-surface session-surface-detail" aria-label="RunWield Session chat">
+            {timeline && contextCollapsed && (
+                <WorkspaceHeaderActionsPortal>
+                    <RunWieldPanelToggle
+                        side="right"
+                        collapsed
+                        label="Session sidebar"
+                        controls="session-context-sidebar"
+                        onClick={toggleContext}
+                    />
+                </WorkspaceHeaderActionsPortal>
+            )}
             {loadingDetail && !timeline
                 ? (
                     <p className="session-list-state" aria-busy="true">
@@ -1583,7 +1622,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 : null}
             {timeline
                 ? (
-                    <div className="session-detail-layout">
+                    <div
+                        className={`session-detail-layout${
+                            contextCollapsed ? " session-detail-layout--chat-only" : ""
+                        }`}
+                    >
                         <main className="session-stream-panel" aria-label="Session stream">
                             <div
                                 className="session-timeline-scroll"
@@ -1674,40 +1717,45 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             />
                         </main>
                         <aside
+                            id="session-context-sidebar"
+                            hidden={contextCollapsed}
                             className="session-workflow-sidebar session-context-sidebar"
                             aria-label="Session context"
-                            data-mobile-open={mobileContextOpen}
                         >
-                            <RunWieldButton
-                                type="button"
-                                className="session-context-toggle"
-                                aria-expanded={mobileContextOpen}
-                                onClick={() => setMobileContextOpen(!mobileContextOpen)}
-                            >
-                                {mobileContextOpen ? "Hide details" : "Session details"}
-                            </RunWieldButton>
                             <div className="session-context-content">
-                                <div className="session-context-tabs" role="tablist" aria-label="Session context views">
-                                    {SESSION_SIDEBAR_TABS.map((tab) => (
-                                        <button
-                                            key={tab}
-                                            type="button"
-                                            role="tab"
-                                            aria-selected={sessionSidebarTab === tab}
-                                            onClick={() => setSessionSidebarTab(tab)}
-                                        >
-                                            {tab[0].toUpperCase() + tab.slice(1)}
-                                            {tab === "artifacts" && Array.isArray(timeline.artifacts) &&
-                                                    timeline.artifacts.length
-                                                ? <span>{timeline.artifacts.length}</span>
-                                                : null}
-                                        </button>
-                                    ))}
+                                <div className="session-context-header">
+                                    <RunWieldPanelToggle
+                                        side="right"
+                                        collapsed={false}
+                                        label="Session sidebar"
+                                        controls="session-context-sidebar"
+                                        onClick={toggleContext}
+                                    />
+                                    <div
+                                        className="session-context-tabs"
+                                        role="tablist"
+                                        aria-label="Session context views"
+                                    >
+                                        {SESSION_SIDEBAR_TABS.map((tab) => (
+                                            <button
+                                                key={tab}
+                                                type="button"
+                                                role="tab"
+                                                aria-selected={sessionSidebarTab === tab}
+                                                onClick={() => setSessionSidebarTab(tab)}
+                                            >
+                                                {tab[0].toUpperCase() + tab.slice(1)}
+                                                {tab === "artifacts" && Array.isArray(timeline.artifacts) &&
+                                                        timeline.artifacts.length
+                                                    ? <span>{timeline.artifacts.length}</span>
+                                                    : null}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                                 {sessionSidebarTab === "workflow"
                                     ? (
                                         <div className="session-context-panel" role="tabpanel">
-                                            <p className="kicker">Workflow state</p>
                                             {hasActivePlan
                                                 ? (
                                                     <>
@@ -1776,45 +1824,18 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                     : sessionSidebarTab === "session"
                                     ? (
                                         <div className="session-context-panel" role="tabpanel">
-                                            <p className="kicker">Session</p>
-                                            <SessionActivationStatus availability={availability} compact />
                                             <dl>
-                                                <div>
-                                                    <dt>Agent</dt>
-                                                    <dd>{timeline.snapshot?.activeAgent || "Not recorded"}</dd>
-                                                </div>
-                                                <div>
-                                                    <dt>Model</dt>
-                                                    <dd>{committedModelReference}</dd>
-                                                </div>
-                                                <div>
-                                                    <dt>Thinking</dt>
-                                                    <dd>{activeThinking}</dd>
-                                                </div>
-                                                {isAgyExecutionBackend
-                                                    ? (
-                                                        <div>
-                                                            <dt>Execution Backend</dt>
-                                                            <dd>Antigravity CLI</dd>
-                                                        </div>
-                                                    )
-                                                    : null}
+                                                {sessionSidebarFields(sessionSidebar).map((field) => (
+                                                    <div key={field.label}>
+                                                        <dt>{field.label}</dt>
+                                                        <dd>{field.value}</dd>
+                                                    </div>
+                                                ))}
                                             </dl>
-                                            {isAgyExecutionBackend
-                                                ? (
-                                                    <p className="notice muted">
-                                                        Antigravity owns its native file, shell, and tool activity.
-                                                        RunWield replay includes assistant messages, RunWield tool
-                                                        activity, and backend status. Antigravity internal activity is
-                                                        not included.
-                                                    </p>
-                                                )
-                                                : null}
                                         </div>
                                     )
                                     : (
                                         <div className="session-context-panel" role="tabpanel">
-                                            <p className="kicker">Artifacts</p>
                                             {Array.isArray(timeline.artifacts) && timeline.artifacts.length
                                                 ? (
                                                     <ul className="session-artifact-list">

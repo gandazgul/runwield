@@ -3726,9 +3726,9 @@ export class SessionRuntime {
             images: options.initialImages || [],
         });
         const submittedRequest = options.initialRequest;
-        const displayRequest = namedInvocation.kind === "ordinary"
-            ? submittedRequest
-            : namedInvocation.payload.compactInvocation;
+        let displayRequest = submittedRequest;
+        if (namedInvocation.kind === "prompt_template") displayRequest = namedInvocation.expandedRequest;
+        if (namedInvocation.kind === "skill") displayRequest = namedInvocation.payload.compactInvocation;
         let managed = hostedSession.getManagedMetadata?.() || null;
         const isDeferredFirstTurn = !managed && this.#pendingManagedCreationProjects.has(sessionId);
         const deferredFirstTurnId = isDeferredFirstTurn ? crypto.randomUUID() : "";

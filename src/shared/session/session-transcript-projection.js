@@ -11,7 +11,11 @@ import { normalizeRuntimeToolResult, normalizeRuntimeUsage, RuntimeEventTypes } 
 import { describeRuntimeTool } from "./tool-event-title.js";
 import { formatTaskCompletedMarkdown, readManualQaChecklistMessage } from "./workflow-messages.js";
 import { isPathInside, readCatalogSafeRootSessionLocator } from "./root-session.js";
-import { namedInvocationDisplayText, namedInvocationImageReferences } from "./named-invocation.ts";
+import {
+    namedInvocationCompactText,
+    namedInvocationDisplayText,
+    namedInvocationImageReferences,
+} from "./named-invocation.ts";
 import { getAgentDisplayName, normalizeAgentInternalName } from "./agents.js";
 
 /** @param {unknown} value @returns {string} */
@@ -139,7 +143,7 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                 text: namedInvocationText,
                 images: namedInvocationImages,
             });
-            skipNextCompactNamedInvocation = namedInvocationText;
+            skipNextCompactNamedInvocation = namedInvocationCompactText(value);
             continue;
         }
         const meta = replayMeta(value, segmentId);
@@ -779,7 +783,9 @@ export function summarizeProjectedEntries(entries) {
     const planAssociations = readPlanAssociations(entries);
     for (const entry of entries) {
         const value = /** @type {any} */ (entry || {});
-        if (value.type === "session" && typeof value.name === "string") name = value.name;
+        if ((value.type === "session" || value.type === "session_info") && typeof value.name === "string") {
+            name = value.name;
+        }
         if (value.type === "custom" && value.customType === ACTIVE_AGENT_CUSTOM_TYPE) {
             if (typeof value.data?.agentName === "string") activeAgent = value.data.agentName.trim().toLowerCase();
         }

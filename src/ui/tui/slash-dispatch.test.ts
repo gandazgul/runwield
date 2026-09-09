@@ -176,10 +176,10 @@ Deno.test("handleSlashCommand keeps hidden init reserved instead of dispatching 
     });
 });
 
-Deno.test("handleSlashCommand submits prompt template slash text through the Core runtime", async () => {
+Deno.test("handleSlashCommand shows expanded prompt template text from the Core runtime", async () => {
     await withSlashFixture({ promptTemplate: true }, async ({ context, submittedRequests }) => {
         assertEquals(await handleSlashCommand(context("/review focus on tests")), true);
-        assertEquals(submittedRequests, ["/review focus on tests"]);
+        assertEquals(submittedRequests, ["Review the fixture carefully.\n\nfocus on tests"]);
     });
 });
 

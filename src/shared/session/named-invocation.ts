@@ -196,6 +196,15 @@ export function readNamedInvocationPayload(
 export function namedInvocationDisplayText(
     entry: { type?: string; customType?: string; data?: NamedInvocationPayload },
 ) {
+    const payload = readNamedInvocationPayload(entry);
+    if (!payload) return "";
+    if (payload.kind === "prompt_template") return payload.expandedRequest || payload.compactInvocation || "";
+    return payload.compactInvocation || "";
+}
+
+export function namedInvocationCompactText(
+    entry: { type?: string; customType?: string; data?: NamedInvocationPayload },
+) {
     return readNamedInvocationPayload(entry)?.compactInvocation || "";
 }
 
