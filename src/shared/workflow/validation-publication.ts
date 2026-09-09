@@ -651,6 +651,7 @@ async function runLockedPublicationPhase(
             args,
             buildValidationUserMessage({ kind: "publication_progress", phase: "cleanup", targetBranch }),
         );
+        await args.session.handoffVerifiedPublication(context.projectRoot);
         const cleanup = await cleanupStoredPublication(context.projectRoot, publicationAttempt);
         publicationAttempt = cleanup.attempt;
         if (!cleanup.complete) {

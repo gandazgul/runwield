@@ -23,6 +23,7 @@ import { executePlanAction, loadPlanActionEvidence } from "../../shared/workflow
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { writeControllerState } from "../../shared/workflow/controller-registry.ts";
 import { defineCommittedGitFixture } from "../../shared/git-test-fixture.ts";
+import { createTestWorktreeAttempt } from "../../shared/worktree-test-helpers.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runLoadPlanCommand } from "./index.ts";
 import type { PlanFrontMatterInput } from "../../plan-store.js";
@@ -157,6 +158,53 @@ async function prepareImplementedFollowUpPlan(
         updatedAt: new Date().toISOString(),
     });
     return { planName: "follow-up", worktreePath, worktreeBranch: branch };
+}
+
+async function prepareValidatedPublicationPlan(
+    projectRoot: string,
+    planName = "published-session-context",
+    attrs: PlanFrontMatterInput = {},
+    beforeBaselineCommit?: () => Promise<void>,
+): Promise<{ planName: string; worktreePath: string; worktreeBranch: string; worktreeId: string }> {
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+    await writePlan(projectRoot, planName, {
+        status: "validated_reviewer",
+        executionAgent: "engineer",
+        executionMode: "worktree",
+        humanReviewMode: "none",
+        planId: `${planName}-plan`,
+        ...attrs,
+    });
+    await beforeBaselineCommit?.();
+    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["commit", "-m", "fixture baseline"]);
+    const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+    const worktree = await createTestWorktreeAttempt({
+        projectRoot,
+        planName,
+        planId: `${planName}-plan`,
+        attemptId: `${planName.replaceAll("/", "-")}-attempt`,
+    });
+    const worktreePlan = await loadPlan(worktree.path, planName);
+    if (!worktreePlan) throw new Error("worktree Plan fixture disappeared");
+    await savePlan(worktree.path, planName, worktreePlan.markdown || worktreePlan.body || `# ${planName}`, {
+        ...worktreePlan.attrs,
+        status: "validated_reviewer",
+        executionAgent: "engineer",
+        executionMode: "worktree",
+        humanReviewMode: "none",
+        planId: `${planName}-plan`,
+        executionBaselineTree: baselineTree,
+        worktreeId: worktree.id,
+        worktreePath: worktree.path,
+        worktreeBranch: worktree.branch,
+        worktreeBaseBranch: "main",
+        ...attrs,
+    }, { expectedRevision: worktreePlan.revision });
+    await Deno.writeTextFile(`${worktree.path}/published-marker.txt`, "from worktree\n");
+    return { planName, worktreePath: worktree.path, worktreeBranch: worktree.branch, worktreeId: worktree.id };
 }
 
 async function captureLogs(run: () => Promise<void>): Promise<string[]> {
@@ -414,6 +462,58 @@ Deno.test("load-plan offers lifecycle actions for a validated Plan already publi
             runtime.closeAllSessions();
         }
     });
+});
+
+Deno.test("load-plan resumes publication, removes the worktree, and leaves Engineer in the primary checkout", async () => {
+    await withRuntimeCommandFixture(
+        "runwield-load-plan-published-session-",
+        async ({ projectRoot, setModelResponseFactories }) => {
+            const fixture = await prepareValidatedPublicationPlan(projectRoot);
+            const { runtime, sessionId } = await createRuntime(fixture.worktreePath, "planner");
+            const canonicalProjectRoot = await Deno.realPath(projectRoot);
+            const unsubscribe = runtime.subscribeSessionEvents(sessionId, () => {});
+            setModelResponseFactories([
+                () => fauxAssistantMessage(fauxText("Warm turn reply.")),
+                () =>
+                    fauxAssistantMessage(fauxToolCall("bash", {
+                        command: "pwd && git branch --show-current && cat published-marker.txt",
+                    })),
+                () => fauxAssistantMessage(fauxText("Shell checked.")),
+            ]);
+            const ui = makeUi(["validate"]);
+            try {
+                await runtime.promptSession(sessionId, { initialRequest: "Warm the root Agent." });
+                await runLoadPlanCommand([fixture.planName], {
+                    sessionRuntime: runtime,
+                    sessionId,
+                    uiAPI: ui.uiAPI,
+                    editor: ui.editor,
+                });
+
+                const snapshot = runtime.getSessionSnapshot(sessionId);
+                assertEquals(await pathExists(fixture.worktreePath), false);
+                assertEquals(await findById(projectRoot, fixture.worktreeId), null);
+                assertEquals(snapshot?.activeAgent, "engineer");
+                assertEquals(snapshot?.cwd, canonicalProjectRoot);
+                assertEquals(snapshot?.activeExecutionWorkflow, null);
+
+                const shell = await new Deno.Command("sh", {
+                    cwd: canonicalProjectRoot,
+                    args: ["-c", "pwd && git branch --show-current && cat published-marker.txt"],
+                    stdout: "piped",
+                    stderr: "piped",
+                }).output();
+                assertEquals(shell.success, true, new TextDecoder().decode(shell.stderr));
+                const shellOutput = new TextDecoder().decode(shell.stdout);
+                assertStringIncludes(shellOutput, canonicalProjectRoot);
+                assertStringIncludes(shellOutput, "main");
+                assertStringIncludes(shellOutput, "from worktree");
+            } finally {
+                unsubscribe();
+                runtime.closeAllSessions();
+            }
+        },
+    );
 });
 
 Deno.test("load-plan abandons unregistered legacy recovery before archiving a User Verified Plan", async () => {

@@ -522,6 +522,7 @@ export function createValidationSessionPort(
         },
         getAgentDisplayName: (agentName, projectRoot) => getSessionAgentDisplayName(agentName, projectRoot),
         handoffVerifiedPublication: async (projectRoot) => {
+            if (!hostedSession.getRootAgentSession?.()) return;
             await switchActiveAgent(hostedSession, {
                 agentName: AGENTS.ENGINEER,
                 cwd: projectRoot,
