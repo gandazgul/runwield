@@ -2,13 +2,23 @@
 import { assert, assertEquals, assertStrictEquals, assertStringIncludes } from "@std/assert";
 import {
     applyActiveRoute,
+    applySessionName,
+    clampSidebarWidth,
     currentRouteFromUrl,
+    installSidebarResize,
     installWorkspaceShellBrowser,
     renderSidebar,
     shouldApplySidebarRefresh,
     sidebarProjectOrder,
     sidebarSessionOrder,
 } from "./static/workspace-shell.ts";
+
+Deno.test("Workspace sidebar resizing respects panel and conversation bounds", () => {
+    assertEquals(clampSidebarWidth(100, 1440), 220);
+    assertEquals(clampSidebarWidth(360, 1440), 360);
+    assertEquals(clampSidebarWidth(700, 1440), 480);
+    assertEquals(clampSidebarWidth(480, 870), 450);
+});
 
 class FakeClassList {
     constructor(element) {
@@ -43,6 +53,9 @@ class FakeElement {
         this.children = [];
         this.parentElement = null;
         this.attributes = new Map();
+        this.listeners = new Map();
+        this.styles = new Map();
+        this.style = { setProperty: (name, value) => this.styles.set(name, value) };
         this.className = "";
         this.dataset = new Proxy({}, {
             set: (_target, key, value) => {
@@ -61,6 +74,21 @@ class FakeElement {
     set textContent(value) {
         this.children = [];
         this._textContent = String(value);
+    }
+    addEventListener(type, listener) {
+        const listeners = this.listeners.get(type) || [];
+        listeners.push(listener);
+        this.listeners.set(type, listeners);
+    }
+    dispatchEvent(event) {
+        for (const listener of this.listeners.get(event.type) || []) listener(event);
+        return !event.defaultPrevented;
+    }
+    getBoundingClientRect() {
+        return { left: 0, width: 1440 };
+    }
+    setPointerCapture(pointerId) {
+        this.capturedPointer = pointerId;
     }
     get textContent() {
         return this._textContent || this.children.map((child) => child.textContent).join("");
@@ -209,6 +237,21 @@ Deno.test("Workspace shell maps owner review and artifact routes back to the own
     });
 });
 
+Deno.test("an older Session uses its persisted name even outside the sidebar's first page", () => {
+    const { document } = installFakeBrowser("/projects/project-a/sessions/older-session");
+    const current = currentRouteFromUrl(globalThis.location.href);
+    const payload = { projects: [{ projectId: "project-a", displayName: "Project A", enabled: true, sessions: [] }] };
+    renderSidebar(payload, current);
+    applySessionName({ projectId: "project-a", runwieldSessionId: "older-session", name: "Saved older Session" });
+    assertEquals(document.querySelector("[data-workspace-main-session-name]").textContent, "Saved older Session");
+    renderSidebar(payload, current);
+    assertEquals(document.querySelector("[data-workspace-main-session-name]").textContent, "Saved older Session");
+    assertStringIncludes(
+        document.querySelector('[data-sidebar-session="older-session"]').textContent,
+        "Saved older Session",
+    );
+});
+
 Deno.test("Workspace sidebar refreshes reject stale navigation responses", () => {
     assertEquals(shouldApplySidebarRefresh(2, 2, "http://workspace.local/a", "http://workspace.local/a"), true);
     assertEquals(shouldApplySidebarRefresh(1, 2, "http://workspace.local/a", "http://workspace.local/a"), false);
@@ -341,6 +384,31 @@ Deno.test("Workspace shell installs one sidebar refresh per page-load navigation
     document.dispatchEvent(new CustomEvent("astro:page-load"));
     await Promise.resolve();
     assertEquals(refreshes, 3);
+});
+
+Deno.test("Workspace sidebar resize supports keyboard, pointer, and persisted width", () => {
+    const { document } = installFakeBrowser();
+    const stored = new Map();
+    Object.defineProperty(globalThis, "localStorage", {
+        configurable: true,
+        value: { getItem: (key) => stored.get(key) || null, setItem: (key, value) => stored.set(key, value) },
+    });
+    installSidebarResize();
+    installSidebarResize();
+    const shell = document.querySelector(".workspace-shell-with-sidebar");
+    const handles = shell.querySelectorAll(".workspace-sidebar-resizer");
+    assertEquals(handles.length, 1);
+    const handle = handles[0];
+    handle.dispatchEvent({ type: "keydown", key: "ArrowRight", preventDefault() {} });
+    assertEquals(handle.getAttribute("aria-valuenow"), "296");
+    handle.dispatchEvent({ type: "pointerdown", button: 0, pointerId: 1, preventDefault() {} });
+    handle.dispatchEvent({ type: "pointermove", clientX: 380 });
+    handle.dispatchEvent({ type: "pointerup" });
+    assertEquals(shell.styles.get("--rw-workspace-sidebar-width"), "380px");
+    assertEquals(stored.get("runwield:owner:sidebar-width"), "380");
+    handle.remove();
+    installSidebarResize();
+    assertEquals(shell.querySelector(".workspace-sidebar-resizer").getAttribute("aria-valuenow"), "380");
 });
 
 Deno.test("Workspace shell is event-driven and does not poll the sidebar", async () => {

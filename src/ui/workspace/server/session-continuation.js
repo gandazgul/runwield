@@ -26,8 +26,11 @@ import {
 } from "../../../shared/session/session-transcript-projection.js";
 import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
 
-/** @typedef {{ type?: string, text?: string }} TranscriptContentPart */
 /** @typedef {"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"} WorkspaceThinkingLevel */
+/** @typedef {{ name: string, hasMessages: boolean }} SessionListInfo */
+/** @typedef {{ size: number, mtime: number | undefined, ctime: number | undefined, info: SessionListInfo }} SessionListInfoCacheEntry */
+/** @type {Map<string, SessionListInfoCacheEntry>} */
+const sessionListInfoCache = new Map();
 
 /** @param {unknown} value */
 function stableHash(value) {
@@ -171,43 +174,57 @@ function acceptedInteractionResponse(response) {
 
 /** @param {string} value */
 function compactSessionName(value) {
-    return value.trim().replace(/\s+/g, " ").slice(0, 120);
+    return value.trim().replace(/\s+/g, " ");
 }
 
-/** @param {Record<string, unknown>} entry */
-function firstUserMessageText(entry) {
-    if (entry.type === "user_message") return typeof entry.text === "string" ? entry.text : "";
-    if (entry.type !== "message") return "";
-    const message = /** @type {{ role?: string, content?: unknown }} */ (entry.message || {});
-    if (message.role !== "user") return "";
-    if (typeof message.content === "string") return message.content;
-    if (!Array.isArray(message.content)) return "";
-    const textPart = message.content.find(
-        /** @param {TranscriptContentPart} part */
-        (part) => part?.type === "text" && typeof part.text === "string",
-    );
-    return typeof textPart?.text === "string" ? textPart.text : "";
+/** @param {string} transcriptPath */
+async function readSessionListInfo(transcriptPath) {
+    try {
+        const stat = await Deno.stat(transcriptPath);
+        const cached = sessionListInfoCache.get(transcriptPath);
+        if (
+            cached && cached.size === stat.size && cached.mtime === stat.mtime?.getTime() &&
+            cached.ctime === stat.ctime?.getTime()
+        ) return cached.info;
+        const entries = [];
+        let hasMessages = false;
+        const transcript = await Deno.readTextFile(transcriptPath);
+        for (const line of transcript.split("\n")) {
+            if (!line.trim()) continue;
+            try {
+                const entry = JSON.parse(line);
+                if (entry.type === "session" || entry.type === "session_info") entries.push(entry);
+                if (entry.type === "message" || entry.type === "user_message") hasMessages = true;
+            } catch {
+                // A partially written tail must not discard a saved name or hide the Session.
+                hasMessages = true;
+            }
+        }
+        const name = summarizeProjectedEntries(entries).name;
+        const info = {
+            name: typeof name === "string" ? compactSessionName(name) : "",
+            hasMessages,
+        };
+        sessionListInfoCache.set(transcriptPath, {
+            size: stat.size,
+            mtime: stat.mtime?.getTime(),
+            ctime: stat.ctime?.getTime(),
+            info,
+        });
+        if (sessionListInfoCache.size > 512) {
+            const oldest = sessionListInfoCache.keys().next().value;
+            if (oldest) sessionListInfoCache.delete(oldest);
+        }
+        return info;
+    } catch {
+        // Keep unreadable Sessions visible for recovery; they are not known to be empty.
+        return { name: "", hasMessages: true };
+    }
 }
 
 /** @param {string} transcriptPath */
 export async function readSessionName(transcriptPath) {
-    try {
-        const entries = [];
-        let firstUserText = "";
-        const transcript = await Deno.readTextFile(transcriptPath);
-        for (const line of transcript.split("\n")) {
-            if (!line.trim()) continue;
-            const entry = JSON.parse(line);
-            entries.push(entry);
-            if (!firstUserText) firstUserText = firstUserMessageText(entry);
-        }
-        const name = summarizeProjectedEntries(entries).name;
-        if (typeof name === "string" && name.trim()) return compactSessionName(name);
-        if (firstUserText.trim()) return compactSessionName(firstUserText);
-    } catch {
-        // A damaged transcript remains identifiable by its Session id.
-    }
-    return "Untitled Session";
+    return (await readSessionListInfo(transcriptPath)).name || "Untitled Session";
 }
 
 /** @param {import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore} store @param {{ transcriptCwd: string }} session @param {string} projectId */
@@ -351,21 +368,53 @@ export class WorkspaceSessionContinuationService {
 
     /**
      * @param {string} projectId
-     * @param {{ page?: number, pageSize?: number }} [options]
+     * @param {{ page?: number, pageSize?: number, includeEmpty?: boolean }} [options]
      */
     async listSessions(projectId, options = {}) {
         // Normal listing reads the incremental catalog. Full transcript discovery remains an explicit rescan path.
-        const result = await this.store.listProjectSessions(projectId, { ...options, catalog: false });
+        const result = await this.store.listProjectSessions(projectId, { page: 0, pageSize: 100, catalog: false });
+        const catalog = [...result.sessions];
+        let nextPage = result.hasNext;
+        for (let page = 1; nextPage; page++) {
+            const next = await this.store.listProjectSessions(projectId, { page, pageSize: 100, catalog: false });
+            catalog.push(...next.sessions);
+            nextPage = next.hasNext;
+        }
+        const visible = [];
+        // Read one Session at a time: large histories must not be loaded together just to build navigation.
+        for (const session of catalog) {
+            const segments = this.store.listSessionTranscriptSegments(session.runwieldSessionId);
+            const paths = segments.length
+                ? [...segments].sort((a, b) => a.ordinal - b.ordinal).map((segment) => segment.transcriptPath)
+                : [session.transcriptPath].filter(Boolean);
+            const infos = await Promise.all(paths.map(readSessionListInfo));
+            const name = infos.findLast((info) => info.name)?.name || session.displayName || "";
+            const named = name && !/^untitled(?: session)?$/i.test(name.trim());
+            if (!options.includeEmpty && !named && !infos.some((info) => info.hasMessages)) continue;
+            visible.push({ ...session, displayName: name || "Untitled Session" });
+        }
+        const page = typeof options.page === "number" && Number.isInteger(options.page) && options.page >= 0
+            ? options.page
+            : 0;
+        const pageSize =
+            typeof options.pageSize === "number" && Number.isInteger(options.pageSize) && options.pageSize > 0
+                ? Math.min(options.pageSize, 100)
+                : 30;
+        const start = page * pageSize;
         return {
             ...result,
+            page,
+            pageSize,
+            total: visible.length,
+            hasNext: start + pageSize < visible.length,
+            hasPrevious: page > 0 && start < visible.length,
             diagnostics: result.diagnostics || [],
-            sessions: await Promise.all(result.sessions.map(async (session) => {
+            sessions: visible.slice(start, start + pageSize).map((session) => {
                 const inspected = this.store.inspectSessionActivation(session.runwieldSessionId);
-                const transcriptName = session.transcriptPath ? await readSessionName(session.transcriptPath) : "";
                 return {
                     runwieldSessionId: session.runwieldSessionId,
                     projectId,
-                    displayName: transcriptName || session.displayName || "Untitled Session",
+                    displayName: session.displayName,
                     headerTimestamp: session.headerTimestamp,
                     lastCatalogedAt: session.lastCatalogedAt,
                     state: inspected.activation?.state || "missing_activation",
@@ -378,7 +427,7 @@ export class WorkspaceSessionContinuationService {
                         : inspected.activation?.state || "idle",
                     bootstrapRequired: inspected.activation?.state === "uninitialized",
                 };
-            })),
+            }),
         };
     }
 
@@ -463,6 +512,24 @@ export class WorkspaceSessionContinuationService {
             latest: options.latest,
             beforeEventId: options.beforeEventId,
         });
+        if (projection.ok) {
+            /** @type {import('../../../shared/session/live-session-connection.ts').LiveSessionInfo | null | undefined} */
+            let liveInfo = this.runtime.listSessions().find((item) =>
+                item.managed?.runwieldSessionId === runwieldSessionId && !item.managed.dormant
+            );
+            if (!liveInfo && state === "active" && inspected.activation?.operationId) {
+                try {
+                    liveInfo = (await readLiveSessionConnection(runwieldSessionId, inspected.activation.operationId))
+                        .sessionInfo;
+                } catch {
+                    // Committed information remains available when the running surface cannot be reached.
+                }
+            }
+            projection.snapshot.name = liveInfo?.name || projection.snapshot.name || session.displayName;
+            if (liveInfo?.sessionStats) projection.snapshot.sessionStats = liveInfo.sessionStats;
+            projection.snapshot.contextUsage = liveInfo?.contextUsage || null;
+            projection.snapshot.systemContextTokens = liveInfo?.systemContextTokens ?? null;
+        }
         return {
             state: state || "idle",
             activeSurface,

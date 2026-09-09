@@ -415,6 +415,7 @@ export function devOwnerTimeline(runwieldSessionId: string) {
         events: devOwnerShowcaseEvents(session),
         snapshot: session.runwieldSessionId === "agy-cli-gemini-flash"
             ? {
+                sessionStats: { userMessages: 3, assistantMessages: 5, toolCalls: 4, compactionCount: 0 },
                 name: session.displayName,
                 activeAgent: "engineer",
                 activeModel: { provider: "agy-cli", model: "gemini-3.8-flash" },
@@ -431,6 +432,9 @@ export function devOwnerTimeline(runwieldSessionId: string) {
                 },
             }
             : {
+                sessionStats: { userMessages: 6, assistantMessages: 12, toolCalls: 9, compactionCount: 1 },
+                contextUsage: { tokens: 24000, contextWindow: 200000, percent: 12 },
+                systemContextTokens: 8000,
                 name: session.displayName,
                 activeAgent: "engineer",
                 activeModel: { provider: "fixture", model: "dev-model" },

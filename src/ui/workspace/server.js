@@ -272,6 +272,10 @@ export function createOwnerWorkspaceApp(options) {
         renderRequiredOwnerAstroPage,
     );
     app.get("/projects/:projectId/sessions/:runwieldSessionId", renderOwnerProjectSessionDetailPage);
+    app.get(
+        "/projects/:projectId/sessions/:runwieldSessionId/artifacts/:artifactId",
+        renderOwnerProjectSessionDetailPage,
+    );
     app.post("/api/owner/pairing/request", pairingRequestApi);
     app.get("/api/owner/pairing/status", pairingStatusApi);
     app.post("/api/owner/pairing/claim", pairingClaimApi);

@@ -26,6 +26,41 @@ export function RunWieldButton({ variant = "secondary", className, children, ...
 }
 
 /**
+ * @typedef {Object} RunWieldPanelToggleProps
+ * @property {"left" | "right"} side
+ * @property {boolean} collapsed
+ * @property {string} label
+ * @property {string} controls
+ * @property {() => void} onClick
+ * @param {RunWieldPanelToggleProps} props
+ */
+export function RunWieldPanelToggle({ side, collapsed, label, controls, onClick }) {
+    const pointsLeft = (side === "left") !== collapsed;
+    const title = `${collapsed ? "Show" : "Collapse"} ${label}`;
+    return (
+        <button
+            type="button"
+            className="rw-toolbar-button rw-panel-toggle"
+            aria-label={title}
+            title={title}
+            aria-expanded={!collapsed}
+            aria-controls={controls}
+            onClick={onClick}
+        >
+            <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">
+                <path d="M5 4v16M19 4v16" strokeWidth="1.5" strokeLinecap="round" />
+                <path
+                    d={pointsLeft ? "M15 6l-6 6 6 6" : "M9 6l6 6-6 6"}
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                />
+            </svg>
+        </button>
+    );
+}
+
+/**
  * Use this for links that should look like RunWield actions. Navigation remains
  * an anchor, so browser affordances and accessibility semantics stay intact.
  *
