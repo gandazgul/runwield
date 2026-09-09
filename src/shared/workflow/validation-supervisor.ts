@@ -428,9 +428,6 @@ async function continueValidationAttempt(
         });
         await settleValidation(args, claim.checkpoint, result, claim.planCwd);
         if (result.kind === "verified") {
-            // Publication can remove the execution worktree before the root Agent
-            // turn settles. Do not leave the Session pointed at that deleted cwd:
-            // the next user message belongs to the normal project Session.
             args.hostedSession.clearActiveExecutionWorkflow();
         }
         return result;

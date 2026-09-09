@@ -4829,7 +4829,7 @@ export class SessionRuntime {
 
     /**
      * @param {string} sessionId
-     * @param {{ agentName: string, model?: string, releaseActiveWorkflow?: boolean, customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], mcpRootTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], toolNames?: string[], reloadMcpTools?: boolean, mcpServers?: import('../mcp/config.ts').McpServerDefinition[] }} options
+     * @param {{ agentName: string, model?: string, cwd?: string, forceRebuild?: boolean, releaseActiveWorkflow?: boolean, customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], mcpRootTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], toolNames?: string[], reloadMcpTools?: boolean, mcpServers?: import('../mcp/config.ts').McpServerDefinition[] }} options
      */
     async switchAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
