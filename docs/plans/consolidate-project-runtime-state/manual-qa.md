@@ -35,3 +35,24 @@ Manual verification steps for consolidate-project-runtime-state/02-add-legacy-ru
       losing or overwriting source or destination data.
 
 <!-- runwield:manual-qa:end child="consolidate-project-runtime-state/02-add-legacy-runtime-migration-engine" -->
+
+<!-- runwield:manual-qa:start child="consolidate-project-runtime-state/03-move-primary-runtime-stores" -->
+
+## Move Primary Runtime Stores
+
+Manual verification steps for consolidate-project-runtime-state/03-move-primary-runtime-stores
+
+- [ ] In disposable primary and linked checkouts, write and update registry and controller data from both checkouts.
+      Confirm both use the primary `.wld/internal/` files and no duplicate legacy or linked-checkout stores appear.
+- [ ] Hold the primary registry lock, attempt a linked-checkout update, and confirm the update waits until the lock is
+      released.
+- [ ] Start a real publication from a linked checkout. Confirm the staging checkout is under primary
+      `.wld/internal/plan-staging/<attempt>` and the target contains the validated commit.
+- [ ] Retry an existing publication with recorded absolute staging and repair paths. Confirm the same paths are used and
+      cleanup removes them only after successful publication.
+- [ ] Run with `HOME` absent from both checkouts. Confirm the fallback worktree path is primary
+      `.wld/internal/worktrees/`; also confirm a configured override and normal home-based path remain unchanged.
+- [ ] Create an unresolved registry identity and confirm its migration report is written only under the primary internal
+      report path.
+
+<!-- runwield:manual-qa:end child="consolidate-project-runtime-state/03-move-primary-runtime-stores" -->
