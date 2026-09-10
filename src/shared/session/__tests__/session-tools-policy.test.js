@@ -297,14 +297,14 @@ Deno.test("resolveSessionToolNames blocks runtime toolNames from re-enabling rem
     assert(!resolved.includes("bash"));
 });
 
-Deno.test("pair checkpoint cannot be re-enabled by static runtime tool names", () => {
-    const resolved = resolveSessionToolNames(["read"], ["read", "pair_checkpoint"], []);
+Deno.test("Pair workflow tools cannot be re-enabled by static runtime tool names", () => {
+    const resolved = resolveSessionToolNames(["read"], ["read", "pair_checkpoint", "record_plan_deviation"], []);
     assertEquals(resolved, ["read"]);
 });
 
 Deno.test("resolveSessionToolNames allows workflow runtime custom tools", () => {
-    const resolved = resolveSessionToolNames(["read"], ["read"], ["pair_checkpoint", "read"]);
-    assertEquals(resolved, ["read", "pair_checkpoint"]);
+    const resolved = resolveSessionToolNames(["read"], ["read"], ["pair_checkpoint", "record_plan_deviation", "read"]);
+    assertEquals(resolved, ["read", "pair_checkpoint", "record_plan_deviation"]);
 });
 
 Deno.test("resolveEffectiveSessionToolNames does not special-case removed tool names", () => {

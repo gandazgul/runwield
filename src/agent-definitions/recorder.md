@@ -75,6 +75,9 @@ Omit every optional field when it is empty, `supersessionProposals` included. A 
 - Treat `supersedes` values declared in source Plan Front Matter as already confirmed by the user. Do not return them as
   new proposals or ask for confirmation again. Still search for and read each declared record before completing the
   output.
+- Treat `source.planDeviations` as already confirmed Plan-definition changes. RunWield inserts them under
+  `## Deviations from Plan` deterministically. Do not repeat, omit, contradict, or reinterpret them. Use
+  `deviationsFromPlan` only for other meaningful retrospective deviations.
 
 ## Work Record Retrieval
 

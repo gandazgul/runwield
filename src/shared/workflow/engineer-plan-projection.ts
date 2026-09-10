@@ -1,6 +1,10 @@
 import { parsePlanFrontMatter } from "../../plan-store.js";
+import { renderApprovedPlanDeviations } from "../plan-deviations.ts";
 
-/** Return the only part of a Plan that an execution Agent can receive. */
+/** Return the only Plan definition content that an execution Agent can receive. */
 export function projectEngineerPlanBody(planContent: string): string {
-    return parsePlanFrontMatter(planContent).body.trim();
+    const parsed = parsePlanFrontMatter(planContent);
+    const body = parsed.body.trim();
+    const deviations = renderApprovedPlanDeviations(parsed.attrs.planDeviations);
+    return [body, deviations].filter(Boolean).join("\n\n");
 }

@@ -167,6 +167,12 @@ RunWield can execute saved plan work in a linked git worktree. The primary check
 for plan files and worktree registry state. Workflow Validation does not run an automatic Plan Amendment approval gate
 and does not silently adopt Plan body or definition edits from the execution worktree.
 
+In Pair Execution, a Plan Engineer or Frontend Engineer can record a narrow **Plan Deviation** when the user explicitly
+replaces an effective requirement. RunWield shows the superseded requirement, replacement, and optional reason; only a
+confirmed interaction appends the entry to the authoritative execution Plan. Canceled, stale, unsupported, or inferred
+feedback writes nothing. Semantic Review uses confirmed replacements over conflicting original text, and Work Records
+list them under `## Deviations from Plan`.
+
 CI repairs run in independent Reviewer-Feedback Engineer sessions. A live repair `task_completed` result returns only to
 the validation invocation that dispatched it. It is not written to the root Task Completion journal. The validation
 owner then reruns Mechanical Validation, so checks, not the Agent report text, decide whether the workflow advances.
