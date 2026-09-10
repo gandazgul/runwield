@@ -3,13 +3,13 @@
  * Git worktree helpers for isolated plan execution.
  */
 
-import { basename, dirname, join, resolve } from "@std/path";
+import { basename, dirname, join } from "@std/path";
 import { getHomeDir, RUNWIELD_DIR_NAME, WORKTREE_BRANCH_PREFIX } from "../constants.js";
 import { encodeCwdForSessionDir } from "./session/root-session.js";
 import { assertGitRepository, GitRepositoryRequiredError } from "./git.js";
 import { getWorkflowDiff } from "./workflow/git-snapshot.js";
 import { addEntry, listEntries, pruneStaleEntries, removeEntry } from "./worktree-registry.js";
-import { resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
+import { resolveProjectRoot, resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
 import { isRunWieldOwnedRuntimePath, RUNWIELD_OWNED_RUNTIME_PATHS } from "./runwield-owned-paths.ts";
 
 /**
@@ -719,16 +719,6 @@ export async function assertPublicationCandidateContainsTarget(
     );
 }
 
-/** @param {string} projectRoot */
-function canonicalRuntimeRoot(projectRoot) {
-    try {
-        return Deno.realPathSync(projectRoot);
-    } catch (error) {
-        if (error instanceof Deno.errors.NotFound) return resolve(projectRoot);
-        throw error;
-    }
-}
-
 /**
  * @param {string} projectRoot
  * @param {string | undefined} worktreeRoot
@@ -738,7 +728,7 @@ export function resolveWorktreeParent(projectRoot, worktreeRoot) {
     if (worktreeRoot) return worktreeRoot;
     const homeDir = getHomeDir();
     if (homeDir) return join(homeDir, RUNWIELD_DIR_NAME, "worktrees", encodeCwdForSessionDir(projectRoot));
-    return resolveProjectRuntimeLayout(canonicalRuntimeRoot(projectRoot)).primary.fallbackWorktreesRoot;
+    return resolveProjectRuntimeLayout(resolveProjectRoot(projectRoot)).primary.fallbackWorktreesRoot;
 }
 
 /**
