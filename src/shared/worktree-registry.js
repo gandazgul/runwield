@@ -4,10 +4,14 @@
  */
 
 import { dirname, join } from "@std/path";
+import { readLockFileSnapshot, removeLockFileIfSnapshotMatches } from "./lock-file-snapshot.ts";
 import { getLockHostname, isPidAlive } from "./process-liveness.ts";
 import { CLI_BIN, RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE, WORKTREE_REGISTRY_LOCK_FILE } from "../constants.js";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
 import { inspectPlanIdentityDocuments } from "./workflow/plan-diagnostic-evidence.ts";
+import { assertPublicationAttempt } from "./workflow/publication-attempt.ts";
+
+/** @typedef {import("./lock-file-snapshot.ts").LockFileSnapshot} LockFileSnapshot */
 
 const LOCK_TIMEOUT_MS = 30_000;
 const LOCK_RETRY_MS = 50;
@@ -265,6 +269,8 @@ async function readRegistry(projectRoot, options = {}) {
         if (inspected.version > 2) {
             throw new Error(`Unsupported worktree registry schema version: ${inspected.version}`);
         }
+        const malformed = inspected.integrityIssues.find((issue) => issue.kind === "malformed_registry");
+        if (malformed) throw new Error(malformed.message);
         const duplicateId = inspected.integrityIssues.find((issue) => issue.kind === "duplicate_worktree_id");
         if (duplicateId) {
             throw new WorktreeRegistryAmbiguityError(
@@ -363,11 +369,10 @@ async function writeRegistry(projectRoot, entries) {
     }
 }
 
-/** @param {string} lockPath */
-async function isStaleLock(lockPath) {
+/** @param {LockFileSnapshot} snapshot */
+async function isStaleLock(snapshot) {
     try {
-        const text = await Deno.readTextFile(lockPath);
-        const parsed = JSON.parse(text);
+        const parsed = JSON.parse(snapshot.text);
         const age = Date.now() - Number(parsed.createdAtMs || 0);
         if (parsed.hostname && parsed.hostname === getLockHostname()) {
             return !(await isPidAlive(Number(parsed.pid)));
@@ -388,21 +393,29 @@ async function isStaleLock(lockPath) {
 export async function withWorktreeRegistryLockAtPath(lockPath, fn) {
     await Deno.mkdir(dirname(lockPath), { recursive: true });
     const deadline = Date.now() + LOCK_TIMEOUT_MS;
+    const token = crypto.randomUUID();
 
     while (true) {
         try {
             const file = await Deno.open(lockPath, { createNew: true, write: true });
             try {
-                const payload = JSON.stringify({ pid: Deno.pid, hostname: getLockHostname(), createdAtMs: Date.now() });
+                const payload = JSON.stringify({
+                    token,
+                    pid: Deno.pid,
+                    hostname: getLockHostname(),
+                    createdAtMs: Date.now(),
+                });
                 await file.write(new TextEncoder().encode(payload));
+                await file.sync();
             } finally {
                 file.close();
             }
             break;
         } catch (error) {
             if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
-            if (await isStaleLock(lockPath)) {
-                await Deno.remove(lockPath).catch(() => {});
+            const snapshot = await readLockFileSnapshot(lockPath);
+            if (!snapshot) continue;
+            if (await isStaleLock(snapshot) && await removeLockFileIfSnapshotMatches(lockPath, snapshot)) {
                 continue;
             }
             if (Date.now() > deadline) throw new Error(`Timed out waiting for worktree registry lock: ${lockPath}`);
@@ -413,7 +426,8 @@ export async function withWorktreeRegistryLockAtPath(lockPath, fn) {
     try {
         return await fn();
     } finally {
-        await Deno.remove(lockPath).catch(() => {});
+        const snapshot = await readLockFileSnapshot(lockPath);
+        if (snapshot?.token === token) await removeLockFileIfSnapshotMatches(lockPath, snapshot);
     }
 }
 
@@ -514,6 +528,19 @@ export async function inspectWorktreeRegistryAtPath(registryPath) {
                 message: `Registry entry ${String(entry.id || "<missing>")} is missing ${missing.join(", ")}.`,
                 ids: typeof entry.id === "string" ? [entry.id] : [],
             });
+        }
+        if ("publication" in entry) {
+            try {
+                assertPublicationAttempt(
+                    /** @type {import('./workflow/publication-attempt.ts').PublicationAttempt} */ (entry.publication),
+                );
+            } catch (error) {
+                integrityIssues.push({
+                    kind: "malformed_registry_entry",
+                    message: error instanceof Error ? error.message : String(error),
+                    ids: typeof entry.id === "string" ? [entry.id] : [],
+                });
+            }
         }
         if (typeof entry.id === "string") {
             const ids = byId.get(entry.id) || [];
