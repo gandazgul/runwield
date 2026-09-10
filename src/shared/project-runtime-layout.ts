@@ -11,6 +11,12 @@ import {
     WORKTREE_REGISTRY_LOCK_FILE,
 } from "../constants.js";
 import { PROJECT_SECRET_STORE_RELATIVE_PATH } from "./collaboration/secrets.js";
+import {
+    type LockFileSnapshot,
+    lockFileSnapshotMatches,
+    readLockFileSnapshot,
+    removeLockFileIfSnapshotMatches,
+} from "./lock-file-snapshot.ts";
 import { getLockHostname, isLockHolderGone } from "./process-liveness.ts";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
 import { LEGACY_PROJECT_RUNTIME_HAZARD_PATHS } from "./runwield-owned-paths.ts";
@@ -102,10 +108,13 @@ type MigrationRenameOperation = {
     completed: boolean;
 };
 
+type LockSnapshot = LockFileSnapshot;
+
 type MigrationRetireOperation = {
     action: "retire";
     source: string;
     kind: PathKind;
+    proof: LockSnapshot;
     completed: boolean;
 };
 
@@ -160,7 +169,13 @@ type ExistingEntry = {
 
 type LegacyLockStatus = {
     active: string[];
-    retire: string[];
+    retire: MigrationRetireOperation[];
+};
+
+type WorkRecordLockDocument = {
+    token: string;
+    createdAt: number;
+    updatedAt: number;
 };
 
 const LAYOUT_MARKER_FILE = "layout.json";
@@ -172,6 +187,9 @@ const MIGRATION_LOCK_HEARTBEAT_MS = 10_000;
 const PLAN_LOCK_STALE_MS = 10 * 60_000;
 const WORK_RECORD_LOCK_STALE_MS = 10 * 60_000;
 const WORK_RECORD_RECOVERY_LOCK_STALE_MS = 30_000;
+const WORK_RECORD_LOCK_WAIT_TIMEOUT_MS = 5 * 60_000;
+const WORK_RECORD_LOCK_RETRY_MS = 50;
+const WORK_RECORD_LOCK_HEARTBEAT_MS = 10_000;
 
 function internalRootFor(checkoutRoot: string): string {
     return join(getRunWieldRuntimeDir(checkoutRoot), PROJECT_INTERNAL_RUNTIME_DIR_NAME);
@@ -220,12 +238,21 @@ export async function migrateLegacyProjectRuntimeState(
 ): Promise<ProjectRuntimeMigrationResult> {
     const layout = resolveProjectRuntimeLayout(selectedCheckoutRoot);
     const primaryCheckoutRoot = await canonicalExistingRoot(layout.primary.checkoutRoot);
+    const earlySymlink = await findSymlinkBlocker(layout, primaryCheckoutRoot, [layout.selected.checkoutRoot]);
+    if (earlySymlink.length > 0) {
+        return block(
+            "symlink",
+            earlySymlink,
+            "A runtime authority uses a symlink. Migration stopped before reading it.",
+        );
+    }
+
     const marker = await readLayoutMarker(layout);
     if (isBlocked(marker)) return marker;
 
     const beforeLock = await preflight(layout, primaryCheckoutRoot, marker.marker);
     if (isBlocked(beforeLock)) return beforeLock;
-    const unchanged = completeMarkerNeedsNoWork(marker.marker, beforeLock);
+    const unchanged = await completeMarkerNeedsNoWork(layout, marker.marker, beforeLock);
     if (unchanged && marker.marker) {
         return {
             kind: "ready",
@@ -236,26 +263,37 @@ export async function migrateLegacyProjectRuntimeState(
     }
 
     const lock = await acquireMigrationLock(layout.primary.layoutMigrationLockPath);
+    let cleanupInternalRoot = false;
     try {
+        const lockedMarker = await readLayoutMarker(layout);
+        if (isBlocked(lockedMarker)) return lockedMarker;
         return await withWorktreeRegistryLockAtPath(legacyWorktreeRegistryLockPath(primaryCheckoutRoot), async () => {
-            const locked = await preflight(layout, primaryCheckoutRoot, marker.marker, {
+            const locked = await preflight(layout, primaryCheckoutRoot, lockedMarker.marker, {
                 legacyRegistryLockHeld: true,
             });
-            if (isBlocked(locked)) return locked;
-            const lockedUnchanged = completeMarkerNeedsNoWork(marker.marker, locked);
-            if (lockedUnchanged && marker.marker) {
+            if (isBlocked(locked)) {
+                cleanupInternalRoot = true;
+                return locked;
+            }
+            const lockedUnchanged = await completeMarkerNeedsNoWork(layout, lockedMarker.marker, locked, {
+                ignoreMigrationLock: true,
+            });
+            if (lockedUnchanged && lockedMarker.marker) {
+                await Deno.remove(layout.primary.layoutMigrationJournalPath).catch((error) => {
+                    if (!(error instanceof Deno.errors.NotFound)) throw error;
+                });
                 return {
                     kind: "ready",
                     layout,
                     migrated: false,
-                    adoptedSelectedCheckoutRoots: marker.marker.adoptedSelectedCheckoutRoots,
+                    adoptedSelectedCheckoutRoots: lockedMarker.marker.adoptedSelectedCheckoutRoots,
                 };
             }
             const journal = await readOrCreateJournal(layout, locked);
             if (isBlocked(journal)) return journal;
             const replay = await replayJournal(layout, journal.journal);
             if (isBlocked(replay)) return replay;
-            const adoptedSelectedCheckoutRoots = mergedSelectedRoots(marker.marker, locked.selectedCheckoutRoots);
+            const adoptedSelectedCheckoutRoots = mergedSelectedRoots(lockedMarker.marker, locked.selectedCheckoutRoots);
             await writeLayoutMarker(layout.primary.layoutMarkerPath, {
                 version: LAYOUT_VERSION,
                 primaryCheckoutRoot,
@@ -265,13 +303,11 @@ export async function migrateLegacyProjectRuntimeState(
             await Deno.remove(layout.primary.layoutMigrationJournalPath).catch((error) => {
                 if (!(error instanceof Deno.errors.NotFound)) throw error;
             });
-            await Deno.remove(legacyWorktreeRegistryLockPath(primaryCheckoutRoot)).catch((error) => {
-                if (!(error instanceof Deno.errors.NotFound)) throw error;
-            });
             return { kind: "ready", layout, migrated: true, adoptedSelectedCheckoutRoots };
         });
     } finally {
         await lock.release();
+        if (cleanupInternalRoot) await removeEmptyDirectory(layout.primary.internalRoot);
     }
 }
 
@@ -369,11 +405,18 @@ async function readLayoutMarker(
     }
 }
 
-function completeMarkerNeedsNoWork(marker: LayoutMarker | null, preflightResult: MigrationPreflight): boolean {
-    return Boolean(
-        marker && preflightResult.operations.length === 0 &&
-            preflightResult.selectedCheckoutRoots.every((root) => marker.adoptedSelectedCheckoutRoots.includes(root)),
-    );
+async function completeMarkerNeedsNoWork(
+    layout: ProjectRuntimeLayout,
+    marker: LayoutMarker | null,
+    preflightResult: MigrationPreflight,
+    options: { ignoreMigrationLock?: boolean } = {},
+): Promise<boolean> {
+    if (
+        !marker || preflightResult.operations.length !== 0 ||
+        !preflightResult.selectedCheckoutRoots.every((root) => marker.adoptedSelectedCheckoutRoots.includes(root))
+    ) return false;
+    return !(await lstatOrNull(layout.primary.layoutMigrationJournalPath)) &&
+        (options.ignoreMigrationLock || !(await lstatOrNull(layout.primary.layoutMigrationLockPath)));
 }
 
 async function preflight(
@@ -382,10 +425,16 @@ async function preflight(
     marker: LayoutMarker | null,
     options: { legacyRegistryLockHeld?: boolean } = {},
 ): Promise<MigrationPreflight | ProjectRuntimeMigrationBlockedResult> {
-    const markerCheck = validateMarkerRoots(layout, primaryCheckoutRoot, marker);
+    const markerCheck = await validateMarkerRoots(layout, primaryCheckoutRoot, marker);
     if (isBlocked(markerCheck)) return markerCheck;
 
-    const symlink = await findSymlinkBlocker(layout, primaryCheckoutRoot);
+    const existingJournal = await readJournal(layout.primary.layoutMigrationJournalPath);
+    if (isBlocked(existingJournal)) return existingJournal;
+
+    const symlink = await findSymlinkBlocker(layout, primaryCheckoutRoot, [
+        layout.selected.checkoutRoot,
+        ...(existingJournal.journal?.selectedCheckoutRoots || []),
+    ]);
     if (symlink.length > 0) {
         return block(
             "symlink",
@@ -419,10 +468,23 @@ async function preflight(
         layout.selected.checkoutRoot,
         registry.entries,
         gitWorktrees.worktrees,
+        existingJournal.journal?.selectedCheckoutRoots || [],
     );
     if (isBlocked(selectedRoots)) return selectedRoots;
+    const markerSelectedRoots = validateMarkerSelectedRoots(layout, marker, gitWorktrees.worktrees);
+    if (isBlocked(markerSelectedRoots)) return markerSelectedRoots;
+
+    const selectedSymlink = await findSymlinkBlocker(layout, primaryCheckoutRoot, selectedRoots.roots);
+    if (selectedSymlink.length > 0) {
+        return block(
+            "symlink",
+            selectedSymlink,
+            "A runtime authority uses a symlink. Migration stopped before reading it.",
+        );
+    }
 
     const tracked = await findTrackedRuntimePaths(primaryCheckoutRoot, selectedRoots.roots);
+    if (isBlocked(tracked)) return tracked;
     if (tracked.secretPaths.length > 0) {
         return block(
             "tracked_secret",
@@ -444,14 +506,12 @@ async function preflight(
         );
     }
 
-    const journalForConflicts = await readJournal(layout.primary.layoutMigrationJournalPath);
-    if (isBlocked(journalForConflicts)) return journalForConflicts;
     const currentConflict = await findCurrentAuthorityConflicts(
         layout,
         primaryCheckoutRoot,
         selectedRoots.roots,
         marker,
-        journalForConflicts.journal,
+        existingJournal.journal,
     );
     if (currentConflict.length > 0) {
         return block(
@@ -483,17 +543,55 @@ async function preflight(
     };
 }
 
-function validateMarkerRoots(
+async function validateMarkerRoots(
     layout: ProjectRuntimeLayout,
     primaryCheckoutRoot: string,
     marker: LayoutMarker | null,
-): ProjectRuntimeMigrationBlockedResult | undefined {
+): Promise<ProjectRuntimeMigrationBlockedResult | undefined> {
     if (!marker) return undefined;
     if (marker.primaryCheckoutRoot !== primaryCheckoutRoot) {
         return block(
             "malformed_migration_evidence",
             [layout.primary.layoutMarkerPath],
             "The project runtime layout marker names a different primary checkout root.",
+        );
+    }
+    const sorted = [...marker.adoptedSelectedCheckoutRoots].sort();
+    if (
+        marker.adoptedSelectedCheckoutRoots.length !== new Set(marker.adoptedSelectedCheckoutRoots).size ||
+        marker.adoptedSelectedCheckoutRoots.some((root, index) => root !== sorted[index])
+    ) {
+        return block(
+            "malformed_migration_evidence",
+            [layout.primary.layoutMarkerPath],
+            "The project runtime layout marker has unsorted or duplicate selected checkout roots.",
+        );
+    }
+    for (const root of marker.adoptedSelectedCheckoutRoots) {
+        if (root !== await canonicalExistingRoot(root)) {
+            return block(
+                "malformed_migration_evidence",
+                [layout.primary.layoutMarkerPath, root],
+                "The project runtime layout marker contains a noncanonical selected checkout root.",
+            );
+        }
+    }
+    return undefined;
+}
+
+function validateMarkerSelectedRoots(
+    layout: ProjectRuntimeLayout,
+    marker: LayoutMarker | null,
+    gitWorktrees: GitWorktree[],
+): ProjectRuntimeMigrationBlockedResult | undefined {
+    if (!marker) return undefined;
+    const byRealPath = new Set(gitWorktrees.map((worktree) => worktree.realPath));
+    const missing = marker.adoptedSelectedCheckoutRoots.filter((root) => !byRealPath.has(root));
+    if (missing.length > 0) {
+        return block(
+            "malformed_migration_evidence",
+            [layout.primary.layoutMarkerPath, ...missing],
+            "The project runtime layout marker names a selected checkout outside this Git worktree set.",
         );
     }
     return undefined;
@@ -537,6 +635,7 @@ async function resolveSelectedRoots(
     requestedRoot: string,
     entries: LegacyRegistryEntry[],
     gitWorktrees: GitWorktree[],
+    journalSelectedRoots: string[] = [],
 ): Promise<{ roots: string[] } | ProjectRuntimeMigrationBlockedResult> {
     const requested = await canonicalExistingRoot(requestedRoot);
     const byRealPath = new Set(gitWorktrees.map((worktree) => worktree.realPath));
@@ -548,6 +647,17 @@ async function resolveSelectedRoots(
         );
     }
     const roots = new Set<string>([requested]);
+    for (const root of journalSelectedRoots) {
+        const canonicalRoot = await canonicalExistingRoot(root);
+        if (!byRealPath.has(canonicalRoot)) {
+            return block(
+                "invalid_registered_checkout",
+                [root],
+                "The migration journal names a checkout that is not an attached Git worktree.",
+            );
+        }
+        roots.add(canonicalRoot);
+    }
     for (const entry of entries) {
         if (typeof entry.path !== "string" || !entry.path) continue;
         let stat: Deno.FileInfo;
@@ -618,24 +728,18 @@ async function inspectPublicationSafety(
     }
     const stagingRoot = join(legacyRuntimeBase(primaryCheckoutRoot), PLAN_STAGING_DIR_NAME);
     const entriesInStaging = await safeReadDir(stagingRoot);
-    if (!entriesInStaging) return undefined;
-    for (const entry of entriesInStaging) {
-        if (entry.name.startsWith(".")) continue;
-        if (!cleanedAttemptIds.has(entry.name)) {
-            return block(
-                "unfinished_publication",
-                [join(stagingRoot, entry.name)],
-                "A legacy publication staging directory has no cleanup_complete publication record.",
-            );
-        }
-    }
-    return undefined;
+    if (!entriesInStaging || entriesInStaging.length === 0) return undefined;
+    return block(
+        "unfinished_publication",
+        entriesInStaging.map((entry) => join(stagingRoot, entry.name)).sort(),
+        "A legacy publication staging directory is not empty. Finish or cancel publication before migration.",
+    );
 }
 
 async function findTrackedRuntimePaths(
     primaryCheckoutRoot: string,
     selectedRoots: string[],
-): Promise<{ runtimePaths: string[]; secretPaths: string[] }> {
+): Promise<{ runtimePaths: string[]; secretPaths: string[] } | ProjectRuntimeMigrationBlockedResult> {
     const runtimePaths = new Set<string>();
     const secretPaths = new Set<string>();
     for (const root of new Set([primaryCheckoutRoot, ...selectedRoots])) {
@@ -645,11 +749,17 @@ async function findTrackedRuntimePaths(
             stdout: "piped",
             stderr: "null",
         }).output();
-        if (output.code !== 0) continue;
+        if (output.code !== 0) {
+            return block(
+                "invalid_registered_checkout",
+                [root],
+                "Git could not inspect tracked runtime paths for this checkout.",
+            );
+        }
         const paths = new TextDecoder().decode(output.stdout).split("\0").filter(Boolean);
         for (const path of paths) {
             const absolutePath = join(root, path);
-            if (path === PROJECT_SECRET_STORE_RELATIVE_PATH) secretPaths.add(absolutePath);
+            if (isProjectSecretGitPath(path)) secretPaths.add(absolutePath);
             else runtimePaths.add(absolutePath);
         }
     }
@@ -657,28 +767,43 @@ async function findTrackedRuntimePaths(
 }
 
 function runtimeGitPathspecs(): string[] {
-    const exact = LEGACY_PROJECT_RUNTIME_HAZARD_PATHS
-        .filter((path) => !path.includes("*"))
-        .map((path) => path.replace(/^\.\//, ""));
-    return [join(RUNWIELD_DIR_NAME, PROJECT_INTERNAL_RUNTIME_DIR_NAME), ...exact];
+    const legacy = LEGACY_PROJECT_RUNTIME_HAZARD_PATHS.map((path) => path.replace(/^\.\//, ""));
+    return [join(RUNWIELD_DIR_NAME, PROJECT_INTERNAL_RUNTIME_DIR_NAME), ...legacy];
 }
 
-async function findSymlinkBlocker(layout: ProjectRuntimeLayout, primaryCheckoutRoot: string): Promise<string[]> {
-    const roots = [
-        legacyRuntimeBase(primaryCheckoutRoot),
+function isProjectSecretGitPath(path: string): boolean {
+    return path === PROJECT_SECRET_STORE_RELATIVE_PATH ||
+        (path.startsWith(`${PROJECT_SECRET_STORE_RELATIVE_PATH}.`) && path.endsWith(".tmp"));
+}
+
+async function findSymlinkBlocker(
+    layout: ProjectRuntimeLayout,
+    primaryCheckoutRoot: string,
+    selectedRoots: string[] = [layout.selected.checkoutRoot],
+): Promise<string[]> {
+    const authorityRoots = [
         layout.primary.internalRoot,
         ...legacyPrimaryAuthorities(primaryCheckoutRoot).map((entry) => entry.source),
-        legacyRelativePath(layout.selected.checkoutRoot, PLAN_LOCKS_DIR_NAME),
-        legacyRelativePath(layout.selected.checkoutRoot, PLAN_TRANSITIONS_DIR_NAME),
-        legacyRelativePath(layout.selected.checkoutRoot, PLAN_BACKUPS_DIR_NAME),
-        legacyRelativePath(layout.selected.checkoutRoot, "work-record-supersession.lock"),
-        legacyRelativePath(layout.selected.checkoutRoot, "work-record-supersession-recovery.lock"),
+        ...selectedRoots.flatMap((root) => [
+            internalRootFor(root),
+            ...legacySelectedAuthorities(root).map((entry) => entry.source),
+            legacyRelativePath(root, "work-record-supersession.lock"),
+            legacyRelativePath(root, "work-record-supersession-recovery.lock"),
+        ]),
     ];
     const symlinks: string[] = [];
-    for (const root of roots) {
+    for (const root of [legacyRuntimeBase(primaryCheckoutRoot), ...selectedRoots.map(legacyRuntimeBase)]) {
+        await collectOnlyThisSymlink(root, symlinks);
+    }
+    for (const root of authorityRoots) {
         await collectSymlinks(root, symlinks);
     }
     return symlinks;
+}
+
+async function collectOnlyThisSymlink(path: string, symlinks: string[]): Promise<void> {
+    const info = await lstatOrNull(path);
+    if (info?.isSymlink) symlinks.push(path);
 }
 
 async function collectSymlinks(path: string, symlinks: string[]): Promise<void> {
@@ -696,6 +821,26 @@ async function collectSymlinks(path: string, symlinks: string[]): Promise<void> 
     if (!info.isDirectory) return;
     for await (const entry of Deno.readDir(path)) {
         await collectSymlinks(join(path, entry.name), symlinks);
+    }
+}
+
+async function collectSpecialFiles(path: string, kind: PathKind, specialFiles: string[]): Promise<void> {
+    const info = await lstatOrNull(path);
+    if (!info) return;
+    if (kind === "file") {
+        if (!info.isFile) specialFiles.push(path);
+        return;
+    }
+    if (!info.isDirectory) {
+        specialFiles.push(path);
+        return;
+    }
+    for await (const entry of Deno.readDir(path)) {
+        const child = join(path, entry.name);
+        const childInfo = await lstatOrNull(child);
+        if (!childInfo) continue;
+        if (childInfo.isDirectory) await collectSpecialFiles(child, "directory", specialFiles);
+        else if (!childInfo.isFile && !childInfo.isSymlink) specialFiles.push(child);
     }
 }
 
@@ -745,6 +890,9 @@ async function currentConflictsInRoot(
     allowedRootNames: Set<string>,
     allowedPaths: Set<string>,
 ): Promise<string[]> {
+    const info = await lstatOrNull(internalRoot);
+    if (!info) return [];
+    if (!info.isDirectory) return [internalRoot];
     const entries = await safeReadDir(internalRoot);
     if (!entries) return [];
     const conflicts: string[] = [];
@@ -764,12 +912,12 @@ async function inspectLegacyLocks(
     options: { legacyRegistryLockHeld?: boolean } = {},
 ): Promise<LegacyLockStatus> {
     const active: string[] = [];
-    const retire: string[] = [];
+    const retire: MigrationRetireOperation[] = [];
     const registryLock = legacyWorktreeRegistryLockPath(primaryCheckoutRoot);
     if (!options.legacyRegistryLockHeld) {
         const registryStatus = await classifyProcessLock(registryLock, 30_000);
-        if (registryStatus === "active") active.push(registryLock);
-        if (registryStatus === "stale") retire.push(registryLock);
+        if (registryStatus.status === "active") active.push(registryLock);
+        if (registryStatus.status === "stale") retire.push(retireLockOperation(registryLock, registryStatus.snapshot));
     }
 
     for (const root of selectedRoots) {
@@ -777,8 +925,8 @@ async function inspectLegacyLocks(
         const planLocks = await listFiles(join(selectedBase, PLAN_LOCKS_DIR_NAME));
         for (const lockPath of planLocks.filter((path) => path.endsWith(".lock"))) {
             const status = await classifyPlanLock(lockPath);
-            if (status === "active") active.push(lockPath);
-            if (status === "stale") retire.push(lockPath);
+            if (status.status === "active") active.push(lockPath);
+            if (status.status === "stale") retire.push(retireLockOperation(lockPath, status.snapshot));
         }
         for (
             const lock of [
@@ -790,8 +938,8 @@ async function inspectLegacyLocks(
             ]
         ) {
             const status = await classifyWorkRecordLock(lock.path, lock.staleMs);
-            if (status === "active") active.push(lock.path);
-            if (status === "stale") retire.push(lock.path);
+            if (status.status === "active") active.push(lock.path);
+            if (status.status === "stale") retire.push(retireLockOperation(lock.path, status.snapshot));
         }
     }
 
@@ -802,41 +950,36 @@ async function inspectLegacyLocks(
     return { active, retire };
 }
 
-async function classifyProcessLock(path: string, staleMs: number): Promise<"absent" | "active" | "stale"> {
-    const snapshot = await readLockTextAndStat(path);
-    if (!snapshot) return "absent";
-    if (await isLockHolderGone(snapshot.text)) return "stale";
+type LegacyLockClassification =
+    | { status: "absent" }
+    | { status: "active"; snapshot: LockSnapshot }
+    | { status: "stale"; snapshot: LockSnapshot };
+
+async function classifyProcessLock(path: string, staleMs: number): Promise<LegacyLockClassification> {
+    const snapshot = await readLockFileSnapshot(path);
+    if (!snapshot) return { status: "absent" };
+    if (await isLockHolderGone(snapshot.text)) return { status: "stale", snapshot };
     const parsed = parseJsonDocument(snapshot.text);
     const createdAtMs = typeof parsed?.createdAtMs === "number" ? parsed.createdAtMs : 0;
     const updatedAtMs = typeof parsed?.updatedAtMs === "number" ? parsed.updatedAtMs : createdAtMs;
     const ageAnchor = updatedAtMs || snapshot.mtime;
-    return Date.now() - ageAnchor > staleMs ? "stale" : "active";
+    return Date.now() - ageAnchor > staleMs ? { status: "stale", snapshot } : { status: "active", snapshot };
 }
 
-async function classifyPlanLock(path: string): Promise<"absent" | "active" | "stale"> {
-    const snapshot = await readLockTextAndStat(path);
-    if (!snapshot) return "absent";
-    if (await isLockHolderGone(snapshot.text)) return "stale";
-    return Date.now() - snapshot.mtime > PLAN_LOCK_STALE_MS ? "stale" : "active";
+async function classifyPlanLock(path: string): Promise<LegacyLockClassification> {
+    const snapshot = await readLockFileSnapshot(path);
+    if (!snapshot) return { status: "absent" };
+    if (await isLockHolderGone(snapshot.text)) return { status: "stale", snapshot };
+    return Date.now() - snapshot.mtime > PLAN_LOCK_STALE_MS
+        ? { status: "stale", snapshot }
+        : { status: "active", snapshot };
 }
 
-async function classifyWorkRecordLock(path: string, staleMs: number): Promise<"absent" | "active" | "stale"> {
-    const snapshot = await readLockTextAndStat(path);
-    if (!snapshot) return "absent";
-    const parsed = parseJsonDocument(snapshot.text);
-    const updatedAt = typeof parsed?.updatedAt === "number" ? parsed.updatedAt : snapshot.mtime;
-    return Date.now() - updatedAt > staleMs ? "stale" : "active";
-}
-
-async function readLockTextAndStat(path: string): Promise<{ text: string; mtime: number } | null> {
-    try {
-        const text = await Deno.readTextFile(path);
-        const stat = await Deno.stat(path);
-        return { text, mtime: stat.mtime?.getTime() ?? Date.now() };
-    } catch (error) {
-        if (error instanceof Deno.errors.NotFound) return null;
-        throw error;
-    }
+async function classifyWorkRecordLock(path: string, staleMs: number): Promise<LegacyLockClassification> {
+    const snapshot = await readLockFileSnapshot(path);
+    if (!snapshot) return { status: "absent" };
+    const updatedAt = snapshot.updatedAt ?? snapshot.mtime;
+    return Date.now() - updatedAt > staleMs ? { status: "stale", snapshot } : { status: "active", snapshot };
 }
 
 function parseJsonDocument(text: string) {
@@ -845,6 +988,10 @@ function parseJsonDocument(text: string) {
     } catch {
         return undefined;
     }
+}
+
+function retireLockOperation(source: string, proof: LockSnapshot): MigrationRetireOperation {
+    return { action: "retire", source, kind: "file", proof, completed: false };
 }
 
 async function canTakeControllerLock(path: string): Promise<boolean> {
@@ -880,10 +1027,7 @@ async function validateLegacyAuthorities(
         ]
     ) {
         await collectSymlinks(authority.source, symlinks);
-        const info = await lstatOrNull(authority.source);
-        if (!info) continue;
-        if (authority.kind === "directory" && !info.isDirectory) specialFiles.push(authority.source);
-        if (authority.kind === "file" && !info.isFile) specialFiles.push(authority.source);
+        await collectSpecialFiles(authority.source, authority.kind, specialFiles);
     }
     if (symlinks.length > 0) return block("symlink", symlinks, "A legacy runtime authority uses a symlink.");
     if (specialFiles.length > 0) {
@@ -899,12 +1043,18 @@ async function validateLegacyAuthorities(
 async function buildOperations(
     primaryCheckoutRoot: string,
     selectedRoots: string[],
-    staleLocks: string[],
+    staleLocks: MigrationRetireOperation[],
     marker: LayoutMarker | null,
 ): Promise<MigrationOperation[]> {
     const operations: MigrationOperation[] = [];
+    operations.push(...staleLocks);
+    const primaryAuthorities = legacyPrimaryAuthorities(primaryCheckoutRoot);
+    const registryAuthorities = primaryAuthorities.filter((authority) =>
+        basename(authority.source) === WORKTREE_REGISTRY_FILE ||
+        basename(authority.source) === "worktree-registry-migration-issues.json"
+    );
     if (!marker) {
-        for (const authority of legacyPrimaryAuthorities(primaryCheckoutRoot)) {
+        for (const authority of primaryAuthorities.filter((authority) => !registryAuthorities.includes(authority))) {
             if (await lstatOrNull(authority.source)) {
                 operations.push({ ...authority, action: "rename", completed: false });
             }
@@ -919,8 +1069,12 @@ async function buildOperations(
             }
         }
     }
-    for (const source of staleLocks) {
-        operations.push({ action: "retire", source, kind: "file", completed: false });
+    if (!marker) {
+        for (const authority of registryAuthorities) {
+            if (await lstatOrNull(authority.source)) {
+                operations.push({ ...authority, action: "rename", completed: false });
+            }
+        }
     }
     return operations;
 }
@@ -1018,7 +1172,8 @@ async function readOrCreateJournal(
     if (existing.journal) {
         if (
             existing.journal.primaryCheckoutRoot !== preflightResult.primaryCheckoutRoot ||
-            !existing.journal.operations.every((operation) => isAllowedJournalOperation(preflightResult, operation))
+            !(await journalOperationsAllowed(preflightResult, existing.journal.operations)) ||
+            !journalContainsRequiredOperations(existing.journal, preflightResult)
         ) {
             return block(
                 "malformed_migration_evidence",
@@ -1047,7 +1202,8 @@ async function readJournal(
         if (
             !parsed || typeof parsed !== "object" || Array.isArray(parsed) || parsed.version !== LAYOUT_VERSION ||
             typeof parsed.primaryCheckoutRoot !== "string" || !Array.isArray(parsed.selectedCheckoutRoots) ||
-            !Array.isArray(parsed.operations)
+            !parsed.selectedCheckoutRoots.every((root: string) => typeof root === "string") ||
+            !Array.isArray(parsed.operations) || !parsed.operations.every(isMigrationOperation)
         ) {
             return block("malformed_migration_evidence", [path], "The runtime migration journal is malformed.");
         }
@@ -1061,13 +1217,43 @@ async function readJournal(
     }
 }
 
-function isAllowedJournalOperation(preflightResult: MigrationPreflight, operation: MigrationOperation): boolean {
-    const allowed = new Set(
-        preflightResult.operations.map((candidate) => JSON.stringify({ ...candidate, completed: false })),
-    );
-    const normalized = JSON.stringify({ ...operation, completed: false });
-    if (allowed.has(normalized)) return true;
-    if (operation.action === "retire") return operation.source.endsWith(".lock");
+function isMigrationOperation(value: MigrationOperation): boolean {
+    if (!value || typeof value !== "object") return false;
+    if (value.action === "rename") {
+        return typeof value.source === "string" && typeof value.destination === "string" &&
+            (value.kind === "file" || value.kind === "directory") && typeof value.completed === "boolean";
+    }
+    if (value.action === "retire") {
+        return typeof value.source === "string" && value.kind === "file" && typeof value.completed === "boolean" &&
+            Boolean(value.proof) && typeof value.proof.text === "string" &&
+            typeof value.proof.mtime === "number" && typeof value.proof.size === "number" &&
+            (value.proof.token === undefined || typeof value.proof.token === "string") &&
+            (value.proof.createdAt === undefined || typeof value.proof.createdAt === "number") &&
+            (value.proof.updatedAt === undefined || typeof value.proof.updatedAt === "number");
+    }
+    return false;
+}
+
+async function journalOperationsAllowed(
+    preflightResult: MigrationPreflight,
+    operations: MigrationOperation[],
+): Promise<boolean> {
+    for (const operation of operations) {
+        if (!(await isAllowedJournalOperation(preflightResult, operation))) return false;
+    }
+    return true;
+}
+
+async function isAllowedJournalOperation(
+    preflightResult: MigrationPreflight,
+    operation: MigrationOperation,
+): Promise<boolean> {
+    const allowed = new Set(preflightResult.operations.map(operationKey));
+    if (allowed.has(operationKey(operation))) return true;
+    if (operation.action === "retire") {
+        return isBoundedLegacyLockPath(preflightResult, operation.source) &&
+            (operation.completed || !(await lstatOrNull(operation.source)));
+    }
     const authorities = [
         ...legacyPrimaryAuthorities(preflightResult.primaryCheckoutRoot),
         ...preflightResult.selectedCheckoutRoots.flatMap(legacySelectedAuthorities),
@@ -1076,6 +1262,27 @@ function isAllowedJournalOperation(preflightResult: MigrationPreflight, operatio
         authority.source === operation.source && authority.destination === operation.destination &&
         authority.kind === operation.kind
     );
+}
+
+function isBoundedLegacyLockPath(preflightResult: MigrationPreflight, path: string): boolean {
+    if (path !== resolve(path)) return false;
+    if (path === legacyWorktreeRegistryLockPath(preflightResult.primaryCheckoutRoot)) return true;
+    return preflightResult.selectedCheckoutRoots.some((root) => {
+        const base = legacyRuntimeBase(root);
+        const planLocksDir = join(base, PLAN_LOCKS_DIR_NAME);
+        return path === join(base, "work-record-supersession.lock") ||
+            path === join(base, "work-record-supersession-recovery.lock") ||
+            (path.startsWith(`${planLocksDir}/`) && path.endsWith(".lock"));
+    });
+}
+
+function journalContainsRequiredOperations(journal: MigrationJournal, preflightResult: MigrationPreflight): boolean {
+    const journalOperations = new Set(journal.operations.map(operationKey));
+    return preflightResult.operations.every((operation) => journalOperations.has(operationKey(operation)));
+}
+
+function operationKey(operation: MigrationOperation): string {
+    return JSON.stringify({ ...operation, completed: false });
 }
 
 async function replayJournal(
@@ -1134,6 +1341,27 @@ async function applyRenameOperation(
             "A journaled runtime rename lost both source and destination.",
         );
     }
+    if (source && destination && await isEmptyDirectory(operation.destination)) {
+        await Deno.remove(operation.destination);
+        await syncDirectory(dirname(operation.destination));
+        try {
+            await Deno.rename(operation.source, operation.destination);
+        } catch (error) {
+            if (error instanceof Error && isCrossDeviceError(error)) {
+                return block(
+                    "unsupported_filesystem_move",
+                    [operation.source, operation.destination],
+                    "The runtime state cannot be moved atomically on this filesystem.",
+                );
+            }
+            throw error;
+        }
+        await syncDirectory(dirname(operation.source));
+        await syncDirectory(dirname(operation.destination));
+        operation.completed = true;
+        await writeJournal(layout.primary.layoutMigrationJournalPath, markOperation(journal, operation.source, true));
+        return undefined;
+    }
     return block(
         "authority_conflict",
         [operation.source, operation.destination],
@@ -1147,13 +1375,122 @@ async function applyRetireOperation(
     operation: MigrationRetireOperation,
 ): Promise<undefined | ProjectRuntimeMigrationBlockedResult> {
     await writeJournal(layout.primary.layoutMigrationJournalPath, markOperation(journal, operation.source, false));
-    await Deno.remove(operation.source).catch((error) => {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-    });
+    const recoveryLockPath = workRecordRecoveryLockPathForRetire(journal, operation.source);
+    if (recoveryLockPath) {
+        const releaseRecovery = await acquireLegacyWorkRecordRecoveryLock(recoveryLockPath);
+        try {
+            return await retireLockIfUnchanged(layout, journal, operation);
+        } finally {
+            await releaseRecovery();
+        }
+    }
+    return await retireLockIfUnchanged(layout, journal, operation);
+}
+
+async function retireLockIfUnchanged(
+    layout: ProjectRuntimeLayout,
+    journal: MigrationJournal,
+    operation: MigrationRetireOperation,
+): Promise<undefined | ProjectRuntimeMigrationBlockedResult> {
+    const current = await readLockFileSnapshot(operation.source);
+    if (!current) {
+        operation.completed = true;
+        await writeJournal(layout.primary.layoutMigrationJournalPath, markOperation(journal, operation.source, true));
+        return undefined;
+    }
+    if (!lockFileSnapshotMatches(current, operation.proof)) {
+        return block(
+            "active_legacy_writer",
+            [operation.source],
+            "A legacy lock changed after migration preflight. Migration stopped before retiring it.",
+        );
+    }
+    if (!(await removeLockFileIfSnapshotMatches(operation.source, operation.proof))) {
+        return block(
+            "active_legacy_writer",
+            [operation.source],
+            "A legacy lock changed after migration preflight. Migration stopped before retiring it.",
+        );
+    }
     await syncDirectory(dirname(operation.source));
     operation.completed = true;
     await writeJournal(layout.primary.layoutMigrationJournalPath, markOperation(journal, operation.source, true));
     return undefined;
+}
+
+function workRecordRecoveryLockPathForRetire(journal: MigrationJournal, lockPath: string): string | null {
+    for (const root of journal.selectedCheckoutRoots) {
+        const base = legacyRuntimeBase(root);
+        if (lockPath === join(base, "work-record-supersession.lock")) {
+            return join(base, "work-record-supersession-recovery.lock");
+        }
+    }
+    return null;
+}
+
+async function acquireLegacyWorkRecordRecoveryLock(lockPath: string): Promise<() => Promise<void>> {
+    await Deno.mkdir(dirname(lockPath), { recursive: true, mode: 0o700 });
+    const token = crypto.randomUUID();
+    const deadline = Date.now() + WORK_RECORD_LOCK_WAIT_TIMEOUT_MS;
+    while (true) {
+        try {
+            const file = await createWorkRecordLockFile(lockPath, token);
+            const heartbeat = setInterval(() => {
+                updateWorkRecordLockFile(file, lockPath, token).catch(() => {});
+            }, WORK_RECORD_LOCK_HEARTBEAT_MS);
+            Deno.unrefTimer(heartbeat);
+            return async () => {
+                clearInterval(heartbeat);
+                file.close();
+                await removeWorkRecordLockIfOwned(lockPath, token);
+            };
+        } catch (error) {
+            if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
+            const status = await classifyWorkRecordLock(lockPath, WORK_RECORD_RECOVERY_LOCK_STALE_MS);
+            if (Date.now() >= deadline) {
+                throw new Error(`Timed out waiting for the Work Record supersession recovery lock: ${lockPath}`);
+            }
+            if (
+                status.status === "stale" &&
+                await removeLockFileIfSnapshotMatches(lockPath, status.snapshot)
+            ) {
+                continue;
+            }
+            await new Promise((resolveTimer) => setTimeout(resolveTimer, WORK_RECORD_LOCK_RETRY_MS));
+        }
+    }
+}
+
+async function createWorkRecordLockFile(lockPath: string, token: string): Promise<Deno.FsFile> {
+    const file = await Deno.open(lockPath, { createNew: true, read: true, write: true, mode: 0o600 });
+    try {
+        file.lockSync(true);
+        const now = Date.now();
+        await writeWorkRecordLockFile(file, { token, createdAt: now, updatedAt: now });
+        return file;
+    } catch (error) {
+        file.close();
+        throw error;
+    }
+}
+
+async function updateWorkRecordLockFile(file: Deno.FsFile, lockPath: string, token: string): Promise<void> {
+    const parsed = parseJsonDocument(await Deno.readTextFile(lockPath));
+    if (parsed?.token !== token || typeof parsed.createdAt !== "number") return;
+    await writeWorkRecordLockFile(file, { token, createdAt: parsed.createdAt, updatedAt: Date.now() });
+}
+
+async function writeWorkRecordLockFile(file: Deno.FsFile, record: WorkRecordLockDocument): Promise<void> {
+    await file.truncate(0);
+    await file.seek(0, Deno.SeekMode.Start);
+    await file.write(new TextEncoder().encode(JSON.stringify(record)));
+    await file.sync();
+}
+
+async function removeWorkRecordLockIfOwned(lockPath: string, token: string): Promise<void> {
+    const current = await readLockFileSnapshot(lockPath);
+    if (current?.token !== token) return;
+    await removeLockFileIfSnapshotMatches(lockPath, current);
 }
 
 function markOperation(journal: MigrationJournal, source: string, completed: boolean): MigrationJournal {
@@ -1202,7 +1539,7 @@ async function acquireMigrationLock(lockPath: string): Promise<{ release: () => 
     const token = crypto.randomUUID();
     while (true) {
         try {
-            await createMigrationLockFile(lockPath, token);
+            const file = await createMigrationLockFile(lockPath, token);
             const heartbeat = setInterval(() => {
                 updateMigrationLockFile(lockPath, token).catch(() => {});
             }, MIGRATION_LOCK_HEARTBEAT_MS);
@@ -1210,14 +1547,18 @@ async function acquireMigrationLock(lockPath: string): Promise<{ release: () => 
             return {
                 release: async () => {
                     clearInterval(heartbeat);
-                    await removeMigrationLockIfOwned(lockPath, token);
+                    try {
+                        await removeMigrationLockIfOwned(lockPath, token);
+                    } finally {
+                        file.close();
+                    }
                 },
             };
         } catch (error) {
             if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
             const status = await classifyProcessLock(lockPath, MIGRATION_LOCK_STALE_MS);
-            if (status === "stale") {
-                await Deno.remove(lockPath).catch(() => {});
+            if (status.status === "stale") {
+                await removeLockFileIfSnapshotMatches(lockPath, status.snapshot);
                 continue;
             }
             await new Promise((resolveTimer) => setTimeout(resolveTimer, 50));
@@ -1225,9 +1566,10 @@ async function acquireMigrationLock(lockPath: string): Promise<{ release: () => 
     }
 }
 
-async function createMigrationLockFile(lockPath: string, token: string): Promise<void> {
-    const file = await Deno.open(lockPath, { createNew: true, write: true, mode: 0o600 });
+async function createMigrationLockFile(lockPath: string, token: string): Promise<Deno.FsFile> {
+    const file = await Deno.open(lockPath, { createNew: true, read: true, write: true, mode: 0o600 });
     try {
+        file.lockSync(true);
         await file.write(
             new TextEncoder().encode(
                 JSON.stringify({
@@ -1240,8 +1582,10 @@ async function createMigrationLockFile(lockPath: string, token: string): Promise
             ),
         );
         await file.sync();
-    } finally {
+        return file;
+    } catch (error) {
         file.close();
+        throw error;
     }
 }
 
@@ -1312,6 +1656,13 @@ async function isEmptyDirectory(path: string): Promise<boolean> {
     if (!info.isDirectory) return false;
     for await (const _entry of Deno.readDir(path)) return false;
     return true;
+}
+
+async function removeEmptyDirectory(path: string): Promise<void> {
+    if (!(await isEmptyDirectory(path))) return;
+    await Deno.remove(path).catch((error) => {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    });
 }
 
 async function listSiblingTemps(path: string): Promise<string[]> {

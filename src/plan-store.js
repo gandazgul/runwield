@@ -9,6 +9,7 @@
  */
 
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
+import { readLockFileSnapshot, removeLockFileIfSnapshotMatches } from "./shared/lock-file-snapshot.ts";
 import { getLockHostname, isLockHolderGone } from "./shared/process-liveness.ts";
 import { basename, dirname, join, relative, resolve } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -1618,57 +1619,62 @@ const PLAN_LOCK_HEARTBEAT_MS = 10_000;
 async function acquireSimpleLock(lockPath) {
     await Deno.mkdir(dirname(lockPath), { recursive: true });
     const deadline = Date.now() + PLAN_LOCK_WAIT_TIMEOUT_MS;
+    const token = crypto.randomUUID();
     while (true) {
         try {
-            const file = await Deno.open(lockPath, { createNew: true, write: true });
-            const writeHeartbeat = async () => {
-                await file.truncate(0);
-                await file.seek(0, Deno.SeekMode.Start);
-                await file.write(
-                    new TextEncoder().encode(
-                        // The hostname makes the pid meaningful: a waiter can ask the
-                        // operating system whether this exact holder is still alive
-                        // instead of waiting out a timeout after a crash.
-                        JSON.stringify({ pid: Deno.pid, hostname: getLockHostname(), updatedAtMs: Date.now() }),
-                    ),
-                );
-                await file.sync();
-            };
-            await writeHeartbeat();
-            const heartbeat = setInterval(() => {
-                writeHeartbeat().catch(() => {});
-            }, PLAN_LOCK_HEARTBEAT_MS);
-            return async () => {
-                clearInterval(heartbeat);
+            const file = await Deno.open(lockPath, { createNew: true, read: true, write: true });
+            try {
+                file.lockSync(true);
+                const writeHeartbeat = async () => {
+                    await file.truncate(0);
+                    await file.seek(0, Deno.SeekMode.Start);
+                    await file.write(
+                        new TextEncoder().encode(
+                            // The hostname makes the pid meaningful: a waiter can ask the
+                            // operating system whether this exact holder is still alive
+                            // instead of waiting out a timeout after a crash.
+                            JSON.stringify({
+                                token,
+                                pid: Deno.pid,
+                                hostname: getLockHostname(),
+                                updatedAtMs: Date.now(),
+                            }),
+                        ),
+                    );
+                    await file.sync();
+                };
+                await writeHeartbeat();
+                const heartbeat = setInterval(() => {
+                    writeHeartbeat().catch(() => {});
+                }, PLAN_LOCK_HEARTBEAT_MS);
+                return async () => {
+                    clearInterval(heartbeat);
+                    file.close();
+                    const snapshot = await readLockFileSnapshot(lockPath);
+                    if (snapshot?.token !== token) return;
+                    await removeLockFileIfSnapshotMatches(lockPath, snapshot);
+                };
+            } catch (setupError) {
                 file.close();
-                await Deno.remove(lockPath).catch(() => {});
-            };
+                throw setupError;
+            }
         } catch (error) {
             if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
-            let stale = false;
-            try {
-                const lockContents = await Deno.readTextFile(lockPath);
-                // Deliberately no same-process shortcut here. Re-entrancy is handled by
-                // the AsyncLocalStorage guard in withProcessAwarePlanLock, which knows
-                // whether *this* call chain already holds the lock. Treating any lock
-                // written by this pid as already-held would let two concurrent tasks in
-                // one process both proceed, which is the mutual exclusion this lock
-                // exists to provide.
-                //
-                // A dead holder is reclaimed at once. Age alone cannot tell a crash from
-                // legitimate work, so waiting it out made a killed process block every
-                // operation on this Plan for the whole stale window — RunWield's own
-                // bookkeeping locking the user out of their Plan.
-                stale = await isLockHolderGone(lockContents);
-                if (!stale) {
-                    const stat = await Deno.stat(lockPath);
-                    stale = !stat.mtime || Date.now() - stat.mtime.getTime() > PLAN_LOCK_STALE_MS;
-                }
-            } catch {
-                stale = true;
-            }
-            if (stale) {
-                await Deno.remove(lockPath).catch(() => {});
+            const snapshot = await readLockFileSnapshot(lockPath);
+            if (!snapshot) continue;
+            // Deliberately no same-process shortcut here. Re-entrancy is handled by
+            // the AsyncLocalStorage guard in withProcessAwarePlanLock, which knows
+            // whether *this* call chain already holds the lock. Treating any lock
+            // written by this pid as already-held would let two concurrent tasks in
+            // one process both proceed, which is the mutual exclusion this lock
+            // exists to provide.
+            //
+            // A dead holder is reclaimed at once. Age alone cannot tell a crash from
+            // legitimate work, so waiting it out made a killed process block every
+            // operation on this Plan for the whole stale window — RunWield's own
+            // bookkeeping locking the user out of their Plan.
+            const stale = await isLockHolderGone(snapshot.text) || Date.now() - snapshot.mtime > PLAN_LOCK_STALE_MS;
+            if (stale && await removeLockFileIfSnapshotMatches(lockPath, snapshot)) {
                 continue;
             }
             if (Date.now() > deadline) {
