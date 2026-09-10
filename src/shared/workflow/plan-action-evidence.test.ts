@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
-import { join } from "@std/path";
+import { dirname } from "@std/path";
 import { loadPlan, savePlan } from "../../plan-store.js";
+import { getWorktreeRegistryPath } from "../worktree-registry.js";
 import { executePlanAction, loadPlanActionEvidence } from "./plan-actions.ts";
 
 async function makeProject(): Promise<{ root: string; revision: string }> {
@@ -16,8 +17,9 @@ async function makeProject(): Promise<{ root: string; revision: string }> {
 }
 
 async function writeRegistry(root: string, entries: Array<Record<string, string>>): Promise<void> {
-    await Deno.mkdir(join(root, ".wld"), { recursive: true });
-    await Deno.writeTextFile(join(root, ".wld", "worktrees.json"), JSON.stringify({ version: 2, entries }));
+    const registryPath = getWorktreeRegistryPath(root);
+    await Deno.mkdir(dirname(registryPath), { recursive: true });
+    await Deno.writeTextFile(registryPath, JSON.stringify({ version: 2, entries }));
 }
 
 Deno.test("rejects stale Plan revision before lifecycle mutation", async () => {

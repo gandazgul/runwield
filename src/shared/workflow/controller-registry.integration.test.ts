@@ -195,9 +195,17 @@ Deno.test("execution Plan and controller survive stale primary metadata, a fresh
         });
         assertEquals((await loadPlan(tree, "demo"))?.attrs.validationCheckpoint?.repairGeneration, "repair-demo");
         assertEquals((await loadPlanActionEvidence(root, "controller-demo")).kind, "success");
-        assertEquals(
-            controllerRecordPath(root, { planName: "demo", planId: "controller-demo" }),
-            controllerRecordPath(tree, { planName: "demo", planId: "controller-demo" }),
+        const controllerPath = controllerRecordPath(root, { planName: "demo", planId: "controller-demo" });
+        assertEquals(controllerPath, controllerRecordPath(tree, { planName: "demo", planId: "controller-demo" }));
+        assertStringIncludes(controllerPath, join(".wld", "internal", "controller", "plans", "controller-demo.json"));
+        assertEquals((await readControllerRecord(tree, { planName: "demo", planId: "controller-demo" }))?.revision, 2);
+        await assertRejects(
+            () => Deno.lstat(join(root, ".wld", "controller", "plans", "controller-demo.json")),
+            Deno.errors.NotFound,
+        );
+        await assertRejects(
+            () => Deno.lstat(join(tree, ".wld", "internal", "controller", "plans", "controller-demo.json")),
+            Deno.errors.NotFound,
         );
         await updateEntry(root, "attempt-demo", { status: "active" });
         assertEquals((await loadPlan(tree, "demo"))?.attrs.worktreeStatus, "active");

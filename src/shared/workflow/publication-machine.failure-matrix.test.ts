@@ -1,7 +1,8 @@
 import { assert, assertEquals, assertExists } from "@std/assert";
 import { dirname, fromFileUrl, join } from "@std/path";
-import { addEntry, findById } from "../worktree-registry.js";
+import { addEntry, findById, updatePublication } from "../worktree-registry.js";
 import { createTestWorktreeAttempt, git, makeRepo } from "../worktree-test-helpers.js";
+import { createPublicationAttempt } from "./publication-attempt.ts";
 import { loadPublicationAttempt, publicationRootForAttempt } from "./publication-machine.ts";
 
 const DRIVER = join(dirname(fromFileUrl(import.meta.url)), "testing/publication-process-driver.ts");
@@ -233,6 +234,83 @@ Deno.test("publication failure and recovery matrix uses real Git and fresh proce
                 await git(fixture.projectRoot, ["show", `${remoteHead}:arrived-during-repair.txt`]),
                 "preserved",
             );
+        } finally {
+            await dispose(fixture);
+        }
+    });
+
+    await test.step("a saved legacy publication checkout is reused through repair and cleanup", async () => {
+        const fixture = await makeFixture("legacy-saved-repair");
+        try {
+            await Deno.writeTextFile(`${fixture.projectRoot}/conflict.txt`, "base\n");
+            await git(fixture.projectRoot, ["add", "conflict.txt"]);
+            await git(fixture.projectRoot, ["commit", "-m", "Add legacy conflict base"]);
+            await git(fixture.projectRoot, ["push", "origin", "main"]);
+            await git(fixture.worktree.path, ["merge", "main"]);
+            await Deno.writeTextFile(`${fixture.worktree.path}/conflict.txt`, "execution\n");
+            await git(fixture.worktree.path, ["add", "conflict.txt"]);
+            await git(fixture.worktree.path, ["commit", "-m", "Change legacy conflict in execution"]);
+            const executionCommit = await git(fixture.worktree.path, ["rev-parse", "HEAD"]);
+            await Deno.writeTextFile(`${fixture.projectRoot}/conflict.txt`, "target\n");
+            await git(fixture.projectRoot, ["add", "conflict.txt"]);
+            await git(fixture.projectRoot, ["commit", "-m", "Change legacy conflict on target"]);
+            await git(fixture.projectRoot, ["push", "origin", "main"]);
+            const targetHeadAtSeal = await git(fixture.projectRoot, ["rev-parse", "HEAD"]);
+            const legacyRoot = join(fixture.projectRoot, ".wld", "plan-staging", "attempt-1");
+            const internalRoot = publicationRootForAttempt(fixture.projectRoot, "attempt-1");
+            await updatePublication(
+                fixture.projectRoot,
+                "attempt-1",
+                null,
+                createPublicationAttempt({
+                    attemptId: "attempt-1",
+                    planId: "plan-1",
+                    planName: fixture.planName,
+                    targetBranch: "main",
+                    executionBranch: fixture.worktree.branch,
+                    executionCwd: fixture.worktree.path,
+                    publicationRoot: legacyRoot,
+                    validatedCommit: executionCommit,
+                    targetHeadAtSeal,
+                }),
+            );
+
+            assertEquals((await runDriver(fixture.configPath)).code, 1);
+            await assertRecoverable(fixture, "isolated_publication_conflict");
+            assert((await Deno.stat(legacyRoot)).isDirectory);
+            assertEquals(await Deno.stat(internalRoot).then(() => true).catch(() => false), false);
+            await Deno.writeTextFile(`${legacyRoot}/conflict.txt`, "resolved legacy\n");
+            await git(legacyRoot, ["add", "conflict.txt"]);
+            await git(legacyRoot, ["commit", "--no-edit"]);
+
+            await Deno.writeTextFile(`${fixture.projectRoot}/arrived-during-legacy-repair.txt`, "preserved\n");
+            await git(fixture.projectRoot, ["add", "arrived-during-legacy-repair.txt"]);
+            await git(fixture.projectRoot, ["commit", "-m", "Advance target during legacy publication repair"]);
+            await git(fixture.projectRoot, ["push", "origin", "main"]);
+            const advancedTarget = await git(fixture.projectRoot, ["rev-parse", "HEAD"]);
+
+            assertEquals((await runDriver(fixture.configPath, "integration_effect")).code, 86);
+            assertEquals((await loadPublicationAttempt(fixture.projectRoot, "attempt-1"))?.publicationRoot, legacyRoot);
+            assertEquals(
+                (await loadPublicationAttempt(fixture.projectRoot, "attempt-1"))?.phase,
+                "artifacts_committed",
+            );
+            assertEquals(await Deno.stat(internalRoot).then(() => true).catch(() => false), false);
+            assert((await Deno.stat(legacyRoot)).isDirectory);
+            assertEquals((await runDriver(fixture.configPath)).code, 0);
+            await assertPublishedOnce(fixture);
+            const remoteHead = (await git(fixture.projectRoot, ["ls-remote", "origin", "refs/heads/main"]))
+                .split(/\s+/)[0];
+            await git(fixture.projectRoot, ["fetch", "origin", "main"]);
+            await git(fixture.projectRoot, ["merge-base", "--is-ancestor", advancedTarget, remoteHead]);
+            await git(fixture.projectRoot, ["merge-base", "--is-ancestor", executionCommit, remoteHead]);
+            assertEquals(await git(fixture.projectRoot, ["show", `${remoteHead}:conflict.txt`]), "resolved legacy");
+            assertEquals(
+                await git(fixture.projectRoot, ["show", `${remoteHead}:arrived-during-legacy-repair.txt`]),
+                "preserved",
+            );
+            assertEquals(await Deno.stat(legacyRoot).then(() => true).catch(() => false), false);
+            assertEquals(await Deno.stat(internalRoot).then(() => true).catch(() => false), false);
         } finally {
             await dispose(fixture);
         }

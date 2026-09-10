@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import { join } from "@std/path";
+import { dirname, join } from "@std/path";
 import { injectFrontMatter, listPlans, savePlan } from "../../plan-store.js";
 import { getRunWieldRuntimeDir, PLAN_LOCKS_DIR_NAME } from "../../constants.js";
 import { addEntry, findById, getWorktreeRegistryPath, listEntries } from "../../shared/worktree-registry.js";
@@ -171,7 +171,7 @@ Deno.test("plans doctor is report-only without repair", async () => {
     try {
         await savePlan(cwd, "missing-id", "# Missing", { status: "ready_for_work", classification: "FEATURE" });
         const registryPath = getWorktreeRegistryPath(cwd);
-        await Deno.mkdir(join(cwd, ".wld"), { recursive: true });
+        await Deno.mkdir(dirname(registryPath), { recursive: true });
         await Deno.writeTextFile(
             registryPath,
             JSON.stringify({
@@ -476,9 +476,10 @@ Deno.test("plans doctor diagnoses a registry conflict instead of going blind on 
         };
         // Two live attempts for one Plan: legacy v1 shape, which the invariant-enforcing
         // readers refuse to load at all.
-        await Deno.mkdir(join(cwd, ".wld"), { recursive: true });
+        const registryPath = getWorktreeRegistryPath(cwd);
+        await Deno.mkdir(dirname(registryPath), { recursive: true });
         await Deno.writeTextFile(
-            getWorktreeRegistryPath(cwd),
+            registryPath,
             JSON.stringify({
                 version: 1,
                 entries: [
