@@ -7,12 +7,19 @@ import {
     findByPlanId,
     findByPlanName,
     getWorktreeRegistryPath,
+    inspectWorktreeRegistryAtPath,
     listEntries,
     pruneStaleEntries,
     removeEntry,
     updateEntry,
+    withWorktreeRegistryLockAtPath,
     WorktreeRegistryAmbiguityError,
 } from "./worktree-registry.js";
+
+/** @param {number} ms */
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * @param {Partial<import('./worktree-registry.js').WorktreeRegistryEntry>} [overrides]
@@ -34,6 +41,110 @@ function entry(overrides = {}) {
         ...overrides,
     };
 }
+
+Deno.test("exact-path worktree registry inspection is strict and read-only", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        const path = join(projectRoot, ".wld", "worktrees.json");
+        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.writeTextFile(
+            path,
+            JSON.stringify({ version: 1, entries: [entry({ planId: undefined })] }, null, 2),
+        );
+        const before = await Deno.readTextFile(path);
+
+        const inspected = await inspectWorktreeRegistryAtPath(path);
+
+        assertEquals(inspected.readError, undefined);
+        assertEquals(inspected.version, 1);
+        assertEquals(inspected.entries.length, 1);
+        assertEquals(inspected.integrityIssues, []);
+        assertEquals(await Deno.readTextFile(path), before);
+        try {
+            await Deno.lstat(join(projectRoot, ".wld", "worktree-registry-migration-issues.json"));
+            throw new Error("Exact-path inspection wrote a migration issue file.");
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        }
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("exact-path worktree registry inspection reports malformed roots", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        const path = join(projectRoot, ".wld", "worktrees.json");
+        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.writeTextFile(path, JSON.stringify({ version: 2, entries: "not an array" }));
+
+        const inspected = await inspectWorktreeRegistryAtPath(path);
+
+        assertEquals(inspected.readError, undefined);
+        assertEquals(inspected.integrityIssues[0].kind, "malformed_registry");
+        assertStringIncludes(inspected.integrityIssues[0].message, "entries field must be an array");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("exact-path worktree registry locking serializes on the requested lock file", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    let releaseFirst = () => {};
+    let firstReady = () => {};
+    /** @type {Promise<void>} */
+    const firstReadyPromise = new Promise((resolve) => {
+        firstReady = () => resolve();
+    });
+    /** @type {Promise<void>} */
+    const releaseFirstPromise = new Promise((resolve) => {
+        releaseFirst = () => resolve();
+    });
+    try {
+        const lockPath = join(projectRoot, ".wld", "exact-worktrees.lock");
+        /** @type {string[]} */
+        const events = [];
+        const first = withWorktreeRegistryLockAtPath(lockPath, async () => {
+            events.push("first-start");
+            await Deno.lstat(lockPath);
+            firstReady();
+            await releaseFirstPromise;
+            events.push("first-end");
+        });
+        await firstReadyPromise;
+        const second = withWorktreeRegistryLockAtPath(lockPath, async () => {
+            await Promise.resolve();
+            events.push("second-start");
+        });
+        await delay(120);
+        assertEquals(events, ["first-start"]);
+        releaseFirst();
+        await Promise.all([first, second]);
+        assertEquals(events, ["first-start", "first-end", "second-start"]);
+        try {
+            await Deno.lstat(lockPath);
+            throw new Error("Exact-path lock was not released.");
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        }
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("worktree registry list reads do not overwrite malformed top-level registries", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        const path = join(projectRoot, ".wld", "worktrees.json");
+        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.writeTextFile(path, "null\n");
+
+        await assertRejects(() => listEntries(projectRoot), Error, "registry root must be an object");
+        assertEquals(await Deno.readTextFile(path), "null\n");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
 
 Deno.test("worktree registry supports add/update/find/list/remove", async () => {
     const projectRoot = await Deno.makeTempDir();

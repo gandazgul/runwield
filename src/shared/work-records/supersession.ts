@@ -1,5 +1,6 @@
 import { dirname, join } from "@std/path";
 import { getRunWieldRuntimeDir } from "../../constants.js";
+import { type LockFileSnapshot, readLockFileSnapshot, removeLockFileIfSnapshotMatches } from "../lock-file-snapshot.ts";
 import { formatWorkRecordMarkdown, parseWorkRecordMarkdown } from "./markdown.js";
 import type { WorkRecordResource } from "./schema.js";
 import { listWorkRecords, replaceWorkRecord } from "./store.js";
@@ -66,69 +67,51 @@ interface LockRecord {
     updatedAt: number;
 }
 
-interface LockSnapshot {
+interface LockSnapshot extends LockFileSnapshot {
     record?: LockRecord;
-    mtime: number;
-    size: number;
 }
 
 async function readLockSnapshot(lockPath: string): Promise<LockSnapshot | undefined> {
-    let record: LockRecord | undefined;
-    try {
-        const value = JSON.parse(await Deno.readTextFile(lockPath));
-        if (
-            typeof value?.token === "string" && typeof value?.createdAt === "number" &&
-            typeof value?.updatedAt === "number"
-        ) {
-            record = { token: value.token, createdAt: value.createdAt, updatedAt: value.updatedAt };
-        }
-    } catch (error) {
-        if (error instanceof Deno.errors.NotFound) return undefined;
-    }
-    try {
-        const stat = await Deno.stat(lockPath);
-        return { record, mtime: stat.mtime?.getTime() ?? Date.now(), size: stat.size };
-    } catch (error) {
-        if (error instanceof Deno.errors.NotFound) return undefined;
-        throw error;
-    }
+    const snapshot = await readLockFileSnapshot(lockPath);
+    if (!snapshot) return undefined;
+    const record = snapshot.token && snapshot.createdAt !== undefined && snapshot.updatedAt !== undefined
+        ? { token: snapshot.token, createdAt: snapshot.createdAt, updatedAt: snapshot.updatedAt }
+        : undefined;
+    return { ...snapshot, ...(record ? { record } : {}) };
 }
 
 async function readLockRecord(lockPath: string): Promise<LockRecord | undefined> {
     return (await readLockSnapshot(lockPath))?.record;
 }
 
-async function createLock(lockPath: string, token: string): Promise<void> {
-    const file = await Deno.open(lockPath, { createNew: true, write: true });
+async function createLock(lockPath: string, token: string): Promise<Deno.FsFile> {
+    const file = await Deno.open(lockPath, { createNew: true, read: true, write: true });
     try {
+        file.lockSync(true);
         const now = Date.now();
-        await file.write(new TextEncoder().encode(JSON.stringify({ token, createdAt: now, updatedAt: now })));
-        await file.sync();
-    } finally {
+        await writeLockRecord(file, { token, createdAt: now, updatedAt: now });
+        return file;
+    } catch (error) {
         file.close();
+        throw error;
     }
 }
 
-async function removeLockIfOwned(lockPath: string, token: string): Promise<void> {
-    const current = await readLockRecord(lockPath);
-    if (current?.token !== token) return;
-    await Deno.remove(lockPath).catch((error) => {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-    });
+async function writeLockRecord(file: Deno.FsFile, record: LockRecord): Promise<void> {
+    await file.truncate(0);
+    await file.seek(0, Deno.SeekMode.Start);
+    await file.write(new TextEncoder().encode(JSON.stringify(record)));
+    await file.sync();
 }
 
-async function removeLockSnapshotIfUnchanged(lockPath: string, snapshot: LockSnapshot): Promise<void> {
+async function removeLockIfOwned(lockPath: string, token: string): Promise<void> {
     const current = await readLockSnapshot(lockPath);
-    if (
-        current?.mtime !== snapshot.mtime || current.size !== snapshot.size ||
-        current.record?.token !== snapshot.record?.token || current.record?.updatedAt !== snapshot.record?.updatedAt
-    ) return;
-    await Deno.remove(lockPath).catch((error) => {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-    });
+    if (current?.record?.token !== token) return;
+    await removeLockFileIfSnapshotMatches(lockPath, current);
 }
 
 function startLockHeartbeat(
+    file: Deno.FsFile,
     lockPath: string,
     token: string,
     intervalMs: number,
@@ -137,7 +120,7 @@ function startLockHeartbeat(
         try {
             const current = await readLockRecord(lockPath);
             if (current?.token !== token) return;
-            await Deno.writeTextFile(lockPath, JSON.stringify({ ...current, updatedAt: Date.now() }));
+            await writeLockRecord(file, { ...current, updatedAt: Date.now() });
         } catch {
             // A release or replacement can race with a heartbeat.
         }
@@ -148,42 +131,49 @@ function startLockHeartbeat(
 
 function lockRelease(
     lockPath: string,
+    file: Deno.FsFile,
     token: string,
     heartbeat: ReturnType<typeof setInterval>,
 ): () => Promise<void> {
     return async () => {
         clearInterval(heartbeat);
+        file.close();
         await removeLockIfOwned(lockPath, token);
     };
 }
 
-async function acquireRecoveryLock(cwd: string): Promise<() => Promise<void>> {
+export async function acquireRecoveryLock(cwd: string): Promise<() => Promise<void>> {
     const lockPath = join(getRunWieldRuntimeDir(cwd), "work-record-supersession-recovery.lock");
     await Deno.mkdir(dirname(lockPath), { recursive: true });
     const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
     const token = crypto.randomUUID();
     while (true) {
         try {
-            await createLock(lockPath, token);
-            return lockRelease(lockPath, token, startLockHeartbeat(lockPath, token, RECOVERY_LOCK_HEARTBEAT_MS));
+            const file = await createLock(lockPath, token);
+            return lockRelease(
+                lockPath,
+                file,
+                token,
+                startLockHeartbeat(file, lockPath, token, RECOVERY_LOCK_HEARTBEAT_MS),
+            );
         } catch (error) {
             if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
             const snapshot = await readLockSnapshot(lockPath);
-            if (
-                snapshot && Date.now() - (snapshot.record?.updatedAt ?? snapshot.mtime) > RECOVERY_LOCK_STALE_MS
-            ) {
-                await removeLockSnapshotIfUnchanged(lockPath, snapshot);
-                continue;
-            }
             if (Date.now() >= deadline) {
                 throw new Error(`Timed out waiting for the Work Record supersession recovery lock: ${lockPath}`);
+            }
+            if (
+                snapshot && Date.now() - (snapshot.record?.updatedAt ?? snapshot.mtime) > RECOVERY_LOCK_STALE_MS &&
+                await removeLockFileIfSnapshotMatches(lockPath, snapshot)
+            ) {
+                continue;
             }
             await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
         }
     }
 }
 
-async function acquireSupersessionLock(cwd: string): Promise<() => Promise<void>> {
+export async function acquireSupersessionLock(cwd: string): Promise<() => Promise<void>> {
     const lockPath = join(getRunWieldRuntimeDir(cwd), "work-record-supersession.lock");
     await Deno.mkdir(dirname(lockPath), { recursive: true });
     const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
@@ -192,12 +182,13 @@ async function acquireSupersessionLock(cwd: string): Promise<() => Promise<void>
         const releaseRecovery = await acquireRecoveryLock(cwd);
         try {
             try {
-                await createLock(lockPath, token);
-                const heartbeat = startLockHeartbeat(lockPath, token, LOCK_HEARTBEAT_MS);
+                const file = await createLock(lockPath, token);
+                const heartbeat = startLockHeartbeat(file, lockPath, token, LOCK_HEARTBEAT_MS);
                 return async () => {
                     clearInterval(heartbeat);
                     const release = await acquireRecoveryLock(cwd);
                     try {
+                        file.close();
                         await removeLockIfOwned(lockPath, token);
                     } finally {
                         await release();
@@ -207,7 +198,7 @@ async function acquireSupersessionLock(cwd: string): Promise<() => Promise<void>
                 if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
                 const snapshot = await readLockSnapshot(lockPath);
                 if (snapshot && Date.now() - (snapshot.record?.updatedAt ?? snapshot.mtime) > LOCK_STALE_MS) {
-                    await removeLockSnapshotIfUnchanged(lockPath, snapshot);
+                    await removeLockFileIfSnapshotMatches(lockPath, snapshot);
                 }
             }
         } finally {
