@@ -3,11 +3,12 @@
  * Durable registry for RunWield execution worktrees.
  */
 
-import { dirname, join } from "@std/path";
+import { dirname } from "@std/path";
 import { readLockFileSnapshot, removeLockFileIfSnapshotMatches } from "./lock-file-snapshot.ts";
 import { getLockHostname, isPidAlive } from "./process-liveness.ts";
-import { CLI_BIN, RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE, WORKTREE_REGISTRY_LOCK_FILE } from "../constants.js";
+import { CLI_BIN } from "../constants.js";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
+import { resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
 import { inspectPlanIdentityDocuments } from "./workflow/plan-diagnostic-evidence.ts";
 import { assertPublicationAttempt } from "./workflow/publication-attempt.ts";
 
@@ -156,14 +157,24 @@ async function runGit(cwd, args) {
     return result.stdout;
 }
 
-/** @param {string} projectRoot */
+/**
+ * Keep registry callers on the named registry path instead of rebuilding the
+ * broader project runtime layout at each call site.
+ *
+ * @param {string} projectRoot
+ */
 export function getWorktreeRegistryPath(projectRoot) {
-    return join(resolvePrimaryCheckoutRoot(projectRoot), RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE);
+    return resolveProjectRuntimeLayout(projectRoot).primary.worktreeRegistryPath;
 }
 
-/** @param {string} projectRoot */
+/**
+ * Keep lock callers on the named registry lock path instead of rebuilding the
+ * broader project runtime layout at each call site.
+ *
+ * @param {string} projectRoot
+ */
 export function getWorktreeRegistryLockPath(projectRoot) {
-    return join(resolvePrimaryCheckoutRoot(projectRoot), RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_LOCK_FILE);
+    return resolveProjectRuntimeLayout(projectRoot).primary.worktreeRegistryLockPath;
 }
 
 /**
@@ -242,7 +253,7 @@ async function migrateLegacyRegistryEntries(projectRoot, entries, resources) {
         });
     }
     if (migrationIssues.length > 0) {
-        const path = join(projectRoot, RUNWIELD_DIR_NAME, "worktree-registry-migration-issues.json");
+        const path = resolveProjectRuntimeLayout(projectRoot).primary.worktreeRegistryMigrationIssuesPath;
         await Deno.mkdir(dirname(path), { recursive: true });
         await Deno.writeTextFile(path, JSON.stringify({ version: 1, issues: migrationIssues }, null, 2));
     }

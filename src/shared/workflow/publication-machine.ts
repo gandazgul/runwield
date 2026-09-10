@@ -7,7 +7,7 @@
  */
 
 import { join } from "@std/path";
-import { getRunWieldRuntimeDir, PLAN_STAGING_DIR_NAME } from "../../constants.js";
+import { resolveProjectRoot, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { findById, pruneEntry, updatePublication } from "../worktree-registry.js";
 import {
     deleteMergedWorktreeBranch,
@@ -176,7 +176,7 @@ async function publishedEvidence(
 }
 
 export function publicationRootForAttempt(projectRoot: string, attemptId: string): string {
-    return join(getRunWieldRuntimeDir(projectRoot), PLAN_STAGING_DIR_NAME, attemptId);
+    return join(resolveProjectRuntimeLayout(resolveProjectRoot(projectRoot)).primary.publicationStagingRoot, attemptId);
 }
 
 export async function loadPublicationAttempt(
