@@ -26,9 +26,9 @@ devServerUrl: null
 devServerHmr: null
 createdAt: "2026-09-07T23:52:50-04:00"
 status: "draft"
+planId: "6fab52da-b258-4a81-a36b-6695ce226c60"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-planId: "6fab52da-b258-4a81-a36b-6695ce226c60"
 ---
 
 # Record Pair Plan Deviations
@@ -42,8 +42,10 @@ Review, or Work Record generation has no structured record that the user intenti
 Reviewer can then reject correct code for not matching obsolete Plan text.
 
 The Plan execution prompt already says explicit user-directed Plan revisions win, but it gives the execution Agent no
-guarded way to record that decision. The removed automatic Plan Amendment gate does not solve this; the active
-validation path does not adopt execution-worktree Plan edits.
+guarded way to record that decision. The dormant Plan Amendment implementation has now been removed, including
+`validation-plan-amendment.ts`, the supervisor resume hook, `runPlanAmendmentTransition`, and the Plan Amendment
+projection exports. Their obsolete tests were removed too. This Plan must not restore them. Validation reloads the
+authoritative execution Plan; that read is not user approval of an arbitrary edit.
 
 The intended outcome is one durable chain of authority: an explicit user decision changes the effective Plan, Semantic
 Code Review uses that change, and the Work Record states what differed from the initially approved Plan.
@@ -105,6 +107,16 @@ execution checkout, worktree identity, and expected Plan revision, and uses the 
 stale revision requires a fresh proposal and confirmation. Content-free metrics can remain content-free; the Plan is the
 durable record.
 
+Persist the accepted entry with
+`savePlan(executionCwd, planName, current.markdown, { planDeviations: nextEntries },
+{ expectedRevision: confirmedRevision })`
+in `src/plan-store.js`. Preserve the current body and all unrelated metadata. `savePlan` already holds catalog and Plan
+locks, checks the expected revision, honors Shared Plan write restrictions, and uses an atomic document write without
+overwriting existing controller state. Recheck the active execution identity before saving; do not hold a Plan lock
+while waiting for the user. This is one Plan-document change, not a lifecycle transition. No new amendment operation,
+approval journal, baseline comparison, or supervisor recovery hook is needed. The accepted entry and its tool-call
+identity are committed together in the same document.
+
 The Engineer projection and Semantic Reviewer request must render a clear `Approved Plan Deviations` section after the
 original Plan body. Semantic Review must receive the actual reloaded Plan content; the current placeholder text (“Plan
 content is supplied by the validation request”) is not sufficient. Discovery and verification rounds treat confirmed
@@ -156,18 +168,18 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
   inclusion.
 - `src/tools/registry.js` and tool-policy tests — keep the new mutation tool workflow-scoped and unavailable to
   unrelated Agents or delegated turns.
-- `docs/domain-language.md` — define **Plan Deviation** and update Plan Amendment, Semantic Code Review, Review Issue,
-  Pair Execution, Work Record, and stable relationships to match the delivered authority rules.
+- `docs/domain-language.md` — define **Plan Deviation** and update Semantic Code Review, Review Issue, Pair Execution,
+  Work Record, and stable relationships. Keep **Plan Amendment** retired; do not redefine it as the new flow.
 - `docs/workflows.md`, `docs/validation-authority.md`, `docs/plan-workflow-map.md`, and `src/skills/runwield/PLANS.md` —
-  document confirmation, ownership, review precedence, recovery, and Work Record behavior. Correct the current broad
-  claim that an automatic validation Plan Amendment gate is active.
+  document confirmation, ownership, review precedence, recovery, and Work Record behavior. Preserve their corrected
+  statement that Workflow Validation has no automatic Plan Amendment approval gate.
 
 ## Reuse Opportunities
 
 Existing functions, modules, or patterns to reuse:
 
-- `src/shared/workflow/state-transition.ts` — reuse the Plan/attempt lock, expected-revision, and recovery-journal
-  patterns; do not add an unguarded direct YAML write.
+- `src/plan-store.js` — reuse `loadPlan`, `savePlan`, `StalePlanWriteError`, and the existing locked atomic document
+  write. Persist only `planDeviations`; do not add a multi-resource transition or copy controller fields into YAML.
 - `src/shared/session/session-runtime-interactions.js` — reuse typed interaction request/outcome handling and managed
   operation authority for the confirmation boundary.
 - `src/shared/workflow/engineer-plan-projection.ts` — extend the existing protected Front Matter projection rather than
@@ -193,9 +205,11 @@ Existing functions, modules, or patterns to reuse:
   deviation. Cancellation, stop, unsupported interaction capability, wrong owner, inactive Pair mode, missing execution
   context, or a Plan revision change writes nothing and does not authorize contrary implementation. A retry of an
   already committed tool call returns the existing entry without a duplicate.
-- An accepted append is committed through the guarded Plan-definition transition against the authoritative execution
-  Plan and active worktree identity. Process loss before the write requires confirmation again; process loss after the
-  committed write recovers the same single entry from the Plan without consulting Session Transcript or metrics.
+- An accepted append uses the existing `savePlan` boundary against the authoritative execution Plan, with the confirmed
+  revision and rechecked active worktree identity. The body, lifecycle status, existing controller state, and registry
+  remain unchanged. Process loss before the atomic write requires confirmation again; process loss after it recovers the
+  same single entry from the Plan without consulting Session Transcript or metrics. No Plan Amendment helper, operation,
+  projection export, or legacy supervisor resume hook is restored.
 - Plan Engineer and Frontend Engineer prompts state that explicit user direction wins only after the guarded record is
   accepted. They call the tool when a user instruction replaces an effective requirement, reread the effective Plan, and
   continue under it. They do not record ordinary implementation feedback that remains compatible with the Plan, and they
@@ -212,11 +226,12 @@ Existing functions, modules, or patterns to reuse:
   deviations, but cannot omit, contradict, or duplicate confirmed entries. Automatic generation and explicit backfill
   produce equivalent deviation content.
 - `docs/domain-language.md` defines **Plan Deviation** as an explicit, user-confirmed replacement to effective Plan
-  definition during execution; distinguishes it from ordinary Pair feedback, a broad Plan Amendment, a Review Override,
-  and a Review Issue; and states that Plan, Reviewer, code, and Work Record must agree on the replacement.
+  definition during execution; distinguishes it from ordinary Pair feedback, the retired Plan Amendment gate, the
+  separately proposed Review Override, and a Review Issue; and states that Plan, Reviewer, code, and Work Record must
+  agree on the replacement.
 - Workflow docs and the shipped RunWield Plan skill describe the confirmation flow, durable owner, restart behavior,
-  Reviewer precedence, and Work Record result. They no longer imply that the unused automatic validation Plan Amendment
-  gate currently protects execution-time edits.
+  Reviewer precedence, and Work Record result. They retain the completed cleanup's rule: validation does not infer user
+  approval from Plan edits or run an automatic Plan Amendment gate.
 - Focused behavioral tests and `deno task ci` pass without adding or re-baselining an injection seam.
 
 ## Approval Confirmation
@@ -240,6 +255,14 @@ materially replace the outcomes of the existing Pair Execution or Work Records r
   fresh Reviewer request names the replacement as authoritative and that the final Work Record still contains the exact
   deviation. It fails if the implementation is only a prompt change, transcript note, metric, module-level cache,
   unpersisted custom tool, pass-through projector, or optional Recorder instruction.
+- Persistence regression: accepted confirmation adds exactly one entry to the execution Plan while leaving its body,
+  status, existing controller record, registry, and stale primary Plan unchanged. A stale confirmation changes none of
+  those files. Reload from disk before retrying a committed tool call and assert no duplicate or second confirmation.
+- Preserve the cleanup's behavioral coverage with
+  `deno run -A scripts/run-tests.js src/plan-store.test.js src/shared/workflow/validation-self-healing.integration.test.ts src/shared/workflow/state-transition.test.js`.
+  Validation must still reach Mechanical Validation without an automatic amendment prompt. An ordinary body edit must
+  not synthesize a `planDeviations` entry or a user-approval claim. Do not recreate the eight obsolete detect/apply,
+  projection/partition, or legacy-baseline tests; test the explicit confirmation flow instead.
 - Full automated gate: `deno task ci`, including `deno task seams:check`.
 - Manual Pair flow: run a small Plan in Pair mode, inspect an increment, and give revision feedback that conflicts with
   one Plan requirement. Confirm the displayed old requirement, replacement, and reason. Resume the Session and inspect
@@ -274,9 +297,10 @@ materially replace the outcomes of the existing Pair Execution or Work Records r
 - **Validation repair:** when a confirmed deviation supersedes an open Review Issue requirement, the next verification
   round can resolve that item from the new effective Plan plus code evidence. It must not falsely claim that code
   changed.
-- **Broad Plan Amendments:** do not reintroduce the removed automatic amendment detector as a side effect. This flow
-  owns a narrow, already-confirmed requirement replacement. A future broad amendment gate must avoid asking again for
-  entries that this flow already committed.
+- **Removed Plan Amendment code:** do not restore the deleted module, transition helper, projection exports, supervisor
+  resume hook, or obsolete tests. Confirmation belongs to `record_plan_deviation`, before the Plan save, not to
+  validation startup. An arbitrary Plan body edit is not a confirmed deviation. This Plan does not add a general audit
+  or approval mechanism for all Plan-file edits.
 - **Review Override:** the draft `docs/plans/offer-semantic-review-intervention.md` describes accepting one Reviewer
   result for one delivery without durable policy. Keep that waiver separate. A Plan Deviation changes effective
   requirements and must be recorded in the Work Record.
