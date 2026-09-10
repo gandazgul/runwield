@@ -48,6 +48,11 @@ export interface CodeReviewDecision {
     images?: Array<ReviewImageAttachment | LoadedReviewImage>;
 }
 
+interface CodeReviewSurfaceReady {
+    url: string;
+    opened: boolean;
+}
+
 interface RunCodeReviewOptions {
     planName: string;
     planTitle?: string;
@@ -61,6 +66,7 @@ interface RunCodeReviewOptions {
     agentLabel?: string;
     signal?: AbortSignal;
     browser: BrowserPort;
+    onSurfaceReady?(surface: CodeReviewSurfaceReady): void;
 }
 
 function isReviewDataRecord(value: ReviewData): value is ReviewDataRecord {
@@ -171,6 +177,7 @@ export async function runCodeReview({
     agentLabel,
     signal,
     browser,
+    onSurfaceReady,
 }: RunCodeReviewOptions): Promise<CodeReviewDecision> {
     const server = await startCodeReviewSurface<ReviewData>({
         rawPatch: diffText,
@@ -185,6 +192,7 @@ export async function runCodeReview({
         reviewConversation,
         agentLabel,
         browser,
+        onSurfaceReady,
     });
 
     let keepSurfaceOpen = false;

@@ -58,7 +58,7 @@ async function waitForOperation(service, operationId) {
     return service.getOperation(operationId);
 }
 
-Deno.test("Workspace Session names use saved renames and never substitute the first message", async () => {
+Deno.test("Workspace Session names prefer saved renames and fall back to the first user message", async () => {
     const namedPath = await Deno.makeTempFile({ prefix: "runwield-named-session-", suffix: ".jsonl" });
     const fallbackPath = await Deno.makeTempFile({ prefix: "runwield-fallback-session-", suffix: ".jsonl" });
     try {
@@ -86,7 +86,15 @@ Deno.test("Workspace Session names use saved renames and never substitute the fi
             append: true,
         });
         assertEquals(await readSessionName(namedPath), "Renamed again");
-        assertEquals(await readSessionName(fallbackPath), "Untitled Session");
+        assertEquals(await readSessionName(fallbackPath), "fallback first message");
+        await Deno.writeTextFile(
+            fallbackPath,
+            JSON.stringify({
+                type: "message",
+                message: { role: "user", content: "/commit these changes" },
+            }) + "\n",
+        );
+        assertEquals(await readSessionName(fallbackPath), "/commit these changes");
     } finally {
         await Deno.remove(namedPath).catch(() => undefined);
         await Deno.remove(fallbackPath).catch(() => undefined);
@@ -139,7 +147,7 @@ Deno.test("Workspace hides only unnamed empty Sessions and paginates the visible
         const second = await service.listSessions(fixture.project.projectId, { pageSize: 1, page: 1 });
         const third = await service.listSessions(fixture.project.projectId, { pageSize: 1, page: 2 });
         assertEquals(first.total, 3);
-        assertEquals(first.sessions[0].displayName, "Untitled Session");
+        assertEquals(first.sessions[0].displayName, "Hello");
         assertEquals(second.sessions[0].displayName, "Named empty");
         assertEquals(third.sessions[0].displayName, "Managed fixture");
         assertEquals(third.hasNext, false);
@@ -778,14 +786,20 @@ Deno.test("a new Workspace Session is discoverable before its first response fin
     await withRuntimeCommandFixture(
         "workspace-first-message-",
         async ({ homeDir, projectRoot, setModelResponseFactory }) => {
+            const modelsPath = `${homeDir}/.wld/models.json`;
+            const modelConfiguration = JSON.parse(await Deno.readTextFile(modelsPath));
+            modelConfiguration.providers["runtime-command-fixture"].models[0].reasoning = true;
+            await Deno.writeTextFile(modelsPath, JSON.stringify(modelConfiguration));
             const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
             const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
             let release = () => {};
             const held = new Promise((resolve) => {
                 release = resolve;
             });
+            const requestedThinking: (string | undefined)[] = [];
             try {
-                setModelResponseFactory(async (context) => {
+                setModelResponseFactory(async (context, options) => {
+                    requestedThinking.push(options?.reasoning);
                     await held;
                     return fixture.recordedModelResponse("Your new Session is ready.")(context);
                 });
@@ -794,6 +808,7 @@ Deno.test("a new Workspace Session is discoverable before its first response fin
                     requestId: "first-message",
                     text: "Start here.",
                     agentName: AGENTS.IDEATOR,
+                    thinkingLevel: "low",
                 });
                 let operation;
                 for (let index = 0; index < 400; index++) {
@@ -814,6 +829,8 @@ Deno.test("a new Workspace Session is discoverable before its first response fin
                     projectId: fixture.project.projectId,
                 });
                 assert(timeline.events.some((event) => event.type === "user_message" && event.text === "Start here."));
+                assertEquals(timeline.snapshot.thinkingLevel, "low");
+                assertEquals(requestedThinking, ["low"]);
             } finally {
                 release();
                 await service.runtime.closeAllSessionsWhenIdle();

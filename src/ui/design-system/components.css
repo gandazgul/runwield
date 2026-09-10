@@ -1240,3 +1240,68 @@ button.danger-action:disabled {
     background: var(--rw-accent);
     outline: none;
 }
+/* Image attachments share the same preview treatment in composers and messages. */
+.rw-image-previews {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--rw-space-2, 8px);
+    margin-block: var(--rw-space-2, 8px);
+}
+
+.rw-image-previews img {
+    display: block;
+    max-width: min(240px, 100%);
+    max-height: 180px;
+    object-fit: contain;
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-control, 6px);
+    background: var(--rw-surface);
+}
+
+.rw-image-preview-button {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: zoom-in;
+}
+.rw-image-dialog {
+    max-width: 90vw;
+}
+.rw-image-dialog:not([open]) {
+    display: none;
+}
+.rw-image-dialog img {
+    max-width: 100%;
+    max-height: 75vh;
+    object-fit: contain;
+}
+.rw-image-dialog::backdrop {
+    background: color-mix(in srgb, var(--rw-page-bg) 80%, transparent);
+}
+.rw-workflow-block {
+    margin-block: var(--rw-space-panel);
+    padding: var(--rw-space-panel);
+    border: 1px solid var(--rw-border);
+    border-inline-start: 3px solid var(--rw-accent);
+    border-radius: var(--rw-radius-card);
+    background: var(--rw-surface-raised);
+    overflow-wrap: anywhere;
+}
+.rw-workflow-block > header,
+.rw-workflow-block > footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--rw-space-control-x);
+}
+.rw-workflow-block > header {
+    color: var(--rw-accent-text);
+}
+.rw-workflow-block > header > span,
+.rw-workflow-block > footer {
+    color: var(--rw-text-dim);
+    font-size: 0.8rem;
+}
+.rw-workflow-block.status-failed {
+    border-inline-start-color: var(--rw-error);
+}

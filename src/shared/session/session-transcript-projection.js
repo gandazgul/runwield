@@ -17,6 +17,11 @@ import {
     namedInvocationImageReferences,
 } from "./named-invocation.ts";
 import { getAgentDisplayName, normalizeAgentInternalName } from "./agents.js";
+import { WORKFLOW_TOOL_EVENT_CUSTOM_TYPE } from "../workflow/workflow-tool-events.ts";
+
+/** @typedef {{ state?: string, kind?: string, toolCallId?: string }} CompletionEventData */
+/** @typedef {{ type?: string, customType?: string, data?: CompletionEventData }} CompletionEventEntry */
+/** @typedef {Parameters<typeof namedInvocationDisplayText>[0]} NamedInvocationEntry */
 
 /** @param {unknown} value @returns {string} */
 function toReplayText(value) {
@@ -111,6 +116,13 @@ export function createReplayEvents(sessionId, entries, options = {}) {
         { agentName: null, displayName: null, hasBaseline: false };
     /** @type {Array<Record<string, any> & { type: string, eventId: string }>} */
     const events = [];
+    const acceptedCompletions = new Set(entries.flatMap((entry) => {
+        const value = /** @type {CompletionEventEntry} */ (entry);
+        return value?.type === "custom" && value.customType === WORKFLOW_TOOL_EVENT_CUSTOM_TYPE &&
+                value.data?.state === "accepted" && value.data.kind === "task_completed" && value.data.toolCallId
+            ? [value.data.toolCallId]
+            : [];
+    }));
     /** @type {string | null} */
     let replayModel = null;
     /** @type {string | null} */
@@ -148,6 +160,40 @@ export function createReplayEvents(sessionId, entries, options = {}) {
         }
         const meta = replayMeta(value, segmentId);
         const common = { timestamp: normalizeReplayTimestamp(value.timestamp), _meta: meta };
+        if (
+            value.type === "custom" && value.customType === WORKFLOW_TOOL_EVENT_CUSTOM_TYPE &&
+            value.data?.state === "accepted" && typeof value.data.kind === "string" && value.data.toolCallId
+        ) {
+            const completion = value.data;
+            const toolCallId = completion.toolCallId;
+            const message = typeof completion.payload?.message === "string" ? completion.payload.message : "";
+            events.push({
+                ...common,
+                type: RuntimeEventTypes.TOOL_END,
+                eventId: makeEventId(value, RuntimeEventTypes.TOOL_END, 0, segmentId),
+                toolCallId,
+                ...(replayTools.get(toolCallId) || describeRuntimeTool(completion.kind, undefined)),
+                ...normalizeRuntimeToolResult({
+                    content: [{ type: "text", text: message }],
+                    details: completion.payload,
+                }),
+                isError: false,
+                durationMs: finishReplayTool(toolCallId, common.timestamp),
+            });
+            if (completion.kind === "task_completed" && message.trim()) {
+                events.push({
+                    ...common,
+                    type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+                    eventId: makeEventId(value, "task_completed", 1, segmentId),
+                    messageId: `${entryMessageId(value, sessionId, segmentId)}:workflow`,
+                    delta: formatTaskCompletedMarkdown(message),
+                    agentName: replayAgentName,
+                    messageKind: "workflow",
+                    workflowMessage: "task_completed",
+                });
+            }
+            continue;
+        }
         if (value.type === "message") {
             const role = value.message?.role || "unknown";
             const content = value.message?.content;
@@ -155,6 +201,9 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                 const messageId = entryMessageId(value, `${sessionId}:replay-tool-result`, segmentId);
                 const toolCallId = value.message?.toolCallId || value.message?.tool_call_id || messageId;
                 const toolName = value.message?.toolName || value.message?.tool_name || "tool";
+                // Accepted completion is recorded before the tool can stop its own agent turn.
+                // Use that record once, whether or not the provider also persisted a tool result.
+                if (toolName === "task_completed" && acceptedCompletions.has(toolCallId)) continue;
                 const toolResult = normalizeRuntimeToolResult(value.message);
                 events.push({
                     ...common,
@@ -187,11 +236,35 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                 continue;
             }
             const blocks = Array.isArray(content) ? content : [{ type: "text", text: toReplayText(content) }];
+            if (role === "user") {
+                const text = blocks.filter((block) => block?.type === "text").map((block) => toReplayText(block.text))
+                    .join("\n");
+                const images = blocks.filter((block) => block?.type === "image" && (block.data || block.base64))
+                    .map((block) => ({ base64: block.data || block.base64, mimeType: block.mimeType }));
+                if (skipNextCompactNamedInvocation && text === skipNextCompactNamedInvocation) {
+                    skipNextCompactNamedInvocation = "";
+                    continue;
+                }
+                skipNextCompactNamedInvocation = "";
+                if (text || images.length) {
+                    events.push({
+                        ...common,
+                        type: RuntimeEventTypes.USER_MESSAGE,
+                        eventId: makeEventId(value, RuntimeEventTypes.USER_MESSAGE, 0, segmentId),
+                        messageId: `${entryMessageId(value, `${sessionId}:replay`, segmentId)}:0`,
+                        text,
+                        images,
+                    });
+                }
+            }
             let blockIndex = 0;
             for (const block of blocks) {
                 const typed = /** @type {any} */ (block || {});
                 const messageId = `${entryMessageId(value, `${sessionId}:replay`, segmentId)}:${blockIndex}`;
                 const eventBlockIndex = blockIndex++;
+                // Older providers placed tool results inside user messages.
+                // Text and images were combined above; still replay their tool results.
+                if (role === "user" && typed.type !== "tool_result") continue;
                 if (typed.type === "thinking" || typed.type === "reasoning") {
                     const delta = toReplayText(typed.text || typed.thinking || typed.content || "");
                     if (delta) {
@@ -259,21 +332,7 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                 }
                 const text = toReplayText(typed.type === "text" ? typed.text : typed);
                 if (!text) continue;
-                if (role === "user") {
-                    if (skipNextCompactNamedInvocation && text === skipNextCompactNamedInvocation) {
-                        skipNextCompactNamedInvocation = "";
-                        continue;
-                    }
-                    skipNextCompactNamedInvocation = "";
-                    events.push({
-                        ...common,
-                        type: RuntimeEventTypes.USER_MESSAGE,
-                        eventId: makeEventId(value, RuntimeEventTypes.USER_MESSAGE, eventBlockIndex, segmentId),
-                        messageId,
-                        text,
-                        images: [],
-                    });
-                } else if (role === "assistant") {
+                if (role === "assistant") {
                     events.push({
                         ...common,
                         type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
@@ -283,14 +342,16 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                         agentName: replayAgentName,
                         messageKind: "assistant",
                     });
-                } else {events.push({
+                } else {
+                    events.push({
                         ...common,
                         type: RuntimeEventTypes.SYSTEM_STATUS,
                         eventId: makeEventId(value, RuntimeEventTypes.SYSTEM_STATUS, eventBlockIndex, segmentId),
                         messageId,
                         message: text,
                         level: "info",
-                    });}
+                    });
+                }
             }
             if (value.message?.usage) {
                 events.push({
@@ -468,6 +529,7 @@ export async function captureTranscriptEvidence(options) {
  * @typedef {Object} ResumableTranscriptContentBlock
  * @property {string} [type]
  * @property {string} [text]
+ * @property {string} [mimeType]
  */
 
 /**
@@ -498,13 +560,32 @@ export async function captureTranscriptEvidence(options) {
 export function summarizeResumableTranscript(entries) {
     const typedEntries = entries.map((entry) => /** @type {ResumableTranscriptEntry} */ (entry));
     const messages = typedEntries.filter((entry) => entry?.type === "message");
-    const firstUser = messages.find((entry) => entry.message?.role === "user");
-    const firstContent = firstUser?.message?.content;
-    const firstMessage = typeof firstContent === "string"
-        ? firstContent
-        : Array.isArray(firstContent)
-        ? firstContent.find((block) => block?.type === "text")?.text
-        : undefined;
+    let firstMessage;
+    for (const entry of entries) {
+        const invocation = namedInvocationDisplayText(/** @type {NamedInvocationEntry} */ (entry));
+        if (invocation) {
+            firstMessage = invocation;
+            break;
+        }
+        const value = /** @type {ResumableTranscriptEntry} */ (entry);
+        if (value?.type !== "message" || value.message?.role !== "user") continue;
+        const content = value.message.content;
+        const text = (typeof content === "string"
+            ? content
+            : Array.isArray(content)
+            ? content.filter((block) =>
+                block?.type === "text"
+            ).map((block) => block.text || "").join("\n")
+            : "").trim();
+        if (text) {
+            firstMessage = text;
+            break;
+        }
+        if (Array.isArray(content) && content.some((block) => block?.type === "image")) {
+            firstMessage = "Image message";
+            break;
+        }
+    }
     return { messageCount: messages.length, firstMessage };
 }
 

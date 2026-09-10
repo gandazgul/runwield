@@ -69,17 +69,20 @@ Deno.test("runCodeReview serves the real review surface and loads submitted imag
         }],
     });
     try {
+        let reviewUrl = "";
         const result = await runCodeReview({
             planName: "image-review-plan",
             diffText: "diff --git a/src/a.js b/src/a.js\n+change",
             executionCwd: projectRoot,
             browser: scriptedBrowser.browser,
+            onSurfaceReady: (surface) => reviewUrl = surface.url,
         });
 
         assertEquals(result.feedback, "Use the attached reference.");
         assertEquals(result.images, [{ base64: "iVBORw==", mimeType: "image/png", name: "review" }]);
         assertEquals(scriptedBrowser.urls.length, 1);
         assertStringIncludes(scriptedBrowser.urls[0], "/review/code?token=");
+        assertEquals(reviewUrl, scriptedBrowser.urls[0]);
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
     }

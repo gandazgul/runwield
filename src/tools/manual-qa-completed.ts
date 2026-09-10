@@ -32,7 +32,10 @@ export function createManualQaCompletedTool(options: ManualQaOptions) {
                 name: options.name,
                 classification: options.classification,
             });
-            emitAssistantMessage(options.hostedSession, "operator", text);
+            emitAssistantMessage(options.hostedSession, "operator", text, {
+                messageKind: "workflow",
+                workflowMessage: "manual_qa_completed",
+            });
             publishWorkflowToolEvent({
                 hostedSession: options.hostedSession,
                 toolCallId,
@@ -41,7 +44,7 @@ export function createManualQaCompletedTool(options: ManualQaOptions) {
             });
             return Promise.resolve({
                 content: [{ type: "text", text: "Manual QA checklist saved." }],
-                details: { accepted: true },
+                details: { accepted: true, checklistMarkdown: text },
                 terminate: true,
             });
         },

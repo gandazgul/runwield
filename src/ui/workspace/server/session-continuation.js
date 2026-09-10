@@ -22,12 +22,13 @@ import {
     captureTranscriptEvidence,
     getCommittedTranscriptAuthorityFacts,
     summarizeProjectedEntries,
+    summarizeResumableTranscript,
     validateExpiredControlTranscriptEvidence,
 } from "../../../shared/session/session-transcript-projection.js";
 import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
 
 /** @typedef {"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"} WorkspaceThinkingLevel */
-/** @typedef {{ name: string, hasMessages: boolean }} SessionListInfo */
+/** @typedef {{ name: string, firstMessage: string }} SessionListInfo */
 /** @typedef {{ size: number, mtime: number | undefined, ctime: number | undefined, info: SessionListInfo }} SessionListInfoCacheEntry */
 /** @type {Map<string, SessionListInfoCacheEntry>} */
 const sessionListInfoCache = new Map();
@@ -187,23 +188,20 @@ async function readSessionListInfo(transcriptPath) {
             cached.ctime === stat.ctime?.getTime()
         ) return cached.info;
         const entries = [];
-        let hasMessages = false;
         const transcript = await Deno.readTextFile(transcriptPath);
         for (const line of transcript.split("\n")) {
             if (!line.trim()) continue;
             try {
                 const entry = JSON.parse(line);
-                if (entry.type === "session" || entry.type === "session_info") entries.push(entry);
-                if (entry.type === "message" || entry.type === "user_message") hasMessages = true;
+                entries.push(entry);
             } catch {
-                // A partially written tail must not discard a saved name or hide the Session.
-                hasMessages = true;
+                // Use complete records while the active writer appends its next entry.
             }
         }
         const name = summarizeProjectedEntries(entries).name;
         const info = {
             name: typeof name === "string" ? compactSessionName(name) : "",
-            hasMessages,
+            firstMessage: compactSessionName(summarizeResumableTranscript(entries).firstMessage || "").slice(0, 100),
         };
         sessionListInfoCache.set(transcriptPath, {
             size: stat.size,
@@ -217,14 +215,22 @@ async function readSessionListInfo(transcriptPath) {
         }
         return info;
     } catch {
-        // Keep unreadable Sessions visible for recovery; they are not known to be empty.
-        return { name: "", hasMessages: true };
+        return { name: "", firstMessage: "" };
     }
 }
 
 /** @param {string} transcriptPath */
 export async function readSessionName(transcriptPath) {
-    return (await readSessionListInfo(transcriptPath)).name || "Untitled Session";
+    const info = await readSessionListInfo(transcriptPath);
+    return info.name || info.firstMessage;
+}
+
+/** @param {string[]} paths */
+async function readSessionDisplayName(paths) {
+    const infos = await Promise.all(paths.map(readSessionListInfo));
+    const savedName = infos.findLast((info) => info.name)?.name || "";
+    const name = savedName && !/^untitled(?: session)?$/i.test(savedName) ? savedName : "";
+    return name || infos.find((info) => info.firstMessage)?.firstMessage || "";
 }
 
 /** @param {import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore} store @param {{ transcriptCwd: string }} session @param {string} projectId */
@@ -387,11 +393,9 @@ export class WorkspaceSessionContinuationService {
             const paths = segments.length
                 ? [...segments].sort((a, b) => a.ordinal - b.ordinal).map((segment) => segment.transcriptPath)
                 : [session.transcriptPath].filter(Boolean);
-            const infos = await Promise.all(paths.map(readSessionListInfo));
-            const name = infos.findLast((info) => info.name)?.name || session.displayName || "";
-            const named = name && !/^untitled(?: session)?$/i.test(name.trim());
-            if (!options.includeEmpty && !named && !infos.some((info) => info.hasMessages)) continue;
-            visible.push({ ...session, displayName: name || "Untitled Session" });
+            const displayName = await readSessionDisplayName(paths);
+            if (!options.includeEmpty && !displayName) continue;
+            visible.push({ ...session, displayName });
         }
         const page = typeof options.page === "number" && Number.isInteger(options.page) && options.page >= 0
             ? options.page
@@ -525,7 +529,11 @@ export class WorkspaceSessionContinuationService {
                     // Committed information remains available when the running surface cannot be reached.
                 }
             }
-            projection.snapshot.name = liveInfo?.name || projection.snapshot.name || session.displayName;
+            const segments = this.store.listSessionTranscriptSegments(runwieldSessionId);
+            const paths = segments.length
+                ? [...segments].sort((a, b) => a.ordinal - b.ordinal).map((segment) => segment.transcriptPath)
+                : [session.transcriptPath].filter(Boolean);
+            projection.snapshot.name = liveInfo?.name || await readSessionDisplayName(paths);
             if (liveInfo?.sessionStats) projection.snapshot.sessionStats = liveInfo.sessionStats;
             projection.snapshot.contextUsage = liveInfo?.contextUsage || null;
             projection.snapshot.systemContextTokens = liveInfo?.systemContextTokens ?? null;
@@ -640,7 +648,7 @@ export class WorkspaceSessionContinuationService {
                 const runtimeSessionId = activeOperation.record.runtimeSessionId;
                 if (!runtimeSessionId) throw new Error("Active Runtime Session is not available.");
                 const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (options.thinkingLevel);
-                const result = this.runtime.setSessionThinkingLevel(runtimeSessionId, thinkingLevel);
+                const result = await this.runtime.setSessionThinkingLevel(runtimeSessionId, thinkingLevel);
                 if (!result?.ok) throw new Error(result?.error || "Selected thinking level could not be applied.");
             }
             const hasPendingConfiguration = Object.keys(pendingConfiguration).length > 0;
@@ -837,6 +845,10 @@ export class WorkspaceSessionContinuationService {
                 encodeURIComponent(current.runwieldSessionId || "")
             }/artifacts/${encodeURIComponent(artifactReview.artifactId)}`
             : null;
+        if (codeReview && reviewUrl) {
+            const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
+            if (typeof meta.onSurfaceReady === "function") meta.onSurfaceReady({ url: reviewUrl, opened: false });
+        }
         this.setOperation(operationId, {
             ...current,
             liveInteraction: {
@@ -968,7 +980,7 @@ export class WorkspaceSessionContinuationService {
                 const created = await this.runtime.createInteractiveSession({
                     cwd: project.currentRoot,
                     mode: "new",
-                    deferManagedActivationUntilAgentReady: false,
+                    deferManagedActivationUntilAgentReady: true,
                 });
                 sessionId = created.sessionId;
                 this.setOperation(operationId, {
@@ -991,7 +1003,7 @@ export class WorkspaceSessionContinuationService {
                 }
                 if (launch.thinkingLevel !== "default") {
                     const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (launch.thinkingLevel);
-                    const thinkingResult = this.runtime.setSessionThinkingLevel(sessionId, thinkingLevel);
+                    const thinkingResult = await this.runtime.setSessionThinkingLevel(sessionId, thinkingLevel);
                     if (!thinkingResult?.ok) throw new Error("Selected thinking level could not be applied.");
                 }
                 const result = await this.runtime.promptUserTurn(sessionId, {
@@ -1027,7 +1039,7 @@ export class WorkspaceSessionContinuationService {
      * @param {{ deviceId?: string | null, projectId: string, runwieldSessionId: string, requestId: string, expectedGeneration: number, text: string, images?: Array<{ base64: string, mimeType: string }> }} options
      */
     async startContinuation(options) {
-        if (!options.text || typeof options.text !== "string") throw new Error("Continuation text is required.");
+        if (!options.text?.trim() && !options.images?.length) throw new Error("A message or image is required.");
         const requestHash = stableHash({
             kind: "continuation",
             session: options.runwieldSessionId,

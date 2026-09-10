@@ -128,6 +128,10 @@ recovery control. If the running process is briefly unavailable, keep the draft 
 controls can accept one pending change when the current Workspace owns the operation; show **Applies after this
 response** until it is applied. Thinking changes can show immediately when Core accepts them.
 
+Composers accept images by paste, drag-and-drop, or **Attach image**, including a phone's file picker. Show the image
+before sending with a Remove action, and preserve it in the conversation after sending and reloading. Use the shared
+`.rw-image-previews` treatment. Save image drafts in IndexedDB; browser storage limits must never block Send.
+
 Open conversations at the latest messages and offer **Load earlier messages** above the timeline. Loading old history
 must not disable Send. Keep Session generations, locks, and request-delivery details out of the ordinary screen.
 
@@ -177,8 +181,9 @@ reader.
 Workspace navigation uses a draggable `.rw-panel-resize-handle` on its right edge. Keep the sidebar between 220 and
 480px while reserving at least 420px for the main pane. Remember its width separately from its collapsed state. The
 handle is a focusable separator: arrow keys adjust width, Home/End select the limits, and double-click restores 280px.
-Hide the handle in the narrow-screen overlay layout. Session lists use saved names (including rename entries), never the
-first prompt. Omit unnamed, empty Sessions by default; keep named, nonempty, and unreadable Sessions accessible.
+Hide the handle in the narrow-screen overlay layout. Every Session list uses the saved name (including rename entries),
+then the first user message. Suppress Sessions that have neither; never fill lists with “Untitled Session.” Keep the
+same naming and visibility rules in Workspace and the TUI.
 
 ## Token model
 
@@ -648,3 +653,13 @@ child tabs. Mounted inactive panels preserve per-Plan editing, comments, scroll 
 approval actions state their complete scope (for example, “Sequence and 2 Plans”) on every tab. Only child tabs show
 execution policy. Keep the tab strip horizontally scrollable and keyboard accessible; use the same semantic tokens and
 header controls as single-Plan review. Surface Lab includes standalone and embedded `sequence` variants.
+
+### Workflow transitions in Session history
+
+Every tool in `WORKFLOW_TOOL_NAMES` renders as an expanded `.rw-workflow-block`, separate from routine tool activity.
+Show its name, running/completed/failed state, full report or decision, and available artifact/review actions. Keep
+routing intent, complexity, plan outcomes, completion summaries, review findings, and checklists visible. Accepted
+workflow records close the block even when a tool stops its own turn before a provider tool result is persisted. Live
+events and reloaded history show the same information once per call. Do not infer acceptance from tool arguments.
+
+Message images open in the shared dialog styling with an explicit Close action and Escape support.

@@ -388,3 +388,124 @@ Deno.test("idle Sessions can continue with planning or execution history", () =>
     assertEquals(execution.key, "available");
     assertEquals(execution.canContinue, true);
 });
+
+Deno.test("all workflow tools remain expanded outside routine activity, with accepted reports preserved", async () => {
+    const { WORKFLOW_TOOL_NAMES } = await import("../../tools/registry.js");
+    const { workflowToolMarkdown, SessionTimeline } = await import("./components/SessionTimeline.jsx");
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    for (const name of WORKFLOW_TOOL_NAMES) {
+        const items = reduceSessionEvents([
+            { type: "tool_start", toolCallId: "read-1", toolName: "read" },
+            { type: "tool_end", toolCallId: "read-1", toolName: "read", output: "file" },
+            { type: "tool_start", toolCallId: "workflow-1", toolName: name },
+            {
+                type: "tool_end",
+                toolCallId: "workflow-1",
+                toolName: name,
+                output: "Full workflow decision with evidence.",
+            },
+            { type: "assistant_text_delta", messageId: "reply", delta: "Next step." },
+        ]);
+        const block = items.find((item) => item.workflowMessage === name);
+        assertEquals(block?.kind, "workflow", name);
+        assertEquals(block?.status, "completed", name);
+        assertEquals(workflowToolMarkdown(block), "Full workflow decision with evidence.", name);
+        const html = renderToStaticMarkup(createElement(SessionTimeline, { items: [block] }));
+        assertEquals(html.includes('class="rw-workflow-block status-completed"'), true, name);
+        assertEquals(html.includes("<details"), false, name);
+        assertEquals(html.includes("Full workflow decision with evidence."), true, name);
+    }
+    const items = reduceSessionEvents([
+        { type: "tool_start", toolCallId: "task", toolName: "task_completed" },
+        {
+            type: "assistant_text_delta",
+            messageId: "completion",
+            workflowMessage: "task_completed",
+            delta: "**Task completed.**\n\nVerified.",
+        },
+        { type: "tool_end", toolCallId: "task", toolName: "task_completed", output: "Verified." },
+    ]);
+    assertEquals(items.length, 1);
+    assertEquals(items[0].status, "completed");
+    assertEquals(workflowToolMarkdown(items[0]), "**Task completed.**\n\nVerified.");
+    const triage = reduceSessionEvents([
+        {
+            type: "tool_end",
+            toolCallId: "triage",
+            toolName: "triage_report",
+            output: "Triage complete.",
+            details: {
+                routingIntent: "QUICK_FIX",
+                complexity: "LOW",
+                summary: "Fix image sending.",
+            },
+        },
+    ])[0];
+    assertEquals(workflowToolMarkdown(triage).includes("Fix image sending."), true);
+    assertEquals(workflowToolMarkdown(triage).includes("QUICK_FIX"), true);
+    const workRecord = reduceSessionEvents([
+        { type: "tool_start", toolCallId: "record", toolName: "work_record_completed" },
+        {
+            type: "tool_end",
+            toolCallId: "record",
+            toolName: "work_record_completed",
+            details: { title: "Image sending", summary: "Verified in browser and TUI.", deferredWork: "None." },
+        },
+        {
+            type: "tool_end",
+            toolCallId: "record",
+            toolName: "work_record_completed",
+            output: "Work Record sections accepted.",
+            details: { accepted: true },
+        },
+    ])[0];
+    assertEquals(workflowToolMarkdown(workRecord).includes("Verified in browser and TUI."), true);
+    assertEquals(workflowToolMarkdown(workRecord).includes("Deferred work"), true);
+    const review = {
+        markdown: "Approved.",
+        details: { advisories: [{ title: "Follow-up", detail: "Keep this visible." }] },
+    };
+    assertEquals(workflowToolMarkdown(review).includes("Keep this visible."), true);
+    const checklist = {
+        output: "Manual QA checklist saved.",
+        details: { checklistMarkdown: "- [ ] Test on a phone." },
+    };
+    assertEquals(workflowToolMarkdown(checklist), "- [ ] Test on a phone.");
+    const savedChecklist = reduceSessionEvents([
+        {
+            type: "assistant_text_delta",
+            messageId: "qa-message",
+            workflowMessage: "manual_qa_checklist",
+            delta: "- [ ] Test on a phone.",
+        },
+        {
+            type: "tool_end",
+            toolCallId: "qa",
+            toolName: "manual_qa_completed",
+            details: { checklistMarkdown: "- [ ] Test on a phone." },
+        },
+    ]);
+    assertEquals(savedChecklist.length, 1);
+    assertEquals(savedChecklist[0].workflowMessage, "manual_qa_completed");
+    const artifact = reduceSessionEvents([{
+        type: "tool_end",
+        toolCallId: "artifact",
+        toolName: "artifact_written",
+        output: "Report registered.",
+        details: { artifact: { artifactId: "report-1", title: "Session findings" } },
+    }]);
+    const artifactHtml = renderToStaticMarkup(createElement(SessionTimeline, {
+        items: artifact,
+        sessionPath: "/projects/project-1/sessions/session-1",
+    }));
+    assertEquals(artifactHtml.includes('href="/projects/project-1/sessions/session-1/artifacts/report-1"'), true);
+    assertEquals(artifactHtml.includes("Open Session findings"), true);
+});
+
+Deno.test("image-only user messages survive the browser timeline reducer", () => {
+    const images = [{ base64: "aW1hZ2U=", mimeType: "image/png" }];
+    const items = reduceSessionEvents([{ type: "user_message", messageId: "image", text: "", images }]);
+    assertEquals(items[0].images, images);
+    assertEquals(items[0].role, "user");
+});

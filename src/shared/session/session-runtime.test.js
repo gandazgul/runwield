@@ -1,4 +1,11 @@
-import { assert, assertEquals, assertRejects, assertStrictEquals, assertStringIncludes } from "@std/assert";
+import {
+    assert,
+    assertEquals,
+    assertExists,
+    assertRejects,
+    assertStrictEquals,
+    assertStringIncludes,
+} from "@std/assert";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -562,12 +569,19 @@ Deno.test("SessionRuntime persists a newly managed Pi transcript before catalogi
                     mode: "new",
                 });
                 assertEquals(typeof created.sessionManagerId, "string");
-                const persisted = await runtime.listResumableSessions(cwd);
-                assertEquals(persisted.some((session) => session.id === created.sessionManagerId), true);
+                const managed = runtime.getSessionSnapshot(created.sessionId)?.managed;
+                const segment = store.getCurrentSessionSegment(managed?.runwieldSessionId || "");
+                assertExists(segment?.transcriptPath);
+                assertEquals((await Deno.stat(segment.transcriptPath)).isFile, true);
+                const resumable = await runtime.listResumableSessions(cwd);
+                assertEquals(resumable.some((session) => session.id === created.sessionManagerId), false);
+                await runtime.renameSession(created.sessionId, "Named empty Session");
+                const named = await runtime.listResumableSessions(cwd);
+                assertEquals(named.some((session) => session.id === created.sessionManagerId), true);
 
                 await runtime.switchAgent(created.sessionId, { agentName: "Ideator" });
                 const snapshot = runtime.getSessionSnapshot(created.sessionId);
-                assertEquals(snapshot?.managed?.generation, 1);
+                assertEquals(snapshot?.managed?.generation, 2);
             } finally {
                 await runtime.closeAllSessionsWhenIdle?.();
             }

@@ -27,6 +27,7 @@ const handlerMetadata = new WeakMap();
  * @typedef {Object} AgentSwitchOptions
  * @property {string} agentName
  * @property {string} [model]
+ * @property {import('./hosted-session.js').ThinkingLevel} [thinkingLevelOverride]
  * @property {string} [cwd]
  * @property {Array<{base64: string, mimeType: string}>} [images]
  * @property {boolean} [forceRebuild]
@@ -124,6 +125,7 @@ export async function switchActiveAgent(hostedSession, options) {
     const rootOptions = {
         agentName,
         modelOverride,
+        thinkingLevelOverride: options.thinkingLevelOverride,
         cwd: requestedCwd || effectiveCwd,
         sessionManager: options.sessionManager,
         images: options.images,

@@ -526,3 +526,105 @@ Deno.test("summarizeProjectedEntries exposes Plan Associations and ignores legac
         [],
     );
 });
+
+Deno.test("accepted workflow transitions replay their result even when the tool stopped its own turn", () => {
+    const entries = [
+        {
+            type: "message",
+            id: "call",
+            message: {
+                role: "assistant",
+                content: [
+                    {
+                        type: "toolCall",
+                        id: "completed-1",
+                        name: "task_completed",
+                        arguments: { message: "Attempted" },
+                    },
+                ],
+            },
+        },
+        {
+            type: "custom",
+            id: "accepted",
+            customType: "runwield.workflow_tool_event",
+            data: {
+                state: "accepted",
+                kind: "task_completed",
+                toolCallId: "completed-1",
+                payload: { outcome: "task_completed", message: "Delivered and verified." },
+            },
+        },
+    ];
+    for (const withProviderResult of [false, true]) {
+        const events = createReplayEvents(
+            "session",
+            withProviderResult
+                ? [...entries, {
+                    type: "message",
+                    id: "result",
+                    message: {
+                        role: "toolResult",
+                        toolName: "task_completed",
+                        toolCallId: "completed-1",
+                        content: [{ type: "text", text: "Delivered and verified." }],
+                        details: { outcome: "task_completed", message: "Delivered and verified." },
+                    },
+                }]
+                : entries,
+        );
+        assertEquals(events.filter((event) => event.type === "tool_end").length, 1);
+        assertEquals(events.filter((event) => event.workflowMessage === "task_completed").length, 1);
+        assertEquals(events.find((event) => event.type === "tool_end")?.isError, false);
+    }
+    assertEquals(createReplayEvents("session", entries.slice(0, 1)).some((event) => event.type === "tool_end"), false);
+    const triage = createReplayEvents("session", [{
+        type: "custom",
+        id: "triage",
+        customType: "runwield.workflow_tool_event",
+        data: {
+            state: "accepted",
+            kind: "triage_report",
+            toolCallId: "triage-1",
+            payload: { routingIntent: "QUICK_FIX", complexity: "LOW", summary: "Fix the broken image send." },
+        },
+    }]);
+    assertEquals(triage[0].type, "tool_end");
+    assertEquals(triage[0].toolName, "triage_report");
+    assertEquals(triage[0].details.summary, "Fix the broken image send.");
+});
+
+Deno.test("Session replay preserves images and every text block as one user message", () => {
+    const events = createReplayEvents("session", [
+        {
+            type: "message",
+            id: "mixed",
+            message: {
+                role: "user",
+                content: [
+                    { type: "text", text: "Look at this" },
+                    { type: "image", data: "aW1hZ2U=", mimeType: "image/png" },
+                    { type: "text", text: "and explain it." },
+                ],
+            },
+        },
+        {
+            type: "message",
+            id: "image-only",
+            message: {
+                role: "user",
+                content: [
+                    { type: "image", data: "b3RoZXI=", mimeType: "image/jpeg" },
+                ],
+            },
+        },
+    ]);
+    assertEquals(events.map((event) => ({ type: event.type, text: event.text, images: event.images })), [
+        {
+            type: "user_message",
+            text: "Look at this\nand explain it.",
+            images: [{ base64: "aW1hZ2U=", mimeType: "image/png" }],
+        },
+        { type: "user_message", text: "", images: [{ base64: "b3RoZXI=", mimeType: "image/jpeg" }] },
+    ]);
+});

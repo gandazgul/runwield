@@ -174,7 +174,7 @@ Deno.test("human-review change repair resumes through CI and returns to Local Hu
     assertEquals(plan.attrs.humanReviewMode, "always");
     assertEquals(plan.attrs.humanReviewDecision, "changes_requested");
     assertEquals(result.kind, "paused");
-    assertStringIncludes(ui.messages.join("\n"), "Need your human review");
+    assertStringIncludes(ui.messages.join("\n"), "Need your review: http://127.0.0.1/review/code?token=test");
     assertEquals(
         sessionManager.getBranch().some((entry) =>
             entry.type === "custom" && entry.customType === TASK_COMPLETION_CUSTOM_TYPE
