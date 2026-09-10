@@ -1,9 +1,18 @@
 import { assert, assertEquals, assertNotEquals } from "@std/assert";
-import { fromFileUrl } from "@std/path";
-import { listPlans, loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
+import { fromFileUrl, join } from "@std/path";
+import { getRunWieldRuntimeDir, PROJECT_INTERNAL_RUNTIME_DIR_NAME } from "../../constants.js";
+import {
+    listPlans,
+    loadPlan,
+    savePlan,
+    updatePlanFrontMatter,
+    withPlanCatalogLock,
+    withPlanLock,
+} from "../../plan-store.js";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
-import { findById, pruneEntry } from "../worktree-registry.js";
+import { readControllerRecord, writeControllerState } from "./controller-registry.ts";
+import { findById, getWorktreeRegistryPath, pruneEntry } from "../worktree-registry.js";
 import { addEntry } from "../worktree-registry.js";
 import { createExecutionStartPorts, startActiveExecutionWorkflow } from "./execution-start.ts";
 import { recordPlanEvent } from "./plan-lifecycle.js";
@@ -12,6 +21,90 @@ import { applySharedPlanReviewDecision } from "./plan-review-actions.ts";
 import { executePlanAction, loadPlanActionEvidence } from "./plan-actions.ts";
 
 const fixture = defineCommittedGitFixture({ ".gitignore": ".wld/\n", "app.ts": "// application\n" });
+
+async function pathExists(path: string): Promise<boolean> {
+    return await Deno.stat(path).then(() => true).catch(() => false);
+}
+
+function selectedInternalLockPath(root: string, name: string): string {
+    return join(getRunWieldRuntimeDir(Deno.realPathSync(root)), PROJECT_INTERNAL_RUNTIME_DIR_NAME, "plan-locks", name);
+}
+
+Deno.test("Plan locks stay in the linked checkout while primary locks remain independent", async () => {
+    const root = await fixture.checkout({ prefix: "rw-selected-lock-primary-" });
+    const container = await Deno.makeTempDir({ prefix: "rw-selected-lock-tree-" });
+    const selected = join(container, "selected");
+    try {
+        await git(root, ["worktree", "add", "-b", "worktree/selected-locks", selected, "HEAD"]);
+        const selectedLock = selectedInternalLockPath(selected, "demo.lock");
+        const selectedCatalog = selectedInternalLockPath(selected, "catalog.lock");
+        const primaryLock = selectedInternalLockPath(root, "demo.lock");
+        const legacySelectedLock = join(getRunWieldRuntimeDir(Deno.realPathSync(selected)), "plan-locks", "demo.lock");
+        const primaryRegistryPath = getWorktreeRegistryPath(root);
+        const selectedRegistryPath = join(
+            getRunWieldRuntimeDir(Deno.realPathSync(selected)),
+            PROJECT_INTERNAL_RUNTIME_DIR_NAME,
+            "worktrees.json",
+        );
+        const baseCommit = await git(root, ["rev-parse", "HEAD"]);
+        await addEntry(selected, {
+            id: "selected-entry",
+            planName: "demo",
+            planId: "plan-demo",
+            baseBranch: "main",
+            baseRef: "main",
+            baseCommit,
+            branch: "worktree/selected-locks",
+            path: selected,
+            status: "active",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        assertEquals((await findById(root, "selected-entry"))?.path, selected);
+        await Deno.lstat(primaryRegistryPath);
+        assertEquals(await pathExists(selectedRegistryPath), false);
+        await writeControllerState(selected, { planName: "demo", planId: "plan-demo" }, {
+            failureReason: "primary proof",
+        });
+        assertEquals(
+            (await readControllerRecord(root, { planName: "demo", planId: "plan-demo" }))?.state.failureReason,
+            "primary proof",
+        );
+        const entered: string[] = [];
+        let releaseFirst = () => {};
+        const firstMayFinish = new Promise<void>((resolve) => releaseFirst = resolve);
+        const firstEntered = new Promise<void>((resolve) => {
+            void withPlanLock(selected, "demo", async () => {
+                entered.push("selected-first");
+                await Deno.lstat(selectedLock);
+                assertEquals(await pathExists(primaryLock), false);
+                assertEquals(await pathExists(legacySelectedLock), false);
+                await withPlanCatalogLock(selected, async () => {
+                    await Deno.lstat(selectedCatalog);
+                });
+                resolve();
+                await firstMayFinish;
+            });
+        });
+        await firstEntered;
+        const selectedSecond = withPlanLock(selected, "demo", () => Promise.resolve(entered.push("selected-second")));
+        await new Promise((resolve) => setTimeout(resolve, 75));
+        assertEquals(entered, ["selected-first"]);
+        await withPlanLock(root, "demo", async () => {
+            entered.push("primary");
+            await Deno.lstat(primaryLock);
+        });
+        releaseFirst();
+        await selectedSecond;
+        assertEquals(entered, ["selected-first", "primary", "selected-second"]);
+        assertEquals(await pathExists(selectedLock), false);
+        assertEquals(await pathExists(primaryLock), false);
+    } finally {
+        await git(root, ["worktree", "remove", "--force", selected]).catch(() => {});
+        await Deno.remove(container, { recursive: true }).catch(() => {});
+        await Deno.remove(root, { recursive: true }).catch(() => {});
+    }
+});
 
 Deno.test("load-plan rebuilds a missing execution worktree from one rescued branch", async () => {
     const root = await fixture.checkout({ prefix: "rw-rescued-execution-" });
