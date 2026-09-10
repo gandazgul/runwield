@@ -8,9 +8,7 @@ import { join } from "@std/path";
 import {
     CLI_BIN,
     getCwd,
-    getRunWieldRuntimeDir,
     isPlannedChangeClassification,
-    PLAN_LOCKS_DIR_NAME,
     RUNWIELD_DIR_NAME,
     WORKTREE_BRANCH_PREFIX,
     WORKTREE_REGISTRY_FILE,
@@ -22,6 +20,7 @@ import {
     loadPlanFileStrict,
     loadPlanStrict,
 } from "../../plan-store.js";
+import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout.ts";
 import { inspectPlanIdentityDocuments } from "../../shared/workflow/plan-diagnostic-evidence.ts";
 import {
     getTransitionJournalDir,
@@ -583,7 +582,7 @@ async function collectStalePlanLockIssues(
     projectRoot: string,
     repair: boolean,
 ): Promise<Array<{ issue?: DoctorIssue; repaired?: boolean }>> {
-    const lockDir = join(getRunWieldRuntimeDir(projectRoot), PLAN_LOCKS_DIR_NAME);
+    const lockDir = resolveProjectRuntimeLayout(projectRoot).selected.planLocksDir;
     const STALE_AFTER_MS = 10 * 60_000;
     const results: Array<{ issue?: DoctorIssue; repaired?: boolean }> = [];
     try {

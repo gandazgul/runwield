@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import { dirname, join } from "@std/path";
+import { getRunWieldRuntimeDir, PROJECT_INTERNAL_RUNTIME_DIR_NAME } from "./constants.js";
 import { getWorktreeRegistryPath } from "./shared/worktree-registry.js";
 import { readControllerRecord } from "./shared/workflow/controller-registry.ts";
 import {
@@ -48,6 +49,7 @@ import {
     updatePlanCollaborationMetadata,
     updatePlanFrontMatter,
     updatePlanStatus,
+    withPlanCatalogLock,
     withPlanLock,
 } from "./plan-store.js";
 import {
@@ -62,6 +64,11 @@ import {
  */
 function testWithFs(name, fn) {
     Deno.test({ name, permissions: { read: true, write: true }, fn });
+}
+
+/** @param {string} path */
+async function assertMissing(path) {
+    await assertRejects(() => Deno.stat(path), Deno.errors.NotFound);
 }
 
 /** @param {string} cwd @param {string} planName */
@@ -2819,9 +2826,28 @@ testWithFs("withPlanLock serializes concurrent same-process tasks while allowing
         const firstMayFinish = new Promise((resolve) => {
             releaseFirst = () => resolve(null);
         });
+        const resolvedCwd = Deno.realPathSync(cwd);
+        const lockPath = join(
+            getRunWieldRuntimeDir(resolvedCwd),
+            PROJECT_INTERNAL_RUNTIME_DIR_NAME,
+            "plan-locks",
+            "demo.lock",
+        );
+        const legacyLockPath = join(getRunWieldRuntimeDir(resolvedCwd), "plan-locks", "demo.lock");
+        const catalogPath = join(
+            getRunWieldRuntimeDir(resolvedCwd),
+            PROJECT_INTERNAL_RUNTIME_DIR_NAME,
+            "plan-locks",
+            "catalog.lock",
+        );
         const firstEntered = new Promise((resolve) => {
             void withPlanLock(cwd, "demo", async () => {
                 events.push("first-enter");
+                await Deno.lstat(lockPath);
+                await assertMissing(legacyLockPath);
+                await withPlanCatalogLock(cwd, async () => {
+                    await Deno.lstat(catalogPath);
+                });
                 await withPlanLock(cwd, "demo", () => {
                     events.push("nested-enter");
                     return Promise.resolve();
@@ -2832,6 +2858,7 @@ testWithFs("withPlanLock serializes concurrent same-process tasks while allowing
             });
         });
         await firstEntered;
+        await assertMissing(catalogPath);
         const second = withPlanLock(cwd, "demo", () => {
             events.push("second-enter");
             return Promise.resolve();
@@ -2920,8 +2947,11 @@ Deno.test("a Plan lock left by a dead process is reclaimed immediately", async (
     const cwd = await Deno.makeTempDir({ prefix: "runwield-dead-lock-" });
     try {
         await savePlan(cwd, "demo", "# Demo\n", { status: "draft", classification: "FEATURE" });
-        const lockPath = join(cwd, ".wld", "plan-locks", "demo.lock");
-        await Deno.mkdir(join(cwd, ".wld", "plan-locks"), { recursive: true });
+        const resolvedCwd = Deno.realPathSync(cwd);
+        const lockDir = join(getRunWieldRuntimeDir(resolvedCwd), PROJECT_INTERNAL_RUNTIME_DIR_NAME, "plan-locks");
+        const lockPath = join(lockDir, "demo.lock");
+        const legacyLockPath = join(getRunWieldRuntimeDir(resolvedCwd), "plan-locks", "demo.lock");
+        await Deno.mkdir(lockDir, { recursive: true });
         // A lock naming this host and a pid that is definitely gone. Waiting for it to
         // look old enough would block every operation on this Plan for the whole stale
         // window, which is RunWield's bookkeeping locking the user out of their Plan.
@@ -2938,6 +2968,8 @@ Deno.test("a Plan lock left by a dead process is reclaimed immediately", async (
             true,
             "a dead holder must be reclaimed at once, not waited out",
         );
+        await assertMissing(lockPath);
+        await assertMissing(legacyLockPath);
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }

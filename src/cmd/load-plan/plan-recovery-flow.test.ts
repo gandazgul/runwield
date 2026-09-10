@@ -211,6 +211,10 @@ async function runRecovery(
     return { result, plan, ui };
 }
 
+async function fileExists(path: string): Promise<boolean> {
+    return await Deno.stat(path).then(() => true).catch(() => false);
+}
+
 async function writeTransitionRecord(
     projectRoot: string,
     transitionId: string,
@@ -629,6 +633,62 @@ Deno.test("continuing an in-progress worktree keeps its Plan authoritative and r
             false,
         );
         assertEquals(executionAttrs.status, "in_progress");
+    } finally {
+        await runGit(project.projectRoot, ["worktree", "remove", "--force", worktreePath]).catch(() => "");
+        await Deno.remove(project.projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreePath, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("registered worktree recovery keeps uncertain journals at that worktree until attestation", async () => {
+    const project = await makeRealRecoveryProject({ status: "failed", executionMode: "worktree" });
+    const worktreePath = await Deno.makeTempDir({ prefix: "runwield-recovery-uncertain-worktree-" });
+    await Deno.remove(worktreePath);
+    try {
+        await runGit(project.projectRoot, ["worktree", "add", "-b", "rw/uncertain", worktreePath, "HEAD"]);
+        await addWorktreeRegistryEntry(project.projectRoot, {
+            id: "uncertain-worktree-1",
+            planName: project.plan.planName,
+            planId: "plan-1",
+            path: worktreePath,
+            branch: "rw/uncertain",
+            baseBranch: "main",
+            baseRef: "main",
+            baseCommit: await runGit(project.projectRoot, ["rev-parse", "HEAD"]),
+            baseTree: project.baselineTree,
+            executionBaselineTree: project.baselineTree,
+            status: "active",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        await writeUnresolvedTransitionRecord(worktreePath, "registered-uncertain", project.plan.planName);
+        const activePath = `${getTransitionJournalDir(worktreePath)}/registered-uncertain.json`;
+        const primaryActivePath = `${getTransitionJournalDir(project.projectRoot)}/registered-uncertain.json`;
+        const archivePath = `${getTransitionJournalDir(worktreePath)}/attested/registered-uncertain.json`;
+        const primaryArchivePath = `${getTransitionJournalDir(project.projectRoot)}/attested/registered-uncertain.json`;
+
+        const declinedUi = makeUi(["settle_records", "no", "cancel"]);
+        const declined = makeOptions(project.plan, declinedUi, project.projectRoot);
+        declined.session = makeSession(project.projectRoot);
+        assertEquals(await handlePlanRecovery(declined), "handled");
+        assertEquals(await fileExists(activePath), true);
+        assertEquals(await fileExists(primaryActivePath), false);
+        assertEquals(await fileExists(archivePath), false);
+        assertEquals(
+            declinedUi.optionLabels[0]?.some((label) => label.includes("unfinished Plan update")),
+            true,
+        );
+
+        const attestedUi = makeUi(["settle_records", "yes", "cancel"]);
+        const attested = makeOptions(project.plan, attestedUi, project.projectRoot);
+        attested.session = makeSession(project.projectRoot);
+        assertEquals(await handlePlanRecovery(attested), "handled");
+        assertEquals(await fileExists(activePath), false);
+        assertEquals(await fileExists(primaryActivePath), false);
+        assertEquals(await fileExists(primaryArchivePath), false);
+        const archived = JSON.parse(await Deno.readTextFile(archivePath));
+        assertEquals(archived.state, "closed_by_user_attestation");
+        assertEquals(archived.attestationNote, `Closed from Plan Recovery for ${project.plan.planName}.`);
     } finally {
         await runGit(project.projectRoot, ["worktree", "remove", "--force", worktreePath]).catch(() => "");
         await Deno.remove(project.projectRoot, { recursive: true }).catch(() => {});
