@@ -56,3 +56,24 @@ Manual verification steps for consolidate-project-runtime-state/03-move-primary-
       report path.
 
 <!-- runwield:manual-qa:end child="consolidate-project-runtime-state/03-move-primary-runtime-stores" -->
+
+<!-- runwield:manual-qa:start child="consolidate-project-runtime-state/04-move-selected-checkout-runtime-stores" -->
+
+## Move Selected-Checkout Runtime Stores
+
+Manual verification steps for consolidate-project-runtime-state/04-move-selected-checkout-runtime-stores
+
+- [ ] Hold a Plan or catalog lock in a selected checkout and verify its file is below `.wld/internal/plan-locks`; verify
+      a second task waits, a different checkout remains usable, and no legacy lock appears.
+- [ ] Pause a real transition and verify its journal is below the selected checkout's `.wld/internal/plan-transitions`;
+      verify success removes it and rollback or uncertain recovery preserves the correct record.
+- [ ] Run Doctor and Plan Recovery with settled and uncertain journals in a registered worktree; verify only settled
+      records are removed and attested records stay in that worktree's `attested/` directory.
+- [ ] Hold each Work Record supersession and recovery lock in a selected checkout; verify the protected operation cannot
+      change documents, then verify it succeeds after release and creates no legacy lock.
+- [ ] Verify controller and registry files remain in the primary checkout while selected locks and journals remain local
+      to the selected checkout.
+- [ ] Seed legacy runtime files in a disposable fixture and verify migration retains their bytes at the new selected
+      paths and refuses live legacy locks without moving authority.
+
+<!-- runwield:manual-qa:end child="consolidate-project-runtime-state/04-move-selected-checkout-runtime-stores" -->
