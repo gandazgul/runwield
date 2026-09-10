@@ -140,6 +140,21 @@ export class TuiSessionSidebar {
             content.push(...field("Plan", projection.workflow.plan, inner));
             content.push("");
             content.push(...field("Workflow", projection.workflow.intent.replaceAll("_", " "), inner));
+            if (projection.workflow.stages.length) {
+                content.push("");
+                for (const stage of projection.workflow.stages) {
+                    const marker = stage.current ? "●" : stage.state === "completed" ? "✓" : "○";
+                    content.push(fit(`${marker} ${stage.label}`, inner));
+                    if (stage.current) content.push(theme.fg("dim", fit(stage.detail, inner)));
+                }
+            }
+            if (projection.workflow.blocker) {
+                content.push("", ...field("Blocked by", projection.workflow.blocker, inner));
+            }
+            if (projection.workflow.action) {
+                content.push("", ...field("Action", projection.workflow.action.label, inner));
+                content.push(theme.fg("dim", fit("Use the Workspace action or command prompt.", inner)));
+            }
             if (!projection.workflow.active) {
                 content.push("", theme.fg("dim", fit("No Plan workflow is active.", inner)));
             }

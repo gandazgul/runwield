@@ -1,0 +1,62 @@
+---
+import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import { PlanHomeSurface } from "../../../../react/PlanHomeSurface.tsx";
+
+if (!import.meta.env.DEV) {
+    return new Response("Not found", { status: 404 });
+}
+
+const markdown = `# Plan-centered Workspace home
+
+## Goal
+
+Make Workspace navigation start from Plans.
+
+## Visible changes
+
+- Attention Dashboard home
+- Plan-first navigation
+- Plan home workflow card
+- Shared workflow diagram
+- Standalone progress page removed
+
+## Acceptance notes
+
+The Plan body uses the existing read-only artifact reader. Workflow state is shown beside the document, not mixed into the document.
+`;
+
+const payload = {
+    mode: "dev",
+    planId: "example",
+    planName: "Plan-centered Workspace home",
+    title: "Plan-centered Workspace home",
+    status: "implemented",
+    classification: "FEATURE",
+    parentPlan: "personal-remote-workspace-v2",
+    artifactPath: "docs/plans/personal-remote-workspace-v2/03-plan-centered-workspace-home-and-navigation.md",
+    markdown,
+    returnHref: Astro.url.searchParams.get("from") === "dashboard" ? "/dev/owner-dashboard" : "/projects/dev-project/plans",
+    returnLabel: Astro.url.searchParams.get("from") === "dashboard" ? "Back to Dashboard" : "Back to Plans",
+    planHref: "/projects/dev/plans/example", 
+    sessionHref: "/projects/dev-project/sessions/choose-terraform-folder-name",
+    workflow: {
+        sessionState: "active",
+        stages: [
+            { id: "planning", label: "Planning", state: "passed", detail: "Plan approved." },
+            { id: "execution", label: "Execution", state: "completed", detail: "Implementation changes are in this worktree." },
+            { id: "mechanical", label: "Tests and CI", state: "running", detail: "Focused checks are passing; wider checks remain." },
+            { id: "semantic", label: "AI review", state: "pending", detail: "Review has not started." },
+            { id: "repair", label: "Repair", state: "not_required", detail: "No repair loop is active." },
+            { id: "delivery", label: "Delivery", state: "pending", detail: "Delivery has not started." },
+            { id: "completion", label: "Completion", state: "pending", detail: "User verification remains." },
+        ],
+    },
+};
+---
+<WorkspaceLayout
+    title="Plan-centered Workspace home · RunWield Workspace"
+    selectedTab="projects"
+    url={Astro.url.href}
+>
+    <PlanHomeSurface payload={payload} presentation="workspace" client:only="react" />
+</WorkspaceLayout>

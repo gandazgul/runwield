@@ -255,6 +255,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string|null} [userVerifiedAt] - ISO timestamp when the user attested verification outside Workflow Validation
  * @property {string|null} [userVerificationNote] - Required note for user_verified terminal plans
  * @property {string|null} [closedWithoutVerificationReason] - Required reason for new manual closed_without_verification transitions
+ * @property {string|null} [closedWithoutVerificationAt] - ISO timestamp when the Plan was manually closed without verification
  * @property {{ status?: "generated"|"failed", recordId?: string, path?: string, lastAttemptAt?: string, error?: string }} [workRecord] - Neutral backlink to canonical Work Record generation state
  * @property {"done_enough"|null} [epicCompletionMode] - Explicit Epic completion mode when an Epic is marked done enough for now
  * @property {string|null} [epicDoneEnoughAt] - ISO timestamp when an Epic was marked done enough for now
@@ -499,6 +500,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.userVerifiedAt, fm.userVerifiedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.userVerificationNote, fm.userVerificationNote);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.closedWithoutVerificationReason, fm.closedWithoutVerificationReason);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.closedWithoutVerificationAt, fm.closedWithoutVerificationAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionReport, fm.executionReport);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.workRecord, fm.workRecord);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewMode, fm.humanReviewMode);
@@ -1103,6 +1105,7 @@ export function injectFrontMatter(markdown, overrides = {}) {
             existingFm,
             "closedWithoutVerificationReason",
         ),
+        closedWithoutVerificationAt: optionalFrontMatterValue(overrides, existingFm, "closedWithoutVerificationAt"),
         executionReport: optionalFrontMatterValue(overrides, existingFm, "executionReport"),
         workRecord: Object.hasOwn(overrides, "workRecord")
             ? normalizeWorkRecordBacklink(overrides.workRecord)
@@ -1246,6 +1249,9 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
                 : undefined,
             closedWithoutVerificationReason: typeof attrs.closedWithoutVerificationReason === "string"
                 ? attrs.closedWithoutVerificationReason
+                : undefined,
+            closedWithoutVerificationAt: typeof attrs.closedWithoutVerificationAt === "string"
+                ? attrs.closedWithoutVerificationAt
                 : undefined,
             executionReport: typeof attrs.executionReport === "string" ? attrs.executionReport : undefined,
             workRecord: normalizeWorkRecordBacklink(attrs.workRecord),

@@ -1,4 +1,9 @@
 import type { SessionArtifactReference } from "./file-session-store-types.ts";
+import {
+    buildWorkflowPresentation,
+    type WorkflowPresentation,
+    type WorkflowPresentationStageFact,
+} from "../workflow/workflow-presentation.ts";
 
 export const SESSION_SIDEBAR_TABS = ["workflow", "session", "artifacts"] as const;
 export type SessionSidebarTab = typeof SESSION_SIDEBAR_TABS[number];
@@ -23,6 +28,12 @@ export interface SessionSidebarProjectionInput {
     workflowPlan?: string | null;
     workflowEpic?: string | null;
     workflowIntent?: string | null;
+    workflowClassification?: string | null;
+    workflowStatus?: string | null;
+    workflowStages?: WorkflowPresentationStageFact[];
+    workflowDegradedMessage?: string | null;
+    workflowSessionState?: string | null;
+    workflowHasWorkingSession?: boolean;
     artifacts?: SessionArtifactReference[];
 }
 
@@ -52,12 +63,7 @@ export interface SessionSidebarProjection {
             conversationTokens: number | null;
         } | null;
     };
-    workflow: {
-        active: boolean;
-        epic: string | null;
-        plan: string;
-        intent: string;
-    };
+    workflow: WorkflowPresentation;
     artifacts: SessionArtifactReference[];
 }
 
@@ -130,10 +136,17 @@ export function buildSessionSidebarProjection(input: SessionSidebarProjectionInp
     const workflowPlan = input.workflowPlan?.trim() || "";
     const workflowEpic = input.workflowEpic?.trim() || "";
     const workflowIntent = input.workflowIntent?.trim() || "";
-    const workflowActive = Boolean(workflowPlan || workflowEpic || workflowIntent);
-    const displayPlan = workflowEpic && workflowPlan.startsWith(`${workflowEpic}/`)
-        ? workflowPlan.slice(workflowEpic.length + 1)
-        : workflowPlan;
+    const workflow = buildWorkflowPresentation({
+        planName: workflowPlan,
+        epicName: workflowEpic,
+        intent: workflowIntent,
+        classification: input.workflowClassification,
+        status: input.workflowStatus,
+        stages: input.workflowStages,
+        degradedMessage: input.workflowDegradedMessage,
+        sessionState: input.workflowSessionState,
+        hasWorkingSession: input.workflowHasWorkingSession,
+    });
     const hasSessionStats = typeof input.userMessages === "number" || typeof input.assistantMessages === "number" ||
         typeof input.toolCalls === "number" || typeof input.compactionCount === "number";
     const userMessages = Math.max(0, input.userMessages || 0);
@@ -142,7 +155,7 @@ export function buildSessionSidebarProjection(input: SessionSidebarProjectionInp
     const usedTokens = typeof input.contextUsedTokens === "number" ? Math.max(0, input.contextUsedTokens) : null;
     const systemTokens = typeof input.systemContextTokens === "number" ? Math.max(0, input.systemContextTokens) : null;
     return {
-        defaultTab: defaultSessionSidebarTab(workflowActive),
+        defaultTab: defaultSessionSidebarTab(workflow.active),
         session: {
             name: input.sessionName?.trim() || "Untitled Session",
             state: input.sessionState?.trim() || "unknown",
@@ -173,12 +186,7 @@ export function buildSessionSidebarProjection(input: SessionSidebarProjectionInp
                 }
                 : null,
         },
-        workflow: {
-            active: workflowActive,
-            epic: workflowEpic || null,
-            plan: displayPlan || "No active Plan",
-            intent: workflowIntent || "No active workflow",
-        },
+        workflow,
         artifacts: (input.artifacts || []).map((artifact) => ({ ...artifact })),
     };
 }

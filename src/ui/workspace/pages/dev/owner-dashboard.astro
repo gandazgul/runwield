@@ -1,0 +1,64 @@
+---
+import WorkspaceLayout from "../../layouts/WorkspaceLayout.astro";
+
+if (!import.meta.env.DEV) {
+    return new Response("Not found", { status: 404 });
+}
+
+const planHomeHref = "/projects/dev/plans/example?from=dashboard";
+const sections = [
+    {
+        label: "Needs You",
+        items: [
+            { title: "Review Workspace Dashboard plan", project: "RunWield", state: "Plan review", href: planHomeHref },
+            { title: "Recover publication handoff", project: "RunWield", state: "Recovery", href: planHomeHref },
+        ],
+    },
+    {
+        label: "Ready to Continue",
+        items: [
+            { title: "Plan-centered Workspace home", project: "RunWield", state: "Approved", href: planHomeHref },
+            { title: "Remote pairing follow-up", project: "RunWield Connect", state: "Ready", href: planHomeHref },
+        ],
+    },
+    {
+        label: "In Progress",
+        items: [
+            { title: "Validation repair pass", project: "RunWield", state: "AI code review", href: planHomeHref },
+        ],
+    },
+    {
+        label: "Recently Finished",
+        items: [
+            { title: "Durable Plan-to-Session continuity", project: "RunWield", state: "User verified", href: planHomeHref },
+        ],
+    },
+];
+---
+<WorkspaceLayout title="Attention Dashboard · RunWield Workspace" selectedTab="dashboard" surfaceTitle="Attention Dashboard" url={Astro.url.href}>
+    <section class="owner-dashboard" data-owner-dashboard>
+        <div class="owner-dashboard-intro">
+            <p>Plans that need you, can continue, are running, or recently finished.</p>
+            <a class="rw-toolbar-button" href="/projects">Projects</a>
+        </div>
+        <div class="owner-dashboard-grid">
+            {sections.map((section) => (
+                <section class="owner-dashboard-section" aria-label={section.label}>
+                    <div class="owner-dashboard-section-heading">
+                        <h2>{section.label}</h2>
+                        <span>{section.items.length}</span>
+                    </div>
+                    {section.items.map((item) => (
+                        <a class="owner-dashboard-row" href={item.href}>
+                            <span>
+                                <strong>{item.title}</strong>
+                                <small>{item.project} · {item.state}</small>
+                            </span>
+                            <span class="owner-dashboard-row-action">Open</span>
+                        </a>
+                    ))}
+                </section>
+            ))}
+        </div>
+    </section>
+</WorkspaceLayout>

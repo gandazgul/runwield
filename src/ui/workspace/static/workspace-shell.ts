@@ -131,13 +131,20 @@ export function currentRouteFromUrl(urlLike) {
             kind: "session",
         };
     }
-    const ownerPlan = /^\/projects\/([^/]+)\/plans\/[^/]+(?:\/progress)?$/.exec(url.pathname);
+    const ownerPlan = /^\/projects\/([^/]+)\/plans\/([^/]+)(?:\/progress)?$/.exec(url.pathname);
     const planSession = url.searchParams.get("session") || "";
     if (ownerPlan && planSession) {
         return {
             projectId: decodeURIComponent(ownerPlan[1]),
             runwieldSessionId: planSession,
             kind: "session",
+        };
+    }
+    if (ownerPlan) {
+        return {
+            projectId: decodeURIComponent(ownerPlan[1]),
+            planId: decodeURIComponent(ownerPlan[2]),
+            kind: "plan",
         };
     }
     const project = /^\/projects\/([^/]+)(?:\/|$)/.exec(url.pathname);
@@ -179,6 +186,10 @@ function settingsHref(projectId) {
 
 function plansHref(projectId) {
     return `/projects/${encodeURIComponent(projectId)}/plans`;
+}
+
+function planHref(projectId, planId) {
+    return `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}`;
 }
 
 async function ownerJson(url, options = {}) {
@@ -411,6 +422,11 @@ function ensureSidebarScaffold(sidebar, payload, current) {
         collapse.innerHTML = panelCollapseIcon("left");
         brand.append(collapse);
     }
+    let home = sidebar.querySelector(".workspace-sidebar-home");
+    if (!home) {
+        home = createAnchor("workspace-sidebar-home", "/", "Dashboard");
+        sidebar.append(home);
+    }
     let newSession = sidebar.querySelector(".workspace-sidebar-new");
     if (!newSession) {
         newSession = document.createElement("a");
@@ -457,9 +473,11 @@ function makeProjectElement(project, current) {
     summary.append(gear);
     const links = document.createElement("div");
     links.className = "workspace-sidebar-project-links";
+    const plans = document.createElement("div");
+    plans.className = "workspace-sidebar-plans";
     const sessions = document.createElement("div");
     sessions.className = "workspace-sidebar-sessions";
-    item.append(summary, links, sessions);
+    item.append(summary, links, plans, sessions);
     updateProjectElement(item, project, current);
     return item;
 }
@@ -474,10 +492,41 @@ function updateProjectElement(item, project, current) {
     const links = item.querySelector(".workspace-sidebar-project-links");
     links.replaceChildren(
         project.enabled
-            ? createAnchor("", plansHref(project.projectId), "Plan Board")
+            ? createAnchor("", plansHref(project.projectId), "All Plans")
             : createAnchor("", settingsHref(project.projectId), "Project unavailable · open settings"),
     );
+    reconcilePlanRows(item.querySelector(".workspace-sidebar-plans"), project, current);
     reconcileSessionRows(item.querySelector(".workspace-sidebar-sessions"), snapshotProject(item), project, current);
+}
+
+function makePlanRow(projectId, plan, current) {
+    const row = createAnchor(
+        "workspace-sidebar-plan",
+        plan.href || planHref(projectId, plan.planId),
+        plan.title || "Plan",
+    );
+    row.dataset.sidebarPlan = plan.planId;
+    row.innerHTML = `<span>${html(plan.title || "Plan")}</span><small>${
+        html(plan.statusLabel || plan.status || "Plan")
+    }</small>`;
+    if (current.kind === "plan" && current.projectId === projectId && current.planId === plan.planId) {
+        row.setAttribute("aria-current", "page");
+    }
+    return row;
+}
+
+function reconcilePlanRows(container, project, current) {
+    const plans = Array.isArray(project.plans) ? project.plans : [];
+    container.replaceChildren();
+    if (!project.enabled) return;
+    if (!plans.length) {
+        container.append(makeEmpty("No active Plans."));
+        return;
+    }
+    for (const plan of plans) container.append(makePlanRow(project.projectId, plan, current));
+    if (project.hasMorePlans) {
+        container.append(createAnchor("workspace-sidebar-more", plansHref(project.projectId), "Show more Plans..."));
+    }
 }
 
 function reconcileSessionRows(container, existingProject, project, current) {
@@ -601,17 +650,6 @@ export function applyActiveRoute(current) {
     }
 }
 
-function workspaceNavigate(href, history = "push") {
-    const event = new CustomEvent("runwield:workspace-navigate", {
-        cancelable: true,
-        detail: { href, history },
-    });
-    if (document.dispatchEvent(event)) {
-        if (history === "replace") location.replace(href);
-        else location.assign(href);
-    }
-}
-
 function installRestoreDelegation() {
     if (restoreDelegationInstalled) return;
     restoreDelegationInstalled = true;
@@ -697,35 +735,6 @@ async function refreshSidebarForPage() {
     try {
         const payload = await ownerJson("/api/owner/sidebar", { signal: abort.signal });
         if (!shouldApplySidebarRefresh(requestGeneration, refreshGeneration, requestUrl, location.href)) return;
-        if (location.pathname === "/") {
-            const projects = Array.isArray(payload.projects) ? payload.projects : [];
-            const lastSession = readStored(LAST_SESSION_KEY);
-            const rememberedSessionProject = projects.find((project) =>
-                project.enabled && project.projectId === lastSession?.projectId
-            );
-            const rememberedSession = rememberedSessionProject?.sessions?.find((session) =>
-                session.runwieldSessionId === lastSession?.runwieldSessionId
-            );
-            if (rememberedSessionProject && rememberedSession) {
-                workspaceNavigate(
-                    sessionHref(rememberedSessionProject.projectId, rememberedSession.runwieldSessionId),
-                    "replace",
-                );
-                return;
-            }
-            const lastProject = readStored(LAST_PROJECT_KEY)?.projectId;
-            const fallbackProject = projects.find((project) => project.enabled && project.projectId === lastProject) ||
-                projects.find((project) => project.enabled);
-            const fallbackSession = fallbackProject?.sessions?.[0];
-            if (fallbackProject && fallbackSession) {
-                workspaceNavigate(sessionHref(fallbackProject.projectId, fallbackSession.runwieldSessionId), "replace");
-                return;
-            }
-            if (fallbackProject) {
-                workspaceNavigate(newSessionHref(fallbackProject.projectId), "replace");
-                return;
-            }
-        }
         renderSidebar(payload, current);
     } catch (error) {
         if (error?.name === "AbortError") return;

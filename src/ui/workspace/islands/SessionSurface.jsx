@@ -256,10 +256,10 @@ export function activePlanId(snapshot) {
         : "";
 }
 
-export function activePlanProgressUrl(projectId, runwieldSessionId, snapshot) {
+export function activePlanHomeUrl(projectId, runwieldSessionId, snapshot) {
     const planId = activePlanId(snapshot);
     return planId
-        ? `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}/progress?session=${
+        ? `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}?session=${
             encodeURIComponent(runwieldSessionId)
         }`
         : "";
@@ -272,59 +272,6 @@ export function activePlanProgressApiUrl(projectId, runwieldSessionId, snapshot)
             encodeURIComponent(runwieldSessionId)
         }`
         : "";
-}
-
-function highestStageState(stages) {
-    const priority = [
-        "needs_attention",
-        "failed",
-        "paused",
-        "running",
-        "passed",
-        "completed",
-        "not_required",
-        "pending",
-        "unknown",
-    ];
-    return stages.map((item) => item?.state || "unknown").sort((left, right) =>
-        priority.indexOf(left) - priority.indexOf(right)
-    )[0] || "unknown";
-}
-
-export function deriveWorkflowSidebarStages(progress) {
-    const stages = Array.isArray(progress?.stages) ? progress.stages : [];
-    const byId = (id) => stages.find((stage) => stage.id === id) || null;
-    const validationStages = [byId("mechanical"), byId("semantic")].filter(Boolean);
-    const validationState = validationStages.length ? highestStageState(validationStages) : "unknown";
-    const validationDetail = validationStages.map((stage) => `${stage.label}: ${stage.detail}`).join(" ") ||
-        "Validation has no committed stage evidence yet.";
-    const completion = byId("completion") || byId("delivery");
-    return [
-        byId("execution") || {
-            id: "execution",
-            label: "Execution",
-            state: "unknown",
-            detail: "Execution has no committed stage evidence yet.",
-        },
-        {
-            id: "validation",
-            label: "Validation",
-            state: validationState,
-            detail: validationDetail,
-        },
-        byId("repair") || {
-            id: "repair",
-            label: "Repair",
-            state: "unknown",
-            detail: "Repair has no committed stage evidence yet.",
-        },
-        completion || {
-            id: "completion",
-            label: "Completion",
-            state: "unknown",
-            detail: "Completion has no committed stage evidence yet.",
-        },
-    ];
 }
 
 function PaperAirplaneIcon() {
@@ -1547,18 +1494,34 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         : typeof persistedWorkflowContext.parentPlan === "string"
         ? persistedWorkflowContext.parentPlan
         : "";
+    const activeWorkflowPlan = typeof workflowContext.planName === "string"
+        ? workflowContext.planName
+        : typeof workflowContext.planId === "string"
+        ? workflowContext.planId
+        : "";
     const workflowSidebar = buildSessionSidebarProjection({
-        workflowPlan: typeof workflowContext.planName === "string"
-            ? workflowContext.planName
-            : typeof workflowContext.planId === "string"
-            ? workflowContext.planId
-            : "",
+        workflowPlan: activeWorkflowPlan,
         workflowEpic,
         workflowIntent: typeof persistedWorkflowContext.routingIntent === "string"
             ? persistedWorkflowContext.routingIntent
             : "",
+        workflowStatus: typeof workflowProgress?.plan?.status === "string" ? workflowProgress.plan.status : "",
+        workflowClassification: typeof workflowProgress?.plan?.classification === "string"
+            ? workflowProgress.plan.classification
+            : "",
+        workflowStages: Array.isArray(workflowProgress?.stages) ? workflowProgress.stages : undefined,
+        workflowDegradedMessage: typeof workflowProgress?.degraded?.message === "string"
+            ? workflowProgress.degraded.message
+            : workflowProgressError,
+        workflowSessionState: typeof workflowProgress?.session?.state === "string"
+            ? workflowProgress.session.state
+            : "",
+        workflowHasWorkingSession: Boolean(workflowProgress?.session?.runwieldSessionId || runwieldSessionId),
     }).workflow;
-    const progressUrl = timeline ? activePlanProgressUrl(projectId, runwieldSessionId, timeline.snapshot) : "";
+    const planHomeFromSnapshot = timeline ? activePlanHomeUrl(projectId, runwieldSessionId, timeline.snapshot) : "";
+    const planHomeUrl = activeWorkflowPlan
+        ? `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(activeWorkflowPlan)}`
+        : planHomeFromSnapshot;
     const agents = Array.isArray(sessionOptions?.agents) ? sessionOptions.agents : [];
     const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
     const thinkingLevels = Array.isArray(sessionOptions?.thinkingLevels) ? sessionOptions.thinkingLevels : [];
@@ -1571,8 +1534,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const activeThinking = typeof timeline?.snapshot?.thinkingLevel === "string"
         ? timeline.snapshot.thinkingLevel
         : "default";
-    const hasActivePlan = Boolean(workflowContext.planId || workflowContext.planName || progressUrl);
-    const workflowStages = deriveWorkflowSidebarStages(workflowProgress);
+    const hasActivePlan = Boolean(workflowContext.planId || workflowContext.planName || planHomeFromSnapshot);
     const localOperationActive = Boolean(operation && !["completed", "failed", "unknown"].includes(operation.status));
     const canConfigureSession = availability.canContinue || (localOperationActive && !operation?.remote);
     const stagedAgent = pendingConfiguration?.agentName || timeline?.snapshot?.activeAgent || "";
@@ -1775,24 +1737,62 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                                         </dl>
                                                         {workflowProgress
                                                             ? (
-                                                                <ol
-                                                                    className="session-workflow-stage-list"
-                                                                    aria-label="Canonical workflow progress stages"
-                                                                >
-                                                                    {workflowStages.map((stage) => (
-                                                                        <li key={stage.id} data-state={stage.state}>
-                                                                            <span>{stage.label}</span>
-                                                                            <strong>
-                                                                                {String(stage.state || "unknown")
-                                                                                    .replaceAll(
-                                                                                        "_",
-                                                                                        " ",
-                                                                                    )}
-                                                                            </strong>
-                                                                            <p>{stage.detail}</p>
-                                                                        </li>
-                                                                    ))}
-                                                                </ol>
+                                                                <>
+                                                                    <ol
+                                                                        className="session-workflow-stage-list workflow-diagram"
+                                                                        aria-label="Canonical workflow progress stages"
+                                                                    >
+                                                                        {workflowSidebar.stages.map((stage) => (
+                                                                            <li
+                                                                                key={stage.id}
+                                                                                data-state={stage.state}
+                                                                                aria-current={stage.current
+                                                                                    ? "step"
+                                                                                    : undefined}
+                                                                            >
+                                                                                <span>{stage.label}</span>
+                                                                                <strong>
+                                                                                    {String(stage.state || "unknown")}
+                                                                                </strong>
+                                                                                <p>{stage.detail}</p>
+                                                                            </li>
+                                                                        ))}
+                                                                    </ol>
+                                                                    {workflowSidebar.blocker
+                                                                        ? (
+                                                                            <section
+                                                                                className="workflow-next-card"
+                                                                                aria-label="Workflow blocker"
+                                                                            >
+                                                                                <h3>Blocked by</h3>
+                                                                                <p>{workflowSidebar.blocker}</p>
+                                                                            </section>
+                                                                        )
+                                                                        : null}
+                                                                    {workflowSidebar.action
+                                                                        ? (
+                                                                            <section
+                                                                                className="workflow-next-card"
+                                                                                aria-label="Workflow action"
+                                                                            >
+                                                                                <h3>Next action</h3>
+                                                                                <p>{workflowSidebar.action.detail}</p>
+                                                                                {planHomeUrl
+                                                                                    ? (
+                                                                                        <RunWieldLink
+                                                                                            variant="primary"
+                                                                                            className="rw-plan-review-link"
+                                                                                            href={planHomeUrl}
+                                                                                        >
+                                                                                            {workflowSidebar.action
+                                                                                                .label}
+                                                                                        </RunWieldLink>
+                                                                                    )
+                                                                                    : null}
+                                                                            </section>
+                                                                        )
+                                                                        : null}
+                                                                </>
                                                             )
                                                             : (
                                                                 <p className="notice muted">
@@ -1801,17 +1801,6 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                                                         : "Loading canonical workflow progress…"}
                                                                 </p>
                                                             )}
-                                                        {progressUrl && !workflowProgressError
-                                                            ? (
-                                                                <RunWieldLink
-                                                                    variant="primary"
-                                                                    className="rw-plan-review-link"
-                                                                    href={progressUrl}
-                                                                >
-                                                                    Open progress
-                                                                </RunWieldLink>
-                                                            )
-                                                            : null}
                                                     </>
                                                 )
                                                 : (

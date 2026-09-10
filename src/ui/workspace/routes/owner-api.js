@@ -9,6 +9,7 @@ import {
 import { loadBoard, loadWorkspaceDetail } from "../server/plan-adapter.js";
 import { runOwnerPlanAction } from "../server/owner-plan-actions.ts";
 import { loadOwnerPlanProgress } from "../server/owner-plan-progress.ts";
+import { loadOwnerDashboard } from "../server/owner-dashboard.ts";
 import { listOwnerProjects, requireOwnerProjectRoot, serializeOwnerProject } from "../server/owner-projects.js";
 import { ownerSecurityHeaders } from "../server/owner-origin.js";
 import { reviewFileContentApi } from "./api/review-file-handlers.js";
@@ -161,21 +162,17 @@ export function projectsApi(ctx) {
 /** @param {any} ctx */
 export async function ownerSidebarApi(ctx) {
     try {
-        const projects = await Promise.all(
-            listOwnerProjects(ctx.state.store).map(async (/** @type {any} */ project) => {
-                if (!project.enabled) return { ...project, sessions: [], hasMoreSessions: false };
-                const result = await ctx.state.sessionContinuation.listSessions(project.projectId, {
-                    page: 0,
-                    pageSize: 5,
-                });
-                return {
-                    ...project,
-                    sessions: result.sessions || [],
-                    hasMoreSessions: result.hasNext === true,
-                };
-            }),
-        );
-        return ownerJson({ projects });
+        const payload = await loadOwnerDashboard(ctx.state.store, ctx.state.sessionContinuation);
+        return ownerJson({ projects: payload.projects });
+    } catch (error) {
+        return ownerErrorJson(error);
+    }
+}
+
+/** @param {any} ctx */
+export async function ownerDashboardApi(ctx) {
+    try {
+        return ownerJson(await loadOwnerDashboard(ctx.state.store, ctx.state.sessionContinuation));
     } catch (error) {
         return ownerErrorJson(error);
     }

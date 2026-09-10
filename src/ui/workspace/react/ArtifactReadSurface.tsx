@@ -142,7 +142,7 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                                 disabled={closing || closed}
                             >
                                 {presentation === "workspace"
-                                    ? "Back to Session"
+                                    ? initialPayload.returnLabel || "Back to Session"
                                     : closing
                                     ? "Closing…"
                                     : closed

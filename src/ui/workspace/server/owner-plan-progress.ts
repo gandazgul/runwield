@@ -402,7 +402,7 @@ async function sessionProjection(store: OwnerStore, projectId: string, planId: s
         activeAgent: activation?.activeAgentName || null,
         projectionState,
         segments,
-        progressUrl: `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}/progress?session=${
+        progressUrl: `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}?session=${
             encodeURIComponent(runwieldSessionId)
         }`,
     };

@@ -2,7 +2,6 @@
 import { assertEquals } from "@std/assert";
 import {
     activePlanProgressApiUrl,
-    deriveWorkflowSidebarStages,
     draftRecoveryDecision,
     isAtLiveScrollEdge,
     newSessionDraftInstanceStorageKey,
@@ -14,6 +13,7 @@ import {
     shouldRefreshSessionAvailability,
 } from "./islands/SessionSurface.jsx";
 import { deriveSessionAvailability } from "./components/SessionActivationStatus.jsx";
+import { buildWorkflowPresentation } from "../../shared/workflow/workflow-presentation.ts";
 import {
     compactToolLine,
     displayAgentName,
@@ -319,7 +319,8 @@ Deno.test("Session workflow sidebar uses canonical progress stages", async () =>
         "/api/owner/projects/project-1/plans/plan-demo/progress?session=session-1",
     );
     assertEquals(
-        deriveWorkflowSidebarStages({
+        buildWorkflowPresentation({
+            planName: "plan-demo",
             stages: [
                 { id: "execution", label: "Execution", state: "passed", detail: "Implementation reached validation." },
                 { id: "mechanical", label: "Tests and CI", state: "passed", detail: "Checks passed." },
@@ -327,8 +328,8 @@ Deno.test("Session workflow sidebar uses canonical progress stages", async () =>
                 { id: "repair", label: "Repair", state: "not_required", detail: "No repair is active." },
                 { id: "completion", label: "Completion", state: "pending", detail: "Waiting for delivery." },
             ],
-        }).map((stage) => stage.label),
-        ["Execution", "Validation", "Repair", "Completion"],
+        }).stages.map((stage) => stage.label),
+        ["Execution", "Tests and CI", "AI code review", "Completion"],
     );
     assertEquals(surface.includes('ownerFetch(apiUrl, { method: "GET" })'), true);
     assertEquals(surface.includes("Canonical workflow progress stages"), true);
