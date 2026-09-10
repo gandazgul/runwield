@@ -196,15 +196,12 @@ policy consistent with that choice, and test partial artifact writes before chec
 
 ### A9 — The automatic Plan Amendment gate is not in the active validation path
 
-**Source-confirmed absence of callers; contract concern.** `detectValidationPlanAmendment` and
-`applyValidationPlanAmendment` in [validation-plan-amendment.ts](../../src/shared/workflow/validation-plan-amendment.ts)
-have tests but no production validation caller. The supervisor can resume legacy amendment journal effects; that does
-not activate a new amendment-detection gate. A test in
-[self-healing validation](../../src/shared/workflow/validation-self-healing.integration.test.ts) explicitly covers
-body-only Plan amendment no longer prompting before mechanical validation.
+**Resolved by removal.** The dormant detection, apply, legacy journal resume, and transition helper code for the old
+automatic Plan Amendment gate has been removed. The active validation path still does not present an automatic Plan
+Amendment approval loop and does not silently adopt Plan body or definition edits from the execution worktree.
 
-The current tree therefore contains no automatic amendment approval loop. Before adding one, define its owner, staleness
-rules, affected evidence, and resume behavior instead of assuming these helpers already provide the gate.
+Before adding a new broad amendment gate, define its owner, staleness rules, affected evidence, and resume behavior
+instead of assuming legacy helpers provide the gate.
 
 ### A10 — Direct Plan Review still requires removed objective-check metadata
 
@@ -244,7 +241,7 @@ Reproduce the call-site search from the repository root:
 
 ```sh
 rg -n 'readLatest(PlanOutcome|ReviewOutcome|TaskCompleted|TriageOutcome)|extractAssistantOutput|parseRecorderSections' src
-rg -n 'detectValidationPlanAmendment|applyValidationPlanAmendment' src
+rg -n 'Plan Amendment|validation_plan_amendment' src docs
 rg -n 'claimWorkflowToolEvent|waitForWorkflowToolEvent|settleWorkflowToolEvent|claimPendingTaskCompletion|acknowledgeTaskCompletion' src
 ```
 

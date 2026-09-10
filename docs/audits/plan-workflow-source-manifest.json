@@ -247,10 +247,6 @@
             "sha256": "389c4e5c73c2e3dae004de9de4f734711cdfffe645bb12c80b952e2e576328ae"
         },
         {
-            "path": "src/shared/workflow/validation-plan-amendment.ts",
-            "sha256": "b508232fe1dee8d90ed3b0f011183ef87ff42af04c5b0302690d2d8ee2dba992"
-        },
-        {
             "path": "src/shared/workflow/validation-publication.test.ts",
             "sha256": "75312f6b280ea4c31ac9f1a7ef9ea70e78436711287ceecb878aaf167bc29346"
         },
