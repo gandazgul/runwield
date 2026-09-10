@@ -339,7 +339,7 @@ Deno.test("SessionRuntime exposes opaque ids and snapshots, never HostedSession 
     const created = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
 
     assertEquals(typeof created.sessionId, "string");
-    assertEquals(created.cwd, runtimeProjectRoot());
+    assertEquals(await Deno.realPath(created.cwd), await Deno.realPath(runtimeProjectRoot()));
     assertEquals("hostedSession" in created, false);
     assertEquals("sessionManager" in created, false);
     assertEquals(Object.hasOwn(runtime, "sessionHost"), false);

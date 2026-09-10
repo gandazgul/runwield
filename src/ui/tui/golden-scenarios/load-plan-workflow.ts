@@ -21,6 +21,7 @@ interface CapturedPlan {
 }
 
 interface CapturedProjectState {
+    runtimeSnapshot?: RuntimeSnapshotState | null;
     plans?: CapturedPlan[];
     registryEntries?: Array<{ status?: string; planName?: string; path?: string }>;
     nonTerminalRegistryEntries?: Array<{ status?: string; planName?: string }>;
@@ -609,8 +610,8 @@ export const loadPlanImplementedFollowUpRepaintsScenario = {
             assertScreenIncludes(result, "follow-up-repaint");
         }),
         assertsGoldenCoverage("durable:session-replaced", (result: GoldenScenarioResult) => {
-            const snapshot = result.state.snapshot as RuntimeSnapshotState | undefined;
             const replacementState = result.state.afterFollowUpReplacement as CapturedProjectState | undefined;
+            const snapshot = replacementState?.runtimeSnapshot;
             const entry = replacementState?.registryEntries?.find((candidate) =>
                 candidate.planName === "follow-up-repaint"
             );

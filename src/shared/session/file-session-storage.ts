@@ -111,7 +111,13 @@ export function catalogLockPath(sessionDir: string, transcriptPath: string): str
 }
 
 export function sessionDirForRoot(baseDir: string, root: string): string {
-    return join(baseDir, encodeCwdForSessionDir(root));
+    let canonicalRoot = resolve(root);
+    try {
+        canonicalRoot = Deno.realPathSync(canonicalRoot);
+    } catch {
+        // A not-yet-created root still gets a stable absolute locator.
+    }
+    return join(baseDir, encodeCwdForSessionDir(canonicalRoot));
 }
 
 export function sessionDirForManifestPath(path: string): string {

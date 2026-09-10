@@ -2046,6 +2046,7 @@ async function runComposedTuiScenario(scenario, options) {
                     const { listWorkRecords } = await import("../../../shared/work-records/store.js");
                     const records = await listWorkRecords(Deno.cwd(), { createDir: false }).catch(() => []);
                     const capturedProjectState = {
+                        runtimeSnapshot: composition.runtime.getSessionSnapshot(composition.sessionId),
                         plans,
                         registryEntries: registry.entries,
                         nonTerminalRegistryEntries: registry.entries.filter((entry) =>
