@@ -6,8 +6,8 @@
  * used to prove each transition.
  */
 
-import { join } from "@std/path";
-import { getRunWieldRuntimeDir, PLAN_STAGING_DIR_NAME } from "../../constants.js";
+import { join, resolve } from "@std/path";
+import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { findById, pruneEntry, updatePublication } from "../worktree-registry.js";
 import {
     deleteMergedWorktreeBranch,
@@ -175,8 +175,20 @@ async function publishedEvidence(
     };
 }
 
+function canonicalRuntimeRoot(projectRoot: string): string {
+    try {
+        return Deno.realPathSync(projectRoot);
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return resolve(projectRoot);
+        throw error;
+    }
+}
+
 export function publicationRootForAttempt(projectRoot: string, attemptId: string): string {
-    return join(getRunWieldRuntimeDir(projectRoot), PLAN_STAGING_DIR_NAME, attemptId);
+    return join(
+        resolveProjectRuntimeLayout(canonicalRuntimeRoot(projectRoot)).primary.publicationStagingRoot,
+        attemptId,
+    );
 }
 
 export async function loadPublicationAttempt(

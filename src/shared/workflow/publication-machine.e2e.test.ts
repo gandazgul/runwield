@@ -120,6 +120,78 @@ async function runCrashCase(mode: PublicationMode, crashAfter: string): Promise<
     }
 }
 
+Deno.test("remote publication invoked from a linked checkout stages below the primary internal root", async () => {
+    const projectRoot = await makeRepo();
+    const remoteRoot = await Deno.makeTempDir({ prefix: "publication-linked-remote-" });
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "publication-linked-worktree-" });
+    const linkedParent = await Deno.makeTempDir({ prefix: "publication-linked-invocation-" });
+    const linkedRoot = join(linkedParent, "linked");
+    const configPath = await Deno.makeTempFile({ prefix: "publication-linked-driver-", suffix: ".json" });
+    try {
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+        await git(projectRoot, ["push", "-u", "origin", "main"]);
+        await git(projectRoot, ["worktree", "add", "-b", "linked-invocation", linkedRoot]);
+        const worktree = await createTestWorktreeAttempt({ projectRoot, planName: "linked-publication", worktreeRoot });
+        await Deno.writeTextFile(`${worktree.path}/implementation.txt`, "linked publication\n");
+        const targetHead = await git(projectRoot, ["rev-parse", "main"]);
+        await addEntry(linkedRoot, {
+            id: "attempt-1",
+            planId: "plan-1",
+            planName: "linked-publication",
+            baseBranch: "main",
+            baseRef: "refs/heads/main",
+            baseCommit: targetHead,
+            branch: worktree.branch,
+            path: worktree.path,
+            status: "completed",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        });
+        await Deno.writeTextFile(
+            configPath,
+            JSON.stringify({
+                projectRoot: linkedRoot,
+                attemptId: "attempt-1",
+                planName: "linked-publication",
+                targetBranch: "main",
+                executionBranch: worktree.branch,
+                executionCwd: worktree.path,
+            }),
+        );
+
+        assertEquals(await runDriver(configPath, "verification_receipt"), 86);
+        const attempt = await findById(projectRoot, "attempt-1", { migrate: false });
+        const publicationRoot = attempt?.publication?.publicationRoot;
+        assert(publicationRoot);
+        assertEquals(publicationRoot, publicationRootForAttempt(linkedRoot, "attempt-1"));
+        assert(publicationRoot.includes(join(".wld", "internal", "plan-staging", "attempt-1")));
+        assertEquals(publicationRoot.includes(linkedRoot), false);
+        assertEquals(await Deno.stat(publicationRoot).then((stat) => stat.isDirectory), true);
+        assertEquals(await git(publicationRoot, ["show", "HEAD:implementation.txt"]), "linked publication");
+
+        assertEquals(await runDriver(configPath), 0);
+        const remoteHead = (await git(projectRoot, ["ls-remote", "origin", "refs/heads/main"])).split(/\s+/)[0];
+        await git(projectRoot, ["fetch", "origin", "main"]);
+        await git(projectRoot, ["merge-base", "--is-ancestor", targetHead, remoteHead]);
+        assertEquals(await git(projectRoot, ["show", `${remoteHead}:implementation.txt`]), "linked publication");
+        assertEquals(await findById(projectRoot, "attempt-1", { migrate: false }), null);
+        assertEquals(await Deno.stat(publicationRoot).then(() => true).catch(() => false), false);
+    } finally {
+        await new Deno.Command("git", {
+            cwd: projectRoot,
+            args: ["worktree", "remove", "--force", linkedRoot],
+            stdout: "null",
+            stderr: "null",
+        }).output().catch(() => {});
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(linkedParent, { recursive: true }).catch(() => {});
+        await Deno.remove(configPath).catch(() => {});
+    }
+});
+
 Deno.test("publication survives process death at every effect and receipt boundary in remote and local modes", async (test) => {
     for (const mode of ["remote", "local"] as const) {
         for (const crashAfter of CRASH_BOUNDARIES) {
