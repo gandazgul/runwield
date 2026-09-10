@@ -1,6 +1,8 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import {
+    acquireRecoveryLock,
+    acquireSupersessionLock,
     applyWorkRecordSupersession,
     buildWorkRecordIndexDocument,
     buildWorkRecordIndexTags,
@@ -14,13 +16,21 @@ import {
     writeWorkRecord,
 } from "./index.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
-import { getRunWieldRuntimeDir } from "../../constants.js";
+import { getRunWieldRuntimeDir, PROJECT_INTERNAL_RUNTIME_DIR_NAME } from "../../constants.js";
 import { savePlan } from "../../plan-store.js";
 import { createWorkRecordMnemotecaFixture } from "./test-fixtures/mnemoteca-port.ts";
 
 const PREDECESSOR_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_ID = "22222222-2222-4222-8222-222222222222";
 const SUCCESSOR_ID = "33333333-3333-4333-8333-333333333333";
+
+function selectedInternalPath(cwd: string, fileName: string): string {
+    return join(getRunWieldRuntimeDir(Deno.realPathSync(cwd)), PROJECT_INTERNAL_RUNTIME_DIR_NAME, fileName);
+}
+
+async function assertMissing(path: string): Promise<void> {
+    await assertRejects(() => Deno.stat(path), Deno.errors.NotFound);
+}
 
 function attrs(recordId: string) {
     return {
@@ -76,6 +86,40 @@ Deno.test("Work Record supersession applies canonical files and keeps the index 
     }
 });
 
+Deno.test("Work Record supersession locks are held in selected internal storage", async () => {
+    const first = await Deno.makeTempDir();
+    const second = await Deno.makeTempDir();
+    try {
+        const mainPath = selectedInternalPath(first, "work-record-supersession.lock");
+        const recoveryPath = selectedInternalPath(first, "work-record-supersession-recovery.lock");
+        const legacyMainPath = join(getRunWieldRuntimeDir(Deno.realPathSync(first)), "work-record-supersession.lock");
+        const otherMainPath = selectedInternalPath(second, "work-record-supersession.lock");
+
+        const releaseMain = await acquireSupersessionLock(first);
+        try {
+            assertEquals(JSON.parse(await Deno.readTextFile(mainPath)).token.length > 0, true);
+            await assertMissing(legacyMainPath);
+            const releaseOther = await acquireSupersessionLock(second);
+            await releaseOther();
+            await assertMissing(otherMainPath);
+        } finally {
+            await releaseMain();
+        }
+        await assertMissing(mainPath);
+
+        const releaseRecovery = await acquireRecoveryLock(first);
+        try {
+            assertEquals(JSON.parse(await Deno.readTextFile(recoveryPath)).token.length > 0, true);
+        } finally {
+            await releaseRecovery();
+        }
+        await assertMissing(recoveryPath);
+    } finally {
+        await Deno.remove(first, { recursive: true }).catch(() => {});
+        await Deno.remove(second, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("supersession lock release does not remove a replacement owned by another token", async () => {
     const cwd = await Deno.makeTempDir();
     try {
@@ -103,7 +147,7 @@ Deno.test("supersession lock release does not remove a replacement owned by anot
         });
         await syncStarted;
 
-        const lockPath = join(getRunWieldRuntimeDir(cwd), "work-record-supersession.lock");
+        const lockPath = selectedInternalPath(cwd, "work-record-supersession.lock");
         await Deno.remove(lockPath);
         const replacementTime = Date.now();
         await Deno.writeTextFile(
@@ -124,7 +168,7 @@ Deno.test("supersession recovers malformed locks only after their file mtimes ar
     const cwd = await Deno.makeTempDir();
     try {
         await seed(cwd, false);
-        const runtimeDir = getRunWieldRuntimeDir(cwd);
+        const runtimeDir = join(getRunWieldRuntimeDir(Deno.realPathSync(cwd)), PROJECT_INTERNAL_RUNTIME_DIR_NAME);
         const lockPath = join(runtimeDir, "work-record-supersession.lock");
         const recoveryLockPath = join(runtimeDir, "work-record-supersession-recovery.lock");
         await Deno.mkdir(runtimeDir, { recursive: true });

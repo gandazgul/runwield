@@ -1,6 +1,6 @@
-import { dirname, join } from "@std/path";
-import { getRunWieldRuntimeDir } from "../../constants.js";
+import { dirname } from "@std/path";
 import { type LockFileSnapshot, readLockFileSnapshot, removeLockFileIfSnapshotMatches } from "../lock-file-snapshot.ts";
+import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { formatWorkRecordMarkdown, parseWorkRecordMarkdown } from "./markdown.js";
 import type { WorkRecordResource } from "./schema.js";
 import { listWorkRecords, replaceWorkRecord } from "./store.js";
@@ -143,7 +143,7 @@ function lockRelease(
 }
 
 export async function acquireRecoveryLock(cwd: string): Promise<() => Promise<void>> {
-    const lockPath = join(getRunWieldRuntimeDir(cwd), "work-record-supersession-recovery.lock");
+    const lockPath = resolveProjectRuntimeLayout(cwd).selected.workRecordSupersessionRecoveryLockPath;
     await Deno.mkdir(dirname(lockPath), { recursive: true });
     const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
     const token = crypto.randomUUID();
@@ -174,7 +174,7 @@ export async function acquireRecoveryLock(cwd: string): Promise<() => Promise<vo
 }
 
 export async function acquireSupersessionLock(cwd: string): Promise<() => Promise<void>> {
-    const lockPath = join(getRunWieldRuntimeDir(cwd), "work-record-supersession.lock");
+    const lockPath = resolveProjectRuntimeLayout(cwd).selected.workRecordSupersessionLockPath;
     await Deno.mkdir(dirname(lockPath), { recursive: true });
     const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
     const token = crypto.randomUUID();
