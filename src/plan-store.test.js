@@ -1,12 +1,9 @@
 import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import { join } from "@std/path";
 import { readControllerRecord } from "./shared/workflow/controller-registry.ts";
-import { PLAN_RUNTIME_FIELDS } from "./shared/workflow/controller-state.ts";
 import {
     archivePlan,
     archivePlansByStatus,
-    buildPlanDefinitionProjection,
-    buildRunWieldOwnedFrontMatterProjection,
     cleanupActivePlanObjectiveCheckMetadata,
     cleanupObsoleteObjectiveCheckMetadata,
     clearPlanCollaborationMetadata,
@@ -34,8 +31,6 @@ import {
     loadPlanStrict,
     onboardExternalPlan,
     parsePlanFrontMatter,
-    PLAN_AMENDMENT_DEFINITION_KEYS,
-    PLAN_AMENDMENT_EXECUTION_SHAPING_KEYS,
     PLAN_FRONT_MATTER_KEY_ORDER,
     PLAN_FRONT_MATTER_KEYS,
     PlanFrontMatterParseError,
@@ -43,7 +38,6 @@ import {
     resolvePlanExecutionPolicy,
     resolveSiblingChildPlanDependencyStates,
     restoreArchivedPlan,
-    RUNWIELD_OWNED_PLAN_FRONT_MATTER_KEYS,
     saveChildFeaturePlans,
     savePlan,
     savePlanBodyById,
@@ -146,49 +140,6 @@ Deno.test("getStoredPlanPath rejects escaping or ambiguous plan names", () => {
     for (const name of ["", "/tmp/demo", "epic//child", "epic/./child", "epic/../child", "../demo"]) {
         assertThrows(() => getStoredPlanPath("/project", name));
     }
-});
-
-Deno.test("Plan Amendment partitions every known Front Matter key exactly once", () => {
-    /** @type {Set<string>} */
-    const definition = new Set(PLAN_AMENDMENT_DEFINITION_KEYS);
-    /** @type {Set<string>} */
-    const runwieldOwned = new Set(RUNWIELD_OWNED_PLAN_FRONT_MATTER_KEYS);
-    /** @type {Set<string>} */
-    const shaping = new Set(PLAN_AMENDMENT_EXECUTION_SHAPING_KEYS);
-
-    for (const key of PLAN_FRONT_MATTER_KEY_ORDER) {
-        assertEquals(definition.has(key) && runwieldOwned.has(key), false, key);
-        const runtimeOrDerived = PLAN_RUNTIME_FIELDS.some((field) => field === key) || key === "summary";
-        assertEquals(definition.has(key) || runwieldOwned.has(key), !runtimeOrDerived, key);
-    }
-    assertEquals(shaping.has(PLAN_FRONT_MATTER_KEYS.classification), true);
-    assertEquals(runwieldOwned.has(PLAN_FRONT_MATTER_KEYS.status), true);
-    assertEquals(definition.has("objectiveChecks"), false);
-});
-
-Deno.test("Plan Amendment projection includes body and definition fields but excludes lifecycle fields", () => {
-    const attrs = /** @type {import('./plan-store.js').PlanFrontMatter} */ ({
-        classification: "PLANNED_CHANGE",
-        complexity: "LOW",
-        affectedPaths: [],
-        createdAt: "2026-01-01T00:00:00.000Z",
-        status: "verified",
-        summary: "Accepted summary",
-        worktreeId: "owned-attempt",
-    });
-    const projection = buildPlanDefinitionProjection(attrs, "# Accepted body");
-    const owned = buildRunWieldOwnedFrontMatterProjection(attrs);
-
-    assertEquals(projection, {
-        body: "# Accepted body",
-        attrs: {
-            complexity: "LOW",
-            affectedPaths: [],
-        },
-    });
-    assertEquals(owned.status, "verified");
-    assertEquals("worktreeId" in owned, false);
-    assertEquals("summary" in owned, false);
 });
 
 Deno.test("front matter key constants expose canonical planning metadata order", () => {

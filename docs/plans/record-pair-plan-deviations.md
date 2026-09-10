@@ -42,9 +42,8 @@ Review, or Work Record generation has no structured record that the user intenti
 Reviewer can then reject correct code for not matching obsolete Plan text.
 
 The Plan execution prompt already says explicit user-directed Plan revisions win, but it gives the execution Agent no
-guarded way to record that decision. The dormant validation Plan Amendment helpers do not solve this: source inspection
-and `docs/audits/2026-09-07-plan-workflow-transitions.md` confirm that their automatic approval gate has no production
-caller.
+guarded way to record that decision. The removed automatic Plan Amendment gate does not solve this; the active
+validation path does not adopt execution-worktree Plan edits.
 
 The intended outcome is one durable chain of authority: an explicit user decision changes the effective Plan, Semantic
 Code Review uses that change, and the Work Record states what differed from the initially approved Plan.
@@ -167,10 +166,8 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 
 Existing functions, modules, or patterns to reuse:
 
-- `src/shared/workflow/state-transition.ts` — reuse the Plan/attempt lock, expected-revision, recovery-journal, and
-  idempotent-effect pattern behind `runPlanAmendmentTransition`; do not add an unguarded direct YAML write.
-- `src/shared/workflow/validation-plan-amendment.ts` — reuse safe execution-Plan identity and stale revision checks
-  where they fit, without reactivating its absent broad automatic gate or asking for the same decision twice.
+- `src/shared/workflow/state-transition.ts` — reuse the Plan/attempt lock, expected-revision, and recovery-journal
+  patterns; do not add an unguarded direct YAML write.
 - `src/shared/session/session-runtime-interactions.js` — reuse typed interaction request/outcome handling and managed
   operation authority for the confirmation boundary.
 - `src/shared/workflow/engineer-plan-projection.ts` — extend the existing protected Front Matter projection rather than
@@ -277,9 +274,9 @@ materially replace the outcomes of the existing Pair Execution or Work Records r
 - **Validation repair:** when a confirmed deviation supersedes an open Review Issue requirement, the next verification
   round can resolve that item from the new effective Plan plus code evidence. It must not falsely claim that code
   changed.
-- **Broad Plan Amendments:** do not activate the dormant automatic amendment detector as a side effect. This flow owns a
-  narrow, already-confirmed requirement replacement. A future broad amendment gate must avoid asking again for entries
-  that this flow already committed.
+- **Broad Plan Amendments:** do not reintroduce the removed automatic amendment detector as a side effect. This flow
+  owns a narrow, already-confirmed requirement replacement. A future broad amendment gate must avoid asking again for
+  entries that this flow already committed.
 - **Review Override:** the draft `docs/plans/offer-semantic-review-intervention.md` describes accepting one Reviewer
   result for one delivery without durable policy. Keep that waiver separate. A Plan Deviation changes effective
   requirements and must be recorded in the Work Record.

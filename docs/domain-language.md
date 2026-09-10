@@ -553,11 +553,11 @@ _Avoid_: Second validation implementation, session-coupled engine
 without semantic review or Plan status transitions; inside Workflow Validation for executable Plans it runs the
 repository's configured CI before Semantic Review. _Avoid_: Workflow Validation, Reviewer review, agent self-check
 
-**Plan Amendment**: A user-approved change to reviewable Plan definition during active execution or Workflow Validation.
-The execution worktree can propose Plan body, summary, affected path, browser verification, or Ticket Reference edits.
-RunWield shows the diff, asks the user to approve it, writes the accepted definition to the execution Plan, and
-reconciles its canonical copy. Plan Status, worktree metadata, Delivery Evidence, validation counters, and other
-lifecycle fields remain RunWield-owned. _Avoid_: silent worktree Plan edit, lifecycle edit
+**Plan Amendment**: A retired name for a broad automatic gate that tried to adopt execution-worktree Plan edits during
+Workflow Validation. The active validation path does not show an automatic Plan Amendment approval gate and does not
+silently adopt Plan body or definition edits from the execution worktree. Plan Status, worktree metadata, Delivery
+Evidence, validation counters, and other lifecycle fields remain RunWield-owned. _Avoid_: active validation gate, silent
+worktree Plan edit, lifecycle edit
 
 **Pair Execution**: A user-steered Plan execution style where Plan Engineer or Frontend Engineer delivers coherent
 observable increments and blocks at intentional feedback checkpoints. It is a collaboration style, not validation
