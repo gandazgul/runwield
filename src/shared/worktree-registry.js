@@ -29,7 +29,7 @@ const LOCK_RETRY_MS = 50;
  * @property {string} [executionBaselineTree]
  * @property {string} branch
  * @property {string} path
- * @property {"active"|"completed"|"execution_failed"|"validation_failed"|"validated"|"abandoned"} status
+ * @property {"planning"|"active"|"completed"|"execution_failed"|"validation_failed"|"validated"|"abandoned"} status
  * @property {string} createdAt
  * @property {string} updatedAt
  * @property {{ reason: string, recordedAt: string, candidates?: string[] }} [migrationIssue]
@@ -323,6 +323,7 @@ async function readRegistry(projectRoot, options = {}) {
 }
 
 const NONTERMINAL_STATUSES = new Set([
+    "planning",
     "active",
     "completed",
     "execution_failed",

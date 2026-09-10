@@ -1747,7 +1747,11 @@ export async function findReusableWorktree({ projectRoot, planName, planId, work
         if (entry.planId !== planId) continue;
         if (entry.planName !== planName) continue;
         if (worktreeId && entry.id !== worktreeId) continue;
-        if (["active", "completed", "execution_failed", "validation_failed", "validated"].includes(entry.status)) {
+        if (
+            ["planning", "active", "completed", "execution_failed", "validation_failed", "validated"].includes(
+                entry.status,
+            )
+        ) {
             if (await pathExists(entry.path)) return entry;
         }
     }

@@ -26,6 +26,7 @@ import type { WorkflowValidationResult } from "./validation.ts";
 import { createGitPort } from "../git-port.ts";
 import { systemLocalCIPort } from "./validation-local-ci.ts";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../work-records/mnemoteca-port.ts";
+import { preparePlanningWorktreeForPlan } from "./planning-worktree.ts";
 
 const TERMINAL_CHILD_STATUSES = new Set(["validated", "verified", "user_verified", "closed_without_verification"]);
 
@@ -216,8 +217,18 @@ export async function runEpicChildContinuation(
 ): Promise<WorkflowValidationResult | null> {
     if (!["plan", "readiness_execute", "execute"].includes(resolution.kind) || !resolution.childPlanName) return null;
     const planName = resolution.childPlanName;
-    const plan = await presentEpicChildPlan(hostedSession, planName);
+    let plan = await presentEpicChildPlan(hostedSession, planName);
     if (!plan) return null;
+    let planRoot = hostedSession.cwd;
+    if (
+        plan.attrs.parentPlan && typeof plan.attrs.targetBranch === "string" &&
+        ["draft", "feedback", "approved", "ready_for_work"].includes(plan.attrs.status) &&
+        plan.attrs.worktreeStatus !== "planning" && plan.attrs.worktreeStatus !== "active"
+    ) {
+        const planning = await preparePlanningWorktreeForPlan(hostedSession.cwd, planName, plan.attrs);
+        plan = planning.plan;
+        planRoot = planning.entry.path;
+    }
 
     if (resolution.kind === "plan") {
         const outcome = await runPlanningAgent({
@@ -227,6 +238,7 @@ export async function runEpicChildContinuation(
             sessionManager,
             hostedSession,
             planName,
+            cwd: planRoot,
         });
         const decision = decidePostPlanning(outcome, {
             planningAgentName: AGENTS.PLANNER,
@@ -237,7 +249,7 @@ export async function runEpicChildContinuation(
 
     if (resolution.kind === "readiness_execute") {
         await recordPlanEvent({
-            cwd: hostedSession.cwd,
+            cwd: planRoot,
             planName,
             event: "readiness_passed",
             currentStatus: "approved",
@@ -253,7 +265,7 @@ export async function runEpicChildContinuation(
         executionAgentName: hostedSession.getActiveExecutionWorkflow?.()?.executionAgent || AGENTS.ENGINEER,
     });
     if (executionDecision.kind !== "run_validation") return null;
-    const latestPlan = await loadPlan(hostedSession.cwd, planName);
+    const latestPlan = await loadPlan(planRoot, planName);
     return /** @type {any} */ (await continueWorkflowValidation({
         hostedSession,
         planName,
