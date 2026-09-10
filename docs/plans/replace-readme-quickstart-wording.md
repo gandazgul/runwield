@@ -8,7 +8,7 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-10T15:42:20-04:00"
-status: "in_progress"
+status: "implemented"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
@@ -28,7 +28,7 @@ The working tree already contains unrelated acceptance-test and Workspace-repair
 
 Replace only the sentence immediately before the existing Quickstart Guide link with:
 
-> For setup details, including model provider authentication, runtime helpers, and running from source, see the [Quickstart Guide](docs/quickstart.md).
+> For setup details, including model provider authentication, runtime helpers, and running from source, see the \[Quickstart Guide\]\(docs/quickstart.md\).
 
 The README link target must remain `docs/quickstart.md`, and all other README content must remain unchanged.
 
@@ -66,7 +66,7 @@ No domain-language update is needed: this edit uses existing glossary terms and 
 
 ## Implementation Steps
 
-- `README.md` contains the requested single-sentence wording immediately before `[Quickstart Guide](docs/quickstart.md)`, with the link target unchanged.
+- `README.md` contains the requested single-sentence wording immediately before the `Quickstart Guide` link targeting `docs/quickstart.md`, with the link target unchanged.
 - The only tracked content change attributable to this Plan is the replacement of the old two-line setup sentence; the surrounding Install section, beta callout, and all other README content are unchanged.
 - The pre-existing `.wld/settings.json`, source/test edits, and `.wld/internal/` remain untouched and are not included in the implementation commit; only the approved README edit and normal Plan/Work Record artifacts belong to this workflow.
 
