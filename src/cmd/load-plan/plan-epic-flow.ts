@@ -22,6 +22,7 @@ import {
     formatWorkRecordAutoGenerationResult,
 } from "../../shared/work-records/auto-generation.js";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../../shared/work-records/mnemoteca-port.ts";
+import { findTargetBranchPlansByParent } from "../../shared/workflow/planning-worktree.ts";
 import { archiveEpicWithChildren } from "./plan-epic-archive.ts";
 import { buildPlanSummary } from "../../shared/plan-presentation.ts";
 import {
@@ -56,6 +57,7 @@ export interface HandleEpicPlanOptions {
     uiAPI: UiAPI;
     runSlicerAgent: PlanSessionSurface["runSlicerAgent"];
     loadChildPlan: (childPlanName: string) => Promise<void>;
+    prepareChildPlan?: (childPlanName: string, attrs: PlanFrontMatter) => Promise<void>;
     session: PlanSessionSurface;
 }
 
@@ -66,6 +68,7 @@ export interface HandleEpicPlanOptions {
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
  * @param {PlanSessionSurface["runSlicerAgent"]} opts.runSlicerAgent
  * @param {(childPlanName: string) => Promise<void>} opts.loadChildPlan
+ * @param {(childPlanName: string, attrs: import('../../plan-store.js').PlanFrontMatter) => Promise<void>} [opts.prepareChildPlan]
  * @param {PlanSessionSurface} opts.session
  * @returns {Promise<"handled" | "continue" | "review" | "direct_review">}
  */
@@ -75,15 +78,20 @@ export async function handleEpicPlan({
     uiAPI,
     runSlicerAgent,
     loadChildPlan,
+    prepareChildPlan,
     session,
 }: HandleEpicPlanOptions): Promise<"handled" | "continue" | "review" | "direct_review"> {
     if (!isProjectPlan(plan.attrs)) return "continue";
     projectPlanType(plan.attrs);
     const sequence = isSequencePlan(plan.attrs);
 
-    const children = (await findPlansByParent(projectRoot, plan.planName)).filter((child) =>
-        isPlannedChangeClassification(child.attrs.classification)
-    ).sort(compareChildPlansByOrder);
+    const targetBranch = typeof plan.attrs.targetBranch === "string" ? plan.attrs.targetBranch.trim() : "";
+    const familyChildren = targetBranch
+        ? await findTargetBranchPlansByParent(projectRoot, targetBranch, plan.planName)
+        : await findPlansByParent(projectRoot, plan.planName);
+    const children = familyChildren.filter((child) => isPlannedChangeClassification(child.attrs.classification)).sort(
+        compareChildPlansByOrder,
+    );
     const hasChildren = children.length > 0;
     const isApprovedEpic = plan.attrs.status === "approved";
     const hasLegacyExecutableEpicStatus = ["in_progress", "failed"].includes(plan.attrs.status) ||
@@ -319,6 +327,7 @@ export async function handleEpicPlan({
                 if (!childPlanName) break;
                 if (childPlanName === "__next_child__") {
                     if (!nextChild) break;
+                    await prepareChildPlan?.(nextChild.name, nextChild.attrs);
                     await loadChildPlan(nextChild.name);
                     return "handled";
                 }
@@ -335,6 +344,8 @@ export async function handleEpicPlan({
                     if (!childAction || childAction === "back") break;
 
                     if (childAction === "load") {
+                        const selectedChild = children.find((child) => child.name === String(childPlanName));
+                        if (selectedChild) await prepareChildPlan?.(selectedChild.name, selectedChild.attrs);
                         await loadChildPlan(String(childPlanName));
                         return "handled";
                     }

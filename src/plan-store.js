@@ -855,6 +855,7 @@ function normalizePlanStatusForOptionalHold(status) {
 function normalizeWorktreeStatus(status) {
     const allowed = new Set([
         "none",
+        "planning",
         "active",
         "completed",
         "execution_failed",
