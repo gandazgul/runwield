@@ -876,6 +876,9 @@ export class SessionRuntime {
             return { ok: false, error: "managed_operation_in_progress", operation };
         }
         if (capability && currentCapability === capability) return null;
+        if (capability && !capability.settled && hostedSession.getManagedOperationCapability?.() === capability) {
+            return null;
+        }
         return { ok: false, error: "managed_operation_required", operation };
     }
 
@@ -912,6 +915,18 @@ export class SessionRuntime {
         const sourceStillQueued = (this.#queuedMessages.get(hostedSession.id) || [])
             .some((message) => message.sourceSession === sourceSession);
         if (!sourceStillQueued) this.#removeQueueSourceSubscription(hostedSession.id, sourceSession);
+    }
+
+    /** @param {import('./hosted-session.js').HostedSession} hostedSession */
+    #reconcileQueuedMessageSources(hostedSession) {
+        const subscriptions = this.#queueSourceSubscriptions.get(hostedSession.id);
+        if (!subscriptions) return;
+        for (const { sourceSession } of [...subscriptions.values()]) {
+            const activeSteering = sourceSession.getSteeringMessages?.();
+            if (Array.isArray(activeSteering)) {
+                this.#reconcileQueuedMessages(hostedSession, sourceSession, activeSteering);
+            }
+        }
     }
 
     /**
@@ -979,7 +994,8 @@ export class SessionRuntime {
     async steerSession(sessionId, text, images = []) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, queued: false, error: "not_found" };
-        const capability = this.#currentManagedOperations.get(sessionId) || null;
+        const capability = this.#currentManagedOperations.get(sessionId) ||
+            hostedSession.getManagedOperationCapability?.() || null;
         const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "steerSession", capability);
         if (managedRejection) return { ...managedRejection, queued: false };
         if (hostedSession.isAgentTransitioning?.()) {
@@ -5094,6 +5110,7 @@ export class SessionRuntime {
             });
             throw error;
         } finally {
+            this.#reconcileQueuedMessageSources(hostedSession);
             this.#emitSessionEvent(hostedSession.id, {
                 type: RuntimeEventTypes.TURN_END,
                 turnId,

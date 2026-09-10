@@ -336,6 +336,9 @@ function makeSteeringAgentSession() {
             steering.shift();
             session.emitQueueUpdate();
         },
+        consumeNextSteeringSilently() {
+            steering.shift();
+        },
         dispose() {},
     });
     return session;
@@ -2392,6 +2395,95 @@ Deno.test("SessionRuntime owns steering and deferred queue transitions", async (
     assertEquals(taken.message?.id, deferred.message?.id);
     assertEquals(statuses, ["queued", "queued", "consumed", "consumed"]);
     assertEquals(runtime.getQueuedMessages(sessionId), []);
+});
+
+Deno.test("SessionRuntime reconciles consumed steering at turn end when the backend emits no queue update", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const cwd = runtimeProjectRoot();
+    const sessionManager = SessionManager.create(cwd, getRunWieldSessionDir(cwd));
+    const agentSession = makeSteeringAgentSession();
+    const hostedSession = sessionHost.createSession({
+        id: crypto.randomUUID(),
+        cwd,
+        // @ts-expect-error Real SessionManager is runtime-compatible with HostedSession.
+        sessionManager,
+        managed: {
+            runwieldSessionId: "direct-turn",
+            projectId: "direct-turn-project",
+            piSessionId: sessionManager.getSessionId(),
+            transcriptPath: join(getRunWieldSessionDir(cwd), `${sessionManager.getSessionId()}.jsonl`),
+            currentSegmentId: "direct-turn-segment",
+            generation: 0,
+            acknowledgedGeneration: 0,
+            acknowledgedEventId: null,
+            name: null,
+            activeAgent: "router",
+            workflowContext: null,
+            syncState: null,
+        },
+    });
+    /** @type {import('./managed-operation.ts').ManagedOperationCapability} */
+    const capability = {
+        runtimeSessionId: hostedSession.id,
+        runwieldSessionId: "direct-turn",
+        operationId: "direct-turn-operation",
+        proof: {
+            runwieldSessionId: "direct-turn",
+            projectId: "direct-turn-project",
+            ownerInstanceId: "direct-turn-owner",
+            ownerProcessKind: "test",
+            operationId: "direct-turn-operation",
+            fence: 1,
+            phase: "turning",
+            expectedGeneration: 0,
+        },
+        settled: false,
+        registerArtifact: () => ({
+            artifactId: "direct-turn-artifact",
+            kind: "report",
+            path: "artifact.md",
+            title: "Artifact",
+            registeredAt: "2026-01-01T00:00:00.000Z",
+            registeredBy: "test",
+            sourceSegmentId: null,
+        }),
+        updateProof: () => {},
+        assertLive: () => {},
+        settle: () => {},
+    };
+    hostedSession.setManagedOperationCapability(capability);
+    hostedSession.setRootAgentName("router", capability);
+    hostedSession.setRootAgentSession(agentSession, capability);
+    /** @type {Array<{ ok: boolean, queued: boolean, error?: string, reason?: string }>} */
+    const steeredResults = [];
+    hostedSession.setActiveOnMessage(async () => {
+        steeredResults.push(await runtime.steerSession(hostedSession.id, "silent steering", []));
+        agentSession.consumeNextSteeringSilently();
+        return { kind: "complete" };
+    });
+    /** @type {Array<{ type: string, status?: string, text?: string }>} */
+    const events = [];
+    runtime.subscribeSessionEvents(hostedSession.id, (event) => {
+        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED) {
+            events.push({ type: event.type, status: event.status, text: event.message.text });
+        }
+        if (event.type === RuntimeEventTypes.USER_MESSAGE) {
+            events.push({ type: event.type, text: event.text });
+        }
+    });
+
+    await runtime.promptSession(hostedSession.id, { initialRequest: "start", initialImages: [] }, capability);
+
+    assertEquals(steeredResults[0]?.ok, true);
+    assertEquals(steeredResults[0]?.queued, true);
+    assertEquals(events, [
+        { type: RuntimeEventTypes.USER_MESSAGE, text: "start" },
+        { type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED, status: "queued", text: "silent steering" },
+        { type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED, status: "consumed", text: "silent steering" },
+        { type: RuntimeEventTypes.USER_MESSAGE, text: "silent steering" },
+    ]);
+    assertEquals(runtime.getQueuedMessages(hostedSession.id), []);
 });
 
 Deno.test("SessionRuntime lets dormant managed sessions consume deferred user follow-up messages", async () => {
