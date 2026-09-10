@@ -40,6 +40,7 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
     return {
         supportsInteraction(type) {
             return type === RuntimeInteractionTypes.PAIR_CHECKPOINT ||
+                type === RuntimeInteractionTypes.PLAN_DEVIATION_CONFIRMATION ||
                 type === RuntimeInteractionTypes.ARTIFACT_REVIEW;
         },
         async requestInteraction(request, signal) {
@@ -103,6 +104,25 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
                     await surface.stop();
                     uiAPI.setBusy?.(true);
                 }
+            }
+            if (request.type === RuntimeInteractionTypes.PLAN_DEVIATION_CONFIRMATION) {
+                const prompt = [
+                    "Plan Deviation confirmation",
+                    formatPairPromptValue(request.prompt),
+                ].filter(Boolean).join("\n");
+                const options = request.options && request.options.length ? request.options : [
+                    { value: "confirm", label: "Confirm Plan Deviation" },
+                    { value: "cancel", label: "Cancel; keep the original Plan requirement" },
+                ];
+                const value = await uiAPI.promptSelect(prompt, options);
+                if (value === null || value === "cancel") return { outcome: RuntimeInteractionOutcomes.CANCELED };
+                if (value !== "confirm") {
+                    return {
+                        outcome: RuntimeInteractionOutcomes.UNSUPPORTED,
+                        message: `Plan Deviation prompt returned invalid option: ${value}`,
+                    };
+                }
+                return { outcome: RuntimeInteractionOutcomes.ACCEPTED, value: true };
             }
             if (request.type === RuntimeInteractionTypes.PAIR_CHECKPOINT) {
                 const meta = /** @type {any} */ (request._meta || {});

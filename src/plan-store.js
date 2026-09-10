@@ -27,6 +27,7 @@ import {
 } from "./constants.js";
 import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
 import { normalizeTicketReferences } from "./shared/ticket-references.js";
+import { normalizePlanDeviations } from "./shared/plan-deviations.ts";
 import { resolveWorkflowPlanLocation } from "./shared/workflow/plan-location.ts";
 import { renameRestoredPlanEntry } from "./shared/worktree-registry.js";
 import { resolvePrimaryCheckoutRoot } from "./shared/primary-checkout.ts";
@@ -55,6 +56,7 @@ import {
 } from "./shared/epic-artifacts.ts";
 
 /** @typedef {import("./shared/epic-artifacts.ts").MoveEpicArtifactResult} MoveEpicArtifactResult */
+/** @typedef {import("./shared/plan-deviations.ts").PlanDeviation} PlanDeviation */
 
 export { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
 
@@ -174,6 +176,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string[]} affectedPaths - Files that will be created/modified
  * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Optional provider-neutral Ticket References identified by the user.
  * @property {string[]} [supersedes] - Optional ordered Work Record IDs that this Plan is confirmed to replace.
+ * @property {PlanDeviation[]} [planDeviations] - Ordered user-confirmed replacements to effective Plan requirements.
  * @property {unknown} [executionAgent] - Canonical FEATURE execution owner, preserved raw when invalid for diagnostics
  * @property {unknown} [collaborationRecommendation] - Planner's suggested execution style, preserved raw when invalid for diagnostics
  * @property {boolean} [frontend] - Legacy browser UI/UX marker retained for source compatibility
@@ -413,6 +416,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.affectedPaths, fm.affectedPaths);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.tickets, fm.tickets);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.supersedes, fm.supersedes);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.planDeviations, fm.planDeviations);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionAgent, fm.executionAgent);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationRecommendation, fm.collaborationRecommendation);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.frontend, fm.frontend);
@@ -1005,6 +1009,9 @@ export function injectFrontMatter(markdown, overrides = {}) {
         supersedes: Object.hasOwn(overrides, "supersedes")
             ? normalizeSupersedes(overrides.supersedes)
             : normalizeSupersedes(existingFm.supersedes),
+        planDeviations: Object.hasOwn(overrides, "planDeviations")
+            ? normalizePlanDeviations(overrides.planDeviations)
+            : normalizePlanDeviations(existingFm.planDeviations),
         executionAgent: optionalExecutionPolicyValue(overrides, existingFm, "executionAgent"),
         collaborationRecommendation: optionalExecutionPolicyValue(overrides, existingFm, "collaborationRecommendation"),
         frontend: Object.hasOwn(overrides, "frontend")
@@ -1147,6 +1154,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             affectedPaths: normalizeStringList(attrs.affectedPaths) || DEFAULT_FRONT_MATTER.affectedPaths,
             tickets: normalizeTicketReferences(attrs.tickets),
             supersedes: normalizeSupersedes(attrs.supersedes),
+            planDeviations: normalizePlanDeviations(attrs.planDeviations),
             executionAgent: Object.hasOwn(attrs, "executionAgent") ? attrs.executionAgent ?? undefined : undefined,
             collaborationRecommendation: Object.hasOwn(attrs, "collaborationRecommendation")
                 ? attrs.collaborationRecommendation ?? undefined

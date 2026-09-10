@@ -165,6 +165,12 @@ E2. Agent implements
 │  ├─ U revise + feedback → revise increment → another checkpoint
 │  ├─ U autonomous / unavailable capability → continue autonomously
 │  └─ U stop/cancel → in_progress pause; no completion
+├─ T record_plan_deviation (Pair only, when feedback conflicts with the effective Plan)
+│  ├─ U confirm + unchanged Plan revision → append ordered `planDeviations` entry to execution Plan
+│  │  → replacement becomes effective Plan authority
+│  ├─ U cancel → original Plan requirement remains authority
+│  ├─ stale Plan revision / changed execution identity → no write; ask again against current Plan
+│  └─ unsupported confirmation host → pause; no inferred approval
 ├─ ordinary final text / error / interruption without accepted task_completed
 │  → unfinished; remain in_progress, later owner follow-up or R
 └─ T task_completed
@@ -198,13 +204,14 @@ Sources: [Plan executor](../src/shared/workflow/plan-executor.ts),
 [execution runner](../src/shared/workflow/engineer-runner.ts),
 [implementation checkpoint](../src/shared/workflow/implementation-checkpoint.ts),
 [task_completed](../src/tools/task-completed.ts), [Pair tool](../src/tools/pair-checkpoint.ts),
+[Plan Deviation tool](../src/tools/plan-deviation.ts),
 [runtime collaboration](../src/shared/workflow/execution-collaboration.ts).
 
 ## V0 — Validation owner and resume dispatch
 
 ```text
 continueWorkflowValidation
-├─ finish provable legacy amendment recovery; run Plans Doctor reconciliation
+├─ run Plans Doctor reconciliation
 ├─ S locate registered execution Plan and controller checkpoint
 ├─ same completion already settled / no runnable phase → no-op pause result
 ├─ live running owner → pause; do not start a second validation owner

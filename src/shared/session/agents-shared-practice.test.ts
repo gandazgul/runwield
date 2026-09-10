@@ -358,6 +358,8 @@ Deno.test("plan execution personas can run a Pair checkpoint", async () => {
         // A checkpoint is a pause for real steering, not a progress announcement.
         assertStringIncludes(systemPrompt, "read the diff,");
         assertStringIncludes(systemPrompt, "run the code, or build");
+        assertStringIncludes(systemPrompt, "Use `record_plan_deviation` first");
+        assertStringIncludes(systemPrompt, "Never create a Plan\nDeviation by editing the Plan file directly");
     }
 });
 
