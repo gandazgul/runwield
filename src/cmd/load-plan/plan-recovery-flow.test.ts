@@ -1,7 +1,11 @@
 import { assertEquals } from "@std/assert";
+import { resetHeldPlanToDraft } from "./plan-hold.ts";
+import { resetRecoveryPlan } from "./plan-recovery-reset.ts";
+import { resolveRecoveryWorktree } from "./plan-recovery-worktree.ts";
 import { dirname } from "@std/path";
 import { handlePlanRecovery } from "./plan-recovery-flow.ts";
 import {
+    abandonRecoveryPlan,
     continueRecoveryPlan,
     inspectRecoveryPlan,
     openFollowUpRecoveryPlan,
@@ -35,7 +39,7 @@ interface TestUi extends UiAPI {
 }
 
 interface RunRecoveryResult {
-    result: "handled" | "review" | "settled";
+    result: "handled" | "review" | "settled" | "verified";
     plan: RecoveryFlowPlan;
     ui: TestUi;
 }
@@ -791,9 +795,7 @@ Deno.test("Plan Recovery actions preserve live context", async () => {
     assertEquals(abandonMissingRegistry.result, "handled");
     assertEquals(Boolean(abandonMissingRegistry.plan.attrs.worktreeId), false);
     assertEquals(
-        abandonMissingRegistry.ui.messages.some((message) =>
-            message.includes("saved worktree details were already gone")
-        ),
+        abandonMissingRegistry.ui.messages.some((message) => message.includes("recorded worktree and branch are gone")),
         true,
     );
 });
@@ -1053,3 +1055,139 @@ Deno.test("recovery cancel at the first menu leaves unrelated repairable state u
         );
     }
 });
+
+for (const action of ["abandon", "held_reset", "recreate"]) {
+    for (
+        const scenario of [
+            "primary_path",
+            "primary_branch",
+            "wrong_checkout",
+            "unchanged",
+            "branch_only",
+            "unique_commit",
+            "missing_plan_id",
+            "invalid_base",
+        ]
+    ) {
+        if (action !== "recreate" && ["missing_plan_id", "invalid_base"].includes(scenario)) continue;
+        if (action === "recreate" && ["unchanged", "branch_only", "unique_commit"].includes(scenario)) continue;
+        Deno.test(`recovery ${action}: ${scenario} preserves the developer checkout and reports actual cleanup`, async () => {
+            const project = await makeRealRecoveryProject({ status: action === "held_reset" ? "on_hold" : "failed" });
+            const root = project.projectRoot;
+            const parent = await Deno.makeTempDir({ prefix: "rw-discard-" });
+            const branch = "worktree/attempt";
+            let path = `${parent}/attempt`;
+            try {
+                await Deno.writeTextFile(`${root}/tracked.txt`, "base\n");
+                await runGit(root, ["add", "tracked.txt"]);
+                await runGit(root, ["commit", "-m", "tracked developer file"]);
+                await runGit(root, ["switch", "-c", "target"]);
+                await Deno.writeTextFile(`${root}/target.txt`, "target\n");
+                await runGit(root, ["add", "target.txt"]);
+                await runGit(root, ["commit", "-m", "diverge target"]);
+                const baseCommit = await runGit(root, ["rev-parse", "HEAD"]);
+                await runGit(root, ["switch", "main"]);
+                await Deno.writeTextFile(`${root}/main.txt`, "main\n");
+                await runGit(root, ["add", "main.txt"]);
+                await runGit(root, ["commit", "-m", "diverge main"]);
+                if (scenario === "primary_path") path = root;
+                else if (scenario === "primary_branch") await runGit(root, ["switch", "-c", branch]);
+                else if (scenario === "branch_only") await runGit(root, ["branch", branch, baseCommit]);
+                else {
+                    await runGit(root, [
+                        "worktree",
+                        "add",
+                        "-b",
+                        scenario === "wrong_checkout" ? "worktree/other" : branch,
+                        path,
+                        baseCommit,
+                    ]);
+                    if (scenario === "wrong_checkout") {
+                        await Deno.writeTextFile(`${path}/untracked-other.txt`, "other work\n");
+                    }
+                    if (scenario === "unique_commit") {
+                        await Deno.writeTextFile(`${path}/unique.txt`, "rescue this commit\n");
+                        await runGit(path, ["add", "unique.txt"]);
+                        await runGit(path, ["commit", "-m", "unique work"]);
+                    }
+                }
+                await addWorktreeRegistryEntry(root, {
+                    id: "discard-attempt",
+                    planId: "plan-1",
+                    planName: project.plan.planName,
+                    path,
+                    branch,
+                    baseBranch: "target",
+                    baseRef: "target",
+                    baseCommit,
+                    status: "active",
+                    createdAt: "2026-09-08T00:00:00Z",
+                    updatedAt: "2026-09-08T00:00:00Z",
+                });
+                await writeControllerState(root, { planName: project.plan.planName, planId: "plan-1" }, {
+                    executionMode: "worktree",
+                    documentWorktreeId: "discard-attempt",
+                });
+                const plan = await loadPlan(root, project.plan.planName);
+                if (!plan) throw new Error("fixture Plan missing");
+                const ui = makeUi(action === "held_reset" ? ["reset_delete", "confirm"] : ["confirm"]);
+                const context = makeActionContext(root, { ...plan, planName: project.plan.planName }, ui);
+                context.worktreeContext = await resolveRecoveryWorktree(root, context.plan);
+                if (!context.worktreeContext) throw new Error("fixture attempt missing");
+                if (scenario === "missing_plan_id") context.plan.attrs.planId = undefined;
+                if (scenario === "invalid_base") context.worktreeContext.baseCommit = "not-a-commit";
+                await Deno.writeTextFile(`${root}/tracked.txt`, "previous stash\n");
+                await runGit(root, ["stash", "push", "-m", "developer stash", "--", "tracked.txt"]);
+                await Deno.writeTextFile(`${root}/tracked.txt`, "current developer edits\n");
+                await Deno.writeTextFile(`${root}/untracked.txt`, "current untracked edits\n");
+                const beforeHead = await runGit(root, ["rev-parse", "HEAD"]);
+                const beforeBranch = await runGit(root, ["branch", "--show-current"]);
+                const beforeStash = await runGit(root, ["rev-parse", "refs/stash"]);
+                const beforeRecord = await findWorktreeRegistryEntryById(root, "discard-attempt");
+                const beforeController = await readControllerRecord(root, {
+                    planName: project.plan.planName,
+                    planId: "plan-1",
+                });
+                const beforePlan = await Deno.readTextFile(plan.path);
+                if (action === "held_reset") {
+                    await resetHeldPlanToDraft({ projectRoot: root, plan: context.plan, uiAPI: ui });
+                } else if (action === "recreate") await resetRecoveryPlan(context, false, "available");
+                else await abandonRecoveryPlan(context);
+                assertEquals(await runGit(root, ["rev-parse", "HEAD"]), beforeHead);
+                assertEquals(await runGit(root, ["branch", "--show-current"]), beforeBranch);
+                assertEquals(await runGit(root, ["rev-parse", "refs/stash"]), beforeStash);
+                assertEquals(await Deno.readTextFile(`${root}/tracked.txt`), "current developer edits\n");
+                assertEquals(await Deno.readTextFile(`${root}/untracked.txt`), "current untracked edits\n");
+                const succeeded = ["unchanged", "branch_only", "unique_commit"].includes(scenario);
+                const afterRecord = await findWorktreeRegistryEntryById(root, "discard-attempt");
+                const afterController = await readControllerRecord(root, {
+                    planName: project.plan.planName,
+                    planId: "plan-1",
+                });
+                if (succeeded) {
+                    assertEquals(afterRecord?.status, "abandoned");
+                    assertEquals(afterController?.state.documentWorktreeId, undefined);
+                    assertEquals(await Deno.stat(path).then(() => true).catch(() => false), false);
+                    if (scenario === "unique_commit") {
+                        assertEquals(await runGit(root, ["show", `${branch}:unique.txt`]), "rescue this commit");
+                        assertEquals(
+                            ui.messages.some((message) => message.includes(branch) && message.includes("rescue")),
+                            true,
+                        );
+                        assertEquals(ui.messages.some((message) => message.includes("branch were deleted")), false);
+                    } else assertEquals(await runGit(root, ["branch", "--list", branch]), "");
+                } else {
+                    assertEquals(afterRecord, beforeRecord);
+                    assertEquals(afterController, beforeController);
+                    assertEquals(await Deno.readTextFile(plan.path), beforePlan);
+                    if (scenario === "wrong_checkout") {
+                        assertEquals(await Deno.readTextFile(`${path}/untracked-other.txt`), "other work\n");
+                    }
+                }
+            } finally {
+                await Deno.remove(root, { recursive: true });
+                await Deno.remove(parent, { recursive: true });
+            }
+        });
+    }
+}

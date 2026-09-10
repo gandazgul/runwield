@@ -119,8 +119,8 @@ validation behavior and allow new code to keep depending on the feature.
   attempt counters, failure kinds, reset rules, and baseline cleanup while preserving CI and Semantic Review counters.
 - `src/shared/session/session-runtime.js` and related workflow/session types — remove Objective Check fields from
   runtime projections and continuation state.
-- `src/shared/workflow/validation-plan-amendment.ts` and related amendment tests — remove Objective Check diff, waiver,
-  baseline, and defective-check amendment paths while preserving other approved Plan Amendments.
+- The former validation Plan Amendment helpers and related amendment tests — remove Objective Check diff, waiver,
+  baseline, and defective-check amendment paths while preserving then-existing approved Plan Amendment behavior.
 - `src/tools/task-completed.ts` and related Agent/session tests — remove `brokenObjectiveChecks` from completion
   contracts; preserve normal structured completion and repair reporting.
 - `src/shared/work-records/generation.js`, `src/shared/work-records/schema.js`, and related tests — stop generating

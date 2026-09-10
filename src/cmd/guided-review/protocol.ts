@@ -52,3 +52,32 @@ export function parseGuidedReviewUsageEventLine(line: string): GuidedReviewUsage
     }
     return { version: 1, type: "usage", usage };
 }
+
+export const GUIDED_REVIEW_METADATA_PREFIX = "RUNWIELD_GUIDED_REVIEW_METADATA ";
+
+export interface GuidedReviewMetadata {
+    provider: string;
+    model: string;
+    thinkingLevel?: string;
+}
+
+export function encodeGuidedReviewMetadata(metadata: GuidedReviewMetadata): string {
+    return `${GUIDED_REVIEW_METADATA_PREFIX}${JSON.stringify(metadata)}\n`;
+}
+
+export function parseGuidedReviewMetadataLine(line: string): GuidedReviewMetadata | null {
+    if (!line.startsWith(GUIDED_REVIEW_METADATA_PREFIX)) return null;
+    const metadata: Partial<GuidedReviewMetadata> = JSON.parse(line.slice(GUIDED_REVIEW_METADATA_PREFIX.length));
+    if (
+        !metadata || typeof metadata.provider !== "string" || !metadata.provider ||
+        typeof metadata.model !== "string" || !metadata.model ||
+        (metadata.thinkingLevel !== undefined && typeof metadata.thinkingLevel !== "string")
+    ) {
+        throw new Error("Malformed Guided Review metadata: expected provider, model, and optional thinkingLevel.");
+    }
+    return {
+        provider: metadata.provider,
+        model: metadata.model,
+        ...(metadata.thinkingLevel ? { thinkingLevel: metadata.thinkingLevel } : {}),
+    };
+}

@@ -1,3 +1,4 @@
+import type { SequenceReviewDocument } from "../../shared/workflow/sequence-review.ts";
 /**
  * @module ui/review/review-launcher
  * Hosts human Plan, code, and artifact review surfaces in Workspace.
@@ -41,6 +42,7 @@ interface ReviewSurfaceServer<TDecision> {
 }
 
 interface PlanReviewPayload {
+    sequenceDocuments?: SequenceReviewDocument[];
     plan: string;
     planPath?: string;
     previousPlan?: string;
@@ -72,6 +74,7 @@ export interface ReviewConversation {
 }
 
 interface PlanReviewSurfaceOptions {
+    sequenceDocuments?: SequenceReviewDocument[];
     cwd: string;
     plan: string;
     planPath?: string;
@@ -112,6 +115,7 @@ interface CodeReviewSurfaceOptions {
     agentLabel?: string;
     token?: string;
     browser: BrowserPort;
+    onSurfaceReady?(surface: ReviewSurfaceReady): void;
 }
 
 interface CodeReviewPayload extends Record<string, unknown> {
@@ -288,6 +292,7 @@ function workspaceServer<TDecision>(
 
 export async function startPlanReviewSurface<TDecision = ReviewDecisionValue>({
     cwd,
+    sequenceDocuments,
     plan,
     planPath,
     previousPlan,
@@ -306,6 +311,7 @@ export async function startPlanReviewSurface<TDecision = ReviewDecisionValue>({
     const executionPolicy = policy.ok ? policy.policy : undefined;
     const resolvedAgentLabel = agentLabel || reviewConversation?.agentLabel || "Planner";
     const reviewPayload = {
+        sequenceDocuments,
         plan,
         planPath,
         ...(previousPlan && { previousPlan }),
@@ -409,6 +415,7 @@ export async function startCodeReviewSurface<TDecision = ReviewDecisionValue>({
     agentLabel,
     token = crypto.randomUUID(),
     browser,
+    onSurfaceReady,
 }: CodeReviewSurfaceOptions): Promise<ReviewSurface<TDecision>> {
     if (!agentCwd) throw new Error("startCodeReviewSurface: agentCwd is required");
     const reviewStatus = await loadCodeReviewStatus(agentCwd);
@@ -433,6 +440,7 @@ export async function startCodeReviewSurface<TDecision = ReviewDecisionValue>({
     if (reviewConversation && existing?.server.beginReviewRound) {
         const conversationId = reviewConversation.id;
         existing.server.beginReviewRound({ reviewPayload, reviewConversation });
+        onSurfaceReady?.({ url: existing.pageUrl, opened: false });
         return {
             url: existing.pageUrl,
             opened: false,
@@ -452,6 +460,7 @@ export async function startCodeReviewSurface<TDecision = ReviewDecisionValue>({
     });
     const url = `${server.url}/review/code?token=${encodeURIComponent(token)}`;
     const opened = await browser.open(url);
+    onSurfaceReady?.({ url, opened });
     if (reviewConversation) {
         activeCodeReviewConversations.set(reviewConversation.id, {
             server: server as ReviewSurfaceServer<ReviewDecisionValue>,

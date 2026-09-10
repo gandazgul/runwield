@@ -234,7 +234,7 @@ function isRootOwnedSession(owningSession: OwningSession, rootSession: OwningSes
     if (!owningSession || !rootSession) return false;
     if (typeof owningSession !== "object" || typeof rootSession !== "object") return false;
     const wrapper = rootSession as { kind?: string; session?: OwningSession };
-    return wrapper.kind === "claude-cli" && wrapper.session === owningSession;
+    return (wrapper.kind === "claude-cli" || wrapper.kind === "agy-cli") && wrapper.session === owningSession;
 }
 
 function matchesOptions(event: WorkflowToolEvent, options: ClaimWorkflowToolEventOptions): boolean {
@@ -362,7 +362,6 @@ export function publishWorkflowToolEvent<K extends WorkflowToolEventKind>(
         claimed: false,
         settled: false,
     };
-    state.events.push(event);
     const sessionManager = getEventSessionManager(hostedSession);
     if (owner === "root" && sessionManager?.appendCustomEntry) {
         sessionManager.appendCustomEntry(WORKFLOW_TOOL_EVENT_CUSTOM_TYPE, {
@@ -380,6 +379,7 @@ export function publishWorkflowToolEvent<K extends WorkflowToolEventKind>(
             ...(event.validationGeneration ? { validationGeneration: event.validationGeneration } : {}),
         });
     }
+    state.events.push(event);
     wakeWaiters(hostedSession);
     return event;
 }

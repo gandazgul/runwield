@@ -8,7 +8,7 @@
 
 import { CLI_BIN } from "../../constants.js";
 import { findPlansByParent } from "../../plan-store.js";
-import { isEpicPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { isProjectPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.js";
 import { runRecoveryTransition } from "../../shared/workflow/state-transition.ts";
 import { resolveWorkRecordSupersessionProposalsWithUi } from "../../shared/workflow/validation-helpers.ts";
@@ -18,17 +18,18 @@ import {
 } from "../../shared/work-records/auto-generation.js";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../../shared/work-records/mnemoteca-port.ts";
 import {
-    deleteMergedWorktreeBranch,
+    discardWorktreeGitArtifacts,
     getWorktreeStatus,
     inspectExecutionWorktreeMergeRisk,
-    removeWorktreeGitArtifacts,
+    validateWorktreeDiscard,
 } from "../../shared/worktree.js";
-import { updateEntry as updateWorktreeRegistryEntry } from "../../shared/worktree-registry.js";
 import { formatCommitHeadsUp } from "./plan-presentation.ts";
 import { buildPlanSummary } from "../../shared/plan-presentation.ts";
 import { formatEpicProgressSummary } from "./plan-epic-children.ts";
 import { confirmWorktreeAction, hasWorktreeContext, resolveRecoveryWorktree } from "./plan-recovery-worktree.ts";
-import { transitionFailureError } from "./transition-failure.ts";
+import { settleDiscardedRecoveryAttempt } from "./plan-recovery-discard.ts";
+import { writeControllerState } from "../../shared/workflow/controller-registry.ts";
+import { loadPlan } from "../../plan-store.js";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { UiAPI } from "../../ui/tui/types.js";
 import type { PlanSessionSurface } from "./plan-session-types.ts";
@@ -154,7 +155,7 @@ export async function putPlanOnHold(
         return false;
     }
 
-    if (isEpicPlan(plan.attrs)) {
+    if (isProjectPlan(plan.attrs)) {
         const children = await findPlansByParent(projectRoot, plan.planName);
         const childSummary = children.length > 0 ? `\n\n${formatEpicProgressSummary(children)}` : "";
         const confirmed = await confirmHoldWarning(
@@ -187,6 +188,8 @@ export async function putPlanOnHold(
         },
     });
     plan.attrs = { ...plan.attrs, ...updatedAttrs };
+    const refreshed = await loadPlan(projectRoot, plan.planName);
+    if (refreshed) Object.assign(plan, refreshed);
     uiAPI.appendSystemMessage(
         `Plan put on hold. Resume later with: ${CLI_BIN} load-plan ${plan.planName}`,
         false,
@@ -243,6 +246,8 @@ export async function markPlanUserVerified(
         details: { triageMeta: plan.attrs, userVerificationNote: note },
     });
     plan.attrs = { ...plan.attrs, ...updatedAttrs };
+    const refreshed = await loadPlan(projectRoot, plan.planName);
+    if (refreshed) Object.assign(plan, refreshed);
     let workRecordMessage = "";
     let workRecordResult: Awaited<ReturnType<typeof autoGenerateWorkRecordForCompletedPlan>> | undefined;
     try {
@@ -404,6 +409,15 @@ export async function resetHeldPlanToDraft({
         if (confirmed !== "confirm") return false;
     }
 
+    let cleanupMessage = "";
+    if (action === "reset_delete") {
+        try {
+            await validateWorktreeDiscard({ projectRoot, ...worktreeContext });
+        } catch (error) {
+            uiAPI.appendSystemMessage(error instanceof Error ? error.message : String(error), true, "RunWield");
+            return false;
+        }
+    }
     const transition = await runRecoveryTransition({
         projectRoot,
         planName: plan.planName,
@@ -411,21 +425,30 @@ export async function resetHeldPlanToDraft({
         worktreeId: worktreeContext?.id,
         expectedRevision: (plan as { revision?: string }).revision,
         action: action === "reset_delete" ? "abandon" : "reset",
-        recover: async () => {
-            if (action === "reset_delete" && worktreeContext?.path) {
-                await removeWorktreeGitArtifacts({
-                    projectRoot: projectRoot,
-                    path: worktreeContext.path,
-                    force: true,
-                });
-                // Deleting the branch is irreversible, so it is its own proven step.
-                if (worktreeContext.branch) {
-                    await deleteMergedWorktreeBranch({ projectRoot, branch: worktreeContext.branch });
+        recover: async ({ beforePlan, markEffect }) => {
+            let retained = false;
+            if (action === "reset_delete") {
+                for await (const cleanup of discardWorktreeGitArtifacts({ projectRoot, ...worktreeContext })) {
+                    if (cleanup.status === "blocked") throw new Error(cleanup.message);
+                    await markEffect(`recovery_discard_${cleanup.status}`, { ...worktreeContext, ...cleanup });
+                    retained = cleanup.status === "retained";
+                    cleanupMessage = cleanup.message;
                 }
             }
-            if (worktreeContext?.id) {
-                await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "abandoned" });
-            }
+            await settleDiscardedRecoveryAttempt(
+                projectRoot,
+                plan.planName,
+                plan.attrs.planId,
+                worktreeContext,
+                retained,
+            );
+            await markEffect("recovery_discard_registry_settled", { worktreeId: worktreeContext?.id, retained });
+            await writeControllerState(
+                projectRoot,
+                { planName: plan.planName, planId: plan.attrs.planId },
+                { executionMode: null, documentWorktreeId: null },
+                { expectedRevision: beforePlan?.controllerRevision, recovery: null },
+            );
             return await recordPlanEvent({
                 cwd: projectRoot,
                 planName: plan.planName,
@@ -436,14 +459,21 @@ export async function resetHeldPlanToDraft({
         },
     });
     if (transition.status !== "committed") {
-        throw transitionFailureError(transition, "Hold reset recovery transaction failed.");
+        uiAPI.appendSystemMessage(
+            transition.message || "Worktree cleanup could not finish. Recovery was kept active.",
+            true,
+            "RunWield",
+        );
+        return false;
     }
     const transitionValue = (transition.value || {}) as { value?: PlanFrontMatter };
     const updatedAttrs = transitionValue.value as PlanFrontMatter;
     plan.attrs = { ...plan.attrs, ...updatedAttrs };
+    const refreshed = await loadPlan(projectRoot, plan.planName);
+    if (refreshed) Object.assign(plan, refreshed);
     uiAPI.appendSystemMessage(
         action === "reset_delete"
-            ? "Plan reset to draft and recorded worktree deleted."
+            ? `Plan reset to draft. ${cleanupMessage}`
             : "Plan reset to draft. Recorded worktree was left untouched for manual rescue if present.",
         false,
         "RunWield",
@@ -535,8 +565,10 @@ export async function handleOnHoldPlan({
                 details: { triageMeta: plan.attrs, heldFromStatus: restoredStatus },
             });
             plan.attrs = { ...plan.attrs, ...updatedAttrs };
+            const refreshed = await loadPlan(projectRoot, plan.planName);
+            if (refreshed) Object.assign(plan, refreshed);
             uiAPI.appendSystemMessage(`Resumed from hold. Restored status: ${plan.attrs.status}.`, false, "RunWield");
-            if (isEpicPlan(plan.attrs)) {
+            if (isProjectPlan(plan.attrs)) {
                 const children = await findPlansByParent(projectRoot, plan.planName);
                 if (children.length > 0) {
                     uiAPI.appendSystemMessage(formatEpicProgressSummary(children), false, "RunWield");

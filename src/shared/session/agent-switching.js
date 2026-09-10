@@ -27,7 +27,9 @@ const handlerMetadata = new WeakMap();
  * @typedef {Object} AgentSwitchOptions
  * @property {string} agentName
  * @property {string} [model]
+ * @property {import('./hosted-session.js').ThinkingLevel} [thinkingLevelOverride]
  * @property {string} [cwd]
+ * @property {Array<{base64: string, mimeType: string}>} [images]
  * @property {boolean} [forceRebuild]
  * @property {boolean} [reloadMcpTools]
  * @property {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
@@ -105,12 +107,13 @@ export async function switchActiveAgent(hostedSession, options) {
         return persisted.provider ? `${persisted.provider}/${persisted.model}` : persisted.model;
     })();
     const modelOverride = options.model ?? inheritedManualModel;
+    const cwdProvided = Object.hasOwn(options, "cwd") && typeof options.cwd === "string" && options.cwd.length > 0;
+    const requestedCwd = cwdProvided ? String(options.cwd) : "";
     const configuredModel = modelOverride === undefined
-        ? getConfiguredAgentModel(agentName, hostedSession.cwd)
+        ? getConfiguredAgentModel(agentName, requestedCwd || hostedSession.cwd)
         : undefined;
     const requestedModel = modelOverride ?? configuredModel;
     const modelChanged = requestedModel !== undefined && requestedModel !== effectiveModel;
-    const cwdProvided = Object.hasOwn(options, "cwd") && typeof options.cwd === "string" && options.cwd.length > 0;
     const effectiveCwd = rootSwitchState?.cwd ?? previousSwitch?.cwd ?? hostedSession.cwd;
     const cwdChanged = cwdProvided && options.cwd !== effectiveCwd;
     const customRootConfigurationProvided = Boolean(
@@ -122,8 +125,10 @@ export async function switchActiveAgent(hostedSession, options) {
     const rootOptions = {
         agentName,
         modelOverride,
-        cwd: cwdProvided ? options.cwd : effectiveCwd,
+        thinkingLevelOverride: options.thinkingLevelOverride,
+        cwd: requestedCwd || effectiveCwd,
         sessionManager: options.sessionManager,
+        images: options.images,
         triageMeta: options.triageMeta,
         subAgentDefinition: options.subAgentDefinition,
         customTools: options.customTools,
@@ -141,7 +146,7 @@ export async function switchActiveAgent(hostedSession, options) {
     const nextMetadata = {
         agentName,
         model: requestedModel ?? effectiveModel,
-        cwd: cwdProvided ? options.cwd : effectiveCwd,
+        cwd: requestedCwd || effectiveCwd,
     };
     const previousHandlerMetadata = typeof previousHandler === "function" ? handlerMetadata.get(previousHandler) : null;
     const canReuseHandler = Boolean(
@@ -193,6 +198,7 @@ export async function switchActiveAgent(hostedSession, options) {
     }
     hostedSession.completeAgentTransition(transitionId);
     hostedSession.assertActive();
+    if (requestedCwd) hostedSession.rebindProjectRoot(requestedCwd);
     // Clear only after a successful switch; a failed build must preserve the
     // previous Agent and its manual model selection.
     if (changesAgent) {
@@ -226,6 +232,9 @@ export async function switchActiveAgent(hostedSession, options) {
         });
         const committedAgentName = hostedSession.getRootAgentName() || agentName;
         const committedDisplayName = hostedSession.getActiveAgentInfo?.()?.displayName || committedAgentName;
+        // An explicit /agent request can switch away from a prompt-ready shell
+        // before it has a durable root. Ordinary first activation stays silent
+        // because there is no selected Agent identity yet.
         const previousRootIdentity = previousAgentName || persistedAgentName || selectionAgent || "";
         const rootHandoff = Boolean(previousRootIdentity) &&
             normalizeAgentInternalName(previousRootIdentity) !== normalizeAgentInternalName(committedAgentName);
@@ -294,6 +303,7 @@ export async function runActiveAgentTurn(options) {
         ...(cwd ? { cwd } : {}),
         ...(forceRebuild ? { forceRebuild } : {}),
         ...(sessionManager ? { sessionManager } : {}),
+        ...(images ? { images } : {}),
         ...(triageMeta ? { triageMeta } : {}),
         ...(subAgentDefinition ? { subAgentDefinition } : {}),
         ...(customTools ? { customTools } : {}),

@@ -7,7 +7,7 @@ import {
     findPlanById,
     groupPlanHierarchy,
     isChildFeaturePlan,
-    isEpicPlan,
+    isProjectPlan,
     listPlanResources,
     loadPlanBodyById,
     resolveSiblingChildPlanDependencyStates,
@@ -204,7 +204,7 @@ function safeObject(value) {
 function workspaceSafeFrontMatter(value) {
     const frontMatter = { ...safeObject(value) };
     delete frontMatter.worktreePath;
-    delete frontMatter.type;
+    if (frontMatter.classification !== "PROJECT") delete frontMatter.type;
     return frontMatter;
 }
 
@@ -323,9 +323,9 @@ export function serializePlanSummary(resource) {
         epicDoneEnoughSummary: attrs.epicDoneEnoughSummary || "",
         epicDoneEnoughAt: attrs.epicDoneEnoughAt || "",
         doneEnough: attrs.epicCompletionMode === "done_enough",
-        isEpic: isEpicPlan(attrs),
+        isEpic: isProjectPlan(attrs),
         isChild: isChildFeaturePlan(resource),
-        hierarchyRole: isEpicPlan(attrs) ? "epic" : isChildFeaturePlan(resource) ? "child" : "top-level",
+        hierarchyRole: isProjectPlan(attrs) ? "epic" : isChildFeaturePlan(resource) ? "child" : "top-level",
         parentResolved: !isChildFeaturePlan(resource),
         parentPlanId: "",
         orphanReason: "",
@@ -596,12 +596,12 @@ export async function loadPlanDetail(cwd, planId) {
  */
 export async function loadWorkspaceDetail(cwd, planId) {
     const baseResource = await findPlanById(cwd, planId);
-    const resource = isEpicPlan(baseResource.attrs) ? baseResource : await loadPlanBodyById(cwd, planId);
+    const resource = isProjectPlan(baseResource.attrs) ? baseResource : await loadPlanBodyById(cwd, planId);
     const summaries = await loadPlanSummaries(cwd);
     return projectWorkspaceDetail({
         ...resource,
         workspaceKey: await sha256Hex(cwd),
-        capabilities: { bodyEditing: !isEpicPlan(resource.attrs) },
+        capabilities: { bodyEditing: !isProjectPlan(resource.attrs) },
     }, summaries);
 }
 

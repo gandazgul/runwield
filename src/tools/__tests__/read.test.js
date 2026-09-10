@@ -1,7 +1,10 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { Text } from "@earendil-works/pi-tui";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { __test, createRunWieldReadToolDefinition } from "../read.js";
+
+initTheme();
 
 /**
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition<any, any>} tool

@@ -62,9 +62,10 @@ it is not shared project knowledge or a source for cross-Session Agent retrieval
 interaction results as committed transcript history; a live unanswered interaction is not committed history until its
 result is written. _Avoid_: Work Record, planning memory, shared conversation
 
-**Execution Backend**: The model-selected runtime that executes one RunWield Agent turn, such as Pi AgentSession or
-Claude CLI. It is distinct from a model provider and from an Agent Session object. Changing Execution Backend does not
-transfer Session Transcript, workflow, lifecycle, or replay authority away from RunWield.
+**Execution Backend**: The model-selected runtime that executes one RunWield Agent turn, such as Pi AgentSession, Claude
+CLI, or Antigravity CLI. It is distinct from a model provider and from an Agent Session object. Changing Execution
+Backend does not transfer Session Transcript, Workflow Tool Event, Plan Lifecycle, or replay authority away from
+RunWield.
 
 **Session Transcript Segment**: An ordered durable portion of a Session Transcript that supplies one isolated
 model-history context while remaining part of the Session's continuous user-visible history. _Avoid_: Sub-session, new
@@ -81,8 +82,9 @@ discardable only while it contains no entries beyond its header, lineage marker,
 Partial segment, dangling Session, recovery segment
 
 **Session Writer Lock**: The exclusive operating-system file lock that permits one RunWield process to mutate a Session.
-It is released by the operating system when that process exits. _Avoid_: Session lease, heartbeat takeover, database
-lock
+Core releases it when the active managed operation settles; the operating system also releases it on process exit. An
+idle open TUI or browser does not retain it merely by remaining open. _Avoid_: Session lease, heartbeat takeover,
+database lock
 
 **Session Control**: The right of one attached client to submit user messages or answer process-local pending
 interactions for a live Session; observation does not require control. Session Control is not mutation authority without
@@ -185,8 +187,9 @@ remain `QUICK_FIX`. _Avoid_: INQUIRY, OPERATION, QUICK_FIX, Routing Intent
 **Legacy FEATURE Classification**: The old Routing Intent and Plan Classification value that means PLANNED_CHANGE rather
 than necessarily new functionality. _Avoid_: Enhancement, new feature
 
-**PROJECT**: The Routing Intent and non-executable Epic Plan Classification for work the Architect designs and the
-Slicer decomposes into child PLANNED_CHANGE Plans. _Avoid_: Initiative, refactor, task DAG
+**PROJECT**: The Routing Intent for architectural planning, and the non-executable container Plan Classification.
+`type: epic` (the default when absent) uses Architect and Slicer; `type: sequence` contains complete Planner-authored
+child Plans reviewed together. _Avoid_: Initiative, refactor, task DAG
 
 **Complexity**: A `LOW`, `MEDIUM`, or `HIGH` rating assigned during Triage. _Avoid_: Difficulty, effort, severity
 
@@ -433,9 +436,9 @@ orchestrator, classifier, triager
 
 **Operator**: The execution Agent for `OPERATION` work. _Avoid_: Executor, fixer, worker
 
-**Planner**: The planning Agent for `PLANNED_CHANGE` work. _Avoid_: Designer, strategist
+**Planner**: The planning Agent for `PLANNED_CHANGE` work and complete PROJECT Sequences. _Avoid_: Designer, strategist
 
-**Architect**: The planning Agent for `PROJECT` work. _Avoid_: Designer, lead
+**Architect**: The planning Agent for PROJECT Epics. _Avoid_: Designer, lead
 
 **Guide**: The read-mostly Agent for `INQUIRY` work that answers directly without materializing artifacts or running a
 Socratic interview. _Avoid_: Explainer, investigator, researcher
@@ -526,11 +529,16 @@ looks for ways an implementation could satisfy its outcomes, steps, and verifica
 intended behavior. Recommended for structural or high-risk Plans; never a required gate. _Avoid_: Plan reviewer,
 Reviewer, red team, adversarial validation
 
-**Epic**: A PROJECT Plan that contains design and decomposition context for child PLANNED_CHANGE Plans rather than
-executable implementation work. _Avoid_: Initiative, umbrella task, PROJECT subtype
+**Epic**: A PROJECT Plan with `type: epic` or no type, containing design and decomposition context. Its approval action
+is Approve & Slice. _Avoid_: Initiative, umbrella task
 
-**Child PLANNED_CHANGE Plan**: An executable PLANNED_CHANGE Plan linked to an Epic through `parentPlan`. _Avoid_: Child
-FEATURE Plan, subtask, ticket, DAG node
+**Sequence**: A PROJECT Plan with `type: sequence` whose brief context and complete child Plans are authored by Planner
+and reviewed together. Approve & Execute starts the first child; normal PROJECT continuation runs subsequent children in
+order. Each child retains its own validation and delivery. A Sequence has no aggregate validation, publication, or
+automatic Epic release branch. _Avoid_: Epic, separate chain manifest
+
+**Child PLANNED_CHANGE Plan**: An executable PLANNED_CHANGE Plan linked to a PROJECT container through `parentPlan`.
+_Avoid_: Child FEATURE Plan, subtask, ticket, DAG node
 
 **Epic Artifact**: A reserved non-Plan Markdown file stored beside an Epic's Child PLANNED_CHANGE Plans. The first Epic
 Artifact is `docs/plans/<epic>/manual-qa.md`. It is ordinary user-owned Markdown, has no Plan Lifecycle, and has no
@@ -562,11 +570,11 @@ _Avoid_: Second validation implementation, session-coupled engine
 without semantic review or Plan status transitions; inside Workflow Validation for executable Plans it runs the
 repository's configured CI before Semantic Review. _Avoid_: Workflow Validation, Reviewer review, agent self-check
 
-**Plan Amendment**: A user-approved change to reviewable Plan definition during active execution or Workflow Validation.
-The execution worktree can propose Plan body, summary, affected path, browser verification, or Ticket Reference edits.
-RunWield shows the diff, asks the user to approve it, writes the accepted definition to the execution Plan, and
-reconciles its canonical copy. Plan Status, worktree metadata, Delivery Evidence, validation counters, and other
-lifecycle fields remain RunWield-owned. _Avoid_: silent worktree Plan edit, lifecycle edit
+**Plan Amendment**: A retired name for a broad automatic gate that tried to adopt execution-worktree Plan edits during
+Workflow Validation. The active validation path does not show an automatic Plan Amendment approval gate and does not
+silently adopt Plan body or definition edits from the execution worktree. Plan Status, worktree metadata, Delivery
+Evidence, validation counters, and other lifecycle fields remain RunWield-owned. _Avoid_: active validation gate, silent
+worktree Plan edit, lifecycle edit
 
 **Pair Execution**: A user-steered Plan execution style where Plan Engineer or Frontend Engineer delivers coherent
 observable increments and blocks at intentional feedback checkpoints. It is a collaboration style, not validation
@@ -602,11 +610,13 @@ _Avoid_: settings key, Custom Tool definition
 **MCP Tool**: A tool discovered from a trusted MCP server. RunWield gives it a stable `mcp_<server>_<tool>` name and
 keeps the original server and tool names in the description. _Avoid_: RunWield built-in tool, Custom Tool
 
-**Bridged Tool**: A RunWield Tool exposed to one Claude CLI turn over the authenticated loopback MCP bridge. Lifecycle
-Bridged Tools can advance workflow state and keep the legacy `runwield_` aliases for `plan_written`, `task_completed`,
-`review_complete`, and `triage_report`. Capability Bridged Tools do memory, Cymbal code intelligence, web access, Work
-Record, interview, edit, MCP, or caller-supplied work and use their internal names, avoiding new aliases such as
-`runwield_memory` or `runwield_code_search`. _Avoid_: Claude native tool, MCP plugin
+**Bridged Tool**: A RunWield Tool exposed to an eligible external CLI Execution Backend turn over an authenticated MCP
+bridge. Claude CLI and Antigravity CLI are the current examples. Lifecycle Bridged Tools can advance workflow state and
+keep the shared external `runwield_` aliases for `plan_written`, `task_completed`, and `review_complete`; Claude CLI
+also keeps its existing `runwield_triage_report` alias. Capability Bridged Tools do memory, Cymbal code intelligence,
+web access, Work Record, interview, edit, MCP, or caller-supplied work and use their internal names, avoiding new
+aliases such as `runwield_memory` or `runwield_code_search`. A Session Transcript can display and audit the tool
+exchange, but a Workflow Tool Event remains the workflow authority. _Avoid_: CLI native tool, MCP plugin
 
 **Memory Tool**: The `memory` Custom Tool that recalls, stores, or deletes Mnemoteca memories through an explicit
 `action`. `action: "recall"` searches project and global memories together and labels each result group.

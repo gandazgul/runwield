@@ -1,20 +1,85 @@
+import { validateSequenceReviewDecision } from "../../../../shared/workflow/sequence-review.ts";
 /** Review decision transport for Workspace-hosted review surfaces. */
 
 import { normalizePlanClassification } from "../../../../constants.js";
 import { readPlanApprovalAction } from "../../../../shared/workflow/plan-approval.js";
 import { normalizeCollaborationMode, normalizeExecutionAgent } from "../../../../plan-store.js";
 
-/** @type {Map<string, { resolve: (value: any) => void, promise: Promise<any> }>} */
+/**
+ * @typedef {import("../../../../shared/workflow/sequence-review.ts").SequenceReviewDecision} SequenceReviewDecision
+ * @typedef {import("../../../../shared/workflow/sequence-review.ts").SequenceReviewDocument} SequenceReviewDocument
+ * @typedef {import("../../../../shared/workflow/review-feedback-images.ts").ReviewImageDecision} ReviewImageDecision
+ * @typedef {import("../../../../shared/workflow/review-feedback-images.ts").ReviewImageInput} ReviewImageInput
+ * @typedef {import("../../../../shared/workflow/review-feedback-images.ts").ReviewAnnotationInput} ReviewAnnotationInput
+ *
+ * @typedef {Object} ReviewExecutionPolicy
+ * @property {"engineer" | "frontend-engineer"} [executionAgent]
+ * @property {"autonomous" | "pair"} [collaborationRecommendation]
+ *
+ * @typedef {Object} ReviewDecisionFields
+ * @property {string} [plan]
+ * @property {string} [savedPath]
+ * @property {string} [agentSwitch]
+ * @property {string} [permissionMode]
+ * @property {boolean} [conversationTurn]
+ * @property {boolean} [exit]
+ * @property {boolean} [canceled]
+ *
+ * @typedef {SequenceReviewDecision & ReviewImageDecision & ReviewExecutionPolicy & ReviewDecisionFields} ReviewDecision
+ *
+ * @typedef {Object} ReviewPlanSave
+ * @property {boolean} [enabled]
+ * @property {string} [path]
+ *
+ * @typedef {Object} ReviewRequestFields
+ * @property {string} [executionAgent]
+ * @property {string} [collaborationRecommendation]
+ * @property {string} [approvalAction]
+ * @property {"plan" | "code"} [reviewType]
+ * @property {ReviewPlanSave} [planSave]
+ *
+ * @typedef {Omit<ReviewDecision, "executionAgent" | "collaborationRecommendation" | "approvalAction"> & ReviewRequestFields} ReviewRequestBody
+ *
+ * @typedef {Object} ReviewPayload
+ * @property {string} [classification]
+ * @property {Pick<import("../../../../plan-store.js").PlanFrontMatter, "classification">} [frontmatter]
+ * @property {SequenceReviewDocument[]} [sequenceDocuments]
+ *
+ * @typedef {Object} ReviewRequestState
+ * @property {string} cwd
+ * @property {string} [reviewToken]
+ * @property {ReviewPayload} [reviewPayload]
+ *
+ * @typedef {Object} ReviewRequestContext
+ * @property {Request} req
+ * @property {Request} [request]
+ * @property {ReviewRequestState} [state]
+ *
+ * @callback ReviewDecisionResolver
+ * @param {ReviewDecision} decision
+ * @returns {void}
+ *
+ * @callback ReviewDecisionFactory
+ * @param {ReviewRequestBody} body
+ * @returns {ReviewDecision | Response}
+ *
+ * @typedef {Object} ReviewDecisionPending
+ * @property {ReviewDecisionResolver} resolve
+ * @property {Promise<ReviewDecision>} promise
+ */
+
+/** @type {Map<string, ReviewDecisionPending>} */
 const reviewDecisions = new Map();
 
 /**
  * @param {string} token
- * @returns {{ resolve: (value: any) => void, promise: Promise<any> }}
+ * @returns {ReviewDecisionPending}
  */
 export function registerReviewDecisionPromise(token) {
     unregisterReviewDecision(token);
-    /** @type {(value: any) => void} */
+    /** @type {ReviewDecisionResolver} */
     let resolveDecision = () => {};
+    /** @type {Promise<ReviewDecision>} */
     const promise = new Promise((resolve) => {
         resolveDecision = resolve;
     });
@@ -24,7 +89,7 @@ export function registerReviewDecisionPromise(token) {
 
 /**
  * @param {string} token
- * @param {any} decision
+ * @param {ReviewDecision} decision
  * @returns {boolean}
  */
 export function resolveReviewDecision(token, decision) {
@@ -42,10 +107,12 @@ export function unregisterReviewDecision(token) {
     reviewDecisions.delete(token);
 }
 
-/** @param {any} ctx */
+/** @param {ReviewRequestContext} ctx */
 export async function reviewDecisionApi(ctx) {
     return await resolveFromRequest(ctx, (body) => {
-        const executionPolicy = validateApprovedExecutionPolicy(body, ctx.state?.reviewPayload);
+        const executionPolicy = ctx.state?.reviewPayload?.sequenceDocuments
+            ? {}
+            : validateApprovedExecutionPolicy(body, ctx.state?.reviewPayload);
         if (executionPolicy instanceof Response) return executionPolicy;
         return {
             approved: true,
@@ -62,7 +129,7 @@ export async function reviewDecisionApi(ctx) {
     });
 }
 
-/** @param {any} ctx */
+/** @param {ReviewRequestContext} ctx */
 export async function reviewDenyApi(ctx) {
     return await resolveFromRequest(ctx, (body) => ({
         approved: false,
@@ -75,7 +142,7 @@ export async function reviewDenyApi(ctx) {
     }));
 }
 
-/** @param {any} ctx */
+/** @param {ReviewRequestContext} ctx */
 export async function reviewFeedbackApi(ctx) {
     return await resolveFromRequest(ctx, (body) => ({
         approved: body.approved === true,
@@ -86,7 +153,7 @@ export async function reviewFeedbackApi(ctx) {
     }));
 }
 
-/** @param {any} body */
+/** @param {ReviewRequestBody} body */
 function reviewImageDecisionFields(body) {
     const globalAttachments = readImageAttachments(body.globalAttachments);
     const images = collectImageAttachments(body);
@@ -96,7 +163,7 @@ function reviewImageDecisionFields(body) {
     };
 }
 
-/** @param {any} body */
+/** @param {ReviewRequestBody} body */
 function collectImageAttachments(body) {
     const candidates = [
         ...readImageAttachments(body.globalAttachments),
@@ -110,12 +177,12 @@ function collectImageAttachments(body) {
     });
 }
 
-/** @param {any} annotation */
+/** @param {ReviewAnnotationInput} annotation */
 function readAnnotationImageAttachments(annotation) {
     return readImageAttachments(annotation?.images);
 }
 
-/** @param {any} value */
+/** @param {ReviewImageInput[]} [value] */
 function readImageAttachments(value) {
     if (!Array.isArray(value)) return [];
     return value.flatMap((image) => {
@@ -126,7 +193,7 @@ function readImageAttachments(value) {
     });
 }
 
-/** @param {any} ctx */
+/** @param {ReviewRequestContext} ctx */
 export async function reviewExitApi(ctx) {
     return await resolveFromRequest(ctx, (body) => {
         if (body.reviewType === "plan") {
@@ -142,8 +209,8 @@ export async function reviewExitApi(ctx) {
 }
 
 /**
- * @param {any} ctx
- * @param {(body: any) => any} createDecision
+ * @param {ReviewRequestContext} ctx
+ * @param {ReviewDecisionFactory} createDecision
  */
 async function resolveFromRequest(ctx, createDecision) {
     const token = reviewToken(ctx.request || ctx.req);
@@ -152,6 +219,7 @@ async function resolveFromRequest(ctx, createDecision) {
     if (expectedToken && token !== expectedToken) return jsonError("invalid_token", "Invalid review token.", 401);
     if (!reviewDecisions.has(token)) return jsonError("review_not_found", "Review expired or completed.", 404);
 
+    /** @type {ReviewRequestBody} */
     let body = {};
     try {
         body = await (ctx.request || ctx.req).json();
@@ -161,6 +229,14 @@ async function resolveFromRequest(ctx, createDecision) {
 
     const decision = createDecision(body || {});
     if (decision instanceof Response) return decision;
+    if (ctx.state?.reviewPayload?.sequenceDocuments && !decision.exit) {
+        decision.documents = body.documents;
+        try {
+            await validateSequenceReviewDecision(ctx.state.cwd, ctx.state.reviewPayload.sequenceDocuments, decision);
+        } catch (error) {
+            return jsonError("stale_sequence_review", error instanceof Error ? error.message : String(error), 409);
+        }
+    }
     if (!resolveReviewDecision(token, decision)) {
         return jsonError("review_not_found", "Review expired or completed.", 404);
     }
@@ -168,9 +244,9 @@ async function resolveFromRequest(ctx, createDecision) {
 }
 
 /**
- * @param {any} body
- * @param {any} reviewPayload
- * @returns {{ executionAgent?: "engineer" | "frontend-engineer", collaborationRecommendation?: "autonomous" | "pair" } | Response}
+ * @param {ReviewRequestBody} body
+ * @param {ReviewPayload} [reviewPayload]
+ * @returns {ReviewExecutionPolicy | Response}
  */
 function validateApprovedExecutionPolicy(body, reviewPayload) {
     const hasAgent = Object.hasOwn(body, "executionAgent");
@@ -216,7 +292,7 @@ function validateApprovedExecutionPolicy(body, reviewPayload) {
     return { executionAgent, collaborationRecommendation };
 }
 
-/** @param {any} reviewPayload */
+/** @param {ReviewPayload} [reviewPayload] */
 function trustedReviewClassification(reviewPayload) {
     const classification = typeof reviewPayload?.classification === "string"
         ? reviewPayload.classification
@@ -226,7 +302,7 @@ function trustedReviewClassification(reviewPayload) {
     return normalizePlanClassification(classification);
 }
 
-/** @param {any} planSave */
+/** @param {ReviewPlanSave} [planSave] */
 function readPlanSavePath(planSave) {
     if (!planSave || typeof planSave !== "object") return undefined;
     if (planSave.enabled === false) return undefined;

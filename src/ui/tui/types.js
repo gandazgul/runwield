@@ -10,6 +10,7 @@
  * @typedef {{
  *   setOutput: (text: string) => void,
  *   endExecution: (isError: boolean, durationMs: number | null) => void,
+ *   appendDisplayImage?: (base64: string, mimeType: string) => void,
  *   bodyText?: string,
  *   startTime: number,
  *   setExpanded?: (expanded: boolean) => void,

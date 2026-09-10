@@ -1,3 +1,5 @@
+import { isEpicPlan, isProjectPlan } from "../project-plan.ts";
+export { isEpicPlan, isProjectPlan, isSequencePlan } from "../project-plan.ts";
 /**
  * @module shared/workflow/plan-lifecycle
  *
@@ -447,7 +449,7 @@ function getManualTargetStatus(currentStatus, details) {
  */
 export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     assertAllowedTransition(event, currentStatus);
-    if (event === "epic_done_enough" && !isEpicPlan(details.triageMeta)) {
+    if (event === "epic_done_enough" && !isProjectPlan(details.triageMeta)) {
         throw new Error("Invalid Plan Lifecycle transition: epic_done_enough can only apply to PROJECT Epic plans.");
     }
 
@@ -581,6 +583,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "hold_reset_to_draft") {
+        updates.documentWorktreeId = null;
         updates.heldFromStatus = null;
         updates.heldAt = null;
         updates.holdReason = null;
@@ -845,13 +848,13 @@ function hasModeAppropriateDeliveryEvidence(attrs) {
  */
 async function advanceParentEpicWhenAllChildrenVerified({ cwd, planName, event, updatedAttrs, details = {} }) {
     if (event !== "validation_passed" && event !== "manual_user_verified") return;
-    if (isEpicPlan(updatedAttrs)) return;
+    if (isProjectPlan(updatedAttrs)) return;
 
     const parentPlanName = typeof updatedAttrs.parentPlan === "string" ? updatedAttrs.parentPlan : "";
     if (!parentPlanName) return;
 
     const parent = await loadPlan(cwd, parentPlanName);
-    if (!parent || !isEpicPlan(parent.attrs)) return;
+    if (!parent || !isProjectPlan(parent.attrs)) return;
     if (isPlanDependencySatisfiedStatus(parent.attrs.status)) return;
     if (parent.attrs.status !== "ready_for_work") return;
 
@@ -948,7 +951,7 @@ export async function recordPlanEvent({ cwd, planName, event, currentStatus, det
     try {
         if (event === "validation_passed" || event === "manual_user_verified") {
             const preflightPlan = await loadPlan(cwd, planName);
-            const parentPlanName = preflightPlan && !isEpicPlan(preflightPlan.attrs) &&
+            const parentPlanName = preflightPlan && !isProjectPlan(preflightPlan.attrs) &&
                     typeof preflightPlan.attrs.parentPlan === "string"
                 ? preflightPlan.attrs.parentPlan
                 : "";
@@ -995,7 +998,7 @@ export async function recordPlanEvent({ cwd, planName, event, currentStatus, det
                     let lockedParent = null;
                     /** @type {Record<string, unknown> | null} */
                     let parentUpdates = null;
-                    if (parentPlanName && !isEpicPlan(beforePlan.attrs)) {
+                    if (parentPlanName && !isProjectPlan(beforePlan.attrs)) {
                         const lockedSiblings = await findCompletionSiblings(cwd, parentPlanName);
                         if (
                             lockedSiblings.length !== siblings.length ||
@@ -1015,7 +1018,7 @@ export async function recordPlanEvent({ cwd, planName, event, currentStatus, det
                             }),
                         );
                         if (
-                            lockedParent && isEpicPlan(lockedParent.attrs) &&
+                            lockedParent && isProjectPlan(lockedParent.attrs) &&
                             lockedParent.attrs.status === "ready_for_work"
                         ) {
                             const projectedChildren = childrenBeforeWrite.map((child) =>
@@ -1152,14 +1155,6 @@ export async function stageValidationPassedInExecutionWorktree({
         details: { ...details, triageMeta: executionPlan.attrs, cleanupMergedWorktrees: false },
     });
     return { attrs, planPaths: [planPath] };
-}
-
-/**
- * @param {import('../../plan-store.js').PlanFrontMatterInput | undefined} attrs
- * @returns {boolean}
- */
-export function isEpicPlan(attrs) {
-    return attrs?.classification === "PROJECT";
 }
 
 /**

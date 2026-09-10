@@ -1,3 +1,4 @@
+import { isSequencePlan, projectPlanType } from "../../shared/project-plan.ts";
 /**
  * @module cmd/load-plan/plan-epic-flow
  * The Epic action menu: decomposition, child selection, and done-enough.
@@ -14,7 +15,7 @@ import {
     isTerminalArchivableStatus,
     resolvePlan,
 } from "../../plan-store.js";
-import { isEpicPlan, isInValidation, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { isInValidation, isProjectPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { resolveWorkRecordSupersessionProposalsWithUi } from "../../shared/workflow/validation-helpers.ts";
 import {
     autoGenerateWorkRecordForCompletedPlan,
@@ -76,7 +77,9 @@ export async function handleEpicPlan({
     loadChildPlan,
     session,
 }: HandleEpicPlanOptions): Promise<"handled" | "continue" | "review" | "direct_review"> {
-    if (!isEpicPlan(plan.attrs)) return "continue";
+    if (!isProjectPlan(plan.attrs)) return "continue";
+    projectPlanType(plan.attrs);
+    const sequence = isSequencePlan(plan.attrs);
 
     const children = (await findPlansByParent(projectRoot, plan.planName)).filter((child) =>
         isPlannedChangeClassification(child.attrs.classification)
@@ -86,7 +89,9 @@ export async function handleEpicPlan({
     const hasLegacyExecutableEpicStatus = ["in_progress", "failed"].includes(plan.attrs.status) ||
         isInValidation(plan.attrs.status);
     const canPickChild = hasChildren &&
-        (isDecomposedEpicStatus(plan.attrs) || isApprovedEpic || hasLegacyExecutableEpicStatus);
+        (sequence
+            ? plan.attrs.status === "ready_for_work"
+            : isDecomposedEpicStatus(plan.attrs) || isApprovedEpic || hasLegacyExecutableEpicStatus);
     let epicReadinessRecorded = false;
 
     async function ensureEpicReadinessPassed() {
@@ -122,18 +127,23 @@ export async function handleEpicPlan({
     }
 
     const canReviewWithArchitect = plan.attrs.status === "draft" || plan.attrs.status === "feedback" ||
-        plan.attrs.status === "approved";
-    const canDirectReview = plan.attrs.status === "draft" || plan.attrs.status === "feedback" ||
-        plan.attrs.status === "approved" || plan.attrs.status === "ready_for_work";
-    const canOpenSlicer = isApprovedEpic || hasLegacyExecutableEpicStatus ||
-        plan.attrs.status === "ready_for_decomposition" || plan.attrs.status === "ready_for_work";
+        plan.attrs.status === "approved" || (sequence && plan.attrs.status === "ready_for_work" &&
+            children.every((child) =>
+                ["draft", "feedback", "approved", "ready_for_work"].includes(child.attrs.status)
+            ));
+    const canDirectReview = !sequence && (plan.attrs.status === "draft" || plan.attrs.status === "feedback" ||
+        plan.attrs.status === "approved" || plan.attrs.status === "ready_for_work");
+    const canOpenSlicer = !sequence && (isApprovedEpic || hasLegacyExecutableEpicStatus ||
+        plan.attrs.status === "ready_for_decomposition" || plan.attrs.status === "ready_for_work");
 
     if (canReviewWithArchitect) {
-        const action = canOpenSlicer
+        const action = sequence
+            ? "Review the Sequence and all children with Planner."
+            : canOpenSlicer
             ? "Review it with Architect or resume Slicer decomposition to create child plans."
             : "Review it with Architect to continue planning.";
         uiAPI.appendSystemMessage(
-            `This PROJECT Epic is not executable. ${action}`,
+            `This PROJECT ${sequence ? "Sequence" : "Epic"} contains child Plans. ${action}`,
             false,
             "RunWield",
         );
@@ -146,10 +156,12 @@ export async function handleEpicPlan({
         const epicOptions = [
             ...(canPickChild ? [{ value: "pick_child", label: "Pick a child Planned Change plan" }] : []),
             ...(canDirectReview ? [{ value: "direct_review", label: "Review plan" }] : []),
-            ...(canReviewWithArchitect ? [{ value: "review", label: "Review with Architect" }] : []),
+            ...(canReviewWithArchitect
+                ? [{ value: "review", label: sequence ? "Review Sequence with Planner" : "Review with Architect" }]
+                : []),
             ...(canOpenSlicer ? [{ value: "slicer", label: "Open or resume Slicer decomposition" }] : []),
             ...(hasChildren && plan.attrs.status === "ready_for_work"
-                ? [{ value: "done_enough", label: "Mark Epic done enough for now" }]
+                ? [{ value: "done_enough", label: `Mark ${sequence ? "Sequence" : "Epic"} done enough for now` }]
                 : []),
             ...(isUserVerifiableStatus(plan.attrs.status)
                 ? [{

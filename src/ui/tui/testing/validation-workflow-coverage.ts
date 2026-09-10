@@ -233,7 +233,7 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "human-review:no-answer-retry" || id === "human-review:no-answer-stop") {
         return ["Pick Retry to open it again"];
     }
-    if (id.startsWith("human-review:")) return ["Need your human review"];
+    if (id.startsWith("human-review:")) return ["Need your review:"];
     if (id === "publication:non-git-success") return ["is done"];
     const successfulPublicationProgress = [
         "The commits are ready",

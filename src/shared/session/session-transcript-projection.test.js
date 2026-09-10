@@ -43,6 +43,18 @@ async function withHome(callback) {
     });
 }
 
+Deno.test("Session projection reads the last persisted Session rename", () => {
+    assertEquals(
+        summarizeProjectedEntries([
+            { type: "session", name: "Original" },
+            { type: "session_info", name: "First rename" },
+            { type: "message", message: { role: "user", content: "Not the name" } },
+            { type: "session_info", name: "Saved name" },
+        ]).name,
+        "Saved name",
+    );
+});
+
 Deno.test("committed projection verifies exact prefix and ignores later tail", async () => {
     await withHome(async (home) => {
         const cwd = `${home}/project`;
@@ -93,7 +105,50 @@ Deno.test("committed projection verifies exact prefix and ignores later tail", a
     });
 });
 
-Deno.test("committed projection replays Claude CLI final messages as ordinary transcript text", async () => {
+Deno.test("committed projection replays Agy backend status as display-only system status", () => {
+    const events = createReplayEvents("projection", [
+        {
+            type: "custom",
+            customType: "runwield.backend_status",
+            data: {
+                version: 1,
+                backend: "agy-cli",
+                kind: "non_zero_exit",
+                message: "Antigravity CLI exited before completing the turn.",
+            },
+        },
+        {
+            type: "custom",
+            id: "agy-warning",
+            customType: "runwield.backend_status",
+            data: {
+                version: 1,
+                backend: "agy-cli",
+                kind: "non_zero_exit",
+                afterAcceptedTerminal: true,
+                message: "Late Agy host failure after accepted workflow result.",
+            },
+        },
+        {
+            type: "custom",
+            customType: "runwield.backend_status",
+            data: {
+                version: 1,
+                backend: "claude-cli",
+                kind: "canceled",
+                message: "Claude Code turn canceled.",
+            },
+        },
+    ], { projectRoot: Deno.cwd() });
+
+    assertEquals(events.map((event) => event.type), ["system_status", "system_status", "system_status"]);
+    assertEquals(events.map((event) => event.level), ["error", "warning", "warning"]);
+    assertEquals(events[0].messageId.includes("agy-cli-backend-status"), true);
+    assertEquals(events[2].messageId.includes("claude-cli-backend-status"), true);
+    assertEquals(JSON.stringify(events).includes("workflow_tool_event"), false);
+});
+
+Deno.test("committed projection replays CLI backend final messages as ordinary transcript text", async () => {
     await withHome(async (home) => {
         const cwd = `${home}/project`;
         await Deno.mkdir(cwd, { recursive: true });
@@ -104,16 +159,39 @@ Deno.test("committed projection replays Claude CLI final messages as ordinary tr
             { type: "session", id: "claude", cwd, timestamp: "2026-01-01T00:00:00.000Z" },
             {
                 type: "custom",
-                id: "backend",
+                id: "backend-claude",
                 customType: "runwield.execution_backend",
                 data: { backend: "claude-cli" },
             },
-            { type: "message", id: "user", message: { role: "user", content: [{ type: "text", text: "hi claude" }] } },
-            { type: "model_change", id: "model", provider: "claude-cli", modelId: "sonnet" },
             {
                 type: "message",
-                id: "assistant",
+                id: "user-claude",
+                message: { role: "user", content: [{ type: "text", text: "hi claude" }] },
+            },
+            { type: "model_change", id: "model-claude", provider: "claude-cli", modelId: "sonnet" },
+            {
+                type: "message",
+                id: "assistant-claude",
                 message: { role: "assistant", content: [{ type: "text", text: "stream complete" }] },
+            },
+            {
+                type: "custom",
+                id: "agent-agy",
+                customType: "runwield.active_agent",
+                data: { agentName: "planner" },
+            },
+            {
+                type: "custom",
+                id: "backend-agy",
+                customType: "runwield.execution_backend",
+                data: { backend: "agy-cli", model: "gemini-fixture" },
+            },
+            { type: "message", id: "user-agy", message: { role: "user", content: [{ type: "text", text: "hi agy" }] } },
+            { type: "model_change", id: "model-agy", provider: "agy-cli", modelId: "gemini-fixture" },
+            {
+                type: "message",
+                id: "assistant-agy",
+                message: { role: "assistant", content: [{ type: "text", text: "agy complete" }] },
             },
         ].map((entry) => JSON.stringify(entry)).join("\n") + "\n";
         await Deno.writeTextFile(sessionPath, committed);
@@ -131,11 +209,14 @@ Deno.test("committed projection replays Claude CLI final messages as ordinary tr
             terminalEntryId: evidence.terminalEntryId,
             digestHex: evidence.digestHex,
         });
-        assertEquals(projected.events.map((event) => event.type), ["user_message", "assistant_text_delta"]);
-        assertEquals(
-            projected.events.map((event) => "text" in event ? event.text : "delta" in event ? event.delta : ""),
-            ["hi claude", "stream complete"],
+        const replayedText = projected.events.map((event) =>
+            "text" in event ? event.text : "delta" in event ? event.delta : ""
         );
+        assertEquals(replayedText.includes("hi claude"), true);
+        assertEquals(replayedText.includes("stream complete"), true);
+        assertEquals(replayedText.includes("hi agy"), true);
+        assertEquals(replayedText.includes("agy complete"), true);
+        assertEquals(JSON.stringify(projected.events).includes("runwield-planner-"), false);
     });
 });
 
@@ -246,32 +327,82 @@ Deno.test("projection cursor selection returns only later events and advances su
     assertEquals(summaryOnly.nextCursor, null);
 });
 
-Deno.test("projection summary preserves stable attention event identity", () => {
-    const first = summarizeProjectedEntries([
+Deno.test("projection ignores old notification records", () => {
+    const summary = summarizeProjectedEntries([
         { type: "custom", id: "agent-entry", customType: "runwield.active_agent", data: { agentName: "Ideator" } },
-        {
-            type: "custom",
-            id: "attention-entry",
-            customType: "runwield.attention",
-            data: { reason: "agentStopped", agentName: "Ideator" },
-        },
+        { type: "custom", id: "old-alert", customType: "runwield.attention", data: { reason: "agentStopped" } },
     ]);
-    const second = summarizeProjectedEntries([
-        { type: "custom", id: "agent-entry", customType: "runwield.active_agent", data: { agentName: "Ideator" } },
+    assertEquals("attention" in summary, false);
+    assertEquals(summary.activeAgent, "ideator");
+});
+
+Deno.test("projection summary keeps the latest valid Agy execution backend fact", () => {
+    const summary = summarizeProjectedEntries([
         {
             type: "custom",
-            id: "attention-entry",
-            customType: "runwield.attention",
-            data: { reason: "agentStopped", agentName: "Ideator" },
+            customType: "runwield.execution_backend",
+            data: { backend: "agy-cli", provider: "agy-cli", model: "gemini-3.8-flash", thinkingLevel: "low" },
+        },
+        { type: "custom", customType: "runwield.execution_backend", data: { backend: 7, model: {} } },
+        {
+            type: "custom",
+            customType: "runwield.execution_backend",
+            data: {
+                backend: "agy-cli",
+                provider: "agy-cli",
+                model: "gemini-3.1-pro",
+                thinkingLevel: "medium",
+                effort: "high",
+                backendModel: "gemini-3.1-pro-high",
+            },
+        },
+        { type: "custom", customType: "runwield.execution_backend", data: { backend: "agy-cli" } },
+        {
+            type: "custom",
+            customType: "runwield.execution_backend",
+            data: {
+                backend: "agy-cli",
+                provider: "agy-cli",
+                model: "gemini-unknown",
+                thinkingLevel: "medium",
+                effort: "high",
+                backendModel: "gemini-unknown-high",
+            },
+        },
+        {
+            type: "custom",
+            customType: "runwield.execution_backend",
+            data: {
+                backend: "agy-cli",
+                provider: "agy-cli",
+                model: "gemini-3.1-pro",
+                thinkingLevel: "medium",
+                effort: "low",
+                backendModel: "gemini-3.1-pro-low",
+            },
+        },
+        {
+            type: "custom",
+            customType: "runwield.execution_backend",
+            data: {
+                backend: "agy-cli",
+                provider: "agy-cli",
+                model: "gemini-3.1-pro",
+                thinkingLevel: "medium",
+                effort: "high",
+                backendModel: "gemini-3.1-pro-low",
+            },
         },
     ]);
 
-    assertEquals(first.attention, {
-        eventId: "attention-entry:attention_requested:0",
-        reason: "agentStopped",
-        agentName: "Ideator",
+    assertEquals(summary.executionBackend, {
+        backend: "agy-cli",
+        provider: "agy-cli",
+        model: "gemini-3.1-pro",
+        thinkingLevel: "medium",
+        effort: "high",
+        backendModel: "gemini-3.1-pro-high",
     });
-    assertEquals(second.attention?.eventId, first.attention?.eventId);
 });
 
 Deno.test("committed transcript authority facts are explicit projection extracts", () => {
@@ -394,4 +525,106 @@ Deno.test("summarizeProjectedEntries exposes Plan Associations and ignores legac
         ]).planAssociations,
         [],
     );
+});
+
+Deno.test("accepted workflow transitions replay their result even when the tool stopped its own turn", () => {
+    const entries = [
+        {
+            type: "message",
+            id: "call",
+            message: {
+                role: "assistant",
+                content: [
+                    {
+                        type: "toolCall",
+                        id: "completed-1",
+                        name: "task_completed",
+                        arguments: { message: "Attempted" },
+                    },
+                ],
+            },
+        },
+        {
+            type: "custom",
+            id: "accepted",
+            customType: "runwield.workflow_tool_event",
+            data: {
+                state: "accepted",
+                kind: "task_completed",
+                toolCallId: "completed-1",
+                payload: { outcome: "task_completed", message: "Delivered and verified." },
+            },
+        },
+    ];
+    for (const withProviderResult of [false, true]) {
+        const events = createReplayEvents(
+            "session",
+            withProviderResult
+                ? [...entries, {
+                    type: "message",
+                    id: "result",
+                    message: {
+                        role: "toolResult",
+                        toolName: "task_completed",
+                        toolCallId: "completed-1",
+                        content: [{ type: "text", text: "Delivered and verified." }],
+                        details: { outcome: "task_completed", message: "Delivered and verified." },
+                    },
+                }]
+                : entries,
+        );
+        assertEquals(events.filter((event) => event.type === "tool_end").length, 1);
+        assertEquals(events.filter((event) => event.workflowMessage === "task_completed").length, 1);
+        assertEquals(events.find((event) => event.type === "tool_end")?.isError, false);
+    }
+    assertEquals(createReplayEvents("session", entries.slice(0, 1)).some((event) => event.type === "tool_end"), false);
+    const triage = createReplayEvents("session", [{
+        type: "custom",
+        id: "triage",
+        customType: "runwield.workflow_tool_event",
+        data: {
+            state: "accepted",
+            kind: "triage_report",
+            toolCallId: "triage-1",
+            payload: { routingIntent: "QUICK_FIX", complexity: "LOW", summary: "Fix the broken image send." },
+        },
+    }]);
+    assertEquals(triage[0].type, "tool_end");
+    assertEquals(triage[0].toolName, "triage_report");
+    assertEquals(triage[0].details.summary, "Fix the broken image send.");
+});
+
+Deno.test("Session replay preserves images and every text block as one user message", () => {
+    const events = createReplayEvents("session", [
+        {
+            type: "message",
+            id: "mixed",
+            message: {
+                role: "user",
+                content: [
+                    { type: "text", text: "Look at this" },
+                    { type: "image", data: "aW1hZ2U=", mimeType: "image/png" },
+                    { type: "text", text: "and explain it." },
+                ],
+            },
+        },
+        {
+            type: "message",
+            id: "image-only",
+            message: {
+                role: "user",
+                content: [
+                    { type: "image", data: "b3RoZXI=", mimeType: "image/jpeg" },
+                ],
+            },
+        },
+    ]);
+    assertEquals(events.map((event) => ({ type: event.type, text: event.text, images: event.images })), [
+        {
+            type: "user_message",
+            text: "Look at this\nand explain it.",
+            images: [{ base64: "aW1hZ2U=", mimeType: "image/png" }],
+        },
+        { type: "user_message", text: "", images: [{ base64: "b3RoZXI=", mimeType: "image/jpeg" }] },
+    ]);
 });

@@ -65,12 +65,15 @@ import {
 import { projectAggregateTranscript } from "./session-transcript-manifest.ts";
 import { rollSessionTranscriptSegment } from "./segment-rollover.ts";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "./session-runtime-interactions.js";
+import { appendLiveSessionEvent } from "./live-session-events.ts";
+import { openLiveSessionConnection } from "./live-session-connection.ts";
 import {
     modelSupportsImageInput,
     persistImageAttachment,
     preflightImageAttachments,
     resolveVisionFallbackModel,
 } from "./image-attachments.js";
+import { assertModelExecutionBackendSupported } from "../models/model-execution.ts";
 import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../models/model-registry.ts";
 import { parseProviderModel } from "../models/model-validation.ts";
 import { spawnForegroundShell } from "../foreground-process.ts";
@@ -91,6 +94,7 @@ import { dirname, isAbsolute } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { resolveMcpConfig } from "../mcp/config.ts";
 import { startMcpToolPool } from "../mcp/pool.ts";
+import { ensureAgyCliMcpSetup } from "./backends/agy-cli/mcp-setup.ts";
 
 /**
  * @typedef {Object} ManagedOperationContext
@@ -434,6 +438,11 @@ function normalizeManagedActiveModelState(modelState, managed) {
     return { model, provider };
 }
 
+/** @param {unknown} error */
+function isAgyCliMcpSetupApprovalError(error) {
+    return error instanceof Error && error.name === "AgyCliMcpSetupApprovalError";
+}
+
 /**
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager
  * @returns {string | undefined}
@@ -448,31 +457,6 @@ function resolvePersistedResumeModel(sessionManager) {
     } catch {
         return undefined;
     }
-}
-
-/**
- * Decide whether a projected attention record is newly observed for a session.
- *
- * The projector reports the last attention entry in the entire committed
- * transcript, so the same record repeats on every sync. Matching it against the
- * freshly replayed event batch cannot work: `createReplayEvents` has no branch
- * for `runwield.attention` entries, so that eventId is never present in the
- * batch and the comparison was permanently false. Compare against the id
- * observed on the previous sync instead, and treat "never observed" as a silent
- * seed so adopting a session whose transcript already contains an attention
- * entry does not notify about history.
- *
- * @param {{ attention?: { eventId?: string | null } | null } | null | undefined} summary
- * @param {string | null | undefined} previousAttentionEventId id observed on the
- *   previous sync, `null` when that sync saw none, `undefined` when this session
- *   has never been synchronized
- * @returns {boolean}
- */
-export function shouldEmitProjectedAttention(summary, previousAttentionEventId) {
-    const attentionEventId = typeof summary?.attention?.eventId === "string" ? summary.attention.eventId : null;
-    if (!attentionEventId) return false;
-    if (previousAttentionEventId === undefined) return false;
-    return attentionEventId !== previousAttentionEventId;
 }
 
 /**
@@ -531,8 +515,10 @@ export class SessionRuntime {
     #pendingManagedCreationProjects;
     /** @type {Map<string, import('./session-runtime-events.js').SessionRuntimeEvent[]>} */
     #pendingReplayEvents;
+
+    /** @type {Map<string, import("./session-runtime-events.js").SessionRuntimeEvent[]>} */
+    #liveSessionEvents = new Map();
     /** @type {Map<string, string | null>} */
-    #observedAttentionEventIds;
     /** @type {WeakMap<import('./hosted-session.js').MinimalSessionManagerLike, { leafId: string | null, info: ReturnType<typeof buildProjectedSessionInfo> }>} */
     #activeSessionInfoCache;
     /** @type {FileSessionStoreOwner} */
@@ -556,7 +542,6 @@ export class SessionRuntime {
         this.#currentManagedOperationSettlements = new Map();
         this.#pendingManagedCreationProjects = new Map();
         this.#pendingReplayEvents = new Map();
-        this.#observedAttentionEventIds = new Map();
         this.#activeSessionInfoCache = new WeakMap();
         this.#sessionStoreOwner = new FileSessionStoreOwner(
             composition.sessionStore,
@@ -891,6 +876,9 @@ export class SessionRuntime {
             return { ok: false, error: "managed_operation_in_progress", operation };
         }
         if (capability && currentCapability === capability) return null;
+        if (capability && !capability.settled && hostedSession.getManagedOperationCapability?.() === capability) {
+            return null;
+        }
         return { ok: false, error: "managed_operation_required", operation };
     }
 
@@ -927,6 +915,18 @@ export class SessionRuntime {
         const sourceStillQueued = (this.#queuedMessages.get(hostedSession.id) || [])
             .some((message) => message.sourceSession === sourceSession);
         if (!sourceStillQueued) this.#removeQueueSourceSubscription(hostedSession.id, sourceSession);
+    }
+
+    /** @param {import('./hosted-session.js').HostedSession} hostedSession */
+    #reconcileQueuedMessageSources(hostedSession) {
+        const subscriptions = this.#queueSourceSubscriptions.get(hostedSession.id);
+        if (!subscriptions) return;
+        for (const { sourceSession } of [...subscriptions.values()]) {
+            const activeSteering = sourceSession.getSteeringMessages?.();
+            if (Array.isArray(activeSteering)) {
+                this.#reconcileQueuedMessages(hostedSession, sourceSession, activeSteering);
+            }
+        }
     }
 
     /**
@@ -994,7 +994,8 @@ export class SessionRuntime {
     async steerSession(sessionId, text, images = []) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, queued: false, error: "not_found" };
-        const capability = this.#currentManagedOperations.get(sessionId) || null;
+        const capability = this.#currentManagedOperations.get(sessionId) ||
+            hostedSession.getManagedOperationCapability?.() || null;
         const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "steerSession", capability);
         if (managedRejection) return { ...managedRejection, queued: false };
         if (hostedSession.isAgentTransitioning?.()) {
@@ -1361,6 +1362,16 @@ export class SessionRuntime {
      * @param {string} [provider]
      */
     async reconfigureSessionModel(sessionId, model, provider = "") {
+        const registry = getModelRegistry();
+        const parsedModel = provider ? { ok: true, provider, id: model } : parseProviderModel(model);
+        const targetModel = parsedModel.ok ? registry.find(parsedModel.provider, parsedModel.id) : undefined;
+        if (parsedModel.ok && parsedModel.provider === "agy-cli" && !targetModel) {
+            throw new Error(
+                `Unsupported Antigravity CLI model: agy-cli/${parsedModel.id}. Select agy-cli/gemini-3.8-flash or agy-cli/gemini-3.1-pro.`,
+            );
+        }
+        assertModelExecutionBackendSupported(targetModel);
+
         const promptReadySession = this.#sessionHost.getSession(sessionId);
         if (
             promptReadySession &&
@@ -1368,6 +1379,9 @@ export class SessionRuntime {
             !promptReadySession.getManagedMetadata?.()
         ) {
             promptReadySession.setActiveModelState(model, provider, true);
+            if (parsedModel.ok && parsedModel.provider === "agy-cli") {
+                await ensureAgyCliMcpSetup({ hostedSession: promptReadySession });
+            }
             promptReadySession.mergePendingManagedTurnIntent?.({ model, provider, manualModel: true });
             this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.MODEL_CHANGED, model, provider });
             return { ok: true, model, provider };
@@ -1395,10 +1409,12 @@ export class SessionRuntime {
                     model,
                 );
             } catch (error) {
-                if (previousUserOverride) {
-                    session.setActiveModelState(previousModelState.model, previousModelState.provider || "", true);
-                } else {
-                    session.clearUserModelOverride?.();
+                if (!isAgyCliMcpSetupApprovalError(error)) {
+                    if (previousUserOverride) {
+                        session.setActiveModelState(previousModelState.model, previousModelState.provider || "", true);
+                    } else {
+                        session.clearUserModelOverride?.();
+                    }
                 }
                 throw error;
             }
@@ -2700,6 +2716,9 @@ export class SessionRuntime {
     setSessionThinkingLevel(sessionId, thinkingLevel) {
         /** @param {import('./hosted-session.js').HostedSession} session */
         const run = (session) => {
+            /** @typedef {{ setThinkingLevel?: (level: import('./hosted-session.js').ThinkingLevel) => void }} ThinkingSession */
+            const root = /** @type {ThinkingSession | null} */ (session.getRootAgentSession());
+            root?.setThinkingLevel?.(thinkingLevel);
             session.setThinkingLevel(thinkingLevel);
             session.getRootSessionManager()?.appendThinkingLevelChange?.(thinkingLevel);
             this.#emitSessionEvent(session.id, { type: RuntimeEventTypes.THINKING_LEVEL_CHANGED, thinkingLevel });
@@ -2708,6 +2727,9 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
         const managed = session.getManagedMetadata?.();
+        if (!managed && this.#pendingManagedCreationProjects.has(sessionId)) {
+            session.mergePendingManagedTurnIntent?.({ thinkingLevel });
+        }
         if (managed && !session.getRootSessionManager?.()) {
             return /** @type {any} */ (this.#runManagedStandaloneMutation(
                 sessionId,
@@ -2743,7 +2765,6 @@ export class SessionRuntime {
             this.#pendingManagedCreations.delete(id);
             this.#pendingManagedCreationProjects.delete(id);
             this.#pendingReplayEvents.delete(id);
-            this.#observedAttentionEventIds.delete(id);
         }
         return { ok: true, closed };
     }
@@ -2845,6 +2866,8 @@ export class SessionRuntime {
             : undefined;
         const enrichedEvent = /** @type {any} */ (sessionName ? { ...event, sessionName } : event);
         const runtimeEvent = createSessionRuntimeEvent(sessionId, enrichedEvent);
+        const liveEvents = this.#liveSessionEvents.get(sessionId);
+        if (liveEvents) appendLiveSessionEvent(liveEvents, runtimeEvent);
         const listeners = this.#eventListeners.get(sessionId);
         if (!listeners) {
             if (runtimeEvent.type === RuntimeEventTypes.SYSTEM_STATUS) {
@@ -3046,6 +3069,7 @@ export class SessionRuntime {
         try {
             this.#sessionStore.releaseUnchangedActivation(prepared.proof);
             this.#pendingManagedCreationProjects.delete(hostedSession.id);
+            if (prepared.managed.syncState) this.#emitSessionEvent(hostedSession.id, prepared.managed.syncState);
             return prepared.managed;
         } catch (error) {
             try {
@@ -3394,24 +3418,10 @@ export class SessionRuntime {
             };
             hostedSession.setManagedMetadata(nextMetadata);
             managed = hostedSession.getManagedMetadata?.() || nextMetadata;
-            const projectedAttention = summary.attention || null;
-            // Record the observation on every sync, including non-emitting ones, so
-            // the adoption sync seeds the baseline and only genuinely new attention
-            // records reach the notifier.
-            const previousAttentionEventId = this.#observedAttentionEventIds.get(sessionId);
-            this.#observedAttentionEventIds.set(sessionId, projectedAttention?.eventId ?? null);
             if (emitEvents) {
                 for (const event of events) this.#emitSessionEvent(sessionId, /** @type {any} */ (event));
                 if (summary.name) {
                     this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.SESSION_RENAMED, name: summary.name });
-                }
-                if (projectedAttention && shouldEmitProjectedAttention(summary, previousAttentionEventId)) {
-                    this.#emitSessionEvent(sessionId, {
-                        type: RuntimeEventTypes.ATTENTION_REQUESTED,
-                        eventId: projectedAttention.eventId,
-                        reason: projectedAttention.reason || "agentStopped",
-                        agentName: projectedAttention.agentName || undefined,
-                    });
                 }
             }
             if (managed.syncState && !isSameManagedSyncState(previousSyncState, managed.syncState)) {
@@ -3743,9 +3753,9 @@ export class SessionRuntime {
             images: options.initialImages || [],
         });
         const submittedRequest = options.initialRequest;
-        const displayRequest = namedInvocation.kind === "ordinary"
-            ? submittedRequest
-            : namedInvocation.payload.compactInvocation;
+        let displayRequest = submittedRequest;
+        if (namedInvocation.kind === "prompt_template") displayRequest = namedInvocation.expandedRequest;
+        if (namedInvocation.kind === "skill") displayRequest = namedInvocation.payload.compactInvocation;
         let managed = hostedSession.getManagedMetadata?.() || null;
         const isDeferredFirstTurn = !managed && this.#pendingManagedCreationProjects.has(sessionId);
         const deferredFirstTurnId = isDeferredFirstTurn ? crypto.randomUUID() : "";
@@ -3785,6 +3795,10 @@ export class SessionRuntime {
             }
         }
         if (!managed) throw new Error("SessionRuntime.promptUserTurn: segmented Session metadata is unavailable");
+        if (!isDeferredFirstTurn && !this.#currentManagedOperations.has(sessionId)) {
+            await this.synchronizeManagedSession(sessionId);
+            managed = hostedSession.getManagedMetadata() || managed;
+        }
         const requestOptions = deferredFirstTurnId
             ? { ...options, initialRequest: displayRequest, turnId: deferredFirstTurnId, emitInitialEvents: false }
             : { ...options, initialRequest: displayRequest };
@@ -3909,17 +3923,29 @@ export class SessionRuntime {
         );
         hostedSession.setManagedOperationCapability(capability);
         let hydrated = false;
+        /** @type {(() => Promise<void>) | null} */
+        let closeLiveConnection = null;
         /** @type {() => void} */
         let cleanupTurnStart = () => {};
         const shouldEmitBusyEvents = options.emitBusyEvents !== false;
         if (shouldEmitBusyEvents) this.#beginBusyOperation(sessionId);
         try {
+            /** @type {import("./session-runtime-events.js").SessionRuntimeEvent[]} */
+            const liveEvents = [];
+            this.#liveSessionEvents.set(sessionId, liveEvents);
+            closeLiveConnection = await openLiveSessionConnection(
+                this,
+                hostedSession,
+                activeProof.operationId,
+                liveEvents,
+            );
             const pendingIntent = hostedSession.getPendingManagedTurnIntent?.() || {};
+            let generationSegment = null;
             if (state.generation) {
-                const generationSegment = this.#sessionStore.listSessionTranscriptSegments(
+                generationSegment = this.#sessionStore.listSessionTranscriptSegments(
                     managed.runwieldSessionId,
                 )
-                    .find((segment) => segment.segmentId === state.generation?.currentSegmentId);
+                    .find((segment) => segment.segmentId === state.generation?.currentSegmentId) || null;
                 if (!generationSegment) throw new Error("Committed generation current segment is absent from manifest");
                 const currentEvidence = await captureTranscriptEvidence({
                     transcriptPath: generationSegment.transcriptPath,
@@ -3972,9 +3998,9 @@ export class SessionRuntime {
             capability.updateProof(activeProof);
             hydrated = true;
             const { sessionManager } = await openPersistedRootSession({
-                cwd: hostedSession.cwd,
-                sessionId: managed.piSessionId,
-                sessionPath: managed.transcriptPath,
+                cwd: generationSegment?.transcriptCwd || hostedSession.cwd,
+                sessionId: generationSegment?.piSessionId || managed.piSessionId,
+                sessionPath: generationSegment?.transcriptPath || managed.transcriptPath,
             });
             hostedSession.setRootSessionManager(/** @type {any} */ (sessionManager), capability);
             const pendingModel = pendingIntent.model || pendingIntent.provider
@@ -3993,11 +4019,6 @@ export class SessionRuntime {
                     parsedPendingModel.ok ? parsedPendingModel.id : pendingModel,
                 );
             }
-            if (pendingIntent.thinkingLevel || managed.thinkingLevel) {
-                hostedSession.setThinkingLevel(normalizeThinkingLevel(
-                    pendingIntent.thinkingLevel || managed.thinkingLevel,
-                ));
-            }
             let agentName = options.agentName || pendingIntent.agentName || null;
             if (descriptor.activateAgent !== false) {
                 const resumeAgent = await resolveResumeAgentName(sessionManager);
@@ -4014,6 +4035,9 @@ export class SessionRuntime {
                 await this.#activateSessionAgent(hostedSession, {
                     ...persistedRootConfiguration,
                     agentName,
+                    thinkingLevelOverride: pendingIntent.thinkingLevel || managed.thinkingLevel
+                        ? normalizeThinkingLevel(pendingIntent.thinkingLevel || managed.thinkingLevel)
+                        : undefined,
                     model: pendingModel ||
                         (persistedManualModel
                             ? persistedManualModel.provider
@@ -4031,6 +4055,13 @@ export class SessionRuntime {
                         pendingIntent.model || "",
                     );
                 }
+            }
+            // Agent activation restores its saved defaults. Apply the user's
+            // pending choice afterwards so the first turn uses that choice.
+            if (pendingIntent.thinkingLevel || managed.thinkingLevel) {
+                const thinkingLevel = normalizeThinkingLevel(pendingIntent.thinkingLevel || managed.thinkingLevel);
+                hostedSession.setThinkingLevel(thinkingLevel);
+                if (pendingIntent.thinkingLevel) sessionManager.appendThinkingLevelChange(thinkingLevel);
             }
             hostedSession.consumePendingManagedTurnIntent?.();
             activeProof = this.#sessionStore.changeSessionActivationPhase(activeProof, "turning");
@@ -4108,6 +4139,8 @@ export class SessionRuntime {
             }
             throw error;
         } finally {
+            this.#liveSessionEvents.delete(sessionId);
+            await closeLiveConnection?.();
             cleanupTurnStart();
             capability.settle();
             this.#currentManagedOperations.delete(sessionId);
@@ -4829,7 +4862,7 @@ export class SessionRuntime {
 
     /**
      * @param {string} sessionId
-     * @param {{ agentName: string, model?: string, releaseActiveWorkflow?: boolean, customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], mcpRootTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], toolNames?: string[], reloadMcpTools?: boolean, mcpServers?: import('../mcp/config.ts').McpServerDefinition[] }} options
+     * @param {{ agentName: string, model?: string, cwd?: string, forceRebuild?: boolean, releaseActiveWorkflow?: boolean, customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], mcpRootTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], toolNames?: string[], reloadMcpTools?: boolean, mcpServers?: import('../mcp/config.ts').McpServerDefinition[] }} options
      */
     async switchAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
@@ -5077,6 +5110,7 @@ export class SessionRuntime {
             });
             throw error;
         } finally {
+            this.#reconcileQueuedMessageSources(hostedSession);
             this.#emitSessionEvent(hostedSession.id, {
                 type: RuntimeEventTypes.TURN_END,
                 turnId,
@@ -5142,23 +5176,16 @@ export function deriveManagedSessionContinuationDecision(facts) {
     if (generation === null || generation !== facts.expectedGeneration) {
         return { ok: false, code: "stale_generation", message: "Refresh the Session before continuing." };
     }
-    if (!facts.projection?.ok || facts.projection.complete === false) {
+    if (!facts.projection?.ok) {
         return { ok: false, code: "incomplete_projection", message: "The committed timeline is not complete." };
     }
     const snapshot = facts.projection.snapshot || {};
-    if (snapshot.activeExecutionWorkflow) {
-        return {
-            ok: false,
-            code: "active_workflow_read_only",
-            message: "This Session is running work. It becomes available when that work finishes.",
-        };
-    }
     return {
         ok: true,
         code: "continue",
         agentName: typeof snapshot.activeAgent === "string" && snapshot.activeAgent
             ? snapshot.activeAgent
             : AGENTS.ROUTER,
-        message: "This idle conversational Session can continue.",
+        message: "Ready for your next message.",
     };
 }

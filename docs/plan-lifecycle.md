@@ -12,9 +12,24 @@ controller stores execution mode, validation checkpoints and counters, review de
 publication state. These facts are not copied into Plan Front Matter and are never compared against obsolete copies
 there.
 
-Every PROJECT Plan is an Epic container. PROJECT Plans are decomposed interactively by the Slicer into child FEATURE
-Plans under `docs/plans/<epic-name>/` and are not executed as implementation work themselves. Child FEATURE Plans point
-back to the Epic with `parentPlan` and may list sibling `dependencies`.
+PROJECT Plans are non-executable containers. `type: epic` (or absent) uses Architect design and Slicer decomposition;
+`type: sequence` uses a brief Planner-authored overview and complete child Plans reviewed together. Both store children
+under `docs/plans/<container-name>/`, linked with `parentPlan`, ordered with `order`, and connected by sibling
+`dependencies` (stable Plan IDs or legacy names).
+
+Planner submits a Sequence through `plan_written({ planName, plans: [{ planName }, ...] })`. The optional `plans` list
+must match the complete child set in order; omitting it reloads that set for a later review. One tab per document
+retains its edits, annotations and child execution policy. Approve & Execute readies the complete group and starts its
+first child; Approve for Later saves the same ready group. Epics retain Approve & Slice. Unsupported PROJECT types
+require correction. Sequence children use ordinary validation and delivery targets; the container adds no aggregate gate
+or publication step.
+
+Grouped approval locks every member and journals all before/after documents before writing. A stale member invalidates
+the decision. Failed writes restore only revisions owned by that decision; interrupted or conflicting writes remain
+blocked with complete recovery evidence. Recovery can close a journal once every document matches its full before or
+after set. The live first-child handoff is published only after the acceptance transition commits. If the process exits
+before publication, or publication fails, the group stays saved and can be reopened for execution. Child continuation
+follows the existing PROJECT order, dependency, hold and recovery rules.
 
 ## Statuses
 
@@ -435,16 +450,21 @@ Recovery actions are deliberately scoped to the execution worktree:
 - **Restore worktree record and continue**: Rebuilds RunWield's missing worktree registry entry from imported recovery
   hints and `git worktree list` evidence when the recorded path, branch, and target branch still agree. It does not
   delete the worktree or reset the user's work.
-- **Delete/recreate worktree and start over**: Removes the recorded worktree, marks the old registry entry abandoned,
-  creates a fresh execution worktree from recorded base metadata when available, records `recovery_reset`, and retries
-  from `ready_for_work`.
-- **Delete/abandon worktree**: Removes the worktree, marks the registry entry abandoned, clears worktree id/path/branch
-  from plan front matter, and leaves the plan recoverable for another choice.
+- **Delete/recreate worktree and start over**: Verifies the recorded path and branch, resolves the Plan id and starting
+  commit, and creates the replacement before discarding the old checkout. It records `recovery_reset` and retries from
+  `ready_for_work`.
+- **Delete/abandon worktree**: Verifies the exact recorded checkout against Git, removes it, settles the registry,
+  clears active controller references, and reloads the surviving Plan. The primary checkout is never an execution
+  worktree. Held-Plan delete/reset uses the same cleanup rules.
+- Cleanup deletes branches proven merged into the current checkout or unchanged from their recorded starting commit,
+  including missing-path attempts based on another target branch. Unique commits remain on a named rescue branch with an
+  abandoned registry record. The result says which artifacts remain. Incorrect identity or partial cleanup preserves
+  recovery evidence; each completed Git and registry effect is recorded for retry. Publication cleanup remains governed
+  by ADR-016.
 - **Re-open for review**: Moves the plan back to `feedback` so it can be revised instead of continued.
 
 Legacy plans that have an `executionBaselineTree` but no worktree metadata keep the older baseline-tree reset path. That
-path restores the primary checkout to the execution-start snapshot, so the confirmation must clearly state that
-unrelated changes made after that snapshot will be lost.
+path checks that the current checkout already matches the recorded snapshot and refuses to overwrite newer changes.
 
 ## Plan List Visibility
 

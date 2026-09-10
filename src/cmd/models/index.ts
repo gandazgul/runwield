@@ -118,8 +118,11 @@ export async function runModelsCommand(argv: string[], options: ModelsCommandOpt
 
     const targetModel = modelRegistry.find(parsedArgs.provider, parsedArgs.id);
     if (!targetModel) {
-        if (uiAPI) uiAPI.appendSystemMessage(`Unknown model: ${firstArg}. Use /model to switch.`, true);
-        else console.log(`Unknown model: ${firstArg}`);
+        const message = parsedArgs.provider === "agy-cli"
+            ? `Unsupported Antigravity CLI model: ${firstArg}. Select agy-cli/gemini-3.8-flash or agy-cli/gemini-3.1-pro.`
+            : `Unknown model: ${firstArg}. Use /model to switch.`;
+        if (uiAPI) uiAPI.appendSystemMessage(message, true);
+        else console.log(parsedArgs.provider === "agy-cli" ? message : `Unknown model: ${firstArg}`);
         return;
     }
 

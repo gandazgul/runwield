@@ -22,7 +22,7 @@ let recoveryCurrentSegmentId = null;
 try {
     plan = await loadOwnerProjectPlanDetail(projectId, planId);
     if (runwieldSessionId && operationId && interactionId) {
-        liveReview = getAstroOwnerWorkspaceSessionContinuation()?.getLivePlanReview?.({
+        liveReview = await getAstroOwnerWorkspaceSessionContinuation()?.getLivePlanReview?.({
             projectId,
             planId,
             runwieldSessionId,
@@ -40,6 +40,7 @@ try {
 const reviewPayload = plan && liveReview
     ? {
         mode: "workspace",
+        sequenceDocuments: liveReview.request?.planReview?.sequenceDocuments,
         plan: plan.markdown || plan.body || "",
         previousPlan: liveReview.request?.planReview?.previousPlan || undefined,
         planVersions: liveReview.request?.planReview?.planVersions || undefined,

@@ -408,10 +408,17 @@ async function findCheckoutPathForBranch(projectRoot, branch) {
  * @returns {Promise<boolean>}
  */
 async function isSameFilesystemPath(a, b) {
+    return await canonicalWorktreePath(a) === await canonicalWorktreePath(b);
+}
+
+/** Resolve symlinked parents even when a recorded checkout has already disappeared. @param {string} path @returns {Promise<string>} */
+async function canonicalWorktreePath(path) {
     try {
-        return await Deno.realPath(a) === await Deno.realPath(b);
+        return await Deno.realPath(path);
     } catch {
-        return a === b;
+        const parent = dirname(path);
+        if (parent === path) return path;
+        return join(await canonicalWorktreePath(parent), basename(path));
     }
 }
 
@@ -729,6 +736,17 @@ export function resolveWorktreeParent(projectRoot, worktreeRoot) {
     const homeDir = getHomeDir();
     if (homeDir) return join(homeDir, RUNWIELD_DIR_NAME, "worktrees", encodeCwdForSessionDir(projectRoot));
     return resolveProjectRuntimeLayout(resolveProjectRoot(projectRoot)).primary.fallbackWorktreesRoot;
+}
+
+/**
+ * Resolve creation inputs before an existing attempt is discarded.
+ * @param {{ projectRoot: string, planName: string, planId?: string, baseRef: string }} options
+ * @returns {Promise<string>}
+ */
+export async function validateWorktreeRecreation({ projectRoot, planName, planId, baseRef }) {
+    await assertGitRepository(projectRoot, "Creating an execution worktree");
+    if (!planId?.trim()) throw new Error(`Creating an execution worktree for ${planName} requires a stable planId.`);
+    return (await runGit(projectRoot, ["rev-parse", "--verify", `${baseRef}^{commit}`])).trim();
 }
 
 /**
@@ -1408,6 +1426,98 @@ export async function mergeExecutionWorktree(
 }
 
 /**
+ * @typedef {Object} DiscardWorktreeOptions
+ * @property {string} projectRoot
+ * @property {string} [path]
+ * @property {string} [branch]
+ * @property {string} [baseCommit]
+ *
+ * @typedef {Object} DiscardWorktreeResult
+ * @property {"path_removed" | "complete" | "retained" | "blocked"} status
+ * @property {boolean} pathRemoved
+ * @property {boolean} branchDeleted
+ * @property {string} message
+ */
+
+/** Verify the confirmed attempt against Git before deleting any files. @param {DiscardWorktreeOptions} options */
+export async function validateWorktreeDiscard({ projectRoot, path, branch }) {
+    await assertGitRepository(projectRoot, "Removing an execution worktree");
+    if (!path || !branch) throw new Error("The recorded worktree path and branch are required before cleanup.");
+    await runGit(projectRoot, ["check-ref-format", `refs/heads/${branch}`]);
+    const records = parseWorktreeRecords(await runGit(projectRoot, ["worktree", "list", "--porcelain"]));
+    const primary = records[0];
+    if (!primary || await isSameFilesystemPath(primary.path, path)) {
+        throw new Error("Recovery cannot discard the primary checkout. Its branch and files were left unchanged.");
+    }
+    let attached = null;
+    for (const record of records) {
+        const samePath = await isSameFilesystemPath(record.path, path);
+        if (samePath) attached = record;
+        if (record.branchRef === `refs/heads/${branch}` && !samePath) {
+            throw new Error(
+                `Branch ${branch} is checked out at ${record.path}, not the recorded worktree. Nothing was removed.`,
+            );
+        }
+    }
+    if (attached && attached.branchRef !== `refs/heads/${branch}`) {
+        throw new Error(`The recorded worktree is on a different branch. Nothing was removed from ${path}.`);
+    }
+    if (await pathExists(path) && !attached) {
+        throw new Error(`The recorded path is not an attached execution worktree. Nothing was removed from ${path}.`);
+    }
+}
+
+/**
+ * Discard a confirmed attempt, retaining branches that contain unique commits.
+ * Yield after each Git effect so the recovery transition journals it before continuing.
+ * @param {DiscardWorktreeOptions} options
+ * @returns {AsyncGenerator<DiscardWorktreeResult>}
+ */
+export async function* discardWorktreeGitArtifacts(options) {
+    await validateWorktreeDiscard(options);
+    const { projectRoot, path, branch, baseCommit } = options;
+    let pathRemoved = false;
+    try {
+        await removeWorktreeGitArtifacts({ projectRoot, path: String(path), force: true });
+        const remaining = parseWorktreeRecords(await runGit(projectRoot, ["worktree", "list", "--porcelain"]));
+        for (const record of remaining) {
+            if (await isSameFilesystemPath(record.path, String(path))) {
+                throw new Error(`Git still records the execution checkout at ${path}. Recovery was kept active.`);
+            }
+        }
+        pathRemoved = true;
+        yield { status: "path_removed", pathRemoved, branchDeleted: false, message: "Recorded checkout removed." };
+        const exists = await runGitResult(projectRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+        if (exists.code === 1) {
+            yield {
+                status: "complete",
+                pathRemoved,
+                branchDeleted: false,
+                message: "The recorded worktree and branch are gone.",
+            };
+            return;
+        }
+        if (exists.code !== 0) throw new Error(exists.stderr || "Could not inspect the recorded branch.");
+        const deletion = await deleteMergedWorktreeBranch({ projectRoot, branch: String(branch), baseCommit });
+        yield {
+            status: deletion.deleted ? "complete" : "retained",
+            pathRemoved,
+            branchDeleted: deletion.deleted,
+            message: deletion.deleted
+                ? "The recorded worktree and branch were deleted."
+                : `The worktree was removed. Branch ${branch} was kept for manual rescue because its commits are not proven merged.`,
+        };
+    } catch (error) {
+        yield {
+            status: "blocked",
+            pathRemoved,
+            branchDeleted: false,
+            message: error instanceof Error ? error.message : String(error),
+        };
+    }
+}
+
+/**
  * Remove a worktree's Git artifacts. Never touches branches — deleting one is
  * irreversible, so it is `deleteMergedWorktreeBranch` and has to be asked for by name.
  *
@@ -1415,6 +1525,10 @@ export async function mergeExecutionWorktree(
  */
 export async function removeWorktreeGitArtifacts({ projectRoot, path, force = false }) {
     await assertGitRepository(projectRoot, "Removing an execution worktree");
+    const primary = parseWorktreeRecords(await runGit(projectRoot, ["worktree", "list", "--porcelain"]))[0];
+    if (!primary || await isSameFilesystemPath(primary.path, path)) {
+        throw new Error("Recovery cannot remove the primary checkout. Its branch and files were left unchanged.");
+    }
     if (force) {
         await runGit(projectRoot, ["worktree", "remove", "--force", path]).catch(async (error) => {
             if (await pathExists(path)) throw error;

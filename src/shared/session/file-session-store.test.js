@@ -3,7 +3,7 @@ import { dirname, join } from "@std/path";
 import { createHash } from "node:crypto";
 import { classifyRootSessionLocator, encodeCwdForSessionDir } from "./root-session.js";
 import { openFileSessionStore } from "./file-session-store.ts";
-import { manifestPath } from "./file-session-storage.ts";
+import { manifestPath, sessionDirForRoot } from "./file-session-storage.ts";
 
 const TIMESTAMP = "2026-01-01T00:00:00.000Z";
 
@@ -131,6 +131,34 @@ Deno.test("real and symlinked Project roots share one file authority", async () 
         });
         assertEquals(session.projectId, realProject.projectId);
         assertEquals(session.transcriptPath, transcriptPath);
+        store.close();
+    } finally {
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});
+
+Deno.test("successor segments can live under their transcript cwd", async () => {
+    const fixture = await makeFixture();
+    const worktreeRoot = join(fixture.rootDir, "worktree-project");
+    const linkedWorktreeRoot = join(fixture.rootDir, "worktree-link");
+    try {
+        await Deno.mkdir(worktreeRoot);
+        await Deno.symlink(worktreeRoot, linkedWorktreeRoot);
+        const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
+        const worktreeSessionDir = sessionDirForRoot(fixture.sessionBaseDir, linkedWorktreeRoot);
+        const transcriptPath = await writeTranscript(worktreeSessionDir, linkedWorktreeRoot, "successor-session");
+
+        const safe = await store.validateSuccessorSegmentLocator({
+            projectId: project.projectId,
+            piSessionId: "successor-session",
+            transcriptPath,
+            transcriptCwd: linkedWorktreeRoot,
+        });
+
+        assertEquals(worktreeSessionDir, sessionDirForRoot(fixture.sessionBaseDir, worktreeRoot));
+        assertEquals(safe.piSessionId, "successor-session");
+        assertEquals(safe.sessionPath, transcriptPath);
         store.close();
     } finally {
         await Deno.remove(fixture.rootDir, { recursive: true });

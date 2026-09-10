@@ -5,7 +5,7 @@ import {
     withRuntimeCommandFixture,
 } from "../testing/runtime-command-fixture.ts";
 import { getModelRegistry, type RunWieldModelRegistry } from "../../shared/models/model-registry.ts";
-import { runLoginCommand } from "./index.ts";
+import { getLoginProviderOptions, runLoginCommand } from "./index.ts";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import {
     createInteractiveCompositionHarness,
@@ -88,21 +88,30 @@ Deno.test("API-key login persists through the fixture credential store and statu
     });
 });
 
-Deno.test("non-registry CLI credentials stay out of API auth status and logout choices", async () => {
-    await withAuthTest("auth-claude-cli-exclusion-", async ({ harness, registry }) => {
-        await registry.setProviderApiKey("claude-cli", "fixture-only-key");
+Deno.test("external CLI credentials stay out of API auth login, status, and logout choices", async () => {
+    await withAuthTest("auth-external-cli-exclusion-", async ({ harness, registry }) => {
+        await registry.credentialStore.modify("claude-cli", () => Promise.resolve({ type: "api_key", key: "fake" }));
+        await registry.credentialStore.modify("agy-cli", () => Promise.resolve({ type: "api_key", key: "fake" }));
         assertEquals(
             (await registry.listStoredCredentialProviders()).map((provider) => provider.id),
             [FIXTURE_PROVIDER],
         );
 
+        const loginProviders = getLoginProviderOptions(registry, "api_key");
+        assert(loginProviders.some((provider) => provider.id === FIXTURE_PROVIDER));
+        assert(!loginProviders.some((provider) => provider.id === "claude-cli"));
+        assert(!loginProviders.some((provider) => provider.id === "agy-cli"));
+
         await harness.type("/status\r");
         const statusScreen = await harness.waitForScreen("Available models:");
         assert(!statusScreen.includes("(claude-cli):"));
+        assert(!statusScreen.includes("(agy-cli):"));
 
         await harness.type("/logout\r");
         const logoutScreen = await harness.waitForScreen("Select provider to logout:");
         assertStringIncludes(logoutScreen, FIXTURE_PROVIDER_DISPLAY);
+        assert(!logoutScreen.includes("(claude-cli):"));
+        assert(!logoutScreen.includes("(agy-cli):"));
         await harness.pressKey("escape");
         await harness.waitForIdle(3_000);
     });

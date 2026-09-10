@@ -18,6 +18,17 @@ export async function git(cwd, args) {
 }
 
 /**
+ * @typedef {Object} ReviewSurfaceReady
+ * @property {string} url
+ * @property {boolean} opened
+ */
+
+/**
+ * @typedef {Object} ReviewSurfaceReadyMeta
+ * @property {(surface: ReviewSurfaceReady) => void} [onSurfaceReady]
+ */
+
+/**
  * @returns {any & { messages: string[], systemCalls: Array<{ message: string, isError: boolean, header: string, level: string, validationProgress?: import('../session/session-runtime-events.js').RuntimeValidationProgress }>, promptSelections: string[], busyStates: boolean[], toolCalls: Array<{ id: string, name: string, args: string }>, toolOutputs: string[], toolResults: Array<{ id: string, name: string, result: string, isError: boolean, durationMs: number }> }}
  */
 export function makeUi() {
@@ -120,6 +131,10 @@ export function attachRecorder(session, recorder) {
             if (request.type === "text") {
                 const value = await recorder.promptText(request.prompt, request);
                 return value === null ? { outcome: "canceled" } : { outcome: "text", value };
+            }
+            if (request.type === "code_review") {
+                const meta = /** @type {ReviewSurfaceReadyMeta} */ (request._meta || {});
+                meta.onSurfaceReady?.({ url: "http://127.0.0.1/review/code?token=test", opened: true });
             }
             const value = await recorder.promptSelect(request.prompt, request.options || []);
             return value === null ? { outcome: "canceled" } : { outcome: "selected", value };

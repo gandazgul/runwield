@@ -4,7 +4,11 @@
  */
 
 import { AGENTS } from "../../constants.js";
-import { getModelRegistry, RunWieldModelRegistry } from "../../shared/models/model-registry.ts";
+import {
+    getModelRegistry,
+    isExternalCliProvider,
+    type RunWieldModelRegistry,
+} from "../../shared/models/model-registry.ts";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import type { UiAPI } from "../../ui/tui/types.js";
 
@@ -92,7 +96,7 @@ export function getLoginProviderOptions(
 
     const providerIds = new Set(registry.getAll().map((model) => model.provider));
     return Array.from(providerIds)
-        .filter((providerId) => providerId !== "claude-cli" && !oauthProviderIds.has(providerId))
+        .filter((providerId) => !isExternalCliProvider(providerId) && !oauthProviderIds.has(providerId))
         .map((providerId) => ({ id: providerId, name: getProviderDisplayName(registry, providerId), authType }))
         .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -354,7 +358,7 @@ async function formatAuthStatusForRuntime(registry: RunWieldModelRegistry): Prom
     const providerIds = new Set([...oauthProviderIds, ...storedProviders.map((provider) => provider.id)]);
     for (const model of registry.getAll()) {
         const status = registry.getProviderAuthStatus(model.provider);
-        if (model.provider !== "claude-cli" && status.source) providerIds.add(model.provider);
+        if (!isExternalCliProvider(model.provider) && status.source) providerIds.add(model.provider);
     }
     return await formatAuthStatusLinesAsync(registry, providerIds);
 }

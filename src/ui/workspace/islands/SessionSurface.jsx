@@ -5,25 +5,27 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
     RunWieldButton,
     RunWieldLink,
+    RunWieldPanelToggle,
     RunWieldThinkingDots,
 } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { SessionList } from "../components/SessionList.jsx";
-import { deriveSessionAvailability, SessionActivationStatus } from "../components/SessionActivationStatus.jsx";
+import { deriveSessionAvailability } from "../components/SessionActivationStatus.jsx";
 import { reduceSessionEvents, SessionTimeline } from "../components/SessionTimeline.jsx";
 import {
     buildSessionSidebarProjection,
     defaultSessionSidebarTab,
     SESSION_SIDEBAR_TABS,
     sessionArtifactKindLabel,
+    sessionSidebarFields,
 } from "../../../shared/session/session-sidebar.ts";
+import { createSessionTabNotificationController } from "../browser/session-tab-notifications.ts";
+import { WorkspaceHeaderActionsPortal } from "../react/WorkspaceHeaderActionsPortal.tsx";
+import { loadSessionDrafts, readSessionDraft, saveSessionDraft } from "../browser/session-drafts.ts";
 
 export const SESSION_PAGE_SIZE = 30;
 const TIMELINE_PAGE_LIMIT = 200;
-export const TIMELINE_MAX_PAGES = 10;
-export const TIMELINE_MAX_EVENTS = 1500;
 const POLL_INTERVAL_MS = 1500;
 const AVAILABILITY_REFRESH_INTERVAL_MS = 5000;
-const MAX_POLL_ATTEMPTS = 240;
 
 /** @param {string} projectId @param {string} sessionId */
 export function sessionDraftKey(projectId, sessionId) {
@@ -108,7 +110,7 @@ async function ownerFetch(url, options = {}) {
 /** @param {string} key */
 function readStored(key) {
     try {
-        return JSON.parse(localStorage.getItem(key) || "null");
+        return JSON.parse(readSessionDraft(key) || "null");
     } catch {
         return null;
     }
@@ -138,7 +140,8 @@ export function serializeSessionImageForRequest(image) {
 
 /** @param {File} file */
 async function readPastedImage(file) {
-    if (!file.type.startsWith("image/")) throw new Error("Only pasted images can be attached.");
+    if (!/^image\/(png|jpeg|jpg|gif|webp)$/.test(file.type)) throw new Error("Attach a PNG, JPEG, GIF, or WebP image.");
+    if (file.size > 7 * 1024 * 1024) throw new Error("This image is too large. Choose an image smaller than 7 MB.");
     const dataUrl = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));
@@ -174,7 +177,56 @@ export function shouldApplyOperationPoll(input) {
 
 /** @param {unknown} events */
 export function reduceOperationTransientItems(events) {
-    return reduceSessionEvents(Array.isArray(events) ? events : [], { source: "transient" });
+    return reduceSessionEvents(
+        Array.isArray(events) ? events.filter((event) => !event.eventId && event.type !== "interaction_requested") : [],
+        { source: "transient" },
+    );
+}
+
+let operationNotificationController = null;
+
+function getOperationNotificationController() {
+    if (!operationNotificationController) {
+        operationNotificationController = createSessionTabNotificationController();
+    }
+    return operationNotificationController;
+}
+
+export function disposeOperationBrowserNotifications() {
+    operationNotificationController?.dispose();
+    operationNotificationController = null;
+}
+
+export function observeOperationBrowserNotifications(current, payload, cursorRef) {
+    const events = (Array.isArray(payload.events) ? payload.events : [])
+        .filter((event) => !event.eventId && event.type === "attention_requested" && event.reason === "agentStopped");
+    const key = `${current.scopeKey || ""}:${current.operationId}`;
+    if (!cursorRef.current || cursorRef.current.key !== key) {
+        cursorRef.current = {
+            key,
+            seen: new Set(
+                current.restored && current.attempts === 0 ? events.map((event) => JSON.stringify(event)) : [],
+            ),
+        };
+    }
+    for (const event of events) {
+        const identity = JSON.stringify(event);
+        if (cursorRef.current.seen.has(identity)) continue;
+        cursorRef.current.seen.add(identity);
+        getOperationNotificationController().notifyAgentStopped(event, payload.browserNotificationPolicy);
+    }
+}
+
+export function syncOperationBrowserNotificationLifecycle({ operationId, scopeKey, operationKeyRef, cursorRef }) {
+    const nextKey = operationId ? `${scopeKey || ""}:${operationId}` : null;
+    const previousKey = operationKeyRef.current;
+    if (!nextKey) {
+        cursorRef.current = null;
+        return;
+    }
+    if (previousKey && previousKey !== nextKey) disposeOperationBrowserNotifications();
+    if (previousKey !== nextKey) cursorRef.current = null;
+    operationKeyRef.current = nextKey;
 }
 
 /** @param {{ scrollHeight: number, scrollTop: number, clientHeight: number, threshold?: number }} input */
@@ -185,8 +237,7 @@ export function isAtLiveScrollEdge(input) {
 
 /** @param {{ mode: string, state?: string, localOperationActive?: boolean, queuedMessageCount?: number }} input */
 export function shouldRefreshSessionAvailability(input) {
-    return input.mode === "detail" && input.localOperationActive !== true &&
-        (input.state === "active" || (input.queuedMessageCount || 0) > 0);
+    return input.mode === "detail" && input.localOperationActive !== true;
 }
 
 /**
@@ -292,36 +343,11 @@ function resizeComposerTextArea(textarea) {
     textarea.style.height = `${textarea.scrollHeight}px`;
 }
 
-/** @param {string | null | undefined} value */
-function sessionSurfaceLabel(value) {
-    switch (String(value || "")) {
-        case "tui":
-            return "TUI";
-        case "acp":
-            return "ACP";
-        case "workspace":
-            return "Workspace";
-        case "test":
-            return "another surface";
-        default:
-            return String(value || "another surface");
-    }
-}
-
-/** @param {{ surface?: string | null, canRecover?: boolean, recovering?: boolean, onRecover?: () => void }} props */
-function SessionBusyPanel({ surface, canRecover = false, recovering = false, onRecover }) {
+function SessionBusyPanel() {
     return (
-        <section className="session-busy-panel" role="status" aria-live="polite" aria-busy="true">
-            <RunWieldThinkingDots label="Session busy" />
-            <p>This Session is busy in {sessionSurfaceLabel(surface)}.</p>
-            {canRecover
-                ? (
-                    <RunWieldButton type="button" onClick={onRecover} disabled={recovering}>
-                        {recovering ? "Recovering…" : "Recover stale Session"}
-                    </RunWieldButton>
-                )
-                : null}
-        </section>
+        <div className="session-inline-loader" role="status">
+            <RunWieldThinkingDots label="Working" />
+        </div>
     );
 }
 
@@ -334,7 +360,12 @@ function SessionComposer({
     submitting,
     onDraftChange,
     onSubmit,
+    onQueue = undefined,
+    onStop = undefined,
+    sendLabel = "Send",
+    steeringMessages = [],
     onPaste,
+    onFiles,
     imageAttachments = [],
     onRemoveImage,
     agents = [],
@@ -352,10 +383,19 @@ function SessionComposer({
     queuedMessages = [],
 }) {
     const textareaRef = useRef(null);
+    const fileInputRef = useRef(null);
     useEffect(() => resizeComposerTextArea(textareaRef.current), [draft]);
     return (
         <form
             className="session-composer"
+            onDragOver={(event) => {
+                if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+            }}
+            onDrop={(event) => {
+                if (!event.dataTransfer.files.length) return;
+                event.preventDefault();
+                if (!disabled) onFiles?.(Array.from(event.dataTransfer.files));
+            }}
             onSubmit={(event) => {
                 event.preventDefault();
                 onSubmit();
@@ -375,6 +415,17 @@ function SessionComposer({
                     </ol>
                 )
                 : null}
+            {steeringMessages.length
+                ? (
+                    <ul className="session-composer-queue" aria-label="Pending steering messages">
+                        {steeringMessages.map((item) => (
+                            <li key={item.id}>
+                                <span>Steering · {item.text}</span>
+                            </li>
+                        ))}
+                    </ul>
+                )
+                : null}
             <textarea
                 ref={textareaRef}
                 id={id}
@@ -387,9 +438,13 @@ function SessionComposer({
                     resizeComposerTextArea(event.currentTarget);
                 }}
                 onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
+                    if (event.key === "Escape" && onStop) {
                         event.preventDefault();
-                        onSubmit();
+                        onStop();
+                    }
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                        event.preventDefault();
+                        if (canSend && !submitting) onSubmit();
                     }
                 }}
                 placeholder="Ask RunWield..."
@@ -397,9 +452,10 @@ function SessionComposer({
             />
             {imageAttachments.length
                 ? (
-                    <ul className="session-image-attachments" aria-label="Attached images">
+                    <ul className="session-image-attachments rw-image-previews" aria-label="Attached images">
                         {imageAttachments.map((image) => (
                             <li key={image.id}>
+                                <img src={`data:${image.mimeType};base64,${image.base64}`} alt={image.name} />
                                 <span>{image.name} · {image.mimeType}</span>
                                 <button type="button" onClick={() => onRemoveImage?.(image.id)}>Remove</button>
                             </li>
@@ -408,6 +464,25 @@ function SessionComposer({
                 )
                 : null}
             <div className="session-composer-actions" aria-label="Session settings">
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    multiple
+                    hidden
+                    onChange={(event) => {
+                        onFiles?.(Array.from(event.currentTarget.files || []));
+                        event.currentTarget.value = "";
+                    }}
+                />
+                <button
+                    type="button"
+                    className="rw-toolbar-button"
+                    disabled={disabled}
+                    onClick={() => fileInputRef.current?.click()}
+                >
+                    Attach image
+                </button>
                 <select
                     aria-label="Agent"
                     value={agentValue}
@@ -441,16 +516,29 @@ function SessionComposer({
                     {thinkingFallback}
                     {thinkingLevels.map((level) => <option key={level} value={level}>{level}</option>)}
                 </select>
+                {onStop ? <button type="button" className="rw-toolbar-button" onClick={onStop}>Stop</button> : null}
+                {onQueue
+                    ? (
+                        <button
+                            type="button"
+                            className="rw-toolbar-button"
+                            disabled={!canSend || submitting}
+                            onClick={onQueue}
+                        >
+                            Queue
+                        </button>
+                    )
+                    : null}
                 <button
                     type="submit"
                     className="rw-toolbar-button session-send-button"
                     disabled={!canSend || submitting}
-                    aria-label={submitting ? "Sending" : "Send"}
+                    aria-label={submitting ? "Sending" : sendLabel}
                 >
                     {submitting ? <RunWieldThinkingDots label="Sending" /> : (
                         <>
                             <PaperAirplaneIcon />
-                            <span>Send</span>
+                            <span>{sendLabel}</span>
                         </>
                     )}
                 </button>
@@ -472,16 +560,35 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [workflowProgress, setWorkflowProgress] = useState(/** @type {any} */ (null));
     const [workflowProgressError, setWorkflowProgressError] = useState("");
     const [sessionSidebarTab, setSessionSidebarTab] = useState("session");
+    const [contextCollapsed, setContextCollapsed] = useState(false);
+    useEffect(() => {
+        try {
+            const stored = localStorage.getItem("runwield:owner:session-context-collapsed");
+            setContextCollapsed(
+                stored === null ? globalThis.matchMedia("(max-width: 900px)").matches : stored === "true",
+            );
+        } catch { /* Sidebar state is optional. */ }
+    }, []);
+    function toggleContext() {
+        const collapsed = !contextCollapsed;
+        setContextCollapsed(collapsed);
+        try {
+            localStorage.setItem("runwield:owner:session-context-collapsed", String(collapsed));
+        } catch { /* Sidebar state is optional. */ }
+    }
     const sidebarSessionRef = useRef("");
     const [detailError, setDetailError] = useState("");
     const [loadingDetail, setLoadingDetail] = useState(mode === "detail");
     const [draft, setDraft] = useState("");
+    const [loadedDraftKey, setLoadedDraftKey] = useState("");
+    const operationNavigationRef = useRef(false);
     const [imageAttachments, setImageAttachments] = useState(/** @type {SessionImageAttachmentDraft[]} */ ([]));
     const [queuedMessages, setQueuedMessages] = useState(/** @type {WorkspaceQueuedMessage[]} */ ([]));
     const [message, setMessage] = useState("");
     const [operation, setOperation] = useState(
-        /** @type {{ operationId: string, status: string, observed: number, attempts: number } | null} */ (null),
+        /** @type {{ operationId: string, status: string, observed: number, attempts: number, remote?: boolean } | null} */ (null),
     );
+    const [steeringMessages, setSteeringMessages] = useState([]);
     const [pendingConfiguration, setPendingConfiguration] = useState(
         /** @type {Record<string, string> | null} */ (null),
     );
@@ -492,11 +599,19 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [selectedModelKey, setSelectedModelKey] = useState("");
     const [selectedThinking, setSelectedThinking] = useState("default");
     const [submitting, setSubmitting] = useState(false);
-    const [recoveringSession, setRecoveringSession] = useState(false);
+    const [attachingImages, setAttachingImages] = useState(false);
+    const [loadingEarlier, setLoadingEarlier] = useState(false);
+    const timelineLoadRef = useRef(0);
+    const timelineRef = useRef(timeline);
+    timelineRef.current = timeline;
+    const sessionIdentityRef = useRef(runwieldSessionId);
+    sessionIdentityRef.current = runwieldSessionId;
     const [interruptedOperation, setInterruptedOperation] = useState(false);
     const [operationStreamFailed, setOperationStreamFailed] = useState(false);
     const operationRef = useRef(operation);
     operationRef.current = operation;
+    const notificationCursorRef = useRef(null);
+    const notificationOperationKeyRef = useRef(null);
     const queuedDispatchActiveRef = useRef(false);
     const queuedSessionRef = useRef(runwieldSessionId);
     const timelineEndRef = useRef(/** @type {HTMLDivElement | null} */ (null));
@@ -511,6 +626,25 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const draftKey = sessionStorageId ? sessionDraftKey(projectId, sessionStorageId) : "";
     const requestKey = sessionStorageId ? sessionRequestKey(projectId, sessionStorageId) : "";
     const attachmentsKey = sessionStorageId ? sessionAttachmentsKey(projectId, sessionStorageId) : "";
+
+    const notificationScopeKey = `${projectId}:${runwieldSessionId || sessionStorageId}`;
+
+    useEffect(() => {
+        return () => {
+            disposeOperationBrowserNotifications();
+            notificationCursorRef.current = null;
+            notificationOperationKeyRef.current = null;
+        };
+    }, [notificationScopeKey]);
+
+    useEffect(() => {
+        syncOperationBrowserNotificationLifecycle({
+            operationId: operation?.operationId,
+            scopeKey: notificationScopeKey,
+            operationKeyRef: notificationOperationKeyRef,
+            cursorRef: notificationCursorRef,
+        });
+    }, [notificationScopeKey, operation?.operationId]);
 
     async function loadList(requestedPage = listPage) {
         setLoadingList(true);
@@ -554,76 +688,99 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }
     }
 
-    async function fetchTimeline() {
-        let cursor = "";
-        /** @type {Array<Record<string, any>>} */
-        const events = [];
-        let pageCount = 0;
-        let payload = null;
-        while (pageCount < TIMELINE_MAX_PAGES && events.length <= TIMELINE_MAX_EVENTS) {
-            const qs = new URLSearchParams({ limit: String(TIMELINE_PAGE_LIMIT) });
-            if (cursor) qs.set("cursorEventId", cursor);
-            payload = await ownerFetch(
-                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
-                    encodeURIComponent(runwieldSessionId)
-                }/timeline?${qs}`,
-                { method: "GET" },
-            );
-            events.push(...(Array.isArray(payload.events) ? payload.events : []));
-            pageCount += 1;
-            if (payload.complete !== false) break;
-            if (!payload.nextCursor || payload.nextCursor === cursor) {
-                throw new Error("Timeline cursor did not advance.");
-            }
-            cursor = payload.nextCursor;
+    async function fetchTimeline(beforeEventId = "") {
+        const existing = timelineRef.current;
+        const qs = new URLSearchParams({ limit: String(TIMELINE_PAGE_LIMIT) });
+        if (beforeEventId) qs.set("beforeEventId", beforeEventId);
+        else if (existing?.nextCursor) qs.set("cursorEventId", existing.nextCursor);
+        else qs.set("latest", "true");
+        const url = `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+            encodeURIComponent(runwieldSessionId)
+        }/timeline`;
+        let payload = await ownerFetch(`${url}?${qs}`, { method: "GET" });
+        if (beforeEventId || !existing?.nextCursor) return payload;
+        const events = [...(payload.cursorReset ? [] : existing.events), ...payload.events];
+        // Only catch up new events. Older history is loaded explicitly by the reader.
+        while (payload.complete === false) {
+            if (!payload.nextCursor || payload.nextCursor === qs.get("cursorEventId")) break;
+            qs.set("cursorEventId", payload.nextCursor);
+            payload = await ownerFetch(`${url}?${qs}`, { method: "GET" });
+            events.push(...payload.events);
         }
-        const truncated = Boolean(
-            payload?.complete === false || pageCount >= TIMELINE_MAX_PAGES || events.length > TIMELINE_MAX_EVENTS,
-        );
-        return {
-            ...(payload || {}),
-            events,
-            complete: !truncated && payload?.complete !== false,
-            truncated,
-        };
+        return { ...payload, events, previousCursor: existing.previousCursor };
     }
 
     function applyTimeline(nextTimeline) {
-        const events = Array.isArray(nextTimeline.events) ? nextTimeline.events : [];
-        setTimeline(nextTimeline);
+        const events = Array.isArray(nextTimeline.events)
+            ? [...new Map(nextTimeline.events.map((event) => [event.eventId, event])).values()]
+            : [];
+        const merged = { ...nextTimeline, events };
+        timelineRef.current = merged;
+        setTimeline(merged);
+        if (typeof merged.snapshot?.name === "string") {
+            document.dispatchEvent(
+                new CustomEvent("runwield:session-named", {
+                    detail: { projectId, runwieldSessionId, name: merged.snapshot.name },
+                }),
+            );
+        }
         setTimelineItems(reduceSessionEvents(events, { source: "committed" }));
         setPendingUserMessages((messages) => {
             const committedUserText = new Set(
-                events
-                    .filter((event) => event?.type === "user_message" && typeof event.text === "string")
-                    .map((event) => event.text),
+                events.filter((event) => event.type === "user_message").map((event) => event.text),
             );
             return messages.filter((item) => !committedUserText.has(item.text));
         });
-        setTransientItems([]);
-        setPendingConfiguration(null);
-        setLiveThinkingLevel("");
-        if (nextTimeline.truncated) {
-            setMessage(
-                "Timeline budget exceeded. Reload this Session to continue from the complete committed timeline.",
-            );
+        if (nextTimeline.state !== "active" && !operationRef.current) {
+            setTransientItems([]);
+            setPendingConfiguration(null);
+            setSteeringMessages([]);
+            setLiveThinkingLevel("");
         }
     }
 
     async function loadTimeline() {
         if (!runwieldSessionId) return null;
-        setLoadingDetail(true);
-        setDetailError("");
-        setMessage("");
+        const identity = runwieldSessionId;
+        const loadId = ++timelineLoadRef.current;
         try {
             const nextTimeline = await fetchTimeline();
+            if (sessionIdentityRef.current !== identity || loadId !== timelineLoadRef.current) return null;
             applyTimeline(nextTimeline);
+            setDetailError("");
             return nextTimeline;
         } catch (error) {
-            setDetailError(errorMessage(error));
+            if (sessionIdentityRef.current === identity) setDetailError(errorMessage(error));
             return null;
         } finally {
-            setLoadingDetail(false);
+            if (sessionIdentityRef.current === identity) setLoadingDetail(false);
+        }
+    }
+
+    async function loadEarlierMessages() {
+        const cursor = timelineRef.current?.previousCursor;
+        if (!cursor || loadingEarlier) return;
+        setLoadingEarlier(true);
+        const identity = runwieldSessionId;
+        const scroller = timelineScrollRef.current;
+        const height = scroller?.scrollHeight || 0;
+        try {
+            const earlier = await fetchTimeline(cursor);
+            if (sessionIdentityRef.current !== identity) return;
+            const current = timelineRef.current;
+            applyTimeline({
+                ...current,
+                events: [...earlier.events, ...current.events],
+                previousCursor: earlier.previousCursor,
+            });
+            followingLiveEdgeRef.current = false;
+            requestAnimationFrame(() => {
+                if (scroller) scroller.scrollTop += scroller.scrollHeight - height;
+            });
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setLoadingEarlier(false);
         }
     }
 
@@ -640,6 +797,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         setLatestActivityAvailable(false);
         if (mode === "list") loadList(listPage);
         if (mode === "detail") {
+            timelineRef.current = null;
+            setTimeline(null);
+            setLoadingDetail(true);
             loadTimeline();
             loadSessionOptions();
         }
@@ -656,42 +816,52 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
 
     useEffect(() => {
         if (!draftKey) return;
-        const storedDraft = localStorage.getItem(draftKey) || "";
-        if (storedDraft === "Draft request for visual check") {
-            localStorage.removeItem(draftKey);
-            setDraft("");
-        } else {
+        let cancelled = false;
+        setLoadedDraftKey("");
+        void loadSessionDrafts([draftKey, attachmentsKey, requestKey]).then(() => {
+            if (cancelled) return;
+            const storedDraft = readSessionDraft(draftKey) || "";
             setDraft(storedDraft);
-        }
-        const storedAttachments = readStored(attachmentsKey);
-        setImageAttachments(Array.isArray(storedAttachments) ? storedAttachments : []);
-        const storedRequest = asRecord(readStored(requestKey));
-        if (storedRequest.operationId) {
-            setOperation({
-                operationId: String(storedRequest.operationId),
-                status: "running",
-                observed: 0,
-                attempts: 0,
-            });
-            setMessage(
-                "Reconnected to an accepted Session operation. Watching progress without replaying the request.",
-            );
-        } else if (storedRequest.requestId && storedRequest.status === "network-error") {
-            setMessage("Previous response was lost. Send will retry the exact same request envelope.");
-        }
+            const storedAttachments = readStored(attachmentsKey);
+            setImageAttachments(Array.isArray(storedAttachments) ? storedAttachments : []);
+            setOperation(null);
+            const storedRequest = asRecord(readStored(requestKey));
+            if (storedRequest.operationId) {
+                setOperation({
+                    operationId: String(storedRequest.operationId),
+                    status: "running",
+                    observed: 0,
+                    attempts: 0,
+                    restored: true,
+                });
+                setMessage(
+                    "Reconnected.",
+                );
+            } else if (storedRequest.requestId && storedRequest.status === "network-error") {
+                setMessage("The connection was interrupted. Send again to retry your message.");
+            }
+            setLoadedDraftKey(draftKey);
+        });
+        return () => {
+            cancelled = true;
+        };
     }, [draftKey, requestKey, attachmentsKey]);
 
     useEffect(() => {
-        if (!draftKey) return;
-        if (draft) localStorage.setItem(draftKey, draft);
-        else localStorage.removeItem(draftKey);
-    }, [draft, draftKey]);
+        if (!draftKey || loadedDraftKey !== draftKey) return;
+        if (draft) saveSessionDraft(draftKey, draft);
+        else saveSessionDraft(draftKey, null);
+    }, [draft, draftKey, loadedDraftKey]);
 
     useEffect(() => {
-        if (!attachmentsKey) return;
-        if (imageAttachments.length) localStorage.setItem(attachmentsKey, JSON.stringify(imageAttachments));
-        else localStorage.removeItem(attachmentsKey);
-    }, [attachmentsKey, imageAttachments]);
+        if (!attachmentsKey || loadedDraftKey !== draftKey) return;
+        void saveSessionDraft(attachmentsKey, imageAttachments.length ? JSON.stringify(imageAttachments) : null)
+            .then((saved) => {
+                if (!saved && imageAttachments.length) {
+                    setMessage("Image kept in this tab. Browser storage is unavailable; send before closing it.");
+                }
+            });
+    }, [attachmentsKey, imageAttachments, draftKey, loadedDraftKey]);
 
     const availability = useMemo(() =>
         deriveSessionAvailability({
@@ -713,7 +883,10 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
 
     async function createSession() {
         const text = draft;
-        if (!text.trim() || submitting) return;
+        if (
+            (!text.trim() && !imageAttachments.length) || submitting || attachingImages || loadedDraftKey !== draftKey
+        ) return;
+        scrollToLiveEdge();
         setSubmitting(true);
         setMessage("");
         const [selectedProvider, selectedModel] = selectedModelKey ? selectedModelKey.split("\u001f") : ["", ""];
@@ -721,6 +894,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         const envelope = existing.requestId && existing.status === "network-error" ? existing : {
             requestId: crypto.randomUUID(),
             text,
+            images: imageAttachments.map(serializeSessionImageForRequest),
             agentName: selectedAgent,
             model: selectedModel || "",
             provider: selectedProvider || "",
@@ -728,13 +902,22 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             status: "pending",
             createdAt: new Date().toISOString(),
         };
-        localStorage.setItem(requestKey, JSON.stringify(envelope));
+        await saveSessionDraft(requestKey, JSON.stringify(envelope));
+        setPendingUserMessages([{
+            kind: "message",
+            role: "user",
+            key: `pending-user:${envelope.requestId}`,
+            text: envelope.text,
+            images: envelope.images,
+            source: "transient",
+        }]);
         try {
             const payload = await ownerFetch(`/api/owner/projects/${encodeURIComponent(projectId)}/sessions`, {
                 method: "POST",
                 body: JSON.stringify({
                     requestId: envelope.requestId,
                     text: envelope.text,
+                    images: envelope.images || [],
                     agentName: envelope.agentName,
                     model: envelope.model,
                     provider: envelope.provider,
@@ -749,9 +932,10 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 operationId: payload.operationId,
                 responseAccepted: true,
             };
-            localStorage.setItem(requestKey, JSON.stringify(stored));
+            await saveSessionDraft(requestKey, JSON.stringify(stored));
             if (payload.runwieldSessionId) {
-                localStorage.removeItem(requestKey);
+                await saveSessionDraft(sessionRequestKey(projectId, payload.runwieldSessionId), JSON.stringify(stored));
+                await saveSessionDraft(requestKey, null);
                 workspaceNavigate(
                     `/projects/${encodeURIComponent(projectId)}/sessions/${
                         encodeURIComponent(payload.runwieldSessionId)
@@ -767,27 +951,54 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                     observed: 0,
                     attempts: 0,
                 });
-                setMessage("Session creation accepted. Watching progress without replaying on refresh.");
+                setMessage("");
             }
         } catch (error) {
-            localStorage.setItem(requestKey, JSON.stringify({ ...envelope, status: "network-error" }));
+            await saveSessionDraft(requestKey, JSON.stringify({ ...envelope, status: "network-error" }));
             setMessage(errorMessage(error));
         } finally {
             setSubmitting(false);
         }
     }
 
-    async function handleComposerPaste(event) {
-        const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
-        if (!files.length) return;
-        event.preventDefault();
+    async function handleComposerFiles(files) {
+        if (!files.length || attachingImages) return;
+        setAttachingImages(true);
         try {
             const images = await Promise.all(files.map(readPastedImage));
+            const size = [...imageAttachments, ...images].reduce((total, image) => total + image.base64.length, 0);
+            if (size > 10 * 1024 * 1024) {
+                throw new Error(
+                    "These images are too large to send together. Remove an image or choose smaller files.",
+                );
+            }
             setImageAttachments((current) => [...current, ...images]);
             setMessage(`${files.length} image${files.length === 1 ? "" : "s"} attached.`);
         } catch (error) {
             setMessage(errorMessage(error));
+        } finally {
+            setAttachingImages(false);
         }
+    }
+
+    async function handleComposerPaste(event) {
+        const files = new Map();
+        for (const file of Array.from(event.clipboardData?.files || [])) {
+            if (file.type.startsWith("image/")) files.set(`${file.name}:${file.size}`, file);
+        }
+        for (const item of Array.from(event.clipboardData?.items || [])) {
+            if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+            const file = item.getAsFile();
+            if (file) files.set(`${file.name}:${file.size}`, file);
+        }
+        if (!files.size) return;
+        event.preventDefault();
+        const pastedText = event.clipboardData.getData("text/plain");
+        if (pastedText) {
+            const input = event.currentTarget;
+            setDraft(draft.slice(0, input.selectionStart) + pastedText + draft.slice(input.selectionEnd));
+        }
+        await handleComposerFiles([...files.values()]);
     }
 
     /** @param {string} id */
@@ -841,6 +1052,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 role: "user",
                 key: `pending-user:${envelope.requestId}`,
                 text: envelope.text,
+                images: envelope.images,
                 timestamp: envelope.createdAt,
                 source: "transient",
             },
@@ -851,7 +1063,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             operationId: payload.operationId,
             responseAccepted: true,
         };
-        localStorage.setItem(requestKey, JSON.stringify(stored));
+        saveSessionDraft(requestKey, JSON.stringify(stored));
         setOperationStreamFailed(false);
         setOperation({
             operationId: payload.operationId,
@@ -859,7 +1071,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             observed: 0,
             attempts: 0,
         });
-        setMessage("Request accepted. Watching progress without replaying on refresh.");
+        setMessage("");
     }
 
     /** @param {Record<string, any>} envelope */
@@ -891,22 +1103,26 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 queuedAt: String(envelope.createdAt || new Date().toISOString()),
             },
         ]);
-        localStorage.removeItem(requestKey);
+        saveSessionDraft(requestKey, null);
         setDraft("");
         setImageAttachments([]);
         setMessage("Message queued in this browser tab. It will send when this Session becomes available.");
     }
 
-    async function sendRequest() {
+    async function sendRequest(queueOnly = false) {
         const text = draft;
-        const canSubmit = availability.canContinue || availability.key === "active";
-        if ((!text.trim() && imageAttachments.length === 0) || !canSubmit || submitting || !timeline) {
+        const canSubmit = availability.canContinue || ["active", "workspace-running"].includes(availability.key);
+        if (
+            (!text.trim() && imageAttachments.length === 0) || !canSubmit || submitting || attachingImages ||
+            loadedDraftKey !== draftKey || !timeline
+        ) {
             return;
         }
+        if (!queueOnly) scrollToLiveEdge();
         setSubmitting(true);
         setMessage("");
-        const freshTimeline = await loadTimeline();
-        if (!freshTimeline || freshTimeline.truncated || freshTimeline.complete === false) {
+        const freshTimeline = timelineRef.current;
+        if (!freshTimeline) {
             setSubmitting(false);
             setMessage("Could not refresh the Session state before sending. Try again.");
             return;
@@ -920,12 +1136,38 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             status: "pending",
             createdAt: new Date().toISOString(),
         };
-        if (freshTimeline.state === "active") {
-            queueContinuation(envelope);
-            setSubmitting(false);
+        if (freshTimeline.state === "active" || operationRef.current) {
+            try {
+                if (!queueOnly && operationRef.current) {
+                    const result = await ownerFetch(
+                        `/api/owner/projects/${encodeURIComponent(projectId)}/session-operations/${
+                            encodeURIComponent(operationRef.current.operationId)
+                        }/steer`,
+                        {
+                            method: "POST",
+                            body: JSON.stringify({
+                                requestId: envelope.requestId,
+                                text: envelope.text,
+                                images: envelope.images,
+                            }),
+                        },
+                    );
+                    if (result.ok && result.queued) {
+                        setDraft("");
+                        setImageAttachments([]);
+                        setMessage("");
+                        return;
+                    }
+                }
+                queueContinuation(envelope);
+            } catch (error) {
+                setMessage(errorMessage(error));
+            } finally {
+                setSubmitting(false);
+            }
             return;
         }
-        localStorage.setItem(requestKey, JSON.stringify(envelope));
+        await saveSessionDraft(requestKey, JSON.stringify(envelope));
         try {
             const payload = await postContinuation(envelope);
             setDraft("");
@@ -940,7 +1182,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 return;
             }
             const nextStatus = status === 503 ? "unavailable" : "network-error";
-            localStorage.setItem(requestKey, JSON.stringify({ ...envelope, status: nextStatus }));
+            await saveSessionDraft(requestKey, JSON.stringify({ ...envelope, status: nextStatus }));
             if (status === 503) await loadTimeline();
             setMessage(errorMessage(error));
         } finally {
@@ -968,35 +1210,62 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         setTransientItems(items);
         const next = {
             operationId: current.operationId,
+            remote: payload.remote === true,
             status: payload.status || "unknown",
             observed: events.length,
             attempts: current.attempts + 1,
         };
         setOperation(next);
         setPendingConfiguration(payload.pendingConfiguration || null);
-        if (!["completed", "failed", "unknown"].includes(next.status)) return;
+        setSteeringMessages((payload.queuedMessages || []).filter((item) => item.delivery === "steer"));
         if (mode === "new" && payload.runwieldSessionId) {
-            localStorage.removeItem(requestKey);
+            if (operationNavigationRef.current) return;
+            operationNavigationRef.current = true;
+            await saveSessionDraft(
+                sessionRequestKey(projectId, payload.runwieldSessionId),
+                JSON.stringify({ ...asRecord(readStored(requestKey)), operationId: current.operationId }),
+            );
+            await saveSessionDraft(requestKey, null);
             workspaceNavigate(
                 `/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(payload.runwieldSessionId)}`,
                 "replace",
             );
             return;
         }
+        if (!["completed", "failed", "unknown"].includes(next.status)) return;
+        if (next.status === "failed") {
+            const failedRequest = asRecord(readStored(requestKey));
+            if (typeof failedRequest.text === "string") {
+                setDraft(failedRequest.text);
+                const images = Array.isArray(failedRequest.images) ? failedRequest.images : [];
+                const attachments = images.map((image, index) => ({
+                    ...image,
+                    id: crypto.randomUUID(),
+                    name: `Image ${index + 1}`,
+                }));
+                setImageAttachments(attachments);
+                await saveSessionDraft(draftKey, failedRequest.text);
+                await saveSessionDraft(attachmentsKey, JSON.stringify(attachments));
+            }
+            await saveSessionDraft(requestKey, null);
+        }
         if (next.status === "completed") {
-            localStorage.removeItem(requestKey);
-            setMessage("Operation completed. Reconciled committed timeline.");
+            await saveSessionDraft(requestKey, null);
+            setMessage("");
         } else {
             if (next.status === "unknown") setInterruptedOperation(true);
             setMessage(
                 next.status === "unknown"
-                    ? "Operation is unknown after reconnect. Reloaded committed state; do not replay automatically."
-                    : payload.error || "Operation failed. Committed state reloaded.",
+                    ? "The agent was interrupted. Ask it to continue."
+                    : payload.error || "The response failed. Your conversation is saved.",
             );
         }
         setPendingConfiguration(null);
         setOperationStreamFailed(false);
         setOperation(null);
+        setTransientItems([]);
+        operationRef.current = null;
+        document.dispatchEvent(new CustomEvent("runwield:session-updated"));
         await loadTimeline();
     }
 
@@ -1011,9 +1280,14 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                     polledOperationId: current.operationId,
                 })
             ) return;
+            observeOperationBrowserNotifications(
+                { ...current, scopeKey: notificationScopeKey },
+                payload,
+                notificationCursorRef,
+            );
             await applyOperationSnapshot(current, payload);
         };
-        if (typeof EventSource !== "undefined" && !operationStreamFailed) {
+        if (typeof EventSource !== "undefined" && !operationStreamFailed && !operation.remote) {
             const source = new EventSource(
                 `/api/owner/session-operations/${encodeURIComponent(operation.operationId)}/stream`,
             );
@@ -1021,14 +1295,16 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 const current = operationRef.current;
                 if (!current || cancelled) return;
                 try {
-                    void observeSnapshot(current, JSON.parse(event.data));
+                    void observeSnapshot(current, JSON.parse(event.data)).catch((error) =>
+                        setMessage(errorMessage(error))
+                    );
                 } catch (error) {
                     setMessage(`Observation interrupted: ${errorMessage(error)}.`);
                 }
             };
             source.onerror = () => {
                 if (cancelled) return;
-                setMessage("Live Session updates paused. Checking operation status safely.");
+                setMessage("");
                 setOperationStreamFailed(true);
                 source.close();
             };
@@ -1039,7 +1315,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }
         const tick = async () => {
             const current = operationRef.current;
-            if (!current || cancelled || current.attempts >= MAX_POLL_ATTEMPTS) return;
+            if (!current || cancelled) return;
             try {
                 const payload = await ownerFetch(
                     `/api/owner/session-operations/${encodeURIComponent(current.operationId)}`,
@@ -1060,32 +1336,74 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             cancelled = true;
             clearInterval(id);
         };
-    }, [operation?.operationId, operationStreamFailed, requestKey, mode, projectId]);
+    }, [
+        operation?.operationId,
+        operation?.remote,
+        operationStreamFailed,
+        requestKey,
+        mode,
+        projectId,
+        notificationScopeKey,
+    ]);
 
     useEffect(() => {
         if (
-            !shouldRefreshSessionAvailability({
+            loadedDraftKey !== draftKey || !shouldRefreshSessionAvailability({
                 mode,
                 state: timeline?.state,
                 localOperationActive: Boolean(operation?.operationId),
                 queuedMessageCount: queuedMessages.length,
             })
         ) return undefined;
-        const refresh = () => {
-            void loadTimeline();
+        let cancelled = false;
+        let refreshing = false;
+        const refresh = async () => {
+            if (refreshing || cancelled) return;
+            refreshing = true;
+            try {
+                const live = await ownerFetch(
+                    `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                        encodeURIComponent(runwieldSessionId)
+                    }/live`,
+                );
+                if (cancelled) return;
+                if (live.generation !== timelineRef.current?.generation || live.state !== timelineRef.current?.state) {
+                    await loadTimeline();
+                }
+                if (live.operation && !operationRef.current && !cancelled) {
+                    document.dispatchEvent(new CustomEvent("runwield:session-updated"));
+                    const current = { operationId: live.operation.operationId, attempts: 0 };
+                    await applyOperationSnapshot(current, live.operation);
+                }
+            } catch (error) {
+                if (!cancelled) setMessage(errorMessage(error));
+            } finally {
+                refreshing = false;
+            }
         };
         const refreshWhenVisible = () => {
             if (document.visibilityState === "visible") refresh();
         };
         globalThis.addEventListener("focus", refresh);
         document.addEventListener("visibilitychange", refreshWhenVisible);
-        const id = setInterval(refresh, AVAILABILITY_REFRESH_INTERVAL_MS);
+        const id = setInterval(refresh, POLL_INTERVAL_MS);
+        void refresh();
         return () => {
+            cancelled = true;
             globalThis.removeEventListener("focus", refresh);
             document.removeEventListener("visibilitychange", refreshWhenVisible);
             clearInterval(id);
         };
-    }, [mode, timeline?.state, queuedMessages.length, operation?.operationId, projectId, runwieldSessionId]);
+    }, [
+        mode,
+        timeline?.state,
+        queuedMessages.length,
+        operation?.operationId,
+        projectId,
+        runwieldSessionId,
+        loadedDraftKey,
+        draftKey,
+    ]);
 
     useEffect(() => {
         if (
@@ -1101,8 +1419,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             try {
                 const freshTimeline = await loadTimeline();
                 if (
-                    cancelled || !freshTimeline || freshTimeline.state !== "idle" || freshTimeline.truncated ||
-                    freshTimeline.complete === false
+                    cancelled || !freshTimeline || freshTimeline.state !== "idle"
                 ) return;
                 const envelope = {
                     requestId: queued.id,
@@ -1112,14 +1429,14 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                     status: "pending",
                     createdAt: queued.queuedAt,
                 };
-                localStorage.setItem(requestKey, JSON.stringify(envelope));
+                saveSessionDraft(requestKey, JSON.stringify(envelope));
                 try {
                     const payload = await postContinuation(envelope);
                     if (cancelled) return;
                     setQueuedMessages((current) => current.filter((item) => item.id !== queued.id));
                     acceptContinuation(envelope, payload);
                 } catch (error) {
-                    localStorage.removeItem(requestKey);
+                    saveSessionDraft(requestKey, null);
                     const status = Number(asRecord(error).status || 0);
                     if (status === 409 || status === 503) await loadTimeline();
                     if (!cancelled) {
@@ -1199,40 +1516,18 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             return;
         }
         setLatestActivityAvailable(true);
-    }, [mode, loadingDetail, timelineItems.length, transientItems.length, interruptedOperation]);
+    }, [mode, loadingDetail, timelineItems, transientItems, pendingUserMessages, interruptedOperation]);
 
     useEffect(() => {
         if (!operation?.operationId) return undefined;
         const onKeyDown = (event) => {
-            if (event.key === "Escape") cancelOperation();
+            if (event.key === "Escape" && !event.defaultPrevented && !document.querySelector("dialog[open]")) {
+                cancelOperation();
+            }
         };
         globalThis.addEventListener("keydown", onKeyDown);
         return () => globalThis.removeEventListener("keydown", onKeyDown);
     }, [operation?.operationId]);
-
-    async function recoverSessionControl() {
-        if (!timeline || typeof timeline.generation !== "number" || recoveringSession) return;
-        const confirmed = globalThis.confirm?.(
-            "RunWield will recover this Session only if the other surface stopped renewing its lock. Continue?",
-        );
-        if (!confirmed) return;
-        setRecoveringSession(true);
-        setMessage("");
-        try {
-            await ownerFetch(
-                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
-                    encodeURIComponent(runwieldSessionId)
-                }/force-recovery`,
-                { method: "POST", body: JSON.stringify({ expectedGeneration: timeline.generation }) },
-            );
-            await loadTimeline();
-            setMessage("Recovered stale Session control. You can send now.");
-        } catch (error) {
-            setMessage(errorMessage(error));
-        } finally {
-            setRecoveringSession(false);
-        }
-    }
 
     async function answerInteraction(operationId, interactionId, response) {
         try {
@@ -1240,9 +1535,16 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 `/api/owner/projects/${encodeURIComponent(projectId)}/session-operations/${
                     encodeURIComponent(operationId)
                 }/interactions/${encodeURIComponent(interactionId)}/answer`,
-                { method: "POST", body: JSON.stringify({ response }) },
+                {
+                    method: "POST",
+                    body: JSON.stringify({
+                        response,
+                        requestId: crypto.randomUUID(),
+                        runwieldSessionId: runwieldSessionId || undefined,
+                    }),
+                },
             );
-            setMessage("Interaction answer sent.");
+            setMessage("");
         } catch (error) {
             const message = errorMessage(error);
             setMessage(message);
@@ -1265,6 +1567,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
 
     if (mode === "new") {
         const newSessionItems = [
+            ...(transientItems.some((item) => item.kind === "message" && item.role === "user")
+                ? []
+                : pendingUserMessages),
             ...transientItems.map((item) =>
                 item.kind === "interaction"
                     ? {
@@ -1275,7 +1580,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             ),
             ...(interruptedOperation ? [{ kind: "interruption", key: "interruption:lost-workspace-operation" }] : []),
         ];
-        const canSendNew = !submitting && !operation?.operationId;
+        const canSendNew = !submitting && !attachingImages && loadedDraftKey === draftKey && !operation?.operationId;
         const agents = Array.isArray(sessionOptions?.agents) ? sessionOptions.agents : [];
         const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
         const thinkingLevels = Array.isArray(sessionOptions?.thinkingLevels) ? sessionOptions.thinkingLevels : [];
@@ -1284,7 +1589,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 {optionsError
                     ? (
                         <p className="rw-plan-review-dev-notice session-dev-shell-bar" role="status">
-                            DEV MODE — Owner Session APIs are not connected.
+                            {optionsError}
                         </p>
                     )
                     : null}
@@ -1303,10 +1608,15 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             id="new-session-request-text"
                             draft={draft}
                             disabled={!canSendNew}
-                            canSend={canSendNew && Boolean(draft.trim())}
+                            canSend={canSendNew && Boolean(draft.trim() || imageAttachments.length)}
                             submitting={submitting || Boolean(operation?.operationId)}
                             onDraftChange={setDraft}
                             onSubmit={createSession}
+                            onStop={operation?.operationId ? cancelOperation : undefined}
+                            onPaste={handleComposerPaste}
+                            onFiles={handleComposerFiles}
+                            imageAttachments={imageAttachments}
+                            onRemoveImage={removeImageAttachment}
                             agents={agents}
                             models={models}
                             thinkingLevels={thinkingLevels}
@@ -1328,7 +1638,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
 
     const allItems = [
         ...timelineItems,
-        ...pendingUserMessages,
+        ...(transientItems.some((item) => item.kind === "message" && item.role === "user") ? [] : pendingUserMessages),
         ...transientItems.map((item) =>
             item.kind === "interaction"
                 ? {
@@ -1377,22 +1687,40 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const hasActivePlan = Boolean(workflowContext.planId || workflowContext.planName || progressUrl);
     const workflowStages = deriveWorkflowSidebarStages(workflowProgress);
     const localOperationActive = Boolean(operation && !["completed", "failed", "unknown"].includes(operation.status));
-    const canConfigureSession = availability.canContinue || localOperationActive;
+    const canConfigureSession = availability.canContinue || (localOperationActive && !operation?.remote);
     const stagedAgent = pendingConfiguration?.agentName || timeline?.snapshot?.activeAgent || "";
     const stagedModelKey = pendingConfiguration?.model
         ? `${pendingConfiguration.provider || ""}\u001f${pendingConfiguration.model}`
         : activeModelKey;
     const displayedThinking = liveThinkingLevel || activeThinking;
     const showBusyPanel = ["active", "workspace-running", "execution-workflow"].includes(availability.key);
-    const canRecoverBusySession = availability.key === "active" && typeof timeline?.generation === "number";
-    const busySurface = timeline?.activeSurface || (operation?.operationId ? "workspace" : null);
-    const canSubmitSession = availability.canContinue || availability.key === "active";
+    const canSubmitSession = availability.canContinue || ["active", "workspace-running"].includes(availability.key);
+    const sessionSidebar = buildSessionSidebarProjection({
+        sessionName: timeline?.snapshot?.name,
+        ...timeline?.snapshot?.sessionStats,
+        queuedMessages: queuedMessages.length,
+        contextUsedTokens: timeline?.snapshot?.contextUsage?.tokens,
+        contextWindowTokens: timeline?.snapshot?.contextUsage?.contextWindow,
+        contextPercent: timeline?.snapshot?.contextUsage?.percent,
+        systemContextTokens: timeline?.snapshot?.systemContextTokens,
+    }).session;
     return (
         <section className="session-surface session-surface-detail" aria-label="RunWield Session chat">
+            {timeline && contextCollapsed && (
+                <WorkspaceHeaderActionsPortal>
+                    <RunWieldPanelToggle
+                        side="right"
+                        collapsed
+                        label="Session sidebar"
+                        controls="session-context-sidebar"
+                        onClick={toggleContext}
+                    />
+                </WorkspaceHeaderActionsPortal>
+            )}
             {loadingDetail && !timeline
                 ? (
                     <p className="session-list-state" aria-busy="true">
-                        <RunWieldThinkingDots label="Loading committed Session timeline" />
+                        <RunWieldThinkingDots label="Loading conversation" />
                     </p>
                 )
                 : null}
@@ -1407,7 +1735,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 : null}
             {timeline
                 ? (
-                    <div className="session-detail-layout">
+                    <div
+                        className={`session-detail-layout${
+                            contextCollapsed ? " session-detail-layout--chat-only" : ""
+                        }`}
+                    >
                         <main className="session-stream-panel" aria-label="Session stream">
                             <div
                                 className="session-timeline-scroll"
@@ -1417,22 +1749,13 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                 {loadingDetail
                                     ? (
                                         <div className="session-inline-loader" aria-live="polite" aria-busy="true">
-                                            <RunWieldThinkingDots label="Updating committed Session timeline" />
+                                            <RunWieldThinkingDots label="Updating conversation" />
                                         </div>
                                     )
                                     : message
                                     ? <div className="session-surface-status" aria-live="polite">{message}</div>
                                     : null}
-                                {showBusyPanel
-                                    ? (
-                                        <SessionBusyPanel
-                                            surface={busySurface}
-                                            canRecover={canRecoverBusySession}
-                                            recovering={recoveringSession}
-                                            onRecover={recoverSessionControl}
-                                        />
-                                    )
-                                    : null}
+                                {showBusyPanel ? <SessionBusyPanel /> : null}
                                 {latestActivityAvailable
                                     ? (
                                         <div className="session-scroll-offer" role="status">
@@ -1443,19 +1766,46 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                         </div>
                                     )
                                     : null}
-                                <SessionTimeline items={allItems} />
+                                {timeline.previousCursor
+                                    ? (
+                                        <RunWieldButton
+                                            type="button"
+                                            onClick={loadEarlierMessages}
+                                            disabled={loadingEarlier}
+                                        >
+                                            {loadingEarlier ? "Loading…" : "Load earlier messages"}
+                                        </RunWieldButton>
+                                    )
+                                    : null}
+                                <SessionTimeline
+                                    items={allItems}
+                                    sessionPath={`/projects/${encodeURIComponent(projectId)}/sessions/${
+                                        encodeURIComponent(runwieldSessionId)
+                                    }`}
+                                />
                                 <div ref={timelineEndRef} aria-hidden="true" />
                             </div>
                             <SessionComposer
                                 id="session-request-text"
                                 draft={draft}
-                                disabled={!canSubmitSession || submitting}
+                                disabled={!canSubmitSession || submitting || attachingImages ||
+                                    loadedDraftKey !== draftKey}
                                 controlsDisabled={!canConfigureSession}
-                                canSend={canSubmitSession && Boolean(draft.trim() || imageAttachments.length)}
+                                canSend={canSubmitSession && !attachingImages && loadedDraftKey === draftKey &&
+                                    Boolean(draft.trim() || imageAttachments.length)}
                                 submitting={submitting}
                                 onDraftChange={setDraft}
-                                onSubmit={sendRequest}
+                                onSubmit={() => sendRequest()}
+                                onQueue={operation?.operationId ? () => sendRequest(true) : undefined}
+                                onStop={operation?.operationId ? cancelOperation : undefined}
+                                sendLabel={operation?.operationId
+                                    ? "Steer"
+                                    : timeline.state === "active"
+                                    ? "Queue"
+                                    : "Send"}
+                                steeringMessages={steeringMessages}
                                 onPaste={handleComposerPaste}
+                                onFiles={handleComposerFiles}
                                 imageAttachments={imageAttachments}
                                 onRemoveImage={removeImageAttachment}
                                 agents={agents}
@@ -1488,156 +1838,157 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             />
                         </main>
                         <aside
+                            id="session-context-sidebar"
+                            hidden={contextCollapsed}
                             className="session-workflow-sidebar session-context-sidebar"
                             aria-label="Session context"
                         >
-                            <div className="session-context-tabs" role="tablist" aria-label="Session context views">
-                                {SESSION_SIDEBAR_TABS.map((tab) => (
-                                    <button
-                                        key={tab}
-                                        type="button"
-                                        role="tab"
-                                        aria-selected={sessionSidebarTab === tab}
-                                        onClick={() => setSessionSidebarTab(tab)}
+                            <div className="session-context-content">
+                                <div className="session-context-header">
+                                    <RunWieldPanelToggle
+                                        side="right"
+                                        collapsed={false}
+                                        label="Session sidebar"
+                                        controls="session-context-sidebar"
+                                        onClick={toggleContext}
+                                    />
+                                    <div
+                                        className="session-context-tabs"
+                                        role="tablist"
+                                        aria-label="Session context views"
                                     >
-                                        {tab[0].toUpperCase() + tab.slice(1)}
-                                        {tab === "artifacts" && Array.isArray(timeline.artifacts) &&
-                                                timeline.artifacts.length
-                                            ? <span>{timeline.artifacts.length}</span>
-                                            : null}
-                                    </button>
-                                ))}
-                            </div>
-                            {sessionSidebarTab === "workflow"
-                                ? (
-                                    <div className="session-context-panel" role="tabpanel">
-                                        <p className="kicker">Workflow state</p>
-                                        {hasActivePlan
-                                            ? (
-                                                <>
-                                                    <dl>
-                                                        {workflowSidebar.epic
+                                        {SESSION_SIDEBAR_TABS.map((tab) => (
+                                            <button
+                                                key={tab}
+                                                type="button"
+                                                role="tab"
+                                                aria-selected={sessionSidebarTab === tab}
+                                                onClick={() => setSessionSidebarTab(tab)}
+                                            >
+                                                {tab[0].toUpperCase() + tab.slice(1)}
+                                                {tab === "artifacts" && Array.isArray(timeline.artifacts) &&
+                                                        timeline.artifacts.length
+                                                    ? <span>{timeline.artifacts.length}</span>
+                                                    : null}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                {sessionSidebarTab === "workflow"
+                                    ? (
+                                        <div className="session-context-panel" role="tabpanel">
+                                            {hasActivePlan
+                                                ? (
+                                                    <>
+                                                        <dl>
+                                                            {workflowSidebar.epic
+                                                                ? (
+                                                                    <div>
+                                                                        <dt>Epic</dt>
+                                                                        <dd>{workflowSidebar.epic}</dd>
+                                                                    </div>
+                                                                )
+                                                                : null}
+                                                            <div>
+                                                                <dt>Plan</dt>
+                                                                <dd>{workflowSidebar.plan}</dd>
+                                                            </div>
+                                                        </dl>
+                                                        {workflowProgress
                                                             ? (
-                                                                <div>
-                                                                    <dt>Epic</dt>
-                                                                    <dd>{workflowSidebar.epic}</dd>
-                                                                </div>
+                                                                <ol
+                                                                    className="session-workflow-stage-list"
+                                                                    aria-label="Canonical workflow progress stages"
+                                                                >
+                                                                    {workflowStages.map((stage) => (
+                                                                        <li key={stage.id} data-state={stage.state}>
+                                                                            <span>{stage.label}</span>
+                                                                            <strong>
+                                                                                {String(stage.state || "unknown")
+                                                                                    .replaceAll(
+                                                                                        "_",
+                                                                                        " ",
+                                                                                    )}
+                                                                            </strong>
+                                                                            <p>{stage.detail}</p>
+                                                                        </li>
+                                                                    ))}
+                                                                </ol>
+                                                            )
+                                                            : (
+                                                                <p className="notice muted">
+                                                                    {workflowProgressError
+                                                                        ? "Workflow progress is temporarily unavailable."
+                                                                        : "Loading canonical workflow progress…"}
+                                                                </p>
+                                                            )}
+                                                        {progressUrl && !workflowProgressError
+                                                            ? (
+                                                                <RunWieldLink
+                                                                    variant="primary"
+                                                                    className="rw-plan-review-link"
+                                                                    href={progressUrl}
+                                                                >
+                                                                    Open progress
+                                                                </RunWieldLink>
                                                             )
                                                             : null}
-                                                        <div>
-                                                            <dt>Plan</dt>
-                                                            <dd>{workflowSidebar.plan}</dd>
-                                                        </div>
-                                                    </dl>
-                                                    {workflowProgress
-                                                        ? (
-                                                            <ol
-                                                                className="session-workflow-stage-list"
-                                                                aria-label="Canonical workflow progress stages"
-                                                            >
-                                                                {workflowStages.map((stage) => (
-                                                                    <li key={stage.id} data-state={stage.state}>
-                                                                        <span>{stage.label}</span>
-                                                                        <strong>
-                                                                            {String(stage.state || "unknown")
-                                                                                .replaceAll(
-                                                                                    "_",
-                                                                                    " ",
-                                                                                )}
-                                                                        </strong>
-                                                                        <p>{stage.detail}</p>
-                                                                    </li>
-                                                                ))}
-                                                            </ol>
-                                                        )
-                                                        : (
-                                                            <p className="notice muted">
-                                                                {workflowProgressError
-                                                                    ? "Workflow progress is temporarily unavailable."
-                                                                    : "Loading canonical workflow progress…"}
-                                                            </p>
-                                                        )}
-                                                    {progressUrl && !workflowProgressError
-                                                        ? (
-                                                            <RunWieldLink
-                                                                variant="primary"
-                                                                className="rw-plan-review-link"
-                                                                href={progressUrl}
-                                                            >
-                                                                Open progress
-                                                            </RunWieldLink>
-                                                        )
-                                                        : null}
-                                                </>
-                                            )
-                                            : (
-                                                <p className="session-context-empty">
-                                                    This Session does not have an active Plan workflow.
-                                                </p>
-                                            )}
-                                    </div>
-                                )
-                                : sessionSidebarTab === "session"
-                                ? (
-                                    <div className="session-context-panel" role="tabpanel">
-                                        <p className="kicker">Session</p>
-                                        <SessionActivationStatus availability={availability} compact />
-                                        <dl>
-                                            <div>
-                                                <dt>State</dt>
-                                                <dd>{timeline.state || "unknown"}</dd>
-                                            </div>
-                                            <div>
-                                                <dt>Agent</dt>
-                                                <dd>{timeline.snapshot?.activeAgent || "Not recorded"}</dd>
-                                            </div>
-                                            <div>
-                                                <dt>Model</dt>
-                                                <dd>{activeModelId || "Project default"}</dd>
-                                            </div>
-                                            <div>
-                                                <dt>Thinking</dt>
-                                                <dd>{displayedThinking}</dd>
-                                            </div>
-                                            <div>
-                                                <dt>Generation</dt>
-                                                <dd>{timeline.generation ?? "Not committed"}</dd>
-                                            </div>
-                                        </dl>
-                                    </div>
-                                )
-                                : (
-                                    <div className="session-context-panel" role="tabpanel">
-                                        <p className="kicker">Artifacts</p>
-                                        {Array.isArray(timeline.artifacts) && timeline.artifacts.length
-                                            ? (
-                                                <ul className="session-artifact-list">
-                                                    {timeline.artifacts.map((artifact) => (
-                                                        <li key={artifact.artifactId}>
-                                                            <a
-                                                                href={`/projects/${
-                                                                    encodeURIComponent(projectId)
-                                                                }/sessions/${
-                                                                    encodeURIComponent(runwieldSessionId)
-                                                                }/artifacts/${encodeURIComponent(artifact.artifactId)}`}
-                                                            >
-                                                                <span>{artifact.title}</span>
-                                                                <small>
-                                                                    {sessionArtifactKindLabel(artifact.kind)}
-                                                                </small>
-                                                            </a>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            )
-                                            : (
-                                                <p className="session-context-empty">
-                                                    Meaningful Markdown outputs will appear here when an agent declares
-                                                    them.
-                                                </p>
-                                            )}
-                                    </div>
-                                )}
+                                                    </>
+                                                )
+                                                : (
+                                                    <p className="session-context-empty">
+                                                        This Session does not have an active Plan workflow.
+                                                    </p>
+                                                )}
+                                        </div>
+                                    )
+                                    : sessionSidebarTab === "session"
+                                    ? (
+                                        <div className="session-context-panel" role="tabpanel">
+                                            <dl>
+                                                {sessionSidebarFields(sessionSidebar).map((field) => (
+                                                    <div key={field.label}>
+                                                        <dt>{field.label}</dt>
+                                                        <dd>{field.value}</dd>
+                                                    </div>
+                                                ))}
+                                            </dl>
+                                        </div>
+                                    )
+                                    : (
+                                        <div className="session-context-panel" role="tabpanel">
+                                            {Array.isArray(timeline.artifacts) && timeline.artifacts.length
+                                                ? (
+                                                    <ul className="session-artifact-list">
+                                                        {timeline.artifacts.map((artifact) => (
+                                                            <li key={artifact.artifactId}>
+                                                                <a
+                                                                    href={`/projects/${
+                                                                        encodeURIComponent(projectId)
+                                                                    }/sessions/${
+                                                                        encodeURIComponent(runwieldSessionId)
+                                                                    }/artifacts/${
+                                                                        encodeURIComponent(artifact.artifactId)
+                                                                    }`}
+                                                                >
+                                                                    <span>{artifact.title}</span>
+                                                                    <small>
+                                                                        {sessionArtifactKindLabel(artifact.kind)}
+                                                                    </small>
+                                                                </a>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                )
+                                                : (
+                                                    <p className="session-context-empty">
+                                                        Meaningful Markdown outputs will appear here when an agent
+                                                        declares them.
+                                                    </p>
+                                                )}
+                                        </div>
+                                    )}
+                            </div>
                         </aside>
                     </div>
                 )

@@ -852,10 +852,12 @@ Catalog APIs accept a project root and are tested for isolation between two root
 the higher runtime boundary rather than a universally enforced low-level type.
 
 `SessionRuntime.promptUserTurn()` is the raw named-invocation boundary. TUI, Workspace, and ACP send compact slash text
-to it. Skills expand into the current root Agent turn. Prompt Templates run through a disposable auxiliary Agent Session
-with the active Session Transcript Segment as context and the exact resolved expansion as the next user message. The
-root Agent, model, thinking level, workflow owner, and workflow checkpoint stay owned by the root Session. `/reload`
-rebuilds the active Agent and emits replacement Prompt Template and Skill catalogs only after the rebuild succeeds.
+to it. Skills expand into the current root Agent turn and still display as compact Skill commands. Prompt Templates run
+through a disposable auxiliary Agent Session with the active Session Transcript Segment as context and the exact
+resolved expansion as the next user message. Prompt Template live events and replay display that resolved expansion in
+chat while the transcript still stores the compact command for audit. The root Agent, model, thinking level, workflow
+owner, and workflow checkpoint stay owned by the root Session. `/reload` rebuilds the active Agent and emits replacement
+Prompt Template and Skill catalogs only after the rebuild succeeds.
 
 ### Metrics and fail-open services
 

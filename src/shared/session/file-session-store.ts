@@ -617,7 +617,7 @@ export function openFileSessionStore(options: OpenFileSessionStoreOptions = {}):
             if (!project) throw new Error("Session project is unavailable");
             return await readCatalogSafeRootSessionLocator({
                 cwd: locator.transcriptCwd,
-                sessionDir: sessionDirForRoot(baseDir, project.currentRoot),
+                sessionDir: sessionDirForRoot(baseDir, locator.transcriptCwd),
                 sessionPath: locator.transcriptPath,
             });
         },

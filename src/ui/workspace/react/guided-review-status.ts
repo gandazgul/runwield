@@ -54,3 +54,16 @@ export function formatGuidedReviewUsageStatus(job: GuidedReviewJobStatus): Guide
     ].join(" / ");
     return { tokens: `tokens ${tokens}`, cost: `cost $${readCostUsd(job).toFixed(3)}` };
 }
+
+export interface GuidedReviewGenerator {
+    providerName?: string;
+    model?: string;
+    thinkingLevel?: string;
+}
+
+export function formatGuidedReviewGenerator(job?: GuidedReviewGenerator | null): string | undefined {
+    if (!job?.providerName || job.providerName === "wld") return undefined;
+    const model = job.model && job.model !== "unknown" ? `/${job.model}` : "";
+    const thinking = job.thinkingLevel ? ` (${job.thinkingLevel})` : "";
+    return `${job.providerName}${model}${thinking}`;
+}

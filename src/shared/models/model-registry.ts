@@ -15,7 +15,8 @@ import { parse as parseJsonc } from "@std/jsonc";
 import { getSettingsDir } from "../settings.js";
 import { getHomeDir } from "../../constants.js";
 
-export type ExecutionBackend = "pi" | "claude-cli";
+export type ExecutionBackend = "pi" | "claude-cli" | "agy-cli";
+type ExternalCliExecutionBackend = Exclude<ExecutionBackend, "pi">;
 export type AuthenticationKind = "api-auth" | "external-cli";
 export type HealthCheckKind = "api-auth" | "execution-preflight";
 
@@ -113,12 +114,56 @@ interface ModelRegistryOptions {
 
 const MODEL_CONFIG_FILES = ["models.json", "auth.json"] as const;
 const CLAUDE_CLI_PROVIDER = "claude-cli";
+const AGY_CLI_PROVIDER = "agy-cli";
 const CLAUDE_CLI_ALIASES = ["sonnet", "opus", "haiku", "fable"] as const;
 const CLAUDE_CLI_DISPLAY_NAMES: Record<(typeof CLAUDE_CLI_ALIASES)[number], string> = {
     sonnet: "Claude CLI Sonnet",
     opus: "Claude CLI Opus",
     haiku: "Claude CLI Haiku",
     fable: "Claude CLI Fable",
+};
+const AGY_CLI_MODEL_IDS = ["gemini-3.8-flash", "gemini-3.1-pro"] as const;
+const AGY_CLI_DISPLAY_NAMES: Record<(typeof AGY_CLI_MODEL_IDS)[number], string> = {
+    "gemini-3.8-flash": "Antigravity CLI Gemini 3.8 Flash",
+    "gemini-3.1-pro": "Antigravity CLI Gemini 3.1 Pro",
+};
+
+interface ExternalCliProviderDefinition {
+    provider: ExternalCliExecutionBackend;
+    displayName: string;
+    modelNamePrefix: string;
+    api: Api;
+    reasoning: boolean;
+    contextWindow: number;
+    maxTokens: number;
+    aliases?: readonly string[];
+    supportedModels?: readonly string[];
+    modelDisplayNames?: Record<string, string>;
+}
+
+const EXTERNAL_CLI_PROVIDER_DEFINITIONS: Record<ExternalCliExecutionBackend, ExternalCliProviderDefinition> = {
+    [CLAUDE_CLI_PROVIDER]: {
+        provider: CLAUDE_CLI_PROVIDER,
+        displayName: "Claude CLI",
+        modelNamePrefix: "Claude CLI",
+        api: "anthropic-messages",
+        reasoning: true,
+        contextWindow: 200000,
+        maxTokens: 16384,
+        aliases: CLAUDE_CLI_ALIASES,
+        modelDisplayNames: CLAUDE_CLI_DISPLAY_NAMES,
+    },
+    [AGY_CLI_PROVIDER]: {
+        provider: AGY_CLI_PROVIDER,
+        displayName: "Antigravity CLI",
+        modelNamePrefix: "Antigravity CLI",
+        api: "openai-completions",
+        reasoning: true,
+        contextWindow: 128000,
+        maxTokens: 16384,
+        supportedModels: AGY_CLI_MODEL_IDS,
+        modelDisplayNames: AGY_CLI_DISPLAY_NAMES,
+    },
 };
 
 let bundledOAuthFlowsRegistered = false;
@@ -217,7 +262,7 @@ export class RunWieldCredentialStore {
     }
 
     read(providerId: string): Promise<Credential | undefined> {
-        if (providerId === CLAUDE_CLI_PROVIDER) return Promise.resolve(undefined);
+        if (isExternalCliProvider(providerId)) return Promise.resolve(undefined);
         const credential = this.readData()[providerId];
         if (!credential) return Promise.resolve(undefined);
         if (credential.type !== "api_key" || credential.key === undefined) {
@@ -231,7 +276,7 @@ export class RunWieldCredentialStore {
             Object.entries(this.readData())
                 .filter((entry): entry is [string, ConfiguredCredential] => {
                     const [providerId, credential] = entry;
-                    if (providerId === CLAUDE_CLI_PROVIDER) return false;
+                    if (isExternalCliProvider(providerId)) return false;
                     return credential?.type === "oauth" || credential?.type === "api_key";
                 })
                 .map(([providerId, credential]) => ({ providerId, type: credential.type as "oauth" | "api_key" })),
@@ -371,31 +416,50 @@ function isConfiguredStoredCredential(credential: ConfiguredCredential | undefin
     return false;
 }
 
-function createClaudeCliModelDescriptor(selector: string): RunWieldModel | undefined {
+export function isExternalCliProvider(provider: string): provider is ExternalCliExecutionBackend {
+    return Object.hasOwn(EXTERNAL_CLI_PROVIDER_DEFINITIONS, provider);
+}
+
+function isExternalCliBackend(backend: string | undefined): backend is ExternalCliExecutionBackend {
+    return backend === CLAUDE_CLI_PROVIDER || backend === AGY_CLI_PROVIDER;
+}
+
+export function isExternalCliModel(
+    model: Pick<RunWieldModel, "provider" | "executionBackend"> | undefined,
+): boolean {
+    if (!model) return false;
+    return isExternalCliProvider(model.provider) || isExternalCliBackend(model.executionBackend);
+}
+
+function createExternalCliModelDescriptor(provider: string, selector: string): RunWieldModel | undefined {
+    if (!isExternalCliProvider(provider)) return undefined;
     const id = selector.trim();
     if (!id) return undefined;
-    const alias = CLAUDE_CLI_ALIASES.find((entry) => entry === id);
+    const definition = EXTERNAL_CLI_PROVIDER_DEFINITIONS[provider];
+    if (definition.supportedModels && !definition.supportedModels.includes(id)) return undefined;
     return {
-        provider: CLAUDE_CLI_PROVIDER,
+        provider,
         id,
-        name: alias ? CLAUDE_CLI_DISPLAY_NAMES[alias] : `Claude CLI ${id}`,
-        api: "anthropic-messages",
+        name: definition.modelDisplayNames?.[id] || `${definition.modelNamePrefix} ${id}`,
+        api: definition.api,
         baseUrl: "",
-        reasoning: true,
+        reasoning: definition.reasoning,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 200000,
-        maxTokens: 16384,
-        executionBackend: "claude-cli",
+        contextWindow: definition.contextWindow,
+        maxTokens: definition.maxTokens,
+        executionBackend: definition.provider,
         authenticationKind: "external-cli",
         healthCheck: "execution-preflight",
     };
 }
 
-function getClaudeCliAliasModels(): RunWieldModel[] {
-    return CLAUDE_CLI_ALIASES.map((alias) => createClaudeCliModelDescriptor(alias)).filter((
-        model,
-    ): model is RunWieldModel => Boolean(model));
+function getExternalCliAliasModels(): RunWieldModel[] {
+    return Object.values(EXTERNAL_CLI_PROVIDER_DEFINITIONS).flatMap((definition) =>
+        [...(definition.aliases || []), ...(definition.supportedModels || [])]
+            .map((selector) => createExternalCliModelDescriptor(definition.provider, selector))
+            .filter((model): model is RunWieldModel => Boolean(model))
+    );
 }
 
 function dedupeModels(models: RunWieldModel[]): RunWieldModel[] {
@@ -431,7 +495,7 @@ export class RunWieldModelRegistry {
 
     getOAuthProviders(): Array<{ id: string; name: string }> {
         return (this.runtime?.getProviders() || [])
-            .filter((provider) => Boolean(provider.auth?.oauth))
+            .filter((provider) => !isExternalCliProvider(provider.id) && Boolean(provider.auth?.oauth))
             .map((provider) => ({ id: provider.id, name: provider.name }));
     }
 
@@ -439,7 +503,7 @@ export class RunWieldModelRegistry {
         const runtime = await this.getRuntime();
         const credentials = await runtime.listCredentials();
         return credentials
-            .filter((credential) => credential.providerId !== CLAUDE_CLI_PROVIDER)
+            .filter((credential) => !isExternalCliProvider(credential.providerId))
             .map((credential) => ({
                 id: credential.providerId,
                 name: this.getProviderDisplayName(credential.providerId),
@@ -458,6 +522,7 @@ export class RunWieldModelRegistry {
     }
 
     async setProviderApiKey(providerId: string, apiKey: string): Promise<void> {
+        if (isExternalCliProvider(providerId)) return;
         await this.credentialStore.modify(providerId, () => Promise.resolve({ type: "api_key", key: apiKey }));
         const runtime = await this.getRuntime();
         await runtime.refresh({ allowNetwork: false });
@@ -483,15 +548,15 @@ export class RunWieldModelRegistry {
             ? Array.from(this.runtime.getModels()) as RunWieldModel[]
             : readBuiltinModels();
         return dedupeModels([
-            ...runtimeModels.filter((model) => model.provider !== CLAUDE_CLI_PROVIDER),
-            ...Array.from(this.registeredModels.values()).filter((model) => model.provider !== CLAUDE_CLI_PROVIDER),
+            ...runtimeModels.filter((model) => !isExternalCliModel(model)),
+            ...Array.from(this.registeredModels.values()).filter((model) => !isExternalCliModel(model)),
             ...this.getConfiguredModels(),
-            ...getClaudeCliAliasModels(),
+            ...getExternalCliAliasModels(),
         ]);
     }
 
     getSelectable(): RunWieldModel[] {
-        return dedupeModels([...this.getAvailable(), ...getClaudeCliAliasModels()]);
+        return dedupeModels([...this.getAvailable(), ...getExternalCliAliasModels()]);
     }
 
     getAvailable(): RunWieldModel[] {
@@ -499,12 +564,12 @@ export class RunWieldModelRegistry {
             ? Array.from(this.runtime.getAvailableSnapshot()) as RunWieldModel[]
             : this.getAll().filter((model) => this.hasConfiguredAuth(model));
         return dedupeModels(
-            models.filter((model) => model.provider !== CLAUDE_CLI_PROVIDER && model.executionBackend !== "claude-cli"),
+            models.filter((model) => !isExternalCliModel(model)),
         );
     }
 
     find(provider: string, modelId: string): RunWieldModel | undefined {
-        if (provider === CLAUDE_CLI_PROVIDER) return createClaudeCliModelDescriptor(modelId);
+        if (isExternalCliProvider(provider)) return createExternalCliModelDescriptor(provider, modelId);
         return this.runtime?.getModel(provider, modelId) as RunWieldModel | undefined ||
             this.registeredModels.get(`${provider}/${modelId}`) ||
             this.getConfiguredModels().find((model) => model.provider === provider && model.id === modelId) ||
@@ -513,13 +578,13 @@ export class RunWieldModelRegistry {
 
     isSelectable(model: RunWieldModel | undefined): boolean {
         if (!model) return false;
-        if (model.executionBackend === "claude-cli" || model.provider === CLAUDE_CLI_PROVIDER) return true;
+        if (isExternalCliModel(model)) return true;
         return this.hasConfiguredAuth(model);
     }
 
     hasConfiguredAuth(model: RunWieldModel | undefined): boolean {
         if (!model) return false;
-        if (model.provider === CLAUDE_CLI_PROVIDER || model.executionBackend === "claude-cli") return false;
+        if (isExternalCliModel(model)) return false;
         if (this.runtime?.hasConfiguredAuth(model.provider)) return true;
         const status = this.getProviderAuthStatus(model.provider);
         return Boolean(status.configured);
@@ -531,7 +596,7 @@ export class RunWieldModelRegistry {
             error: string;
         }
     > {
-        if (model.provider === CLAUDE_CLI_PROVIDER || model.executionBackend === "claude-cli") {
+        if (isExternalCliModel(model)) {
             return { ok: false, error: `No API auth for external CLI provider ${model.provider}` };
         }
         const runtime = this.runtime || await (this.runtimePromise || getModelRuntime());
@@ -549,7 +614,7 @@ export class RunWieldModelRegistry {
     }
 
     getProviderAuthStatus(provider: string): ProviderAuthStatus {
-        if (provider === CLAUDE_CLI_PROVIDER) return { configured: false };
+        if (isExternalCliProvider(provider)) return { configured: false };
         const runtimeStatus = this.runtime?.getProviderAuthStatus(provider) as ProviderAuthStatus | undefined;
         if (runtimeStatus?.configured) return runtimeStatus;
         const providerConfig = this.getProviderConfig(provider);
@@ -563,38 +628,39 @@ export class RunWieldModelRegistry {
     }
 
     getProvider(provider: string): Provider | ConfiguredProviderInput | undefined {
+        if (isExternalCliProvider(provider)) return undefined;
         return this.runtime?.getProvider(provider) || builtinProviders().find((item) => item.id === provider) ||
             this.getProviderConfig(provider);
     }
 
     getProviderDisplayName(provider: string): string {
-        if (provider === CLAUDE_CLI_PROVIDER) return "Claude CLI";
+        if (isExternalCliProvider(provider)) return EXTERNAL_CLI_PROVIDER_DEFINITIONS[provider].displayName;
         return this.runtime?.getProvider(provider)?.name ||
             this.getProviderConfig(provider)?.name as string | undefined || provider;
     }
 
     async getProviderAuth(provider: string): Promise<AuthResultValue | undefined> {
-        if (provider === CLAUDE_CLI_PROVIDER) return undefined;
+        if (isExternalCliProvider(provider)) return undefined;
         const runtime = this.runtime || await (this.runtimePromise || getModelRuntime());
         this.runtime = runtime;
         return await runtime.getAuth(provider) as AuthResultValue | undefined;
     }
 
     async getApiKeyForProvider(provider: string): Promise<string | undefined> {
-        if (provider === CLAUDE_CLI_PROVIDER) return undefined;
+        if (isExternalCliProvider(provider)) return undefined;
         const auth = await this.getProviderAuth(provider);
         return auth?.auth.apiKey || resolveLiteralConfigValue(this.getProviderConfig(provider)?.apiKey);
     }
 
     isUsingOAuth(model: RunWieldModel): boolean {
-        if (model.provider === CLAUDE_CLI_PROVIDER) return false;
+        if (isExternalCliModel(model)) return false;
         return Boolean(this.runtime?.isUsingOAuth(model.provider));
     }
 
     registerProvider(provider: string | ConfiguredProviderInput, config?: ConfiguredProviderInput): void {
         const providerId = typeof provider === "string" ? provider : asString(provider.id, "");
         const providerConfig = typeof provider === "string" ? config : provider;
-        if (!providerId || !providerConfig || providerId === CLAUDE_CLI_PROVIDER) return;
+        if (!providerId || !providerConfig || isExternalCliProvider(providerId)) return;
         this.runtime?.registerProvider(providerId, providerConfig as Parameters<ModelRuntime["registerProvider"]>[1]);
         if (this.runtimePromise && !this.runtime) {
             this.runtimePromise.then((runtime) =>
@@ -614,21 +680,23 @@ export class RunWieldModelRegistry {
     }
 
     getRegisteredProviderConfig(provider: string): ConfiguredProviderInput | undefined {
+        if (isExternalCliProvider(provider)) return undefined;
         return this.runtime?.getRegisteredProviderConfig(provider) as ConfiguredProviderInput | undefined ||
             this.getProviderConfig(provider);
     }
 
     getRegisteredNativeProvider(provider: string): Provider | undefined {
+        if (isExternalCliProvider(provider)) return undefined;
         return this.runtime?.getRegisteredNativeProvider(provider);
     }
 
     getRegisteredProviderIds(): readonly string[] {
         const providers = this.readModelsConfig().providers;
         const configured = Object.keys(isJsonRecord(providers) ? providers : {}).filter((provider) =>
-            provider !== CLAUDE_CLI_PROVIDER
+            !isExternalCliProvider(provider)
         );
         const runtime = (this.runtime?.getRegisteredProviderIds() || []).filter((provider) =>
-            provider !== CLAUDE_CLI_PROVIDER
+            !isExternalCliProvider(provider)
         );
         return [...new Set([...runtime, ...configured])];
     }
@@ -638,6 +706,7 @@ export class RunWieldModelRegistry {
     }
 
     getProviderConfig(provider: string): ConfiguredProviderInput | undefined {
+        if (isExternalCliProvider(provider)) return undefined;
         const providers = this.readModelsConfig().providers;
         const config = isJsonRecord(providers) ? providers[provider] : undefined;
         return isJsonRecord(config) ? config as ConfiguredProviderInput : undefined;
@@ -647,7 +716,7 @@ export class RunWieldModelRegistry {
         const providers = this.readModelsConfig().providers;
         if (!isJsonRecord(providers)) return [];
         return Object.entries(providers).flatMap(([provider, config]) =>
-            provider !== CLAUDE_CLI_PROVIDER && isJsonRecord(config)
+            !isExternalCliProvider(provider) && isJsonRecord(config)
                 ? readConfiguredModels(provider, config as ConfiguredProviderInput)
                 : []
         );
@@ -661,6 +730,7 @@ export async function discoverProviderModel(
     network: ModelDiscoveryNetworkPort,
     options: DiscoverProviderModelOptions = {},
 ): Promise<RunWieldModel | undefined> {
+    if (isExternalCliProvider(provider)) return undefined;
     const existing = modelRegistry.find(provider, modelId);
     if (existing) return existing;
 

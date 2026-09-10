@@ -1125,3 +1125,183 @@ button.danger-action:disabled {
     justify-content: flex-end;
     padding-top: 0.85rem;
 }
+
+/* Guided Review: Plannotator chapter cards with RunWield explanation blocks. */
+.rw-guide-explainer {
+    container: guided-review / inline-size;
+    height: 100%;
+    min-height: 0;
+    overflow: auto;
+    background: var(--rw-page-bg);
+    color: var(--rw-text);
+}
+
+.rw-guide-notes {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.rw-guide-callout,
+.rw-guide-checkpoint,
+.rw-guide-mermaid,
+.rw-guide-widget {
+    min-width: 0;
+    padding: 0.75rem;
+    border: 1px solid var(--rw-border);
+    border-radius: 6px;
+    background: var(--rw-surface);
+}
+
+.rw-guide-callout,
+.rw-guide-checkpoint {
+    border-color: color-mix(in oklab, var(--rw-accent) 35%, var(--rw-border));
+    background: color-mix(in oklab, var(--rw-accent) 10%, transparent);
+}
+
+.rw-guide-checkpoint {
+    border-style: dashed;
+}
+
+.rw-guide-callout > strong {
+    display: block;
+    margin-bottom: 0.35rem;
+}
+
+.rw-guide-notes p {
+    margin: 0.4rem 0;
+}
+
+.rw-guide-mermaid figcaption,
+.rw-guide-widget figcaption {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    margin-bottom: 0.75rem;
+}
+
+.rw-guide-mermaid figcaption span,
+.rw-guide-widget figcaption span {
+    color: var(--rw-text-muted);
+    font-size: 0.8rem;
+}
+
+.rw-guide-mermaid svg {
+    max-width: 100%;
+    height: auto;
+}
+
+.rw-guide-mermaid pre {
+    color: var(--rw-error);
+    white-space: pre-wrap;
+}
+
+.rw-guide-widget iframe {
+    width: 100%;
+    min-height: 18rem;
+    border: 1px solid var(--rw-border);
+    border-radius: 6px;
+    background: var(--rw-surface);
+}
+
+/* Review sidebars reduce the available space independently of viewport width. */
+@container guided-review (width < 760px) {
+    .rw-guide-explainer [data-guide-chapter-columns] {
+        display: block;
+    }
+
+    .rw-guide-explainer [data-guide-chapter-overview] {
+        border-right: 0;
+        border-bottom: 1px solid var(--rw-border);
+    }
+
+    .rw-guide-explainer [data-guide-chapter-overview] > div {
+        position: static;
+        max-height: none;
+        overflow: visible;
+        padding: 1rem;
+    }
+}
+.rw-panel-toggle {
+    flex-shrink: 0;
+}
+
+.rw-panel-resize-handle {
+    width: 6px;
+    cursor: col-resize;
+    touch-action: none;
+}
+
+.rw-panel-resize-handle:hover,
+.rw-panel-resize-handle:focus-visible,
+.rw-panel-resize-handle[data-resizing="true"] {
+    background: var(--rw-accent);
+    outline: none;
+}
+/* Image attachments share the same preview treatment in composers and messages. */
+.rw-image-previews {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--rw-space-2, 8px);
+    margin-block: var(--rw-space-2, 8px);
+}
+
+.rw-image-previews img {
+    display: block;
+    max-width: min(240px, 100%);
+    max-height: 180px;
+    object-fit: contain;
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-control, 6px);
+    background: var(--rw-surface);
+}
+
+.rw-image-preview-button {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: zoom-in;
+}
+.rw-image-dialog {
+    max-width: 90vw;
+}
+.rw-image-dialog:not([open]) {
+    display: none;
+}
+.rw-image-dialog img {
+    max-width: 100%;
+    max-height: 75vh;
+    object-fit: contain;
+}
+.rw-image-dialog::backdrop {
+    background: color-mix(in srgb, var(--rw-page-bg) 80%, transparent);
+}
+.rw-workflow-block {
+    margin-block: var(--rw-space-panel);
+    padding: var(--rw-space-panel);
+    border: 1px solid var(--rw-border);
+    border-inline-start: 3px solid var(--rw-accent);
+    border-radius: var(--rw-radius-card);
+    background: var(--rw-surface-raised);
+    overflow-wrap: anywhere;
+}
+.rw-workflow-block > header,
+.rw-workflow-block > footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--rw-space-control-x);
+}
+.rw-workflow-block > header {
+    color: var(--rw-accent-text);
+}
+.rw-workflow-block > header > span,
+.rw-workflow-block > footer {
+    color: var(--rw-text-dim);
+    font-size: 0.8rem;
+}
+.rw-workflow-block.status-failed {
+    border-inline-start-color: var(--rw-error);
+}

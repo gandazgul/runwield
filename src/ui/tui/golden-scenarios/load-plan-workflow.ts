@@ -21,6 +21,7 @@ interface CapturedPlan {
 }
 
 interface CapturedProjectState {
+    runtimeSnapshot?: RuntimeSnapshotState | null;
     plans?: CapturedPlan[];
     registryEntries?: Array<{ status?: string; planName?: string; path?: string }>;
     nonTerminalRegistryEntries?: Array<{ status?: string; planName?: string }>;
@@ -465,7 +466,7 @@ export const loadPlanWorktreeInspectResetScenario = {
     assertions: [
         assertsGoldenCoverage("recovery:load-plan-worktree", (result: GoldenScenarioResult) => {
             assertEventIncludes(result, "project:worktree-seeded:recover-reset");
-            assertScreenIncludes(result, "Plan Recovery");
+            assertScreenIncludes(result, "Completed after recovery reset.");
             assert(
                 ["validated_ci", "verified"].includes(planStatus(result, "recover-reset")),
                 `Expected recovery reset to re-run and validate the Plan; got ${planStatus(result, "recover-reset")}`,
@@ -495,6 +496,7 @@ export const loadPlanAbandonProgressScenario = {
     scriptedInteractions: [
         { type: "select", promptIncludes: "Plan recovery (in_progress)", value: "abandon" },
         { type: "select", promptIncludes: "Delete/abandon worktree", value: "confirm" },
+        { type: "select", promptIncludes: "Plan recovery (in_progress)", value: "cancel" },
     ],
     actions: [
         { type: "seedActiveWorktree", planName: "recover-abandon" },
@@ -502,14 +504,14 @@ export const loadPlanAbandonProgressScenario = {
         { type: "enter" },
         { type: "enter" },
         { type: "sleep", ms: 1000 },
-        { type: "waitForScreen", text: "The worktree is gone. The work is stopped.", timeoutMs: 40000 },
+        { type: "waitForScreen", text: "The recorded worktree and branch were deleted.", timeoutMs: 40000 },
         { type: "waitForIdle", timeoutMs: 40000 },
         { type: "captureProjectState", planNames: ["recover-abandon"] },
     ],
     assertions: [
         assertsGoldenCoverage("block:abandon-progress", (result: GoldenScenarioResult) => {
             assertScreenIncludes(result, "RunWield will now take out the worktree for recover-abandon.");
-            assertScreenIncludes(result, "The worktree is gone. The work is stopped.");
+            assertScreenIncludes(result, "The recorded worktree and branch were deleted.");
         }),
         assertsGoldenCoverage("recovery:load-plan-worktree", (result: GoldenScenarioResult) => {
             assert(
@@ -608,8 +610,8 @@ export const loadPlanImplementedFollowUpRepaintsScenario = {
             assertScreenIncludes(result, "follow-up-repaint");
         }),
         assertsGoldenCoverage("durable:session-replaced", (result: GoldenScenarioResult) => {
-            const snapshot = result.state.snapshot as RuntimeSnapshotState | undefined;
             const replacementState = result.state.afterFollowUpReplacement as CapturedProjectState | undefined;
+            const snapshot = replacementState?.runtimeSnapshot;
             const entry = replacementState?.registryEntries?.find((candidate) =>
                 candidate.planName === "follow-up-repaint"
             );

@@ -1,5 +1,7 @@
-import { isFocusable, Spacer } from "@earendil-works/pi-tui";
+import { Image, isFocusable, Spacer } from "@earendil-works/pi-tui";
 import { getSettingsManager } from "../../shared/settings.js";
+import { WORKFLOW_TOOL_NAMES } from "../../tools/registry.js";
+import { imageTheme } from "../theme/theme.js";
 import {
     AgentMessageBlock,
     KeyboardHelpBlock,
@@ -10,11 +12,13 @@ import {
     SystemMessageBlock,
     ThinkingBlock,
     ToolExecutionBlock,
+    ToolExecutionGroupBlock,
     UserPromptBlock,
     ValidationHandoffBlock,
 } from "./blocks.js";
 
 const MAX_MESSAGE_LIST_CHILDREN = 1000;
+const WORKFLOW_TOOL_NAME_SET = new Set(WORKFLOW_TOOL_NAMES);
 
 /**
  * @typedef {Object} ToolElapsedTimerState
@@ -132,6 +136,8 @@ export function createUiApi(
     let activePromptCancel = null;
 
     let toolsExpanded = false;
+    /** @type {ToolExecutionGroupBlock | null} */
+    let currentToolGroup = null;
     let outputSuppressed = false;
     let runtimeBusy = false;
     let promptActive = false;
@@ -191,16 +197,38 @@ export function createUiApi(
 
     const activePromptContainer = activeInteractionContainer || messageList;
 
+    /** @param {any} child */
+    const isActiveMessageListChild = (child) => {
+        if (activeToolBlocks.size === 0) return false;
+        const retainedActiveToolBlocks = new Set(activeToolBlocks.values());
+        if (retainedActiveToolBlocks.has(child)) return true;
+        return child instanceof ToolExecutionGroupBlock &&
+            child.children.some((block) => retainedActiveToolBlocks.has(block));
+    };
+
     const pruneMessageList = () => {
         if (messageList.children.length <= MAX_MESSAGE_LIST_CHILDREN) return;
-        const retainedActiveToolBlocks = new Set(activeToolBlocks.values());
         while (messageList.children.length > MAX_MESSAGE_LIST_CHILDREN) {
-            const child = messageList.children[0];
-            if (retainedActiveToolBlocks.has(child)) break;
-            messageList.removeChild(child);
+            const removable = messageList.children.find((child) => !isActiveMessageListChild(child));
+            if (!removable) break;
+            if (removable === currentToolGroup) currentToolGroup = null;
+            messageList.removeChild(removable);
         }
         while (messageList.children[0] instanceof Spacer) {
             messageList.removeChild(messageList.children[0]);
+        }
+    };
+
+    const closeCurrentToolGroup = () => {
+        currentToolGroup = null;
+    };
+
+    const trimCompletedToolGroupChildren = () => {
+        const activeBlocks = new Set(activeToolBlocks.values());
+        for (const child of messageList.children) {
+            if (child instanceof ToolExecutionGroupBlock) {
+                child.trimCompletedChildren(activeBlocks, MAX_MESSAGE_LIST_CHILDREN);
+            }
         }
     };
 
@@ -312,6 +340,7 @@ export function createUiApi(
             if (outputSuppressed) {
                 return { appendDelta: () => {}, end: () => {} };
             }
+            closeCurrentToolGroup();
             const hidden = getSettingsManager().getHideThinkingBlock?.() ?? false;
             const block = new ThinkingBlock({ hidden });
             appendMessageListChild(block);
@@ -333,8 +362,22 @@ export function createUiApi(
         /** @param {string} text */
         appendUserMessage: (text) => {
             if (outputSuppressed) return;
+            closeCurrentToolGroup();
             const block = new UserPromptBlock(text);
             appendMessageListChild(block);
+            appendMessageListChild(new Spacer(1));
+            tui.requestRender();
+        },
+
+        appendImage: (base64, mimeType) => {
+            if (outputSuppressed) return;
+            closeCurrentToolGroup();
+            appendMessageListChild(
+                new Image(base64, mimeType, imageTheme, {
+                    maxWidthCells: 60,
+                    maxHeightCells: 20,
+                }),
+            );
             appendMessageListChild(new Spacer(1));
             tui.requestRender();
         },
@@ -342,6 +385,7 @@ export function createUiApi(
         /** @param {string} id @param {string} text */
         appendQueuedMessage: (id, text) => {
             if (outputSuppressed || queuedMessageBlocks.has(id)) return;
+            closeCurrentToolGroup();
             const block = new SystemMessageBlock(text, false, "Steering:");
             const spacer = new Spacer(1);
             queuedMessageBlocks.set(id, { block, spacer });
@@ -369,6 +413,7 @@ export function createUiApi(
                     appendText: () => {},
                 };
             }
+            closeCurrentToolGroup();
             const block = new AgentMessageBlock(agentName);
             appendMessageListChild(block);
             appendMessageListChild(new Spacer(1));
@@ -389,6 +434,7 @@ export function createUiApi(
          */
         appendReviewResult: (agentName, markdown, approved) => {
             if (outputSuppressed) return;
+            closeCurrentToolGroup();
             const block = new ReviewResultBlock(agentName, markdown, approved);
             appendMessageListChild(block);
             appendMessageListChild(new Spacer(1));
@@ -444,6 +490,7 @@ export function createUiApi(
          */
         appendSystemMessage: (text, isError = false, header = "", style = {}) => {
             if (outputSuppressed) return;
+            closeCurrentToolGroup();
             const children = messageList.children;
             let lastBlockIndex = children.length - 1;
             while (lastBlockIndex >= 0 && children[lastBlockIndex] instanceof Spacer) {
@@ -494,12 +541,25 @@ export function createUiApi(
                 clearToolElapsedTimer(id);
                 originalEndExecution(isError, durationMs);
                 if (activeToolBlocks.get(id) === block) activeToolBlocks.delete(id);
+                trimCompletedToolGroupChildren();
                 if (!outputSuppressed) tui.requestRender();
             };
-            block.setExpanded(toolsExpanded);
             activeToolBlocks.set(id, block);
-            appendMessageListChild(block);
-            appendMessageListChild(new Spacer(1));
+            if (WORKFLOW_TOOL_NAME_SET.has(toolName)) {
+                closeCurrentToolGroup();
+                block.setExpanded(toolsExpanded);
+                appendMessageListChild(block);
+                appendMessageListChild(new Spacer(1));
+            } else {
+                if (!currentToolGroup || !messageList.children.includes(currentToolGroup)) {
+                    currentToolGroup = new ToolExecutionGroupBlock();
+                    currentToolGroup.setExpanded(toolsExpanded);
+                    appendMessageListChild(currentToolGroup);
+                    appendMessageListChild(new Spacer(1));
+                }
+                currentToolGroup.addBlock(block);
+                trimCompletedToolGroupChildren();
+            }
             startToolElapsedTimer(id, block);
             tui.requestRender();
             return block;
@@ -507,8 +567,10 @@ export function createUiApi(
 
         toggleToolOutputsExpanded: () => {
             toolsExpanded = !toolsExpanded;
-            for (const block of activeToolBlocks.values()) {
-                block.setExpanded(toolsExpanded);
+            for (const child of messageList.children) {
+                if (child instanceof ToolExecutionGroupBlock || child instanceof ToolExecutionBlock) {
+                    child.setExpanded(toolsExpanded);
+                }
             }
             tui.requestRender();
         },
@@ -637,6 +699,7 @@ export function createUiApi(
                     activePromptContainer.removeChild(block);
                     activePromptContainer.removeChild(spacer);
                     if (shouldPersistResult && !outputSuppressed) {
+                        closeCurrentToolGroup();
                         block.settle(value);
                         appendMessageListChild(block);
                         appendMessageListChild(spacer);
@@ -691,6 +754,7 @@ export function createUiApi(
                     activePromptContainer.removeChild(block);
                     activePromptContainer.removeChild(spacer);
                     if (persistResult && !outputSuppressed) {
+                        closeCurrentToolGroup();
                         block.settle(value);
                         appendMessageListChild(block);
                         appendMessageListChild(spacer);
@@ -734,6 +798,7 @@ export function createUiApi(
             validationPanelBlock = null;
             validationReportOrder = 0;
             activePromptCancel = null;
+            currentToolGroup = null;
             for (const id of toolElapsedTimers.keys()) {
                 clearToolElapsedTimer(id);
             }
@@ -757,6 +822,7 @@ export function createUiApi(
             validationReportOrder = 0;
             queuedMessageBlocks.clear();
             activeToolBlocks.clear();
+            currentToolGroup = null;
             for (const id of Array.from(toolElapsedTimers.keys())) clearToolElapsedTimer(id);
             removeInputAccessoryResources();
             tui.requestRender();
@@ -773,6 +839,7 @@ export function createUiApi(
             restoreFocusedCursorAfterBusy();
             for (const id of Array.from(toolElapsedTimers.keys())) clearToolElapsedTimer(id);
             activeToolBlocks.clear();
+            currentToolGroup = null;
             queuedMessageBlocks.clear();
             queuedInputContainer?.clear?.();
             removeInputAccessoryResources();
@@ -792,6 +859,5 @@ export function createUiApi(
         disableInput: () => {},
         enableInput: () => {},
         showModelSelector: () => ({ selected: false }),
-        appendImage: () => {}, // chat-session implements this currently
     };
 }

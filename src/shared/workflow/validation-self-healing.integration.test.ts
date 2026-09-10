@@ -11,8 +11,6 @@ import { createGitPort } from "../git-port.ts";
 import { defineGitFixture, git } from "../git-test-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import { addEntry, findById } from "../worktree-registry.js";
-import { prepareExecutionPlanFile } from "./execution-plan-file.js";
-import { detectValidationPlanAmendment } from "./validation-plan-amendment.ts";
 import { resolveValidationExecutionContext } from "./execution-context.ts";
 import { continueWorkflowValidation } from "./validation-supervisor.ts";
 import { attachRecorder, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
@@ -271,98 +269,6 @@ Deno.test("body-only Plan amendment no longer prompts before Mechanical Validati
         assertEquals(recorder.messages.join("\n").includes("The Plan change is saved"), false);
     } finally {
         await removeFixture(testFixture);
-    }
-});
-
-Deno.test("derived Plan repair keeps an allowed definition proposal", async () => {
-    const testFixture = await makeReportedMismatchFixture();
-    try {
-        const executionMarkdown = await Deno.readTextFile(testFixture.executionPath);
-        const execution = parsePlanFrontMatter(executionMarkdown);
-        await Deno.writeTextFile(
-            testFixture.executionPath,
-            injectFrontMatter("# Demo\n\nA user changed this body on purpose.\n", {
-                ...execution.attrs,
-                planId: "old-derived-id",
-                collaborationRecommendation: "pair",
-                summary: "A user changed this summary on purpose",
-            }),
-        );
-
-        const repaired = await prepareExecutionPlanFile({
-            projectRoot: testFixture.projectRoot,
-            executionCwd: testFixture.executionCwd,
-            planName: "demo",
-        });
-        assertEquals(repaired.kind, "reconciled");
-        const proposal = await detectValidationPlanAmendment(
-            testFixture.projectRoot,
-            testFixture.executionCwd,
-            "demo",
-        );
-        assertExists(proposal);
-        assertEquals(proposal.diffs.some((diff) => diff.field === "body"), true);
-        assertEquals(
-            proposal.diffs.some((diff) => diff.field === "summary"),
-            false,
-            "summary is derived from the body",
-        );
-        assertEquals(proposal.diffs.some((diff) => diff.field === "planId"), false);
-        assertEquals(proposal.diffs.some((diff) => diff.field === "collaborationRecommendation"), false);
-    } finally {
-        await removeFixture(testFixture);
-    }
-});
-
-Deno.test("legacy validation recovers a Plan materialized after its baseline", async () => {
-    const projectRoot = await fixture.checkout({ prefix: "runwield-validation-materialized-plan-" });
-    const baseCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
-    const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
-    const worktreeParent = await Deno.makeTempDir({ prefix: "runwield-validation-materialized-worktrees-" });
-    const executionCwd = join(worktreeParent, "demo");
-    const branch = "runwield/worktree/materialized-plan";
-    try {
-        await git(projectRoot, ["worktree", "add", "-b", branch, executionCwd, "HEAD"]);
-        await savePlan(executionCwd, "demo", "# Demo\n\nKeep the approved body.\n", {
-            planId: "plan-materialized",
-            classification: "PLANNED_CHANGE",
-            workKind: "REFACTOR",
-            status: "implemented",
-            targetBranch: "main",
-            affectedPaths: ["README.md"],
-            executionAgent: "engineer",
-            collaborationRecommendation: "autonomous",
-        });
-        await git(executionCwd, ["add", "docs/plans/demo.md"]);
-        await git(executionCwd, ["commit", "-m", "materialize execution Plan"]);
-
-        const unchanged = await detectValidationPlanAmendment(
-            projectRoot,
-            executionCwd,
-            "demo",
-            baselineTree,
-            baseCommit,
-        );
-        assertEquals(unchanged, null);
-
-        const execution = await loadPlan(executionCwd, "demo");
-        assertExists(execution);
-        await savePlan(executionCwd, "demo", "# Demo\n\nClarified during execution.\n", execution.attrs, {
-            expectedRevision: execution.revision,
-        });
-        const proposal = await detectValidationPlanAmendment(
-            projectRoot,
-            executionCwd,
-            "demo",
-            baselineTree,
-            baseCommit,
-        );
-        assertExists(proposal);
-        assertEquals(proposal.diffs.some((diff) => diff.field === "body"), true);
-    } finally {
-        await git(projectRoot, ["worktree", "remove", "--force", executionCwd]).catch(() => {});
-        await Deno.remove(worktreeParent, { recursive: true }).catch(() => {});
-        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
     }
 });
 

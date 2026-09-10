@@ -2,6 +2,72 @@
 export const LAST_SESSION_KEY = "runwield:owner:last-session";
 export const LAST_PROJECT_KEY = "runwield:owner:last-project";
 export const SIDEBAR_COLLAPSED_KEY = "runwield:owner:sidebar-collapsed";
+export const SIDEBAR_WIDTH_KEY = "runwield:owner:sidebar-width";
+
+export function clampSidebarWidth(width, availableWidth) {
+    return Math.round(Math.max(220, Math.min(480, availableWidth - 420, width)));
+}
+
+export function installSidebarResize() {
+    const shell = document.querySelector(".workspace-shell-with-sidebar");
+    if (!shell || shell.querySelector(".workspace-sidebar-resizer")) return;
+    const handle = document.createElement("div");
+    handle.className = "rw-panel-resize-handle workspace-sidebar-resizer";
+    handle.tabIndex = 0;
+    handle.setAttribute("role", "separator");
+    handle.setAttribute("aria-label", "Resize Workspace sidebar");
+    handle.setAttribute("aria-orientation", "vertical");
+    handle.setAttribute("aria-valuemin", "220");
+    let width = 280;
+    try {
+        const saved = Number(globalThis.localStorage.getItem(SIDEBAR_WIDTH_KEY));
+        if (saved > 0) width = saved;
+    } catch { /* Layout preferences are optional. */ }
+    const setWidth = (requested, persist = true) => {
+        width = clampSidebarWidth(requested, shell.getBoundingClientRect().width);
+        shell.style.setProperty("--rw-workspace-sidebar-width", `${width}px`);
+        handle.setAttribute("aria-valuenow", String(width));
+        handle.setAttribute("aria-valuemax", String(clampSidebarWidth(480, shell.getBoundingClientRect().width)));
+        if (persist) {
+            try {
+                globalThis.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
+            } catch { /* Optional preference. */ }
+        }
+    };
+    handle.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        handle.setPointerCapture(event.pointerId);
+        handle.dataset.resizing = "true";
+    });
+    handle.addEventListener("pointermove", (event) => {
+        if (handle.dataset.resizing !== "true") return;
+        setWidth(event.clientX - shell.getBoundingClientRect().left);
+    });
+    const finish = () => {
+        delete handle.dataset.resizing;
+    };
+    handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish);
+    handle.addEventListener("lostpointercapture", finish);
+    handle.addEventListener("keydown", (event) => {
+        const requested = event.key === "ArrowLeft"
+            ? width - 16
+            : event.key === "ArrowRight"
+            ? width + 16
+            : event.key === "Home"
+            ? 220
+            : event.key === "End"
+            ? 480
+            : null;
+        if (requested === null) return;
+        event.preventDefault();
+        setWidth(requested);
+    });
+    handle.addEventListener("dblclick", () => setWidth(280));
+    shell.append(handle);
+    setWidth(width, false);
+}
 
 let overlayDismissInstalled = false;
 let sidebarDelegationInstalled = false;
@@ -9,6 +75,30 @@ let restoreDelegationInstalled = false;
 let refreshGeneration = 0;
 let activeSidebarAbort = null;
 let sidebarHasRendered = false;
+const observedSessionNames = new Map();
+
+export function applySessionName(detail) {
+    if (!detail?.projectId || !detail.runwieldSessionId || typeof detail.name !== "string") return;
+    const name = detail.name.trim();
+    observedSessionNames.set(`${detail.projectId}:${detail.runwieldSessionId}`, name);
+    const current = currentRoute();
+    if (current.projectId === detail.projectId && current.runwieldSessionId === detail.runwieldSessionId) {
+        const title = document.querySelector("[data-workspace-main-session-name]");
+        if (title) title.textContent = name || "Session";
+    }
+    for (const row of document.querySelectorAll("[data-sidebar-session]")) {
+        if (
+            row.dataset.sidebarProjectId !== detail.projectId || row.dataset.sidebarSession !== detail.runwieldSessionId
+        ) continue;
+        if (!name) {
+            row.remove();
+            continue;
+        }
+        const label = row.querySelector("span");
+        if (label) label.textContent = name;
+        row.title = name;
+    }
+}
 
 export function html(value) {
     return String(value || "")
@@ -105,14 +195,6 @@ async function ownerJson(url, options = {}) {
     return payload;
 }
 
-function titleFromSessionId(sessionId) {
-    return String(sessionId || "Current Session")
-        .split(/[-_\s]+/)
-        .filter(Boolean)
-        .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
-        .join(" ") || "Current Session";
-}
-
 function sessionStatusLabel(state) {
     const normalized = String(state || "idle").toLowerCase();
     return normalized === "active" || normalized === "busy" ? "busy" : "";
@@ -169,8 +251,9 @@ function sessionTitleFromPayload(payload, current) {
     const project = projects.find((candidate) => candidate?.projectId === current.projectId);
     const sessions = Array.isArray(project?.sessions) ? project.sessions : [];
     const match = sessions.find((session) => session.runwieldSessionId === current.runwieldSessionId);
-    if (match) return match.displayName || titleFromSessionId(current.runwieldSessionId);
-    return titleFromSessionId(current.runwieldSessionId);
+    if (match?.displayName) return match.displayName;
+    return observedSessionNames.get(`${current.projectId}:${current.runwieldSessionId}`) ||
+        "Session";
 }
 
 function renderMainHeader(payload, current) {
@@ -211,7 +294,7 @@ function makeSessionRow(projectId, session, current, extraClass = "") {
     link.dataset.sidebarSession = session.runwieldSessionId;
     link.dataset.sidebarProjectId = projectId;
     const label = document.createElement("span");
-    label.textContent = session.displayName || "Untitled Session";
+    label.textContent = session.displayName;
     link.append(label);
     const status = document.createElement("small");
     link.append(status);
@@ -231,8 +314,9 @@ function updateSessionRow(link, projectId, session, current, extraClass = "") {
     ) classNames.push("active");
     link.className = classNames.join(" ");
     const label = link.querySelector("span") || document.createElement("span");
-    label.textContent = session.displayName || "Untitled Session";
+    label.textContent = session.displayName;
     if (!label.parentElement) link.append(label);
+    link.title = label.textContent;
     const status = sessionStatusLabel(session.state);
     let statusNode = link.querySelector("small");
     if (status) {
@@ -403,7 +487,8 @@ function reconcileSessionRows(container, existingProject, project, current) {
     const wantedIds = new Set(ordered.map((session) => session.runwieldSessionId));
     const activeOutsidePage = project.enabled && current.kind === "session" &&
         current.projectId === project.projectId &&
-        current.runwieldSessionId !== "new" && !wantedIds.has(current.runwieldSessionId);
+        current.runwieldSessionId !== "new" && !wantedIds.has(current.runwieldSessionId) &&
+        Boolean(observedSessionNames.get(`${current.projectId}:${current.runwieldSessionId}`));
     if (activeOutsidePage) wantedIds.add(current.runwieldSessionId);
 
     Array.from(container.querySelectorAll(".workspace-sidebar-empty")).forEach((node) => node.remove());
@@ -435,7 +520,8 @@ function reconcileSessionRows(container, existingProject, project, current) {
     if (activeOutsidePage) {
         const session = {
             runwieldSessionId: current.runwieldSessionId,
-            displayName: titleFromSessionId(current.runwieldSessionId),
+            displayName: observedSessionNames.get(`${current.projectId}:${current.runwieldSessionId}`) ||
+                "",
             state: "idle",
         };
         const row = byId.get(current.runwieldSessionId) ||
@@ -646,6 +732,7 @@ async function refreshSidebarForPage() {
 }
 
 export function installWorkspaceShell() {
+    installSidebarResize();
     refreshSidebarForPage();
 }
 
@@ -654,10 +741,12 @@ let workspaceShellBrowserInstalled = false;
 export function installWorkspaceShellBrowser() {
     if (workspaceShellBrowserInstalled) return;
     workspaceShellBrowserInstalled = true;
+    document.addEventListener("runwield:session-named", (event) => applySessionName(event.detail));
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", installWorkspaceShell, { once: true });
     } else installWorkspaceShell();
     document.addEventListener("astro:page-load", installWorkspaceShell);
+    document.addEventListener("runwield:session-updated", installWorkspaceShell);
 }
 
 if (typeof document !== "undefined") installWorkspaceShellBrowser();

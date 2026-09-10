@@ -414,7 +414,9 @@ export async function startInteractiveSession(
         inputControllerForPause = inputController;
         const settingsManager = getSettingsManager(runtimeSnapshot().cwd);
         const savedThinkingLevel = settingsManager.getDefaultThinkingLevel();
-        if (savedThinkingLevel) sessionRuntime.setSessionThinkingLevel(sessionId, savedThinkingLevel);
+        if (sessionStartMode === "new" && savedThinkingLevel) {
+            await sessionRuntime.setSessionThinkingLevel(sessionId, savedThinkingLevel);
+        }
         view.requestRender();
         if (
             !suppressStartupHeader && sessionStartedEmptyProjectDirectory && !initialUserRequest &&

@@ -22,7 +22,6 @@ import { logValidationFailure, ValidationStateError } from "./validation-state-e
 import type { WorkflowValidationResult } from "./validation-types.ts";
 import { validationUserMessage } from "./validation-user-messages.ts";
 import { emitStatus } from "./validation-emit.ts";
-import { resumeValidationPlanAmendment } from "./validation-plan-amendment.ts";
 import { getDiffText, resolvePhaseContext } from "./validation-context.ts";
 import { renderOpenItems } from "./review-ledger.ts";
 import { PLAN_STATUSES } from "./plan-lifecycle.js";
@@ -340,10 +339,7 @@ async function continueValidationAttempt(
 ): Promise<WorkflowValidationResult> {
     let claim: Extract<ClaimResult, { kind: "claimed" }> | undefined;
     try {
-        // Finish a journaled approved amendment before general repair scans. This
-        // keeps the primary revision authoritative after a process stop.
         const projectRoot = validationProjectRoot(args);
-        await resumeValidationPlanAmendment(projectRoot, args.planName);
         // Repair provable RunWield bookkeeping before it can block validation. Doctor
         // never resets working changes or removes an unmerged worktree.
         await runPlansDoctor(projectRoot, true);
@@ -428,9 +424,6 @@ async function continueValidationAttempt(
         });
         await settleValidation(args, claim.checkpoint, result, claim.planCwd);
         if (result.kind === "verified") {
-            // Publication can remove the execution worktree before the root Agent
-            // turn settles. Do not leave the Session pointed at that deleted cwd:
-            // the next user message belongs to the normal project Session.
             args.hostedSession.clearActiveExecutionWorkflow();
         }
         return result;

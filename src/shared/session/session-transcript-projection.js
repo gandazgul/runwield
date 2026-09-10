@@ -11,8 +11,17 @@ import { normalizeRuntimeToolResult, normalizeRuntimeUsage, RuntimeEventTypes } 
 import { describeRuntimeTool } from "./tool-event-title.js";
 import { formatTaskCompletedMarkdown, readManualQaChecklistMessage } from "./workflow-messages.js";
 import { isPathInside, readCatalogSafeRootSessionLocator } from "./root-session.js";
-import { namedInvocationDisplayText, namedInvocationImageReferences } from "./named-invocation.ts";
+import {
+    namedInvocationCompactText,
+    namedInvocationDisplayText,
+    namedInvocationImageReferences,
+} from "./named-invocation.ts";
 import { getAgentDisplayName, normalizeAgentInternalName } from "./agents.js";
+import { WORKFLOW_TOOL_EVENT_CUSTOM_TYPE } from "../workflow/workflow-tool-events.ts";
+
+/** @typedef {{ state?: string, kind?: string, toolCallId?: string }} CompletionEventData */
+/** @typedef {{ type?: string, customType?: string, data?: CompletionEventData }} CompletionEventEntry */
+/** @typedef {Parameters<typeof namedInvocationDisplayText>[0]} NamedInvocationEntry */
 
 /** @param {unknown} value @returns {string} */
 function toReplayText(value) {
@@ -76,9 +85,15 @@ function makeEventId(entry, eventKind, blockIndex, segmentId = null) {
     return `${entryId}:${eventKind}:${blockIndex}`;
 }
 
-/** @param {string} kind @returns {"warning" | "error"} */
-function claudeBackendStatusLevel(kind) {
-    return kind === "canceled" || kind === "bridge_disconnected" ? "warning" : "error";
+/**
+ * @param {{ kind?: string, backend?: string, afterAcceptedTerminal?: boolean }} status
+ * @returns {"warning" | "error"}
+ */
+function backendStatusLevel(status) {
+    if (status.afterAcceptedTerminal) return "warning";
+    const kind = status.kind || "non_zero_exit";
+    if (kind === "canceled" || kind === "bridge_disconnected" || kind === "cleanup_failed") return "warning";
+    return "error";
 }
 
 /**
@@ -101,6 +116,13 @@ export function createReplayEvents(sessionId, entries, options = {}) {
         { agentName: null, displayName: null, hasBaseline: false };
     /** @type {Array<Record<string, any> & { type: string, eventId: string }>} */
     const events = [];
+    const acceptedCompletions = new Set(entries.flatMap((entry) => {
+        const value = /** @type {CompletionEventEntry} */ (entry);
+        return value?.type === "custom" && value.customType === WORKFLOW_TOOL_EVENT_CUSTOM_TYPE &&
+                value.data?.state === "accepted" && value.data.kind === "task_completed" && value.data.toolCallId
+            ? [value.data.toolCallId]
+            : [];
+    }));
     /** @type {string | null} */
     let replayModel = null;
     /** @type {string | null} */
@@ -133,11 +155,45 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                 text: namedInvocationText,
                 images: namedInvocationImages,
             });
-            skipNextCompactNamedInvocation = namedInvocationText;
+            skipNextCompactNamedInvocation = namedInvocationCompactText(value);
             continue;
         }
         const meta = replayMeta(value, segmentId);
         const common = { timestamp: normalizeReplayTimestamp(value.timestamp), _meta: meta };
+        if (
+            value.type === "custom" && value.customType === WORKFLOW_TOOL_EVENT_CUSTOM_TYPE &&
+            value.data?.state === "accepted" && typeof value.data.kind === "string" && value.data.toolCallId
+        ) {
+            const completion = value.data;
+            const toolCallId = completion.toolCallId;
+            const message = typeof completion.payload?.message === "string" ? completion.payload.message : "";
+            events.push({
+                ...common,
+                type: RuntimeEventTypes.TOOL_END,
+                eventId: makeEventId(value, RuntimeEventTypes.TOOL_END, 0, segmentId),
+                toolCallId,
+                ...(replayTools.get(toolCallId) || describeRuntimeTool(completion.kind, undefined)),
+                ...normalizeRuntimeToolResult({
+                    content: [{ type: "text", text: message }],
+                    details: completion.payload,
+                }),
+                isError: false,
+                durationMs: finishReplayTool(toolCallId, common.timestamp),
+            });
+            if (completion.kind === "task_completed" && message.trim()) {
+                events.push({
+                    ...common,
+                    type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+                    eventId: makeEventId(value, "task_completed", 1, segmentId),
+                    messageId: `${entryMessageId(value, sessionId, segmentId)}:workflow`,
+                    delta: formatTaskCompletedMarkdown(message),
+                    agentName: replayAgentName,
+                    messageKind: "workflow",
+                    workflowMessage: "task_completed",
+                });
+            }
+            continue;
+        }
         if (value.type === "message") {
             const role = value.message?.role || "unknown";
             const content = value.message?.content;
@@ -145,6 +201,9 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                 const messageId = entryMessageId(value, `${sessionId}:replay-tool-result`, segmentId);
                 const toolCallId = value.message?.toolCallId || value.message?.tool_call_id || messageId;
                 const toolName = value.message?.toolName || value.message?.tool_name || "tool";
+                // Accepted completion is recorded before the tool can stop its own agent turn.
+                // Use that record once, whether or not the provider also persisted a tool result.
+                if (toolName === "task_completed" && acceptedCompletions.has(toolCallId)) continue;
                 const toolResult = normalizeRuntimeToolResult(value.message);
                 events.push({
                     ...common,
@@ -177,11 +236,35 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                 continue;
             }
             const blocks = Array.isArray(content) ? content : [{ type: "text", text: toReplayText(content) }];
+            if (role === "user") {
+                const text = blocks.filter((block) => block?.type === "text").map((block) => toReplayText(block.text))
+                    .join("\n");
+                const images = blocks.filter((block) => block?.type === "image" && (block.data || block.base64))
+                    .map((block) => ({ base64: block.data || block.base64, mimeType: block.mimeType }));
+                if (skipNextCompactNamedInvocation && text === skipNextCompactNamedInvocation) {
+                    skipNextCompactNamedInvocation = "";
+                    continue;
+                }
+                skipNextCompactNamedInvocation = "";
+                if (text || images.length) {
+                    events.push({
+                        ...common,
+                        type: RuntimeEventTypes.USER_MESSAGE,
+                        eventId: makeEventId(value, RuntimeEventTypes.USER_MESSAGE, 0, segmentId),
+                        messageId: `${entryMessageId(value, `${sessionId}:replay`, segmentId)}:0`,
+                        text,
+                        images,
+                    });
+                }
+            }
             let blockIndex = 0;
             for (const block of blocks) {
                 const typed = /** @type {any} */ (block || {});
                 const messageId = `${entryMessageId(value, `${sessionId}:replay`, segmentId)}:${blockIndex}`;
                 const eventBlockIndex = blockIndex++;
+                // Older providers placed tool results inside user messages.
+                // Text and images were combined above; still replay their tool results.
+                if (role === "user" && typed.type !== "tool_result") continue;
                 if (typed.type === "thinking" || typed.type === "reasoning") {
                     const delta = toReplayText(typed.text || typed.thinking || typed.content || "");
                     if (delta) {
@@ -249,21 +332,7 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                 }
                 const text = toReplayText(typed.type === "text" ? typed.text : typed);
                 if (!text) continue;
-                if (role === "user") {
-                    if (skipNextCompactNamedInvocation && text === skipNextCompactNamedInvocation) {
-                        skipNextCompactNamedInvocation = "";
-                        continue;
-                    }
-                    skipNextCompactNamedInvocation = "";
-                    events.push({
-                        ...common,
-                        type: RuntimeEventTypes.USER_MESSAGE,
-                        eventId: makeEventId(value, RuntimeEventTypes.USER_MESSAGE, eventBlockIndex, segmentId),
-                        messageId,
-                        text,
-                        images: [],
-                    });
-                } else if (role === "assistant") {
+                if (role === "assistant") {
                     events.push({
                         ...common,
                         type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
@@ -273,14 +342,16 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                         agentName: replayAgentName,
                         messageKind: "assistant",
                     });
-                } else {events.push({
+                } else {
+                    events.push({
                         ...common,
                         type: RuntimeEventTypes.SYSTEM_STATUS,
                         eventId: makeEventId(value, RuntimeEventTypes.SYSTEM_STATUS, eventBlockIndex, segmentId),
                         messageId,
                         message: text,
                         level: "info",
-                    });}
+                    });
+                }
             }
             if (value.message?.usage) {
                 events.push({
@@ -362,15 +433,15 @@ export function createReplayEvents(sessionId, entries, options = {}) {
             continue;
         }
         if (value.type === "custom" && value.customType === "runwield.backend_status") {
-            const kind = typeof value.data?.kind === "string" ? value.data.kind : "non_zero_exit";
-            const message = typeof value.data?.message === "string" ? value.data.message : "Claude CLI backend status.";
+            const backend = typeof value.data?.backend === "string" ? value.data.backend : "cli";
+            const message = typeof value.data?.message === "string" ? value.data.message : "CLI backend status.";
             events.push({
                 ...common,
                 type: RuntimeEventTypes.SYSTEM_STATUS,
                 eventId: makeEventId(value, RuntimeEventTypes.SYSTEM_STATUS, 0, segmentId),
-                messageId: entryMessageId(value, `${sessionId}:claude-backend-status`, segmentId),
+                messageId: entryMessageId(value, `${sessionId}:${backend}-backend-status`, segmentId),
                 message,
-                level: claudeBackendStatusLevel(kind),
+                level: backendStatusLevel(value.data || {}),
             });
             continue;
         }
@@ -458,6 +529,7 @@ export async function captureTranscriptEvidence(options) {
  * @typedef {Object} ResumableTranscriptContentBlock
  * @property {string} [type]
  * @property {string} [text]
+ * @property {string} [mimeType]
  */
 
 /**
@@ -488,13 +560,32 @@ export async function captureTranscriptEvidence(options) {
 export function summarizeResumableTranscript(entries) {
     const typedEntries = entries.map((entry) => /** @type {ResumableTranscriptEntry} */ (entry));
     const messages = typedEntries.filter((entry) => entry?.type === "message");
-    const firstUser = messages.find((entry) => entry.message?.role === "user");
-    const firstContent = firstUser?.message?.content;
-    const firstMessage = typeof firstContent === "string"
-        ? firstContent
-        : Array.isArray(firstContent)
-        ? firstContent.find((block) => block?.type === "text")?.text
-        : undefined;
+    let firstMessage;
+    for (const entry of entries) {
+        const invocation = namedInvocationDisplayText(/** @type {NamedInvocationEntry} */ (entry));
+        if (invocation) {
+            firstMessage = invocation;
+            break;
+        }
+        const value = /** @type {ResumableTranscriptEntry} */ (entry);
+        if (value?.type !== "message" || value.message?.role !== "user") continue;
+        const content = value.message.content;
+        const text = (typeof content === "string"
+            ? content
+            : Array.isArray(content)
+            ? content.filter((block) =>
+                block?.type === "text"
+            ).map((block) => block.text || "").join("\n")
+            : "").trim();
+        if (text) {
+            firstMessage = text;
+            break;
+        }
+        if (Array.isArray(content) && content.some((block) => block?.type === "image")) {
+            firstMessage = "Image message";
+            break;
+        }
+    }
     return { messageCount: messages.length, firstMessage };
 }
 
@@ -679,6 +770,88 @@ export async function syncTranscriptFileAndParent(transcriptPath) {
     }
 }
 
+const AGY_CLI_BACKEND_FACT_MODELS = new Set(["gemini-3.8-flash", "gemini-3.1-pro"]);
+const AGY_CLI_BACKEND_FACT_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+const AGY_CLI_BACKEND_FACT_EFFORTS = new Set(["low", "medium", "high"]);
+
+/** @param {Record<string, unknown>} data @param {string} key */
+function readNonEmptyString(data, key) {
+    const value = data[key];
+    return typeof value === "string" && value ? value : null;
+}
+
+/**
+ * @param {string} model
+ * @param {string} effort
+ * @param {string} backendModel
+ */
+function isVerifiedAgyBackendModel(model, effort, backendModel) {
+    return backendModel === `${model}-${effort}`;
+}
+
+/**
+ * @param {string} model
+ * @param {string} thinkingLevel
+ * @returns {"low" | "medium" | "high" | null}
+ */
+function expectedAgyBackendEffort(model, thinkingLevel) {
+    switch (thinkingLevel) {
+        case "off":
+        case "minimal":
+        case "low":
+            return "low";
+        case "medium":
+            return model === "gemini-3.1-pro" ? "high" : "medium";
+        case "high":
+        case "xhigh":
+        case "max":
+            return "high";
+        default:
+            return null;
+    }
+}
+
+/**
+ * @param {Record<string, unknown>} data
+ * @returns {{ backend: "agy-cli", provider: string, model: string, thinkingLevel: string, effort: string, backendModel: string } | null}
+ */
+function readAgyExecutionBackendFact(data) {
+    const provider = readNonEmptyString(data, "provider");
+    const model = readNonEmptyString(data, "model");
+    const thinkingLevel = readNonEmptyString(data, "thinkingLevel");
+    const effort = readNonEmptyString(data, "effort");
+    const backendModel = readNonEmptyString(data, "backendModel");
+    if (provider !== "agy-cli") return null;
+    if (!model || !AGY_CLI_BACKEND_FACT_MODELS.has(model)) return null;
+    if (!thinkingLevel || !AGY_CLI_BACKEND_FACT_THINKING_LEVELS.has(thinkingLevel)) return null;
+    if (!effort || !AGY_CLI_BACKEND_FACT_EFFORTS.has(effort)) return null;
+    if (effort !== expectedAgyBackendEffort(model, thinkingLevel)) return null;
+    if (!backendModel || !isVerifiedAgyBackendModel(model, effort, backendModel)) return null;
+    return { backend: "agy-cli", provider, model, thinkingLevel, effort, backendModel };
+}
+
+/**
+ * @param {unknown} entry
+ * @returns {{ backend: string, provider: string | null, model: string | null, thinkingLevel: string | null, effort: string | null, backendModel: string | null } | null}
+ */
+function readExecutionBackendFact(entry) {
+    const value = /** @type {{ type?: string, customType?: string, data?: Record<string, unknown> }} */ (entry || {});
+    if (value.type !== "custom" || value.customType !== "runwield.execution_backend") return null;
+    const data = value.data && typeof value.data === "object" ? value.data : null;
+    if (!data) return null;
+    const backend = typeof data.backend === "string" ? data.backend : "";
+    if (backend === "agy-cli") return readAgyExecutionBackendFact(data);
+    if (backend !== "claude-cli") return null;
+    return {
+        backend,
+        provider: typeof data.provider === "string" && data.provider ? data.provider : null,
+        model: typeof data.model === "string" && data.model ? data.model : null,
+        thinkingLevel: typeof data.thinkingLevel === "string" && data.thinkingLevel ? data.thinkingLevel : null,
+        effort: typeof data.effort === "string" && data.effort ? data.effort : null,
+        backendModel: typeof data.backendModel === "string" && data.backendModel ? data.backendModel : null,
+    };
+}
+
 /** @param {unknown[]} entries */
 export function summarizeProjectedEntries(entries) {
     let activeAgent = null;
@@ -687,11 +860,13 @@ export function summarizeProjectedEntries(entries) {
     let model = null;
     let provider = null;
     let thinkingLevel = null;
-    let attention = null;
+    let executionBackend = null;
     const planAssociations = readPlanAssociations(entries);
     for (const entry of entries) {
         const value = /** @type {any} */ (entry || {});
-        if (value.type === "session" && typeof value.name === "string") name = value.name;
+        if ((value.type === "session" || value.type === "session_info") && typeof value.name === "string") {
+            name = value.name;
+        }
         if (value.type === "custom" && value.customType === ACTIVE_AGENT_CUSTOM_TYPE) {
             if (typeof value.data?.agentName === "string") activeAgent = value.data.agentName.trim().toLowerCase();
         }
@@ -702,19 +877,21 @@ export function summarizeProjectedEntries(entries) {
         if (value.type === "thinking_level_change" && typeof value.thinkingLevel === "string") {
             thinkingLevel = value.thinkingLevel;
         }
-        if (value.type === "custom" && value.customType === "runwield.attention") {
-            const reason = typeof value.data?.reason === "string" ? value.data.reason : "agentStopped";
-            const agentName = typeof value.data?.agentName === "string" ? value.data.agentName : activeAgent;
-            attention = {
-                eventId: makeEventId(value, RuntimeEventTypes.ATTENTION_REQUESTED, 0),
-                reason,
-                agentName,
-            };
-        }
+        const backendFact = readExecutionBackendFact(value);
+        if (backendFact) executionBackend = backendFact;
         const maybeWorkflow = readPersistedWorkflowContext(/** @type {any} */ ({ getEntries: () => [value] }));
         if (maybeWorkflow) workflowContext = maybeWorkflow;
     }
-    return { name, activeAgent, model, provider, thinkingLevel, workflowContext, attention, planAssociations };
+    return {
+        name,
+        activeAgent,
+        model,
+        provider,
+        thinkingLevel,
+        workflowContext,
+        planAssociations,
+        executionBackend,
+    };
 }
 
 /** @param {unknown} value @returns {string} */

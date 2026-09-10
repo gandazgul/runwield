@@ -30,7 +30,13 @@ Deno.test("Workspace Plan Review uses the owner header and starts directly at th
     );
     assertStringIncludes(layout, 'class="workspace-main-session-name" data-workspace-surface-title');
     assertStringIncludes(shell, 'header.querySelector("[data-workspace-main-session-name]")?.remove()');
+    assertStringIncludes(layout, '<BrowserNotificationPermissionControl client:only="react" />');
     assertStringIncludes(layout, "data-workspace-header-actions");
+    assertEquals(
+        layout.indexOf('<BrowserNotificationPermissionControl client:only="react" />') <
+            layout.indexOf("data-workspace-header-actions"),
+        true,
+    );
     assertStringIncludes(portal, 'document.querySelector<HTMLElement>("[data-workspace-header-actions]")');
     assertStringIncludes(workspaceStyles, "row-gap: var(--rw-space-panel);");
     assertStringIncludes(surface, 'presentation === "workspace" ? "wide" : uiPreferences.planWidth');
@@ -410,7 +416,7 @@ Deno.test("Plan reviews recover unfinished work and send direct edits as feedbac
     assertStringIncludes(surface, "Restore draft");
     assertStringIncludes(surface, "persistReviewDraftLocally");
     assertStringIncludes(surface, "directEdits={directEditPanel}");
-    assertStringIncludes(surface, "disabled={!hasReviewFeedback || submitting !== null ||");
-    assertStringIncludes(surface, "plannerWorking}");
+    assertStringIncludes(surface, "disabled={!hasGroupFeedback || submitting !== null ||");
+    assertStringIncludes(surface, "plannerWorking || reviewGroup?.busy}");
     assertStringIncludes(surface, "buildPlanReviewFeedback");
 });

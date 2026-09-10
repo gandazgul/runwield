@@ -125,6 +125,7 @@ async function withBridgeWithSignal(
         },
         signal,
         assistantBase: { api: "anthropic-messages", provider: "anthropic", model: "claude-sonnet" },
+        provenance: CLAUDE_CLI_MCP_PROVENANCE,
     });
     const transport = new StreamableHTTPClientTransport(new URL(bridge.url), {
         requestInit: { headers: { Authorization: `Bearer ${bridge.token}` } },
@@ -388,6 +389,7 @@ Deno.test("RunWield MCP bridge rejects duplicate aliases", async () => {
                     cwd,
                     sessionManager: SessionManager.inMemory(cwd),
                     assistantBase: { api: "anthropic-messages", provider: "anthropic", model: "claude-sonnet" },
+                    provenance: CLAUDE_CLI_MCP_PROVENANCE,
                 }),
             Error,
             "duplicate MCP alias",
@@ -437,6 +439,42 @@ Deno.test("RunWield MCP bridge lets capabilities run after a terminal lifecycle 
             resultText(capabilityResult as { content: Array<{ type: string; text?: string }> }),
             "hit plans",
         );
+    });
+});
+
+Deno.test("RunWield MCP bridge passes MCP request cancellation to a running bridged tool", async () => {
+    let started: (() => void) | null = null;
+    let observedAbort: (() => void) | null = null;
+    const startedPromise = new Promise<void>((resolve) => {
+        started = resolve;
+    });
+    const abortedPromise = new Promise<void>((resolve) => {
+        observedAbort = resolve;
+    });
+    const capability = defineTool({
+        name: "memory_recall",
+        label: "Memory Recall",
+        description: "Recall memory.",
+        parameters: Type.Object({ query: Type.String() }),
+        async execute(_toolCallId, _params, signal, _onUpdate, context) {
+            const activeSignal = signal || context.signal;
+            activeSignal?.addEventListener("abort", () => observedAbort?.(), { once: true });
+            started?.();
+            await abortedPromise;
+            return { content: [{ type: "text" as const, text: "aborted" }], details: {} };
+        },
+    });
+    await withBridge([capability], async (context) => {
+        const controller = new AbortController();
+        const pending = context.client.callTool(
+            { name: "memory_recall", arguments: { query: "plans" } },
+            undefined,
+            { signal: controller.signal, timeout: 5_000 },
+        ).catch((error) => error);
+        await startedPromise;
+        controller.abort();
+        await abortedPromise;
+        await pending;
     });
 });
 

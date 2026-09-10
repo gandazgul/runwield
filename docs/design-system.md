@@ -108,8 +108,8 @@ Do not add separate spinners for Session timeline waits.
 
 ### Session timeline and control patterns
 
-Session detail surfaces use one ordered timeline for committed history. Live Workspace-owned waits appear as temporary
-items and must look different from committed transcript entries. If the server process loses that wait, show the plain
+Session detail surfaces use one ordered timeline for committed history. Live Core waits appear as temporary items and
+must look different from committed transcript entries. If the server process loses that wait, show the plain
 interruption line: “The agent was interrupted. Ask it to continue.” Do not style it as transcript history.
 
 Treat the Session as one continuous work surface. Use dividers, subtle intent rails, and background shifts to
@@ -121,11 +121,19 @@ Mobile Session composers stay in the normal surface stack, preserve drafts, and 
 New Session composer uses a visible screen heading and an empty text field; do not add helper copy or dev/API messages
 inside the composer. Dev-only notices belong in a separate shell row above the Session surface.
 
-Busy Sessions stay read-only until the owning surface releases Session Control. Do not show a **Take control** action in
-the normal Session shell. Refresh availability and enable the composer automatically when committed state becomes idle.
-When the current Workspace owns the running operation, Agent and model controls can accept one pending change and must
-show **Applies after this response** until the server commits or clears it. Thinking changes can show immediately when
-the Runtime accepts them.
+The composer stays usable while a Session is working. **Steer** sends a message to the current agent; **Queue** saves a
+follow-up in the current browser tab. Show pending steering and queued follow-ups above the input. Discover running
+turns and questions by Session identity, including turns started in the TUI. A busy Session needs no takeover or
+recovery control. If the running process is briefly unavailable, keep the draft and allow queuing. Agent and model
+controls can accept one pending change when the current Workspace owns the operation; show **Applies after this
+response** until it is applied. Thinking changes can show immediately when Core accepts them.
+
+Composers accept images by paste, drag-and-drop, or **Attach image**, including a phone's file picker. Show the image
+before sending with a Remove action, and preserve it in the conversation after sending and reloading. Use the shared
+`.rw-image-previews` treatment. Save image drafts in IndexedDB; browser storage limits must never block Send.
+
+Open conversations at the latest messages and offer **Load earlier messages** above the timeline. Loading old history
+must not disable Send. Keep Session generations, locks, and request-delivery details out of the ordinary screen.
 
 Completed contiguous technical entries can collapse into one chronological **Activity** group after the next Agent
 message starts. Expansion must show the original tool names, thinking text, output, and errors. Running or trailing
@@ -142,12 +150,15 @@ the same placement immediately above its editor.
 ### Session context sidebar
 
 Every persisted Session has one durable context sidebar beside its transcript. Do not show the sidebar for the
-unsubmitted New Session composer. The sidebar has three peer tabs in this order: **Workflow**, **Session**, and
-**Artifacts**. Default to Workflow when the Session has an active workflow; otherwise default to Session. Preserve the
-reader's selected tab while the same Session remains open.
+unsubmitted New Session composer. Use `RunWieldPanelToggle` for collapse and restore, matching the review sidebars:
+collapse at the left edge before the tabs, restore in the main header. Do not repeat tab titles as inner headings.
+Remember the choice; default to collapsed on narrow screens so the conversation and composer stay visible. The sidebar
+has three peer tabs: **Workflow**, **Session**, and **Artifacts**. Default to Workflow when the Session has an active
+workflow; otherwise default to Session. Preserve the reader's selected tab while the same Session remains open.
 
 Workflow shows canonical workflow stages and their state, not a second transcript. When the active Plan explicitly
 belongs to an Epic, show **Epic** and its name above **Plan** and the child Plan name; omit Epic for standalone Plans.
+Workspace and TUI render the same `sessionSidebarFields` list, including labels, precision, and unavailable values.
 Session shows durable, user-facing facts such as its name, message and tool-call counts, compaction count, queued
 prompts, and context composition. Context composition shows used versus model capacity and splits the used context into
 **System & setup** (agent instructions, tools, instruction files, memories, skills, and Project state) versus
@@ -166,6 +177,13 @@ visible terminal viewport while transcript blocks scroll independently, and cycl
 two-line footer remains full width below both panes. Narrow terminals retain the existing transcript-only layout. If a
 TUI user opens an artifact, prefer the configured Workspace reader and fall back to the short-lived local read-only
 reader.
+
+Workspace navigation uses a draggable `.rw-panel-resize-handle` on its right edge. Keep the sidebar between 220 and
+480px while reserving at least 420px for the main pane. Remember its width separately from its collapsed state. The
+handle is a focusable separator: arrow keys adjust width, Home/End select the limits, and double-click restores 280px.
+Hide the handle in the narrow-screen overlay layout. Every Session list uses the saved name (including rename entries),
+then the first user message. Suppress Sessions that have neither; never fill lists with “Untitled Session.” Keep the
+same naming and visibility rules in Workspace and the TUI.
 
 ## Token model
 
@@ -582,8 +600,20 @@ Session interaction through owner Workspace endpoints.
 ## Guided Review Explainer blocks
 
 Guided Review Explainers use the same dark RunWield/Plannotator surface language as the code-review UI, but they read as
-one scrollable document rather than a file-tree dashboard. Use a single column with generous section spacing so prose,
-callouts, Mermaid diagrams, optional widgets, and live diff blocks form a continuous explanation.
+one scrollable document organized into conceptual chapters. Reuse Plannotator's `GuideView`, `GuideSectionCard`,
+`GuideFileCard`, Markdown renderers, and viewport manager through its guide host provider. Each chapter has a numbered,
+collapsible overview and file list beside its live diffs; narrow guide panes (including space reduced by sidebars) stack
+the overview above the diffs. The **Reviewed** control marks and collapses a chapter. Chapter progress stays with the
+open review when switching to Diff. Opening Guided Review collapses the file sidebar; reviewers can reopen it with
+**Files**. Omit the generated guide title, since the review shell already supplies context. Show the problem-and-outcome
+summary above the chapter count. Beside the count, show **generated by provider/model (thinking level)** using metadata
+from the generating Session; omit unavailable fields rather than guessing. Keep review progress visible.
+
+Put the core behavior first, its consequences next, and incidental changes last. Group related files across directories
+and keep tests with their implementation. Prose blocks form each chapter overview; the optional `sectionNotes` slot
+preserves RunWield callouts, diagrams, checkpoints, and widgets below it. Every changed file appears once, with an
+**Everything else** chapter for files the guide did not place. File chips reveal their diff, including in a collapsed
+chapter. Shared `.rw-guide-*` block styles live in `src/ui/design-system/components.css` and use RunWield tokens.
 
 - **Prose** is the default block and should use normal readable line height.
 - **Callouts** are bordered cards for definitions, edge cases, risks, or reviewer checkpoints. Do not use color alone to
@@ -615,3 +645,21 @@ Validation, Semantic Code Review, repair, delivery, and completion.
 - Keep the model read-only. Progress views can link to related Plan and Session pages, but they must not advance the
   workflow.
 - Long failure text must wrap inside the card and must not create whole-page horizontal overflow.
+
+## Grouped Plan review
+
+Sequence review uses controlled `RunWieldTabs` above the existing review workbench: an overview followed by numbered
+child tabs. Mounted inactive panels preserve per-Plan editing, comments, scroll and execution controls. The shared
+approval actions state their complete scope (for example, “Sequence and 2 Plans”) on every tab. Only child tabs show
+execution policy. Keep the tab strip horizontally scrollable and keyboard accessible; use the same semantic tokens and
+header controls as single-Plan review. Surface Lab includes standalone and embedded `sequence` variants.
+
+### Workflow transitions in Session history
+
+Every tool in `WORKFLOW_TOOL_NAMES` renders as an expanded `.rw-workflow-block`, separate from routine tool activity.
+Show its name, running/completed/failed state, full report or decision, and available artifact/review actions. Keep
+routing intent, complexity, plan outcomes, completion summaries, review findings, and checklists visible. Accepted
+workflow records close the block even when a tool stops its own turn before a provider tool result is persisted. Live
+events and reloaded history show the same information once per call. Do not infer acceptance from tool arguments.
+
+Message images open in the shared dialog styling with an explicit Close action and Escape support.

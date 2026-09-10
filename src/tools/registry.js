@@ -66,3 +66,17 @@ export const WORKFLOW_ADVANCEMENT_TOOL_NAMES = Object.freeze([
     "slicer_finalize",
     "slicer_finalize_decomposition",
 ]);
+
+/**
+ * Workflow decisions, handoffs, reviews, and delivered artifacts remain visible
+ * as full blocks on every Session surface, including persisted history.
+ * @type {readonly string[]}
+ */
+export const WORKFLOW_TOOL_NAMES = Object.freeze([
+    ...WORKFLOW_ADVANCEMENT_TOOL_NAMES,
+    "artifact_written",
+    "user_interview",
+    "review_diff",
+    "work_record_completed",
+    "manual_qa_completed",
+]);

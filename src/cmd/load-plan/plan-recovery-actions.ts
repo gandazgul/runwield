@@ -21,14 +21,14 @@ import {
     validateCompletedExecution,
 } from "./plan-execution.ts";
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
-import { deleteMergedWorktreeBranch, removeWorktreeGitArtifacts } from "../../shared/worktree.js";
+import { discardWorktreeGitArtifacts, validateWorktreeDiscard } from "../../shared/worktree.js";
 import {
     findById as findWorktreeRegistryEntry,
     restoreEntryFromPlanEvidence,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../../shared/worktree-registry.js";
 import { markPlanUserVerified, putPlanOnHold } from "./plan-hold.ts";
-import { isGitRepositoryRequiredError } from "../../shared/git.js";
+import { settleDiscardedRecoveryAttempt } from "./plan-recovery-discard.ts";
 import { transitionFailureError } from "./transition-failure.ts";
 import { writeControllerState } from "../../shared/workflow/controller-registry.ts";
 import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
@@ -40,7 +40,7 @@ import type { RecoveryFlowPlan, UnresolvedTransitionRecord } from "./plan-recove
 
 export type RecoveryActionOutcome =
     | { kind: "menu" }
-    | { kind: "handled" }
+    | { kind: "handled"; verified?: boolean }
     | { kind: "review" }
     | { kind: "settled" };
 export type RecoveryMetricDetailValue = string | number | boolean | null | undefined;
@@ -321,7 +321,12 @@ export async function validateRecoveryPlan(context: RecoveryActionContext): Prom
         return { kind: "menu" };
     }
     await context.recordRecoveryResult("validate", "handled");
-    return { kind: "handled" };
+    return {
+        kind: "handled",
+        ...(validationStarted && typeof validationStarted === "object" && validationStarted.kind === "verified"
+            ? { verified: true }
+            : {}),
+    };
 }
 
 export async function openFollowUpRecoveryPlan(context: RecoveryActionContext): Promise<RecoveryActionOutcome> {
@@ -479,55 +484,51 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
         false,
         "RunWield",
     );
-    let removedWorktree = true;
+    let cleanupMessage = "The recorded attempt was abandoned.";
+    try {
+        if (hasWorktreeContext(context.worktreeContext)) {
+            await validateWorktreeDiscard({ projectRoot, ...context.worktreeContext });
+        }
+    } catch (error) {
+        uiAPI.appendSystemMessage(
+            buildPlanRecoveryUserMessage({
+                kind: "worktree_cleanup_result",
+                failed: true,
+                detail: error instanceof Error ? error.message : String(error),
+            }),
+            true,
+            "RunWield",
+        );
+        await context.recordRecoveryResult("abandon", "blocked");
+        return { kind: "menu" };
+    }
     const transition = await runRecoveryTransition({
         projectRoot,
         planName: plan.planName,
         planId: plan.attrs.planId,
         worktreeId: context.worktreeContext?.id,
         action: "abandon",
-        recover: async ({ beforePlan }) => {
-            if (context.worktreeContext?.path) {
-                try {
-                    await removeWorktreeGitArtifacts({
-                        projectRoot,
-                        path: context.worktreeContext.path,
-                        force: true,
-                    });
-                    if (context.worktreeContext.branch) {
-                        await deleteMergedWorktreeBranch({
-                            projectRoot,
-                            branch: context.worktreeContext.branch,
-                        });
-                    }
-                } catch (error) {
-                    if (!isGitRepositoryRequiredError(error)) {
-                        throw error;
-                    }
-                    removedWorktree = false;
-                    uiAPI.appendSystemMessage(
-                        buildPlanRecoveryUserMessage({ kind: "git_delete_skipped" }),
-                        true,
-                        "RunWield",
-                    );
+        recover: async ({ beforePlan, markEffect }) => {
+            let retained = false;
+            if (hasWorktreeContext(context.worktreeContext)) {
+                for await (const cleanup of discardWorktreeGitArtifacts({ projectRoot, ...context.worktreeContext })) {
+                    if (cleanup.status === "blocked") throw new Error(cleanup.message);
+                    await markEffect(`recovery_discard_${cleanup.status}`, { ...context.worktreeContext, ...cleanup });
+                    cleanupMessage = cleanup.message;
+                    retained = cleanup.status === "retained";
                 }
             }
-            if (context.worktreeContext?.id) {
-                try {
-                    await updateWorktreeRegistryEntry(projectRoot, context.worktreeContext.id, {
-                        status: "abandoned",
-                    });
-                } catch (error) {
-                    const message = error instanceof Error ? error.message : String(error);
-                    const missingEntryMessage = `Worktree registry entry not found: ${context.worktreeContext.id}`;
-                    if (message !== missingEntryMessage) throw error;
-                    uiAPI.appendSystemMessage(
-                        buildPlanRecoveryUserMessage({ kind: "record_already_gone" }),
-                        true,
-                        "RunWield",
-                    );
-                }
-            }
+            await settleDiscardedRecoveryAttempt(
+                projectRoot,
+                plan.planName,
+                plan.attrs.planId,
+                context.worktreeContext,
+                retained,
+            );
+            await markEffect("recovery_discard_registry_settled", {
+                worktreeId: context.worktreeContext?.id,
+                retained,
+            });
             // Deleted attempts must not remain the selected document after reload.
             // Review reopening retains this reference because its directory survives.
             // Imported recovery hints must not revive this attempt either.
@@ -551,13 +552,23 @@ export async function abandonRecoveryPlan(context: RecoveryActionContext): Promi
         },
     });
     if (transition.status !== "committed") {
-        throw transitionFailureError(transition, `Recovery abandon transaction failed for ${plan.planName}.`);
+        uiAPI.appendSystemMessage(
+            buildPlanRecoveryUserMessage({
+                kind: "worktree_cleanup_result",
+                failed: true,
+                detail: transition.message || "Recovery was kept active.",
+            }),
+            true,
+            "RunWield",
+        );
+        await context.recordRecoveryResult("abandon", "blocked");
+        return { kind: "menu" };
     }
     context.worktreeContext = null;
     context.loadedWorktreeId = null;
     await context.session.clearActiveExecutionWorkflow();
     uiAPI.appendSystemMessage(
-        buildPlanRecoveryUserMessage({ kind: "abandon_done", removed: removedWorktree }),
+        buildPlanRecoveryUserMessage({ kind: "worktree_cleanup_result", detail: cleanupMessage }),
         false,
         "RunWield",
     );

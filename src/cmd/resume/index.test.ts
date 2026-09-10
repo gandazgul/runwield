@@ -8,7 +8,7 @@ import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.j
 import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
 import { __resetSettingsForTests } from "../../shared/settings.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
-import { runResumeCommand } from "./index.ts";
+import { getResumeModelSelection, runResumeCommand } from "./index.ts";
 
 const FIXTURE_PROVIDER = "runtime-command-fixture";
 const FIXTURE_MODEL = "fixture-model";
@@ -113,6 +113,13 @@ async function writeResumeThreshold(settingsPath: string, threshold: number): Pr
     await Deno.writeTextFile(settingsPath, JSON.stringify(settings));
     __resetSettingsForTests();
 }
+
+Deno.test("getResumeModelSelection preserves supported Agy CLI references with the conservative context window", () => {
+    assertEquals(getResumeModelSelection({ provider: "agy-cli", modelId: "gemini-3.8-flash" }), {
+        modelOverride: "agy-cli/gemini-3.8-flash",
+        contextWindow: 128000,
+    });
+});
 
 Deno.test("runResumeCommand loads, replaces, and replays a real persisted session", async () => {
     await withRuntimeCommandFixture("runwield-resume-command-", async ({ homeDir, projectRoot }) => {

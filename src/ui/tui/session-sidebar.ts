@@ -3,6 +3,7 @@ import {
     buildSessionSidebarProjection,
     SESSION_SIDEBAR_TABS,
     sessionArtifactKindLabel,
+    sessionSidebarFields,
     type SessionSidebarProjection,
     type SessionSidebarTab,
 } from "../../shared/session/session-sidebar.ts";
@@ -100,16 +101,6 @@ function field(label: string, value: string, width: number): string[] {
     return [theme.fg("dim", fit(label.toUpperCase(), width)), fit(value, width)];
 }
 
-function formatTokens(tokens: number | null): string {
-    return tokens === null ? "Unknown" : tokens.toLocaleString();
-}
-
-function formatShare(tokens: number | null, usedTokens: number | null): string {
-    if (tokens === null) return "Unknown";
-    if (usedTokens === null || usedTokens <= 0) return `~${formatTokens(tokens)}`;
-    return `~${formatTokens(tokens)} · ${((tokens / usedTokens) * 100).toFixed(1)}% of used`;
-}
-
 export class TuiSessionSidebar {
     #activeTab: SessionSidebarTab = "session";
     #sessionKey = "";
@@ -153,54 +144,10 @@ export class TuiSessionSidebar {
                 content.push("", theme.fg("dim", fit("No Plan workflow is active.", inner)));
             }
         } else if (this.#activeTab === "session") {
-            content.push(...field("Session", projection.session.name, inner));
-            const stats = projection.session.stats;
-            if (stats) {
-                content.push(
-                    "",
-                    ...field(
-                        "Messages",
-                        `${stats.totalMessages} · ${stats.userMessages} user / ${stats.assistantMessages} assistant`,
-                        inner,
-                    ),
-                );
-                content.push("", ...field("Tool calls", String(stats.toolCalls), inner));
-                content.push(
-                    "",
-                    ...field(
-                        "Compactions",
-                        stats.compactionCount === 0 ? "None" : String(stats.compactionCount),
-                        inner,
-                    ),
-                );
-                if (stats.queuedMessages > 0) {
-                    content.push("", ...field("Queued prompts", String(stats.queuedMessages), inner));
-                }
-            }
-            const context = projection.session.context;
-            if (context) {
-                const percent = context.percent === null ? "" : ` · ${context.percent.toFixed(1)}%`;
-                content.push(
-                    "",
-                    ...field(
-                        "Context",
-                        `${formatTokens(context.usedTokens)} / ${formatTokens(context.contextWindow)}${percent}`,
-                        inner,
-                    ),
-                );
-                content.push(
-                    "",
-                    ...field("System & setup", formatShare(context.systemTokens, context.usedTokens), inner),
-                );
-                content.push(
-                    "",
-                    ...field(
-                        "Conversation",
-                        formatShare(context.conversationTokens, context.usedTokens),
-                        inner,
-                    ),
-                );
-            }
+            sessionSidebarFields(projection.session).forEach((item, index) => {
+                if (index > 0) content.push("");
+                content.push(...field(item.label, item.value, inner));
+            });
         } else if (projection.artifacts.length === 0) {
             content.push(theme.fg("dim", fit("No declared artifacts yet.", inner)));
         } else {

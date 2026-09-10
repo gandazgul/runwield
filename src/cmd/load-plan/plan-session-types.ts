@@ -45,6 +45,8 @@ export interface PlanReviewRequest {
 /** Options accepted when switching the active agent. */
 export interface SwitchAgentOptions {
     model?: string;
+    cwd?: string;
+    forceRebuild?: boolean;
 }
 
 /**

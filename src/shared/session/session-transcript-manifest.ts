@@ -4,8 +4,9 @@
  */
 
 import { dirname, resolve } from "@std/path";
-import { isPathInside, readCatalogSafeRootSessionLocator } from "./root-session.js";
+import { readCatalogSafeRootSessionLocator } from "./root-session.js";
 import {
+    buildProjectedSessionInfo,
     captureTranscriptEvidence,
     createReplayEvents,
     selectProjectedEventsAfterCursor,
@@ -56,6 +57,8 @@ type ProjectAggregateTranscriptOptions = {
     cursorEventId?: string | null;
     cursorEventOrdinal?: number | null;
     limit?: number;
+    latest?: boolean;
+    beforeEventId?: string;
 };
 
 type VerifiedSegmentMetadata = {
@@ -84,6 +87,7 @@ type AggregateProjectionResult = {
     snapshot: { [key: string]: unknown };
     segments: VerifiedSegmentMetadata[];
     cursorReset: boolean;
+    previousCursor?: string | null;
 };
 
 function requireOrderedManifest(options: ProjectAggregateTranscriptOptions) {
@@ -107,20 +111,21 @@ function requireOrderedManifest(options: ProjectAggregateTranscriptOptions) {
     return { segments: segments.slice(0, current.ordinal + 1), current };
 }
 
-async function verifyPath(segment: TranscriptSegment, sessionDir: string) {
+async function verifyPath(segment: TranscriptSegment) {
     const transcriptPath = resolve(segment.transcriptPath);
-    if (!isPathInside(transcriptPath, sessionDir)) {
-        throw new Error("Segment transcript path is outside session directory");
-    }
-    await readCatalogSafeRootSessionLocator({ cwd: segment.transcriptCwd, sessionDir, sessionPath: transcriptPath });
+    await readCatalogSafeRootSessionLocator({
+        cwd: segment.transcriptCwd,
+        sessionDir: dirname(transcriptPath),
+        sessionPath: transcriptPath,
+    });
     return transcriptPath;
 }
 
-async function verifySealedSegment(segment: TranscriptSegment, sessionDir: string) {
+async function verifySealedSegment(segment: TranscriptSegment) {
     if (!Number.isInteger(segment.sealedByteLength) || !segment.sealedDigestHex) {
         throw new Error("Sealed segment evidence is missing");
     }
-    const transcriptPath = await verifyPath(segment, sessionDir);
+    const transcriptPath = await verifyPath(segment);
     const stat = await Deno.stat(transcriptPath);
     if (stat.size !== segment.sealedByteLength) throw new Error("Sealed segment byte length does not match evidence");
     const evidence = await captureTranscriptEvidence({
@@ -149,8 +154,8 @@ function segmentLabel(kind: string, ordinal: number) {
     return `Session segment ${ordinal + 1}`;
 }
 
-async function verifyCurrentSegment(segment: TranscriptSegment, generation: CommittedGeneration, sessionDir: string) {
-    const transcriptPath = await verifyPath(segment, sessionDir);
+async function verifyCurrentSegment(segment: TranscriptSegment, generation: CommittedGeneration) {
+    const transcriptPath = await verifyPath(segment);
     const evidence = await captureTranscriptEvidence({
         transcriptPath,
         transcriptCwd: segment.transcriptCwd,
@@ -170,7 +175,6 @@ export async function projectAggregateTranscript(
 ): Promise<AggregateProjectionResult | AggregateProjectionFailure> {
     try {
         const { segments, current } = requireOrderedManifest(options);
-        const sessionDir = options.sessionDir || dirname(current.transcriptPath);
         const aggregateEntries: JsonValue[] = [];
         const segmentMetadata: VerifiedSegmentMetadata[] = [];
         const replayEvents: ProjectedRuntimeEvent[] = [];
@@ -181,8 +185,8 @@ export async function projectAggregateTranscript(
         };
         for (const segment of segments) {
             const evidence = segment.segmentId === current.segmentId
-                ? await verifyCurrentSegment(segment, options.generation, sessionDir)
-                : await verifySealedSegment(segment, sessionDir);
+                ? await verifyCurrentSegment(segment, options.generation)
+                : await verifySealedSegment(segment);
             aggregateEntries.push(...evidence.entries);
             const kind = normalizeSegmentKind(segment.kind);
             replayEvents.push(
@@ -208,6 +212,19 @@ export async function projectAggregateTranscript(
                 current: segment.segmentId === current.segmentId,
             });
         }
+        const info = buildProjectedSessionInfo(aggregateEntries, {
+            sessionId: options.runwieldSessionId,
+            cwd: options.cwd,
+        });
+        const snapshot = {
+            ...summarizeProjectedEntries(aggregateEntries),
+            sessionStats: {
+                userMessages: info.userMessages,
+                assistantMessages: info.assistantMessages,
+                toolCalls: info.toolCalls,
+                compactionCount: info.compactionCount,
+            },
+        };
         let cursorReset = false;
         let selected;
         try {
@@ -226,6 +243,26 @@ export async function projectAggregateTranscript(
                 limit: options.limit,
             });
         }
+        // All segments above are verified regardless of how much history the reader displays.
+        if (options.latest || options.beforeEventId) {
+            const end = options.beforeEventId
+                ? replayEvents.findIndex((event) => event.eventId === options.beforeEventId)
+                : replayEvents.length;
+            if (end < 0) throw new Error("Earlier history cursor is no longer available. Reload the conversation.");
+            const start = Math.max(0, end - Math.max(1, Math.min(500, options.limit || 200)));
+            return {
+                ok: true,
+                generation: options.generation.generation,
+                events: replayEvents.slice(start, end),
+                nextCursor: replayEvents[end - 1]?.eventId || null,
+                nextCursorOrdinal: end > 0 ? end - 1 : null,
+                previousCursor: start > 0 ? replayEvents[start]?.eventId || null : null,
+                complete: start === 0,
+                snapshot,
+                segments: segmentMetadata,
+                cursorReset: false,
+            };
+        }
         return {
             ok: true,
             generation: options.generation.generation,
@@ -233,7 +270,7 @@ export async function projectAggregateTranscript(
             nextCursor: selected.nextCursor,
             nextCursorOrdinal: selected.nextCursorOrdinal,
             complete: selected.complete,
-            snapshot: summarizeProjectedEntries(aggregateEntries),
+            snapshot,
             segments: segmentMetadata,
             cursorReset,
         };

@@ -94,6 +94,10 @@ Deno.test("resolveDelegatedToolNames intersects parent tools with mode policy", 
         "read",
         "bash",
         "edit",
+        "web_search",
+        "web_fetch",
+        "web_code_search",
+        "web_docs_search",
         "write_docs",
         "edit_docs",
         "task_completed",
@@ -104,8 +108,22 @@ Deno.test("resolveDelegatedToolNames intersects parent tools with mode policy", 
         "delegate_agent",
     ];
 
-    assertEquals(resolveDelegatedToolNames(parentTools, "read"), ["read"]);
-    assertEquals(resolveDelegatedToolNames(parentTools, "write"), ["read", "bash", "edit"]);
+    assertEquals(resolveDelegatedToolNames(parentTools, "read"), [
+        "read",
+        "web_search",
+        "web_fetch",
+        "web_code_search",
+        "web_docs_search",
+    ]);
+    assertEquals(resolveDelegatedToolNames(parentTools, "write"), [
+        "read",
+        "bash",
+        "edit",
+        "web_search",
+        "web_fetch",
+        "web_code_search",
+        "web_docs_search",
+    ]);
 });
 
 Deno.test("diffDelegatedChangeSnapshot compares the full pre/post workspace baseline", () => {
@@ -162,6 +180,10 @@ Deno.test("delegated agent prompt includes inherited repository context placehol
     assertEquals(/^tools:/m.test(prompt), false);
     const delegated = await loadSubAgentDefinition(SUBAGENTS.DELEGATED);
     assertEquals(delegated.tools.includes("write"), true);
+    assertEquals(delegated.tools.includes("web_search"), true);
+    assertEquals(delegated.tools.includes("web_fetch"), true);
+    assertEquals(delegated.tools.includes("web_code_search"), true);
+    assertEquals(delegated.tools.includes("web_docs_search"), true);
 });
 
 Deno.test("delegate_agent returns child output without inheriting workflow tools", async () => {
@@ -171,7 +193,15 @@ Deno.test("delegate_agent returns child output without inheriting workflow tools
     const tool = createDelegateAgentTool({
         hostedSession,
         cwd: Deno.cwd(),
-        parentTools: ["read", "bash", "task_completed", "delegate_agent"],
+        parentTools: [
+            "read",
+            "web_search",
+            "web_fetch",
+            "web_docs_search",
+            "bash",
+            "task_completed",
+            "delegate_agent",
+        ],
         runIsolatedAgentSession: (opts) => {
             calls.push(opts);
             return assistantDone();
@@ -181,9 +211,9 @@ Deno.test("delegate_agent returns child output without inheriting workflow tools
     const result = await execute(tool, { mode: "read", brief: "Inspect src/foo.js" });
 
     assertEquals(result.details.ok, true);
-    assertEquals(result.details.tools, ["read"]);
+    assertEquals(result.details.tools, ["read", "web_search", "web_fetch", "web_docs_search"]);
     assertEquals(result.content[0].text, "done");
-    assertEquals(calls[0].toolNames, ["read"]);
+    assertEquals(calls[0].toolNames, ["read", "web_search", "web_fetch", "web_docs_search"]);
     assertStringIncludes(String(calls[0].userRequest || ""), "Inspect src/foo.js");
     // Omitting role resolves to the unspecialized default and changes nothing about the request.
     assertEquals(result.details.role, "general");
@@ -211,7 +241,18 @@ Deno.test("delegate_agent applies verification-adversary read-only role ceiling"
     const tool = createDelegateAgentTool({
         hostedSession,
         cwd: Deno.cwd(),
-        parentTools: ["read", "grep", "bash", "edit", "write", "multi_file_edit", "delegate_agent"],
+        parentTools: [
+            "read",
+            "grep",
+            "web_search",
+            "web_fetch",
+            "web_docs_search",
+            "bash",
+            "edit",
+            "write",
+            "multi_file_edit",
+            "delegate_agent",
+        ],
         runIsolatedAgentSession: (opts) => {
             calls.push(opts);
             leaseStates.push(hostedSession.getDelegatedAgentLeaseState());
@@ -227,7 +268,7 @@ Deno.test("delegate_agent applies verification-adversary read-only role ceiling"
 
     // The role ceiling wins over the requested mode: read lease, read tools, no write machinery.
     assertEquals(leaseStates[0], { readers: 1, writer: false });
-    assertEquals(calls[0].toolNames, ["read", "grep"]);
+    assertEquals(calls[0].toolNames, ["read", "grep", "web_search", "web_fetch", "web_docs_search"]);
     assertEquals(calls[0].includeEditFallback, false);
     assertEquals(result.details.changedPaths, undefined);
     assertEquals(result.details.changeAttributionComplete, undefined);
