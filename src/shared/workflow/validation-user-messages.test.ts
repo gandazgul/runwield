@@ -101,6 +101,15 @@ Deno.test("publication messages name the selected target branch", () => {
     assert(messages.every((message) => !message.includes("main")));
 });
 
+Deno.test("human review wait message includes the review page", () => {
+    const reviewUrl = "http://127.0.0.1:4567/review/code?token=test";
+
+    assertEquals(
+        buildValidationUserMessage({ kind: "human_review_wait", reviewUrl }),
+        `Need your review: ${reviewUrl}`,
+    );
+});
+
 Deno.test("Epic child Work Record message explains that generation waits for the parent", () => {
     assertEquals(
         buildValidationUserMessage({

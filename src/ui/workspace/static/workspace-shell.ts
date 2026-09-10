@@ -79,17 +79,21 @@ const observedSessionNames = new Map();
 
 export function applySessionName(detail) {
     if (!detail?.projectId || !detail.runwieldSessionId || typeof detail.name !== "string") return;
-    const name = detail.name.trim() || "Untitled Session";
+    const name = detail.name.trim();
     observedSessionNames.set(`${detail.projectId}:${detail.runwieldSessionId}`, name);
     const current = currentRoute();
     if (current.projectId === detail.projectId && current.runwieldSessionId === detail.runwieldSessionId) {
         const title = document.querySelector("[data-workspace-main-session-name]");
-        if (title) title.textContent = name;
+        if (title) title.textContent = name || "Session";
     }
     for (const row of document.querySelectorAll("[data-sidebar-session]")) {
         if (
             row.dataset.sidebarProjectId !== detail.projectId || row.dataset.sidebarSession !== detail.runwieldSessionId
         ) continue;
+        if (!name) {
+            row.remove();
+            continue;
+        }
         const label = row.querySelector("span");
         if (label) label.textContent = name;
         row.title = name;
@@ -191,14 +195,6 @@ async function ownerJson(url, options = {}) {
     return payload;
 }
 
-function titleFromSessionId(sessionId) {
-    return String(sessionId || "Current Session")
-        .split(/[-_\s]+/)
-        .filter(Boolean)
-        .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
-        .join(" ") || "Current Session";
-}
-
 function sessionStatusLabel(state) {
     const normalized = String(state || "idle").toLowerCase();
     return normalized === "active" || normalized === "busy" ? "busy" : "";
@@ -255,9 +251,9 @@ function sessionTitleFromPayload(payload, current) {
     const project = projects.find((candidate) => candidate?.projectId === current.projectId);
     const sessions = Array.isArray(project?.sessions) ? project.sessions : [];
     const match = sessions.find((session) => session.runwieldSessionId === current.runwieldSessionId);
-    if (match) return match.displayName || titleFromSessionId(current.runwieldSessionId);
+    if (match?.displayName) return match.displayName;
     return observedSessionNames.get(`${current.projectId}:${current.runwieldSessionId}`) ||
-        titleFromSessionId(current.runwieldSessionId);
+        "Session";
 }
 
 function renderMainHeader(payload, current) {
@@ -298,7 +294,7 @@ function makeSessionRow(projectId, session, current, extraClass = "") {
     link.dataset.sidebarSession = session.runwieldSessionId;
     link.dataset.sidebarProjectId = projectId;
     const label = document.createElement("span");
-    label.textContent = session.displayName || "Untitled Session";
+    label.textContent = session.displayName;
     link.append(label);
     const status = document.createElement("small");
     link.append(status);
@@ -318,7 +314,7 @@ function updateSessionRow(link, projectId, session, current, extraClass = "") {
     ) classNames.push("active");
     link.className = classNames.join(" ");
     const label = link.querySelector("span") || document.createElement("span");
-    label.textContent = session.displayName || "Untitled Session";
+    label.textContent = session.displayName;
     if (!label.parentElement) link.append(label);
     link.title = label.textContent;
     const status = sessionStatusLabel(session.state);
@@ -491,7 +487,8 @@ function reconcileSessionRows(container, existingProject, project, current) {
     const wantedIds = new Set(ordered.map((session) => session.runwieldSessionId));
     const activeOutsidePage = project.enabled && current.kind === "session" &&
         current.projectId === project.projectId &&
-        current.runwieldSessionId !== "new" && !wantedIds.has(current.runwieldSessionId);
+        current.runwieldSessionId !== "new" && !wantedIds.has(current.runwieldSessionId) &&
+        Boolean(observedSessionNames.get(`${current.projectId}:${current.runwieldSessionId}`));
     if (activeOutsidePage) wantedIds.add(current.runwieldSessionId);
 
     Array.from(container.querySelectorAll(".workspace-sidebar-empty")).forEach((node) => node.remove());
@@ -524,7 +521,7 @@ function reconcileSessionRows(container, existingProject, project, current) {
         const session = {
             runwieldSessionId: current.runwieldSessionId,
             displayName: observedSessionNames.get(`${current.projectId}:${current.runwieldSessionId}`) ||
-                titleFromSessionId(current.runwieldSessionId),
+                "",
             state: "idle",
         };
         const row = byId.get(current.runwieldSessionId) ||

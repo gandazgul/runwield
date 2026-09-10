@@ -1,6 +1,6 @@
 import { Image, isFocusable, Spacer } from "@earendil-works/pi-tui";
 import { getSettingsManager } from "../../shared/settings.js";
-import { WORKFLOW_ADVANCEMENT_TOOL_NAMES } from "../../tools/registry.js";
+import { WORKFLOW_TOOL_NAMES } from "../../tools/registry.js";
 import { imageTheme } from "../theme/theme.js";
 import {
     AgentMessageBlock,
@@ -18,7 +18,7 @@ import {
 } from "./blocks.js";
 
 const MAX_MESSAGE_LIST_CHILDREN = 1000;
-const WORKFLOW_ADVANCEMENT_TOOL_NAME_SET = new Set(WORKFLOW_ADVANCEMENT_TOOL_NAMES);
+const WORKFLOW_TOOL_NAME_SET = new Set(WORKFLOW_TOOL_NAMES);
 
 /**
  * @typedef {Object} ToolElapsedTimerState
@@ -545,7 +545,7 @@ export function createUiApi(
                 if (!outputSuppressed) tui.requestRender();
             };
             activeToolBlocks.set(id, block);
-            if (WORKFLOW_ADVANCEMENT_TOOL_NAME_SET.has(toolName)) {
+            if (WORKFLOW_TOOL_NAME_SET.has(toolName)) {
                 closeCurrentToolGroup();
                 block.setExpanded(toolsExpanded);
                 appendMessageListChild(block);

@@ -20,6 +20,7 @@ import {
 } from "../../../shared/session/session-sidebar.ts";
 import { createSessionTabNotificationController } from "../browser/session-tab-notifications.ts";
 import { WorkspaceHeaderActionsPortal } from "../react/WorkspaceHeaderActionsPortal.tsx";
+import { loadSessionDrafts, readSessionDraft, saveSessionDraft } from "../browser/session-drafts.ts";
 
 export const SESSION_PAGE_SIZE = 30;
 const TIMELINE_PAGE_LIMIT = 200;
@@ -109,7 +110,7 @@ async function ownerFetch(url, options = {}) {
 /** @param {string} key */
 function readStored(key) {
     try {
-        return JSON.parse(localStorage.getItem(key) || "null");
+        return JSON.parse(readSessionDraft(key) || "null");
     } catch {
         return null;
     }
@@ -139,7 +140,8 @@ export function serializeSessionImageForRequest(image) {
 
 /** @param {File} file */
 async function readPastedImage(file) {
-    if (!file.type.startsWith("image/")) throw new Error("Only pasted images can be attached.");
+    if (!/^image\/(png|jpeg|jpg|gif|webp)$/.test(file.type)) throw new Error("Attach a PNG, JPEG, GIF, or WebP image.");
+    if (file.size > 7 * 1024 * 1024) throw new Error("This image is too large. Choose an image smaller than 7 MB.");
     const dataUrl = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));
@@ -363,6 +365,7 @@ function SessionComposer({
     sendLabel = "Send",
     steeringMessages = [],
     onPaste,
+    onFiles,
     imageAttachments = [],
     onRemoveImage,
     agents = [],
@@ -380,10 +383,19 @@ function SessionComposer({
     queuedMessages = [],
 }) {
     const textareaRef = useRef(null);
+    const fileInputRef = useRef(null);
     useEffect(() => resizeComposerTextArea(textareaRef.current), [draft]);
     return (
         <form
             className="session-composer"
+            onDragOver={(event) => {
+                if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+            }}
+            onDrop={(event) => {
+                if (!event.dataTransfer.files.length) return;
+                event.preventDefault();
+                if (!disabled) onFiles?.(Array.from(event.dataTransfer.files));
+            }}
             onSubmit={(event) => {
                 event.preventDefault();
                 onSubmit();
@@ -426,9 +438,13 @@ function SessionComposer({
                     resizeComposerTextArea(event.currentTarget);
                 }}
                 onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
+                    if (event.key === "Escape" && onStop) {
                         event.preventDefault();
-                        onSubmit();
+                        onStop();
+                    }
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                        event.preventDefault();
+                        if (canSend && !submitting) onSubmit();
                     }
                 }}
                 placeholder="Ask RunWield..."
@@ -436,9 +452,10 @@ function SessionComposer({
             />
             {imageAttachments.length
                 ? (
-                    <ul className="session-image-attachments" aria-label="Attached images">
+                    <ul className="session-image-attachments rw-image-previews" aria-label="Attached images">
                         {imageAttachments.map((image) => (
                             <li key={image.id}>
+                                <img src={`data:${image.mimeType};base64,${image.base64}`} alt={image.name} />
                                 <span>{image.name} · {image.mimeType}</span>
                                 <button type="button" onClick={() => onRemoveImage?.(image.id)}>Remove</button>
                             </li>
@@ -447,6 +464,25 @@ function SessionComposer({
                 )
                 : null}
             <div className="session-composer-actions" aria-label="Session settings">
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    multiple
+                    hidden
+                    onChange={(event) => {
+                        onFiles?.(Array.from(event.currentTarget.files || []));
+                        event.currentTarget.value = "";
+                    }}
+                />
+                <button
+                    type="button"
+                    className="rw-toolbar-button"
+                    disabled={disabled}
+                    onClick={() => fileInputRef.current?.click()}
+                >
+                    Attach image
+                </button>
                 <select
                     aria-label="Agent"
                     value={agentValue}
@@ -544,6 +580,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [detailError, setDetailError] = useState("");
     const [loadingDetail, setLoadingDetail] = useState(mode === "detail");
     const [draft, setDraft] = useState("");
+    const [loadedDraftKey, setLoadedDraftKey] = useState("");
+    const operationNavigationRef = useRef(false);
     const [imageAttachments, setImageAttachments] = useState(/** @type {SessionImageAttachmentDraft[]} */ ([]));
     const [queuedMessages, setQueuedMessages] = useState(/** @type {WorkspaceQueuedMessage[]} */ ([]));
     const [message, setMessage] = useState("");
@@ -561,6 +599,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [selectedModelKey, setSelectedModelKey] = useState("");
     const [selectedThinking, setSelectedThinking] = useState("default");
     const [submitting, setSubmitting] = useState(false);
+    const [attachingImages, setAttachingImages] = useState(false);
     const [loadingEarlier, setLoadingEarlier] = useState(false);
     const timelineLoadRef = useRef(0);
     const timelineRef = useRef(timeline);
@@ -777,44 +816,52 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
 
     useEffect(() => {
         if (!draftKey) return;
-        const storedDraft = localStorage.getItem(draftKey) || "";
-        if (storedDraft === "Draft request for visual check") {
-            localStorage.removeItem(draftKey);
-            setDraft("");
-        } else {
+        let cancelled = false;
+        setLoadedDraftKey("");
+        void loadSessionDrafts([draftKey, attachmentsKey, requestKey]).then(() => {
+            if (cancelled) return;
+            const storedDraft = readSessionDraft(draftKey) || "";
             setDraft(storedDraft);
-        }
-        const storedAttachments = readStored(attachmentsKey);
-        setImageAttachments(Array.isArray(storedAttachments) ? storedAttachments : []);
-        setOperation(null);
-        const storedRequest = asRecord(readStored(requestKey));
-        if (storedRequest.operationId) {
-            setOperation({
-                operationId: String(storedRequest.operationId),
-                status: "running",
-                observed: 0,
-                attempts: 0,
-                restored: true,
-            });
-            setMessage(
-                "Reconnected.",
-            );
-        } else if (storedRequest.requestId && storedRequest.status === "network-error") {
-            setMessage("The connection was interrupted. Send again to retry your message.");
-        }
+            const storedAttachments = readStored(attachmentsKey);
+            setImageAttachments(Array.isArray(storedAttachments) ? storedAttachments : []);
+            setOperation(null);
+            const storedRequest = asRecord(readStored(requestKey));
+            if (storedRequest.operationId) {
+                setOperation({
+                    operationId: String(storedRequest.operationId),
+                    status: "running",
+                    observed: 0,
+                    attempts: 0,
+                    restored: true,
+                });
+                setMessage(
+                    "Reconnected.",
+                );
+            } else if (storedRequest.requestId && storedRequest.status === "network-error") {
+                setMessage("The connection was interrupted. Send again to retry your message.");
+            }
+            setLoadedDraftKey(draftKey);
+        });
+        return () => {
+            cancelled = true;
+        };
     }, [draftKey, requestKey, attachmentsKey]);
 
     useEffect(() => {
-        if (!draftKey) return;
-        if (draft) localStorage.setItem(draftKey, draft);
-        else localStorage.removeItem(draftKey);
-    }, [draft, draftKey]);
+        if (!draftKey || loadedDraftKey !== draftKey) return;
+        if (draft) saveSessionDraft(draftKey, draft);
+        else saveSessionDraft(draftKey, null);
+    }, [draft, draftKey, loadedDraftKey]);
 
     useEffect(() => {
-        if (!attachmentsKey) return;
-        if (imageAttachments.length) localStorage.setItem(attachmentsKey, JSON.stringify(imageAttachments));
-        else localStorage.removeItem(attachmentsKey);
-    }, [attachmentsKey, imageAttachments]);
+        if (!attachmentsKey || loadedDraftKey !== draftKey) return;
+        void saveSessionDraft(attachmentsKey, imageAttachments.length ? JSON.stringify(imageAttachments) : null)
+            .then((saved) => {
+                if (!saved && imageAttachments.length) {
+                    setMessage("Image kept in this tab. Browser storage is unavailable; send before closing it.");
+                }
+            });
+    }, [attachmentsKey, imageAttachments, draftKey, loadedDraftKey]);
 
     const availability = useMemo(() =>
         deriveSessionAvailability({
@@ -836,7 +883,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
 
     async function createSession() {
         const text = draft;
-        if ((!text.trim() && !imageAttachments.length) || submitting) return;
+        if (
+            (!text.trim() && !imageAttachments.length) || submitting || attachingImages || loadedDraftKey !== draftKey
+        ) return;
         scrollToLiveEdge();
         setSubmitting(true);
         setMessage("");
@@ -853,12 +902,13 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             status: "pending",
             createdAt: new Date().toISOString(),
         };
-        localStorage.setItem(requestKey, JSON.stringify(envelope));
+        await saveSessionDraft(requestKey, JSON.stringify(envelope));
         setPendingUserMessages([{
             kind: "message",
             role: "user",
             key: `pending-user:${envelope.requestId}`,
             text: envelope.text,
+            images: envelope.images,
             source: "transient",
         }]);
         try {
@@ -882,10 +932,10 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 operationId: payload.operationId,
                 responseAccepted: true,
             };
-            localStorage.setItem(requestKey, JSON.stringify(stored));
+            await saveSessionDraft(requestKey, JSON.stringify(stored));
             if (payload.runwieldSessionId) {
-                localStorage.setItem(sessionRequestKey(projectId, payload.runwieldSessionId), JSON.stringify(stored));
-                localStorage.removeItem(requestKey);
+                await saveSessionDraft(sessionRequestKey(projectId, payload.runwieldSessionId), JSON.stringify(stored));
+                await saveSessionDraft(requestKey, null);
                 workspaceNavigate(
                     `/projects/${encodeURIComponent(projectId)}/sessions/${
                         encodeURIComponent(payload.runwieldSessionId)
@@ -904,24 +954,51 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 setMessage("");
             }
         } catch (error) {
-            localStorage.setItem(requestKey, JSON.stringify({ ...envelope, status: "network-error" }));
+            await saveSessionDraft(requestKey, JSON.stringify({ ...envelope, status: "network-error" }));
             setMessage(errorMessage(error));
         } finally {
             setSubmitting(false);
         }
     }
 
-    async function handleComposerPaste(event) {
-        const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
-        if (!files.length) return;
-        event.preventDefault();
+    async function handleComposerFiles(files) {
+        if (!files.length || attachingImages) return;
+        setAttachingImages(true);
         try {
             const images = await Promise.all(files.map(readPastedImage));
+            const size = [...imageAttachments, ...images].reduce((total, image) => total + image.base64.length, 0);
+            if (size > 10 * 1024 * 1024) {
+                throw new Error(
+                    "These images are too large to send together. Remove an image or choose smaller files.",
+                );
+            }
             setImageAttachments((current) => [...current, ...images]);
             setMessage(`${files.length} image${files.length === 1 ? "" : "s"} attached.`);
         } catch (error) {
             setMessage(errorMessage(error));
+        } finally {
+            setAttachingImages(false);
         }
+    }
+
+    async function handleComposerPaste(event) {
+        const files = new Map();
+        for (const file of Array.from(event.clipboardData?.files || [])) {
+            if (file.type.startsWith("image/")) files.set(`${file.name}:${file.size}`, file);
+        }
+        for (const item of Array.from(event.clipboardData?.items || [])) {
+            if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+            const file = item.getAsFile();
+            if (file) files.set(`${file.name}:${file.size}`, file);
+        }
+        if (!files.size) return;
+        event.preventDefault();
+        const pastedText = event.clipboardData.getData("text/plain");
+        if (pastedText) {
+            const input = event.currentTarget;
+            setDraft(draft.slice(0, input.selectionStart) + pastedText + draft.slice(input.selectionEnd));
+        }
+        await handleComposerFiles([...files.values()]);
     }
 
     /** @param {string} id */
@@ -975,6 +1052,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 role: "user",
                 key: `pending-user:${envelope.requestId}`,
                 text: envelope.text,
+                images: envelope.images,
                 timestamp: envelope.createdAt,
                 source: "transient",
             },
@@ -985,7 +1063,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             operationId: payload.operationId,
             responseAccepted: true,
         };
-        localStorage.setItem(requestKey, JSON.stringify(stored));
+        saveSessionDraft(requestKey, JSON.stringify(stored));
         setOperationStreamFailed(false);
         setOperation({
             operationId: payload.operationId,
@@ -1025,7 +1103,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 queuedAt: String(envelope.createdAt || new Date().toISOString()),
             },
         ]);
-        localStorage.removeItem(requestKey);
+        saveSessionDraft(requestKey, null);
         setDraft("");
         setImageAttachments([]);
         setMessage("Message queued in this browser tab. It will send when this Session becomes available.");
@@ -1034,7 +1112,10 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     async function sendRequest(queueOnly = false) {
         const text = draft;
         const canSubmit = availability.canContinue || ["active", "workspace-running"].includes(availability.key);
-        if ((!text.trim() && imageAttachments.length === 0) || !canSubmit || submitting || !timeline) {
+        if (
+            (!text.trim() && imageAttachments.length === 0) || !canSubmit || submitting || attachingImages ||
+            loadedDraftKey !== draftKey || !timeline
+        ) {
             return;
         }
         if (!queueOnly) scrollToLiveEdge();
@@ -1086,7 +1167,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             }
             return;
         }
-        localStorage.setItem(requestKey, JSON.stringify(envelope));
+        await saveSessionDraft(requestKey, JSON.stringify(envelope));
         try {
             const payload = await postContinuation(envelope);
             setDraft("");
@@ -1101,7 +1182,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 return;
             }
             const nextStatus = status === 503 ? "unavailable" : "network-error";
-            localStorage.setItem(requestKey, JSON.stringify({ ...envelope, status: nextStatus }));
+            await saveSessionDraft(requestKey, JSON.stringify({ ...envelope, status: nextStatus }));
             if (status === 503) await loadTimeline();
             setMessage(errorMessage(error));
         } finally {
@@ -1138,11 +1219,13 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         setPendingConfiguration(payload.pendingConfiguration || null);
         setSteeringMessages((payload.queuedMessages || []).filter((item) => item.delivery === "steer"));
         if (mode === "new" && payload.runwieldSessionId) {
-            localStorage.setItem(
+            if (operationNavigationRef.current) return;
+            operationNavigationRef.current = true;
+            await saveSessionDraft(
                 sessionRequestKey(projectId, payload.runwieldSessionId),
                 JSON.stringify({ ...asRecord(readStored(requestKey)), operationId: current.operationId }),
             );
-            localStorage.removeItem(requestKey);
+            await saveSessionDraft(requestKey, null);
             workspaceNavigate(
                 `/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(payload.runwieldSessionId)}`,
                 "replace",
@@ -1150,8 +1233,24 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             return;
         }
         if (!["completed", "failed", "unknown"].includes(next.status)) return;
+        if (next.status === "failed") {
+            const failedRequest = asRecord(readStored(requestKey));
+            if (typeof failedRequest.text === "string") {
+                setDraft(failedRequest.text);
+                const images = Array.isArray(failedRequest.images) ? failedRequest.images : [];
+                const attachments = images.map((image, index) => ({
+                    ...image,
+                    id: crypto.randomUUID(),
+                    name: `Image ${index + 1}`,
+                }));
+                setImageAttachments(attachments);
+                await saveSessionDraft(draftKey, failedRequest.text);
+                await saveSessionDraft(attachmentsKey, JSON.stringify(attachments));
+            }
+            await saveSessionDraft(requestKey, null);
+        }
         if (next.status === "completed") {
-            localStorage.removeItem(requestKey);
+            await saveSessionDraft(requestKey, null);
             setMessage("");
         } else {
             if (next.status === "unknown") setInterruptedOperation(true);
@@ -1196,7 +1295,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 const current = operationRef.current;
                 if (!current || cancelled) return;
                 try {
-                    void observeSnapshot(current, JSON.parse(event.data));
+                    void observeSnapshot(current, JSON.parse(event.data)).catch((error) =>
+                        setMessage(errorMessage(error))
+                    );
                 } catch (error) {
                     setMessage(`Observation interrupted: ${errorMessage(error)}.`);
                 }
@@ -1247,7 +1348,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
 
     useEffect(() => {
         if (
-            !shouldRefreshSessionAvailability({
+            loadedDraftKey !== draftKey || !shouldRefreshSessionAvailability({
                 mode,
                 state: timeline?.state,
                 localOperationActive: Boolean(operation?.operationId),
@@ -1293,7 +1394,16 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             document.removeEventListener("visibilitychange", refreshWhenVisible);
             clearInterval(id);
         };
-    }, [mode, timeline?.state, queuedMessages.length, operation?.operationId, projectId, runwieldSessionId]);
+    }, [
+        mode,
+        timeline?.state,
+        queuedMessages.length,
+        operation?.operationId,
+        projectId,
+        runwieldSessionId,
+        loadedDraftKey,
+        draftKey,
+    ]);
 
     useEffect(() => {
         if (
@@ -1319,14 +1429,14 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                     status: "pending",
                     createdAt: queued.queuedAt,
                 };
-                localStorage.setItem(requestKey, JSON.stringify(envelope));
+                saveSessionDraft(requestKey, JSON.stringify(envelope));
                 try {
                     const payload = await postContinuation(envelope);
                     if (cancelled) return;
                     setQueuedMessages((current) => current.filter((item) => item.id !== queued.id));
                     acceptContinuation(envelope, payload);
                 } catch (error) {
-                    localStorage.removeItem(requestKey);
+                    saveSessionDraft(requestKey, null);
                     const status = Number(asRecord(error).status || 0);
                     if (status === 409 || status === 503) await loadTimeline();
                     if (!cancelled) {
@@ -1411,7 +1521,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     useEffect(() => {
         if (!operation?.operationId) return undefined;
         const onKeyDown = (event) => {
-            if (event.key === "Escape") cancelOperation();
+            if (event.key === "Escape" && !event.defaultPrevented && !document.querySelector("dialog[open]")) {
+                cancelOperation();
+            }
         };
         globalThis.addEventListener("keydown", onKeyDown);
         return () => globalThis.removeEventListener("keydown", onKeyDown);
@@ -1468,7 +1580,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             ),
             ...(interruptedOperation ? [{ kind: "interruption", key: "interruption:lost-workspace-operation" }] : []),
         ];
-        const canSendNew = !submitting && !operation?.operationId;
+        const canSendNew = !submitting && !attachingImages && loadedDraftKey === draftKey && !operation?.operationId;
         const agents = Array.isArray(sessionOptions?.agents) ? sessionOptions.agents : [];
         const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
         const thinkingLevels = Array.isArray(sessionOptions?.thinkingLevels) ? sessionOptions.thinkingLevels : [];
@@ -1502,6 +1614,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             onSubmit={createSession}
                             onStop={operation?.operationId ? cancelOperation : undefined}
                             onPaste={handleComposerPaste}
+                            onFiles={handleComposerFiles}
                             imageAttachments={imageAttachments}
                             onRemoveImage={removeImageAttachment}
                             agents={agents}
@@ -1664,15 +1777,22 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                         </RunWieldButton>
                                     )
                                     : null}
-                                <SessionTimeline items={allItems} />
+                                <SessionTimeline
+                                    items={allItems}
+                                    sessionPath={`/projects/${encodeURIComponent(projectId)}/sessions/${
+                                        encodeURIComponent(runwieldSessionId)
+                                    }`}
+                                />
                                 <div ref={timelineEndRef} aria-hidden="true" />
                             </div>
                             <SessionComposer
                                 id="session-request-text"
                                 draft={draft}
-                                disabled={!canSubmitSession || submitting}
+                                disabled={!canSubmitSession || submitting || attachingImages ||
+                                    loadedDraftKey !== draftKey}
                                 controlsDisabled={!canConfigureSession}
-                                canSend={canSubmitSession && Boolean(draft.trim() || imageAttachments.length)}
+                                canSend={canSubmitSession && !attachingImages && loadedDraftKey === draftKey &&
+                                    Boolean(draft.trim() || imageAttachments.length)}
                                 submitting={submitting}
                                 onDraftChange={setDraft}
                                 onSubmit={() => sendRequest()}
@@ -1685,6 +1805,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                     : "Send"}
                                 steeringMessages={steeringMessages}
                                 onPaste={handleComposerPaste}
+                                onFiles={handleComposerFiles}
                                 imageAttachments={imageAttachments}
                                 onRemoveImage={removeImageAttachment}
                                 agents={agents}

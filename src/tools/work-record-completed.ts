@@ -35,7 +35,7 @@ export function createWorkRecordCompletedTool(hostedSession: HostedSession) {
             publishWorkflowToolEvent({ hostedSession, toolCallId, kind: "work_record_completed", payload: sections });
             return Promise.resolve({
                 content: [{ type: "text", text: "Work Record sections accepted." }],
-                details: { accepted: true },
+                details: { accepted: true, ...sections },
                 terminate: true,
             });
         },

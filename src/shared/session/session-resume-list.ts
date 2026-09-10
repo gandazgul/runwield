@@ -83,6 +83,7 @@ export async function listRecentResumableSessions(
                     transcriptPath: locator.sessionPath,
                 });
                 const summary = summarizeResumableTranscript(evidence.entries);
+                if (!info.name?.trim() && !summary.firstMessage?.trim()) return null;
                 return {
                     id: locator.piSessionId,
                     path: locator.sessionPath,

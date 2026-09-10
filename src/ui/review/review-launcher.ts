@@ -115,6 +115,7 @@ interface CodeReviewSurfaceOptions {
     agentLabel?: string;
     token?: string;
     browser: BrowserPort;
+    onSurfaceReady?(surface: ReviewSurfaceReady): void;
 }
 
 interface CodeReviewPayload extends Record<string, unknown> {
@@ -414,6 +415,7 @@ export async function startCodeReviewSurface<TDecision = ReviewDecisionValue>({
     agentLabel,
     token = crypto.randomUUID(),
     browser,
+    onSurfaceReady,
 }: CodeReviewSurfaceOptions): Promise<ReviewSurface<TDecision>> {
     if (!agentCwd) throw new Error("startCodeReviewSurface: agentCwd is required");
     const reviewStatus = await loadCodeReviewStatus(agentCwd);
@@ -438,6 +440,7 @@ export async function startCodeReviewSurface<TDecision = ReviewDecisionValue>({
     if (reviewConversation && existing?.server.beginReviewRound) {
         const conversationId = reviewConversation.id;
         existing.server.beginReviewRound({ reviewPayload, reviewConversation });
+        onSurfaceReady?.({ url: existing.pageUrl, opened: false });
         return {
             url: existing.pageUrl,
             opened: false,
@@ -457,6 +460,7 @@ export async function startCodeReviewSurface<TDecision = ReviewDecisionValue>({
     });
     const url = `${server.url}/review/code?token=${encodeURIComponent(token)}`;
     const opened = await browser.open(url);
+    onSurfaceReady?.({ url, opened });
     if (reviewConversation) {
         activeCodeReviewConversations.set(reviewConversation.id, {
             server: server as ReviewSurfaceServer<ReviewDecisionValue>,

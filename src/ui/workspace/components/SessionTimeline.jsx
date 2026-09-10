@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { WORKFLOW_TOOL_NAMES } from "../../../tools/registry.js";
 import {
     isApprovalAcceptedValue,
     RuntimeInteractionOutcomes,
@@ -8,6 +9,7 @@ import { MarkdownView } from "./MarkdownView.jsx";
 import { RunWieldLink, RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 const MESSAGE_TYPES = new Set([
+    "workflow",
     "message",
     "thinking",
     "tool",
@@ -163,6 +165,7 @@ export function reduceSessionEvents(events, options = {}) {
                 role: "user",
                 key: event.eventId || `user:${id}`,
                 text: text(event.text),
+                images: Array.isArray(event.images) ? event.images : [],
                 timestamp,
                 source,
             });
@@ -170,6 +173,26 @@ export function reduceSessionEvents(events, options = {}) {
             return;
         }
         if (type === "assistant_text_delta") {
+            if (event.workflowMessage) {
+                const workflowMessage = event.workflowMessage === "manual_qa_checklist"
+                    ? "manual_qa_completed"
+                    : text(event.workflowMessage);
+                const item = items.findLast((item) =>
+                    item.kind === "workflow" && item.workflowMessage === workflowMessage && !item.semanticMessage
+                ) || ensure(`workflow:${id}`, {
+                    kind: "workflow",
+                    key: event.eventId || `workflow:${id}`,
+                    workflowMessage,
+                    title: displayAgentName(workflowMessage.replaceAll("_", "-")),
+                    source,
+                });
+                item.markdown = text(event.delta);
+                item.semanticMessage = true;
+                item.status = "completed";
+                item.agentName = text(event.agentName);
+                item.timestamp = timestamp;
+                return;
+            }
             const item = ensure(`assistant:${id}`, {
                 kind: "message",
                 role: "assistant",
@@ -201,8 +224,16 @@ export function reduceSessionEvents(events, options = {}) {
         }
         if (type === "tool_start" || type === "tool_update" || type === "tool_end") {
             const toolId = text(event.toolCallId || id);
+            const workflow = WORKFLOW_TOOL_NAMES.includes(text(event.toolName));
+            if (workflow && !byKey.has(`tool:${toolId}`)) {
+                const message = items.findLast((item) =>
+                    item.workflowMessage === event.toolName && item.semanticMessage && !item.toolCallId
+                );
+                if (message) byKey.set(`tool:${toolId}`, message);
+            }
             const item = ensure(`tool:${toolId}`, {
-                kind: "tool",
+                kind: workflow ? "workflow" : "tool",
+                workflowMessage: workflow ? text(event.toolName) : "",
                 key: event.eventId || `tool:${toolId}`,
                 title: text(event.title || event.toolName || "Tool activity"),
                 toolName: text(event.toolName || "tool"),
@@ -211,7 +242,9 @@ export function reduceSessionEvents(events, options = {}) {
                 timestamp,
                 source,
             });
+            item.toolCallId = toolId;
             item.title = text(event.title || item.title);
+            if (event.details) item.details = { ...asRecord(item.details), ...asRecord(event.details) };
             if (type !== "tool_start") item.output = text(event.output || item.output);
             if (type === "tool_end") item.status = event.isError ? "failed" : "completed";
             if (timestamp) item.timestamp = timestamp;
@@ -266,6 +299,19 @@ export function reduceSessionEvents(events, options = {}) {
             type === "system_status" || type === "terminal_error" || type === "cancellation" ||
             type === "recovery_event"
         ) {
+            if (event.header === "Triage") {
+                const item = items.findLast((item) => item.workflowMessage === "triage_report") ||
+                    ensure(`workflow:${id}`, {
+                        kind: "workflow",
+                        key: `workflow:${id}`,
+                        workflowMessage: "triage_report",
+                        source,
+                    });
+                item.markdown = text(event.message);
+                item.status = "completed";
+                item.timestamp = timestamp;
+                return;
+            }
             const level = type === "terminal_error" ? "error" : text(event.level || "info");
             const header = type === "recovery_event" ? "Recovery" : type === "cancellation" ? "Cancellation" : "System";
             appendSystemEvent({
@@ -290,6 +336,74 @@ export function reduceSessionEvents(events, options = {}) {
         }
     });
     return compactCompletedActivity(items.filter((item) => MESSAGE_TYPES.has(item.kind)));
+}
+
+/** Full workflow output is never truncated or folded into routine tool activity. */
+export function workflowToolMarkdown(item) {
+    const details = asRecord(item.details);
+    const toolName = text(item.workflowMessage || item.toolName);
+    let body = text(item.markdown || item.output);
+    if (toolName === "triage_report" && details.summary) {
+        body = [
+            `**Routing Intent:** ${text(details.routingIntent || details.classification)}`,
+            details.workKind ? `**Work Kind:** ${text(details.workKind)}` : "",
+            `**Complexity:** ${text(details.complexity)}`,
+            text(details.summary),
+        ].filter(Boolean).join("\n\n");
+    } else if (toolName === "work_record_completed" && details.summary) {
+        body = [
+            details.title ? `**${text(details.title)}**` : "",
+            text(details.summary),
+            ...[
+                ["Deviations from Plan", details.deviationsFromPlan],
+                ["Deferred work", details.deferredWork],
+                ["Future planning notes", details.futurePlanningNotes],
+            ].filter(([, value]) => value).map(([label, value]) => `### ${label}\n\n${text(value)}`),
+        ].filter(Boolean).join("\n\n");
+    } else if (details.checklistMarkdown) {
+        body = text(details.checklistMarkdown);
+    } else if (!body) {
+        body = [
+            details.planName ? `**Plan:** ${text(details.planName)}` : "",
+            details.title ? `**${text(details.title)}**` : "",
+            details.outcome ? text(details.outcome).replaceAll("_", " ") : "",
+            text(details.message || details.summary),
+            text(details.feedback),
+            text(details.artifactPath),
+            ...(Array.isArray(details.findings)
+                ? details.findings.map((finding) =>
+                    [text(finding.title), text(finding.requirement), text(finding.evidence)].filter(Boolean).join(
+                        "\n\n",
+                    )
+                )
+                : []),
+        ].filter(Boolean).join("\n\n");
+    }
+    const advisories = Array.isArray(details.advisories)
+        ? details.advisories.map((advisory) =>
+            [text(advisory.title), text(advisory.detail)].filter(Boolean).join("\n\n")
+        ).join("\n\n")
+        : "";
+    return [body, advisories ? `### Review notes\n\n${advisories}` : ""].filter(Boolean).join("\n\n");
+}
+
+/** @param {{ image: { base64: string, mimeType: string }, label: string }} props */
+function SessionImage({ image, label }) {
+    const dialog = useRef(null);
+    const src = `data:${image.mimeType};base64,${image.base64}`;
+    return (
+        <>
+            <button type="button" className="rw-image-preview-button" onClick={() => dialog.current?.showModal()}>
+                <img src={src} alt={label} loading="lazy" />
+            </button>
+            <dialog ref={dialog} className="rw-dialog-panel rw-image-dialog" aria-label={label}>
+                <form method="dialog">
+                    <button type="submit" className="rw-toolbar-button">Close image</button>
+                </form>
+                <img src={src} alt={label} />
+            </dialog>
+        </>
+    );
 }
 
 /**
@@ -492,7 +606,7 @@ function SessionInteractionCard({ item }) {
 }
 
 /** @param {{ items?: Array<Record<string, any>>, events?: Array<Record<string, any>>, emptyMessage?: string }} props */
-export function SessionTimeline({ items, events, emptyMessage = "" }) {
+export function SessionTimeline({ items, events, emptyMessage = "", sessionPath = "" }) {
     const timelineItems = items || reduceSessionEvents(events || []);
     if (!timelineItems.length) {
         return emptyMessage
@@ -507,6 +621,48 @@ export function SessionTimeline({ items, events, emptyMessage = "" }) {
         <ol className="session-timeline" aria-label="Session timeline">
             {timelineItems.map((item, index) => (
                 <li key={item.key || `${item.kind}:${index}`} className={`session-timeline-item item-${item.kind}`}>
+                    {item.kind === "workflow"
+                        ? (
+                            <article
+                                className={`rw-workflow-block status-${item.status}`}
+                                aria-label={displayAgentName(text(item.workflowMessage).replaceAll("_", "-"))}
+                            >
+                                <header>
+                                    <strong>{displayAgentName(text(item.workflowMessage).replaceAll("_", "-"))}</strong>
+                                    <span>
+                                        {item.status === "running"
+                                            ? "In progress"
+                                            : item.status === "failed"
+                                            ? "Failed"
+                                            : "Completed"}
+                                    </span>
+                                </header>
+                                <MarkdownView markdown={workflowToolMarkdown(item)} />
+                                {sessionPath && item.details?.artifact?.artifactId
+                                    ? (
+                                        <RunWieldLink
+                                            href={`${sessionPath}/artifacts/${
+                                                encodeURIComponent(item.details.artifact.artifactId)
+                                            }`}
+                                            variant="secondary"
+                                        >
+                                            Open {item.details.artifact.title || "artifact"}
+                                        </RunWieldLink>
+                                    )
+                                    : null}
+                                {item.agentName || item.timestamp
+                                    ? (
+                                        <footer>
+                                            {item.agentName ? <span>{displayAgentName(item.agentName)}</span> : null}
+                                            {item.timestamp
+                                                ? <time>{formatSessionTimelineTime(item.timestamp)}</time>
+                                                : null}
+                                        </footer>
+                                    )
+                                    : null}
+                            </article>
+                        )
+                        : null}
                     {item.kind === "message"
                         ? (
                             <article className={`session-message role-${item.role}`}>
@@ -518,6 +674,23 @@ export function SessionTimeline({ items, events, emptyMessage = "" }) {
                                 {item.role === "assistant"
                                     ? <MarkdownView markdown={item.text || ""} />
                                     : <p>{item.text}</p>}
+                                {Array.isArray(item.images) && item.images.length
+                                    ? (
+                                        <div className="rw-image-previews" aria-label="Message images">
+                                            {item.images.map((image, imageIndex) =>
+                                                image.base64 && /^image\/(png|jpeg|jpg|gif|webp)$/.test(image.mimeType)
+                                                    ? (
+                                                        <SessionImage
+                                                            key={image.ref || imageIndex}
+                                                            image={image}
+                                                            label={`Attached image ${imageIndex + 1}`}
+                                                        />
+                                                    )
+                                                    : null
+                                            )}
+                                        </div>
+                                    )
+                                    : null}
                                 {item.footerText || item.completedTimestamp
                                     ? (
                                         <footer className="session-message-footer">

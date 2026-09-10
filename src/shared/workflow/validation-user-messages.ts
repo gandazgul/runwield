@@ -42,7 +42,7 @@ export type ValidationMessageRequest =
     | { kind: "reviewer_nudge"; round: number; attempt: number }
     | { kind: "semantic_limit"; planName: string; rounds: number; openCount: number; testsPass: boolean }
     | { kind: "human_review_offer" }
-    | { kind: "human_review_wait" }
+    | { kind: "human_review_wait"; reviewUrl?: string }
     | { kind: "human_review_prompt"; planName: string }
     | { kind: "human_review_approved" }
     | { kind: "qa_prepare"; planName: string }
@@ -191,7 +191,7 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
         case "human_review_offer":
             return "AI code review passed. Do you want human review before merge?";
         case "human_review_wait":
-            return "Need your human review.";
+            return request.reviewUrl ? `Need your review: ${request.reviewUrl}` : "Need your review.";
         case "human_review_prompt":
             return `Read the changes for ${request.planName}.`;
         case "human_review_approved":

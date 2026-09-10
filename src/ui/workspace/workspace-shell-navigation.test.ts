@@ -289,6 +289,7 @@ Deno.test("Workspace sidebar drops active omitted Sessions after the user naviga
         }],
     };
 
+    applySessionName({ projectId: "project-a", runwieldSessionId: "omitted", name: "An older conversation" });
     renderSidebar(payload, { kind: "session", projectId: "project-a", runwieldSessionId: "omitted" });
 
     const omitted = sidebar.querySelector('[data-sidebar-session="omitted"]');

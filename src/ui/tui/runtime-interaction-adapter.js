@@ -221,6 +221,7 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
                     agentLabel: typeof meta.agentLabel === "string" ? meta.agentLabel : undefined,
                     signal,
                     browser: ports.browser,
+                    onSurfaceReady: typeof meta.onSurfaceReady === "function" ? meta.onSurfaceReady : undefined,
                 });
                 return {
                     outcome: result.canceled || result.exit

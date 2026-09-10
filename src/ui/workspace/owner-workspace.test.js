@@ -285,12 +285,21 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         assertStringIncludes(homeHtml, "/workspace-shell.js");
         assertEquals(homeHtml.includes("Relink Project root"), false);
 
+        const transcriptPath = `${projectRoot}/phone-session.jsonl`;
+        await Deno.writeTextFile(
+            transcriptPath,
+            [
+                { type: "session", id: "phone-session", cwd: projectRoot },
+                { type: "session_info", name: "Phone Ideation" },
+            ].map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+        );
         /** @type {any} */ (store).listProjectSessions = () =>
             Promise.resolve({
                 sessions: [{
                     runwieldSessionId: "session-owned",
                     projectId: project.projectId,
                     displayName: "Phone Ideation",
+                    transcriptPath,
                 }],
                 diagnostics: [{
                     code: "path_leak_regression",

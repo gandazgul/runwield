@@ -91,6 +91,36 @@ Deno.test("persistThinkingLevel stores the selected level", async () => {
     });
 });
 
+Deno.test("TUI resume preserves the Session thinking choice over the global default", async () => {
+    await withRuntimeCommandFixture("chat-session-resume-thinking-", async ({ projectRoot }) => {
+        Deno.chdir(projectRoot);
+        await persistThinkingLevel("high", projectRoot);
+        const runtime = createSessionRuntime();
+        let resumeSessionId = "";
+        try {
+            const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+            await runtime.switchAgent(created.sessionId, { agentName: "guide" });
+            await runtime.setSessionThinkingLevel(created.sessionId, "low");
+            resumeSessionId = runtime.getSessionSnapshot(created.sessionId)?.managed?.runwieldSessionId || "";
+        } finally {
+            await runtime.closeAllSessionsWhenIdle();
+        }
+        const composition = await createInteractiveTuiComposition(null, {
+            browser: NO_OPEN_BROWSER_PORT,
+            terminal: new VirtualTerminal({ columns: 100, rows: 30 }),
+            skipModelWelcome: true,
+            sessionStartMode: "continue",
+            resumeSessionId,
+        });
+        try {
+            await composition.waitForIdle();
+            assertEquals(composition.runtime.getSessionSnapshot(composition.sessionId)?.thinkingLevel, "low");
+        } finally {
+            await composition.dispose();
+        }
+    });
+});
+
 Deno.test("chat session starts a real composed TUI through the public composition interface", async () => {
     await withRuntimeCommandFixture("chat-session-composed-startup-", async () => {
         const terminal = new VirtualTerminal({ columns: 100, rows: 30 });

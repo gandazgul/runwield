@@ -252,6 +252,13 @@ and selected Agent and model across TUI and browser. The primary timeline repres
 
 Terminal-byte streaming is not the primary Session UI.
 
+Session lists use the saved title, then the first user message. Commands are valid first messages. A Session with
+neither is omitted from lists. The owner can attach, paste, view, and send images from the browser, including while the
+same Session is open in the TUI; unsent text and images survive a refresh and remain available after a failed send.
+
+Every workflow tool appears as a prominent, fully expanded block. Its report, decisions, review notes, checklist, and
+outcome remain readable in live and saved history. Completed workflow calls must not remain marked as running.
+
 Several Sessions may run across several Projects. Closing a browser tab or losing network access does not cancel work.
 On reconnection, Workspace shows the latest saved conversation and current work. The user can continue when the Session
 is ready for input without a separate takeover or preparation step.
@@ -270,6 +277,7 @@ is ready for input without a separate takeover or preparation step.
   discussion and follow-up.
 - If work is still running, I see what is happening and what I can do next. Merely having another screen open is not a
   reason to block me or ask me to recover the Session.
+- I can steer the running Agent from either screen and see that message and its response in the same conversation.
 - If an actual failure interrupts the Session, I keep my input and receive a concrete next action. Routine screen
   changes do not require recovery steps or technical knowledge.
 

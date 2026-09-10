@@ -2700,6 +2700,9 @@ export class SessionRuntime {
     setSessionThinkingLevel(sessionId, thinkingLevel) {
         /** @param {import('./hosted-session.js').HostedSession} session */
         const run = (session) => {
+            /** @typedef {{ setThinkingLevel?: (level: import('./hosted-session.js').ThinkingLevel) => void }} ThinkingSession */
+            const root = /** @type {ThinkingSession | null} */ (session.getRootAgentSession());
+            root?.setThinkingLevel?.(thinkingLevel);
             session.setThinkingLevel(thinkingLevel);
             session.getRootSessionManager()?.appendThinkingLevelChange?.(thinkingLevel);
             this.#emitSessionEvent(session.id, { type: RuntimeEventTypes.THINKING_LEVEL_CHANGED, thinkingLevel });
@@ -2708,6 +2711,9 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
         const managed = session.getManagedMetadata?.();
+        if (!managed && this.#pendingManagedCreationProjects.has(sessionId)) {
+            session.mergePendingManagedTurnIntent?.({ thinkingLevel });
+        }
         if (managed && !session.getRootSessionManager?.()) {
             return /** @type {any} */ (this.#runManagedStandaloneMutation(
                 sessionId,
@@ -3047,6 +3053,7 @@ export class SessionRuntime {
         try {
             this.#sessionStore.releaseUnchangedActivation(prepared.proof);
             this.#pendingManagedCreationProjects.delete(hostedSession.id);
+            if (prepared.managed.syncState) this.#emitSessionEvent(hostedSession.id, prepared.managed.syncState);
             return prepared.managed;
         } catch (error) {
             try {
@@ -3996,11 +4003,6 @@ export class SessionRuntime {
                     parsedPendingModel.ok ? parsedPendingModel.id : pendingModel,
                 );
             }
-            if (pendingIntent.thinkingLevel || managed.thinkingLevel) {
-                hostedSession.setThinkingLevel(normalizeThinkingLevel(
-                    pendingIntent.thinkingLevel || managed.thinkingLevel,
-                ));
-            }
             let agentName = options.agentName || pendingIntent.agentName || null;
             if (descriptor.activateAgent !== false) {
                 const resumeAgent = await resolveResumeAgentName(sessionManager);
@@ -4017,6 +4019,9 @@ export class SessionRuntime {
                 await this.#activateSessionAgent(hostedSession, {
                     ...persistedRootConfiguration,
                     agentName,
+                    thinkingLevelOverride: pendingIntent.thinkingLevel || managed.thinkingLevel
+                        ? normalizeThinkingLevel(pendingIntent.thinkingLevel || managed.thinkingLevel)
+                        : undefined,
                     model: pendingModel ||
                         (persistedManualModel
                             ? persistedManualModel.provider
@@ -4034,6 +4039,13 @@ export class SessionRuntime {
                         pendingIntent.model || "",
                     );
                 }
+            }
+            // Agent activation restores its saved defaults. Apply the user's
+            // pending choice afterwards so the first turn uses that choice.
+            if (pendingIntent.thinkingLevel || managed.thinkingLevel) {
+                const thinkingLevel = normalizeThinkingLevel(pendingIntent.thinkingLevel || managed.thinkingLevel);
+                hostedSession.setThinkingLevel(thinkingLevel);
+                if (pendingIntent.thinkingLevel) sessionManager.appendThinkingLevelChange(thinkingLevel);
             }
             hostedSession.consumePendingManagedTurnIntent?.();
             activeProof = this.#sessionStore.changeSessionActivationPhase(activeProof, "turning");
