@@ -18,11 +18,16 @@ import {
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { getRunWieldRuntimeDir, PROJECT_INTERNAL_RUNTIME_DIR_NAME } from "../../constants.js";
 import { savePlan } from "../../plan-store.js";
+import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 import { createWorkRecordMnemotecaFixture } from "./test-fixtures/mnemoteca-port.ts";
+
+const linkedCheckoutFixture = defineCommittedGitFixture({ ".gitignore": ".wld/\n", "README.md": "# Fixture\n" });
 
 const PREDECESSOR_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_ID = "22222222-2222-4222-8222-222222222222";
 const SUCCESSOR_ID = "33333333-3333-4333-8333-333333333333";
+
+type WorkRecordLockAcquire = (cwd: string) => Promise<() => Promise<void>>;
 
 function selectedInternalPath(cwd: string, fileName: string): string {
     return join(getRunWieldRuntimeDir(Deno.realPathSync(cwd)), PROJECT_INTERNAL_RUNTIME_DIR_NAME, fileName);
@@ -30,6 +35,67 @@ function selectedInternalPath(cwd: string, fileName: string): string {
 
 async function assertMissing(path: string): Promise<void> {
     await assertRejects(() => Deno.stat(path), Deno.errors.NotFound);
+}
+
+async function assertLinkedWorkRecordLockExclusion(
+    fileName: string,
+    branchName: string,
+    acquire: WorkRecordLockAcquire,
+): Promise<void> {
+    const root = await linkedCheckoutFixture.checkout({ prefix: "rw-work-record-lock-primary-" });
+    const container = await Deno.makeTempDir({ prefix: "rw-work-record-lock-tree-" });
+    const selected = join(container, "selected");
+    try {
+        await git(root, ["worktree", "add", "-b", branchName, selected, "HEAD"]);
+        const selectedPath = selectedInternalPath(selected, fileName);
+        const primaryPath = selectedInternalPath(root, fileName);
+        const legacySelectedPath = join(getRunWieldRuntimeDir(Deno.realPathSync(selected)), fileName);
+        const entries: string[] = [];
+        let releaseFirst = () => {};
+        let signalFirst = () => {};
+        const firstMayFinish = new Promise<void>((resolve) => releaseFirst = resolve);
+        const firstEntered = new Promise<void>((resolve) => signalFirst = resolve);
+        const first = (async () => {
+            const release = await acquire(selected);
+            try {
+                entries.push("selected-first");
+                assertEquals(JSON.parse(await Deno.readTextFile(selectedPath)).token.length > 0, true);
+                await assertMissing(primaryPath);
+                await assertMissing(legacySelectedPath);
+                signalFirst();
+                await firstMayFinish;
+            } finally {
+                await release();
+            }
+        })();
+        await firstEntered;
+        const second = (async () => {
+            const release = await acquire(selected);
+            try {
+                entries.push("selected-second");
+            } finally {
+                await release();
+            }
+        })();
+        await new Promise((resolve) => setTimeout(resolve, 75));
+        assertEquals(entries, ["selected-first"]);
+        const releasePrimary = await acquire(root);
+        try {
+            entries.push("primary");
+            assertEquals(JSON.parse(await Deno.readTextFile(primaryPath)).token.length > 0, true);
+        } finally {
+            await releasePrimary();
+        }
+        releaseFirst();
+        await Promise.all([first, second]);
+        assertEquals(entries, ["selected-first", "primary", "selected-second"]);
+        await assertMissing(selectedPath);
+        await assertMissing(primaryPath);
+    } finally {
+        await git(root, ["worktree", "remove", "--force", selected]).catch(() => {});
+        await Deno.remove(container, { recursive: true }).catch(() => {});
+        await Deno.remove(root, { recursive: true }).catch(() => {});
+    }
 }
 
 function attrs(recordId: string) {
@@ -86,38 +152,17 @@ Deno.test("Work Record supersession applies canonical files and keeps the index 
     }
 });
 
-Deno.test("Work Record supersession locks are held in selected internal storage", async () => {
-    const first = await Deno.makeTempDir();
-    const second = await Deno.makeTempDir();
-    try {
-        const mainPath = selectedInternalPath(first, "work-record-supersession.lock");
-        const recoveryPath = selectedInternalPath(first, "work-record-supersession-recovery.lock");
-        const legacyMainPath = join(getRunWieldRuntimeDir(Deno.realPathSync(first)), "work-record-supersession.lock");
-        const otherMainPath = selectedInternalPath(second, "work-record-supersession.lock");
-
-        const releaseMain = await acquireSupersessionLock(first);
-        try {
-            assertEquals(JSON.parse(await Deno.readTextFile(mainPath)).token.length > 0, true);
-            await assertMissing(legacyMainPath);
-            const releaseOther = await acquireSupersessionLock(second);
-            await releaseOther();
-            await assertMissing(otherMainPath);
-        } finally {
-            await releaseMain();
-        }
-        await assertMissing(mainPath);
-
-        const releaseRecovery = await acquireRecoveryLock(first);
-        try {
-            assertEquals(JSON.parse(await Deno.readTextFile(recoveryPath)).token.length > 0, true);
-        } finally {
-            await releaseRecovery();
-        }
-        await assertMissing(recoveryPath);
-    } finally {
-        await Deno.remove(first, { recursive: true }).catch(() => {});
-        await Deno.remove(second, { recursive: true }).catch(() => {});
-    }
+Deno.test("Work Record locks exclude the same linked checkout but not the primary checkout", async () => {
+    await assertLinkedWorkRecordLockExclusion(
+        "work-record-supersession.lock",
+        "worktree/work-record-supersession-locks",
+        acquireSupersessionLock,
+    );
+    await assertLinkedWorkRecordLockExclusion(
+        "work-record-supersession-recovery.lock",
+        "worktree/work-record-recovery-locks",
+        acquireRecoveryLock,
+    );
 });
 
 Deno.test("supersession lock release does not remove a replacement owned by another token", async () => {

@@ -17,6 +17,9 @@ import {
 } from "./state-transition.ts";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { withWorkflowMetricsFixture } from "../../testing/workflow-metrics-fixture.ts";
+import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
+
+const linkedCheckoutFixture = defineCommittedGitFixture({ ".gitignore": ".wld/\n", "app.ts": "// app\n" });
 
 async function makeProject() {
     return await Deno.makeTempDir({ prefix: "runwield-state-transition-" });
@@ -416,6 +419,61 @@ Deno.test("ordered transition resources use each selected checkout root", async 
     } finally {
         await Deno.remove(operationRoot, { recursive: true }).catch(() => {});
         await Deno.remove(resourceRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("failed transitions leave populated journals in the linked checkout that owns the Plan", async () => {
+    const root = await linkedCheckoutFixture.checkout({ prefix: "rw-transition-journal-primary-" });
+    const container = await Deno.makeTempDir({ prefix: "rw-transition-journal-tree-" });
+    const selected = join(container, "selected");
+    try {
+        await savePlan(root, "demo", "# Demo\n", { status: "implemented", classification: "FEATURE" });
+        await git(root, ["add", "docs"]);
+        await git(root, ["commit", "-m", "add Plan"]);
+        await git(root, ["worktree", "add", "-b", "worktree/transition-journal", selected, "HEAD"]);
+        const failure = await runValidationOutcomeTransition({
+            projectRoot: selected,
+            planName: "demo",
+            outcome: "failed",
+            settle: async ({ beforePlan }) => {
+                assert(beforePlan);
+                await updatePlanFrontMatter(selected, "demo", { failureReason: "half applied" }, beforePlan.attrs, {
+                    expectedRevision: beforePlan.revision,
+                });
+                const current = await loadPlan(selected, "demo");
+                const externalMarkdown = `${current?.markdown}`.replace(
+                    'status: "implemented"',
+                    'status: "implemented"\nfailureReason: "hand edited"',
+                );
+                await Deno.writeTextFile(beforePlan.path, externalMarkdown);
+                throw new Error("interrupted after an outside edit");
+            },
+        });
+
+        assertEquals(failure.status, "needs_recovery");
+        const [record] = await listTransitionRecoveryRecords(selected);
+        assert(record);
+        assertEquals(record.planName, "demo");
+        assertEquals(record.uncertainty, "plan_bytes_changed");
+        assertEquals(
+            await Deno.readTextFile(selectedJournalPath(selected, record.transitionId)),
+            JSON.stringify(record, null, 2) + "\n",
+        );
+        assertEquals(await pathExists(selectedJournalPath(root, record.transitionId)), false);
+        assertEquals(
+            await pathExists(
+                join(
+                    getRunWieldRuntimeDir(Deno.realPathSync(selected)),
+                    "plan-transitions",
+                    `${record.transitionId}.json`,
+                ),
+            ),
+            false,
+        );
+    } finally {
+        await git(root, ["worktree", "remove", "--force", selected]).catch(() => {});
+        await Deno.remove(container, { recursive: true }).catch(() => {});
+        await Deno.remove(root, { recursive: true }).catch(() => {});
     }
 });
 

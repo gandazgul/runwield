@@ -39,7 +39,13 @@ Deno.test("Plan locks stay in the linked checkout while primary locks remain ind
         const selectedLock = selectedInternalLockPath(selected, "demo.lock");
         const selectedCatalog = selectedInternalLockPath(selected, "catalog.lock");
         const primaryLock = selectedInternalLockPath(root, "demo.lock");
+        const primaryCatalog = selectedInternalLockPath(root, "catalog.lock");
         const legacySelectedLock = join(getRunWieldRuntimeDir(Deno.realPathSync(selected)), "plan-locks", "demo.lock");
+        const legacySelectedCatalog = join(
+            getRunWieldRuntimeDir(Deno.realPathSync(selected)),
+            "plan-locks",
+            "catalog.lock",
+        );
         const primaryRegistryPath = getWorktreeRegistryPath(root);
         const selectedRegistryPath = join(
             getRunWieldRuntimeDir(Deno.realPathSync(selected)),
@@ -70,35 +76,66 @@ Deno.test("Plan locks stay in the linked checkout while primary locks remain ind
             (await readControllerRecord(root, { planName: "demo", planId: "plan-demo" }))?.state.failureReason,
             "primary proof",
         );
-        const entered: string[] = [];
-        let releaseFirst = () => {};
-        const firstMayFinish = new Promise<void>((resolve) => releaseFirst = resolve);
-        const firstEntered = new Promise<void>((resolve) => {
-            void withPlanLock(selected, "demo", async () => {
-                entered.push("selected-first");
-                await Deno.lstat(selectedLock);
-                assertEquals(await pathExists(primaryLock), false);
-                assertEquals(await pathExists(legacySelectedLock), false);
-                await withPlanCatalogLock(selected, async () => {
-                    await Deno.lstat(selectedCatalog);
-                });
-                resolve();
-                await firstMayFinish;
-            });
+        const planEntries: string[] = [];
+        let releaseFirstPlan = () => {};
+        let signalFirstPlan = () => {};
+        const firstPlanMayFinish = new Promise<void>((resolve) => releaseFirstPlan = resolve);
+        const firstPlanEntered = new Promise<void>((resolve) => signalFirstPlan = resolve);
+        const firstPlan = withPlanLock(selected, "demo", async () => {
+            planEntries.push("selected-first");
+            await Deno.lstat(selectedLock);
+            assertEquals(await pathExists(primaryLock), false);
+            assertEquals(await pathExists(legacySelectedLock), false);
+            signalFirstPlan();
+            await firstPlanMayFinish;
         });
-        await firstEntered;
-        const selectedSecond = withPlanLock(selected, "demo", () => Promise.resolve(entered.push("selected-second")));
+        await firstPlanEntered;
+        const selectedSecondPlan = withPlanLock(
+            selected,
+            "demo",
+            () => Promise.resolve(planEntries.push("selected-second")),
+        );
         await new Promise((resolve) => setTimeout(resolve, 75));
-        assertEquals(entered, ["selected-first"]);
+        assertEquals(planEntries, ["selected-first"]);
         await withPlanLock(root, "demo", async () => {
-            entered.push("primary");
+            planEntries.push("primary");
             await Deno.lstat(primaryLock);
         });
-        releaseFirst();
-        await selectedSecond;
-        assertEquals(entered, ["selected-first", "primary", "selected-second"]);
+        releaseFirstPlan();
+        await Promise.all([firstPlan, selectedSecondPlan]);
+        assertEquals(planEntries, ["selected-first", "primary", "selected-second"]);
         assertEquals(await pathExists(selectedLock), false);
         assertEquals(await pathExists(primaryLock), false);
+
+        const catalogEntries: string[] = [];
+        let releaseFirstCatalog = () => {};
+        let signalFirstCatalog = () => {};
+        const firstCatalogMayFinish = new Promise<void>((resolve) => releaseFirstCatalog = resolve);
+        const firstCatalogEntered = new Promise<void>((resolve) => signalFirstCatalog = resolve);
+        const firstCatalog = withPlanCatalogLock(selected, async () => {
+            catalogEntries.push("selected-first");
+            await Deno.lstat(selectedCatalog);
+            assertEquals(await pathExists(primaryCatalog), false);
+            assertEquals(await pathExists(legacySelectedCatalog), false);
+            signalFirstCatalog();
+            await firstCatalogMayFinish;
+        });
+        await firstCatalogEntered;
+        const selectedSecondCatalog = withPlanCatalogLock(
+            selected,
+            () => Promise.resolve(catalogEntries.push("selected-second")),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 75));
+        assertEquals(catalogEntries, ["selected-first"]);
+        await withPlanCatalogLock(root, async () => {
+            catalogEntries.push("primary");
+            await Deno.lstat(primaryCatalog);
+        });
+        releaseFirstCatalog();
+        await Promise.all([firstCatalog, selectedSecondCatalog]);
+        assertEquals(catalogEntries, ["selected-first", "primary", "selected-second"]);
+        assertEquals(await pathExists(selectedCatalog), false);
+        assertEquals(await pathExists(primaryCatalog), false);
     } finally {
         await git(root, ["worktree", "remove", "--force", selected]).catch(() => {});
         await Deno.remove(container, { recursive: true }).catch(() => {});
