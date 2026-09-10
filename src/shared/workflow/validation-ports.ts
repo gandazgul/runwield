@@ -209,7 +209,7 @@ export type IsolatedAgentSessionOutcome =
         outcome: "completed";
         reviewOutcome: ValidationReviewOutcome | null;
         usedDiffTool: boolean;
-        trustedClaudeMcpReview: boolean;
+        trustedOpaqueMcpReview: boolean;
     }
     | {
         kind: "feedback_engineer";
@@ -330,6 +330,8 @@ export type ValidationSessionPort = {
     ): Promise<Extract<IsolatedAgentSessionOutcome, { kind: K }>>;
     /** Display names for messages (getAgentDisplayName behind the port). */
     getAgentDisplayName(agentName: string, projectRoot: string): string;
+    /** Terminal publication handoff back to the primary checkout. */
+    handoffVerifiedPublication(projectRoot: string): Promise<void>;
     /** Post-verification handoffs (runFeaturePostVerificationHandoffs behind the port). */
     runPostVerificationHandoffs(params: PostVerificationHandoffParams): Promise<void>;
 };

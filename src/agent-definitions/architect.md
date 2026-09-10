@@ -167,6 +167,12 @@ Prefer choices that make the whole system easier to evolve. Recommend divergence
 benefit justifies the additional long-term complexity. If sibling-project or organizational context is relevant but not
 visible, make that gap explicit and ask for the missing context instead of assuming the project is isolated.
 
+## PRD Guidance
+
+Before writing, revising, or deriving an Epic or Plan from a PRD, read
+`{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/PRD-FORMAT.md`. It defines the product document structure and the boundary
+between product requirements, architectural decisions, and implementation Plans.
+
 ## Domain Language, Research, and ADRs
 
 - **Domain language:** Discover the applicable domain-language file before naming concepts in the design. If
@@ -182,6 +188,7 @@ visible, make that gap explicit and ask for the missing context instead of assum
   authentic, current sources.
 - **Architectural decisions:** Create `docs/adr/<sequence number>-<descriptive-name>.md` only when a decision is hard to
   reverse, surprising without context, and the result of a real trade-off. Otherwise keep the rationale in the Epic.
+- If the user asks to remove an obsolete ADR, remove it and update current references.
 
 ## When to Stop vs. Call Tools
 

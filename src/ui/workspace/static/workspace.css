@@ -1679,6 +1679,7 @@
 .session-stream-panel {
     display: grid;
     gap: 0;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
     height: 100%;
     min-height: 0;
@@ -2223,6 +2224,10 @@
 }
 
 .session-scroll-offer {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--rw-surface);
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -2633,6 +2638,7 @@
 
 .session-composer {
     box-sizing: border-box;
+    min-width: 0;
     width: min(52rem, calc(100% - 2rem));
     margin: auto auto 0;
     display: grid;
@@ -2755,7 +2761,6 @@
 
 @media (max-width: 720px) {
     .session-composer {
-        min-width: 23rem;
         width: 100%;
     }
 }
@@ -2797,9 +2802,34 @@
     align-items: center;
 }
 
+.session-context-sidebar[hidden] {
+    display: none;
+}
+
+.session-context-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.session-context-header .session-context-tabs {
+    flex: 1;
+    min-width: 0;
+}
+
 @media (max-width: 900px) {
     .session-detail-layout {
         grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .session-detail-layout--chat-only {
+        grid-template-rows: minmax(0, 1fr);
+    }
+
+    .session-context-sidebar {
+        max-height: 40vh;
+        overflow: auto;
     }
 
     .session-workflow-sidebar {
@@ -2815,8 +2845,23 @@
 }
 
 @media (max-width: 640px) {
-    .owner-workspace-shell main,
-    .workspace-shell main {
+    .session-composer-actions {
+        flex-wrap: wrap;
+    }
+
+    .session-composer-actions select {
+        flex: 1 1 calc(33% - 0.4rem);
+        min-width: 0;
+        max-width: none;
+        min-height: 44px;
+    }
+
+    .session-composer-actions button {
+        min-height: 44px;
+    }
+
+    .owner-workspace-shell .workspace-main-shell > main,
+    .workspace-shell .workspace-main-shell > main {
         padding-left: max(1rem, env(safe-area-inset-left));
         padding-right: max(1rem, env(safe-area-inset-right));
     }
@@ -3048,12 +3093,33 @@
 }
 
 .workspace-shell-with-sidebar {
+    --rw-workspace-sidebar-effective-width: min(var(--rw-workspace-sidebar-width, 280px), max(220px, calc(100vw - 420px)));
     display: grid;
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+    grid-template-columns: var(--rw-workspace-sidebar-effective-width) minmax(0, 1fr);
+    position: relative;
     gap: 0;
     max-width: none;
     min-height: 100vh;
     padding: 0;
+}
+
+.workspace-sidebar-resizer {
+    position: absolute;
+    z-index: 30;
+    top: 0;
+    bottom: 0;
+    left: var(--rw-workspace-sidebar-effective-width);
+    transform: translateX(-50%);
+}
+
+.workspace-sidebar-collapsed .workspace-sidebar-resizer {
+    display: none;
+}
+
+@media (max-width: 860px) {
+    .workspace-sidebar-resizer {
+        display: none;
+    }
 }
 
 .workspace-shell-with-sidebar.workspace-sidebar-collapsed {
@@ -3100,6 +3166,18 @@
     flex: 0 0 auto;
 }
 
+.workspace-main-header-action-row {
+    align-items: center;
+    display: flex;
+    gap: 0.45rem;
+    margin-left: auto;
+    min-width: 0;
+}
+
+.workspace-notification-control {
+    white-space: nowrap;
+}
+
 .workspace-main-header-left {
     align-items: center;
     display: flex;
@@ -3111,7 +3189,6 @@
 .workspace-main-header-actions {
     align-items: center;
     display: flex;
-    margin-left: auto;
     min-width: 0;
 }
 
@@ -3152,7 +3229,8 @@
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .workspace-shell-with-sidebar:has(.rw-review-embedded) .workspace-sidebar {
+    .workspace-shell-with-sidebar:has(.rw-review-embedded) .workspace-sidebar,
+    .workspace-shell-with-sidebar:has(.rw-review-embedded) .workspace-sidebar-resizer {
         display: none;
     }
 
@@ -3455,9 +3533,14 @@
         padding-block: 0.55rem;
     }
 
-    .workspace-main-header-actions {
+    .workspace-main-header-action-row {
+        flex-wrap: wrap;
         margin-left: 1.05rem;
         width: calc(100% - 1.8rem);
+    }
+
+    .workspace-main-header-actions {
+        flex: 1 1 auto;
     }
 
     .workspace-main-header-actions .rw-plannotator-actions {

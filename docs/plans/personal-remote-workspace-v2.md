@@ -72,12 +72,12 @@ Deliver four connected capabilities:
    search includes current approved Work Records but excludes Superseded and Archived Work Records. All PRDs, ADRs,
    cataloged Session Names, and available first user messages remain eligible. A later full-page historical filter can
    expose non-current Work Records if use proves it necessary.
-4. Let each loaded Session tab notify the owner when its Agent stops and needs attention, matching the purpose of
-   terminal notifications when several TUIs are working at once. V2 adds no separate in-app notification treatment. If a
-   focused, visible browser tab is already showing that exact Session, all loaded copies suppress the browser system
-   notification. Otherwise, loaded background copies coordinate after explicit user permission so exactly one copy shows
-   the notification. Clicking it focuses that exact Session tab. V2 does not promise delivery for a Session with no
-   loaded browser tab.
+4. Share the existing TUI notification content and applicable settings through Core, and add browser delivery for live
+   `agentStopped` events available in Workspace. Each loaded Session tab handles its own events, suppresses its own
+   alerts when focused and visible, and attempts to focus itself when its notification is clicked. Browser permission
+   requires a user click. Alerts are best effort, with no persistence, replay, acknowledgement, or duplicate-tab
+   guarantee. Separate TUI and Agent Client Protocol processes keep their existing notifications; cross-process browser
+   delivery is outside this slice.
 
 Workspace remains able to advance work. Session messages, Plan review decisions, approval, execution, and recovery use
 the existing Core-owned operations and current evidence checks. The Dashboard is a springboard: each row opens the Plan,
@@ -102,9 +102,8 @@ GET /api/owner/sidebar
   FileSessionStore.listProjectSessions
 ```
 
-Session files and verified transcript prefixes own Session identity, activation, and committed generations. Transcript
-projection can read a `runwield.attention` entry, but production does not yet write or resolve that evidence. The
-existing server-side Plan workflow summary joins the authorities needed to explain executable planned work:
+Session files and verified transcript prefixes own Session identity, activation, and committed generations. The existing
+server-side Plan workflow summary joins the authorities needed to explain executable planned work:
 
 ```text
 loadOwnerPlanProgress
@@ -115,10 +114,10 @@ loadOwnerPlanProgress
 ```
 
 The new cross-Project view must compose these existing readers instead of copying lifecycle logic. The current workflow
-summary excludes Epics and does not own Workspace-hosted questions or durable Session attention, so the Dashboard must
-add those inputs without forcing Epics through executable progress stages. Today the sidebar uses one all-or-nothing
-`Promise.all`; one damaged Project can fail the full response. Dashboard and search must instead return successful
-Project groups plus a visible failure for each Project that could not be read.
+summary excludes Epics and does not own Workspace-hosted questions, so the Dashboard must add those inputs without
+forcing Epics through executable progress stages. Notification events do not create Dashboard state. Today the sidebar
+uses one all-or-nothing `Promise.all`; one damaged Project can fail the full response. Dashboard and search must instead
+return successful Project groups plus a visible failure for each Project that could not be read.
 
 The separate `/projects/:projectId/plans/:planId/progress` page is implementation drift from the v1 design. The approved
 v1 flow made the associated Session timeline the progress surface and called for workflow state beside that timeline; it
@@ -169,17 +168,12 @@ failure cannot fail the canonical write. Search candidates are rechecked against
 navigation. One failed Project reports stale or unavailable search while healthy Projects continue, and the owner can
 request a visible refresh.
 
-Session Runtime already emits live `attention_requested` events for `agentStopped`, and the TUI turns those events into
-terminal notifications. Today that event is process-local, has no stable identity, and is emitted before the Session
-generation commits. That is insufficient for Workspace because a TUI-owned Session runs in another process and a browser
-can refresh after the event. V2 moves durable attention production into the shared Core Agent-completion transaction
-used by TUI, Workspace, and Agent Client Protocol. That transaction writes a stable attention identity, publishes the
-committed Session generation, and only then emits the live event. Workspace remains a reader and delivery adapter; it
-must not become the attention writer. Each loaded Session screen observes only its stable Session attention feed and
-uses the stable event ID for browser-wide deduplication. If any loaded copy of that exact Session is focused and
-visible, all copies suppress the system notification. Otherwise, one background copy claims the event and owns click
-behavior that focuses its existing tab. Different Session tabs can notify independently, like separate TUIs. V2 adds no
-separate in-app notification component, and notification delivery never becomes workflow state.
+Session Runtime already emits live `attention_requested` events, and the TUI turns them into terminal notifications.
+Move reusable notification content and applicable settings into a browser-safe Core module. Keep terminal output in the
+TUI adapter and deliver live `agentStopped` events through the existing Workspace operation stream to a browser adapter.
+Each tab applies permission and its own focus checks. There is no attention journal, saved delivery history, resolution
+lifecycle, cross-tab locking, or new cross-process transport. The Dashboard uses existing Plan/workflow evidence and
+live Workspace interactions independently of browser alerts.
 
 ## Expected Change Surface
 
@@ -195,14 +189,14 @@ separate in-app notification component, and notification delivery never becomes 
   standalone Plan Progress page and links without removing the shared workflow-state data used elsewhere.
 - `src/ui/workspace/server/`, `routes/owner-api.js`, and owner server composition — compose cross-Project attention,
   Plan-to-Session, and search results; isolate per-Project failures; route selected results to stable Plan, Session, or
-  artifact views; expose authenticated stable-Session attention reads for loaded Session screens; and enumerate only
+  artifact views; reuse the existing authenticated operation stream for browser notification events; and enumerate only
   this server's live Workspace interactions rather than claiming visibility into process-local TUI or Agent Client
   Protocol questions.
 - `src/shared/session/file-session-store.ts`, `session-runtime.js`, shared Agent-completion handling, runtime events,
   and transcript projection modules — add one application-owned, commit-confirming Plan-association operation separate
-  from fail-open footer context; read append-only association purpose and segment evidence; make the shared Core
-  transaction commit stable `agentStopped` attention and response evidence before live publication for TUI, Workspace,
-  and Agent Client Protocol; and keep Session files authoritative rather than a Workspace database.
+  from fail-open footer context; read append-only association purpose and segment evidence; and keep Session files
+  authoritative rather than a Workspace database. Share notification content and settings from Core while keeping
+  delivery in the TUI and Workspace adapters; notifications do not change the Session commit transaction.
 - `src/shared/workflow/` and `src/ui/workspace/server/owner-plan-progress.ts` — reuse one server-side authority read and
   executable workflow interpretation for Dashboard categories and Session presentation rather than implementing another
   lifecycle mapping in the browser. Add Epic-appropriate classification from Plan Lifecycle evidence without routing an
@@ -230,8 +224,7 @@ separate in-app notification component, and notification delivery never becomes 
 - `src/ui/workspace/server/session-continuation.js` and `src/shared/session/session-transcript-manifest.ts` — stable
   Session listing and verified committed transcript reads.
 - `src/shared/session/session-transcript-projection.js#summarizeProjectedEntries` — existing workflow projection and
-  preliminary `runwield.attention` reader; add production attention and append-only Plan association evidence here
-  rather than creating a second Session summary format.
+  append-only Plan association evidence, without creating a second Session summary format or notification persistence.
 - `src/ui/workspace/server/owner-plan-progress.ts#loadOwnerPlanProgress` — reuse its joined Plan, controller, worktree,
   validation, delivery, and optional Session evidence for executable Plans. Reuse its authority selection for Dashboard
   classification, add Epic handling beside the execution-stage mapping, and do not preserve the separate page merely
@@ -256,39 +249,35 @@ separate in-app notification component, and notification delivery never becomes 
   `deno run -A scripts/run-tests.js src/ui/workspace/personal-remote-workspace-v2.acceptance.test.ts src/cmd/load-plan/plan-session-continuity.integration.test.ts`.
   The first suite must use real registered Project fixtures, canonical Plan/controller/worktree readers, file-backed
   Sessions, the rebuildable search store, and per-Project failure injection; fixture-only React ordering is
-  insufficient. It must run production Agent-stop paths through a Workspace-owned Session and a separate TUI-owned
-  Session that Workspace has loaded. It must run each production planning, review, execution, and recovery association
-  producer, then restart the readers and prove committed attention and association without directly appending fixture
-  entries. It must mutate committed Plan, controller, worktree, and Session-attention evidence after the first Dashboard
-  read and prove the next loaded projection changes category without process restart or manual cache clearing. It must
-  change an eligible documentation file externally and prove the background scan updates search without manual refresh.
-  It must also quarantine a corrupt or newer-schema search database and prove owner coordination and canonical Session
-  and Plan reads remain available while the index rebuilds.
-- Automated browser behavior: run
-  `deno run -A scripts/run-tests.js src/ui/workspace/session-tab-notifications.browser.test.ts`. The suite must use two
-  different Session tabs plus duplicate tabs for one Session, with at least one Agent stop produced by a separate TUI
-  process, and observe notification claim, exact-tab focus, response clearing, refresh, and reconnect behavior;
-  component markup assertions are insufficient.
+  insufficient. It must run each production planning, review, execution, and recovery association producer, then restart
+  the readers and prove committed association without directly appending fixture entries. It must mutate canonical Plan,
+  controller, worktree, and live Workspace interaction evidence after the first Dashboard read and prove the next loaded
+  projection changes category without process restart or manual cache clearing. It must change an eligible documentation
+  file externally and prove the background scan updates search without manual refresh. It must also quarantine a corrupt
+  or newer-schema search database and prove owner coordination and canonical Session and Plan reads remain available
+  while the index rebuilds.
+- Automated browser behavior: verify the production Workspace event path and browser adapter with shared content and
+  settings. Cover a new live stop, focused suppression, permission denial, click focus, repeated snapshots, initial
+  history, and notification failures. No cross-process delivery, persistent replay, or duplicate-tab guarantee is
+  required.
 - Automated regression: run `deno task workspace:check`, `deno task seams:check`, and `deno task ci` at Epic
   integration.
 - Manual browser: run `deno task workspace:dev` for visual and responsive fixtures, then verify the real paired owner
   server because the development catalog does not exercise registration, Session locks, or cross-Project filesystem
   reads.
 - Manual journey: use at least two registered Projects containing same-named Plans, an active Plan, a Plan needing
-  review, an approved Plan, a recently finished Plan, an On-Hold Plan, a standalone idle Session, a TUI-owned Session
-  needing attention while loaded in Workspace, a Project read failure, and searchable artifacts of every supported type.
-  While the owner server stays running, change workflow evidence after the Dashboard first renders and verify its
-  category updates. Mutate and remove indexed files externally, verify eligible edits appear within the default scan
-  interval without manual refresh, then restart the server and verify stale candidates still cannot masquerade as
-  current results.
+  review, an approved Plan, a recently finished Plan, an On-Hold Plan, a standalone idle Session, a Workspace-hosted
+  Agent question, a Project read failure, and searchable artifacts of every supported type. While the owner server stays
+  running, change workflow evidence after the Dashboard first renders and verify its category updates. Mutate and remove
+  indexed files externally, verify eligible edits appear within the default scan interval without manual refresh, then
+  restart the server and verify stale candidates still cannot masquerade as current results.
 - Manual continuity: leave a planning Session, load its Plan from a fresh empty Session and from a non-empty unrelated
   Session, and attempt the same while the original is active elsewhere. Verify stable Session identity, original
   context, user choice, and Session Writer Lock behavior rather than copied transcript display. The active-elsewhere
   case must not queue or later send a synthetic resume request.
 - Expected result: the owner can open Workspace, identify the next required decision, return to its Plan and original
   planning context, advance work through existing Workspace actions, find known project knowledge without browsing each
-  Project separately, and receive one exact-tab browser notification when a loaded TUI-owned Session stops in the
-  background.
+  Project separately, and receive a browser notification when a Workspace turn stops in a loaded background Session tab.
 
 ### Outcome Evidence
 
@@ -296,16 +285,16 @@ separate in-app notification component, and notification delivery never becomes 
   direct Session URLs still open their Session.
 - **Plan-centered Dashboard** — each Plan appears once in the highest applicable category, with precedence Needs You,
   Ready to Continue, In Progress, then Recently Finished. Integration fixtures prove expected categories from real Plan
-  status, controller checkpoint, worktree/publication evidence, live Workspace interactions, and committed Session
-  attention rather than agreement with another derived label. Recently Finished contains no item older than seven days,
-  no more than ten items total, and no more than five from one Project. Age uses the immutable applicable terminal
-  transition time: `verifiedAt`, `userVerifiedAt`, Epic done-enough evidence, or a new lifecycle-owned
-  closed-without-verification timestamp. Legacy closed Plans without terminal-time evidence stay searchable but do not
-  enter Recently Finished. Every Dashboard load validates projection source revisions against current evidence; a loaded
-  Dashboard reflects a committed workflow or attention transition within five seconds without restart or manual cache
-  clearing. A Session with no proven Plan association appears only when it has unresolved attention or is actively
-  running; an ordinary idle Session is absent. Rows are navigation links to the owning Plan, review, Session
-  interaction, or Project surface and expose no duplicate approval, run, resume, recovery, or message mutation endpoint.
+  status, controller checkpoint, worktree/publication evidence, live Workspace interactions, and Session activation
+  rather than agreement with another derived label. Recently Finished contains no item older than seven days, no more
+  than ten items total, and no more than five from one Project. Age uses the immutable applicable terminal transition
+  time: `verifiedAt`, `userVerifiedAt`, Epic done-enough evidence, or a new lifecycle-owned closed-without-verification
+  timestamp. Legacy closed Plans without terminal-time evidence stay searchable but do not enter Recently Finished.
+  Every Dashboard load validates projection source revisions against current evidence; a loaded Dashboard reflects a
+  workflow or live Workspace interaction change within five seconds without restart or manual cache clearing. A Session
+  with no proven Plan association appears only when it has a live Workspace question or is actively running; an ordinary
+  idle Session is absent. Rows are navigation links to the owning Plan, review, Session interaction, or Project surface
+  and expose no duplicate approval, run, resume, recovery, or message mutation endpoint.
 - **Failure isolation** — a real unreadable root, invalid Plan identity, damaged Session projection, or failed Project
   index produces a Project-specific diagnostic tied to that failed reader while healthy Projects still render Dashboard,
   sidebar, and search results. A generic catch-all degraded card with no source evidence does not satisfy this outcome.
@@ -353,17 +342,12 @@ separate in-app notification component, and notification delivery never becomes 
   stored versus observed evidence, not timers. PRD, ADR, design-system, and domain-language results open through
   type-aware canonical readers in the shared read-only artifact surface without being parsed as Plans or starting a
   Session.
-- **Session-tab notification** — the shared Core Agent-completion transaction used by TUI, Workspace, and Agent Client
-  Protocol commits `runwield.attention` with stable event ID, reason, Session identity, and generation before
-  `agentStopped` becomes eligible. Workspace only reads and delivers this evidence; an owner-server-only writer cannot
-  satisfy the outcome. A later committed user response or interaction result makes that event resolved. V2 adds no
-  separate in-app notification UI. A headed multi-tab browser check proves that a focused, visible tab showing the exact
-  Session suppresses the system notification in every loaded copy; otherwise one background copy with granted permission
-  claims the event, emits one notification, and becomes the focus target when clicked. Different Sessions notify
-  independently. Refresh, reconnect, repeated observation, and server restart do not notify again. Permission denial or
-  unsupported APIs cause no repeated prompts and do not affect the durable Dashboard item. With no loaded tab for that
-  Session, no browser notification is promised and the durable Needs You item appears on the Dashboard when Workspace is
-  next viewed.
+- **Session-tab notification** — Core owns shared notification content and applicable settings. TUI preserves its
+  existing delivery behavior; Workspace delivers live `agentStopped` events from its existing operation stream. A loaded
+  background tab with permission notifies and attempts to focus itself on click. A focused visible tab suppresses its
+  own notification. Repeated snapshots within that mounted tab do not repeat an alert, and initial history is ignored.
+  Denial, unsupported delivery, or disconnects do not affect Session work. Duplicate tabs may both notify. Alerts create
+  no saved state or Dashboard items, and separate TUI/ACP processes retain their own notifications.
 - **No duplicate Plan Progress screen** — the `/projects/:projectId/plans/:planId/progress` route,
   `PlanProgressSurface`, and **Open progress** or **View progress** links no longer exist, and no renamed standalone
   route presents the same execution-stage list. The detailed stage sequence appears only in the Session context sidebar.
@@ -394,8 +378,8 @@ add Cymbal search or code-server.
 - Planning, execution, repair, and follow-up can have different Session roles. Resuming planning context must not route
   a normal prompt to an execution worktree or execution Agent without current workflow evidence.
 - Legacy Sessions contain only `planName` or no association. Name-only matches may be shown as uncertain migration hints
-  but must not trigger automatic resume or nesting. Old clients safely ignore new custom association and attention
-  entries; no Session-file rewrite is required during rollout.
+  but must not trigger automatic resume or nesting. Old clients safely ignore new custom association entries; no
+  Session-file rewrite is required during rollout.
 - A Session can produce more than one Plan. The association model must not require one Plan per Session or duplicate the
   same Session as if it had several independent histories. An old planning association remains historical after
   execution or repair starts, but current segment and workflow evidence must make it ineligible for automatic planning
@@ -419,14 +403,12 @@ add Cymbal search or code-server.
   human gates remain phone-usable; dense Plan management and full search results can continue to use focused views.
 - Archived Plans are temporary staging and do not enter search. Superseded and Archived Work Records stay out of quick
   search; a later full-page historical filter can expose them without changing the default result set.
-- Browser notification permission must follow a user action and remains local to that browser. Tab coordination is
-  browser-local and keyed by stable Session and attention identity. Notification delivery is best effort and cannot
-  authorize, acknowledge, resolve workflow work, or create a second in-app attention state.
-- V2 sends browser notifications only for `agentStopped`. Workspace-hosted questions can appear on the Dashboard from
-  this server's live operation state. Questions waiting in TUI or Agent Client Protocol remain process-local and use the
-  owning surface's existing notification; cross-process interaction discovery and recovery are later work.
-- No loaded tab for the affected Session means no notification in v2. A Dashboard or unrelated Session tab does not
-  impersonate the missing Session tab merely because Workspace is open. Service workers, Web Push subscriptions, native
-  host alerts, and other closed-tab delivery mechanisms are later work.
+- Browser permission follows a user click and remains local to that browser. Alerts are best effort and use the existing
+  live Workspace operation stream. They do not persist, replay after reload, acknowledge work, or create Dashboard
+  state.
+- Browser delivery in this slice covers `agentStopped`. Workspace-hosted questions appear on the Dashboard from this
+  server's live operation state. Separate TUI and Agent Client Protocol processes keep their own notifications.
+- A closed or disconnected Session tab may miss alerts. Duplicate tabs may both notify. Cross-process browser delivery,
+  service workers, Web Push, and cross-tab coordination are outside this slice.
 - Multi-user privacy, collaborator search rules, source-code handoff, Cymbal federation, and a confined Code Surface
   need later product and architecture decisions rather than dormant provider seams in v2.

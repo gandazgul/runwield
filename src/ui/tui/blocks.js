@@ -1,5 +1,6 @@
 import {
     Container,
+    Image,
     Input,
     Key,
     Markdown,
@@ -10,7 +11,7 @@ import {
     truncateToWidth,
     visibleWidth,
 } from "@earendil-works/pi-tui";
-import { getMarkdownTheme, getSelectListTheme, theme } from "../theme/theme.js";
+import { getMarkdownTheme, getSelectListTheme, imageTheme, theme } from "../theme/theme.js";
 import { buildActiveConversationStatusMessage } from "../../shared/session/session-user-messages.ts";
 import {
     validationProgressCheckSummary,
@@ -18,6 +19,12 @@ import {
 } from "../../shared/workflow/validation-progress-presentation.ts";
 import { MermaidMarkdown } from "./mermaid-markdown.js";
 import stripAnsi from "strip-ansi";
+
+/**
+ * @typedef {Object} ToolDisplayImage
+ * @property {string} base64
+ * @property {string} mimeType
+ */
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
@@ -651,6 +658,8 @@ export class ToolExecutionBlock {
         this.expanded = false;
         this.durationStr = "";
         this.bodyText = "";
+        /** @type {ToolDisplayImage[]} */
+        this.displayImages = [];
         this.isError = false;
         this.ended = false;
         this.showElapsedTime = false;
@@ -711,16 +720,21 @@ export class ToolExecutionBlock {
         this.updateBodyText();
     }
 
+    /**
+     * @param {string} base64
+     * @param {string} mimeType
+     */
+    appendDisplayImage(base64, mimeType) {
+        this.displayImages.push({ base64, mimeType });
+    }
+
     enableElapsedTime() {
         if (!this.ended) {
             this.showElapsedTime = true;
         }
     }
 
-    /**
-     * @returns {string}
-     * @private
-     */
+    /** @returns {string} */
     formatElapsedTime() {
         return `Elapsed time: ${((Date.now() - this.startTime) / 1000).toFixed(1)}s`;
     }
@@ -775,6 +789,16 @@ export class ToolExecutionBlock {
             }
         }
 
+        if (this.expanded) {
+            for (const image of this.displayImages) {
+                const imageBlock = new Image(image.base64, image.mimeType, imageTheme, {
+                    maxWidthCells: 60,
+                    maxHeightCells: 20,
+                });
+                allLines.push(...imageBlock.render(innerW));
+            }
+        }
+
         // ── Footer: duration + expand/collapse hint, with vertical padding ──
         const footerContent = this.renderFooterContent(innerW);
         if (footerContent.length > 0) {
@@ -822,6 +846,107 @@ export class ToolExecutionBlock {
         const rightPad = " ".repeat(Math.max(0, innerW - rightLen));
         return [left, `${rightPad}${right}`];
     }
+}
+
+export class ToolExecutionGroupBlock {
+    constructor() {
+        /** @type {ToolExecutionBlock[]} */
+        this.children = [];
+        this.expanded = false;
+    }
+
+    /** @param {ToolExecutionBlock} block */
+    addBlock(block) {
+        this.children.push(block);
+        block.setExpanded(this.expanded);
+    }
+
+    /**
+     * @param {Set<ToolExecutionBlock>} activeBlocks
+     * @param {number} maxChildren
+     */
+    trimCompletedChildren(activeBlocks, maxChildren) {
+        while (this.children.length > maxChildren) {
+            const removableIndex = this.children.findIndex((child) => !activeBlocks.has(child));
+            if (removableIndex === -1) return;
+            this.children.splice(removableIndex, 1);
+        }
+    }
+
+    /** @param {boolean} expanded */
+    setExpanded(expanded) {
+        this.expanded = expanded;
+        for (const child of this.children) child.setExpanded(expanded);
+    }
+
+    /** @param {ToolExecutionBlock} block */
+    contains(block) {
+        return this.children.includes(block);
+    }
+
+    /** @returns {string} */
+    getPaddingBgToken() {
+        if (this.children.some((child) => child.ended && !child.isError)) return "toolSuccessBg";
+        if (this.children.length > 0 && this.children.every((child) => child.ended && child.isError)) {
+            return "toolErrorBg";
+        }
+        return "toolPendingBg";
+    }
+
+    /**
+     * @param {ToolExecutionBlock} child
+     * @param {number} width
+     * @returns {string}
+     */
+    renderCompactRow(child, width) {
+        const bgCode = getBgCode(child.bgToken);
+        const leftPadding = Math.min(2, Math.max(0, width));
+        const rightPadding = Math.min(2, Math.max(0, width - leftPadding));
+        const innerWidth = Math.max(0, width - leftPadding - rightPadding);
+        const titlePrefix = child.headerText === child.toolName || child.headerText.startsWith(`${child.toolName} `)
+            ? child.toolName
+            : child.headerText.split(" ")[0] || child.headerText;
+        const titleSuffix = child.headerText.slice(titlePrefix.length);
+        const title = theme.fg("text", `\x1b[1m${titlePrefix}\x1b[22m${titleSuffix}`);
+        const durationText = child.durationStr ||
+            (child.showElapsedTime && !child.ended ? child.formatElapsedTime() : "");
+        const duration = durationText ? theme.fg("dim", durationText) : "";
+        const durationWidth = visibleWidth(duration);
+        let content = title;
+        if (duration && durationWidth + 1 < innerWidth) {
+            const titleWidth = innerWidth - durationWidth - 1;
+            const visibleTitle = visibleWidth(title) > titleWidth ? truncateToWidth(title, titleWidth) : title;
+            content = `${visibleTitle}${
+                " ".repeat(Math.max(1, innerWidth - visibleWidth(visibleTitle) - durationWidth))
+            }${duration}`;
+        }
+        const clamped = visibleWidth(content) > innerWidth ? truncateToWidth(content, innerWidth) : content;
+        const row = `${" ".repeat(leftPadding)}${clamped}${
+            " ".repeat(Math.max(0, innerWidth - visibleWidth(clamped) + rightPadding))
+        }`;
+        return applyBg(bgCode, row);
+    }
+
+    /** @param {number} w */
+    render(w) {
+        if (!this.expanded) {
+            const paddingLine = applyBg(getBgCode(this.getPaddingBgToken()), " ".repeat(Math.max(0, w)));
+            return [
+                paddingLine,
+                ...this.children.map((child) => this.renderCompactRow(child, w)),
+                paddingLine,
+            ];
+        }
+        /** @type {string[]} */
+        const lines = [];
+        this.children.forEach((child, index) => {
+            lines.push(...child.render(w));
+            if (index < this.children.length - 1) lines.push("");
+        });
+        return lines;
+    }
+
+    invalidate() {}
 }
 
 // ─── Prompt Blocks ───────────────────────────────────────────────────────────

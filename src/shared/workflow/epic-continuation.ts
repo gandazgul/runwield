@@ -1,3 +1,4 @@
+import { projectPlanType } from "../project-plan.ts";
 /**
  * @module shared/workflow/epic-continuation
  * Strict ordered continuation for child FEATURE plans inside PROJECT Epics.
@@ -98,6 +99,13 @@ export async function resolveEpicContinuation(
     if (!parentPlanName) return { kind: "none", reason: "completed_plan_has_no_parent_epic", completedPlanName };
     const parent = await loadPlan(cwd, parentPlanName);
     if (!parent) return { kind: "none", reason: "parent_epic_missing", completedPlanName, parentPlanName };
+    try {
+        if (projectPlanType(parent.attrs) === "sequence" && parent.attrs.status !== "ready_for_work") {
+            return { kind: "blocked", reason: "sequence_not_ready", completedPlanName, parentPlanName };
+        }
+    } catch {
+        return { kind: "blocked", reason: "unsupported_project_type", completedPlanName, parentPlanName };
+    }
     if (!isActiveProjectEpic(parent.attrs)) {
         return { kind: "none", reason: "parent_epic_not_active", completedPlanName, parentPlanName };
     }

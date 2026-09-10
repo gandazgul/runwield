@@ -32,7 +32,11 @@ const SHARED_PRACTICE_CONSUMERS: ReadonlyArray<[string, readonly string[]]> = [
 /** Every persona that can run git or delete files, including the non-engineering one. */
 const WORKING_TREE_CONSUMERS: readonly string[] = ["engineer", "plan-engineer", "frontend-engineer", "operator"];
 
-const PLANNING_DOC_FRAGMENTS = ["user-authority", "show-the-work", "work-record-retrieval"] as const;
+const PLANNING_DOC_FRAGMENTS = [
+    "user-authority",
+    "show-the-work",
+    "work-record-retrieval",
+] as const;
 
 /** The two personas that write planning documents and share their structural vocabulary. */
 const PLANNING_DOC_AUTHORS: readonly string[] = ["planner", "architect"];
@@ -271,6 +275,23 @@ Deno.test("history-reading personas share one Work Record retrieval practice", a
     const recorder = await loadAgentDef("recorder");
     assertEquals(recorder.systemPrompt.replaceAll(/\s+/g, " ").includes(WORK_RECORD_MARKER), false);
     assertStringIncludes(recorder.systemPrompt, "broad access for generation/maintenance context");
+});
+
+Deno.test("planning personas reference an available PRD format without embedding it", async () => {
+    const format = await Deno.readTextFile(join(BUNDLED_AGENT_DEFS, "document-formats", "PRD-FORMAT.md"));
+    assertStringIncludes(format, "A PRD defines what users need, why it matters, and how success will be judged.");
+    for (const agentName of ["ideator", "planner", "architect"]) {
+        const { systemPrompt } = await loadAgentDef(agentName);
+        assertStringIncludes(systemPrompt, "/document-formats/PRD-FORMAT.md");
+        assertStringIncludes(
+            systemPrompt.replaceAll(/\s+/g, " "),
+            "Before writing, revising, or deriving an Epic or Plan from a PRD, read",
+        );
+        assertEquals(
+            systemPrompt.includes("A PRD defines what users need, why it matters, and how success will be judged."),
+            false,
+        );
+    }
 });
 
 Deno.test("Plan and Epic authors share one architecture vocabulary", async () => {

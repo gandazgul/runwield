@@ -1,11 +1,15 @@
+import { validateSequenceReviewDecision } from "../../../shared/workflow/sequence-review.ts";
 /* @module ui/workspace/server/session-continuation */
 
+import { appendLiveSessionEvent } from "../../../shared/session/live-session-events.ts";
+import { readLiveSessionConnection } from "../../../shared/session/live-session-connection.ts";
 import { createHash } from "node:crypto";
 import { AGENTS } from "../../../constants.js";
 import { findPlanEvidenceById } from "../../../plan-store.js";
 import { getModelRegistry } from "../../../shared/models/model-registry.ts";
-import { getSettingsManager } from "../../../shared/settings.js";
+import { getMergedCustomSetting, getSettingsManager } from "../../../shared/settings.js";
 import { listAvailableAgents } from "../../../shared/session/agents.js";
+import { normalizeBrowserNotificationPolicy } from "../../../shared/session/notification-content.ts";
 import { applySharedPlanReviewDecision } from "../../../shared/workflow/plan-review-actions.ts";
 import { getWorkflowDiff } from "../../../shared/workflow/git-snapshot.js";
 import {
@@ -18,12 +22,16 @@ import {
     captureTranscriptEvidence,
     getCommittedTranscriptAuthorityFacts,
     summarizeProjectedEntries,
+    summarizeResumableTranscript,
     validateExpiredControlTranscriptEvidence,
 } from "../../../shared/session/session-transcript-projection.js";
 import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
 
-/** @typedef {{ type?: string, text?: string }} TranscriptContentPart */
 /** @typedef {"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"} WorkspaceThinkingLevel */
+/** @typedef {{ name: string, firstMessage: string }} SessionListInfo */
+/** @typedef {{ size: number, mtime: number | undefined, ctime: number | undefined, info: SessionListInfo }} SessionListInfoCacheEntry */
+/** @type {Map<string, SessionListInfoCacheEntry>} */
+const sessionListInfoCache = new Map();
 
 /** @param {unknown} value */
 function stableHash(value) {
@@ -82,6 +90,7 @@ function safePlanReviewReference(request) {
     return {
         planId,
         planName,
+        sequenceDocuments: Array.isArray(meta.sequenceDocuments) ? meta.sequenceDocuments : undefined,
         agentLabel: typeof meta.agentLabel === "string" && meta.agentLabel.trim() ? meta.agentLabel.trim() : "Planner",
         classification,
         expectedRevision: typeof meta.expectedRevision === "string" ? meta.expectedRevision : null,
@@ -145,11 +154,20 @@ function readPlanReviewDecisionMeta(response) {
         : source;
 }
 
-/** @param {unknown} response */
+/** @param {unknown} response @returns {import("../../../shared/session/session-runtime-interactions.js").RuntimeInteractionResponse} */
 function acceptedInteractionResponse(response) {
     if (response && typeof response === "object") {
         const source = /** @type {Record<string, unknown>} */ (response);
-        if (typeof source.outcome === "string") return source;
+        const outcome = source.outcome;
+        switch (outcome) {
+            case "selected":
+            case "text":
+            case "accepted":
+            case "canceled":
+            case "unsupported":
+            case "blocked":
+                return { ...source, outcome };
+        }
         return { outcome: "accepted", _meta: source };
     }
     return { outcome: "unsupported", message: "Workspace interaction response is invalid." };
@@ -157,43 +175,62 @@ function acceptedInteractionResponse(response) {
 
 /** @param {string} value */
 function compactSessionName(value) {
-    return value.trim().replace(/\s+/g, " ").slice(0, 120);
+    return value.trim().replace(/\s+/g, " ");
 }
 
-/** @param {Record<string, unknown>} entry */
-function firstUserMessageText(entry) {
-    if (entry.type === "user_message") return typeof entry.text === "string" ? entry.text : "";
-    if (entry.type !== "message") return "";
-    const message = /** @type {{ role?: string, content?: unknown }} */ (entry.message || {});
-    if (message.role !== "user") return "";
-    if (typeof message.content === "string") return message.content;
-    if (!Array.isArray(message.content)) return "";
-    const textPart = message.content.find(
-        /** @param {TranscriptContentPart} part */
-        (part) => part?.type === "text" && typeof part.text === "string",
-    );
-    return typeof textPart?.text === "string" ? textPart.text : "";
+/** @param {string} transcriptPath */
+async function readSessionListInfo(transcriptPath) {
+    try {
+        const stat = await Deno.stat(transcriptPath);
+        const cached = sessionListInfoCache.get(transcriptPath);
+        if (
+            cached && cached.size === stat.size && cached.mtime === stat.mtime?.getTime() &&
+            cached.ctime === stat.ctime?.getTime()
+        ) return cached.info;
+        const entries = [];
+        const transcript = await Deno.readTextFile(transcriptPath);
+        for (const line of transcript.split("\n")) {
+            if (!line.trim()) continue;
+            try {
+                const entry = JSON.parse(line);
+                entries.push(entry);
+            } catch {
+                // Use complete records while the active writer appends its next entry.
+            }
+        }
+        const name = summarizeProjectedEntries(entries).name;
+        const info = {
+            name: typeof name === "string" ? compactSessionName(name) : "",
+            firstMessage: compactSessionName(summarizeResumableTranscript(entries).firstMessage || "").slice(0, 100),
+        };
+        sessionListInfoCache.set(transcriptPath, {
+            size: stat.size,
+            mtime: stat.mtime?.getTime(),
+            ctime: stat.ctime?.getTime(),
+            info,
+        });
+        if (sessionListInfoCache.size > 512) {
+            const oldest = sessionListInfoCache.keys().next().value;
+            if (oldest) sessionListInfoCache.delete(oldest);
+        }
+        return info;
+    } catch {
+        return { name: "", firstMessage: "" };
+    }
 }
 
 /** @param {string} transcriptPath */
 export async function readSessionName(transcriptPath) {
-    try {
-        const entries = [];
-        let firstUserText = "";
-        const transcript = await Deno.readTextFile(transcriptPath);
-        for (const line of transcript.split("\n")) {
-            if (!line.trim()) continue;
-            const entry = JSON.parse(line);
-            entries.push(entry);
-            if (!firstUserText) firstUserText = firstUserMessageText(entry);
-        }
-        const name = summarizeProjectedEntries(entries).name;
-        if (typeof name === "string" && name.trim()) return compactSessionName(name);
-        if (firstUserText.trim()) return compactSessionName(firstUserText);
-    } catch {
-        // A damaged transcript remains identifiable by its Session id.
-    }
-    return "Untitled Session";
+    const info = await readSessionListInfo(transcriptPath);
+    return info.name || info.firstMessage;
+}
+
+/** @param {string[]} paths */
+async function readSessionDisplayName(paths) {
+    const infos = await Promise.all(paths.map(readSessionListInfo));
+    const savedName = infos.findLast((info) => info.name)?.name || "";
+    const name = savedName && !/^untitled(?: session)?$/i.test(savedName) ? savedName : "";
+    return name || infos.find((info) => info.firstMessage)?.firstMessage || "";
 }
 
 /** @param {import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore} store @param {{ transcriptCwd: string }} session @param {string} projectId */
@@ -201,7 +238,9 @@ export async function readSessionName(transcriptPath) {
  * @typedef {Object} WorkspaceOperationRecord
  * @property {string} status
  * @property {string} projectId
- * @property {unknown[]} events
+ * @property {import("../../../shared/session/session-runtime-events.js").SessionRuntimeEvent[]} events
+ * @property {boolean} [remote]
+ * @property {import("../../../shared/session/session-runtime-events.js").RuntimeQueuedMessage[]} [queuedMessages]
  * @property {string} [error]
  * @property {number | null} [generation]
  * @property {string | null} [runwieldSessionId]
@@ -209,7 +248,8 @@ export async function readSessionName(transcriptPath) {
  * @property {number} [expectedGeneration]
  * @property {{ agentName?: string, model?: string, provider?: string }} [pendingConfiguration]
  * @property {{ interactionId: string, request: Record<string, unknown> }} [liveInteraction]
- * @property {{ resolve: (value: unknown) => void, reject: (error: Error) => void } | null} [answer]
+ * @property {import('../../../shared/session/notification-content.ts').BrowserNotificationPolicy} [browserNotificationPolicy]
+ * @property {{ resolve: (value: import("../../../shared/session/session-runtime-interactions.js").RuntimeInteractionResponse) => void | Promise<void>, reject: (error: Error) => void } | null} [answer]
  */
 
 export class WorkspaceSessionContinuationService {
@@ -250,16 +290,30 @@ export class WorkspaceSessionContinuationService {
 
     /** @param {string} operationId @param {WorkspaceOperationRecord} record */
     setOperation(operationId, record) {
-        this.operations.set(operationId, record);
+        this.operations.set(operationId, {
+            ...record,
+            browserNotificationPolicy: this.resolveBrowserNotificationPolicy(record.projectId),
+        });
         this.notifyOperation(operationId);
     }
 
-    /** @param {string} operationId @param {unknown} event */
+    /** @param {string} operationId @param {import("../../../shared/session/session-runtime-events.js").SessionRuntimeEvent} event */
     appendOperationEvent(operationId, event) {
         const record = this.operations.get(operationId);
-        if (!record || record.events.length >= 500) return;
-        record.events.push(event);
+        if (!record) return;
+        appendLiveSessionEvent(record.events, event);
+        if (!record.runwieldSessionId && record.runtimeSessionId) {
+            record.runwieldSessionId =
+                this.runtime.getSessionSnapshot(record.runtimeSessionId)?.managed?.runwieldSessionId || null;
+        }
         this.notifyOperation(operationId);
+    }
+
+    /** @param {string} projectId */
+    resolveBrowserNotificationPolicy(projectId) {
+        const project = typeof this.store.getProjectById === "function" ? this.store.getProjectById(projectId) : null;
+        const raw = project ? getMergedCustomSetting("notifications", project.currentRoot) : undefined;
+        return normalizeBrowserNotificationPolicy(raw);
     }
 
     /** @param {string} operationId @param {(snapshot: Record<string, unknown>) => void} listener */
@@ -320,21 +374,51 @@ export class WorkspaceSessionContinuationService {
 
     /**
      * @param {string} projectId
-     * @param {{ page?: number, pageSize?: number }} [options]
+     * @param {{ page?: number, pageSize?: number, includeEmpty?: boolean }} [options]
      */
     async listSessions(projectId, options = {}) {
         // Normal listing reads the incremental catalog. Full transcript discovery remains an explicit rescan path.
-        const result = await this.store.listProjectSessions(projectId, { ...options, catalog: false });
+        const result = await this.store.listProjectSessions(projectId, { page: 0, pageSize: 100, catalog: false });
+        const catalog = [...result.sessions];
+        let nextPage = result.hasNext;
+        for (let page = 1; nextPage; page++) {
+            const next = await this.store.listProjectSessions(projectId, { page, pageSize: 100, catalog: false });
+            catalog.push(...next.sessions);
+            nextPage = next.hasNext;
+        }
+        const visible = [];
+        // Read one Session at a time: large histories must not be loaded together just to build navigation.
+        for (const session of catalog) {
+            const segments = this.store.listSessionTranscriptSegments(session.runwieldSessionId);
+            const paths = segments.length
+                ? [...segments].sort((a, b) => a.ordinal - b.ordinal).map((segment) => segment.transcriptPath)
+                : [session.transcriptPath].filter(Boolean);
+            const displayName = await readSessionDisplayName(paths);
+            if (!options.includeEmpty && !displayName) continue;
+            visible.push({ ...session, displayName });
+        }
+        const page = typeof options.page === "number" && Number.isInteger(options.page) && options.page >= 0
+            ? options.page
+            : 0;
+        const pageSize =
+            typeof options.pageSize === "number" && Number.isInteger(options.pageSize) && options.pageSize > 0
+                ? Math.min(options.pageSize, 100)
+                : 30;
+        const start = page * pageSize;
         return {
             ...result,
+            page,
+            pageSize,
+            total: visible.length,
+            hasNext: start + pageSize < visible.length,
+            hasPrevious: page > 0 && start < visible.length,
             diagnostics: result.diagnostics || [],
-            sessions: await Promise.all(result.sessions.map(async (session) => {
+            sessions: visible.slice(start, start + pageSize).map((session) => {
                 const inspected = this.store.inspectSessionActivation(session.runwieldSessionId);
-                const transcriptName = session.transcriptPath ? await readSessionName(session.transcriptPath) : "";
                 return {
                     runwieldSessionId: session.runwieldSessionId,
                     projectId,
-                    displayName: transcriptName || session.displayName || "Untitled Session",
+                    displayName: session.displayName,
                     headerTimestamp: session.headerTimestamp,
                     lastCatalogedAt: session.lastCatalogedAt,
                     state: inspected.activation?.state || "missing_activation",
@@ -347,7 +431,7 @@ export class WorkspaceSessionContinuationService {
                         : inspected.activation?.state || "idle",
                     bootstrapRequired: inspected.activation?.state === "uninitialized",
                 };
-            })),
+            }),
         };
     }
 
@@ -390,7 +474,7 @@ export class WorkspaceSessionContinuationService {
 
     /**
      * @param {string} runwieldSessionId
-     * @param {{ projectId?: string, cursorEventId?: string, limit?: number }} [options]
+     * @param {{ projectId?: string, cursorEventId?: string, limit?: number, latest?: boolean, beforeEventId?: string }} [options]
      */
     async timeline(runwieldSessionId, options = {}) {
         const session = this.store.getSessionById(runwieldSessionId);
@@ -401,8 +485,8 @@ export class WorkspaceSessionContinuationService {
         }
         let inspected = this.store.inspectSessionActivation(runwieldSessionId);
         if (
-            !inspected.generation &&
-            ["uninitialized", "uncertain", "reconcile_required"].includes(inspected.activation?.state || "")
+            ["uncertain", "reconcile_required"].includes(inspected.activation?.state || "") ||
+            (!inspected.generation && inspected.activation?.state === "uninitialized")
         ) {
             await this.runtime.ensureInitialSessionGeneration(runwieldSessionId);
             inspected = this.store.inspectSessionActivation(runwieldSessionId);
@@ -429,7 +513,31 @@ export class WorkspaceSessionContinuationService {
             segments: this.store.listSessionTranscriptSegments(runwieldSessionId),
             cursorEventId: options.cursorEventId,
             limit: options.limit,
+            latest: options.latest,
+            beforeEventId: options.beforeEventId,
         });
+        if (projection.ok) {
+            /** @type {import('../../../shared/session/live-session-connection.ts').LiveSessionInfo | null | undefined} */
+            let liveInfo = this.runtime.listSessions().find((item) =>
+                item.managed?.runwieldSessionId === runwieldSessionId && !item.managed.dormant
+            );
+            if (!liveInfo && state === "active" && inspected.activation?.operationId) {
+                try {
+                    liveInfo = (await readLiveSessionConnection(runwieldSessionId, inspected.activation.operationId))
+                        .sessionInfo;
+                } catch {
+                    // Committed information remains available when the running surface cannot be reached.
+                }
+            }
+            const segments = this.store.listSessionTranscriptSegments(runwieldSessionId);
+            const paths = segments.length
+                ? [...segments].sort((a, b) => a.ordinal - b.ordinal).map((segment) => segment.transcriptPath)
+                : [session.transcriptPath].filter(Boolean);
+            projection.snapshot.name = liveInfo?.name || await readSessionDisplayName(paths);
+            if (liveInfo?.sessionStats) projection.snapshot.sessionStats = liveInfo.sessionStats;
+            projection.snapshot.contextUsage = liveInfo?.contextUsage || null;
+            projection.snapshot.systemContextTokens = liveInfo?.systemContextTokens ?? null;
+        }
         return {
             state: state || "idle",
             activeSurface,
@@ -540,7 +648,7 @@ export class WorkspaceSessionContinuationService {
                 const runtimeSessionId = activeOperation.record.runtimeSessionId;
                 if (!runtimeSessionId) throw new Error("Active Runtime Session is not available.");
                 const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (options.thinkingLevel);
-                const result = this.runtime.setSessionThinkingLevel(runtimeSessionId, thinkingLevel);
+                const result = await this.runtime.setSessionThinkingLevel(runtimeSessionId, thinkingLevel);
                 if (!result?.ok) throw new Error(result?.error || "Selected thinking level could not be applied.");
             }
             const hasPendingConfiguration = Object.keys(pendingConfiguration).length > 0;
@@ -592,10 +700,40 @@ export class WorkspaceSessionContinuationService {
     /**
      * @param {{ operationId: string }} options
      */
-    cancelOperation(options) {
+    async cancelOperation(options) {
         const operation = this.operations.get(options.operationId);
-        if (!operation?.runtimeSessionId) throw new Error("No active Workspace operation to stop.");
+        if (operation?.remote && operation.runwieldSessionId) {
+            await readLiveSessionConnection(operation.runwieldSessionId, options.operationId, { action: "cancel" });
+            return { ok: true };
+        }
+        if (!operation?.runtimeSessionId) throw new Error("No running turn to stop.");
         return this.runtime.cancelSession(operation.runtimeSessionId);
+    }
+
+    /**
+     * @typedef {Object} WorkspaceSteeringRequest
+     * @property {string} projectId
+     * @property {string} operationId
+     * @property {string} requestId
+     * @property {string} text
+     * @property {import('../../../shared/session/types.js').ImageAttachment[]} images
+     */
+    /** @param {WorkspaceSteeringRequest} options */
+    async steerOperation(options) {
+        const operation = this.operations.get(options.operationId);
+        if (
+            operation?.projectId !== options.projectId || operation.status !== "running" || !operation.runwieldSessionId
+        ) {
+            throw new Error("The turn has finished. Send your message as a follow-up.");
+        }
+        const activation = this.store.inspectSessionActivation(operation.runwieldSessionId).activation;
+        if (activation?.state !== "active" || !activation.operationId) return { ok: true, queued: false };
+        return await readLiveSessionConnection(operation.runwieldSessionId, activation.operationId, {
+            action: "steer",
+            requestId: options.requestId,
+            text: options.text,
+            images: options.images,
+        });
     }
 
     /**
@@ -671,13 +809,85 @@ export class WorkspaceSessionContinuationService {
     }
 
     /**
+     * @param {string} operationId
+     * @param {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} request
+     * @param {NonNullable<WorkspaceOperationRecord['answer']>} answer
+     */
+    registerInteraction(operationId, request, answer) {
+        const current = this.operations.get(operationId);
+        if (!current) throw new Error("The running turn is no longer available.");
+        const interactionId = String(request.id);
+        const planReview = request.type === "plan_review" ? safePlanReviewReference(request) : null;
+        const codeReview = request.type === "code_review" ? safeCodeReviewReference(request) : null;
+        const artifactReview = request.type === "artifact_review" ? safeArtifactReviewReference(request) : null;
+        if (codeReview) {
+            const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
+            const executionCwd = typeof meta.executionCwd === "string" ? meta.executionCwd.trim() : "";
+            if (executionCwd) {
+                this.codeReviewRefreshContexts.set(`${operationId}:${interactionId}`, {
+                    cwd: executionCwd,
+                    ...(typeof meta.baselineTree === "string" && { baselineTree: meta.baselineTree }),
+                });
+            }
+        }
+        const reviewUrl = planReview
+            ? `/projects/${encodeURIComponent(current.projectId)}/plans/${
+                encodeURIComponent(planReview.planId)
+            }?session=${encodeURIComponent(current.runwieldSessionId || "")}&operation=${
+                encodeURIComponent(operationId)
+            }&interaction=${encodeURIComponent(interactionId)}`
+            : codeReview
+            ? `/projects/${encodeURIComponent(current.projectId)}/sessions/${
+                encodeURIComponent(current.runwieldSessionId || "")
+            }/review/code?operation=${encodeURIComponent(operationId)}&interaction=${encodeURIComponent(interactionId)}`
+            : artifactReview
+            ? `/projects/${encodeURIComponent(current.projectId)}/sessions/${
+                encodeURIComponent(current.runwieldSessionId || "")
+            }/artifacts/${encodeURIComponent(artifactReview.artifactId)}`
+            : null;
+        if (codeReview && reviewUrl) {
+            const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
+            if (typeof meta.onSurfaceReady === "function") meta.onSurfaceReady({ url: reviewUrl, opened: false });
+        }
+        this.setOperation(operationId, {
+            ...current,
+            liveInteraction: {
+                interactionId,
+                request: {
+                    id: interactionId,
+                    type: request.type,
+                    prompt: request.prompt,
+                    options: Array.isArray(request.options)
+                        ? request.options.map(
+                            /** @param {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionOption} option */ (
+                                option,
+                            ) => ({
+                                value: option.value,
+                                label: option.label,
+                                description: option.description,
+                            }),
+                        )
+                        : [],
+                    defaultValue: request.defaultValue,
+                    placeholder: request.placeholder,
+                    allowEmpty: request.allowEmpty === true,
+                    ...(planReview && { planReview, reviewUrl }),
+                    ...(codeReview && { codeReview, reviewUrl }),
+                    ...(artifactReview && { artifactReview, reviewUrl }),
+                },
+            },
+            answer,
+        });
+    }
+
+    /**
      * @param {{ operationId: string }} options
      */
     createInteractionAdapter(options) {
         return {
             supportsInteraction: () => true,
-            /** @param {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} request */
-            requestInteraction: (request) => {
+            /** @param {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} request @param {AbortSignal} [signal] */
+            requestInteraction: (request, signal) => {
                 const interactionId = String(request.id || crypto.randomUUID());
                 return new Promise((resolve, reject) => {
                     const current = this.operations.get(options.operationId);
@@ -685,67 +895,20 @@ export class WorkspaceSessionContinuationService {
                         reject(new Error("Workspace operation is not running."));
                         return;
                     }
-                    const planReview = request.type === "plan_review" ? safePlanReviewReference(request) : null;
-                    const codeReview = request.type === "code_review" ? safeCodeReviewReference(request) : null;
-                    const artifactReview = request.type === "artifact_review"
-                        ? safeArtifactReviewReference(request)
-                        : null;
-                    if (codeReview) {
-                        const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
-                        const executionCwd = typeof meta.executionCwd === "string" ? meta.executionCwd.trim() : "";
-                        if (executionCwd) {
-                            this.codeReviewRefreshContexts.set(`${options.operationId}:${interactionId}`, {
-                                cwd: executionCwd,
-                                ...(typeof meta.baselineTree === "string" && { baselineTree: meta.baselineTree }),
+                    this.registerInteraction(options.operationId, request, { resolve, reject });
+                    const abort = () => {
+                        const latest = this.operations.get(options.operationId);
+                        if (latest?.liveInteraction?.interactionId === interactionId) {
+                            this.setOperation(options.operationId, {
+                                ...latest,
+                                liveInteraction: undefined,
+                                answer: null,
                             });
                         }
-                    }
-                    const reviewUrl = planReview
-                        ? `/projects/${encodeURIComponent(current.projectId)}/plans/${
-                            encodeURIComponent(planReview.planId)
-                        }?session=${encodeURIComponent(current.runwieldSessionId || "")}&operation=${
-                            encodeURIComponent(options.operationId)
-                        }&interaction=${encodeURIComponent(interactionId)}`
-                        : codeReview
-                        ? `/projects/${encodeURIComponent(current.projectId)}/sessions/${
-                            encodeURIComponent(current.runwieldSessionId || "")
-                        }/review/code?operation=${encodeURIComponent(options.operationId)}&interaction=${
-                            encodeURIComponent(interactionId)
-                        }`
-                        : artifactReview
-                        ? `/projects/${encodeURIComponent(current.projectId)}/sessions/${
-                            encodeURIComponent(current.runwieldSessionId || "")
-                        }/artifacts/${encodeURIComponent(artifactReview.artifactId)}`
-                        : null;
-                    this.setOperation(options.operationId, {
-                        ...current,
-                        liveInteraction: {
-                            interactionId,
-                            request: {
-                                id: interactionId,
-                                type: request.type,
-                                prompt: request.prompt,
-                                options: Array.isArray(request.options)
-                                    ? request.options.map(
-                                        /** @param {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionOption} option */ (
-                                            option,
-                                        ) => ({
-                                            value: option.value,
-                                            label: option.label,
-                                            description: option.description,
-                                        }),
-                                    )
-                                    : [],
-                                defaultValue: request.defaultValue,
-                                placeholder: request.placeholder,
-                                allowEmpty: request.allowEmpty === true,
-                                ...(planReview && { planReview, reviewUrl }),
-                                ...(codeReview && { codeReview, reviewUrl }),
-                                ...(artifactReview && { artifactReview, reviewUrl }),
-                            },
-                        },
-                        answer: { resolve, reject },
-                    });
+                        reject(new DOMException("Interaction canceled.", "AbortError"));
+                    };
+                    signal?.addEventListener("abort", abort, { once: true });
+                    if (signal?.aborted) abort();
                 });
             },
             cancelAll: () => {
@@ -756,10 +919,10 @@ export class WorkspaceSessionContinuationService {
     }
 
     /**
-     * @param {{ deviceId?: string | null, projectId: string, requestId: string, text: string, agentName?: string, model?: string, provider?: string, thinkingLevel?: string }} options
+     * @param {{ deviceId?: string | null, projectId: string, requestId: string, text: string, images?: import("../../../shared/session/types.js").ImageAttachment[], agentName?: string, model?: string, provider?: string, thinkingLevel?: string }} options
      */
     async createSession(options) {
-        if (!options.text || typeof options.text !== "string") throw new Error("User Request is required.");
+        if (!options.text?.trim() && !options.images?.length) throw new Error("A message or image is required.");
         await Promise.resolve();
         const project = this.store.getProjectById(options.projectId);
         if (!project || project.lifecycle !== "enabled") throw new Error("Project not found.");
@@ -781,7 +944,13 @@ export class WorkspaceSessionContinuationService {
         if (launch.thinkingLevel !== "default" && !sessionOptions.thinkingLevels.includes(launch.thinkingLevel)) {
             throw new Error("Selected thinking level is not supported.");
         }
-        const requestHash = stableHash({ kind: "create", projectId: options.projectId, text: options.text, launch });
+        const requestHash = stableHash({
+            kind: "create",
+            projectId: options.projectId,
+            text: options.text,
+            images: options.images || [],
+            launch,
+        });
         const createKey = `${options.deviceId || ""}:${options.projectId}:${options.requestId}`;
         const existing = this.createRequests.get(createKey);
         if (existing) {
@@ -818,6 +987,7 @@ export class WorkspaceSessionContinuationService {
                     ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
                     status: "running",
                     runtimeSessionId: sessionId,
+                    runwieldSessionId: this.runtime.getSessionSnapshot(sessionId)?.managed?.runwieldSessionId || null,
                 });
                 this.runtime.setInteractionAdapter(sessionId, this.createInteractionAdapter({ operationId }));
                 unsubscribe = this.runtime.subscribeSessionEvents(sessionId, (event) => {
@@ -833,12 +1003,12 @@ export class WorkspaceSessionContinuationService {
                 }
                 if (launch.thinkingLevel !== "default") {
                     const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (launch.thinkingLevel);
-                    const thinkingResult = this.runtime.setSessionThinkingLevel(sessionId, thinkingLevel);
+                    const thinkingResult = await this.runtime.setSessionThinkingLevel(sessionId, thinkingLevel);
                     if (!thinkingResult?.ok) throw new Error("Selected thinking level could not be applied.");
                 }
                 const result = await this.runtime.promptUserTurn(sessionId, {
                     initialRequest: options.text,
-                    initialImages: [],
+                    initialImages: options.images || [],
                     agentName: launch.agentName,
                 });
                 const snapshot = this.runtime.getSessionSnapshot(sessionId);
@@ -869,7 +1039,7 @@ export class WorkspaceSessionContinuationService {
      * @param {{ deviceId?: string | null, projectId: string, runwieldSessionId: string, requestId: string, expectedGeneration: number, text: string, images?: Array<{ base64: string, mimeType: string }> }} options
      */
     async startContinuation(options) {
-        if (!options.text || typeof options.text !== "string") throw new Error("Continuation text is required.");
+        if (!options.text?.trim() && !options.images?.length) throw new Error("A message or image is required.");
         const requestHash = stableHash({
             kind: "continuation",
             session: options.runwieldSessionId,
@@ -1082,7 +1252,24 @@ export class WorkspaceSessionContinuationService {
             const planReview = request?.planReview && typeof request.planReview === "object"
                 ? /** @type {Record<string, unknown>} */ (request.planReview)
                 : null;
-            if (request?.type === "plan_review" && planReview) {
+            if (request?.type === "plan_review" && Array.isArray(planReview?.sequenceDocuments)) {
+                const decision = readPlanReviewDecisionMeta(options.response);
+                await validateSequenceReviewDecision(
+                    requireOwnerProjectRoot(this.store, options.projectId),
+                    /** @type {import('../../../shared/workflow/sequence-review.ts').SequenceReviewDocument[]} */ (planReview
+                        .sequenceDocuments),
+                    /** @type {import('../../../shared/workflow/sequence-review.ts').SequenceReviewDecision} */ (decision),
+                );
+                runtimeResponse = {
+                    outcome: "accepted",
+                    _meta: {
+                        approved: decision.approved === true,
+                        approvalAction: decision.approvalAction,
+                        feedback: decision.feedback,
+                        sequenceDecision: decision,
+                    },
+                };
+            } else if (request?.type === "plan_review" && planReview) {
                 const root = requireOwnerProjectRoot(this.store, options.projectId);
                 const planId = String(planReview.planId || "");
                 const plan = await findPlanEvidenceById(root, planId);
@@ -1135,9 +1322,9 @@ export class WorkspaceSessionContinuationService {
                     });
                     throw new Error(message);
                 }
-                runtimeResponse = { outcome: "accepted", _meta: actionResult };
+                runtimeResponse = { outcome: "accepted", _meta: { ...actionResult } };
             }
-            operation.answer.resolve(runtimeResponse);
+            await operation.answer.resolve(runtimeResponse);
             this.codeReviewRefreshContexts.delete(`${options.operationId}:${options.interactionId}`);
             this.setOperation(options.operationId, { ...operation, liveInteraction: undefined, answer: null });
             const result = { status: "accepted" };
@@ -1156,7 +1343,10 @@ export class WorkspaceSessionContinuationService {
     /**
      * @param {{ projectId: string, operationId: string, interactionId: string, runwieldSessionId: string, planId: string }} options
      */
-    getLivePlanReview(options) {
+    async getLivePlanReview(options) {
+        if (!this.operations.has(options.operationId) || this.operations.get(options.operationId)?.remote) {
+            await this.liveSession(options.projectId, options.runwieldSessionId);
+        }
         const operation = this.operations.get(options.operationId);
         if (!operation || operation.status !== "running" || operation.projectId !== options.projectId) return null;
         if (operation.runwieldSessionId !== options.runwieldSessionId) return null;
@@ -1176,6 +1366,9 @@ export class WorkspaceSessionContinuationService {
      * @param {{ projectId: string, operationId: string, interactionId: string, runwieldSessionId: string }} options
      */
     async getLiveCodeReview(options) {
+        if (!this.operations.has(options.operationId) || this.operations.get(options.operationId)?.remote) {
+            await this.liveSession(options.projectId, options.runwieldSessionId);
+        }
         const operation = this.operations.get(options.operationId);
         if (!operation || operation.status !== "running" || operation.projectId !== options.projectId) return null;
         if (operation.runwieldSessionId !== options.runwieldSessionId) return null;
@@ -1272,11 +1465,96 @@ export class WorkspaceSessionContinuationService {
         }
     }
 
+    /** @param {string} projectId @param {string} runwieldSessionId */
+    async liveSession(projectId, runwieldSessionId) {
+        const session = this.store.getSessionById(runwieldSessionId);
+        if (!session || !sessionBelongsToOwnerProject(this.store, session, projectId)) {
+            throw new Error("Session not found.");
+        }
+        const inspected = this.store.inspectSessionActivation(runwieldSessionId);
+        const state = inspected.activation?.state || "uninitialized";
+        const generation = inspected.generation?.generation ?? null;
+        const local = [...this.operations.entries()].find(([, operation]) =>
+            !operation.remote && operation.runwieldSessionId === runwieldSessionId && operation.status === "running"
+        );
+        if (local) return { state, generation, operation: this.getOperation(local[0]) };
+        const operationId = inspected.activation?.operationId;
+        if (state !== "active" || !operationId) return { state, generation, operation: null };
+        let live;
+        try {
+            live = await readLiveSessionConnection(runwieldSessionId, operationId);
+        } catch {
+            // The process may still be opening or finishing its turn. Retry on the next observation.
+            return { state, generation, operation: null };
+        }
+        this.setOperation(operationId, {
+            status: "running",
+            projectId,
+            runwieldSessionId,
+            remote: true,
+            generation,
+            events: live.events,
+            queuedMessages: live.queuedMessages,
+        });
+        if (live.interaction) {
+            const interactionId = live.interaction.id;
+            this.registerInteraction(operationId, live.interaction, {
+                resolve: async (response) => {
+                    await readLiveSessionConnection(runwieldSessionId, operationId, {
+                        action: "answer",
+                        interactionId,
+                        response,
+                    });
+                },
+                reject: () => {
+                    void readLiveSessionConnection(runwieldSessionId, operationId, {
+                        action: "answer",
+                        interactionId,
+                        response: { outcome: "canceled" },
+                    }).catch(() => {});
+                },
+            });
+        }
+        return { state, generation, operation: this.getOperation(operationId) };
+    }
+
+    /** @param {string} operationId */
+    async refreshOperation(operationId) {
+        const operation = this.operations.get(operationId);
+        if (operation?.remote && operation.runwieldSessionId && operation.status === "running") {
+            const live = await this.liveSession(operation.projectId, operation.runwieldSessionId);
+            if (
+                live.operation?.operationId !== operationId &&
+                (live.state !== "active" || live.operation || live.generation !== operation.generation)
+            ) {
+                this.setOperation(operationId, {
+                    ...operation,
+                    status: live.state === "idle" || live.generation !== operation.generation ? "completed" : "unknown",
+                    liveInteraction: undefined,
+                    answer: null,
+                });
+            } else if (!live.operation) {
+                this.setOperation(operationId, { ...operation, liveInteraction: undefined, answer: null });
+            }
+        }
+        return this.getOperation(operationId);
+    }
+
     /** @param {string} operationId */
     getOperation(operationId) {
         const live = this.operations.get(operationId);
         const durable = this.store.getOperationReceipt(operationId);
-        if (!durable) return live ? { operationId, ...live } : { operationId, status: "unknown", events: [] };
+        if (!durable) {
+            if (!live) return { operationId, status: "unknown", events: [] };
+            const { answer: _answer, runtimeSessionId: _runtimeSessionId, ...snapshot } = live;
+            return {
+                operationId,
+                ...snapshot,
+                queuedMessages: live.runtimeSessionId
+                    ? this.runtime.getQueuedMessages(live.runtimeSessionId)
+                    : live.queuedMessages || [],
+            };
+        }
         if (!live && (durable.status === "accepted" || durable.status === "running")) {
             return {
                 operationId,
@@ -1292,8 +1570,13 @@ export class WorkspaceSessionContinuationService {
             generation: durable.resultGeneration,
             error: durable.errorMessage || durable.errorCode,
             events: live?.events || [],
+            queuedMessages: live?.runtimeSessionId
+                ? this.runtime.getQueuedMessages(live.runtimeSessionId)
+                : live?.queuedMessages || [],
             liveInteraction: live?.liveInteraction || null,
             pendingConfiguration: live?.pendingConfiguration || null,
+            browserNotificationPolicy: live?.browserNotificationPolicy ||
+                (live?.projectId ? this.resolveBrowserNotificationPolicy(live.projectId) : undefined),
         };
     }
 }

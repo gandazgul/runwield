@@ -1175,6 +1175,26 @@ export async function runPlanReviewDecisionTransition<T>(
     });
 }
 
+/** One review decision owns the complete Sequence, including every child lock. */
+interface SequenceReviewTransitionOptions<T> extends TransitionOptionsBase {
+    approved: boolean;
+    planNames: string[];
+    decide: (ctx: RollbackTransitionContext) => Promise<T>;
+}
+
+export async function runSequenceReviewTransition<T>(
+    opts: SequenceReviewTransitionOptions<T>,
+): Promise<TransitionResult> {
+    return await runSemanticTransition({
+        projectRoot: opts.projectRoot,
+        planName: opts.planName,
+        operation: opts.approved ? "sequence_review_approved" : "sequence_review_feedback",
+        resources: [{ kind: "catalog" }, ...opts.planNames.map((id) => ({ kind: "plan" as const, id }))],
+        expectedEffects: ["sequence_review_prepared", "sequence_review_accepted"],
+        apply: opts.decide,
+    });
+}
+
 /**
  * Semantic boundary for reopening a Plan review and abandoning its recorded execution attempt.
  */
@@ -1621,26 +1641,6 @@ export async function runValidationOutcomeTransition<T>(
                 value,
             };
         },
-    });
-}
-
-export async function runPlanAmendmentTransition<T>(
-    opts: TransitionOptionsBase & {
-        settle: (ctx: RollbackTransitionContext) => Promise<T>;
-        verifyAmendment?: (value: T) => Promise<Record<string, unknown> | void> | Record<string, unknown> | void;
-    },
-): Promise<TransitionResult> {
-    const resources: TransitionResource[] = [{ kind: "catalog" }, { kind: "plan", id: opts.planName }];
-    if (opts.worktreeId) resources.push({ kind: "attempt", id: opts.worktreeId });
-    return await runSemanticTransition({
-        projectRoot: opts.projectRoot,
-        planName: opts.planName,
-        operation: "validation_plan_amendment",
-        resources,
-        expectedRevision: opts.expectedRevision,
-        expectedEffects: ["execution_plan_amended"],
-        apply: async (ctx) => await opts.settle(ctx),
-        verify: opts.verifyAmendment ? async (value) => await opts.verifyAmendment?.(value) : undefined,
     });
 }
 

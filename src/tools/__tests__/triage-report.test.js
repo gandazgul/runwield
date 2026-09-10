@@ -54,7 +54,7 @@ Deno.test("triage_report execute returns canonical routingIntent details for INQ
         assert(!("classification" in result.details));
         assertMatch(result.content[0].text, /Triage complete/);
         assertEquals(events.length, 2);
-        assertMatch(events[1].message, /Routing Intent: INQUIRY/);
+        assertEquals(events[1].message, "\n\nRouting Intent: INQUIRY\nComplexity: LOW\nSummary: explain routing");
         const metrics = await readMetrics();
         assertEquals(metrics.length, 1);
         assertEquals(metrics[0].category, "routing");
@@ -101,7 +101,10 @@ Deno.test("triage_report accepts documentation Work Kind only for planned change
         });
 
         assertEquals(planned.details.workKind, "DOCUMENTATION");
-        assertMatch(events[1].message, /Work Kind: DOCUMENTATION/);
+        assertEquals(
+            events[1].message,
+            "\n\nRouting Intent: PLANNED_CHANGE\nWork Kind: DOCUMENTATION\nComplexity: MEDIUM\nSummary: refresh public docs",
+        );
         assertEquals(operation.details.routingIntent, "OPERATION");
         assertEquals(operation.details.workKind, undefined);
         const metrics = await readMetrics();

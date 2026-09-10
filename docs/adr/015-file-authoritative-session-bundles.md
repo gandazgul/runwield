@@ -6,14 +6,10 @@ status: accepted
 
 ## Context
 
-ADR-011 correctly required one writable process per Session, stable RunWield Session identity above Pi IDs, committed
-generation evidence, and ordered transcript segments. It placed those authorities in the Personal Workspace SQLite
-database and used renewable activation leases.
-
-That made the local TUI and ACP harness depend on Workspace infrastructure even when a user never opened Workspace. It
-also made deletion or corruption of the Workspace database capable of blocking otherwise intact Pi transcripts. Core
-should remain a lightweight file-only harness, while Workspace needs a database for its own registration, authorization,
-request receipts, and projections.
+Personal Workspace serves one owner moving between TUI and browser, including a phone. An open window does not own a
+Session permanently. Core must preserve one conversation across those surfaces without requiring Workspace
+infrastructure for local TUI or ACP use. Workspace registration, device pairing, and request receipts remain Workspace
+concerns.
 
 Pi already supplies durable JSONL transcripts. Its entries form an in-file tree with entry IDs and parent IDs; forked or
 cloned transcript files also record their parent Session. RunWield can add stable cross-file segment lineage without
@@ -40,9 +36,14 @@ manifest commits. They are redundant recovery evidence, not a second authority.
 Before TUI, ACP, Workspace, or another Runtime surface hydrates or mutates a Session, it acquires the bundle's exclusive
 OS file lock. Other surfaces may read committed evidence but cannot construct a writable Pi manager.
 
-The operating system releases the lock when its process or file descriptor closes. Core has no lease duration, heartbeat
-deadline, or forced takeover. After a crash, the next inspector can acquire the lock and compare the current transcript
-with the last committed or activation-baseline evidence:
+The lock belongs to the active managed operation, not to the lifetime of an open TUI window or Workspace server. Core
+explicitly releases it when the operation settles. This scope protects an operation's transcript context while allowing
+the owner to continue from another screen between operations. An idle resumed Session is a dormant reader; other open
+surfaces do not need to close first. The operating system also releases a held lock if its process or file descriptor
+closes unexpectedly.
+
+Core has no lease duration, heartbeat deadline, or forced takeover. After a crash, the next inspector can acquire the
+lock and compare the current transcript with the last committed or activation-baseline evidence:
 
 - an exact match returns the Session to idle;
 - changed or ambiguous evidence requires reconciliation; and
@@ -83,6 +84,34 @@ An older database-only stable ID may be replaced during file migration when the 
 This is an internal identity migration: the visible conversation and transcript are preserved without prompting the
 user.
 
+### Read synchronization and live interactions
+
+Read-only projection verifies saved transcript evidence across the ordered segments. It does not acquire a writer lock
+or construct a writable Pi manager. Event pagination is a display concern: a successful verified projection with another
+page is not corrupt history. Writable hydration uses the current segment; the browser need not render every historical
+event before Core can accept a new request.
+
+Open readers use committed generations to discover saved changes without replaying model calls or tool effects. During
+an operation, Core exposes a private local socket identified by the existing Session and operation IDs. Workspace reads
+Core's live events, pending question, and steering queue through that socket. Answers, steering messages, and Stop reach
+the same running agent. The socket closes with the operation; it stores no conversation or recovery state. Both surfaces
+run as the same OS user on the same machine or inside the same container. File projection supplies saved history; the
+socket supplies live activity.
+
+Pi persists completed tool calls and interaction answers. A pending interaction remains an in-memory wait in its live
+process. An answer must reach that process to continue the wait; it does not require a separate durable interaction
+state machine. Browser disconnection does not cancel the wait. If the process is lost, the user can ask the Agent to
+retry from saved history. Runtime stacks and unfinished external effects are not reconstructed automatically.
+
+### Plan actions and notification delivery
+
+Plan Lifecycle, Plan content, and worktree evidence own their respective workflow facts. A consequential action checks
+current evidence at action time. A Session's past association with a Plan does not grant permanent ownership or prove
+that an operation is still running. HTTP receipts deduplicate request delivery; they do not own workflow progress.
+
+Core emits semantic notification events and adapters deliver them. Notifications do not require durable attention
+records, acknowledgements, or resolution state.
+
 ### Workspace database is Workspace-only
 
 Workspace SQLite stores explicitly registered Projects, paired devices, bounded endpoint receipts, and rebuildable
@@ -108,8 +137,8 @@ semantics. Workspace remains a consumer and projection layer rather than the sou
 - Transcript deletion still loses the deleted transcript content; manifests do not duplicate conversation history.
 - The SQLite Session catalog, activation, generation, and segment tables remain readable only for compatibility and
   migration history. Production Session operations do not write them.
-- ADR-011 remains authoritative for exclusive mutation and conservative replay boundaries, but its SQLite Session
-  authority, renewable lease, heartbeat expiry, and forced-takeover design are superseded by this ADR.
+- This ADR defines current Session storage, writer coordination, and continuity. Prior designs are available in Git
+  history, not as additional current architectural rules.
 
 ## Rejected Alternatives
 

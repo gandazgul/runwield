@@ -98,7 +98,9 @@ interface RecoveryMenuOption extends Record<string, string> {
     label: string;
 }
 
-export async function handlePlanRecovery(opts: HandlePlanRecoveryOptions): Promise<"handled" | "review" | "settled"> {
+export async function handlePlanRecovery(
+    opts: HandlePlanRecoveryOptions,
+): Promise<"handled" | "review" | "settled" | "verified"> {
     const { projectRoot, plan, uiAPI } = opts;
     // Recovery preflight is scoped to the selected Plan. It refreshes the
     // authoritative Plan document and gathers only the evidence needed to build
@@ -421,12 +423,14 @@ async function dispatchRecoveryAction(
     }
 }
 
-function translateRecoveryOutcome(outcome: RecoveryActionOutcome): "handled" | "review" | "settled" | null {
+function translateRecoveryOutcome(
+    outcome: RecoveryActionOutcome,
+): "handled" | "review" | "settled" | "verified" | null {
     switch (outcome.kind) {
         case "menu":
             return null;
         case "handled":
-            return "handled";
+            return outcome.verified ? "verified" : "handled";
         case "review":
             return "review";
         case "settled":

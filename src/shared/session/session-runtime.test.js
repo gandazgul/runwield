@@ -1,4 +1,11 @@
-import { assert, assertEquals, assertRejects, assertStrictEquals, assertStringIncludes } from "@std/assert";
+import {
+    assert,
+    assertEquals,
+    assertExists,
+    assertRejects,
+    assertStrictEquals,
+    assertStringIncludes,
+} from "@std/assert";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -9,12 +16,7 @@ import { SessionHost } from "./session-host.js";
 import { switchActiveAgent } from "./agent-switching.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { RuntimeInteractionTypes } from "./session-runtime-interactions.js";
-import {
-    createSessionRuntime,
-    SessionRuntime,
-    SessionTurnInProgressError,
-    shouldEmitProjectedAttention,
-} from "./session-runtime.js";
+import { createSessionRuntime, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.js";
 import { getRootSessionRebuildOptions } from "./session.js";
 import { createRootSessionManager, getRunWieldSessionDir, resolveCreatedRootSessionPath } from "./root-session.js";
 import { openFileSessionStore } from "./file-session-store.ts";
@@ -334,6 +336,9 @@ function makeSteeringAgentSession() {
             steering.shift();
             session.emitQueueUpdate();
         },
+        consumeNextSteeringSilently() {
+            steering.shift();
+        },
         dispose() {},
     });
     return session;
@@ -344,7 +349,7 @@ Deno.test("SessionRuntime exposes opaque ids and snapshots, never HostedSession 
     const created = await runtime.createInteractiveSession({ cwd: runtimeProjectRoot() });
 
     assertEquals(typeof created.sessionId, "string");
-    assertEquals(created.cwd, runtimeProjectRoot());
+    assertEquals(await Deno.realPath(created.cwd), await Deno.realPath(runtimeProjectRoot()));
     assertEquals("hostedSession" in created, false);
     assertEquals("sessionManager" in created, false);
     assertEquals(Object.hasOwn(runtime, "sessionHost"), false);
@@ -567,12 +572,19 @@ Deno.test("SessionRuntime persists a newly managed Pi transcript before catalogi
                     mode: "new",
                 });
                 assertEquals(typeof created.sessionManagerId, "string");
-                const persisted = await runtime.listResumableSessions(cwd);
-                assertEquals(persisted.some((session) => session.id === created.sessionManagerId), true);
+                const managed = runtime.getSessionSnapshot(created.sessionId)?.managed;
+                const segment = store.getCurrentSessionSegment(managed?.runwieldSessionId || "");
+                assertExists(segment?.transcriptPath);
+                assertEquals((await Deno.stat(segment.transcriptPath)).isFile, true);
+                const resumable = await runtime.listResumableSessions(cwd);
+                assertEquals(resumable.some((session) => session.id === created.sessionManagerId), false);
+                await runtime.renameSession(created.sessionId, "Named empty Session");
+                const named = await runtime.listResumableSessions(cwd);
+                assertEquals(named.some((session) => session.id === created.sessionManagerId), true);
 
                 await runtime.switchAgent(created.sessionId, { agentName: "Ideator" });
                 const snapshot = runtime.getSessionSnapshot(created.sessionId);
-                assertEquals(snapshot?.managed?.generation, 1);
+                assertEquals(snapshot?.managed?.generation, 2);
             } finally {
                 await runtime.closeAllSessionsWhenIdle?.();
             }
@@ -1073,28 +1085,6 @@ Deno.test("SessionRuntime does not apply dormant local mutations when Session ev
     assertEquals(snapshot?.activeModel, { model: "", provider: "" });
     assertEquals(snapshot?.thinkingLevel, "off");
     store.close();
-});
-
-Deno.test("SessionRuntime emits projected attention only when the attention record changes", () => {
-    const summary = {
-        attention: {
-            eventId: "attention-entry:attention_requested:0",
-            reason: "agentStopped",
-            agentName: "Planner",
-        },
-    };
-
-    // First observation seeds the baseline: a transcript adopted with an attention
-    // entry already in it must not notify about that history.
-    assertEquals(shouldEmitProjectedAttention(summary, undefined), false);
-    // Repeat syncs project the same record and must stay silent.
-    assertEquals(shouldEmitProjectedAttention(summary, "attention-entry:attention_requested:0"), false);
-    // A newly appended attention entry notifies once.
-    assertEquals(shouldEmitProjectedAttention(summary, "older-entry:attention_requested:0"), true);
-    assertEquals(shouldEmitProjectedAttention(summary, null), true);
-    // No attention in the projection is never an emission.
-    assertEquals(shouldEmitProjectedAttention({ attention: null }, "older-entry:attention_requested:0"), false);
-    assertEquals(shouldEmitProjectedAttention(undefined, undefined), false);
 });
 
 Deno.test("SessionRuntime keeps dormant managed projection separate from runtime authority", () => {
@@ -2405,6 +2395,95 @@ Deno.test("SessionRuntime owns steering and deferred queue transitions", async (
     assertEquals(taken.message?.id, deferred.message?.id);
     assertEquals(statuses, ["queued", "queued", "consumed", "consumed"]);
     assertEquals(runtime.getQueuedMessages(sessionId), []);
+});
+
+Deno.test("SessionRuntime reconciles consumed steering at turn end when the backend emits no queue update", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const cwd = runtimeProjectRoot();
+    const sessionManager = SessionManager.create(cwd, getRunWieldSessionDir(cwd));
+    const agentSession = makeSteeringAgentSession();
+    const hostedSession = sessionHost.createSession({
+        id: crypto.randomUUID(),
+        cwd,
+        // @ts-expect-error Real SessionManager is runtime-compatible with HostedSession.
+        sessionManager,
+        managed: {
+            runwieldSessionId: "direct-turn",
+            projectId: "direct-turn-project",
+            piSessionId: sessionManager.getSessionId(),
+            transcriptPath: join(getRunWieldSessionDir(cwd), `${sessionManager.getSessionId()}.jsonl`),
+            currentSegmentId: "direct-turn-segment",
+            generation: 0,
+            acknowledgedGeneration: 0,
+            acknowledgedEventId: null,
+            name: null,
+            activeAgent: "router",
+            workflowContext: null,
+            syncState: null,
+        },
+    });
+    /** @type {import('./managed-operation.ts').ManagedOperationCapability} */
+    const capability = {
+        runtimeSessionId: hostedSession.id,
+        runwieldSessionId: "direct-turn",
+        operationId: "direct-turn-operation",
+        proof: {
+            runwieldSessionId: "direct-turn",
+            projectId: "direct-turn-project",
+            ownerInstanceId: "direct-turn-owner",
+            ownerProcessKind: "test",
+            operationId: "direct-turn-operation",
+            fence: 1,
+            phase: "turning",
+            expectedGeneration: 0,
+        },
+        settled: false,
+        registerArtifact: () => ({
+            artifactId: "direct-turn-artifact",
+            kind: "report",
+            path: "artifact.md",
+            title: "Artifact",
+            registeredAt: "2026-01-01T00:00:00.000Z",
+            registeredBy: "test",
+            sourceSegmentId: null,
+        }),
+        updateProof: () => {},
+        assertLive: () => {},
+        settle: () => {},
+    };
+    hostedSession.setManagedOperationCapability(capability);
+    hostedSession.setRootAgentName("router", capability);
+    hostedSession.setRootAgentSession(agentSession, capability);
+    /** @type {Array<{ ok: boolean, queued: boolean, error?: string, reason?: string }>} */
+    const steeredResults = [];
+    hostedSession.setActiveOnMessage(async () => {
+        steeredResults.push(await runtime.steerSession(hostedSession.id, "silent steering", []));
+        agentSession.consumeNextSteeringSilently();
+        return { kind: "complete" };
+    });
+    /** @type {Array<{ type: string, status?: string, text?: string }>} */
+    const events = [];
+    runtime.subscribeSessionEvents(hostedSession.id, (event) => {
+        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED) {
+            events.push({ type: event.type, status: event.status, text: event.message.text });
+        }
+        if (event.type === RuntimeEventTypes.USER_MESSAGE) {
+            events.push({ type: event.type, text: event.text });
+        }
+    });
+
+    await runtime.promptSession(hostedSession.id, { initialRequest: "start", initialImages: [] }, capability);
+
+    assertEquals(steeredResults[0]?.ok, true);
+    assertEquals(steeredResults[0]?.queued, true);
+    assertEquals(events, [
+        { type: RuntimeEventTypes.USER_MESSAGE, text: "start" },
+        { type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED, status: "queued", text: "silent steering" },
+        { type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED, status: "consumed", text: "silent steering" },
+        { type: RuntimeEventTypes.USER_MESSAGE, text: "silent steering" },
+    ]);
+    assertEquals(runtime.getQueuedMessages(hostedSession.id), []);
 });
 
 Deno.test("SessionRuntime lets dormant managed sessions consume deferred user follow-up messages", async () => {

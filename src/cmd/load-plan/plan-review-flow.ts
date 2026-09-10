@@ -1,3 +1,4 @@
+import { isSequencePlan } from "../../shared/project-plan.ts";
 /**
  * @module cmd/load-plan/plan-review-flow
  * Direct Plan Review handling for Plans loaded from disk.
@@ -10,7 +11,7 @@
 import { AGENTS, CLI_BIN } from "../../constants.js";
 import { type PlanFrontMatter, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { decidePostExecution, decidePostPlanning } from "../../shared/workflow/decisions.js";
-import { isEpicPlan, isPlanReviewableWithoutReopen, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
+import { isPlanReviewableWithoutReopen, isProjectPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../../shared/workflow/plan-approval.js";
 import {
@@ -109,7 +110,7 @@ export function getDirectPlanReviewEligibility(
     if (!DIRECT_REVIEW_STATUSES.has(plan.attrs.status || "")) {
         return { eligible: false, reason: "unsupported_status" };
     }
-    if (isEpicPlan(plan.attrs)) return { eligible: true };
+    if (isProjectPlan(plan.attrs)) return { eligible: true };
 
     if (!hasValidObjectiveFailingCheck(plan)) {
         return { eligible: false, reason: "missing_objective_failing_check" };
@@ -139,6 +140,30 @@ export async function reviewLoadedPlanDirectly({
         await resolveRecoveryWorktree(projectRoot, plan),
     );
 
+    if (isSequencePlan(plan.attrs)) {
+        const outcome = await runPlanningAgent({
+            agentName: AGENTS.PLANNER,
+            planName: plan.planName,
+            triageMeta: plan.attrs,
+            initialRequest:
+                `Open the complete saved Sequence ${plan.planName} for review using plan_written. Preserve its children and their IDs.`,
+            associationPurpose: "review",
+        });
+        const decision = decidePostPlanning(outcome, {
+            planningAgentName: AGENTS.PLANNER,
+            fallbackTriageMeta: plan.attrs,
+        });
+        await executePostPlanningDecision({
+            decision,
+            fallbackPlanContent: plan.markdown || plan.body || "",
+            uiAPI,
+            executePlan,
+            continueWorkflowValidation,
+            runSlicerAgent,
+            session,
+        });
+        return { keepPlanAgentActive: shouldKeepPlanningAgentActive(decision) };
+    }
     await session.switchAgent(agentName);
 
     const recoverableReview = await requestRecoverablePlanReview({
@@ -212,7 +237,7 @@ export async function reviewLoadedPlanDirectly({
             classification: plan.attrs.classification,
             action: reviewResult.approvalAction,
         });
-        if (isEpicPlan(plan.attrs)) {
+        if (isProjectPlan(plan.attrs)) {
             if (!validatePlanExecutionPolicyForReadiness(plan, uiAPI)) {
                 return { keepPlanAgentActive: true };
             }
@@ -311,7 +336,7 @@ export async function reviewLoadedPlanDirectly({
         planningAgentName: agentName,
         fallbackTriageMeta: plan.attrs,
     });
-    await executePostPlanningDecision({
+    const postPlanningResult = await executePostPlanningDecision({
         decision: planningDecision,
         fallbackPlanContent: plan.markdown || plan.body || "",
         uiAPI,
@@ -320,5 +345,7 @@ export async function reviewLoadedPlanDirectly({
         runSlicerAgent,
         session,
     });
-    return { keepPlanAgentActive: shouldKeepPlanningAgentActive(planningDecision) };
+    return {
+        keepPlanAgentActive: postPlanningResult === "verified" || shouldKeepPlanningAgentActive(planningDecision),
+    };
 }

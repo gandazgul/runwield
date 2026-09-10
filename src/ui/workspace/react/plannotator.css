@@ -5,6 +5,7 @@
 @source "../components";
 @source "../../../../third_party/plannotator/packages/ui";
 @source "../../../../third_party/plannotator/packages/review-editor";
+@source "../../../../third_party/plannotator/packages/guide-viewer";
 
 :root,
 html[class*="theme-"] {
@@ -1306,134 +1307,6 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     white-space: nowrap;
 }
 
-.rw-guide-explainer {
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-    min-height: 100%;
-    overflow-y: auto;
-    padding: 2rem min(5vw, 4rem) 4rem;
-    background: var(--plannotator-bg);
-}
-
-.rw-guide-explainer-header,
-.rw-guide-section {
-    width: min(100%, 72rem);
-    margin: 0 auto;
-}
-
-.rw-guide-explainer-header {
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--rw-border, #2d3748);
-}
-
-.rw-guide-kicker,
-.rw-guide-section-role {
-    color: var(--muted-foreground);
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
-
-.rw-guide-explainer h2,
-.rw-guide-section h3 {
-    margin: 0.25rem 0;
-    color: var(--foreground);
-}
-
-.rw-guide-section {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    padding: 1.25rem;
-    border: 1px solid color-mix(in oklab, var(--rw-border, #2d3748) 75%, transparent);
-    border-radius: 1rem;
-    background: color-mix(in oklab, var(--plannotator-surface) 82%, transparent);
-}
-
-.rw-guide-prose,
-.rw-guide-callout,
-.rw-guide-checkpoint,
-.rw-guide-mermaid,
-.rw-guide-widget,
-.rw-guide-diff-block {
-    border-radius: 0.875rem;
-}
-
-.rw-guide-prose {
-    color: var(--foreground);
-    line-height: 1.65;
-}
-
-.rw-guide-prose p,
-.rw-guide-callout p,
-.rw-guide-checkpoint p,
-.rw-guide-diff-block p {
-    margin: 0.4rem 0;
-}
-
-.rw-guide-callout,
-.rw-guide-checkpoint {
-    padding: 0.85rem 1rem;
-    border: 1px solid color-mix(in oklab, var(--primary) 35%, var(--border));
-    background: color-mix(in oklab, var(--primary) 10%, transparent);
-}
-
-.rw-guide-callout strong {
-    display: block;
-    margin-bottom: 0.35rem;
-}
-
-.rw-guide-checkpoint {
-    border-style: dashed;
-}
-
-.rw-guide-mermaid,
-.rw-guide-widget,
-.rw-guide-diff-block {
-    padding: 1rem;
-    border: 1px solid var(--rw-border, #2d3748);
-    background: var(--rw-surface, #111827);
-}
-
-.rw-guide-mermaid figcaption,
-.rw-guide-widget figcaption {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    margin-bottom: 0.75rem;
-    color: var(--foreground);
-}
-
-.rw-guide-mermaid figcaption span,
-.rw-guide-widget figcaption span {
-    color: var(--muted-foreground);
-    font-size: 0.8rem;
-}
-
-.rw-guide-mermaid svg {
-    max-width: 100%;
-    height: auto;
-}
-
-.rw-guide-mermaid pre,
-.rw-guide-missing-diff {
-    color: var(--destructive, #f87171);
-    white-space: pre-wrap;
-}
-
-.rw-guide-widget iframe {
-    width: 100%;
-    min-height: 18rem;
-    border: 1px solid color-mix(in oklab, var(--rw-border, #2d3748) 70%, transparent);
-    border-radius: 0.75rem;
-    background: #0f172a;
-}
-
-.rw-guide-diff-block {
-    min-height: 20rem;
-}
 .rw-dev-fixture-switcher {
     display: flex;
     flex-wrap: wrap;
@@ -1525,5 +1398,103 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
         border-top: 0;
         background: transparent;
         box-shadow: none;
+    }
+}
+
+/* Sequence tabs retain document state while one shared review header stays active. */
+.rw-sequence-review,
+.rw-sequence-review > .rw-react-tabs {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+}
+.rw-sequence-review > .rw-react-tabs > .tabs {
+    display: flex;
+    flex: 0 0 auto;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--rw-border);
+}
+.rw-sequence-review .rw-react-tabs-trigger {
+    flex-shrink: 0;
+}
+.rw-sequence-review > .rw-react-tabs > .rw-react-tabs-content {
+    flex: 1;
+    min-height: 0;
+}
+.rw-sequence-review > .rw-react-tabs > .rw-react-tabs-content[hidden] {
+    display: none;
+}
+.rw-sequence-review-scope {
+    color: var(--rw-text-muted);
+    white-space: nowrap;
+}
+
+.rw-sequence-review {
+    height: 100dvh;
+    overflow: hidden;
+}
+.rw-sequence-review.rw-sequence-review-embedded {
+    height: 100%;
+}
+.rw-sequence-review > .rw-react-tabs {
+    gap: 0;
+}
+.rw-sequence-review .rw-react-tabs-content > .rw-plan-review {
+    height: 100%;
+    min-height: 0;
+}
+.rw-sequence-review > .rw-react-tabs > .tabs {
+    margin: 0;
+    border-radius: 0;
+}
+
+.rw-sequence-review > .rw-react-tabs > .tabs {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    max-width: 100%;
+}
+.rw-sequence-review .rw-react-tabs-trigger {
+    max-width: min(24rem, 80vw);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+@media (max-width: 759px) {
+    .rw-plannotator-actions.rw-sequence-review-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        width: 100%;
+        min-width: 0;
+    }
+    .rw-sequence-review-actions .rw-sequence-review-scope {
+        grid-row: 1;
+        grid-column: 1;
+    }
+    .rw-sequence-review-actions .rw-approval-split-menu {
+        grid-row: 1;
+        grid-column: 2;
+    }
+    .rw-sequence-review-actions .rw-plan-review-execution-policy {
+        grid-row: 2;
+        grid-column: 1 / -1;
+        min-width: 0;
+        width: 100%;
+    }
+}
+.workspace-main-shell:has(.rw-sequence-review) {
+    grid-template-columns: minmax(0, 1fr);
+}
+.workspace-main-shell:has(.rw-sequence-review) > main {
+    min-width: 0;
+}
+.rw-sequence-review > .rw-react-tabs > .rw-react-tabs-content {
+    margin-top: 0;
+}
+@media (max-width: 980px) {
+    .rw-sequence-review .rw-plan-review .rw-plannotator-plan-layout {
+        grid-template-columns: minmax(0, 1fr);
     }
 }

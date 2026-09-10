@@ -586,8 +586,7 @@ Source: [load-plan dispatcher](../src/cmd/load-plan/index.ts),
 
 One current entry gap: direct review still demands legacy `objectiveChecks` metadata, although ordinary Plan writes
 strip that metadata and the active validation loop does not run it. This affects direct-review availability, not
-transcript authority. Amendment detection/application helpers likewise have no current production validation caller; the
-active loop does not present the old automatic Plan Amendment approval gate.
+transcript authority. The old automatic Plan Amendment approval gate has been removed from the active validation code.
 
 ## Q — No-plan Quick Fix side branch
 

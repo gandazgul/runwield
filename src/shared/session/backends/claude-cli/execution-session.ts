@@ -3,7 +3,6 @@ import type { SessionManager, ToolDefinition } from "@earendil-works/pi-coding-a
 import type { RunWieldModel } from "../../../models/model-registry.ts";
 import type { HostedSession } from "../../hosted-session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "../../session-runtime-events.js";
-import { getRootSessionBranchEntries } from "../../root-session.js";
 import { WorkflowStepCompleted } from "../../../workflow/workflow-tool-events.ts";
 import {
     prepareClaudeCliCommand,
@@ -19,60 +18,16 @@ import {
 } from "./failure.ts";
 import { type ClaudeCliProcessResult, DenoClaudeCliProcessPort } from "./process.ts";
 import { type ClaudeCliUsage, parseClaudeCliStream } from "./stream-parser.ts";
-import { mcpAliasFor, type RunWieldMcpBridgeHandle, startRunWieldMcpBridge } from "./mcp-bridge.ts";
-
-type JsonValue = string | number | boolean | null | JsonValue[] | JsonRecord;
-
-interface JsonRecord {
-    [key: string]: JsonValue;
-}
-
-interface TextBlock {
-    type: "text";
-    text: string;
-}
-
-interface ToolUseBlock {
-    type: "tool_use" | "toolCall";
-    name?: string;
-    arguments?: JsonRecord;
-    input?: JsonRecord;
-}
-
-interface ToolResultBlock {
-    type: "tool_result";
-    text?: string;
-    content?: string | TextBlock[];
-    tool_use_id?: string;
-    toolUseId?: string;
-    is_error?: boolean;
-    isError?: boolean;
-}
-
-type TranscriptContentBlock = TextBlock | ToolUseBlock | ToolResultBlock;
+import {
+    CLAUDE_CLI_MCP_PROVENANCE,
+    mcpAliasFor,
+    type RunWieldMcpBridgeHandle,
+    startRunWieldMcpBridge,
+} from "./mcp-bridge.ts";
+import { buildBridgedToolPromptAppendix } from "../../bridged-tools/prompt.ts";
+import { readExternalCliConversation, serializeExternalCliConversation } from "../../external-cli-conversation.ts";
 
 type SessionAppendMessage = Parameters<SessionManager["appendMessage"]>[0];
-
-interface TranscriptMessage {
-    role: string;
-    content?: string | TranscriptContentBlock[];
-    toolName?: string;
-    tool_name?: string;
-    isError?: boolean;
-    is_error?: boolean;
-}
-
-interface TranscriptEntry {
-    type?: string;
-    customType?: string;
-    data?: { version?: number; compactInvocation?: string; expandedRequest?: string };
-    message?: TranscriptMessage;
-}
-
-interface ConversationMessage {
-    role: "user" | "assistant";
-    text: string;
-}
 
 export interface ClaudeCliExecutionSessionOptions {
     cwd: string;
@@ -166,7 +121,7 @@ export class ClaudeCliExecutionSession {
         if (options.images && options.images.length > 0) {
             throw new Error("Claude CLI execution backend does not support image attachments in this slice");
         }
-        const conversation = this.readConversation();
+        const conversation = readExternalCliConversation(this.sessionManager);
         const userMessage = makeUserMessage(options.userRequest);
         conversation.push({ role: "user", text: options.userRequest });
         const selector = this.model.id;
@@ -220,6 +175,10 @@ export class ClaudeCliExecutionSession {
                             provider: this.model.provider,
                             model: this.model.id,
                         },
+                        provenance: CLAUDE_CLI_MCP_PROVENANCE,
+                        onUnexpectedDisconnect: () => {
+                            emitFailure("bridge_disconnected", null);
+                        },
                         beforeRuntimeToolEvent: () => flushRuntimeDeltas(),
                     });
                 } catch {
@@ -229,11 +188,11 @@ export class ClaudeCliExecutionSession {
             }
             command = await prepareClaudeCliCommand({
                 selector,
-                systemPrompt: this.finalSystemPrompt + buildBridgedToolPromptAppendix(this.bridgedTools),
+                systemPrompt: this.finalSystemPrompt + buildBridgedToolPromptAppendix(this.bridgedTools, "Claude Code"),
                 ...(bridge ? { mcpConfig: bridge.config } : {}),
                 allowedToolNames: eligibleAliases.flatMap((alias) => [alias, `mcp__runwield__${alias}`]),
             });
-            const stdinText = serializeConversation(conversation);
+            const stdinText = serializeExternalCliConversation(conversation);
             const processPort = new DenoClaudeCliProcessPort();
             try {
                 process = processPort.run(command, stdinText, this.cwd, combinedSignal);
@@ -383,89 +342,12 @@ export class ClaudeCliExecutionSession {
     }
 
     private readMessages(): AgentMessage[] {
-        return this.readConversation().map((message) => {
+        return readExternalCliConversation(this.sessionManager).map((message) => {
             return message.role === "user"
                 ? makeUserMessage(message.text) as AgentMessage
                 : makeAssistantMessage(message.text, this.model, zeroUsage()) as AgentMessage;
         });
     }
-
-    private readConversation(): ConversationMessage[] {
-        const messages: ConversationMessage[] = [];
-        let skipNextCompactInvocation = "";
-        for (const entry of getRootSessionBranchEntries(this.sessionManager)) {
-            const expanded = readNamedInvocationExpandedText(entry as TranscriptEntry);
-            if (expanded) {
-                messages.push({ role: "user", text: expanded });
-                const compact = (entry as { data?: { compactInvocation?: string } }).data?.compactInvocation || "";
-                skipNextCompactInvocation = compact;
-                continue;
-            }
-            const normalizedMessages = normalizeTranscriptEntry(entry as TranscriptEntry);
-            for (const message of normalizedMessages) {
-                if (
-                    skipNextCompactInvocation && message.role === "user" && message.text === skipNextCompactInvocation
-                ) {
-                    skipNextCompactInvocation = "";
-                    continue;
-                }
-                skipNextCompactInvocation = "";
-                messages.push(message);
-            }
-        }
-        return messages;
-    }
-}
-
-function readNamedInvocationExpandedText(entry: TranscriptEntry): string {
-    if (entry.type !== "custom" || entry.customType !== "runwield.named_invocation") return "";
-    if (entry.data?.version !== 1 || typeof entry.data.expandedRequest !== "string") return "";
-    return entry.data.expandedRequest;
-}
-
-function normalizeTranscriptEntry(entry: TranscriptEntry): ConversationMessage[] {
-    if (entry.type !== "message" || !entry.message) return [];
-    const text = extractText(entry.message.content);
-    if (!text) return [];
-    if (entry.message.role === "user" || entry.message.role === "assistant") {
-        return [{ role: entry.message.role, text }];
-    }
-    if (entry.message.role === "toolResult" || entry.message.role === "tool_result") {
-        const toolName = entry.message.toolName || entry.message.tool_name || "tool";
-        const suffix = entry.message.isError || entry.message.is_error ? " (error)" : "";
-        return [{ role: "user", text: `Tool result ${toolName}${suffix}: ${text}` }];
-    }
-    return [];
-}
-
-function extractText(content: string | TranscriptContentBlock[] | undefined): string {
-    if (typeof content === "string") return content;
-    if (!Array.isArray(content)) return "";
-    return content.map((block) => transcriptContentBlockText(block)).filter(Boolean).join("\n");
-}
-
-function isToolUseBlock(block: TranscriptContentBlock): block is ToolUseBlock {
-    return block.type === "tool_use" || block.type === "toolCall";
-}
-
-function isToolResultBlock(block: TranscriptContentBlock): block is ToolResultBlock {
-    return block.type === "tool_result";
-}
-
-function transcriptContentBlockText(block: TranscriptContentBlock): string {
-    if (block.type === "text") return block.text;
-    if (isToolUseBlock(block)) {
-        const toolName = block.name || "tool";
-        const args = block.arguments || block.input || {};
-        return `Tool call ${toolName}: ${JSON.stringify(args)}`;
-    }
-    if (isToolResultBlock(block)) {
-        const toolText = extractText(block.content) || block.text || "";
-        const toolCallId = block.tool_use_id || block.toolUseId || "tool";
-        const suffix = block.is_error || block.isError ? " (error)" : "";
-        return `Tool result ${toolCallId}${suffix}: ${toolText}`;
-    }
-    return "";
 }
 
 function makeUserMessage(text: string): SessionAppendMessage {
@@ -516,41 +398,6 @@ function toPiUsage(usage: ClaudeCliUsage) {
     };
 }
 
-function serializeConversation(messages: ConversationMessage[]): string {
-    return messages.map((message) => `${message.role.toUpperCase()}: ${message.text}`).join("\n\n");
-}
-
 function isAuthFailure(stderr: string): boolean {
     return /authenticate|not signed in|oauth|api key|login|expired/i.test(stderr);
-}
-
-/**
- * Backend-specific prompt appendix. Names only the aliases eligible for this
- * Agent and states that plain-text questions are non-terminal; for the
- * Reviewer it points at Claude's native tools because RunWield's
- * `review_diff` is intentionally not bridged.
- */
-export function buildBridgedToolPromptAppendix(bridgedTools: ToolDefinition[]): string {
-    const eligibleAliases = bridgedTools.map((tool) => mcpAliasFor(tool.name));
-    if (eligibleAliases.length === 0) return "";
-    const lines = [
-        "",
-        "## RunWield Bridged Tools (MCP)",
-        "",
-        "This session exposes these RunWield tools through the RunWield MCP server:",
-        ...eligibleAliases.map((alias) => `- ${alias}`),
-        "",
-        "Use Claude Code native tools for file, search, and shell work. Use RunWield bridged tools for memory, code intelligence, Work Record, user interview, and lifecycle work.",
-        "",
-        "Calling a lifecycle tool is the only way to advance RunWield workflow state. Plain-text questions, " +
-        'statements such as "done", or text that resembles a tool call have no workflow effect.',
-    ];
-    if (eligibleAliases.includes("runwield_review_complete")) {
-        lines.push(
-            "",
-            "Before calling runwield_review_complete, inspect the implementation with your native " +
-                "read/grep/find/ls/Bash tools. RunWield's review_diff tool may be bridged when the caller supplies it for this turn.",
-        );
-    }
-    return lines.join("\n");
 }

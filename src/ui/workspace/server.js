@@ -70,10 +70,12 @@ import {
     ownerSessionCreateApi,
     ownerSessionForceRecoverApi,
     ownerSessionInteractionAnswerApi,
+    ownerSessionLiveApi,
     ownerSessionOperationCancelApi,
     ownerSessionOperationStatusApi,
     ownerSessionOperationStreamApi,
     ownerSessionOptionsApi,
+    ownerSessionSteerApi,
     ownerSessionTimelineApi,
 } from "./routes/owner-session-api.js";
 import {
@@ -270,6 +272,10 @@ export function createOwnerWorkspaceApp(options) {
         renderRequiredOwnerAstroPage,
     );
     app.get("/projects/:projectId/sessions/:runwieldSessionId", renderOwnerProjectSessionDetailPage);
+    app.get(
+        "/projects/:projectId/sessions/:runwieldSessionId/artifacts/:artifactId",
+        renderOwnerProjectSessionDetailPage,
+    );
     app.post("/api/owner/pairing/request", pairingRequestApi);
     app.get("/api/owner/pairing/status", pairingStatusApi);
     app.post("/api/owner/pairing/claim", pairingClaimApi);
@@ -302,6 +308,7 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects/:projectId/sessions", ownerProjectSessionsApi);
     app.post("/api/owner/projects/:projectId/sessions", ownerSessionCreateApi);
     app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/timeline", ownerSessionTimelineApi);
+    app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/live", ownerSessionLiveApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/bootstrap", ownerSessionBootstrapApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/continue", ownerSessionContinuationStartApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/configure", ownerSessionConfigureApi);
@@ -310,6 +317,7 @@ export function createOwnerWorkspaceApp(options) {
         "/api/owner/projects/:projectId/session-operations/:operationId/interactions/:interactionId/answer",
         ownerSessionInteractionAnswerApi,
     );
+    app.post("/api/owner/projects/:projectId/session-operations/:operationId/steer", ownerSessionSteerApi);
     app.post("/api/owner/session-operations/:operationId/cancel", ownerSessionOperationCancelApi);
     app.get("/api/owner/session-operations/:operationId/stream", ownerSessionOperationStreamApi);
     app.get("/api/owner/session-operations/:operationId", ownerSessionOperationStatusApi);
@@ -396,6 +404,7 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
                     return Response.json({
                         agentLabel: reviewConversation.agentLabel,
                         revision: reviewConversation.revision,
+                        sequenceDocuments: reviewPayload.sequenceDocuments,
                         plan: typeof reviewPayload.plan === "string" ? reviewPayload.plan : "",
                         rawPatch: typeof reviewPayload.rawPatch === "string" ? reviewPayload.rawPatch : "",
                         gitRef: typeof reviewPayload.gitRef === "string" ? reviewPayload.gitRef : "",

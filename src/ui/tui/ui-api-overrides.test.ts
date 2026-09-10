@@ -3,9 +3,10 @@ import { Container, Editor, Image, Spacer, Text, type TUI, TuiMainScreen } from 
 import { RunWieldModelSelectorComponent } from "./model-selector.ts";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { getSettingsManager } from "../../shared/settings.js";
+import { AgyCliMcpSetupApprovalError } from "../../shared/session/backends/agy-cli/mcp-setup.ts";
 import { getEditorTheme, initRunWieldTheme } from "../theme/theme.js";
 import { createUiApi } from "./api.js";
-import { SpinnerBlock } from "./blocks.js";
+import { SpinnerBlock, ToolExecutionGroupBlock } from "./blocks.js";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
 import { installUiApiOverrides } from "./ui-api-overrides.ts";
 
@@ -52,7 +53,6 @@ function makeHarness(projectRoot = "/fixture/project"): OverridesHarness {
         tui,
         editor,
         container,
-        messageList,
         getProjectRoot: () => projectRoot,
         setActiveModel: () => {},
     });
@@ -144,6 +144,22 @@ Deno.test("installUiApiOverrides appends real images unless output is suppressed
     }
 });
 
+Deno.test("installUiApiOverrides closes a visible tool group before appending an image", () => {
+    const harness = makeHarness();
+    try {
+        harness.uiAPI.startToolExecution?.("tool-1", "read", "read before.png");
+        harness.uiAPI.appendImage?.(ONE_PIXEL_PNG, "image/png");
+        harness.uiAPI.startToolExecution?.("tool-2", "bash", "$ echo after");
+
+        const groups = harness.messageList.children.filter((child) => child instanceof ToolExecutionGroupBlock);
+        assertEquals(groups.length, 2);
+        assertInstanceOf(harness.messageList.children[2], Image);
+        assertEquals(groups.map((group) => group.children.length), [1, 1]);
+    } finally {
+        harness.tui.stop();
+    }
+});
+
 Deno.test("installUiApiOverrides selects a configured fixture model through the real selector", async () => {
     await withRuntimeCommandFixture("ui-api-model-selector-", async ({ projectRoot }) => {
         const selectedModels: Array<{ model: string; provider?: string }> = [];
@@ -211,6 +227,44 @@ Deno.test("installUiApiOverrides sends Claude selections through the runtime cal
             assertEquals(selectedModels, [{ model: "sonnet", provider: "claude-cli" }]);
             assertEquals(harness.container.children.includes(harness.editor), true);
             assertEquals(harness.editor.focused, true);
+        } finally {
+            harness.tui.stop();
+        }
+    });
+});
+
+Deno.test("installUiApiOverrides reports Agy setup failures from model selection without rejecting", async () => {
+    await withRuntimeCommandFixture("ui-api-model-selector-agy-setup-", async ({ projectRoot }) => {
+        const harness = makeHarness(projectRoot);
+        installUiApiOverrides({
+            ...harness,
+            getProjectRoot: () => projectRoot,
+            setActiveModel: () => {
+                throw new AgyCliMcpSetupApprovalError(
+                    "Antigravity MCP setup needs approval. Run wld mcp agy-cli --setup.",
+                );
+            },
+        });
+        const messages: string[] = [];
+        const appendSystemMessage = harness.uiAPI.appendSystemMessage;
+        harness.uiAPI.appendSystemMessage = (message, isError, header, style) => {
+            messages.push(message);
+            appendSystemMessage(message, isError, header, style);
+        };
+        try {
+            const selectionPromise = harness.uiAPI.showModelSelector("agy-cli/gemini-3.8-flash");
+            let selector = harness.container.children.find((child) => child instanceof RunWieldModelSelectorComponent);
+            for (let attempt = 0; !selector && attempt < 50; attempt++) {
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                selector = harness.container.children.find((child) => child instanceof RunWieldModelSelectorComponent);
+            }
+            assertInstanceOf(selector, RunWieldModelSelectorComponent);
+            selector.handleInput("\r");
+            assertEquals(await selectionPromise, { selected: false });
+            harness.tui.requestRender();
+            assertStringIncludes(messages.join("\n"), "wld mcp agy-cli --setup");
+            assertEquals(messages.join("\n").includes("at async"), false);
+            assertEquals(harness.container.children.includes(harness.editor), true);
         } finally {
             harness.tui.stop();
         }

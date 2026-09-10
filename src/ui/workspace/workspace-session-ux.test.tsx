@@ -45,7 +45,7 @@ Deno.test("Session surface preserves drafts and replaces a lost live wait with o
     const items = reduceOperationTransientItems([
         { type: "interaction_requested", interactionId: "wait-1", interactionType: "text", prompt: "Answer?" },
     ]);
-    assertEquals(items[0]?.kind, "interaction");
+    assertEquals(items.length, 0);
     const reviewItems = reduceSessionEvents([
         {
             type: "interaction_requested",
@@ -77,11 +77,11 @@ Deno.test("file-locked Sessions wait for the active surface without offering tak
     assertEquals(availability.key, "active");
     assertEquals(
         availability.explanation,
-        "Another RunWield surface is using this Session. New messages queue here and send when it stops.",
+        "Steer the agent or queue a follow-up.",
     );
 });
 
-Deno.test("Session timeline renders safe segment and recovery events as system blocks", () => {
+Deno.test("Session timeline labels transitions without inventing an initial Agent", () => {
     const items = reduceSessionEvents([
         {
             type: "user_message",
@@ -112,7 +112,6 @@ Deno.test("Session timeline renders safe segment and recovery events as system b
     ]);
     const systemEvents = items.filter((item) => item.kind === "system-event");
     assertEquals(systemEvents.map((item) => item.text), [
-        "Planner",
         "Plan Engineer",
         "Semantic Repair",
         "Recovered stale action.\nRestarted validation.",
@@ -147,13 +146,13 @@ Deno.test("Session interaction answers preserve Runtime outcome identity", () =>
     });
 });
 
-Deno.test("Session availability refreshes only while another surface is active", () => {
+Deno.test("Session availability observes idle Sessions too, so TUI turns appear automatically", () => {
     assertEquals(shouldRefreshSessionAvailability({ mode: "detail", state: "active" }), true);
     assertEquals(
         shouldRefreshSessionAvailability({ mode: "detail", state: "active", localOperationActive: true }),
         false,
     );
-    assertEquals(shouldRefreshSessionAvailability({ mode: "detail", state: "idle" }), false);
+    assertEquals(shouldRefreshSessionAvailability({ mode: "detail", state: "idle" }), true);
     assertEquals(
         shouldRefreshSessionAvailability({ mode: "detail", state: "idle", queuedMessageCount: 1 }),
         true,
@@ -171,10 +170,10 @@ Deno.test("busy Session messages remain sendable and render above the Workspace 
     const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
     const continuation = await Deno.readTextFile(new URL("./server/session-continuation.js", import.meta.url));
     const css = await Deno.readTextFile(new URL("./static/workspace.css", import.meta.url));
-    assertEquals(surface.includes('availability.key === "active"'), true);
+    assertEquals(surface.includes('["active", "workspace-running"].includes(availability.key)'), true);
     assertEquals(surface.includes("const [queuedMessages, setQueuedMessages] = useState"), true);
     assertEquals(surface.includes("setQueuedMessages((current) => ["), true);
-    assertEquals(surface.includes('if (freshTimeline.state === "active")'), true);
+    assertEquals(surface.includes('if (freshTimeline.state === "active" || operationRef.current)'), true);
     assertEquals(surface.includes("const queued = queuedMessages[0]"), true);
     assertEquals(surface.includes("queuedMessages={queuedMessages}"), true);
     assertEquals(surface.includes("timeline.queuedMessages"), false);
@@ -221,8 +220,8 @@ Deno.test("Workspace-owned Session operations use live updates instead of browse
     );
     assertEquals(surface.includes("setOperationStreamFailed(true)"), true);
     assertEquals(surface.includes("/api/owner/session-operations/${encodeURIComponent(current.operationId)}"), true);
-    assertEquals(surface.includes("Recover stale Session"), true);
-    assertEquals(surface.includes("/force-recovery"), true);
+    assertEquals(surface.includes("Recover stale Session"), false);
+    assertEquals(surface.includes("/force-recovery"), false);
     assertEquals(server.includes("/api/owner/session-operations/:operationId/stream"), true);
 });
 
@@ -345,6 +344,22 @@ Deno.test("Persisted Sessions expose the shared context sidebar tabs", async () 
     assertEquals(surface.includes("<dt>Epic</dt>"), true);
 });
 
+Deno.test("Session sidebar shares TUI fields without duplicating composer or backend details", async () => {
+    const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
+    assertEquals(surface.includes("sessionSidebarFields(sessionSidebar).map"), true);
+    assertEquals(surface.includes("Execution Backend"), false);
+    assertEquals(surface.includes("<dd>{displayedThinking}</dd>"), false);
+    assertEquals(surface.includes("modelValue={stagedModelKey}"), true);
+    assertEquals(surface.includes("thinkingValue={displayedThinking}"), true);
+});
+
+Deno.test("Session sidebar places collapse before tabs and omits repeated inner headings", async () => {
+    const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
+    const header = surface.slice(surface.indexOf('<div className="session-context-header">'));
+    assertEquals(header.indexOf("<RunWieldPanelToggle") < header.indexOf('className="session-context-tabs"'), true);
+    assertEquals(header.includes('className="kicker"'), false);
+});
+
 Deno.test("Session image attachments use a Session-scoped draft key and request payload", () => {
     assertEquals(
         sessionAttachmentsKey("project-1", "session-1"),
@@ -356,7 +371,7 @@ Deno.test("Session image attachments use a Session-scoped draft key and request 
     );
 });
 
-Deno.test("planning workflow Sessions can continue while live execution workflows stay read-only", () => {
+Deno.test("idle Sessions can continue with planning or execution history", () => {
     const planning = deriveSessionAvailability({
         state: "idle",
         generation: 4,
@@ -370,7 +385,127 @@ Deno.test("planning workflow Sessions can continue while live execution workflow
         generation: 4,
         snapshot: { activeAgent: "Engineer", activeExecutionWorkflow: { planName: "feature-a" } },
     });
-    assertEquals(execution.key, "execution-workflow");
-    assertEquals(execution.canContinue, false);
-    assertEquals(execution.explanation, "This Session is running work. Use the Plan progress view for current state.");
+    assertEquals(execution.key, "available");
+    assertEquals(execution.canContinue, true);
+});
+
+Deno.test("all workflow tools remain expanded outside routine activity, with accepted reports preserved", async () => {
+    const { WORKFLOW_TOOL_NAMES } = await import("../../tools/registry.js");
+    const { workflowToolMarkdown, SessionTimeline } = await import("./components/SessionTimeline.jsx");
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    for (const name of WORKFLOW_TOOL_NAMES) {
+        const items = reduceSessionEvents([
+            { type: "tool_start", toolCallId: "read-1", toolName: "read" },
+            { type: "tool_end", toolCallId: "read-1", toolName: "read", output: "file" },
+            { type: "tool_start", toolCallId: "workflow-1", toolName: name },
+            {
+                type: "tool_end",
+                toolCallId: "workflow-1",
+                toolName: name,
+                output: "Full workflow decision with evidence.",
+            },
+            { type: "assistant_text_delta", messageId: "reply", delta: "Next step." },
+        ]);
+        const block = items.find((item) => item.workflowMessage === name);
+        assertEquals(block?.kind, "workflow", name);
+        assertEquals(block?.status, "completed", name);
+        assertEquals(workflowToolMarkdown(block), "Full workflow decision with evidence.", name);
+        const html = renderToStaticMarkup(createElement(SessionTimeline, { items: [block] }));
+        assertEquals(html.includes('class="rw-workflow-block status-completed"'), true, name);
+        assertEquals(html.includes("<details"), false, name);
+        assertEquals(html.includes("Full workflow decision with evidence."), true, name);
+    }
+    const items = reduceSessionEvents([
+        { type: "tool_start", toolCallId: "task", toolName: "task_completed" },
+        {
+            type: "assistant_text_delta",
+            messageId: "completion",
+            workflowMessage: "task_completed",
+            delta: "**Task completed.**\n\nVerified.",
+        },
+        { type: "tool_end", toolCallId: "task", toolName: "task_completed", output: "Verified." },
+    ]);
+    assertEquals(items.length, 1);
+    assertEquals(items[0].status, "completed");
+    assertEquals(workflowToolMarkdown(items[0]), "**Task completed.**\n\nVerified.");
+    const triage = reduceSessionEvents([
+        {
+            type: "tool_end",
+            toolCallId: "triage",
+            toolName: "triage_report",
+            output: "Triage complete.",
+            details: {
+                routingIntent: "QUICK_FIX",
+                complexity: "LOW",
+                summary: "Fix image sending.",
+            },
+        },
+    ])[0];
+    assertEquals(workflowToolMarkdown(triage).includes("Fix image sending."), true);
+    assertEquals(workflowToolMarkdown(triage).includes("QUICK_FIX"), true);
+    const workRecord = reduceSessionEvents([
+        { type: "tool_start", toolCallId: "record", toolName: "work_record_completed" },
+        {
+            type: "tool_end",
+            toolCallId: "record",
+            toolName: "work_record_completed",
+            details: { title: "Image sending", summary: "Verified in browser and TUI.", deferredWork: "None." },
+        },
+        {
+            type: "tool_end",
+            toolCallId: "record",
+            toolName: "work_record_completed",
+            output: "Work Record sections accepted.",
+            details: { accepted: true },
+        },
+    ])[0];
+    assertEquals(workflowToolMarkdown(workRecord).includes("Verified in browser and TUI."), true);
+    assertEquals(workflowToolMarkdown(workRecord).includes("Deferred work"), true);
+    const review = {
+        markdown: "Approved.",
+        details: { advisories: [{ title: "Follow-up", detail: "Keep this visible." }] },
+    };
+    assertEquals(workflowToolMarkdown(review).includes("Keep this visible."), true);
+    const checklist = {
+        output: "Manual QA checklist saved.",
+        details: { checklistMarkdown: "- [ ] Test on a phone." },
+    };
+    assertEquals(workflowToolMarkdown(checklist), "- [ ] Test on a phone.");
+    const savedChecklist = reduceSessionEvents([
+        {
+            type: "assistant_text_delta",
+            messageId: "qa-message",
+            workflowMessage: "manual_qa_checklist",
+            delta: "- [ ] Test on a phone.",
+        },
+        {
+            type: "tool_end",
+            toolCallId: "qa",
+            toolName: "manual_qa_completed",
+            details: { checklistMarkdown: "- [ ] Test on a phone." },
+        },
+    ]);
+    assertEquals(savedChecklist.length, 1);
+    assertEquals(savedChecklist[0].workflowMessage, "manual_qa_completed");
+    const artifact = reduceSessionEvents([{
+        type: "tool_end",
+        toolCallId: "artifact",
+        toolName: "artifact_written",
+        output: "Report registered.",
+        details: { artifact: { artifactId: "report-1", title: "Session findings" } },
+    }]);
+    const artifactHtml = renderToStaticMarkup(createElement(SessionTimeline, {
+        items: artifact,
+        sessionPath: "/projects/project-1/sessions/session-1",
+    }));
+    assertEquals(artifactHtml.includes('href="/projects/project-1/sessions/session-1/artifacts/report-1"'), true);
+    assertEquals(artifactHtml.includes("Open Session findings"), true);
+});
+
+Deno.test("image-only user messages survive the browser timeline reducer", () => {
+    const images = [{ base64: "aW1hZ2U=", mimeType: "image/png" }];
+    const items = reduceSessionEvents([{ type: "user_message", messageId: "image", text: "", images }]);
+    assertEquals(items[0].images, images);
+    assertEquals(items[0].role, "user");
 });

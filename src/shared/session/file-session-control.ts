@@ -1,6 +1,6 @@
 /**
  * @module shared/session/file-session-control
- * Process-lifetime writer locks, generation publication, and explicit recovery.
+ * Operation-scoped writer locks, generation publication, and explicit recovery.
  */
 
 import { createHash } from "node:crypto";

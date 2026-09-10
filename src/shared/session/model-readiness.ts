@@ -80,6 +80,13 @@ export function getSelectedDefaultModelAvailability(projectRoot: string): ModelA
         );
         if (foundModel && runnable) return { available: true, error: null };
 
+        if (defaultProvider === "agy-cli") {
+            return {
+                available: false,
+                error:
+                    `Unsupported Antigravity CLI model: ${defaultProvider}/${defaultModel}. Select agy-cli/gemini-3.8-flash or agy-cli/gemini-3.1-pro.`,
+            };
+        }
         return {
             available: false,
             error: defaultProvider

@@ -111,7 +111,7 @@ recovery, has unmet dependencies, or has an unsupported status. A `draft` or `fe
 Session; an `approved` child records readiness and executes; a `ready_for_work` child executes immediately. Explicit
 planning outcomes such as "approve for later" stop the chain instead of being converted into execution.
 
-Project decomposition is described in [Project Decomposition PRD](prd/done/project-decomposition-PRD.md).
+Project decomposition is described in [Core product requirements](prd/runwield-core-prd.md#epic-decomposition-and-hold).
 
 ## Delegated Agent Sessions
 
@@ -164,9 +164,8 @@ unshare/delete, and Plan body editing are intentionally deferred. See
 ## Worktrees and validation
 
 RunWield can execute saved plan work in a linked git worktree. The primary checkout remains the lifecycle metadata root
-for plan files and worktree registry state. During Workflow Validation, edits to reviewable Plan definition fields in
-the execution worktree are Plan Amendment proposals. RunWield shows the user the exact diff and uses the edits only
-after approval.
+for plan files and worktree registry state. Workflow Validation does not run an automatic Plan Amendment approval gate
+and does not silently adopt Plan body or definition edits from the execution worktree.
 
 CI repairs run in independent Reviewer-Feedback Engineer sessions. A live repair `task_completed` result returns only to
 the validation invocation that dispatched it. It is not written to the root Task Completion journal. The validation

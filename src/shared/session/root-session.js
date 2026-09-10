@@ -32,19 +32,27 @@ export function getRunWieldSessionsBaseDir() {
 }
 
 /**
- * Resolve RunWield root session directory for a cwd.
- *
  * @param {string} cwd
  * @returns {string}
  */
-export function getRunWieldSessionDir(cwd) {
+function canonicalizeCwd(cwd) {
     let canonicalCwd = resolve(cwd);
     try {
         canonicalCwd = Deno.realPathSync(canonicalCwd);
     } catch {
         // A not-yet-created cwd still gets a stable absolute locator.
     }
-    return join(getRunWieldSessionsBaseDir(), encodeCwdForSessionDir(canonicalCwd));
+    return canonicalCwd;
+}
+
+/**
+ * Resolve RunWield root session directory for a cwd.
+ *
+ * @param {string} cwd
+ * @returns {string}
+ */
+export function getRunWieldSessionDir(cwd) {
+    return join(getRunWieldSessionsBaseDir(), encodeCwdForSessionDir(canonicalizeCwd(cwd)));
 }
 
 /**
@@ -91,13 +99,14 @@ function ensureDir(dir) {
  */
 export async function createRootSessionManager(mode, cwd) {
     const { SessionManager } = await import("@earendil-works/pi-coding-agent");
-    const sessionDir = getRunWieldSessionDir(cwd);
+    const canonicalCwd = canonicalizeCwd(cwd);
+    const sessionDir = getRunWieldSessionDir(canonicalCwd);
     ensureDir(sessionDir);
 
     if (mode === "continue") {
-        return SessionManager.continueRecent(cwd, sessionDir);
+        return SessionManager.continueRecent(canonicalCwd, sessionDir);
     }
-    return SessionManager.create(cwd, sessionDir);
+    return SessionManager.create(canonicalCwd, sessionDir);
 }
 
 /** @param {any} sessionManager @param {string} transcriptPath */
@@ -340,9 +349,20 @@ export async function classifyRootSessionLocator(options) {
 export async function listPersistedRootSessions(cwd) {
     if (!cwd || !isAbsolute(cwd)) throw new Error("listPersistedRootSessions requires an absolute cwd");
     const { SessionManager } = await import("@earendil-works/pi-coding-agent");
-    const sessionDir = getRunWieldSessionDir(cwd);
-    const sessions = await SessionManager.list(cwd, sessionDir);
-    return /** @type {PersistedRootSessionInfo[]} */ (sessions);
+    const canonicalCwd = canonicalizeCwd(cwd);
+    const enteredCwd = resolve(cwd);
+    const sessionDir = getRunWieldSessionDir(canonicalCwd);
+    const sessions = /** @type {PersistedRootSessionInfo[]} */ (await SessionManager.list(canonicalCwd, sessionDir));
+    if (enteredCwd !== canonicalCwd) {
+        const legacySessions =
+            /** @type {PersistedRootSessionInfo[]} */ (await SessionManager.list(enteredCwd, sessionDir));
+        const seen = new Set(sessions.map((session) => `${session.id}:${resolve(session.path)}`));
+        for (const session of legacySessions) {
+            const key = `${session.id}:${resolve(session.path)}`;
+            if (!seen.has(key)) sessions.push(session);
+        }
+    }
+    return sessions;
 }
 
 /**
@@ -358,7 +378,8 @@ export async function resolvePersistedRootSession(options) {
     if (!options.sessionId || typeof options.sessionId !== "string") {
         throw new Error("resolvePersistedRootSession requires a session id");
     }
-    const sessionDir = getRunWieldSessionDir(options.cwd);
+    const canonicalCwd = canonicalizeCwd(options.cwd);
+    const sessionDir = getRunWieldSessionDir(canonicalCwd);
     const sessions = await listPersistedRootSessions(options.cwd);
     const requestedPath = options.sessionPath ? resolve(options.sessionPath) : "";
     if (requestedPath && !isPathInside(requestedPath, sessionDir)) {
@@ -372,7 +393,7 @@ export async function resolvePersistedRootSession(options) {
     if (!match) throw new Error(`Persisted session not found for cwd: ${options.sessionId}`);
 
     return {
-        cwd: options.cwd,
+        cwd: typeof match.cwd === "string" && isAbsolute(match.cwd) ? match.cwd : canonicalCwd,
         sessionDir,
         sessionId: match.id,
         sessionPath: resolve(match.path),
@@ -389,8 +410,8 @@ export async function resolvePersistedRootSession(options) {
 export async function openPersistedRootSession(options) {
     const { SessionManager } = await import("@earendil-works/pi-coding-agent");
     const resolved = await resolvePersistedRootSession(options);
-    const sessionManager = SessionManager.open(resolved.sessionPath, resolved.sessionDir, options.cwd);
-    if (resolve(getManagerCwd(sessionManager)) !== resolve(options.cwd)) {
+    const sessionManager = SessionManager.open(resolved.sessionPath, resolved.sessionDir, resolved.cwd);
+    if (canonicalizeCwd(getManagerCwd(sessionManager)) !== canonicalizeCwd(resolved.cwd)) {
         try {
             /** @type {{ dispose?: () => void }} */ (sessionManager).dispose?.();
         } catch {

@@ -81,6 +81,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @typedef {Object} ActiveInteractionRecord
  * @property {import('./session-runtime-interactions.js').RuntimeInteractionRequest} [request]
  * @property {AbortController} [abortController]
+ * @property {(response: import('./session-runtime-interactions.js').RuntimeInteractionResponse) => void} [answer]
  */
 
 /**
@@ -165,6 +166,17 @@ function disposeIfPresent(value) {
     if (!value || typeof value !== "object" || !("dispose" in value) || typeof value.dispose !== "function") return;
     try {
         value.dispose();
+    } catch {
+        // Disposal is best-effort so one bad runtime object does not prevent
+        // the HostedSession from clearing the rest of its owned references.
+    }
+}
+
+/** @param {unknown} value */
+function disposeIfPresentAsync(value) {
+    if (!value || typeof value !== "object" || !("dispose" in value) || typeof value.dispose !== "function") return;
+    try {
+        return Promise.resolve(value.dispose()).catch(() => undefined);
     } catch {
         // Disposal is best-effort so one bad runtime object does not prevent
         // the HostedSession from clearing the rest of its owned references.
@@ -921,6 +933,12 @@ export class HostedSession {
         return this.activeExecutionWorkflow;
     }
 
+    /** @param {string} cwd */
+    rebindProjectRoot(cwd) {
+        this.assertActive();
+        this.cwd = requireAbsoluteProjectRoot(cwd, "cwd");
+    }
+
     getActiveExecutionCwd() {
         return this.activeExecutionWorkflow?.executionCwd || this.cwd;
     }
@@ -956,9 +974,11 @@ export class HostedSession {
 
     async dispose() {
         if (this.disposed) return;
-        disposeIfPresent(this.rootAgentSession);
-        for (const session of this.subAgentSessions) disposeIfPresent(session);
-        disposeIfPresent(this.rootSessionManager);
+        const pendingDisposals = [
+            disposeIfPresentAsync(this.rootAgentSession),
+            ...Array.from(this.subAgentSessions, (session) => disposeIfPresentAsync(session)),
+            disposeIfPresentAsync(this.rootSessionManager),
+        ];
         this.agentInfoStack = [];
         this.userModelOverrideId = "";
         this.userModelOverrideProvider = "";
@@ -985,6 +1005,7 @@ export class HostedSession {
         this.agentTransitionId = null;
         this.agentTransitionSteering = [];
         this.disposed = true;
+        await Promise.all(pendingDisposals);
         await this.closeMcpToolPool();
         this.mcpRequestServers = [];
         this.managed = null;

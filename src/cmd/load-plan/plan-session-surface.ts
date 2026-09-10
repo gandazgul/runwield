@@ -163,7 +163,7 @@ export async function restorePreviousAgentFlow(
     // resolved runtime Agent, so restore that one.
     const executionAgent = resolveActiveWorkflowRuntimeAgent(workflow);
     if (executionAgent) {
-        await session.switchAgent(executionAgent, {});
+        await session.switchAgent(executionAgent, workflow?.executionCwd ? { cwd: workflow.executionCwd } : {});
         return;
     }
     // A restore that switches to the Agent the Session already has changes

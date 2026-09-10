@@ -318,8 +318,8 @@ Deno.test("loadWorkspaceDetail returns Epic detail with children grouped by stat
         });
         const detail = /** @type {any} */ (await loadWorkspaceDetail(cwd, "epic-id"));
         assertEquals(detail.detailKind, "epic");
-        assertEquals(Object.hasOwn(detail.attrs, "type"), false);
-        assertEquals(Object.hasOwn(detail.frontMatter, "type"), false);
+        assertEquals(detail.attrs.type, "epic");
+        assertEquals(detail.frontMatter.type, "epic");
         assertEquals(detail.childProgress.total, 1);
         assertEquals(detail.childProgress.byStatus.failed, 1);
         assertEquals(detail.childHealth.failed.map((/** @type {any} */ plan) => plan.planId), ["child-id"]);

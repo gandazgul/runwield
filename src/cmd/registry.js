@@ -39,13 +39,14 @@ import {
 } from "./update/index.ts";
 import { runSnipFiltersCommand } from "./snip-filters/index.ts";
 import { runAcpCommand } from "./acp/index.js";
+import { getMcpCompletions, runMcpCommand } from "./mcp/index.ts";
 import { runWorkspaceCommand } from "./workspace/index.ts";
 import { getAgentDisplayName } from "../shared/session/agents.js";
 import { SYSTEM_INTERACTIVE_SESSION_PORT } from "../ui/tui/interactive-session-port.ts";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../shared/work-records/mnemoteca-port.ts";
 
 /** Known CLI / slash command names. Defined alongside the registry so adding a new command only touches one file. */
-/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, UPDATE: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string, WORKSPACE: string}>} */
+/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, UPDATE: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string, MCP: string, WORKSPACE: string}>} */
 export const COMMAND_NAMES = Object.freeze({
     ROUTER: "router",
     AGENT: "agent",
@@ -79,6 +80,7 @@ export const COMMAND_NAMES = Object.freeze({
     COPY: "copy",
     CONTEXT: "context",
     ACP: "acp",
+    MCP: "mcp",
     WORKSPACE: "workspace",
 });
 
@@ -170,6 +172,25 @@ export const commandRegistry = {
         ],
         execute: runAcpCommand,
         surfaces: ["cli"],
+    },
+    [COMMAND_NAMES.MCP]: {
+        name: COMMAND_NAMES.MCP,
+        displayName: "MCP",
+        description: "Run a RunWield MCP stdio adapter",
+        summary: "Run a protocol-only MCP stdio adapter for an external CLI backend.",
+        usage: [
+            `${bin("mcp agy-cli")}`,
+            `${bin("mcp agy-cli --setup")}`,
+            `${bin("mcp --help")}`,
+        ],
+        notes: [
+            "CLI only: stdout is reserved for MCP JSON-RPC protocol frames.",
+            "agy-cli uses per-process bridge environment from a RunWield-started Antigravity turn.",
+            "--setup asks before writing the persistent Antigravity global MCP server and permission.",
+        ],
+        execute: runMcpCommand,
+        surfaces: ["cli"],
+        getArgumentCompletions: getMcpCompletions,
     },
     [COMMAND_NAMES.AGENT]: {
         name: COMMAND_NAMES.AGENT,

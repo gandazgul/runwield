@@ -489,7 +489,7 @@ const GUIDED_REVIEW_FIXTURE = {
     schemaVersion: "1.0",
     title: "Review feedback flow explainer",
     intent:
-        "A single-column Guided Review Explainer that mixes prose, Mermaid, an exceptional widget, and live annotatable diffs.",
+        "Review feedback previously flattened annotations into text, losing their context. This change preserves inline locations, approval state, and images through the feedback handoff.",
     sections: [
         {
             title: "Core implementation",
@@ -498,7 +498,7 @@ const GUIDED_REVIEW_FIXTURE = {
                 {
                     type: "prose",
                     markdown:
-                        "The feedback path now preserves richer annotation context instead of flattening comments into unstructured text.",
+                        "The **feedback path** now preserves richer annotation context in `createFeedback` instead of flattening comments into unstructured text.",
                 },
                 {
                     type: "callout",
@@ -613,7 +613,16 @@ const GUIDE_DEV_VARIANTS = [
     { id: "long-title", label: "Long title" },
 ];
 
-const PLAN_DEV_VARIANTS = ["feature", "project", "stale", "expired", "recovery", "read-plan", "read-work-record"];
+const PLAN_DEV_VARIANTS = [
+    "feature",
+    "project",
+    "sequence",
+    "stale",
+    "expired",
+    "recovery",
+    "read-plan",
+    "read-work-record",
+];
 
 function buildCodeReviewDevPayload(variant) {
     const base = {
@@ -728,6 +737,13 @@ function buildCodeReviewDevPayload(variant) {
         ...base,
         devGuideCapabilities: { available: true, providers: [{ id: "guide", provider: "fixture", model: "ready" }] },
         guidedReviewFixture: GUIDED_REVIEW_FIXTURE,
+        devGuideJob: {
+            id: "dev-guide",
+            status: "done",
+            providerName: "fixture",
+            model: "dev-fixture",
+            thinkingLevel: "high",
+        },
     };
 }
 
@@ -810,6 +826,41 @@ export function ReviewDevSurface({ surface, presentation = "standalone", variant
             },
             reviewNotice: planNotice,
         };
+    if (planVariant === "sequence") {
+        planPayload.sequenceDocuments = [
+            {
+                planId: "sequence-demo",
+                planName: "review-improvements",
+                planPath: "review-improvements.md",
+                plan:
+                    "# Review improvements\n\n## Context\n\nKeep related changes together.\n\n## Objective\n\nImprove review in two ordered Plans.\n\n## Children\n\n1. Build review controls.\n2. Connect feedback after the controls are ready.",
+                frontmatter: { classification: "PROJECT", type: "sequence" },
+            },
+            {
+                planId: "controls-demo",
+                planName: "review-improvements/controls",
+                planPath: "controls.md",
+                plan: PLAN_FIXTURE,
+                frontmatter: {
+                    classification: "PLANNED_CHANGE",
+                    executionAgent: "frontend-engineer",
+                    collaborationRecommendation: "autonomous",
+                },
+            },
+            {
+                planId: "feedback-demo",
+                planName: "review-improvements/feedback",
+                planPath: "feedback.md",
+                plan: SECOND_PLAN_FIXTURE,
+                frontmatter: {
+                    classification: "PLANNED_CHANGE",
+                    executionAgent: "engineer",
+                    collaborationRecommendation: "pair",
+                },
+            },
+        ];
+        delete planPayload.executionPolicy;
+    }
     const readPlanPayload = {
         surface: "artifact-read",
         markdown: PLAN_FIXTURE,

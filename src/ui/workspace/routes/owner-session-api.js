@@ -101,7 +101,11 @@ export async function ownerProjectSessionsApi(ctx) {
         requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
         const page = readPageValue(ctx.url.searchParams.get("page"), "page", 0, 10_000);
         const pageSize = readPageValue(ctx.url.searchParams.get("pageSize"), "pageSize", 30, 100);
-        const result = await ctx.state.sessionContinuation.listSessions(ctx.params.projectId, { page, pageSize });
+        const result = await ctx.state.sessionContinuation.listSessions(ctx.params.projectId, {
+            page,
+            pageSize,
+            includeEmpty: ctx.url.searchParams.get("includeEmpty") === "true",
+        });
         return ownerJson({ ...result, diagnostics: (result.diagnostics || []).map(safeDiagnostic) });
     } catch (error) {
         return ownerErrorJson(error, 400);
@@ -120,11 +124,39 @@ export async function ownerSessionTimelineApi(ctx) {
             projectId: ctx.params.projectId,
             cursorEventId,
             limit,
+            latest: ctx.url.searchParams.get("latest") === "true",
+            beforeEventId: ctx.url.searchParams.get("beforeEventId")
+                ? requireBoundedString(ctx.url.searchParams.get("beforeEventId"), "beforeEventId", 200)
+                : undefined,
         });
         return ownerJson({ ...safeTimelineResult(result), events: (result.events || []).map(safeEvent) });
     } catch (error) {
         const message = sanitizeOwnerError(error);
         return ownerJson({ error: message }, /reconcile|uncertain|disabled/.test(message) ? 503 : 409);
+    }
+}
+
+/**
+ * @typedef {Object} LiveSessionRouteContext
+ * @property {{ projectId: string, runwieldSessionId: string }} params
+ * @property {{ store: import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore, sessionContinuation: import('../server/session-continuation.js').WorkspaceSessionContinuationService }} state
+ */
+/** @param {LiveSessionRouteContext} ctx */
+export async function ownerSessionLiveApi(ctx) {
+    try {
+        requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+        const result = await ctx.state.sessionContinuation.liveSession(
+            ctx.params.projectId,
+            ctx.params.runwieldSessionId,
+        );
+        return ownerJson({
+            ...result,
+            operation: result.operation
+                ? { ...result.operation, events: result.operation.events.map(safeEvent) }
+                : null,
+        });
+    } catch (error) {
+        return ownerErrorJson(error, 404);
     }
 }
 
@@ -155,7 +187,8 @@ export async function ownerSessionCreateApi(ctx) {
             deviceId: ctx.state.ownerDevice?.deviceId || null,
             projectId: ctx.params.projectId,
             requestId: requireBoundedString(body.requestId, "requestId", 128),
-            text: requireBoundedString(body.text, "text", 32_000),
+            text: body.text ? requireBoundedString(body.text, "text", 32_000) : "",
+            images: readSubmittedImages(body.images),
             agentName: typeof body.agentName === "string"
                 ? requireBoundedString(body.agentName, "agentName", 128)
                 : undefined,
@@ -262,10 +295,24 @@ export async function ownerSessionInteractionAnswerApi(ctx) {
     }
 }
 
-/** @param {any} ctx */
-export function ownerSessionOperationCancelApi(ctx) {
+/**
+ * @typedef {Object} SessionSteerRouteContext
+ * @property {Request} req
+ * @property {{ projectId: string, operationId: string }} params
+ * @property {{ store: import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore, sessionContinuation: import('../server/session-continuation.js').WorkspaceSessionContinuationService }} state
+ */
+/** @param {SessionSteerRouteContext} ctx */
+export async function ownerSessionSteerApi(ctx) {
     try {
-        const result = ctx.state.sessionContinuation.cancelOperation({ operationId: ctx.params.operationId });
+        const body = await readJson(ctx.req);
+        requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+        const result = await ctx.state.sessionContinuation.steerOperation({
+            projectId: ctx.params.projectId,
+            operationId: ctx.params.operationId,
+            requestId: requireBoundedString(body.requestId, "requestId", 128),
+            text: body.text ? requireBoundedString(body.text, "text", 32_000) : "",
+            images: readSubmittedImages(body.images),
+        });
         return ownerJson(result, 202);
     } catch (error) {
         return ownerErrorJson(error, 409);
@@ -273,8 +320,18 @@ export function ownerSessionOperationCancelApi(ctx) {
 }
 
 /** @param {any} ctx */
-export function ownerSessionOperationStatusApi(ctx) {
-    const result = ctx.state.sessionContinuation.getOperation(ctx.params.operationId);
+export async function ownerSessionOperationCancelApi(ctx) {
+    try {
+        const result = await ctx.state.sessionContinuation.cancelOperation({ operationId: ctx.params.operationId });
+        return ownerJson(result, 202);
+    } catch (error) {
+        return ownerErrorJson(error, 409);
+    }
+}
+
+/** @param {any} ctx */
+export async function ownerSessionOperationStatusApi(ctx) {
+    const result = await ctx.state.sessionContinuation.refreshOperation(ctx.params.operationId);
     return ownerJson({ ...result, events: (result.events || []).map(safeEvent) });
 }
 

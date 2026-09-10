@@ -1,5 +1,5 @@
-import { assert, assertEquals } from "@std/assert";
-import { spawnForegroundShell } from "./foreground-process.ts";
+import { assert, assertEquals, assertThrows } from "@std/assert";
+import { spawnForegroundProcess, spawnForegroundShell } from "./foreground-process.ts";
 
 const IS_WINDOWS = Deno.build.os === "windows";
 
@@ -89,6 +89,157 @@ async function spawnTreeWithDescendant(options: {
     }
     throw new Error("foreground-process test setup: descendant process never appeared within 10s");
 }
+
+Deno.test({
+    name: "spawnForegroundProcess passes literal arguments and reports the real exit status",
+    ignore: IS_WINDOWS,
+    fn: async () => {
+        const cwd = await Deno.makeTempDir({ prefix: "runwield-fg-direct-cwd-" });
+        const marker = `${cwd}/shell-metacharacter-marker`;
+        const script = `${cwd}/args.ts`;
+        await Deno.writeTextFile(
+            script,
+            "console.log(Deno.args[0]); console.error('err'); Deno.exit(3);\n",
+        );
+        try {
+            const process = spawnForegroundProcess({
+                command: Deno.execPath(),
+                args: ["run", "-A", script, `literal; touch ${marker}`],
+                cwd,
+            });
+            const [outcome, stdout, stderr] = await Promise.all([
+                process.done,
+                readAll(process.stdout),
+                readAll(process.stderr),
+            ]);
+            assertEquals(outcome, { exitCode: 3, terminatedBy: null });
+            assertEquals(stdout.trim(), `literal; touch ${marker}`);
+            assertEquals(stderr, "err\n");
+            assertEquals(await Deno.stat(marker).then(() => true, () => false), false);
+        } finally {
+            await Deno.remove(cwd, { recursive: true });
+        }
+    },
+});
+
+Deno.test({
+    name: "spawnForegroundProcess skips the spawn entirely for an already-aborted signal",
+    ignore: IS_WINDOWS,
+    fn: async () => {
+        const marker = await Deno.makeTempFile({ prefix: "runwield-fg-direct-preabort-" });
+        await Deno.remove(marker);
+        const abortController = new AbortController();
+        abortController.abort();
+        const process = spawnForegroundProcess({
+            command: "sh",
+            args: ["-c", `touch ${marker}`],
+            cwd: Deno.cwd(),
+            signal: abortController.signal,
+        });
+        const [outcome, stdout, stderr] = await Promise.all([
+            process.done,
+            readAll(process.stdout),
+            readAll(process.stderr),
+        ]);
+        assertEquals(process.pid, null);
+        assertEquals(outcome, { exitCode: null, terminatedBy: "abort" });
+        assertEquals(stdout, "");
+        assertEquals(stderr, "");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assertEquals(await Deno.stat(marker).then(() => true, () => false), false);
+    },
+});
+
+Deno.test({
+    name: "spawnForegroundProcess writes optional stdin and closes it",
+    ignore: IS_WINDOWS,
+    fn: async () => {
+        const process = spawnForegroundProcess({
+            command: "cat",
+            cwd: Deno.cwd(),
+            stdinText: "stdin marker",
+        });
+        const [outcome, stdout, stderr] = await Promise.all([
+            process.done,
+            readAll(process.stdout),
+            readAll(process.stderr),
+        ]);
+        assertEquals(outcome, { exitCode: 0, terminatedBy: null });
+        assertEquals(stdout, "stdin marker");
+        assertEquals(stderr, "");
+    },
+});
+
+Deno.test({
+    name: "spawnForegroundProcess reports a missing executable as a spawn error",
+    ignore: IS_WINDOWS,
+    fn: () => {
+        assertThrows(
+            () =>
+                spawnForegroundProcess({
+                    command: `runwield-missing-${crypto.randomUUID()}`,
+                    args: [],
+                    cwd: Deno.cwd(),
+                }),
+            Deno.errors.NotFound,
+        );
+    },
+});
+
+Deno.test({
+    name: "spawnForegroundProcess kill after natural exit terminates lingering descendants",
+    ignore: IS_WINDOWS,
+    fn: async () => {
+        const pidFile = await Deno.makeTempFile({ prefix: "runwield-fg-direct-natural-descendant-" });
+        const process = spawnForegroundProcess({
+            command: "sh",
+            args: ["-c", `sleep 30 & echo $! > ${pidFile}; exit 4`],
+            cwd: Deno.cwd(),
+        });
+        let descendantPid = 0;
+        try {
+            const outcome = await process.done;
+            descendantPid = Number((await Deno.readTextFile(pidFile)).trim()) || 0;
+            assert(descendantPid && processAlive(descendantPid), "descendant should survive parent natural exit setup");
+            assertEquals(outcome, { exitCode: 4, terminatedBy: null });
+            process.kill();
+            assertEquals(await waitForProcessDeath(descendantPid), true);
+        } finally {
+            if (descendantPid && processAlive(descendantPid)) Deno.kill(descendantPid, "SIGKILL");
+            await Deno.remove(pidFile).catch(() => {});
+        }
+    },
+});
+
+Deno.test({
+    name: "spawnForegroundProcess timeout kills the whole descendant tree",
+    ignore: IS_WINDOWS,
+    fn: async () => {
+        const pidFile = await Deno.makeTempFile({ prefix: "runwield-fg-direct-descendant-" });
+        const process = spawnForegroundProcess({
+            command: "sh",
+            args: ["-c", `sleep 30 & echo $! > ${pidFile}; wait`],
+            cwd: Deno.cwd(),
+            timeoutMs: 2000,
+        });
+        let descendantPid = 0;
+        try {
+            const deadline = Date.now() + 10_000;
+            while (Date.now() < deadline) {
+                descendantPid = Number((await Deno.readTextFile(pidFile)).trim()) || 0;
+                if (descendantPid && processAlive(descendantPid)) break;
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+            assert(descendantPid && processAlive(descendantPid), "descendant should be running before timeout");
+            const outcome = await process.done;
+            assertEquals(outcome, { exitCode: null, terminatedBy: "timeout" });
+            assertEquals(await waitForProcessDeath(descendantPid), true);
+        } finally {
+            if (descendantPid && processAlive(descendantPid)) Deno.kill(descendantPid, "SIGKILL");
+            await Deno.remove(pidFile).catch(() => {});
+        }
+    },
+});
 
 Deno.test({
     name: "spawnForegroundShell reports the real exit status and separate streams",

@@ -120,6 +120,12 @@ Deno.test("aggregate projection adds safe segment context without exposing segme
             `${fixture.secondSegment.segmentId}:duplicate:assistant_text_delta:0`,
         ]);
         assertEquals(projected.snapshot.name, null);
+        assertEquals(projected.snapshot.sessionStats, {
+            userMessages: 1,
+            assistantMessages: 1,
+            toolCalls: 0,
+            compactionCount: 0,
+        });
         assertEquals(projected.events.map((event) => [event.segmentOrdinal, event.segmentKind]), [
             [0, "planning"],
             [1, "execution"],
@@ -131,6 +137,86 @@ Deno.test("aggregate projection adds safe segment context without exposing segme
         assertEquals(JSON.stringify(projected.segments).includes(fixture.firstSegment.segmentId), false);
     } finally {
         await cleanupFixture(fixture);
+    }
+});
+
+Deno.test("aggregate projection reads segments from each segment transcript directory", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-aggregate-transcript-dirs-" });
+    try {
+        const firstRoot = `${dir}/repo`;
+        const secondRoot = `${dir}/worktree-repo`;
+        await Deno.mkdir(firstRoot);
+        await Deno.mkdir(secondRoot);
+        const first = await writeTranscript(firstRoot, "pi-one", "2026-01-01T00:00:00.000Z", [
+            {
+                type: "message",
+                id: "first",
+                timestamp: "2026-01-01T00:00:01.000Z",
+                message: { role: "user", content: "first" },
+            },
+        ]);
+        const second = await writeTranscript(secondRoot, "pi-two", "2026-01-01T00:00:02.000Z", [
+            {
+                type: "message",
+                id: "second",
+                timestamp: "2026-01-01T00:00:03.000Z",
+                message: { role: "assistant", content: "second" },
+            },
+        ]);
+        const firstEvidence = await captureTranscriptEvidence({ transcriptPath: first.path, transcriptCwd: firstRoot });
+        const secondEvidence = await captureTranscriptEvidence({
+            transcriptPath: second.path,
+            transcriptCwd: secondRoot,
+        });
+        const projected = await projectAggregateTranscript({
+            cwd: firstRoot,
+            runwieldSessionId: "session-1",
+            generation: {
+                generation: 1,
+                byteLength: secondEvidence.byteLength,
+                terminalEntryId: secondEvidence.terminalEntryId,
+                digestHex: secondEvidence.digestHex,
+                currentSegmentId: "segment-2",
+            },
+            segments: [
+                {
+                    segmentId: "segment-1",
+                    runwieldSessionId: "session-1",
+                    projectId: "project-1",
+                    piSessionId: "pi-one",
+                    transcriptPath: first.path,
+                    transcriptCwd: firstRoot,
+                    ordinal: 0,
+                    kind: "planning",
+                    sealedAt: "t1",
+                    sealedByteLength: firstEvidence.byteLength,
+                    sealedDigestHex: firstEvidence.digestHex,
+                    sealedTerminalEntryId: firstEvidence.terminalEntryId,
+                },
+                {
+                    segmentId: "segment-2",
+                    runwieldSessionId: "session-1",
+                    projectId: "project-1",
+                    piSessionId: "pi-two",
+                    transcriptPath: second.path,
+                    transcriptCwd: secondRoot,
+                    ordinal: 1,
+                    kind: "execution",
+                    sealedAt: null,
+                    sealedByteLength: null,
+                    sealedDigestHex: null,
+                    sealedTerminalEntryId: null,
+                },
+            ],
+        });
+
+        assert(projected.ok);
+        assertEquals(projected.events.map((event) => event.eventId), [
+            "segment-1:first:user_message:0",
+            "segment-2:second:assistant_text_delta:0",
+        ]);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
     }
 });
 

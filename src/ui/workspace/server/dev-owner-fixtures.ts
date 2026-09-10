@@ -10,6 +10,18 @@ export const DEV_OWNER_PROJECT = {
 
 export const DEV_OWNER_SESSIONS = [
     {
+        runwieldSessionId: "agy-cli-gemini-flash",
+        projectId: DEV_OWNER_PROJECT.projectId,
+        displayName: "Agy CLI Gemini Flash",
+        headerTimestamp: "2026-08-29T15:30:00.000Z",
+        lastCatalogedAt: "2026-08-29T15:30:00.000Z",
+        state: "idle",
+        generation: 1,
+        activeSurface: null,
+        recoveryCategory: "idle",
+        bootstrapRequired: false,
+    },
+    {
         runwieldSessionId: "choose-terraform-folder-name",
         projectId: DEV_OWNER_PROJECT.projectId,
         displayName: "Choose Terraform folder name",
@@ -120,6 +132,30 @@ export function devOwnerSidebar() {
 }
 
 function devOwnerShowcaseEvents(session: typeof DEV_OWNER_SESSIONS[number]) {
+    if (session.runwieldSessionId === "agy-cli-gemini-flash") {
+        return [
+            {
+                type: "user_message",
+                messageId: "agy-fixture-user",
+                text: "Run this through Antigravity CLI with high thinking.",
+                timestamp: session.headerTimestamp,
+            },
+            {
+                type: "assistant_text_delta",
+                messageId: "agy-fixture-assistant",
+                agentName: "Engineer",
+                delta: "Agy returned the committed assistant response. Native Agy tool activity is not in replay.",
+                timestamp: session.lastCatalogedAt,
+            },
+            {
+                type: "system_status",
+                eventId: "agy-fixture-backend-status",
+                level: "success",
+                message: "Antigravity CLI completed with gemini-3.8-flash-high.",
+                timestamp: session.lastCatalogedAt,
+            },
+        ];
+    }
     if (session.runwieldSessionId !== "choose-terraform-folder-name") {
         return [
             {
@@ -377,12 +413,33 @@ export function devOwnerTimeline(runwieldSessionId: string) {
         generation: session.generation,
         complete: true,
         events: devOwnerShowcaseEvents(session),
-        snapshot: {
-            name: session.displayName,
-            activeAgent: "engineer",
-            activeModel: { provider: "fixture", model: "dev-model" },
-            thinkingLevel: "medium",
-        },
+        snapshot: session.runwieldSessionId === "agy-cli-gemini-flash"
+            ? {
+                sessionStats: { userMessages: 3, assistantMessages: 5, toolCalls: 4, compactionCount: 0 },
+                name: session.displayName,
+                activeAgent: "engineer",
+                activeModel: { provider: "agy-cli", model: "gemini-3.8-flash" },
+                provider: "agy-cli",
+                model: "gemini-3.8-flash",
+                thinkingLevel: "high",
+                executionBackend: {
+                    backend: "agy-cli",
+                    provider: "agy-cli",
+                    model: "gemini-3.8-flash",
+                    thinkingLevel: "high",
+                    effort: "high",
+                    backendModel: "gemini-3.8-flash-high",
+                },
+            }
+            : {
+                sessionStats: { userMessages: 6, assistantMessages: 12, toolCalls: 9, compactionCount: 1 },
+                contextUsage: { tokens: 24000, contextWindow: 200000, percent: 12 },
+                systemContextTokens: 8000,
+                name: session.displayName,
+                activeAgent: "engineer",
+                activeModel: { provider: "fixture", model: "dev-model" },
+                thinkingLevel: "medium",
+            },
     };
 }
 
@@ -394,7 +451,11 @@ export function devOwnerSessionOptions() {
             { name: "engineer", displayName: "Engineer" },
             { name: "planner", displayName: "Planner" },
         ],
-        models: [{ provider: "fixture", id: "dev-model", name: "Dev Model" }],
-        thinkingLevels: ["off", "low", "medium", "high"],
+        models: [
+            { provider: "fixture", id: "dev-model", name: "Dev Model" },
+            { provider: "agy-cli", id: "gemini-3.8-flash", name: "Antigravity CLI Gemini 3.8 Flash" },
+            { provider: "agy-cli", id: "gemini-3.1-pro", name: "Antigravity CLI Gemini 3.1 Pro" },
+        ],
+        thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
     };
 }

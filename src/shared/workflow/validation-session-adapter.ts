@@ -24,7 +24,7 @@ import { requestHostedSessionInteraction } from "../session/session-runtime-inte
 import { getAgentDisplayName as getSessionAgentDisplayName } from "../session/agents.js";
 import { ClaudeCliBackendError } from "../session/backends/claude-cli/failure.ts";
 import { REVIEWER_SUBAGENT_TOOLS } from "../session/subagent-definitions.ts";
-import { SUBAGENTS } from "../../constants.js";
+import { AGENTS, SUBAGENTS } from "../../constants.js";
 import {
     emitRunWieldSystemStatus,
     getCurrentValidationProgress,
@@ -34,14 +34,14 @@ import { clearValidationPosition, rememberValidationPosition } from "./validatio
 import { runFeaturePostVerificationHandoffs } from "./validation-helpers.ts";
 import { runValidationAgentUntilEvent } from "../session/agent-workflow-step.ts";
 import { logValidationFailure } from "./validation-state-errors.ts";
-import { updatePlanFrontMatter } from "../../plan-store.js";
+import { loadPlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { makeValidationCheckpoint } from "./validation-checkpoint.ts";
-import { loadPlan } from "../../plan-store.js";
 import { renderOpenItems } from "./review-ledger.ts";
 import { recordValidationRepairCompletion } from "./validation-supervisor.ts";
 import { createReviewDiffTool } from "./review-diff-tool.js";
 import { createQaChecklistGeneratedTool } from "../../tools/qa-checklist-generated.ts";
 import { settleWorkflowToolEvent } from "./workflow-tool-events.ts";
+import { switchActiveAgent } from "../session/agent-switching.js";
 import type {
     AgentTurnOutcome,
     IsolatedAgentSessionOutcome,
@@ -277,9 +277,9 @@ async function runIsolatedRequest(
             outcome: "completed",
             reviewOutcome,
             usedDiffTool: Boolean(diffEvent),
-            trustedClaudeMcpReview: Boolean(
+            trustedOpaqueMcpReview: Boolean(
                 reviewEvent?.owningSession && "kind" in reviewEvent.owningSession &&
-                    reviewEvent.owningSession.kind === "claude-cli",
+                    (reviewEvent.owningSession.kind === "claude-cli" || reviewEvent.owningSession.kind === "agy-cli"),
             ),
         };
     }
@@ -520,6 +520,14 @@ export function createValidationSessionPort(
             }
         },
         getAgentDisplayName: (agentName, projectRoot) => getSessionAgentDisplayName(agentName, projectRoot),
+        handoffVerifiedPublication: async (projectRoot) => {
+            if (!hostedSession.getRootAgentSession?.()) return;
+            await switchActiveAgent(hostedSession, {
+                agentName: AGENTS.ENGINEER,
+                cwd: projectRoot,
+                forceRebuild: true,
+            });
+        },
         runPostVerificationHandoffs: async ({ planName, planContent, projectRoot, mnemotecaPort }) => {
             await runFeaturePostVerificationHandoffs({
                 hostedSession,

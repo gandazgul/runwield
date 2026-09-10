@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import {
+    createRootSessionManager,
     encodeCwdForSessionDir,
     getRootSessionBranchEntries,
     getRunWieldSessionDir,
@@ -91,6 +92,45 @@ Deno.test("root-session persisted helpers list open and guard cwd paths", async 
                 Error,
                 "outside the RunWield session directory",
             );
+        } finally {
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await removeTempDirBestEffort(home);
+        }
+    });
+});
+
+Deno.test("root-session helpers create list and open through canonical cwd aliases", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir();
+        Deno.env.set("HOME", home);
+        try {
+            const realCwd = `${home}/repo`;
+            const linkedCwd = `${home}/repo-link`;
+            await Deno.mkdir(realCwd, { recursive: true });
+            await Deno.symlink(realCwd, linkedCwd);
+            const manager = await createRootSessionManager("new", linkedCwd);
+            manager.appendMessage({ role: "user", timestamp: Date.now(), content: [{ type: "text", text: "hello" }] });
+            manager.appendMessage(
+                /** @type {any} */ ({
+                    role: "assistant",
+                    timestamp: Date.now(),
+                    api: "test",
+                    provider: "test",
+                    model: "test",
+                    usage: {},
+                    cost: {},
+                    stopReason: "end_turn",
+                    content: [{ type: "text", text: "hi" }],
+                }),
+            );
+            const sessionId = manager.getSessionId();
+
+            const sessions = await listPersistedRootSessions(realCwd);
+            assertEquals(sessions.some((session) => session.id === sessionId), true);
+            const opened = await openPersistedRootSession({ cwd: realCwd, sessionId });
+            assertEquals(opened.sessionManager.getSessionId(), sessionId);
         } finally {
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);

@@ -14,7 +14,7 @@ affectedPaths:
     - "src/ui/workspace/"
     - "src/ui/review/"
     - "docs/prd/workflow-rail-prd.md"
-    - "docs/prd/runwield-workspace-session-screen.md"
+    - "docs/prd/workspace-session-screen.md"
     - "docs/design-system.md"
     - "docs/domain-language.md"
 executionAgent: "frontend-engineer"
@@ -118,7 +118,7 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
   conditional Plan panel with a persistent accessible sidebar/drawer driven by the shared projection.
 - `src/ui/workspace/react/ArtifactReadSurface.tsx`, `review-types.ts`, `src/ui/review/review-launcher.ts`, and routes —
   accept typed trusted Markdown kinds and preserve type-specific labels/notices without parsing them as Plans.
-- `docs/prd/workflow-rail-prd.md`, `docs/prd/runwield-workspace-session-screen.md`, `docs/design-system.md`, and
+- `docs/prd/workflow-rail-prd.md`, `../../../prd/workspace-session-screen.md`, `docs/design-system.md`, and
   `docs/domain-language.md` — align documented product behavior and canonical terms with what this child implements.
 
 ## Reuse Opportunities
@@ -176,8 +176,8 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
   retaining current Plan/Work Record behavior, notices, outline navigation, images, print behavior, and safe close. It
   does not expose arbitrary filesystem reads. Workspace opens it in the established artifact route; TUI launches that
   Workspace-styled reader locally when no persistent Workspace destination is available.
-- `docs/prd/workflow-rail-prd.md` and `docs/prd/runwield-workspace-session-screen.md` describe the persistent Session
-  Sidebar and explicit artifact catalog. `docs/design-system.md` documents only implemented reusable patterns.
+- `docs/prd/workflow-rail-prd.md` and `../../../prd/workspace-session-screen.md` describe the persistent Session Sidebar
+  and explicit artifact catalog. `docs/design-system.md` documents only implemented reusable patterns.
   `docs/domain-language.md` defines Session Artifact, Session Artifact Catalog, and Session Sidebar, their owners and
   relationships, and retires Workflow Rail as the umbrella surface name.
 

@@ -7,7 +7,7 @@ import { isPlannedChangeClassification } from "../../constants.js";
 import {
     findPlansByParent,
     isChildFeaturePlan,
-    isEpicPlan,
+    isProjectPlan,
     listArchivedPlans,
     loadArchivedPlan,
     loadPlan,
@@ -62,7 +62,7 @@ async function loadActiveSource(cwd: string, name: string): Promise<WorkRecordSo
 }
 
 async function withEpicChildren(cwd: string, source: WorkRecordSource): Promise<WorkRecordSource> {
-    if (!isEpicPlan(source.attrs)) return source;
+    if (!isProjectPlan(source.attrs)) return source;
     const children: WorkRecordSource[] = [];
     for (const child of await findPlansByParent(cwd, source.name)) {
         const loaded = await loadPlan(cwd, child.name);

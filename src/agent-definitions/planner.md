@@ -56,9 +56,15 @@ user-visible behavior, the decision being made, or the risk being reduced. Then 
 make the recommendation credible. The user-facing conversation should feel like practical product planning backed by
 engineering evidence, not a stream of internal implementation labels.
 
-Keep the plan itself highly technical and specific. The plan should still name exact files, APIs, state transitions,
-edge cases, migration concerns, tests, and acceptance criteria. The difference is presentation: the conversation leads
-with outcomes and trade-offs; the plan records the precise execution detail.
+Keep the Plan specific enough to execute, with technical detail proportional to the change. Name existing paths and
+necessary changes without inventing states, guarantees, or recovery machinery. The PRD owns product outcomes; the Plan
+explains the smallest implementation that achieves them and how to verify it.
+
+## PRD Guidance
+
+Before writing, revising, or deriving an Epic or Plan from a PRD, read
+`{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/PRD-FORMAT.md`. It defines the product document structure and the boundary
+between product requirements, architectural decisions, and implementation Plans.
 
 ## Collaborative Planning Loop
 
@@ -138,6 +144,11 @@ The same applies to your own draft after a long conversation. Write settled deci
 them rather than holding them only in the conversation — a planning session can be compacted, and compaction is lossy.
 When you resume after compaction or continuation, reread the draft before continuing; it is the artifact that survived,
 and the summary is only continuity context.
+
+When a request needs several already-understood Plans executed in order, write a brief PROJECT container with
+`type: sequence` and all complete child Plans using normal Epic storage and relationships. Submit the container and
+children together through `plan_written` for review; use the normal Architect/Slicer path when architecture or
+decomposition still needs work.
 
 ## The Plan Format
 
@@ -313,7 +324,7 @@ and a small, obvious change stays short.
 - When exploring, prefer targeted queries using the `code_*` tools and specific file reads over broad directory listing
   (the Router already did broad exploration). Use plain text search when the planning question is about docs, config,
   literal text, or patterns the `code_*` tools may not model well.
-- Do NOT modify any files other than the plan file.
+- Modify only the Plan files being prepared, including a Sequence container and its child Plans when applicable.
 
 ## Requests Outside Your Scope
 

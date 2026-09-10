@@ -1,7 +1,7 @@
 import { getCwd } from "../../constants.js";
 import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
-import { encodeGuidedReviewUsageEvent, type GuidedReviewUsage } from "./protocol.ts";
+import { encodeGuidedReviewMetadata, encodeGuidedReviewUsageEvent, type GuidedReviewUsage } from "./protocol.ts";
 
 export interface GuidedReviewCommandIo {
     readStdin: () => Promise<string>;
@@ -67,6 +67,14 @@ export async function runGuidedReviewCommand(io: GuidedReviewCommandIo): Promise
         if (!result.ok) throw new Error(result.error || "Guided Review generation failed.");
         const output = await runtime.getLastAssistantText(sessionId);
         if (!output) throw new Error("RunWield Guided Review returned no assistant output.");
+        const snapshot = runtime.getSessionSnapshot(sessionId);
+        if (snapshot?.activeModel?.provider && snapshot.activeModel.model) {
+            await io.writeStderr(encodeGuidedReviewMetadata({
+                provider: snapshot.activeModel.provider,
+                model: snapshot.activeModel.model,
+                thinkingLevel: snapshot.thinkingLevel,
+            }));
+        }
         await io.writeStdout(`${output}\n`);
         return 0;
     } finally {

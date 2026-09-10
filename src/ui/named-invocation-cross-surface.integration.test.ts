@@ -87,6 +87,7 @@ interface JsonMap {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const compactInvocation = "/cross-surface compare surfaces";
+const expectedDisplayedInvocation = "Cross-surface expansion: {{input}}\n\ncompare surfaces";
 const expectedTemporaryProfile = {
     agentName: "operator",
     model: "runtime-command-fixture/alternate-fixture-model",
@@ -159,7 +160,7 @@ function runtimeSurfaceEvents(events: RuntimeSurfaceEvent[]): SurfaceEventSummar
     let sawThinking = false;
     let sawAssistant = false;
     for (const event of events) {
-        if (!sawUser && event.type === "user_message" && event.text === compactInvocation) {
+        if (!sawUser && event.type === "user_message" && event.text === expectedDisplayedInvocation) {
             summaries.push({ type: "user_message", text: event.text });
             sawUser = true;
             continue;
@@ -223,7 +224,7 @@ function acpSurfaceEvents(messages: JsonMap[]): SurfaceEventSummary[] {
         const update = getAcpUpdate(message);
         const meta = update?._meta?.runwield;
         const contentText = update?.content?.text || "";
-        if (!sawUser && update?.sessionUpdate === "user_message_chunk" && contentText === compactInvocation) {
+        if (!sawUser && update?.sessionUpdate === "user_message_chunk" && contentText === expectedDisplayedInvocation) {
             summaries.push({ type: "user_message", text: contentText });
             sawUser = true;
             continue;
@@ -482,7 +483,7 @@ Deno.test("named invocation fixture matches TUI, Workspace, and ACP surfaces", a
             assertEquals(new Set(summaries.map((summary) => summary.restoredModel)).size, 1);
             for (const summary of summaries) {
                 assertEquals(summary.events, [
-                    { type: "user_message", text: compactInvocation },
+                    { type: "user_message", text: expectedDisplayedInvocation },
                     {
                         type: "agent_changed",
                         agentName: expectedTemporaryProfile.agentName,

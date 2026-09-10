@@ -337,7 +337,7 @@ Deno.test("resolveValidationExecutionContext uses imported controller mode inste
             explicitContext: { planName: "p", nonGitInPlace: true },
         });
         assertEquals(result.kind, "blocked");
-        if (result.kind === "blocked") assertEquals(result.reason, "missing_registry_entry");
+        if (result.kind === "blocked") assertEquals(result.reason, "worktree_inspection_failed");
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
@@ -576,3 +576,54 @@ Deno.test("resolveValidationExecutionContext replaces a stale caller path with t
         await Deno.remove(parent, { recursive: true }).catch(() => {});
     }
 });
+
+for (const primaryBranch of [false, true]) {
+    Deno.test(`validation rejects primary checkout before repair (branch in primary: ${primaryBranch})`, async () => {
+        const projectRoot = await baseRepo.checkout();
+        try {
+            const branch = "worktree/primary-guard";
+            const path = primaryBranch ? `${projectRoot}/missing-attempt` : projectRoot;
+            if (primaryBranch) await git(projectRoot, ["switch", "-c", branch]);
+            await savePlan(projectRoot, "p", "# Plan", {
+                planId: "primary-guard-plan",
+                classification: "FEATURE",
+                status: "implemented",
+                executionMode: "worktree",
+                worktreeId: "primary-guard",
+                worktreePath: path,
+                worktreeBranch: branch,
+                worktreeBaseBranch: "main",
+            });
+            await addEntry(projectRoot, {
+                id: "primary-guard",
+                planName: "p",
+                planId: "primary-guard-plan",
+                path,
+                branch,
+                baseBranch: "main",
+                baseRef: "main",
+                baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
+                status: "completed",
+                createdAt: "2026-09-08T00:00:00Z",
+                updatedAt: "2026-09-08T00:00:00Z",
+            });
+            await Deno.writeTextFile(`${projectRoot}/file.txt`, "unsaved developer work\n");
+            await Deno.writeTextFile(`${projectRoot}/untracked.txt`, "keep me\n");
+            const before = await findById(projectRoot, "primary-guard");
+            const status = await git(projectRoot, ["status", "--porcelain"]);
+            const head = await git(projectRoot, ["rev-parse", "HEAD"]);
+            const result = await resolveValidationExecutionContext({ projectRoot, planName: "p" });
+            assertEquals(result.kind, "blocked");
+            if (result.kind === "blocked") assertEquals(result.reason, "primary_checkout_is_not_execution_worktree");
+            assertEquals(await git(projectRoot, ["branch", "--show-current"]), primaryBranch ? branch : "main");
+            assertEquals(await git(projectRoot, ["rev-parse", "HEAD"]), head);
+            assertEquals(await git(projectRoot, ["status", "--porcelain"]), status);
+            assertEquals(await Deno.readTextFile(`${projectRoot}/file.txt`), "unsaved developer work\n");
+            assertEquals(await Deno.readTextFile(`${projectRoot}/untracked.txt`), "keep me\n");
+            assertEquals(await findById(projectRoot, "primary-guard"), before);
+            if (!primaryBranch) assertEquals(await git(projectRoot, ["branch", "--list", branch]), "");
+        } finally {
+            await Deno.remove(projectRoot, { recursive: true });
+        }
+    });
+}

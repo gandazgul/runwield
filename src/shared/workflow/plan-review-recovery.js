@@ -43,6 +43,13 @@ export function isAnsweredPlanReview(response) {
     if (response?.outcome === RuntimeInteractionOutcomes.UNSUPPORTED) return false;
     if (payload.remoteReview === true) return true;
     if (payload.approved === true) return true;
+    const documents = payload.sequenceDecision?.documents || payload.documents;
+    if (
+        Array.isArray(documents) &&
+        documents.some((document) =>
+            document.feedback?.trim() || hasItems(document.annotations) || hasItems(document.globalAttachments)
+        )
+    ) return true;
     if (typeof payload.feedback === "string" && payload.feedback.trim()) return true;
     if (hasItems(payload.images) || hasItems(payload.annotations) || hasItems(payload.globalAttachments)) return true;
     return false;

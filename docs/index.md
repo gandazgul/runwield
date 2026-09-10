@@ -221,7 +221,21 @@ graph TD
 - [ACP Implementation Details and Gaps](acp-implementation-details.md) - current ACP v1 MVP behavior, conformance gaps,
   and optional protocol coverage.
 - [Router Model Selection](router-model-selection.md) - evaluation findings for the Router model choice.
-- [Session Compaction](prd/done/compaction-PRD.md) - Pi compaction behavior and RunWield integration background.
+- [Session Compaction](prd/runwield-core-prd.md#compaction-and-image-context) - product behavior for preserving useful
+  context.
+
+### Living central PRDs
+
+These are the current product principles and lasting requirements:
+
+- [RunWield](prd/runwield.md): vision and product family.
+- [Core](prd/runwield-core-prd.md): shared local workflow.
+- [Connect](prd/runwield-connect-prd.md): external-host experience.
+- [ACP](prd/runwield-acp-protocol-prd.md): external-client compatibility and chat-channel integration.
+- [Workspace](prd/runwield-workspace-prd.md): browser and cross-device experience, with team collaboration later.
+
+Other PRDs are transient proposals. After implementation, fold lasting requirements into the appropriate central PRD,
+update references, and remove the feature PRD. Use Git history for old proposals and Work Records for delivery evidence.
 
 ### Active product direction
 

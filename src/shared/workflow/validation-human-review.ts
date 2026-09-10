@@ -23,6 +23,8 @@ import { buildValidationUserMessage } from "./validation-user-messages.ts";
 
 type HumanReviewAnnotations = Array<{ file?: string; line?: number; text?: string; body?: string }>;
 
+type HumanReviewSurfaceReady = { url: string };
+
 export function codeReviewPlanTitle(planContent: string, planName: string): string {
     const heading = planContent.split(/\r?\n/).find((line) => /^#\s+\S/.test(line));
     const title = heading ? heading.replace(/^#\s+/, "").trim() : "";
@@ -112,11 +114,6 @@ export async function runHumanReviewPhase(
         stats: {},
     };
     for (;;) {
-        emitProgress(args, buildValidationUserMessage({ kind: "human_review_wait" }), "info", {
-            outcome: "running",
-            stage: "human_review",
-            checks: { humanReview: "running" },
-        });
         const outcome = await requestHumanReviewDecision();
         if (outcome.kind === "conversation") continue;
         if (outcome.kind === "decided") return outcome.result;
@@ -153,6 +150,18 @@ export async function runHumanReviewPhase(
                 guidedReview,
                 reviewConversation,
                 agentLabel,
+                onSurfaceReady: (surface: HumanReviewSurfaceReady) => {
+                    emitProgress(
+                        args,
+                        buildValidationUserMessage({ kind: "human_review_wait", reviewUrl: surface.url }),
+                        "info",
+                        {
+                            outcome: "running",
+                            stage: "human_review",
+                            checks: { humanReview: "running" },
+                        },
+                    );
+                },
             },
         });
         const humanReview = normalizeHumanReview(humanReviewResponse);

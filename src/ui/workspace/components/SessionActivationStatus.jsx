@@ -1,5 +1,3 @@
-import { validationStageLabel } from "../../../shared/workflow/validation-progress-presentation.ts";
-
 /**
  * @typedef {Object} SessionAvailabilityInput
  * @property {string | null | undefined} [state]
@@ -12,29 +10,6 @@ import { validationStageLabel } from "../../../shared/workflow/validation-progre
  * @property {boolean} [truncated]
  */
 
-const SURFACE_LABELS = {
-    tui: "TUI",
-    workspace: "Workspace",
-    acp: "ACP",
-    test: "another surface",
-};
-
-/** @param {string | null | undefined} value */
-function surfaceLabel(value) {
-    switch (String(value || "")) {
-        case "tui":
-            return SURFACE_LABELS.tui;
-        case "workspace":
-            return SURFACE_LABELS.workspace;
-        case "acp":
-            return SURFACE_LABELS.acp;
-        case "test":
-            return SURFACE_LABELS.test;
-        default:
-            return "another surface";
-    }
-}
-
 /**
  * @param {SessionAvailabilityInput} input
  * @returns {{ key: string, label: string, explanation: string, intent: "success" | "warning" | "danger" | "info", canPrepare: boolean, canContinue: boolean }}
@@ -43,8 +18,8 @@ export function deriveSessionAvailability(input) {
     if (input.localOperationActive) {
         return {
             key: "workspace-running",
-            label: "Running in Workspace",
-            explanation: "This phone already has a server-owned Session operation in progress.",
+            label: "Working",
+            explanation: "Steer the agent or queue a follow-up.",
             intent: "warning",
             canPrepare: false,
             canContinue: false,
@@ -60,98 +35,32 @@ export function deriveSessionAvailability(input) {
             canContinue: false,
         };
     }
-    if (input.truncated || input.timelineComplete === false) {
-        return {
-            key: "timeline-incomplete",
-            label: "Read-only timeline",
-            explanation: "The complete committed timeline was not loaded, so continuation is disabled until reload.",
-            intent: "warning",
-            canPrepare: false,
-            canContinue: false,
-        };
-    }
     if (input.state === "reconcile_required" || input.state === "uncertain") {
         return {
             key: "recovery-needed",
             label: "Recovery needed",
-            explanation: "RunWield must reconcile Session ownership before a phone can continue this Session.",
+            explanation: "The last operation was interrupted. Retry to check the saved conversation.",
             intent: "danger",
             canPrepare: false,
             canContinue: false,
         };
     }
     if (input.state === "active") {
-        const label = input.activeSurface === "workspace"
-            ? "Running in Workspace"
-            : `In use in ${surfaceLabel(input.activeSurface)}`;
         return {
             key: "active",
-            label,
-            explanation:
-                "Another RunWield surface is using this Session. New messages queue here and send when it stops.",
+            label: "Working",
+            explanation: "Steer the agent or queue a follow-up.",
             intent: "warning",
             canPrepare: false,
             canContinue: false,
         };
     }
     const activeAgent = String(input.snapshot?.activeAgent || "");
-    const workflowContext =
-        input.snapshot?.activeExecutionWorkflow && typeof input.snapshot.activeExecutionWorkflow === "object"
-            ? input.snapshot.activeExecutionWorkflow
-            : input.snapshot?.workflowContext && typeof input.snapshot.workflowContext === "object" &&
-                    ("phase" in input.snapshot.workflowContext || "state" in input.snapshot.workflowContext ||
-                        "kind" in input.snapshot.workflowContext)
-            ? input.snapshot.workflowContext
-            : null;
-    if (workflowContext) {
-        const phase = String(workflowContext.phase || workflowContext.state || workflowContext.kind || "execution");
-        const semantic = phase.includes("semantic") || phase.includes("review");
-        const mechanical = phase.includes("mechanical") || phase.includes("ci");
-        const repair = phase.includes("repair");
-        const delivery = phase.includes("delivery") || phase.includes("publication") || phase.includes("merge");
-        const failed = phase.includes("failed") || phase.includes("failure");
-        const completed = phase.includes("completed") || phase.includes("verified");
-        const label = failed
-            ? "Work needs attention"
-            : completed
-            ? "Work completed"
-            : repair
-            ? "Repair running"
-            : delivery
-            ? "Delivery running"
-            : semantic
-            ? `${validationStageLabel("semantic_review")} running`
-            : mechanical
-            ? `${validationStageLabel("ci")} running`
-            : "Execution running";
-        return {
-            key: failed ? "workflow-failed" : completed ? "workflow-completed" : "execution-workflow",
-            label,
-            explanation: completed
-                ? "This Session has completed work and remains read-only for this workflow."
-                : failed
-                ? "This Session has work that needs attention. Use the Plan progress view."
-                : "This Session is running work. Use the Plan progress view for current state.",
-            intent: failed ? "danger" : completed ? "success" : "warning",
-            canPrepare: false,
-            canContinue: false,
-        };
-    }
-    if (input.snapshot?.activeExecutionWorkflow) {
-        return {
-            key: "execution-workflow",
-            label: "Running work",
-            explanation: "This Session is running work. It becomes available when that work finishes.",
-            intent: "warning",
-            canPrepare: false,
-            canContinue: false,
-        };
-    }
     if (input.state === "idle" && activeAgent) {
         return {
             key: "available",
             label: "Available",
-            explanation: `Idle ${activeAgent} Session with a complete committed timeline.`,
+            explanation: `${activeAgent} is ready for your next message.`,
             intent: "success",
             canPrepare: false,
             canContinue: true,
@@ -161,7 +70,7 @@ export function deriveSessionAvailability(input) {
         return {
             key: "available",
             label: "Available",
-            explanation: "Idle conversational Session with a complete committed timeline.",
+            explanation: "Ready for your next message.",
             intent: "success",
             canPrepare: false,
             canContinue: true,
@@ -170,7 +79,7 @@ export function deriveSessionAvailability(input) {
     return {
         key: "unavailable",
         label: "Readable only",
-        explanation: "This Session is visible, but it is not eligible for phone continuation yet.",
+        explanation: "The conversation is not available yet. Try reloading.",
         intent: "info",
         canPrepare: false,
         canContinue: false,

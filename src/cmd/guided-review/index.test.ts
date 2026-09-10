@@ -2,7 +2,11 @@ import { type Context, fauxAssistantMessage, fauxText, type Message } from "@ear
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
-import { GUIDED_REVIEW_EVENT_PREFIX, parseGuidedReviewUsageEventLine } from "./protocol.ts";
+import {
+    GUIDED_REVIEW_EVENT_PREFIX,
+    parseGuidedReviewMetadataLine,
+    parseGuidedReviewUsageEventLine,
+} from "./protocol.ts";
 import { runGuidedReviewCommand } from "./index.ts";
 
 interface DeferredSignal {
@@ -115,8 +119,13 @@ Deno.test("guided-review emits the exact runtime usage frame before completing a
 
             const expectedFrame = { version: 1, type: "usage" as const, usage: expectedUsage };
             assertEquals(code, 0);
-            assertEquals(outputEvents, ["stderr", "stdout"]);
-            assertEquals(parseGuidedReviewUsageEventLine(stderr.trim()), expectedFrame);
+            assertEquals(outputEvents, ["stderr", "stderr", "stdout"]);
+            const [usageLine, metadataLine] = stderr.trim().split("\n");
+            assertEquals(parseGuidedReviewUsageEventLine(usageLine), expectedFrame);
+            const metadata = parseGuidedReviewMetadataLine(metadataLine);
+            assertEquals(metadata?.provider, "runtime-command-fixture");
+            assertEquals(metadata?.model, "fixture-model");
+            assertEquals(typeof metadata?.thinkingLevel, "string");
             assertEquals(stdout, `${reviewJson}\n`);
 
             const store = openFileSessionStore();

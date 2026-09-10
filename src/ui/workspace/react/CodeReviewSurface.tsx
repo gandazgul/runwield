@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mermaid from "mermaid";
+import { GuideView } from "@plannotator/guide-viewer/GuideView.tsx";
+import { GuideHostProvider } from "@plannotator/guide-viewer/host.tsx";
+import { renderMarkdownProse } from "@plannotator/guide-viewer/renderMarkdownProse.tsx";
 import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
 import { TooltipProvider } from "@plannotator/ui/components/Tooltip.tsx";
 import { ApproveButton, FeedbackButton } from "@plannotator/ui/components/ToolbarButtons.tsx";
@@ -20,7 +23,7 @@ import { ReviewContextBar } from "./ReviewContextBar.tsx";
 import { ArtifactConversationSidebar } from "./ArtifactConversationSidebar.tsx";
 import { buildArtifactConversationFeedback, collectArtifactConversationReply } from "./artifact-conversation.ts";
 import { useCodeReviewHighlighting } from "./code-review-highlighting.ts";
-import { formatGuidedReviewUsageStatus } from "./guided-review-status.ts";
+import { formatGuidedReviewGenerator, formatGuidedReviewUsageStatus } from "./guided-review-status.ts";
 import "./plannotator.css";
 
 const DEFAULT_CODE_PAYLOAD = {
@@ -374,7 +377,7 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
     }, [files]);
 
     useEffect(() => {
-        if (!fileNavigationTarget) return;
+        if (!fileNavigationTarget || guideOpen) return;
 
         if (fileNavigationTarget.preserveScroll) {
             const scrollport = allFilesHostRef.current?.querySelector(".overflow-y-auto");
@@ -428,7 +431,7 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
             canceled = true;
             globalThis.clearTimeout(timer);
         };
-    }, [fileNavigationTarget, files]);
+    }, [fileNavigationTarget, files, guideOpen]);
 
     useEffect(() => {
         let canceled = false;
@@ -942,7 +945,11 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                                 guideJob={guideJob}
                                 guideCapabilities={guideCapabilities}
                                 guidePolicy={guidePolicy}
-                                onToggleGuide={guideReady ? () => setGuideOpen((open) => !open) : generateGuide}
+                                onToggleGuide={() => {
+                                    if (!guideOpen) setFileTreeOpen(false);
+                                    if (guideReady) setGuideOpen(!guideOpen);
+                                    else generateGuide();
+                                }}
                                 globalCommentButtonRef={globalCommentButtonRef}
                                 onToggleGlobalComment={() => setGlobalCommentOpen((open) => !open)}
                             />
@@ -953,10 +960,20 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                                     ? (
                                         <GuidedReviewExplainer
                                             guide={guide}
+                                            job={guideJob}
                                             files={files}
                                             token={initialPayload.token}
-                                            jobId={guideJob?.id || "dev-guide"}
+                                            onToggleReviewed={(index) =>
+                                                setGuide((current) => ({
+                                                    ...current,
+                                                    reviewed: current.sections.map((_, sectionIndex) =>
+                                                        sectionIndex === index
+                                                            ? !current.reviewed?.[sectionIndex]
+                                                            : !!current.reviewed?.[sectionIndex]
+                                                    ),
+                                                }))}
                                             diffProps={{
+                                                fileNavigationTarget,
                                                 diffStyle,
                                                 diffOverflow,
                                                 diffIndicators,
@@ -1334,65 +1351,113 @@ function pause(milliseconds) {
     return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
 }
 
-function GuidedReviewExplainer({ guide, files, token, jobId, diffProps }) {
-    const placed = new Set();
+function GuidedReviewExplainer({ guide, job, files, token, onToggleReviewed, diffProps }) {
+    const [focusedFile, setFocusedFile] = useState(null);
+    const [revealFile, setRevealFile] = useState(null);
+    const revealToken = useRef(0);
+    const reveal = useCallback((path) => {
+        setRevealFile({ path, token: ++revealToken.current });
+    }, []);
+    useEffect(() => {
+        if (diffProps.fileNavigationTarget) reveal(diffProps.fileNavigationTarget.filePath);
+    }, [diffProps.fileNavigationTarget, reveal]);
+    useEffect(() => {
+        const annotation = diffProps.annotations.find((item) => item.id === diffProps.scrollTargetAnnotation?.id);
+        if (annotation?.filePath) reveal(annotation.filePath);
+    }, [diffProps.scrollTargetAnnotation, diffProps.annotations, reveal]);
+    // Keep the existing block format: prose becomes the chapter overview, while
+    // diagrams, callouts, widgets, and checkpoints accompany it as chapter notes.
+    const chapters = useMemo(() => {
+        const placed = new Set();
+        const sections = (guide.sections || []).map((section) => ({
+            title: section.title,
+            overview: (section.blocks || []).filter((block) => block.type === "prose")
+                .map((block) => block.markdown || block.text || "").join("\n\n"),
+            diffs: (section.blocks || []).filter((block) => {
+                if (block.type !== "diff" || placed.has(block.file)) return false;
+                placed.add(block.file);
+                return true;
+            }),
+        }));
+        const remaining = [...(guide.everythingElse || []).map((ref) => ref.file), ...files.map((file) => file.path)]
+            .filter((file) => {
+                if (placed.has(file)) return false;
+                placed.add(file);
+                return true;
+            });
+        return {
+            title: guide.title || "Guided Review",
+            intent: guide.intent,
+            sections,
+            unplacedFiles: remaining,
+        };
+    }, [guide, files]);
+    const sectionNotes = (guide.sections || []).map((section) => (
+        <div className="rw-guide-notes">
+            {(section.blocks || []).filter((block) => !["prose", "diff"].includes(block.type))
+                .map((block, index) => <GuideBlock key={index} block={block} token={token} />)}
+        </div>
+    ));
+    const host = {
+        files,
+        DiffRenderer: AllFilesCodeView,
+        revealFile,
+        onRevealFile: reveal,
+        getDiffRendererProps: ({ focused }) => ({
+            diffStyle: diffProps.diffStyle,
+            diffOverflow: diffProps.diffOverflow,
+            diffIndicators: diffProps.diffIndicators,
+            lineDiffType: diffProps.diffLineDiffType,
+            disableLineNumbers: !diffProps.diffShowLineNumbers,
+            disableBackground: !diffProps.diffShowBackground,
+            expandUnchanged: diffProps.diffExpandUnchanged,
+            fontFamily: diffProps.diffFontFamily,
+            fontSize: diffProps.diffFontSize,
+            annotations: diffProps.annotations,
+            selectedAnnotationId: diffProps.selectedAnnotationId,
+            scrollTargetAnnotation: diffProps.scrollTargetAnnotation,
+            pendingSelection: focused ? diffProps.pendingSelection : null,
+            onLineSelection: diffProps.setPendingSelection,
+            onAddAnnotationForFile: (filePath, ...args) =>
+                diffProps.addAnnotationForFile(files.find((file) => file.path === filePath), ...args),
+            onEditAnnotation: diffProps.editAnnotation,
+            onSelectAnnotation: diffProps.setSelectedAnnotationId,
+            onDeleteAnnotation: (id) => diffProps.setAnnotations((items) => items.filter((item) => item.id !== id)),
+            onAddFileCommentForFile: diffProps.addFileComment,
+            viewedFiles: diffProps.viewedFiles,
+            onToggleViewed: diffProps.toggleViewedFile,
+            stagedFiles: diffProps.stagedFiles,
+            activeSearchMatchId: diffProps.fileNavigationTarget?.id ?? null,
+            activeSearchMatch: diffProps.fileNavigationTarget,
+        }),
+    };
     return (
         <article className="rw-guide-explainer" aria-label="Guided Review Explainer">
-            <header className="rw-guide-explainer-header">
-                <p className="rw-guide-kicker">Guided Review Explainer</p>
-                <h2>{guide.title || "Guided Review"}</h2>
-                {guide.intent && <p>{guide.intent}</p>}
-            </header>
-            {(guide.sections || []).map((section, sectionIndex) => (
-                <section className="rw-guide-section" key={`${section.title}:${sectionIndex}`}>
-                    <h3>{section.title}</h3>
-                    {section.role && <p className="rw-guide-section-role">{section.role}</p>}
-                    {(section.blocks || []).map((block, blockIndex) => {
-                        if (block.type === "diff" && block.file) {
-                            placed.add(block.file);
-                        }
-                        return (
-                            <GuideBlock
-                                key={`${block.type}:${blockIndex}:${block.file || block.title || "block"}`}
-                                block={block}
-                                files={files}
-                                token={token}
-                                jobId={jobId}
-                                diffProps={diffProps}
-                            />
-                        );
-                    })}
-                </section>
-            ))}
-            {(guide.everythingElse || []).length > 0 && (
-                <section className="rw-guide-section">
-                    <h3>Everything else</h3>
-                    <p className="rw-guide-section-role">Changed files not placed in the explanatory flow.</p>
-                    {guide.everythingElse.map((ref, index) => (
-                        <GuideBlock
-                            key={`everything:${ref.file}:${index}`}
-                            block={{ type: "diff", file: ref.file, summary: "Additional changed file." }}
-                            files={files}
-                            token={token}
-                            jobId={jobId}
-                            diffProps={diffProps}
-                        />
-                    ))}
-                </section>
-            )}
+            <GuideHostProvider value={host}>
+                <GuideView
+                    guide={chapters}
+                    showTitle={false}
+                    engineLabel={formatGuidedReviewGenerator(job)}
+                    sectionNotes={sectionNotes}
+                    reviewed={guide.reviewed || []}
+                    onToggleReviewed={onToggleReviewed}
+                    focusedFile={focusedFile}
+                    onFocusFile={setFocusedFile}
+                />
+            </GuideHostProvider>
         </article>
     );
 }
 
-function GuideBlock({ block, files, token, jobId: _jobId, diffProps }) {
+function GuideBlock({ block, token }) {
     if (block.type === "prose") {
-        return <div className="rw-guide-prose">{renderMarkdownLite(block.markdown || block.text || "")}</div>;
+        return <div className="rw-guide-prose">{renderMarkdownProse(block.markdown || block.text || "")}</div>;
     }
     if (block.type === "callout") {
         return (
             <aside className={`rw-guide-callout rw-guide-callout-${block.tone || "note"}`}>
                 {block.title && <strong>{block.title}</strong>}
-                <div>{renderMarkdownLite(block.markdown || block.text || "")}</div>
+                <div>{renderMarkdownProse(block.markdown || block.text || "")}</div>
             </aside>
         );
     }
@@ -1415,45 +1480,7 @@ function GuideBlock({ block, files, token, jobId: _jobId, diffProps }) {
         );
     }
     if (block.type === "reviewCheckpoint") {
-        return <div className="rw-guide-checkpoint">{renderMarkdownLite(block.markdown || block.text || "")}</div>;
-    }
-    if (block.type === "diff" && block.file) {
-        const file = files.find((item) => item.path === block.file);
-        if (!file) return <p className="rw-guide-missing-diff">Diff no longer available: {block.file}</p>;
-        return (
-            <div className="rw-guide-diff-block">
-                {block.summary && <p>{block.summary}</p>}
-                <AllFilesCodeView
-                    files={[file]}
-                    diffStyle={diffProps.diffStyle}
-                    diffOverflow={diffProps.diffOverflow}
-                    diffIndicators={diffProps.diffIndicators}
-                    lineDiffType={diffProps.diffLineDiffType}
-                    disableLineNumbers={!diffProps.diffShowLineNumbers}
-                    disableBackground={!diffProps.diffShowBackground}
-                    expandUnchanged={diffProps.diffExpandUnchanged}
-                    fontFamily={diffProps.diffFontFamily}
-                    fontSize={diffProps.diffFontSize}
-                    annotations={diffProps.annotations}
-                    selectedAnnotationId={diffProps.selectedAnnotationId}
-                    scrollTargetAnnotation={diffProps.scrollTargetAnnotation}
-                    pendingSelection={diffProps.pendingSelection}
-                    onLineSelection={diffProps.setPendingSelection}
-                    onAddAnnotationForFile={(filePath, ...args) =>
-                        diffProps.addAnnotationForFile(files.find((item) => item.path === filePath), ...args)}
-                    onEditAnnotation={diffProps.editAnnotation}
-                    onSelectAnnotation={diffProps.setSelectedAnnotationId}
-                    onDeleteAnnotation={(id) =>
-                        diffProps.setAnnotations((items) => items.filter((item) => item.id !== id))}
-                    onAddFileCommentForFile={diffProps.addFileComment}
-                    viewedFiles={diffProps.viewedFiles}
-                    onToggleViewed={diffProps.toggleViewedFile}
-                    stagedFiles={diffProps.stagedFiles}
-                    fileOrder="list"
-                    isActive
-                />
-            </div>
-        );
+        return <div className="rw-guide-checkpoint">{renderMarkdownProse(block.markdown || block.text || "")}</div>;
     }
     return null;
 }
@@ -1488,10 +1515,6 @@ function MermaidBlock({ block }) {
             {error ? <pre>{error}</pre> : <div dangerouslySetInnerHTML={{ __html: svg }} />}
         </figure>
     );
-}
-
-function renderMarkdownLite(markdown) {
-    return String(markdown).split(/\n{2,}/).map((paragraph, index) => <p key={index}>{paragraph}</p>);
 }
 
 function buildFileNavigationTarget(file) {

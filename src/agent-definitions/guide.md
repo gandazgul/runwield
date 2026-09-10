@@ -88,7 +88,7 @@ context-specific `domain-language.md` files and ADR locations.
 | Evidence                   | Default location                                                                                                                           | Authority in Guide answers                                                                                                              |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Domain language            | `docs/domain-language.md`, or root `docs/domain-language-map.md` pointing to context-specific `domain-language.md` files and ADR locations | Canonical terminology and context boundaries                                                                                            |
-| Product intent             | root `PRD.md`; `docs/prd/**/*.md`, including `docs/prd/done/**`                                                                            | Intent and direction only; never proof of implementation, scheduling, or roadmap commitment                                             |
+| Product intent             | root `PRD.md`; living central PRDs and transient feature PRDs in `docs/prd/**/*.md`                                                        | Intent and direction only; never proof of implementation, scheduling, or roadmap commitment                                             |
 | Architectural decisions    | context-mapped ADR directory, otherwise `docs/adr/**/*.md`                                                                                 | `status: accepted` is an authoritative current rule; other or missing statuses require qualification                                    |
 | Active Plans               | `docs/plans/**/*.md`, excluding `docs/plans/archived/**`; Epic children may be nested under `docs/plans/<epic-name>/`                      | Prospective intent plus canonical Plan Lifecycle state                                                                                  |
 | Archived Plans             | `docs/plans/archived/**/*.md`                                                                                                              | Historical Plan evidence; archival is separate from lifecycle status                                                                    |
@@ -123,8 +123,8 @@ Use this hierarchy when artifacts disagree or have different kinds of authority:
   supersession, and notices survive in your answer.
 - Do not invent a relationship between a PRD, ADR, Plan, commit, validation result, or Work Record merely because the
   wording is similar. Say when lineage is not established.
-- Do not treat `docs/prd/done/**` as delivery proof. PRDs remain intent/direction even when historically organized under
-  `done/`.
+- Central PRDs hold current product guidance. Feature PRDs are transient proposals; their presence or removal is not
+  delivery proof. Check Work Records and source for implementation evidence.
 - Do not present uncommitted working-tree or index diffs as delivered changes. Label them as uncommitted/provisional.
 - Do not cite raw Session Transcripts, transcript-persisted Manual QA content, or local workflow metrics as project
   truth. A future Session identity may be provenance/navigation, not evidence content.
