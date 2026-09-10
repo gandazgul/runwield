@@ -20,7 +20,6 @@ import {
 import { getLockHostname, isLockHolderGone } from "./process-liveness.ts";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
 import { LEGACY_PROJECT_RUNTIME_HAZARD_PATHS } from "./runwield-owned-paths.ts";
-import { inspectWorktreeRegistryAtPath, withWorktreeRegistryLockAtPath } from "./worktree-registry.js";
 import {
     assertPublicationAttempt,
     isPublicationAttemptCleanupComplete,
@@ -191,14 +190,24 @@ const WORK_RECORD_LOCK_WAIT_TIMEOUT_MS = 5 * 60_000;
 const WORK_RECORD_LOCK_RETRY_MS = 50;
 const WORK_RECORD_LOCK_HEARTBEAT_MS = 10_000;
 
+export function resolveProjectRoot(projectRoot: string): string {
+    try {
+        return Deno.realPathSync(projectRoot);
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return resolve(projectRoot);
+        throw error;
+    }
+}
+
 function internalRootFor(checkoutRoot: string): string {
     return join(getRunWieldRuntimeDir(checkoutRoot), PROJECT_INTERNAL_RUNTIME_DIR_NAME);
 }
 
 export function resolveProjectRuntimeLayout(selectedCheckoutRoot: string): ProjectRuntimeLayout {
-    const primaryCheckoutRoot = resolvePrimaryCheckoutRoot(selectedCheckoutRoot);
+    const selectedProjectRoot = resolveProjectRoot(selectedCheckoutRoot);
+    const primaryCheckoutRoot = resolveProjectRoot(resolvePrimaryCheckoutRoot(selectedProjectRoot));
     const primaryInternalRoot = internalRootFor(primaryCheckoutRoot);
-    const selectedInternalRoot = internalRootFor(selectedCheckoutRoot);
+    const selectedInternalRoot = internalRootFor(selectedProjectRoot);
     const selectedPlanLocksDir = join(selectedInternalRoot, PLAN_LOCKS_DIR_NAME);
 
     return {
@@ -218,7 +227,7 @@ export function resolveProjectRuntimeLayout(selectedCheckoutRoot: string): Proje
             debugRoot: join(primaryInternalRoot, "debug"),
         },
         selected: {
-            checkoutRoot: selectedCheckoutRoot,
+            checkoutRoot: selectedProjectRoot,
             internalRoot: selectedInternalRoot,
             planLocksDir: selectedPlanLocksDir,
             planCatalogLockPath: join(selectedPlanLocksDir, "catalog.lock"),
@@ -267,6 +276,7 @@ export async function migrateLegacyProjectRuntimeState(
     try {
         const lockedMarker = await readLayoutMarker(layout);
         if (isBlocked(lockedMarker)) return lockedMarker;
+        const { withWorktreeRegistryLockAtPath } = await import("./worktree-registry.js");
         return await withWorktreeRegistryLockAtPath(legacyWorktreeRegistryLockPath(primaryCheckoutRoot), async () => {
             const locked = await preflight(layout, primaryCheckoutRoot, lockedMarker.marker, {
                 legacyRegistryLockHeld: true,
@@ -443,6 +453,7 @@ async function preflight(
         );
     }
 
+    const { inspectWorktreeRegistryAtPath } = await import("./worktree-registry.js");
     const registry = await inspectWorktreeRegistryAtPath(legacyWorktreeRegistryPath(primaryCheckoutRoot));
     if (registry.readError) {
         return block(

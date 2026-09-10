@@ -1,4 +1,5 @@
 import { assertEquals } from "@std/assert";
+import { dirname } from "@std/path";
 import { handlePlanRecovery } from "./plan-recovery-flow.ts";
 import {
     continueRecoveryPlan,
@@ -13,6 +14,7 @@ import { resolvePlanWithPrimaryRecovery } from "./primary-plan-recovery.ts";
 import {
     addEntry as addWorktreeRegistryEntry,
     findById as findWorktreeRegistryEntryById,
+    getWorktreeRegistryPath,
 } from "../../shared/worktree-registry.js";
 
 import type { PlanFrontMatter } from "../../plan-store.js";
@@ -972,8 +974,8 @@ Deno.test("recovery cancel at the first menu leaves unrelated repairable state u
     });
     const unrelatedPlanPath = getStoredPlanPath(project.projectRoot, "unrelated-plan");
     const unrelatedPlanBefore = await Deno.readFile(unrelatedPlanPath);
-    const registryPath = `${project.projectRoot}/.wld/worktrees.json`;
-    await Deno.mkdir(`${project.projectRoot}/.wld`, { recursive: true });
+    const registryPath = getWorktreeRegistryPath(project.projectRoot);
+    await Deno.mkdir(dirname(registryPath), { recursive: true });
     await Deno.writeTextFile(
         registryPath,
         `${

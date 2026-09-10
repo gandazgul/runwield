@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
-import { join } from "@std/path";
+import { dirname, join } from "@std/path";
 import { defineGitFixture, git } from "./git-test-fixture.ts";
+import { getWorktreeRegistryPath } from "./worktree-registry.js";
 import { checkpointExecutionWorktree, mergeExecutionWorktree } from "./worktree.js";
 
 const repo = defineGitFixture(async (repoPath) => {
@@ -24,9 +25,10 @@ Deno.test("execution runtime state does not enter the merge when primary .wld is
     const cwd = await repo.checkout();
     const worktreePath = await makeWorktree(cwd, "runtime-side");
     try {
-        await Deno.mkdir(join(cwd, ".wld"), { recursive: true });
-        await Deno.writeTextFile(join(cwd, ".wld", "worktrees.json"), "primary registry\n");
-        const registryBefore = await Deno.readTextFile(join(cwd, ".wld", "worktrees.json"));
+        const registryPath = getWorktreeRegistryPath(cwd);
+        await Deno.mkdir(dirname(registryPath), { recursive: true });
+        await Deno.writeTextFile(registryPath, "primary registry\n");
+        const registryBefore = await Deno.readTextFile(registryPath);
         await Deno.mkdir(join(worktreePath, ".wld", "plan-locks"), { recursive: true });
         await Deno.mkdir(join(worktreePath, ".wld", "plan-transitions"), { recursive: true });
         await Deno.writeTextFile(join(worktreePath, ".wld", "plan-transitions", "x.json"), "{}\n");
@@ -35,7 +37,7 @@ Deno.test("execution runtime state does not enter the merge when primary .wld is
         await checkpointExecutionWorktree({ worktreePath, branch: "runtime-side" });
         await mergeExecutionWorktree({ projectRoot: cwd, branch: "runtime-side", targetBranch: "main", worktreePath });
 
-        assertEquals(await Deno.readTextFile(join(cwd, ".wld", "worktrees.json")), registryBefore);
+        assertEquals(await Deno.readTextFile(registryPath), registryBefore);
         assertEquals(await Deno.readTextFile(join(cwd, "feature.txt")), "work\n");
         assertEquals(
             (await git(cwd, ["ls-tree", "-r", "--name-only", "HEAD"])).includes(".wld/plan-transitions/x.json"),

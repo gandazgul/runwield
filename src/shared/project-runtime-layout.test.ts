@@ -8,12 +8,11 @@ import {
     type ProjectRuntimeMigrationResult,
     resolveProjectRuntimeLayout,
 } from "./project-runtime-layout.ts";
-import { addEntry } from "./worktree-registry.js";
 import {
-    advanceStoredPublication,
-    failStoredPublication,
-    startPublicationAttempt,
-} from "./workflow/publication-machine.ts";
+    advancePublicationAttempt,
+    createPublicationAttempt,
+    recordPublicationFailure,
+} from "./workflow/publication-attempt.ts";
 
 const fixture = defineCommittedGitFixture({ "README.md": "# Runtime layout fixture\n" });
 const REPO_ROOT = dirname(dirname(dirname(fromFileUrl(import.meta.url))));
@@ -35,12 +34,17 @@ Deno.test("project runtime layout resolves normal primary and selected internal 
 
             const layout = resolveProjectRuntimeLayout(selectedCheckout);
             const resolvedPrimaryCheckout = await Deno.realPath(primaryCheckout);
+            const resolvedSelectedCheckout = await Deno.realPath(selectedCheckout);
             const primaryInternalRoot = join(
                 resolvedPrimaryCheckout,
                 RUNWIELD_DIR_NAME,
                 PROJECT_INTERNAL_RUNTIME_DIR_NAME,
             );
-            const selectedInternalRoot = join(selectedCheckout, RUNWIELD_DIR_NAME, PROJECT_INTERNAL_RUNTIME_DIR_NAME);
+            const selectedInternalRoot = join(
+                resolvedSelectedCheckout,
+                RUNWIELD_DIR_NAME,
+                PROJECT_INTERNAL_RUNTIME_DIR_NAME,
+            );
 
             assertEquals(layout.primary.checkoutRoot, resolvedPrimaryCheckout);
             assertEquals(layout.primary.internalRoot, primaryInternalRoot);
@@ -62,7 +66,7 @@ Deno.test("project runtime layout resolves normal primary and selected internal 
             assertEquals(layout.primary.fallbackWorktreesRoot, join(primaryInternalRoot, "worktrees"));
             assertEquals(layout.primary.debugRoot, join(primaryInternalRoot, "debug"));
 
-            assertEquals(layout.selected.checkoutRoot, selectedCheckout);
+            assertEquals(layout.selected.checkoutRoot, resolvedSelectedCheckout);
             assertEquals(layout.selected.internalRoot, selectedInternalRoot);
             assertEquals(layout.selected.planLocksDir, join(selectedInternalRoot, "plan-locks"));
             assertEquals(layout.selected.planCatalogLockPath, join(selectedInternalRoot, "plan-locks", "catalog.lock"));
@@ -99,14 +103,18 @@ Deno.test("project runtime layout keeps sandboxed primary and selected lock name
 
         const layout = resolveProjectRuntimeLayout(selectedCheckout);
         const resolvedPrimaryCheckout = await Deno.realPath(primaryCheckout);
+        const resolvedSelectedCheckout = await Deno.realPath(selectedCheckout);
         const primaryInternalRoot = join(
             getRunWieldRuntimeDir(resolvedPrimaryCheckout),
             PROJECT_INTERNAL_RUNTIME_DIR_NAME,
         );
-        const selectedInternalRoot = join(getRunWieldRuntimeDir(selectedCheckout), PROJECT_INTERNAL_RUNTIME_DIR_NAME);
+        const selectedInternalRoot = join(
+            getRunWieldRuntimeDir(resolvedSelectedCheckout),
+            PROJECT_INTERNAL_RUNTIME_DIR_NAME,
+        );
 
         assertEquals(layout.primary.checkoutRoot, resolvedPrimaryCheckout);
-        assertEquals(layout.selected.checkoutRoot, selectedCheckout);
+        assertEquals(layout.selected.checkoutRoot, resolvedSelectedCheckout);
         assertEquals(layout.primary.internalRoot, primaryInternalRoot);
         assertEquals(layout.selected.internalRoot, selectedInternalRoot);
         assertEquals(dirname(layout.primary.controllerPlansDir), join(primaryInternalRoot, "controller"));
@@ -375,27 +383,39 @@ Deno.test("legacy migration blocks publication state until cleanup is complete",
             Deno.env.delete("WLD_TEST_SANDBOX_HOME");
             const unfinished = await makeMigrationProject();
             try {
-                await addEntry(unfinished.primaryRoot, {
-                    ...unfinished.registryEntry,
-                    planId: "plan-demo",
-                    status: "validated",
-                });
-                const candidate = await startPublicationAttempt({
-                    projectRoot: unfinished.primaryRoot,
+                const candidate = createPublicationAttempt({
                     attemptId: unfinished.registryEntry.id,
+                    planId: "plan-demo",
                     planName: unfinished.registryEntry.planName,
                     targetBranch: "main",
                     executionBranch: unfinished.registryEntry.branch,
                     executionCwd: unfinished.selectedRoot,
+                    publicationRoot: join(
+                        getRunWieldRuntimeDir(unfinished.primaryRoot),
+                        "plan-staging",
+                        unfinished.registryEntry.id,
+                    ),
                     validatedCommit: unfinished.registryEntry.baseCommit,
                     targetHeadAtSeal: unfinished.registryEntry.baseCommit,
                 });
+                await writeText(
+                    join(getRunWieldRuntimeDir(unfinished.primaryRoot), "worktrees.json"),
+                    JSON.stringify({
+                        version: 2,
+                        entries: [{
+                            ...unfinished.registryEntry,
+                            planId: "plan-demo",
+                            status: "validated",
+                            publication: candidate,
+                        }],
+                    }),
+                );
 
                 const blocked = await migrateLegacyProjectRuntimeState(unfinished.selectedRoot);
                 if (blocked.kind !== "blocked") throw new Error(`Expected blocked, got ${blocked.kind}`);
                 assertEquals(blocked.reason, "unfinished_publication");
 
-                const repaired = await failStoredPublication(unfinished.primaryRoot, candidate, {
+                const repaired = recordPublicationFailure(candidate, {
                     kind: "needs_repair",
                     message: "repair",
                     repairRoot: join(
@@ -404,6 +424,18 @@ Deno.test("legacy migration blocks publication state until cleanup is complete",
                         unfinished.registryEntry.id,
                     ),
                 });
+                await writeText(
+                    join(getRunWieldRuntimeDir(unfinished.primaryRoot), "worktrees.json"),
+                    JSON.stringify({
+                        version: 2,
+                        entries: [{
+                            ...unfinished.registryEntry,
+                            planId: "plan-demo",
+                            status: "validated",
+                            publication: repaired,
+                        }],
+                    }),
+                );
                 const repairBlocked = await migrateLegacyProjectRuntimeState(unfinished.selectedRoot);
                 if (repairBlocked.kind !== "blocked") throw new Error(`Expected blocked, got ${repairBlocked.kind}`);
                 assertEquals(repairBlocked.reason, "saved_repair_root");
@@ -417,54 +449,51 @@ Deno.test("legacy migration blocks publication state until cleanup is complete",
 
             const complete = await makeMigrationProject();
             try {
-                await addEntry(complete.primaryRoot, {
-                    ...complete.registryEntry,
-                    planId: "plan-demo",
-                    status: "validated",
-                });
-                const candidate = await startPublicationAttempt({
-                    projectRoot: complete.primaryRoot,
+                const candidate = createPublicationAttempt({
                     attemptId: complete.registryEntry.id,
+                    planId: "plan-demo",
                     planName: complete.registryEntry.planName,
                     targetBranch: "main",
                     executionBranch: complete.registryEntry.branch,
                     executionCwd: complete.selectedRoot,
+                    publicationRoot: join(
+                        getRunWieldRuntimeDir(complete.primaryRoot),
+                        "plan-staging",
+                        complete.registryEntry.id,
+                    ),
                     validatedCommit: complete.registryEntry.baseCommit,
                     targetHeadAtSeal: complete.registryEntry.baseCommit,
                 });
-                const artifacts = await advanceStoredPublication(
-                    complete.primaryRoot,
-                    candidate,
-                    "artifacts_committed",
-                    {
-                        artifactCommit: complete.registryEntry.baseCommit,
-                        planPaths: ["docs/plans/demo.md"],
-                    },
-                );
-                const integrated = await advanceStoredPublication(
-                    complete.primaryRoot,
-                    artifacts,
-                    "target_integrated",
-                    {
-                        targetBaseCommit: complete.registryEntry.baseCommit,
-                        integrationCommit: complete.registryEntry.baseCommit,
-                    },
-                );
-                const published = await advanceStoredPublication(complete.primaryRoot, integrated, "target_published", {
+                const artifacts = advancePublicationAttempt(candidate, "artifacts_committed", {
+                    artifactCommit: complete.registryEntry.baseCommit,
+                    planPaths: ["docs/plans/demo.md"],
+                });
+                const integrated = advancePublicationAttempt(artifacts, "target_integrated", {
+                    targetBaseCommit: complete.registryEntry.baseCommit,
+                    integrationCommit: complete.registryEntry.baseCommit,
+                });
+                const published = advancePublicationAttempt(integrated, "target_published", {
                     publicationMode: "local",
                     publishedCommit: complete.registryEntry.baseCommit,
                 });
-                const verified = await advanceStoredPublication(
-                    complete.primaryRoot,
-                    published,
-                    "publication_verified",
-                    {
-                        verifiedAt: "2026-01-01T00:01:00.000Z",
-                    },
-                );
-                await advanceStoredPublication(complete.primaryRoot, verified, "cleanup_complete", {
+                const verified = advancePublicationAttempt(published, "publication_verified", {
+                    verifiedAt: "2026-01-01T00:01:00.000Z",
+                });
+                const cleaned = advancePublicationAttempt(verified, "cleanup_complete", {
                     cleanedAt: "2026-01-01T00:02:00.000Z",
                 });
+                await writeText(
+                    join(getRunWieldRuntimeDir(complete.primaryRoot), "worktrees.json"),
+                    JSON.stringify({
+                        version: 2,
+                        entries: [{
+                            ...complete.registryEntry,
+                            planId: "plan-demo",
+                            status: "validated",
+                            publication: cleaned,
+                        }],
+                    }),
+                );
 
                 const result = await migrateLegacyProjectRuntimeState(complete.selectedRoot);
                 if (result.kind !== "ready") throw new Error(`Expected ready, got ${result.kind}`);

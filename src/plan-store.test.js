@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
-import { join } from "@std/path";
+import { dirname, join } from "@std/path";
+import { getWorktreeRegistryPath } from "./shared/worktree-registry.js";
 import { readControllerRecord } from "./shared/workflow/controller-registry.ts";
 import { PLAN_RUNTIME_FIELDS } from "./shared/workflow/controller-state.ts";
 import {
@@ -71,9 +72,10 @@ function testWithFs(name, fn) {
 
 /** @param {string} cwd @param {string} planName */
 async function recordActiveAttempt(cwd, planName) {
-    await Deno.mkdir(join(cwd, ".wld"), { recursive: true });
+    const registryPath = getWorktreeRegistryPath(cwd);
+    await Deno.mkdir(dirname(registryPath), { recursive: true });
     await Deno.writeTextFile(
-        join(cwd, ".wld", "worktrees.json"),
+        registryPath,
         JSON.stringify({
             version: 2,
             entries: [{
