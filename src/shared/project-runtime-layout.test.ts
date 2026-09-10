@@ -34,12 +34,17 @@ Deno.test("project runtime layout resolves normal primary and selected internal 
 
             const layout = resolveProjectRuntimeLayout(selectedCheckout);
             const resolvedPrimaryCheckout = await Deno.realPath(primaryCheckout);
+            const resolvedSelectedCheckout = await Deno.realPath(selectedCheckout);
             const primaryInternalRoot = join(
                 resolvedPrimaryCheckout,
                 RUNWIELD_DIR_NAME,
                 PROJECT_INTERNAL_RUNTIME_DIR_NAME,
             );
-            const selectedInternalRoot = join(selectedCheckout, RUNWIELD_DIR_NAME, PROJECT_INTERNAL_RUNTIME_DIR_NAME);
+            const selectedInternalRoot = join(
+                resolvedSelectedCheckout,
+                RUNWIELD_DIR_NAME,
+                PROJECT_INTERNAL_RUNTIME_DIR_NAME,
+            );
 
             assertEquals(layout.primary.checkoutRoot, resolvedPrimaryCheckout);
             assertEquals(layout.primary.internalRoot, primaryInternalRoot);
@@ -61,7 +66,7 @@ Deno.test("project runtime layout resolves normal primary and selected internal 
             assertEquals(layout.primary.fallbackWorktreesRoot, join(primaryInternalRoot, "worktrees"));
             assertEquals(layout.primary.debugRoot, join(primaryInternalRoot, "debug"));
 
-            assertEquals(layout.selected.checkoutRoot, selectedCheckout);
+            assertEquals(layout.selected.checkoutRoot, resolvedSelectedCheckout);
             assertEquals(layout.selected.internalRoot, selectedInternalRoot);
             assertEquals(layout.selected.planLocksDir, join(selectedInternalRoot, "plan-locks"));
             assertEquals(layout.selected.planCatalogLockPath, join(selectedInternalRoot, "plan-locks", "catalog.lock"));
@@ -98,14 +103,18 @@ Deno.test("project runtime layout keeps sandboxed primary and selected lock name
 
         const layout = resolveProjectRuntimeLayout(selectedCheckout);
         const resolvedPrimaryCheckout = await Deno.realPath(primaryCheckout);
+        const resolvedSelectedCheckout = await Deno.realPath(selectedCheckout);
         const primaryInternalRoot = join(
             getRunWieldRuntimeDir(resolvedPrimaryCheckout),
             PROJECT_INTERNAL_RUNTIME_DIR_NAME,
         );
-        const selectedInternalRoot = join(getRunWieldRuntimeDir(selectedCheckout), PROJECT_INTERNAL_RUNTIME_DIR_NAME);
+        const selectedInternalRoot = join(
+            getRunWieldRuntimeDir(resolvedSelectedCheckout),
+            PROJECT_INTERNAL_RUNTIME_DIR_NAME,
+        );
 
         assertEquals(layout.primary.checkoutRoot, resolvedPrimaryCheckout);
-        assertEquals(layout.selected.checkoutRoot, selectedCheckout);
+        assertEquals(layout.selected.checkoutRoot, resolvedSelectedCheckout);
         assertEquals(layout.primary.internalRoot, primaryInternalRoot);
         assertEquals(layout.selected.internalRoot, selectedInternalRoot);
         assertEquals(dirname(layout.primary.controllerPlansDir), join(primaryInternalRoot, "controller"));
