@@ -166,6 +166,9 @@ export const PLAN_UI_COMMAND_LABEL = "plans ui";
 /** Directory name for project-local RunWield metadata. */
 export const RUNWIELD_DIR_NAME = ".wld";
 
+/** Directory name for current project-local runtime state below `.wld`. */
+export const PROJECT_INTERNAL_RUNTIME_DIR_NAME = "internal";
+
 /**
  * Directory holding a project's RunWield runtime state — locks and lifecycle
  * journals.
