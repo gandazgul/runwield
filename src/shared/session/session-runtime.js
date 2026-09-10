@@ -3917,11 +3917,12 @@ export class SessionRuntime {
                 liveEvents,
             );
             const pendingIntent = hostedSession.getPendingManagedTurnIntent?.() || {};
+            let generationSegment = null;
             if (state.generation) {
-                const generationSegment = this.#sessionStore.listSessionTranscriptSegments(
+                generationSegment = this.#sessionStore.listSessionTranscriptSegments(
                     managed.runwieldSessionId,
                 )
-                    .find((segment) => segment.segmentId === state.generation?.currentSegmentId);
+                    .find((segment) => segment.segmentId === state.generation?.currentSegmentId) || null;
                 if (!generationSegment) throw new Error("Committed generation current segment is absent from manifest");
                 const currentEvidence = await captureTranscriptEvidence({
                     transcriptPath: generationSegment.transcriptPath,
@@ -3974,9 +3975,9 @@ export class SessionRuntime {
             capability.updateProof(activeProof);
             hydrated = true;
             const { sessionManager } = await openPersistedRootSession({
-                cwd: hostedSession.cwd,
-                sessionId: managed.piSessionId,
-                sessionPath: managed.transcriptPath,
+                cwd: generationSegment?.transcriptCwd || hostedSession.cwd,
+                sessionId: generationSegment?.piSessionId || managed.piSessionId,
+                sessionPath: generationSegment?.transcriptPath || managed.transcriptPath,
             });
             hostedSession.setRootSessionManager(/** @type {any} */ (sessionManager), capability);
             const pendingModel = pendingIntent.model || pendingIntent.provider
