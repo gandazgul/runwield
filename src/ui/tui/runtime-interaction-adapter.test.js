@@ -71,9 +71,87 @@ Deno.test("TUI interaction adapter advertises browser-backed review capabilities
     const adapter = createTuiInteractionAdapter(makeUi(null));
 
     assertEquals(adapter.supportsInteraction?.("pair_checkpoint"), true);
+    assertEquals(adapter.supportsInteraction?.("plan_deviation_confirmation"), true);
     assertEquals(adapter.supportsInteraction?.("artifact_review"), true);
     assertEquals(adapter.supportsInteraction?.("select"), false);
     assertEquals(adapter.supportsInteraction?.("text"), false);
+});
+
+Deno.test("TUI interaction adapter confirms Plan Deviations explicitly", async () => {
+    let prompt = "";
+    let options = /** @type {Array<{ value: string, label: string }>} */ ([]);
+    const adapter = createTuiInteractionAdapter(
+        /** @type {any} */ ({
+            promptSelect: (
+                /** @type {string} */ value,
+                /** @type {Array<{ value: string, label: string }>} */ promptOptions,
+            ) => {
+                prompt = value;
+                options = promptOptions;
+                return Promise.resolve("confirm");
+            },
+            promptText: () => Promise.resolve(null),
+        }),
+    );
+
+    const response = await adapter.requestInteraction({
+        type: "plan_deviation_confirmation",
+        prompt: [
+            "Confirm this Plan Deviation before I treat it as authority.",
+            "Superseded requirement: Replace nav.",
+            "Replacement requirement: Keep nav.",
+            "Confirmed text will be saved in the Plan and Work Record.",
+        ].join("\n"),
+        options: [
+            { value: "confirm", label: "Confirm Plan Deviation" },
+            { value: "cancel", label: "Cancel; keep original" },
+        ],
+    });
+
+    assertEquals(response, { outcome: "accepted", value: true });
+    assertEquals(prompt.includes("Plan Deviation confirmation"), true);
+    assertEquals(prompt.includes("Superseded requirement: Replace nav."), true);
+    assertEquals(options, [
+        { value: "confirm", label: "Confirm Plan Deviation" },
+        { value: "cancel", label: "Cancel; keep original" },
+    ]);
+});
+
+Deno.test("TUI interaction adapter shows the full Plan Deviation confirmation prompt", async () => {
+    let prompt = "";
+    const tail = "This persistence warning must stay visible.";
+    const adapter = createTuiInteractionAdapter(
+        /** @type {any} */ ({
+            promptSelect: (/** @type {string} */ value) => {
+                prompt = value;
+                return Promise.resolve("confirm");
+            },
+            promptText: () => Promise.resolve(null),
+        }),
+    );
+
+    await adapter.requestInteraction({
+        type: "plan_deviation_confirmation",
+        prompt: `${"x".repeat(650)}\n${tail}`,
+    });
+
+    assertEquals(prompt.includes(tail), true);
+    assertEquals(prompt.endsWith("..."), false);
+});
+
+Deno.test("TUI interaction adapter returns canceled Plan Deviation confirmation", async () => {
+    const adapter = createTuiInteractionAdapter(makeUi("cancel"));
+
+    const response = await adapter.requestInteraction({
+        type: "plan_deviation_confirmation",
+        prompt: "Confirm?",
+        options: [
+            { value: "confirm", label: "Confirm Plan Deviation" },
+            { value: "cancel", label: "Cancel; keep original" },
+        ],
+    });
+
+    assertEquals(response, { outcome: "canceled" });
 });
 
 Deno.test("TUI interaction adapter returns atomic pair checkpoint revision feedback", async () => {

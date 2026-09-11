@@ -1,8 +1,8 @@
 /** File-backed controller state shared by all worktrees of one project. */
 import { dirname, join, resolve } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { getRunWieldRuntimeDir } from "../../constants.js";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
+import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { inspectWorktreeRegistry } from "../worktree-registry.js";
 import {
     CONTROLLER_STATE_FIELDS,
@@ -96,7 +96,10 @@ function projectRoot(cwd: string): string {
 
 export function controllerRecordPath(cwd: string, identity: WorkflowIdentity): string {
     const key = identity.planId || `name:${identity.planName}`;
-    return join(getRunWieldRuntimeDir(projectRoot(cwd)), "controller", "plans", `${encodeURIComponent(key)}.json`);
+    return join(
+        resolveProjectRuntimeLayout(projectRoot(cwd)).primary.controllerPlansDir,
+        `${encodeURIComponent(key)}.json`,
+    );
 }
 
 export async function readControllerRecord(cwd: string, identity: WorkflowIdentity): Promise<ControllerRecord | null> {

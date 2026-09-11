@@ -5,8 +5,9 @@
 
 import { dirname, join, resolve } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { CLI_BIN, getRunWieldRuntimeDir, PLAN_TRANSITIONS_DIR_NAME } from "../../constants.js";
+import { CLI_BIN } from "../../constants.js";
 import { pickControllerState, type WorkflowControllerState, WORKTREE_CONTEXT_FIELDS } from "./controller-state.ts";
+import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import {
     controllerStatesEqual,
     restoreOwnControllerWrite,
@@ -171,7 +172,7 @@ function withTrackedPlanLock<T>(projectRoot: string, planName: string, run: () =
 }
 
 export function getTransitionJournalDir(projectRoot: string): string {
-    return join(getRunWieldRuntimeDir(projectRoot), PLAN_TRANSITIONS_DIR_NAME);
+    return resolveProjectRuntimeLayout(projectRoot).selected.transitionJournalsDir;
 }
 
 export function getTransitionJournalPath(projectRoot: string, transitionId: string): string {

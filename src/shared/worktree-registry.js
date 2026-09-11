@@ -3,11 +3,16 @@
  * Durable registry for RunWield execution worktrees.
  */
 
-import { dirname, join } from "@std/path";
+import { dirname } from "@std/path";
+import { readLockFileSnapshot, removeLockFileIfSnapshotMatches } from "./lock-file-snapshot.ts";
 import { getLockHostname, isPidAlive } from "./process-liveness.ts";
-import { CLI_BIN, RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE, WORKTREE_REGISTRY_LOCK_FILE } from "../constants.js";
+import { CLI_BIN } from "../constants.js";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
+import { resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
 import { inspectPlanIdentityDocuments } from "./workflow/plan-diagnostic-evidence.ts";
+import { assertPublicationAttempt } from "./workflow/publication-attempt.ts";
+
+/** @typedef {import("./lock-file-snapshot.ts").LockFileSnapshot} LockFileSnapshot */
 
 const LOCK_TIMEOUT_MS = 30_000;
 const LOCK_RETRY_MS = 50;
@@ -152,14 +157,24 @@ async function runGit(cwd, args) {
     return result.stdout;
 }
 
-/** @param {string} projectRoot */
+/**
+ * Keep registry callers on the named registry path instead of rebuilding the
+ * broader project runtime layout at each call site.
+ *
+ * @param {string} projectRoot
+ */
 export function getWorktreeRegistryPath(projectRoot) {
-    return join(resolvePrimaryCheckoutRoot(projectRoot), RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE);
+    return resolveProjectRuntimeLayout(projectRoot).primary.worktreeRegistryPath;
 }
 
-/** @param {string} projectRoot */
+/**
+ * Keep lock callers on the named registry lock path instead of rebuilding the
+ * broader project runtime layout at each call site.
+ *
+ * @param {string} projectRoot
+ */
 export function getWorktreeRegistryLockPath(projectRoot) {
-    return join(resolvePrimaryCheckoutRoot(projectRoot), RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_LOCK_FILE);
+    return resolveProjectRuntimeLayout(projectRoot).primary.worktreeRegistryLockPath;
 }
 
 /**
@@ -238,7 +253,7 @@ async function migrateLegacyRegistryEntries(projectRoot, entries, resources) {
         });
     }
     if (migrationIssues.length > 0) {
-        const path = join(projectRoot, RUNWIELD_DIR_NAME, "worktree-registry-migration-issues.json");
+        const path = resolveProjectRuntimeLayout(projectRoot).primary.worktreeRegistryMigrationIssuesPath;
         await Deno.mkdir(dirname(path), { recursive: true });
         await Deno.writeTextFile(path, JSON.stringify({ version: 1, issues: migrationIssues }, null, 2));
     }
@@ -260,22 +275,28 @@ function hasUnresolvedLegacyNonterminalEntries(entries) {
  */
 async function readRegistry(projectRoot, options = {}) {
     try {
-        const text = await Deno.readTextFile(getWorktreeRegistryPath(projectRoot));
-        const parsed = JSON.parse(text);
-        const version = typeof parsed.version === "number" ? parsed.version : 1;
-        if (version > 2) throw new Error(`Unsupported worktree registry schema version: ${version}`);
-        const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
-        const ids = new Set();
-        for (const entry of entries) {
-            if (ids.has(entry.id)) {
-                throw new WorktreeRegistryAmbiguityError(
-                    `Worktree id ${entry.id} appears more than once in the registry, so RunWield cannot tell which ` +
-                        `attempt any command means. Nothing has been changed or deleted.`,
-                    { kind: "duplicate_worktree_id", entryIds: [entry.id], recoveryActions: registryRecoveryActions() },
-                );
-            }
-            ids.add(entry.id);
+        const inspected = await inspectWorktreeRegistryAtPath(getWorktreeRegistryPath(projectRoot));
+        if (inspected.readError) throw inspected.readError;
+        if (inspected.version > 2) {
+            throw new Error(`Unsupported worktree registry schema version: ${inspected.version}`);
         }
+        const malformed = inspected.integrityIssues.find((issue) => issue.kind === "malformed_registry");
+        if (malformed) throw new Error(malformed.message);
+        const duplicateId = inspected.integrityIssues.find((issue) => issue.kind === "duplicate_worktree_id");
+        if (duplicateId) {
+            throw new WorktreeRegistryAmbiguityError(
+                `Worktree id ${
+                    duplicateId.ids[0]
+                } appears more than once in the registry, so RunWield cannot tell which ` +
+                    `attempt any command means. Nothing has been changed or deleted.`,
+                {
+                    kind: "duplicate_worktree_id",
+                    entryIds: duplicateId.ids,
+                    recoveryActions: registryRecoveryActions(),
+                },
+            );
+        }
+        const entries = inspected.entries;
         const migrated = options.migrate === false || !Array.isArray(options.planResources)
             ? false
             : await migrateLegacyRegistryEntries(projectRoot, entries, options.planResources);
@@ -289,7 +310,8 @@ async function readRegistry(projectRoot, options = {}) {
         // ambiguous one.
         const hasUnresolvedLegacy = hasUnresolvedLegacyNonterminalEntries(entries);
         if (
-            options.migrate !== false && ((migrated && !hasUnresolvedLegacy) || (version < 2 && !hasUnresolvedLegacy))
+            options.migrate !== false &&
+            ((migrated && !hasUnresolvedLegacy) || (inspected.version < 2 && !hasUnresolvedLegacy))
         ) {
             await writeRegistry(projectRoot, entries);
         }
@@ -358,11 +380,10 @@ async function writeRegistry(projectRoot, entries) {
     }
 }
 
-/** @param {string} lockPath */
-async function isStaleLock(lockPath) {
+/** @param {LockFileSnapshot} snapshot */
+async function isStaleLock(snapshot) {
     try {
-        const text = await Deno.readTextFile(lockPath);
-        const parsed = JSON.parse(text);
+        const parsed = JSON.parse(snapshot.text);
         const age = Date.now() - Number(parsed.createdAtMs || 0);
         if (parsed.hostname && parsed.hostname === getLockHostname()) {
             return !(await isPidAlive(Number(parsed.pid)));
@@ -374,31 +395,38 @@ async function isStaleLock(lockPath) {
 }
 
 /**
- * Run a registry mutation/read under a best-effort file lock.
+ * Run a registry mutation/read under a best-effort file lock at an exact path.
  * @template T
- * @param {string} projectRoot
+ * @param {string} lockPath
  * @param {() => Promise<T>} fn
  * @returns {Promise<T>}
  */
-export async function withWorktreeRegistryLock(projectRoot, fn) {
-    const lockPath = getWorktreeRegistryLockPath(projectRoot);
+export async function withWorktreeRegistryLockAtPath(lockPath, fn) {
     await Deno.mkdir(dirname(lockPath), { recursive: true });
     const deadline = Date.now() + LOCK_TIMEOUT_MS;
+    const token = crypto.randomUUID();
 
     while (true) {
         try {
             const file = await Deno.open(lockPath, { createNew: true, write: true });
             try {
-                const payload = JSON.stringify({ pid: Deno.pid, hostname: getLockHostname(), createdAtMs: Date.now() });
+                const payload = JSON.stringify({
+                    token,
+                    pid: Deno.pid,
+                    hostname: getLockHostname(),
+                    createdAtMs: Date.now(),
+                });
                 await file.write(new TextEncoder().encode(payload));
+                await file.sync();
             } finally {
                 file.close();
             }
             break;
         } catch (error) {
             if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
-            if (await isStaleLock(lockPath)) {
-                await Deno.remove(lockPath).catch(() => {});
+            const snapshot = await readLockFileSnapshot(lockPath);
+            if (!snapshot) continue;
+            if (await isStaleLock(snapshot) && await removeLockFileIfSnapshotMatches(lockPath, snapshot)) {
                 continue;
             }
             if (Date.now() > deadline) throw new Error(`Timed out waiting for worktree registry lock: ${lockPath}`);
@@ -409,31 +437,37 @@ export async function withWorktreeRegistryLock(projectRoot, fn) {
     try {
         return await fn();
     } finally {
-        await Deno.remove(lockPath).catch(() => {});
+        const snapshot = await readLockFileSnapshot(lockPath);
+        if (snapshot?.token === token) await removeLockFileIfSnapshotMatches(lockPath, snapshot);
     }
 }
 
 /**
- * Read the registry without enforcing its invariants.
- *
- * Every other reader fails closed on a violated invariant, which is right for
- * code about to mutate an attempt and wrong for the tool whose job is to explain
- * the violation. `listEntries()` throwing means a diagnostic built on it reports
- * "registry could not be loaded" and loses every per-entry fact it needed — the
- * user is told their file is broken and handed nothing to act on. This returns the
- * entries as they are, plus what is wrong with them.
- *
- * Never mutates or migrates. Diagnosis must not change what it is diagnosing.
- *
+ * Run a registry mutation/read under a best-effort file lock.
+ * @template T
  * @param {string} projectRoot
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+export async function withWorktreeRegistryLock(projectRoot, fn) {
+    return await withWorktreeRegistryLockAtPath(getWorktreeRegistryLockPath(projectRoot), fn);
+}
+
+/**
+ * Read the registry at an exact path without enforcing every invariant.
+ *
+ * Never mutates or migrates. Diagnosis and layout migration must not change what
+ * they are diagnosing.
+ *
+ * @param {string} registryPath
  * @returns {Promise<{ version: number, entries: WorktreeRegistryEntry[], integrityIssues: Array<{ kind: string, message: string, ids: string[] }>, readError?: Error }>}
  */
-export async function inspectWorktreeRegistry(projectRoot) {
+export async function inspectWorktreeRegistryAtPath(registryPath) {
     /** @type {Array<{ kind: string, message: string, ids: string[] }>} */
     const integrityIssues = [];
     let text;
     try {
-        text = await Deno.readTextFile(getWorktreeRegistryPath(projectRoot));
+        text = await Deno.readTextFile(registryPath);
     } catch (error) {
         if (error instanceof Deno.errors.NotFound) return { version: 2, entries: [], integrityIssues };
         return {
@@ -454,21 +488,76 @@ export async function inspectWorktreeRegistry(projectRoot) {
             readError: error instanceof Error ? error : new Error(String(error)),
         };
     }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        integrityIssues.push({
+            kind: "malformed_registry",
+            message: "The worktree registry root must be an object.",
+            ids: [],
+        });
+        return { version: 0, entries: [], integrityIssues };
+    }
     const version = typeof parsed.version === "number" ? parsed.version : 1;
-    const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
-    if (version > 2) {
+    if (version !== 1 && version !== 2) {
         integrityIssues.push({
             kind: "unsupported_schema_version",
-            message: `Registry schema version ${version} is newer than this RunWield understands (2).`,
+            message: `Registry schema version ${version} is not supported by this RunWield.`,
             ids: [],
         });
     }
+    if (!Array.isArray(parsed.entries)) {
+        integrityIssues.push({
+            kind: "malformed_registry",
+            message: "The worktree registry entries field must be an array.",
+            ids: [],
+        });
+        return { version, entries: [], integrityIssues };
+    }
+    const entries = /** @type {WorktreeRegistryEntry[]} */ (parsed.entries);
     /** @type {Map<string, string[]>} */
     const byId = new Map();
     for (const entry of entries) {
-        const ids = byId.get(entry.id) || [];
-        ids.push(entry.id);
-        byId.set(entry.id, ids);
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+            integrityIssues.push({
+                kind: "malformed_registry_entry",
+                message: "Registry entries must be objects.",
+                ids: [],
+            });
+            continue;
+        }
+        const missing = [];
+        if (typeof entry.id !== "string" || !entry.id) missing.push("id");
+        if (typeof entry.planName !== "string" || !entry.planName) missing.push("planName");
+        if (typeof entry.baseBranch !== "string" || !entry.baseBranch) missing.push("baseBranch");
+        if (typeof entry.baseRef !== "string" || !entry.baseRef) missing.push("baseRef");
+        if (typeof entry.baseCommit !== "string" || !entry.baseCommit) missing.push("baseCommit");
+        if (typeof entry.branch !== "string" || !entry.branch) missing.push("branch");
+        if (typeof entry.path !== "string" || !entry.path) missing.push("path");
+        if (typeof entry.status !== "string" || !entry.status) missing.push("status");
+        if (missing.length > 0) {
+            integrityIssues.push({
+                kind: "malformed_registry_entry",
+                message: `Registry entry ${String(entry.id || "<missing>")} is missing ${missing.join(", ")}.`,
+                ids: typeof entry.id === "string" ? [entry.id] : [],
+            });
+        }
+        if ("publication" in entry) {
+            try {
+                assertPublicationAttempt(
+                    /** @type {import('./workflow/publication-attempt.ts').PublicationAttempt} */ (entry.publication),
+                );
+            } catch (error) {
+                integrityIssues.push({
+                    kind: "malformed_registry_entry",
+                    message: error instanceof Error ? error.message : String(error),
+                    ids: typeof entry.id === "string" ? [entry.id] : [],
+                });
+            }
+        }
+        if (typeof entry.id === "string") {
+            const ids = byId.get(entry.id) || [];
+            ids.push(entry.id);
+            byId.set(entry.id, ids);
+        }
     }
     for (const [id, ids] of byId) {
         if (ids.length > 1) {
@@ -481,11 +570,19 @@ export async function inspectWorktreeRegistry(projectRoot) {
     }
     /** @type {Map<string, WorktreeRegistryEntry[]>} */
     const liveByPlan = new Map();
+    /** @type {Map<string, WorktreeRegistryEntry[]>} */
+    const legacyLiveByPlanName = new Map();
     for (const entry of entries) {
-        if (!entry.planId || !NONTERMINAL_STATUSES.has(entry.status)) continue;
-        const live = liveByPlan.get(entry.planId) || [];
-        live.push(entry);
-        liveByPlan.set(entry.planId, live);
+        if (!NONTERMINAL_STATUSES.has(entry.status)) continue;
+        if (entry.planId) {
+            const live = liveByPlan.get(entry.planId) || [];
+            live.push(entry);
+            liveByPlan.set(entry.planId, live);
+        } else if (entry.planName) {
+            const live = legacyLiveByPlanName.get(entry.planName) || [];
+            live.push(entry);
+            legacyLiveByPlanName.set(entry.planName, live);
+        }
     }
     for (const [planId, live] of liveByPlan) {
         if (live.length > 1) {
@@ -498,7 +595,37 @@ export async function inspectWorktreeRegistry(projectRoot) {
             });
         }
     }
+    for (const [planName, live] of legacyLiveByPlanName) {
+        if (live.length > 1) {
+            integrityIssues.push({
+                kind: "duplicate_live_attempt",
+                message: `Plan ${planName} has ${live.length} unfinished legacy attempts: ${
+                    live.map((entry) => `${entry.id} (${entry.status})`).join(", ")
+                }.`,
+                ids: live.map((entry) => entry.id),
+            });
+        }
+    }
     return { version, entries, integrityIssues };
+}
+
+/**
+ * Read the registry without enforcing its invariants.
+ *
+ * Every other reader fails closed on a violated invariant, which is right for
+ * code about to mutate an attempt and wrong for the tool whose job is to explain
+ * the violation. `listEntries()` throwing means a diagnostic built on it reports
+ * "registry could not be loaded" and loses every per-entry fact it needed — the
+ * user is told their file is broken and handed nothing to act on. This returns the
+ * entries as they are, plus what is wrong with them.
+ *
+ * Never mutates or migrates. Diagnosis must not change what it is diagnosing.
+ *
+ * @param {string} projectRoot
+ * @returns {Promise<{ version: number, entries: WorktreeRegistryEntry[], integrityIssues: Array<{ kind: string, message: string, ids: string[] }>, readError?: Error }>}
+ */
+export async function inspectWorktreeRegistry(projectRoot) {
+    return await inspectWorktreeRegistryAtPath(getWorktreeRegistryPath(projectRoot));
 }
 
 /** @param {string} projectRoot @param {{ migrate?: boolean }} [options] */

@@ -1,18 +1,32 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
-import { join } from "@std/path";
+import { dirname, join } from "@std/path";
 import { listPlans, savePlan } from "../plan-store.js";
+import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
+import { defineCommittedGitFixture, git } from "./git-test-fixture.ts";
+import { resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
 import {
     addEntry,
     findById,
     findByPlanId,
     findByPlanName,
+    getWorktreeRegistryLockPath,
     getWorktreeRegistryPath,
+    inspectWorktreeRegistryAtPath,
     listEntries,
     pruneStaleEntries,
     removeEntry,
     updateEntry,
+    withWorktreeRegistryLock,
+    withWorktreeRegistryLockAtPath,
     WorktreeRegistryAmbiguityError,
 } from "./worktree-registry.js";
+
+/** @param {number} ms */
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const gitFixture = defineCommittedGitFixture({ "README.md": "# registry fixture\n" });
 
 /**
  * @param {Partial<import('./worktree-registry.js').WorktreeRegistryEntry>} [overrides]
@@ -34,6 +48,200 @@ function entry(overrides = {}) {
         ...overrides,
     };
 }
+
+Deno.test("exact-path worktree registry inspection is strict and read-only", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        const path = join(projectRoot, ".wld", "worktrees.json");
+        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.writeTextFile(
+            path,
+            JSON.stringify({ version: 1, entries: [entry({ planId: undefined })] }, null, 2),
+        );
+        const before = await Deno.readTextFile(path);
+
+        const inspected = await inspectWorktreeRegistryAtPath(path);
+
+        assertEquals(inspected.readError, undefined);
+        assertEquals(inspected.version, 1);
+        assertEquals(inspected.entries.length, 1);
+        assertEquals(inspected.integrityIssues, []);
+        assertEquals(await Deno.readTextFile(path), before);
+        try {
+            await Deno.lstat(join(projectRoot, ".wld", "worktree-registry-migration-issues.json"));
+            throw new Error("Exact-path inspection wrote a migration issue file.");
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        }
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("exact-path worktree registry inspection reports malformed roots", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        const path = join(projectRoot, ".wld", "worktrees.json");
+        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.writeTextFile(path, JSON.stringify({ version: 2, entries: "not an array" }));
+
+        const inspected = await inspectWorktreeRegistryAtPath(path);
+
+        assertEquals(inspected.readError, undefined);
+        assertEquals(inspected.integrityIssues[0].kind, "malformed_registry");
+        assertStringIncludes(inspected.integrityIssues[0].message, "entries field must be an array");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("exact-path worktree registry locking serializes on the requested lock file", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    let releaseFirst = () => {};
+    let firstReady = () => {};
+    /** @type {Promise<void>} */
+    const firstReadyPromise = new Promise((resolve) => {
+        firstReady = () => resolve();
+    });
+    /** @type {Promise<void>} */
+    const releaseFirstPromise = new Promise((resolve) => {
+        releaseFirst = () => resolve();
+    });
+    try {
+        const lockPath = join(projectRoot, ".wld", "exact-worktrees.lock");
+        /** @type {string[]} */
+        const events = [];
+        const first = withWorktreeRegistryLockAtPath(lockPath, async () => {
+            events.push("first-start");
+            await Deno.lstat(lockPath);
+            firstReady();
+            await releaseFirstPromise;
+            events.push("first-end");
+        });
+        await firstReadyPromise;
+        const second = withWorktreeRegistryLockAtPath(lockPath, async () => {
+            await Promise.resolve();
+            events.push("second-start");
+        });
+        await delay(120);
+        assertEquals(events, ["first-start"]);
+        releaseFirst();
+        await Promise.all([first, second]);
+        assertEquals(events, ["first-start", "first-end", "second-start"]);
+        try {
+            await Deno.lstat(lockPath);
+            throw new Error("Exact-path lock was not released.");
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        }
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("worktree registry list reads do not overwrite malformed top-level registries", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        const path = getWorktreeRegistryPath(projectRoot);
+        await Deno.mkdir(dirname(path), { recursive: true });
+        await Deno.writeTextFile(path, "null\n");
+
+        await assertRejects(() => listEntries(projectRoot), Error, "registry root must be an object");
+        assertEquals(await Deno.readTextFile(path), "null\n");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("linked checkout registry operations share the primary internal store, lock, and migration report", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const originalSandboxHome = Deno.env.get("WLD_TEST_SANDBOX_HOME");
+        const root = await gitFixture.checkout({ prefix: "runwield-registry-primary-" });
+        const linkedParent = await Deno.makeTempDir({ prefix: "runwield-registry-linked-parent-" });
+        const linked = join(linkedParent, "linked");
+        try {
+            Deno.env.delete("WLD_TEST_SANDBOX_HOME");
+            await git(root, ["worktree", "add", "-b", "linked-registry", linked]);
+            await addEntry(root, entry({ id: "shared", planId: "plan-shared" }));
+            const primaryRoot = await Deno.realPath(root);
+
+            assertEquals(getWorktreeRegistryPath(linked), getWorktreeRegistryPath(root));
+            assertEquals(getWorktreeRegistryLockPath(linked), getWorktreeRegistryLockPath(root));
+            assertEquals(getWorktreeRegistryPath(root), join(primaryRoot, ".wld", "internal", "worktrees.json"));
+            assertEquals(getWorktreeRegistryLockPath(root), join(primaryRoot, ".wld", "internal", "worktrees.lock"));
+            assertEquals((await findById(linked, "shared", { migrate: false }))?.planId, "plan-shared");
+
+            const updated = await updateEntry(linked, "shared", { status: "completed" });
+            assertEquals(updated?.status, "completed");
+            assertEquals((await findById(root, "shared", { migrate: false }))?.status, "completed");
+            await Deno.lstat(join(primaryRoot, ".wld", "internal", "worktrees.json"));
+            await assertRejects(
+                () => Deno.lstat(join(root, ".wld", "worktrees.json")),
+                Deno.errors.NotFound,
+            );
+            await assertRejects(
+                () => Deno.lstat(join(linked, ".wld", "internal", "worktrees.json")),
+                Deno.errors.NotFound,
+            );
+            await assertRejects(
+                () => Deno.lstat(join(linked, ".wld", "worktrees.json")),
+                Deno.errors.NotFound,
+            );
+
+            let releaseFirst = () => {};
+            let firstReady = () => {};
+            /** @type {Promise<void>} */
+            const firstReadyPromise = new Promise((resolve) => {
+                firstReady = () => resolve();
+            });
+            /** @type {Promise<void>} */
+            const releaseFirstPromise = new Promise((resolve) => {
+                releaseFirst = () => resolve();
+            });
+            /** @type {string[]} */
+            const events = [];
+            const first = withWorktreeRegistryLock(root, async () => {
+                events.push("first-start");
+                await Deno.lstat(join(primaryRoot, ".wld", "internal", "worktrees.lock"));
+                firstReady();
+                await releaseFirstPromise;
+                events.push("first-end");
+            });
+            await firstReadyPromise;
+            const second = updateEntry(linked, "shared", { status: "validated" }).then(() => {
+                events.push("second-done");
+            });
+            await delay(120);
+            assertEquals(events, ["first-start"]);
+            releaseFirst();
+            await Promise.all([first, second]);
+            assertEquals(events, ["first-start", "first-end", "second-done"]);
+            assertEquals((await findById(root, "shared", { migrate: false }))?.status, "validated");
+
+            const currentRegistryPath = getWorktreeRegistryPath(root);
+            await Deno.writeTextFile(
+                currentRegistryPath,
+                JSON.stringify({
+                    version: 1,
+                    entries: [entry({ id: "legacy", planName: "missing-plan", planId: undefined })],
+                }),
+            );
+            await listEntries(linked);
+            const issuesPath = join(primaryRoot, ".wld", "internal", "worktree-registry-migration-issues.json");
+            const issues = JSON.parse(await Deno.readTextFile(issuesPath));
+            assertEquals(issues.issues[0].id, "legacy");
+            await assertRejects(
+                () => Deno.lstat(join(linked, ".wld", "internal", "worktree-registry-migration-issues.json")),
+                Deno.errors.NotFound,
+            );
+        } finally {
+            if (originalSandboxHome === undefined) Deno.env.delete("WLD_TEST_SANDBOX_HOME");
+            else Deno.env.set("WLD_TEST_SANDBOX_HOME", originalSandboxHome);
+            await Deno.remove(linkedParent, { recursive: true }).catch(() => {});
+            await Deno.remove(root, { recursive: true }).catch(() => {});
+        }
+    });
+});
 
 Deno.test("worktree registry supports add/update/find/list/remove", async () => {
     const projectRoot = await Deno.makeTempDir();
@@ -116,7 +324,7 @@ Deno.test("a damaged attempt for one Plan does not disable every other Plan", as
     // the question that genuinely cannot be answered.
     const projectRoot = await Deno.makeTempDir();
     try {
-        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.mkdir(dirname(getWorktreeRegistryPath(projectRoot)), { recursive: true });
         await Deno.writeTextFile(
             getWorktreeRegistryPath(projectRoot),
             JSON.stringify({
@@ -172,7 +380,7 @@ Deno.test("worktree registry rejects duplicate durable ids on read", async () =>
     const projectRoot = await Deno.makeTempDir();
     try {
         const path = getWorktreeRegistryPath(projectRoot);
-        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.mkdir(dirname(path), { recursive: true });
         await Deno.writeTextFile(
             path,
             JSON.stringify({
@@ -243,7 +451,7 @@ Deno.test("worktree registry migration resolves unambiguous legacy plan names", 
             classification: "FEATURE",
         });
         const path = getWorktreeRegistryPath(projectRoot);
-        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.mkdir(dirname(path), { recursive: true });
         await Deno.writeTextFile(
             path,
             JSON.stringify({
@@ -270,7 +478,7 @@ Deno.test("worktree registry migration classifies duplicate live legacy attempts
     const projectRoot = await Deno.makeTempDir();
     try {
         const path = getWorktreeRegistryPath(projectRoot);
-        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.mkdir(dirname(path), { recursive: true });
         await Deno.writeTextFile(
             path,
             JSON.stringify({
@@ -292,7 +500,10 @@ Deno.test("worktree registry migration classifies duplicate live legacy attempts
         const stored = JSON.parse(await Deno.readTextFile(path));
         assertEquals(stored.version, 1);
         const issues = JSON.parse(
-            await Deno.readTextFile(join(projectRoot, ".wld", "worktree-registry-migration-issues.json")),
+            await Deno.readTextFile(
+                resolveProjectRuntimeLayout(await Deno.realPath(projectRoot)).primary
+                    .worktreeRegistryMigrationIssuesPath,
+            ),
         );
         assertEquals(issues.issues.map((/** @type {{ id: string }} */ issue) => issue.id), ["legacy-1", "legacy-2"]);
     } finally {
@@ -313,7 +524,7 @@ Deno.test("registry migration keeps distinct execution documents ambiguous", asy
             });
         }
         const path = getWorktreeRegistryPath(projectRoot);
-        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.mkdir(dirname(path), { recursive: true });
         await Deno.writeTextFile(
             path,
             JSON.stringify({
@@ -327,7 +538,10 @@ Deno.test("registry migration keeps distinct execution documents ambiguous", asy
         const entries = await listEntries(projectRoot);
         assertEquals(entries.map((attempt) => attempt.planId), [undefined, undefined]);
         const issues = JSON.parse(
-            await Deno.readTextFile(join(projectRoot, ".wld/worktree-registry-migration-issues.json")),
+            await Deno.readTextFile(
+                resolveProjectRuntimeLayout(await Deno.realPath(projectRoot)).primary
+                    .worktreeRegistryMigrationIssuesPath,
+            ),
         );
         assertEquals(issues.issues.map((/** @type {{ reason: string }} */ issue) => issue.reason), [
             "ambiguous_plan_name",
@@ -351,7 +565,7 @@ Deno.test("worktree registry migration preserves unresolved legacy schema and re
     const projectRoot = await Deno.makeTempDir();
     try {
         const path = getWorktreeRegistryPath(projectRoot);
-        await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
+        await Deno.mkdir(dirname(path), { recursive: true });
         await Deno.writeTextFile(
             path,
             JSON.stringify({ version: 1, entries: [entry({ planName: "missing-plan", planId: undefined })] }),
@@ -362,7 +576,10 @@ Deno.test("worktree registry migration preserves unresolved legacy schema and re
         const stored = JSON.parse(await Deno.readTextFile(path));
         assertEquals(stored.version, 1);
         const issues = JSON.parse(
-            await Deno.readTextFile(join(projectRoot, ".wld", "worktree-registry-migration-issues.json")),
+            await Deno.readTextFile(
+                resolveProjectRuntimeLayout(await Deno.realPath(projectRoot)).primary
+                    .worktreeRegistryMigrationIssuesPath,
+            ),
         );
         assertEquals(issues.issues[0].reason, "plan_not_found_or_missing_plan_id");
     } finally {

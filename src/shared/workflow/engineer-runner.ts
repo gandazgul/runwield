@@ -4,6 +4,7 @@ import { getAgentDisplayName } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.ts";
+import { createPlanDeviationTool } from "../../tools/plan-deviation.ts";
 import { buildEngineerRequest } from "./workflow-prompts.js";
 import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
 import { CollaborationStyles, PairPauseReasons } from "./execution-collaboration.ts";
@@ -26,7 +27,7 @@ export async function runEngineerWithPlan(
     const runtimeAgent = resolvePlanExecutionRuntimeAgent(executionAgent);
     const collaborationStyle = workflow?.collaborationStyle || CollaborationStyles.AUTONOMOUS;
     const customTools = collaborationStyle === CollaborationStyles.PAIR
-        ? [createPairCheckpointTool({ hostedSession })]
+        ? [createPairCheckpointTool({ hostedSession }), createPlanDeviationTool({ hostedSession })]
         : undefined;
     let messages;
     try {
@@ -116,7 +117,7 @@ export async function runEngineerWithSegmentHandoff({ continuation, sessionManag
     const collaborationStyle = continuation.collaboration?.style || workflow?.collaborationStyle ||
         CollaborationStyles.AUTONOMOUS;
     const customTools = collaborationStyle === CollaborationStyles.PAIR
-        ? [createPairCheckpointTool({ hostedSession })]
+        ? [createPairCheckpointTool({ hostedSession }), createPlanDeviationTool({ hostedSession })]
         : undefined;
     const userRequest = `${
         buildEngineerRequest(continuation.plan.planName, continuation.plan.markdown, continuation.approval?.feedback, {

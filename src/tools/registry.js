@@ -63,6 +63,7 @@ export const WORKFLOW_ADVANCEMENT_TOOL_NAMES = Object.freeze([
     "review_complete",
     "qa_checklist_generated",
     "pair_checkpoint",
+    "record_plan_deviation",
     "slicer_finalize",
     "slicer_finalize_decomposition",
 ]);

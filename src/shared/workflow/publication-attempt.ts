@@ -75,6 +75,11 @@ export function publicationPhaseAtLeast(current: PublicationPhase, expected: Pub
     return Number(PHASE_INDEX.get(current)) >= Number(PHASE_INDEX.get(expected));
 }
 
+export function isPublicationAttemptCleanupComplete(attempt: PublicationAttempt): boolean {
+    assertPublicationAttempt(attempt);
+    return attempt.phase === "cleanup_complete" && !attempt.failure?.repairRoot;
+}
+
 export function createPublicationAttempt(args: {
     attemptId: string;
     planId: string;

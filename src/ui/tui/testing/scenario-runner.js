@@ -1605,7 +1605,7 @@ async function runComposedTuiScenario(scenario, options) {
                             ? await loadRemotePlanAttrs(localChildren[1].name) || localChildren[1].attrs
                             : undefined,
                     };
-                    const registryPath = join(Deno.cwd(), ".wld", "worktrees.json");
+                    const registryPath = getWorktreeRegistryPath(getCwd());
                     const registryText = await Deno.readTextFile(registryPath).catch(() => "");
                     /** @type {import('../../../shared/worktree-registry.js').WorktreeRegistryEntry[]} */
                     const registryEntries = registryText ? (JSON.parse(registryText).entries || []) : [];
