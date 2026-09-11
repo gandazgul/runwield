@@ -23,6 +23,17 @@ export const PENDING_SEGMENT_CONTINUATION_CUSTOM_TYPE = "runwield.pending_segmen
  * @property {string} [complexity]
  * @property {string} [planName]
  * @property {string} [parentPlan]
+ * @property {string} [planId]
+ * @property {string} [status]
+ * @property {string} [classification]
+ * @property {Array<import('../workflow/workflow-presentation.ts').WorkflowProgressFact>} [progressFacts]
+ * @property {boolean} [canRun]
+ * @property {boolean} [canResume]
+ * @property {boolean} [canRecover]
+ * @property {boolean} [liveQuestion]
+ * @property {boolean} [livePlanReview]
+ * @property {boolean} [liveCodeReview]
+ * @property {string} [liveReviewUrl]
  */
 
 /**
@@ -60,6 +71,40 @@ export function normalizeWorkflowPlanName(value) {
 }
 
 /**
+ * @param {Record<string, unknown> | null} triageMeta
+ * @returns {Array<import('../workflow/workflow-presentation.ts').WorkflowProgressFact>}
+ */
+function progressFactsFromTriageMeta(triageMeta) {
+    if (!triageMeta) return [];
+    /** @type {Array<import('../workflow/workflow-presentation.ts').WorkflowProgressFact>} */
+    const facts = [];
+    const checkpoint = triageMeta.validationCheckpoint;
+    if (checkpoint && typeof checkpoint === "object" && !Array.isArray(checkpoint)) {
+        const source = /** @type {Record<string, unknown>} */ (checkpoint);
+        facts.push({
+            kind: "validation_checkpoint",
+            phase: typeof source.nextPhase === "string" ? source.nextPhase : null,
+            state: typeof source.state === "string" ? source.state : null,
+            repairKind: typeof source.repairKind === "string" ? source.repairKind : null,
+            updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : null,
+        });
+    }
+    const publication = triageMeta.publication;
+    if (publication && typeof publication === "object" && !Array.isArray(publication)) {
+        const source = /** @type {Record<string, unknown>} */ (publication);
+        facts.push({
+            kind: "publication",
+            phase: typeof source.phase === "string" ? source.phase : null,
+            failure: Boolean(source.failure),
+            updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : null,
+        });
+    }
+    const worktreeStatus = typeof triageMeta.worktreeStatus === "string" ? triageMeta.worktreeStatus : "";
+    if (worktreeStatus) facts.push({ kind: "registry", status: worktreeStatus });
+    return facts;
+}
+
+/**
  * @param {unknown} value
  * @returns {WorkflowContext | null}
  */
@@ -79,6 +124,19 @@ export function normalizeWorkflowContext(value) {
     }
     if (planName) context.planName = planName;
     if (parentPlan) context.parentPlan = parentPlan;
+    if (typeof data.planId === "string" && data.planId.trim()) context.planId = data.planId.trim();
+    if (typeof data.status === "string" && data.status.trim()) context.status = data.status.trim();
+    if (typeof data.classification === "string" && data.classification.trim()) {
+        context.classification = data.classification.trim();
+    }
+    if (Array.isArray(data.progressFacts)) {
+        context.progressFacts = data.progressFacts
+            .filter((fact) => fact && typeof fact === "object")
+            .map((fact) => ({ ...fact }));
+    }
+    if (typeof data.canRun === "boolean") context.canRun = data.canRun;
+    if (typeof data.canResume === "boolean") context.canResume = data.canResume;
+    if (typeof data.canRecover === "boolean") context.canRecover = data.canRecover;
 
     return Object.keys(context).length > 0 ? context : null;
 }
@@ -118,6 +176,11 @@ export function recordWorkflowPlanName(sessionManager, planName) {
  * @property {string} [classification]
  * @property {string} [complexity]
  * @property {string} [parentPlan]
+ * @property {string} [planId]
+ * @property {string} [status]
+ * @property {unknown} [validationCheckpoint]
+ * @property {unknown} [publication]
+ * @property {string|null} [worktreeStatus]
  */
 
 /**
@@ -147,6 +210,10 @@ export function deriveWorkflowContextFromExecutionWorkflow(workflow, planName) {
     }
     if (normalizedPlanName) context.planName = normalizedPlanName;
     if (parentPlan) context.parentPlan = parentPlan;
+    if (typeof triageMeta?.planId === "string" && triageMeta.planId.trim()) context.planId = triageMeta.planId.trim();
+    if (typeof triageMeta?.status === "string" && triageMeta.status.trim()) context.status = triageMeta.status.trim();
+    const progressFacts = progressFactsFromTriageMeta(/** @type {Record<string, unknown> | null} */ (triageMeta));
+    if (progressFacts.length) context.progressFacts = progressFacts;
 
     return Object.keys(context).length > 0 ? context : null;
 }
@@ -334,7 +401,14 @@ export function workflowContextsEqual(left, right) {
     return (left?.routingIntent || "") === (right?.routingIntent || "") &&
         (left?.complexity || "") === (right?.complexity || "") &&
         (left?.planName || "") === (right?.planName || "") &&
-        (left?.parentPlan || "") === (right?.parentPlan || "");
+        (left?.parentPlan || "") === (right?.parentPlan || "") &&
+        (left?.planId || "") === (right?.planId || "") &&
+        (left?.status || "") === (right?.status || "") &&
+        (left?.classification || "") === (right?.classification || "") &&
+        Boolean(left?.canRun) === Boolean(right?.canRun) &&
+        Boolean(left?.canResume) === Boolean(right?.canResume) &&
+        Boolean(left?.canRecover) === Boolean(right?.canRecover) &&
+        JSON.stringify(left?.progressFacts || []) === JSON.stringify(right?.progressFacts || []);
 }
 
 /**

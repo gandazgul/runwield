@@ -156,17 +156,19 @@ Remember the choice; default to collapsed on narrow screens so the conversation 
 has three peer tabs: **Workflow**, **Session**, and **Artifacts**. Default to Workflow when the Session has an active
 workflow; otherwise default to Session. Preserve the reader's selected tab while the same Session remains open.
 
-Workflow shows canonical workflow stages and their state, not a second transcript. When the active Plan explicitly
-belongs to an Epic, show **Epic** and its name above **Plan** and the child Plan name; omit Epic for standalone Plans.
-Workspace and TUI render the same `sessionSidebarFields` list, including labels, precision, and unavailable values.
-Session shows durable, user-facing facts such as its name, message and tool-call counts, compaction count, queued
-prompts, and context composition. Context composition shows used versus model capacity and splits the used context into
-**System & setup** (agent instructions, tools, instruction files, memories, skills, and Project state) versus
-**Conversation** (Session chat and provider overhead). Do not expose storage generation or restate that the Session
-being viewed is active. In the TUI, do not repeat agent, model, thinking, cost, folder, or branch details from the
-footer; the detailed context breakdown may expand on the footer's compact context percentage. Artifacts lists only
-explicitly registered, Project-relative Markdown artifacts; never infer an artifact by scraping transcript text. Each
-artifact opens in the shared read-only artifact surface and returns to the owning Session.
+Workflow shows canonical workflow stages, the current step, blocker text, and the next action. It is not a second
+transcript and not a separate progress page. When the active Plan explicitly belongs to an Epic, show **Epic** and its
+name above **Plan** and the child Plan name; omit Epic for standalone Plans. Workspace and TUI use the same workflow
+presentation facts, then render them for their surface. Workspace and TUI render the same `sessionSidebarFields` list,
+including labels, precision, and unavailable values. Session shows durable, user-facing facts such as its name, message
+and tool-call counts, compaction count, queued prompts, and context composition. Context composition shows used versus
+model capacity and splits the used context into **System & setup** (agent instructions, tools, instruction files,
+memories, skills, and Project state) versus **Conversation** (Session chat and provider overhead). Do not expose storage
+generation or restate that the Session being viewed is active. In the TUI, do not repeat agent, model, thinking, cost,
+folder, or branch details from the footer; the detailed context breakdown may expand on the footer's compact context
+percentage. Artifacts lists only explicitly registered, Project-relative Markdown artifacts; never infer an artifact by
+scraping transcript text. Each artifact opens in the shared read-only artifact surface and returns to the owning
+Session.
 
 Use the `.session-context-*` classes and `--rw-*` semantic tokens for the tab rail, fields, workflow rows, and artifact
 links. The sidebar is a flat adjacent pane with dividers, not a stack of floating cards. At narrow browser widths it
@@ -181,9 +183,11 @@ reader.
 Workspace navigation uses a draggable `.rw-panel-resize-handle` on its right edge. Keep the sidebar between 220 and
 480px while reserving at least 420px for the main pane. Remember its width separately from its collapsed state. The
 handle is a focusable separator: arrow keys adjust width, Home/End select the limits, and double-click restores 280px.
-Hide the handle in the narrow-screen overlay layout. Every Session list uses the saved name (including rename entries),
-then the first user message. Suppress Sessions that have neither; never fill lists with “Untitled Session.” Keep the
-same naming and visibility rules in Workspace and the TUI.
+Hide the handle in the narrow-screen overlay layout. Project navigation lists active Plans before standalone Sessions.
+Nest up to two proven associated Sessions below each Plan, exclude those Sessions from the standalone list, and expand
+Plan or nested-Session overflow in place so focus stays in the sidebar. Muted On-Hold Plans appear after active work.
+Session lists use saved names (including rename entries), never the first prompt. Omit unnamed, empty Sessions by
+default; keep named, nonempty, and unreadable Sessions accessible.
 
 ## Token model
 
@@ -635,15 +639,26 @@ proof-bearing RunWield Verified. Badges, buttons, and metadata should reuse exis
 closed/success states and pair the label with explanatory text such as “verified by the user; Workflow Validation was
 not claimed.” Do not add a separate theme or token for this status.
 
-### Workflow progress
+### Plan home, Dashboard rows, and workflow progress
 
-Use the workflow progress pattern when a surface must show an ordered RunWield workflow such as execution, Mechanical
-Validation, Semantic Code Review, repair, delivery, and completion.
+Plan home uses a two-column reader/sidebar layout: the Plan document stays readable on the left, and the right sidebar
+shows workflow state and the next action. On narrow screens the columns stack, with the document first. Keep Plan home
+usable even when workflow evidence is unavailable.
 
-- Render stages as an ordered list with text status and color status. Do not rely on color alone.
+The owner Dashboard uses compact category rows for **Needs You**, **Ready to Continue**, **In Progress**, and **Recently
+Finished**. Rows are links to the repair destination, Plan, or Session. Long names shrink and truncate inside the row;
+the action label must remain reachable on phones.
+
+Use the workflow progress pattern when Plan home or a Session Workflow sidebar must show an ordered RunWield workflow
+such as execution, Mechanical Validation, Semantic Code Review, repair, delivery, and completion.
+
+- Render stages as an ordered list with visible connections, text status, and color status. Do not rely on color alone.
+- Mark the current stage with `aria-current="step"` and an accent rail.
+- Put blocker text and the next action near the diagram. The action must route to the existing review, prompt, Session,
+  continuation, or recovery flow.
 - Use `--rw-*` semantic tokens for borders, surfaces, success, warning, error, and accent states.
-- Keep the model read-only. Progress views can link to related Plan and Session pages, but they must not advance the
-  workflow.
+- Use links for navigation actions and buttons for existing continuation or recovery actions. Do not add a second
+  workflow mutation path.
 - Long failure text must wrap inside the card and must not create whole-page horizontal overflow.
 
 ## Grouped Plan review

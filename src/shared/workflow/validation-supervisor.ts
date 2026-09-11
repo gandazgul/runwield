@@ -380,7 +380,13 @@ async function continueValidationAttempt(
         args.hostedSession.setActiveExecutionWorkflow({
             ...(activeWorkflow || {}),
             planName: args.planName,
-            triageMeta: claim.triageMeta,
+            triageMeta: {
+                ...claim.triageMeta,
+                ...(registryEntry?.status && registryEntry.status !== "validated"
+                    ? { worktreeStatus: registryEntry.status }
+                    : {}),
+                ...(registryEntry?.publication ? { publication: registryEntry.publication } : {}),
+            },
             executionAgent: policy.ok ? policy.policy.executionAgent : "engineer",
             ...(registryEntry
                 ? {

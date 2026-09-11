@@ -9,6 +9,7 @@ import {
 import { loadBoard, loadWorkspaceDetail } from "../server/plan-adapter.js";
 import { runOwnerPlanAction } from "../server/owner-plan-actions.ts";
 import { loadOwnerPlanProgress } from "../server/owner-plan-progress.ts";
+import { loadOwnerDashboard } from "../server/owner-dashboard.ts";
 import { listOwnerProjects, requireOwnerProjectRoot, serializeOwnerProject } from "../server/owner-projects.js";
 import { ownerSecurityHeaders } from "../server/owner-origin.js";
 import { reviewFileContentApi } from "./api/review-file-handlers.js";
@@ -161,21 +162,17 @@ export function projectsApi(ctx) {
 /** @param {any} ctx */
 export async function ownerSidebarApi(ctx) {
     try {
-        const projects = await Promise.all(
-            listOwnerProjects(ctx.state.store).map(async (/** @type {any} */ project) => {
-                if (!project.enabled) return { ...project, sessions: [], hasMoreSessions: false };
-                const result = await ctx.state.sessionContinuation.listSessions(project.projectId, {
-                    page: 0,
-                    pageSize: 5,
-                });
-                return {
-                    ...project,
-                    sessions: result.sessions || [],
-                    hasMoreSessions: result.hasNext === true,
-                };
-            }),
-        );
-        return ownerJson({ projects });
+        const payload = await loadOwnerDashboard(ctx.state.store, ctx.state.sessionContinuation);
+        return ownerJson({ projects: payload.projects });
+    } catch (error) {
+        return ownerErrorJson(error);
+    }
+}
+
+/** @param {any} ctx */
+export async function ownerDashboardApi(ctx) {
+    try {
+        return ownerJson(await loadOwnerDashboard(ctx.state.store, ctx.state.sessionContinuation));
     } catch (error) {
         return ownerErrorJson(error);
     }
@@ -269,12 +266,68 @@ export async function ownerProjectFileContentApi(ctx) {
 export async function ownerProjectPlanProgressApi(ctx) {
     try {
         const url = new URL(ctx.req.url);
+        const runwieldSessionId = url.searchParams.get("session") || "";
         const progress = await loadOwnerPlanProgress(ctx.state.store, {
             projectId: ctx.params.projectId,
             planId: ctx.params.planId,
-            runwieldSessionId: url.searchParams.get("session") || null,
+            runwieldSessionId: runwieldSessionId || null,
         });
-        return ownerJson(progress);
+        let live = null;
+        let effectiveSessionId = runwieldSessionId;
+        for (const [operationId, operation] of ctx.state.sessionContinuation.operations?.entries?.() || []) {
+            if (operation.projectId !== ctx.params.projectId) continue;
+            if (runwieldSessionId && operation.runwieldSessionId !== runwieldSessionId) continue;
+            if (operation.status !== "running" || !operation.liveInteraction?.interactionId) continue;
+            const request = operation.liveInteraction.request || {};
+            const planReview = request.planReview && typeof request.planReview === "object" ? request.planReview : null;
+            const codeReview = request.codeReview && typeof request.codeReview === "object" ? request.codeReview : null;
+            const associations = /** @type {Array<{ planId?: string, committedGeneration?: number | null }>} */ (
+                ctx.state.store.listSessionPlanAssociations?.(
+                    operation.runwieldSessionId,
+                    ctx.params.projectId,
+                ) || []
+            );
+            const associated = associations.some((association) =>
+                association.planId === ctx.params.planId && association.committedGeneration !== null
+            );
+            if (request.type === "plan_review" && planReview?.planId !== ctx.params.planId) continue;
+            if (request.type === "code_review" && codeReview?.planId !== ctx.params.planId && !associated) continue;
+            if (request.type !== "plan_review" && request.type !== "code_review" && !associated) continue;
+            effectiveSessionId = operation.runwieldSessionId || effectiveSessionId;
+            live = { operationId, interactionId: operation.liveInteraction.interactionId, request };
+            break;
+        }
+        const sessionHref = effectiveSessionId
+            ? `/projects/${encodeURIComponent(ctx.params.projectId)}/sessions/${encodeURIComponent(effectiveSessionId)}`
+            : `/projects/${encodeURIComponent(ctx.params.projectId)}/sessions?plan=${
+                encodeURIComponent(ctx.params.planId)
+            }`;
+        const inspected = effectiveSessionId ? ctx.state.store.inspectSessionActivation?.(effectiveSessionId) : null;
+        const canRecover = Boolean(effectiveSessionId && progress.overall?.state === "needs_attention");
+        return ownerJson({
+            ...progress,
+            sessionHref,
+            interactionHref:
+                live && sessionHref && live.request?.type !== "plan_review" && live.request?.type !== "code_review"
+                    ? `${sessionHref}#interaction-${encodeURIComponent(live.interactionId)}`
+                    : "",
+            reviewHref: live?.request?.reviewUrl || "",
+            reviewKind: live?.request?.type === "plan_review"
+                ? "plan"
+                : live?.request?.type === "code_review"
+                ? "code"
+                : "",
+            continueUrl: "",
+            planWorkflowUrl: effectiveSessionId
+                ? `/api/owner/projects/${encodeURIComponent(ctx.params.projectId)}/sessions/${
+                    encodeURIComponent(effectiveSessionId)
+                }/plan-workflow`
+                : "",
+            recoveryUrl: "",
+            canRecover,
+            expectedGeneration: inspected?.generation?.generation ?? null,
+            expectedCurrentSegmentId: inspected?.generation?.currentSegmentId ?? null,
+        });
     } catch (error) {
         return ownerErrorJson(error, 404);
     }

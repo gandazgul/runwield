@@ -3,6 +3,8 @@ export const LAST_SESSION_KEY = "runwield:owner:last-session";
 export const LAST_PROJECT_KEY = "runwield:owner:last-project";
 export const SIDEBAR_COLLAPSED_KEY = "runwield:owner:sidebar-collapsed";
 export const SIDEBAR_WIDTH_KEY = "runwield:owner:sidebar-width";
+export const EXPANDED_PLANS_KEY = "runwield:owner:expanded-plans";
+export const EXPANDED_PLAN_SESSIONS_KEY = "runwield:owner:expanded-plan-sessions";
 
 export function clampSidebarWidth(width, availableWidth) {
     return Math.round(Math.max(220, Math.min(480, availableWidth - 420, width)));
@@ -125,6 +127,19 @@ function writeStored(key, value) {
     }
 }
 
+function readExpandedSet(key) {
+    const stored = readStored(key);
+    return new Set(Array.isArray(stored) ? stored.map(String) : []);
+}
+
+function writeExpandedSet(key, values) {
+    writeStored(key, [...values]);
+}
+
+function expansionKey(projectId, childId = "") {
+    return childId ? `${projectId}:${childId}` : projectId;
+}
+
 export function currentRouteFromUrl(urlLike) {
     const url = urlLike instanceof URL ? urlLike : new URL(String(urlLike), "http://workspace.local");
     const session = /^\/projects\/([^/]+)\/sessions\/([^/?#]+)(?:\/.*)?$/.exec(url.pathname);
@@ -135,13 +150,20 @@ export function currentRouteFromUrl(urlLike) {
             kind: "session",
         };
     }
-    const ownerPlan = /^\/projects\/([^/]+)\/plans\/[^/]+(?:\/progress)?$/.exec(url.pathname);
+    const ownerPlan = /^\/projects\/([^/]+)\/plans\/([^/]+)(?:\/progress)?$/.exec(url.pathname);
     const planSession = url.searchParams.get("session") || "";
     if (ownerPlan && planSession) {
         return {
             projectId: decodeURIComponent(ownerPlan[1]),
             runwieldSessionId: planSession,
             kind: "session",
+        };
+    }
+    if (ownerPlan) {
+        return {
+            projectId: decodeURIComponent(ownerPlan[1]),
+            planId: decodeURIComponent(ownerPlan[2]),
+            kind: "plan",
         };
     }
     const project = /^\/projects\/([^/]+)(?:\/|$)/.exec(url.pathname);
@@ -183,6 +205,10 @@ function settingsHref(projectId) {
 
 function plansHref(projectId) {
     return `/projects/${encodeURIComponent(projectId)}/plans`;
+}
+
+function planHref(projectId, planId) {
+    return `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}`;
 }
 
 async function ownerJson(url, options = {}) {
@@ -351,6 +377,9 @@ function normalizeProject(project) {
         projectId: String(project?.projectId || ""),
         displayName: String(project?.displayName || "Untitled Project"),
         enabled: project?.enabled !== false,
+        diagnostics: Array.isArray(project?.diagnostics) ? project.diagnostics : [],
+        hasMorePlans: Boolean(project?.hasMorePlans),
+        plans: Array.isArray(project?.plans) ? project.plans.filter((plan) => plan?.planId) : [],
         hasMoreSessions: Boolean(project?.hasMoreSessions),
         sessions: Array.isArray(project?.sessions)
             ? project.sessions.filter((session) => session?.runwieldSessionId)
@@ -362,6 +391,9 @@ function snapshotProject(projectElement) {
     const projectId = projectElement.getAttribute("data-sidebar-project") || "";
     return {
         projectId,
+        plans: Array.from(projectElement.querySelectorAll("[data-sidebar-plan]")).map((link) => ({
+            planId: link.getAttribute("data-sidebar-plan") || "",
+        })),
         sessions: Array.from(projectElement.querySelectorAll("[data-sidebar-session]")).map((link) => ({
             runwieldSessionId: link.getAttribute("data-sidebar-session") || "",
             displayName: link.querySelector("span")?.textContent || "",
@@ -406,6 +438,11 @@ function ensureSidebarScaffold(sidebar, payload, current) {
         collapse.title = "Collapse Workspace sidebar";
         collapse.innerHTML = panelCollapseIcon("left");
         brand.append(collapse);
+    }
+    let home = sidebar.querySelector(".workspace-sidebar-home");
+    if (!home) {
+        home = createAnchor("workspace-sidebar-home", "/", "Dashboard");
+        sidebar.append(home);
     }
     let newSession = sidebar.querySelector(".workspace-sidebar-new");
     if (!newSession) {
@@ -453,11 +490,28 @@ function makeProjectElement(project, current) {
     summary.append(gear);
     const links = document.createElement("div");
     links.className = "workspace-sidebar-project-links";
+    const diagnostics = document.createElement("div");
+    diagnostics.className = "workspace-sidebar-diagnostics";
+    const plans = document.createElement("div");
+    plans.className = "workspace-sidebar-plans";
     const sessions = document.createElement("div");
     sessions.className = "workspace-sidebar-sessions";
-    item.append(summary, links, sessions);
+    item.append(summary, links, diagnostics, plans, sessions);
     updateProjectElement(item, project, current);
     return item;
+}
+
+function reconcileDiagnostics(container, project) {
+    container.replaceChildren();
+    for (const diagnostic of project.diagnostics || []) {
+        const link = createAnchor(
+            "workspace-sidebar-diagnostic",
+            diagnostic.repairHref || settingsHref(project.projectId),
+            diagnostic.message || "Project needs repair.",
+        );
+        link.title = diagnostic.repairLabel || "Open Project settings";
+        container.append(link);
+    }
 }
 
 function updateProjectElement(item, project, current) {
@@ -470,10 +524,113 @@ function updateProjectElement(item, project, current) {
     const links = item.querySelector(".workspace-sidebar-project-links");
     links.replaceChildren(
         project.enabled
-            ? createAnchor("", plansHref(project.projectId), "Plan Board")
+            ? createAnchor("", plansHref(project.projectId), "All Plans")
             : createAnchor("", settingsHref(project.projectId), "Project unavailable · open settings"),
     );
+    reconcileDiagnostics(item.querySelector(".workspace-sidebar-diagnostics"), project);
+    reconcilePlanRows(item.querySelector(".workspace-sidebar-plans"), project, current);
     reconcileSessionRows(item.querySelector(".workspace-sidebar-sessions"), snapshotProject(item), project, current);
+}
+
+function makePlanRow(projectId, plan, current) {
+    const wrapper = document.createElement("div");
+    wrapper.className = plan.muted ? "workspace-sidebar-plan-group muted" : "workspace-sidebar-plan-group";
+    wrapper.dataset.sidebarPlanGroup = plan.planId;
+    const row = createAnchor(
+        "workspace-sidebar-plan",
+        plan.href || planHref(projectId, plan.planId),
+        plan.title || "Plan",
+    );
+    row.dataset.sidebarPlan = plan.planId;
+    row.innerHTML = `<span>${html(plan.title || "Plan")}</span><small>${
+        html(plan.statusLabel || plan.status || "Plan")
+    }</small>`;
+    if (current.kind === "plan" && current.projectId === projectId && current.planId === plan.planId) {
+        row.setAttribute("aria-current", "page");
+    } else row.removeAttribute("aria-current");
+    wrapper.append(row);
+    const sessionList = document.createElement("div");
+    sessionList.className = "workspace-sidebar-plan-sessions";
+    reconcilePlanSessionRows(sessionList, projectId, plan, current);
+    wrapper.append(sessionList);
+    return wrapper;
+}
+
+function reconcilePlanSessionRows(container, projectId, plan, current) {
+    const expanded = readExpandedSet(EXPANDED_PLAN_SESSIONS_KEY).has(expansionKey(projectId, plan.planId));
+    const sessions = Array.isArray(plan.sessions) ? plan.sessions : [];
+    const visible = expanded ? sessions : sessions.slice(0, 2);
+    container.replaceChildren();
+    for (const session of visible) {
+        container.append(makeSessionRow(projectId, session, current, " workspace-sidebar-session-nested"));
+    }
+    if (sessions.length > visible.length) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "workspace-sidebar-show-more";
+        button.dataset.showMorePlanSessions = expansionKey(projectId, plan.planId);
+        button.textContent = `Show ${sessions.length - visible.length} more Sessions...`;
+        container.append(button);
+    }
+}
+
+function reconcilePlanRows(container, project, current) {
+    const plans = Array.isArray(project.plans) ? project.plans : [];
+    const expanded = readExpandedSet(EXPANDED_PLANS_KEY).has(project.projectId);
+    const visible = expanded ? plans : plans.slice(0, 5);
+    const activePlanKey = document.activeElement?.getAttribute?.("data-sidebar-plan") || "";
+    const activeSessionKey = document.activeElement?.getAttribute?.("data-sidebar-session") || "";
+    const activeMorePlansKey = document.activeElement?.getAttribute?.("data-show-more-plans") || "";
+    const activeMorePlanSessionsKey = document.activeElement?.getAttribute?.("data-show-more-plan-sessions") || "";
+    const byId = new Map(
+        Array.from(container.querySelectorAll("[data-sidebar-plan-group]")).map((node) => [
+            node.getAttribute("data-sidebar-plan-group") || "",
+            node,
+        ]),
+    );
+    container.querySelectorAll(":scope > .workspace-sidebar-empty, :scope > [data-show-more-plans]").forEach((node) =>
+        node.remove()
+    );
+    const wanted = new Set(visible.map((plan) => plan.planId));
+    byId.forEach((node, planId) => {
+        if (!wanted.has(planId)) node.remove();
+    });
+    if (!project.enabled) return;
+    if (!plans.length) {
+        container.append(makeEmpty("No active Plans."));
+        return;
+    }
+    for (const plan of visible) {
+        const node = byId.get(plan.planId) || makePlanRow(project.projectId, plan, current);
+        const fresh = makePlanRow(project.projectId, plan, current);
+        node.replaceChildren(...Array.from(fresh.childNodes));
+        node.className = fresh.className;
+        container.append(node);
+    }
+    if (plans.length > visible.length) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "workspace-sidebar-more";
+        button.dataset.showMorePlans = project.projectId;
+        button.textContent = `Show ${plans.length - visible.length} more Plans...`;
+        container.append(button);
+    }
+    const focusSelectors = activeSessionKey
+        ? [`[data-sidebar-session="${CSS.escape(activeSessionKey)}"]`]
+        : activePlanKey
+        ? [`[data-sidebar-plan="${CSS.escape(activePlanKey)}"]`]
+        : activeMorePlansKey
+        ? [`[data-show-more-plans="${CSS.escape(activeMorePlansKey)}"]`, "[data-sidebar-plan]"]
+        : activeMorePlanSessionsKey
+        ? [`[data-show-more-plan-sessions="${CSS.escape(activeMorePlanSessionsKey)}"]`, "[data-sidebar-session]"]
+        : [];
+    for (const selector of focusSelectors) {
+        const focusTarget = container.querySelector(selector);
+        if (focusTarget) {
+            focusTarget.focus();
+            break;
+        }
+    }
 }
 
 function reconcileSessionRows(container, existingProject, project, current) {
@@ -593,19 +750,13 @@ export function applyActiveRoute(current) {
                 row.getAttribute("data-sidebar-session") === current.runwieldSessionId,
         );
     });
+    document.querySelectorAll("[data-sidebar-plan]").forEach((row) => {
+        if (current.kind === "plan" && row.getAttribute("data-sidebar-plan") === current.planId) {
+            row.setAttribute("aria-current", "page");
+        } else row.removeAttribute("aria-current");
+    });
     if (current.projectId) {
         document.querySelector(`[data-sidebar-project="${CSS.escape(current.projectId)}"]`)?.setAttribute("open", "");
-    }
-}
-
-function workspaceNavigate(href, history = "push") {
-    const event = new CustomEvent("runwield:workspace-navigate", {
-        cancelable: true,
-        detail: { href, history },
-    });
-    if (document.dispatchEvent(event)) {
-        if (history === "replace") location.replace(href);
-        else location.assign(href);
     }
 }
 
@@ -631,6 +782,24 @@ function installSidebarDelegation() {
             setSidebarCollapsed(true);
             return;
         }
+        const showMorePlans = target.closest("[data-show-more-plans]");
+        if (showMorePlans) {
+            const projectId = showMorePlans.getAttribute("data-show-more-plans") || "";
+            const expanded = readExpandedSet(EXPANDED_PLANS_KEY);
+            expanded.add(projectId);
+            writeExpandedSet(EXPANDED_PLANS_KEY, expanded);
+            installWorkspaceShell();
+            return;
+        }
+        const showMorePlanSessions = target.closest("[data-show-more-plan-sessions]");
+        if (showMorePlanSessions) {
+            const key = showMorePlanSessions.getAttribute("data-show-more-plan-sessions") || "";
+            const expanded = readExpandedSet(EXPANDED_PLAN_SESSIONS_KEY);
+            expanded.add(key);
+            writeExpandedSet(EXPANDED_PLAN_SESSIONS_KEY, expanded);
+            installWorkspaceShell();
+            return;
+        }
         const showMore = target.closest("[data-show-more-sessions]");
         if (showMore) {
             const button = showMore;
@@ -638,8 +807,14 @@ function installSidebarDelegation() {
             button.setAttribute("disabled", "true");
             button.textContent = "Loading...";
             try {
+                const query = new URLSearchParams({ page: "0", pageSize: "100", excludeAssociated: "true" });
+                const project = button.closest("[data-sidebar-project]");
+                for (const plan of project?.querySelectorAll("[data-sidebar-plan]") || []) {
+                    const planId = plan.getAttribute("data-sidebar-plan") || "";
+                    if (planId) query.append("nestedPlan", planId);
+                }
                 const data = await ownerJson(
-                    `/api/owner/projects/${encodeURIComponent(projectId)}/sessions?page=0&pageSize=100`,
+                    `/api/owner/projects/${encodeURIComponent(projectId)}/sessions?${query}`,
                 );
                 const parent = button.closest(".workspace-sidebar-sessions");
                 const current = currentRoute();
@@ -694,35 +869,6 @@ async function refreshSidebarForPage() {
     try {
         const payload = await ownerJson("/api/owner/sidebar", { signal: abort.signal });
         if (!shouldApplySidebarRefresh(requestGeneration, refreshGeneration, requestUrl, location.href)) return;
-        if (location.pathname === "/") {
-            const projects = Array.isArray(payload.projects) ? payload.projects : [];
-            const lastSession = readStored(LAST_SESSION_KEY);
-            const rememberedSessionProject = projects.find((project) =>
-                project.enabled && project.projectId === lastSession?.projectId
-            );
-            const rememberedSession = rememberedSessionProject?.sessions?.find((session) =>
-                session.runwieldSessionId === lastSession?.runwieldSessionId
-            );
-            if (rememberedSessionProject && rememberedSession) {
-                workspaceNavigate(
-                    sessionHref(rememberedSessionProject.projectId, rememberedSession.runwieldSessionId),
-                    "replace",
-                );
-                return;
-            }
-            const lastProject = readStored(LAST_PROJECT_KEY)?.projectId;
-            const fallbackProject = projects.find((project) => project.enabled && project.projectId === lastProject) ||
-                projects.find((project) => project.enabled);
-            const fallbackSession = fallbackProject?.sessions?.[0];
-            if (fallbackProject && fallbackSession) {
-                workspaceNavigate(sessionHref(fallbackProject.projectId, fallbackSession.runwieldSessionId), "replace");
-                return;
-            }
-            if (fallbackProject) {
-                workspaceNavigate(newSessionHref(fallbackProject.projectId), "replace");
-                return;
-            }
-        }
         renderSidebar(payload, current);
     } catch (error) {
         if (error?.name === "AbortError") return;

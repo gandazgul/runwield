@@ -32,7 +32,6 @@ import { openRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 import { escapeReviewPayloadJson } from "./server/review-payload-json.ts";
 import { withAccessLogger } from "./server-access-logger.ts";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../../shared/work-records/mnemoteca-port.ts";
-import { PlanProgressSurface } from "./react/PlanProgressSurface.tsx";
 import { loadRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.js";
 import {
@@ -45,6 +44,7 @@ import { reviewFileContentApi, reviewLocalConfigApi, reviewOpenInAppsApi } from 
 import { reviewWidgetApi } from "./routes/api/review-widget-handlers.js";
 import {
     devicesApi,
+    ownerDashboardApi,
     ownerErrorJson,
     ownerProjectBoardApi,
     ownerProjectFileContentApi,
@@ -75,6 +75,7 @@ import {
     ownerSessionOperationStatusApi,
     ownerSessionOperationStreamApi,
     ownerSessionOptionsApi,
+    ownerSessionPlanWorkflowApi,
     ownerSessionSteerApi,
     ownerSessionTimelineApi,
 } from "./routes/owner-session-api.js";
@@ -245,24 +246,20 @@ export function createOwnerWorkspaceApp(options) {
                 `<section class=\"error-panel\"><h2>Workspace request blocked</h2><p>${
                     escapeHtml(message)
                 }</p></section>`,
-                403,
+                { status: 403 },
             );
         }
     });
-    app.get("/", () => ownerHtmlResponse("RunWield Owner Workspace", renderOwnerHome()));
+    app.get(
+        "/",
+        () => ownerHtmlResponse("RunWield Owner Workspace", renderOwnerHome(), { surfaceTitle: "Attention Dashboard" }),
+    );
     app.get("/pair", renderRequiredOwnerAstroPage);
     app.get("/devices", renderRequiredOwnerAstroPage);
     app.get("/projects", renderRequiredOwnerAstroPage);
     app.get("/projects/:projectId/plans", renderRequiredOwnerAstroPage);
     app.get("/projects/:projectId/plans/closed", renderRequiredOwnerAstroPage);
     app.get("/projects/:projectId/plans/on-hold", renderRequiredOwnerAstroPage);
-    app.get(
-        "/projects/:projectId/plans/:planId/progress",
-        async (ctx) => {
-            const body = await renderOwnerPlanProgress(ctx);
-            return body instanceof Response ? body : ownerHtmlResponse("Project Plan Progress", body);
-        },
-    );
     app.get("/projects/:projectId/plans/:planId", renderRequiredOwnerAstroPage);
     app.get("/projects/:projectId/settings", renderOwnerProjectSettingsPage);
     app.get("/projects/:projectId/sessions", renderOwnerProjectSessionsPage);
@@ -280,6 +277,7 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/pairing/status", pairingStatusApi);
     app.post("/api/owner/pairing/claim", pairingClaimApi);
     app.get("/api/owner/projects", projectsApi);
+    app.get("/api/owner/dashboard", ownerDashboardApi);
     app.get("/api/owner/sidebar", ownerSidebarApi);
     app.post("/api/owner/projects", registerProjectApi);
     app.post("/api/owner/projects/:projectId/action", projectActionApi);
@@ -311,6 +309,7 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/live", ownerSessionLiveApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/bootstrap", ownerSessionBootstrapApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/continue", ownerSessionContinuationStartApi);
+    app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/plan-workflow", ownerSessionPlanWorkflowApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/configure", ownerSessionConfigureApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/force-recovery", ownerSessionForceRecoverApi);
     app.post(
@@ -327,7 +326,9 @@ export function createOwnerWorkspaceApp(options) {
         if (ctx.url.pathname.startsWith("/api/owner/")) {
             return ownerErrorJson(new Error("Owner API route not found."), 404);
         }
-        return ownerHtmlResponse("Not found", `<section class=\"error-panel\"><h2>Not found</h2></section>`, 404);
+        return ownerHtmlResponse("Not found", `<section class=\"error-panel\"><h2>Not found</h2></section>`, {
+            status: 404,
+        });
     });
     app.store = store;
     app.ownerConnections = connections;
@@ -691,12 +692,25 @@ function redirectResponse(location) {
     return withOwnerSecurityHeaders(new Response(null, { status: 302, headers: { location } }));
 }
 
-/** @param {string} title @param {string} body @param {number} [status] */
-function ownerHtmlResponse(title, body, status = 200) {
+/**
+ * @param {string} title
+ * @param {string} body
+ * @param {{ status?: number, surfaceTitle?: string }} [options]
+ */
+function ownerHtmlResponse(title, body, options = {}) {
+    const status = options.status ?? 200;
+    const headerTitle = options.surfaceTitle
+        ? `<strong class="workspace-main-session-name" data-workspace-surface-title>${
+            escapeHtml(options.surfaceTitle)
+        }</strong>`
+        : `<a class="brand workspace-main-brand" href="/" aria-label="RunWield Workspace home"><img class="brand-logo" src="/brand/logo.svg" alt="" aria-hidden="true"><span>RunWield Workspace</span></a>`;
+    const headerClass = options.surfaceTitle
+        ? "workspace-main-header workspace-main-surface-header"
+        : "workspace-main-header";
     const html =
         `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${
             escapeHtml(title)
-        }</title><link rel="icon" href="/brand/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/components.css"><link rel="stylesheet" href="/workspace.css"><link rel="stylesheet" href="/theme.css"></head><body class="theme-runwield"><div class="workspace-shell workspace-shell-with-sidebar owner-workspace-shell"><aside class="workspace-sidebar" data-workspace-sidebar aria-label="Workspace navigation"><p class="workspace-sidebar-empty">Loading Workspace…</p></aside><div class="workspace-main-shell"><header class="workspace-main-header"><a class="brand workspace-main-brand" href="/" aria-label="RunWield Workspace home"><img class="brand-logo" src="/brand/logo.svg" alt="" aria-hidden="true"><span>RunWield Workspace</span></a></header><main>${body}</main></div></div><script type="module" src="/workspace-shell.js"></script></body></html>`;
+        }</title><link rel="icon" href="/brand/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/components.css"><link rel="stylesheet" href="/workspace.css"><link rel="stylesheet" href="/theme.css"></head><body class="theme-runwield"><div class="workspace-shell workspace-shell-with-sidebar owner-workspace-shell"><aside class="workspace-sidebar" data-workspace-sidebar aria-label="Workspace navigation"><p class="workspace-sidebar-empty">Loading Workspace…</p></aside><div class="workspace-main-shell"><header class="${headerClass}"><div class="workspace-main-header-left" data-workspace-main-header-left>${headerTitle}</div></header><main>${body}</main></div></div><script type="module" src="/workspace-shell.js"></script></body></html>`;
     return withOwnerSecurityHeaders(
         new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8" } }),
     );
@@ -723,7 +737,82 @@ function createInProcessRateLimit({ limit, windowMs }) {
 }
 
 function renderOwnerHome() {
-    return `<section class="owner-card"><p class="kicker">RunWield Workspace</p><h1>Opening Workspace…</h1><p>Restoring the latest available Project Session.</p></section>`;
+    return `<section class="owner-dashboard" data-owner-dashboard>
+        <div class="owner-dashboard-intro">
+            <p>Plans that need you, can continue, are running, or recently finished.</p>
+            <a class="rw-toolbar-button" href="/projects">Projects</a>
+        </div>
+        <div class="owner-dashboard-status" role="status" aria-busy="true" data-dashboard-status>
+            <span class="rw-thinking-dots" aria-label="Loading"><span aria-hidden="true">Loading</span><span class="rw-thinking-dot" aria-hidden="true"></span><span class="rw-thinking-dot" aria-hidden="true"></span><span class="rw-thinking-dot" aria-hidden="true"></span></span>
+        </div>
+        <div class="owner-dashboard-grid" data-dashboard-sections></div>
+    </section>
+    <script type="module">
+        const root = document.querySelector('[data-owner-dashboard]');
+        const status = root?.querySelector('[data-dashboard-status]');
+        const sectionsRoot = root?.querySelector('[data-dashboard-sections]');
+        const labels = ['Needs You', 'Ready to Continue', 'In Progress', 'Recently Finished'];
+        let generation = 0;
+        let dashboardRefreshInFlight = null;
+        let dashboardRefreshTimer = null;
+        function escapeText(value) {
+            return String(value || '').replace(/[&<>\"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[char]));
+        }
+        function itemHtml(item) {
+            return '<a class="owner-dashboard-row" href="' + escapeText(item.href) + '">' +
+                '<span><strong>' + escapeText(item.title) + '</strong><small>' + escapeText(item.projectName) + ' · ' + escapeText(item.statusLabel) + '</small></span>' +
+                '<span class="owner-dashboard-row-action">Open</span>' +
+            '</a>';
+        }
+        function sectionHtml(section) {
+            const items = Array.isArray(section.items) ? section.items : [];
+            return '<section class="owner-dashboard-section" aria-label="' + escapeText(section.label) + '">' +
+                '<div class="owner-dashboard-section-heading"><h2>' + escapeText(section.label) + '</h2><span>' + items.length + '</span></div>' +
+                (items.length ? items.map(itemHtml).join('') : '<p class="empty">No Plans here.</p>') +
+            '</section>';
+        }
+        async function refreshDashboard() {
+            if (dashboardRefreshInFlight) return dashboardRefreshInFlight;
+            const current = ++generation;
+            dashboardRefreshInFlight = (async () => {
+                try {
+                    const response = await fetch('/api/owner/dashboard', { headers: { accept: 'application/json' } });
+                    const payload = await response.json();
+                    if (current !== generation) return;
+                    if (!response.ok) throw new Error(payload.error || 'Dashboard failed to load.');
+                    const sections = Array.isArray(payload.dashboard?.sections) ? payload.dashboard.sections : [];
+                    const byLabel = new Map(sections.map((section) => [section.label, section]));
+                    sectionsRoot.innerHTML = labels.map((label) => sectionHtml(byLabel.get(label) || { label, items: [] })).join('');
+                    status.hidden = true;
+                    status.removeAttribute('aria-busy');
+                } catch (error) {
+                    if (current !== generation) return;
+                    status.hidden = false;
+                    status.removeAttribute('aria-busy');
+                    status.setAttribute('role', 'alert');
+                    status.textContent = error instanceof Error ? error.message : String(error);
+                } finally {
+                    dashboardRefreshInFlight = null;
+                }
+            })();
+            return dashboardRefreshInFlight;
+        }
+        function startDashboardRefreshLoop() {
+            if (dashboardRefreshTimer) return;
+            refreshDashboard();
+            dashboardRefreshTimer = setInterval(refreshDashboard, 5000);
+        }
+        function stopDashboardRefreshLoop() {
+            if (!dashboardRefreshTimer) return;
+            clearInterval(dashboardRefreshTimer);
+            dashboardRefreshTimer = null;
+        }
+        startDashboardRefreshLoop();
+        document.addEventListener('astro:before-preparation', stopDashboardRefreshLoop, { once: true });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') refreshDashboard();
+        });
+    </script>`;
 }
 
 /** @param {Request} request */
@@ -771,43 +860,6 @@ async function renderOwnerProjectSettingsPage(ctx) {
 }
 
 /** @param {any} component @param {Record<string, unknown>} props */
-async function renderOwnerReactComponent(component, props) {
-    const [{ default: React }, { renderToStaticMarkup }] = await Promise.all([
-        import("react"),
-        import("react-dom/server"),
-    ]);
-    return renderToStaticMarkup(React.createElement(component, props));
-}
-
-/** @param {URL} currentUrl @param {string} pathname */
-function ownerPresentationUrl(currentUrl, pathname) {
-    const url = new URL(pathname, currentUrl.origin);
-    const query = currentUrl.searchParams.get("q");
-    if (query) url.searchParams.set("q", query);
-    return String(url);
-}
-
-/** @param {any} ctx */
-async function renderOwnerPlanProgress(ctx) {
-    const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
-    const response = await renderAstroPage(ctx.req, root);
-    if (response) return response;
-    const session = ctx.url.searchParams.get("session") || "";
-    const apiUrl = ownerPresentationUrl(
-        ctx.url,
-        `/api/owner/projects/${encodeURIComponent(ctx.params.projectId)}/plans/${
-            encodeURIComponent(ctx.params.planId)
-        }/progress${session ? `?session=${encodeURIComponent(session)}` : ""}`,
-    );
-    const progressUrl = ownerPresentationUrl(
-        ctx.url,
-        `/projects/${encodeURIComponent(ctx.params.projectId)}/plans/${encodeURIComponent(ctx.params.planId)}/progress${
-            session ? `?session=${encodeURIComponent(session)}` : ""
-        }`,
-    );
-    return await renderOwnerReactComponent(PlanProgressSurface, { apiUrl, progressUrl, initialProgress: null });
-}
-
 /** @param {any} ctx */
 async function renderOwnerProjectSessionsPage(ctx) {
     const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
@@ -816,7 +868,7 @@ async function renderOwnerProjectSessionsPage(ctx) {
     return ownerHtmlResponse(
         "Project Sessions",
         `<section class="page-header"><a class="detail-back-link" href="/">← Projects</a><h1>Project Sessions</h1><p>Build the Workspace frontend to enable the interactive phone Session list.</p></section><section class="owner-card empty-state"><h2>Workspace build unavailable</h2><p>Run <code>deno task workspace:build</code>, then reopen Sessions.</p></section>`,
-        503,
+        { status: 503 },
     );
 }
 
@@ -830,7 +882,7 @@ async function renderOwnerProjectSessionNewPage(ctx) {
         `<section class="page-header"><a class="detail-back-link" href="/projects/${
             encodeURIComponent(ctx.params.projectId)
         }/sessions">← Sessions</a><h1>New Session</h1></section><section class="owner-card empty-state"><h2>Workspace build unavailable</h2><p>Run <code>deno task workspace:build</code>, then reopen New Session.</p></section>`,
-        503,
+        { status: 503 },
     );
 }
 
@@ -842,7 +894,7 @@ async function renderOwnerProjectSessionDetailPage(ctx) {
         return ownerHtmlResponse(
             "Session not found",
             `<section class="error-panel"><h2>Session not found</h2><p>The requested Session is not cataloged under this Project.</p></section>`,
-            404,
+            { status: 404 },
         );
     }
     const response = await renderAstroPage(ctx.req, root);
@@ -852,7 +904,7 @@ async function renderOwnerProjectSessionDetailPage(ctx) {
         `<section class="page-header"><a class="detail-back-link" href="/projects/${
             encodeURIComponent(ctx.params.projectId)
         }/sessions">← Sessions</a><h1>Session Continuation</h1><p>Build the Workspace frontend to enable interactive Session continuation.</p></section><section class="owner-card empty-state"><h2>Workspace build unavailable</h2><p>Run <code>deno task workspace:build</code>, then reopen this Session.</p></section>`,
-        503,
+        { status: 503 },
     );
 }
 

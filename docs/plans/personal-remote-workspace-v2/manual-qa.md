@@ -38,3 +38,23 @@ Manual verification steps for personal-remote-workspace-v2/02-shared-core-notifi
       notifications retain their current terminal title and focus behavior.
 
 <!-- runwield:manual-qa:end child="personal-remote-workspace-v2/02-shared-core-notifications-and-workspace-browser-delivery" -->
+
+<!-- runwield:manual-qa:start child="personal-remote-workspace-v2/03-plan-centered-workspace-home-and-navigation" -->
+
+## Plan-Centered Workspace Home and Navigation
+
+Manual verification steps for personal-remote-workspace-v2/03-plan-centered-workspace-home-and-navigation
+
+- [ ] Open the Workspace root with a remembered Session and confirm that it stays on the Attention Dashboard.
+- [ ] At desktop and phone widths, check the four Dashboard categories, empty/loading/error states, keyboard focus,
+      drawer behavior, themes, and no horizontal overflow.
+- [ ] Open Dashboard rows and confirm that each link reaches the owning Plan, review, Session, or Project; expand
+      navigation and verify Plans contain only proven associated Sessions.
+- [ ] Open a Plan home and a Session Workflow sidebar. Confirm that both show the same connected steps, current step,
+      blocker, next action, and working Session link.
+- [ ] Use Review, Answer, Run, Resume, or Recover and confirm that each opens or focuses the existing workflow action
+      and does not create a duplicate interaction.
+- [ ] In a TUI Session, use the displayed workflow action at wide and narrow widths. Confirm that composer text and
+      Enter, Escape, Ctrl+C, and Ctrl+] behavior remain unchanged.
+
+<!-- runwield:manual-qa:end child="personal-remote-workspace-v2/03-plan-centered-workspace-home-and-navigation" -->

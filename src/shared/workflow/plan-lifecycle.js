@@ -115,6 +115,7 @@ function buildStalePlanStatusMessage(planName, currentStatus, canonicalStatus) {
  * @property {PlanStatus} [manualTargetStatus]
  * @property {string} [holdReason]
  * @property {string} [closedWithoutVerificationReason]
+ * @property {string} [closedWithoutVerificationAt]
  * @property {string} [userVerificationNote]
  * @property {string} [holdStalenessBaseline]
  * @property {PlanStatus} [heldFromStatus]
@@ -535,6 +536,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         }
         updates.status = "closed_without_verification";
         updates.closedWithoutVerificationReason = reason;
+        updates.closedWithoutVerificationAt = details.triageMeta?.closedWithoutVerificationAt || now;
     }
 
     if (event === "manual_user_verified") {
@@ -548,7 +550,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             throw new Error("Invalid Plan Lifecycle transition: manual_user_verified requires userVerificationNote.");
         }
         updates.status = "user_verified";
-        updates.userVerifiedAt = now;
+        updates.userVerifiedAt = details.triageMeta?.userVerifiedAt || now;
         updates.userVerificationNote = note;
     }
 
@@ -603,6 +605,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.verifiedAt = null;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
+        updates.closedWithoutVerificationReason = null;
+        updates.closedWithoutVerificationAt = null;
         updates.humanReviewMode = null;
         updates.humanReviewDecision = null;
         updates.humanReviewedAt = null;
@@ -615,6 +619,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             updates.verifiedAt = null;
             updates.userVerifiedAt = null;
             updates.userVerificationNote = null;
+            updates.closedWithoutVerificationReason = null;
+            updates.closedWithoutVerificationAt = null;
             updates.deliveryEvidence = null;
             updates.humanReviewMode = null;
             updates.humanReviewDecision = null;
@@ -645,6 +651,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.verifiedAt = null;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
+        updates.closedWithoutVerificationReason = null;
+        updates.closedWithoutVerificationAt = null;
     }
 
     if (event === "execution_started") {
@@ -674,6 +682,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.verifiedAt = null;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
+        updates.closedWithoutVerificationReason = null;
+        updates.closedWithoutVerificationAt = null;
         updates.executionReport = null;
         updates.humanReviewMode = null;
         updates.humanReviewDecision = null;
@@ -712,11 +722,12 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "epic_done_enough") {
-        updates.validatedAt = now;
+        const completedAt = details.triageMeta?.epicDoneEnoughAt || now;
+        updates.validatedAt = details.triageMeta?.validatedAt || completedAt;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
         updates.epicCompletionMode = "done_enough";
-        updates.epicDoneEnoughAt = now;
+        updates.epicDoneEnoughAt = completedAt;
         updates.epicDoneEnoughSummary = details.epicDoneEnoughSummary || "Epic marked done enough for now.";
         updates.failureReason = null;
         updates.failedAt = null;

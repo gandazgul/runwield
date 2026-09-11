@@ -504,7 +504,10 @@ function SessionInteractionCard({ item }) {
         }
     };
     return (
-        <article className="session-live-interaction">
+        <article
+            className="session-live-interaction"
+            id={item.interactionId ? `interaction-${item.interactionId}` : undefined}
+        >
             <strong>{requestType === "approval" ? "Approval needed" : "Agent needs input"}</strong>
             <p>{item.request?.prompt || "The agent is waiting for your answer."}</p>
             {item.request?.artifactReview && item.reviewUrl
@@ -769,6 +772,7 @@ export function SessionTimeline({ items, events, emptyMessage = "", sessionPath 
                         ? (
                             <article
                                 className="session-plan-review-card"
+                                id={item.interactionId ? `interaction-${item.interactionId}` : undefined}
                                 aria-label={item.kind === "code-review"
                                     ? "Code ready for review"
                                     : "Plan ready for review"}

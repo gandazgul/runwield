@@ -123,10 +123,14 @@ Deno.test("startActiveExecutionWorkflow seeds footer workflow context from Plan 
         ports: createExecutionStartPorts(),
     });
 
-    assertEquals(hostedSession.getWorkflowContext(), {
+    const workflowContext = hostedSession.getWorkflowContext();
+    assertEquals(typeof workflowContext?.planId, "string");
+    assertEquals({ ...workflowContext, planId: "<generated>" }, {
         routingIntent: "PLANNED_CHANGE",
         complexity: "MEDIUM",
         planName: "footer-plan",
+        planId: "<generated>",
+        status: "ready_for_work",
     });
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "engineer");
 });
@@ -251,7 +255,12 @@ Deno.test("runValidationLoop fails PROJECT validation when workflow diff only ch
 });
 
 Deno.test("runValidationLoop starts at implemented and records only the mechanical pass boundary", async () => {
-    const expectedWorkflowContext = { routingIntent: "QUICK_FIX", complexity: "MEDIUM", planName: "p" };
+    const expectedWorkflowContext = {
+        routingIntent: "QUICK_FIX",
+        complexity: "MEDIUM",
+        planName: "p",
+        status: "implemented",
+    };
     const { projectRoot, hostedSession } = await makeLifecycleRun("implemented", { complexity: "MEDIUM" });
     let ciCalls = 0;
     assertEquals(hostedSession.getWorkflowContext(), expectedWorkflowContext);

@@ -280,8 +280,8 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
             new Request("http://127.0.0.1:8787/", { headers: { cookie: cookiePair(claimed.credential) } }),
         );
         const homeHtml = await home.text();
-        assertStringIncludes(homeHtml, "Opening Workspace");
-        assertStringIncludes(homeHtml, "Restoring the latest available Project Session");
+        assertStringIncludes(homeHtml, "Attention Dashboard");
+        assertStringIncludes(homeHtml, "rw-thinking-dots");
         assertStringIncludes(homeHtml, "/workspace-shell.js");
         assertEquals(homeHtml.includes("Relink Project root"), false);
 
@@ -729,7 +729,7 @@ Deno.test("owner Workspace rejects Shared Space bearer capabilities on owner API
     }
 });
 
-Deno.test("owner Workspace exposes read-only Project Plan progress route and API", async () => {
+Deno.test("owner Workspace keeps read-only Project Plan progress API and removes progress page", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-owner-progress-" });
     const projectRoot = `${dir}/project`;
     await Deno.mkdir(projectRoot);
@@ -776,8 +776,7 @@ Deno.test("owner Workspace exposes read-only Project Plan progress route and API
                 headers: { cookie: cookiePair(claimed.credential) },
             }),
         );
-        assertEquals(page.status, 200);
-        assertStringIncludes(await page.text(), "Plan progress");
+        assertEquals(page.status, 404);
     } finally {
         store.close();
         await Deno.remove(dir, { recursive: true });

@@ -2,7 +2,6 @@
 import { assertEquals } from "@std/assert";
 import {
     activePlanProgressApiUrl,
-    deriveWorkflowSidebarStages,
     draftRecoveryDecision,
     isAtLiveScrollEdge,
     newSessionDraftInstanceStorageKey,
@@ -14,6 +13,7 @@ import {
     shouldRefreshSessionAvailability,
 } from "./islands/SessionSurface.jsx";
 import { deriveSessionAvailability } from "./components/SessionActivationStatus.jsx";
+import { buildWorkflowPresentation } from "../../shared/workflow/workflow-presentation.ts";
 import {
     compactToolLine,
     displayAgentName,
@@ -222,6 +222,7 @@ Deno.test("Workspace-owned Session operations use live updates instead of browse
     assertEquals(surface.includes("/api/owner/session-operations/${encodeURIComponent(current.operationId)}"), true);
     assertEquals(surface.includes("Recover stale Session"), false);
     assertEquals(surface.includes("/force-recovery"), false);
+    assertEquals(surface.includes("/plan-workflow"), true);
     assertEquals(server.includes("/api/owner/session-operations/:operationId/stream"), true);
 });
 
@@ -332,19 +333,17 @@ Deno.test("Session workflow sidebar uses canonical progress stages", async () =>
         "",
     );
     assertEquals(
-        deriveWorkflowSidebarStages({
-            stages: [
-                { id: "execution", label: "Execution", state: "passed", detail: "Implementation reached validation." },
-                { id: "mechanical", label: "Tests and CI", state: "passed", detail: "Checks passed." },
-                { id: "semantic", label: "AI code review", state: "running", detail: "Review is active." },
-                { id: "repair", label: "Repair", state: "not_required", detail: "No repair is active." },
-                { id: "completion", label: "Completion", state: "pending", detail: "Waiting for delivery." },
+        buildWorkflowPresentation({
+            planName: "plan-demo",
+            status: "validated_ci",
+            progressFacts: [
+                { kind: "validation_checkpoint", phase: "semantic", state: "running" },
             ],
-        }).map((stage) => stage.label),
-        ["Execution", "Validation", "Repair", "Completion"],
+        }).stages.map((stage) => stage.label),
+        ["Planning", "Execution", "Tests and CI", "AI review", "Delivery", "Completion"],
     );
     assertEquals(surface.includes('ownerFetch(apiUrl, { method: "GET" })'), true);
-    assertEquals(surface.includes("Canonical workflow progress stages"), true);
+    assertEquals(surface.includes("WorkflowSidebar"), true);
 });
 
 Deno.test("Persisted Sessions expose the shared context sidebar tabs", async () => {
@@ -353,8 +352,8 @@ Deno.test("Persisted Sessions expose the shared context sidebar tabs", async () 
     assertEquals(surface.includes("session-context-tabs"), true);
     assertEquals(surface.includes("session-artifact-list"), true);
     assertEquals(surface.includes("defaultSessionSidebarTab"), true);
-    assertEquals(surface.includes("workflowSidebar.epic"), true);
-    assertEquals(surface.includes("<dt>Epic</dt>"), true);
+    assertEquals(surface.includes("presentation={workflowSidebar}"), true);
+    assertEquals(surface.includes('title="Workflow"'), true);
 });
 
 Deno.test("Session sidebar shares TUI fields without duplicating composer or backend details", async () => {

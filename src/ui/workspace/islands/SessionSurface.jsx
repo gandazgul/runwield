@@ -4,7 +4,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 // OpenChamber is MIT licensed: Copyright (c) 2025 Bohdan Triapitsyn.
 import {
     RunWieldButton,
-    RunWieldLink,
     RunWieldPanelToggle,
     RunWieldThinkingDots,
 } from "../../design-system/components/react/RunWieldPrimitives.jsx";
@@ -21,6 +20,7 @@ import {
 import { createSessionTabNotificationController } from "../browser/session-tab-notifications.ts";
 import { WorkspaceHeaderActionsPortal } from "../react/WorkspaceHeaderActionsPortal.tsx";
 import { loadSessionDrafts, readSessionDraft, saveSessionDraft } from "../browser/session-drafts.ts";
+import { WorkflowSidebar } from "../react/WorkflowSidebar.tsx";
 
 export const SESSION_PAGE_SIZE = 30;
 const TIMELINE_PAGE_LIMIT = 200;
@@ -98,7 +98,7 @@ async function ownerFetch(url, options = {}) {
     headers.set("x-runwield-csrf", decodeURIComponent(ownerCookie("rw_owner_csrf")));
     const response = await fetch(url, { ...options, headers });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
+    if (!response.ok || payload.error) {
         const error = new Error(payload.error || `Request failed with ${response.status}`);
         Reflect.set(error, "status", response.status);
         Reflect.set(error, "payload", payload);
@@ -183,6 +183,13 @@ export function reduceOperationTransientItems(events) {
     );
 }
 
+export function latestLiveWorkflowInteraction(items) {
+    return [...items].reverse().find((item) =>
+        item?.source === "transient" && ["interaction", "plan-review", "code-review"].includes(item.kind) &&
+        item.interactionId
+    ) || null;
+}
+
 let operationNotificationController = null;
 
 function getOperationNotificationController() {
@@ -256,15 +263,21 @@ export function activePlanId(snapshot) {
     const contexts = [snapshot?.activeExecutionWorkflow, snapshot?.workflowContext];
     const identified = contexts.find((context) => context?.planId?.trim());
     if (identified) return identified.planId.trim();
+    const triageContext = contexts.map((context) => asRecord(context)).find((context) => {
+        const triageMeta = asRecord(context.triageMeta || {});
+        return typeof triageMeta.planId === "string" && triageMeta.planId.trim();
+    });
+    const triageMeta = asRecord(triageContext?.triageMeta || {});
+    if (typeof triageMeta.planId === "string" && triageMeta.planId.trim()) return triageMeta.planId.trim();
     const planName = contexts.find((context) => context?.planName?.trim())?.planName?.trim();
     if (!planName) return "";
     return snapshot?.planAssociations?.findLast((association) => association.planName === planName)?.planId || "";
 }
 
-export function activePlanProgressUrl(projectId, runwieldSessionId, snapshot) {
+export function activePlanHomeUrl(projectId, runwieldSessionId, snapshot) {
     const planId = activePlanId(snapshot);
     return planId
-        ? `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}/progress?session=${
+        ? `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}?session=${
             encodeURIComponent(runwieldSessionId)
         }`
         : "";
@@ -277,59 +290,6 @@ export function activePlanProgressApiUrl(projectId, runwieldSessionId, snapshot)
             encodeURIComponent(runwieldSessionId)
         }`
         : "";
-}
-
-function highestStageState(stages) {
-    const priority = [
-        "needs_attention",
-        "failed",
-        "paused",
-        "running",
-        "passed",
-        "completed",
-        "not_required",
-        "pending",
-        "unknown",
-    ];
-    return stages.map((item) => item?.state || "unknown").sort((left, right) =>
-        priority.indexOf(left) - priority.indexOf(right)
-    )[0] || "unknown";
-}
-
-export function deriveWorkflowSidebarStages(progress) {
-    const stages = Array.isArray(progress?.stages) ? progress.stages : [];
-    const byId = (id) => stages.find((stage) => stage.id === id) || null;
-    const validationStages = [byId("mechanical"), byId("semantic")].filter(Boolean);
-    const validationState = validationStages.length ? highestStageState(validationStages) : "unknown";
-    const validationDetail = validationStages.map((stage) => `${stage.label}: ${stage.detail}`).join(" ") ||
-        "Validation has no committed stage evidence yet.";
-    const completion = byId("completion") || byId("delivery");
-    return [
-        byId("execution") || {
-            id: "execution",
-            label: "Execution",
-            state: "unknown",
-            detail: "Execution has no committed stage evidence yet.",
-        },
-        {
-            id: "validation",
-            label: "Validation",
-            state: validationState,
-            detail: validationDetail,
-        },
-        byId("repair") || {
-            id: "repair",
-            label: "Repair",
-            state: "unknown",
-            detail: "Repair has no committed stage evidence yet.",
-        },
-        completion || {
-            id: "completion",
-            label: "Completion",
-            state: "unknown",
-            detail: "Completion has no committed stage evidence yet.",
-        },
-    ];
 }
 
 function PaperAirplaneIcon() {
@@ -550,8 +510,8 @@ function SessionComposer({
     );
 }
 
-/** @param {{ projectId: string, mode?: "list" | "detail" | "new", runwieldSessionId?: string }} props */
-export function SessionSurface({ projectId, mode = "detail", runwieldSessionId = "" }) {
+/** @param {{ projectId: string, mode?: "list" | "detail" | "new", runwieldSessionId?: string, planId?: string }} props */
+export function SessionSurface({ projectId, mode = "detail", runwieldSessionId = "", planId = "" }) {
     const [listData, setListData] = useState(/** @type {any} */ (null));
     const [listPage, setListPage] = useState(0);
     const [listError, setListError] = useState("");
@@ -654,6 +614,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         setListError("");
         try {
             const query = new URLSearchParams({ page: String(requestedPage), pageSize: String(SESSION_PAGE_SIZE) });
+            if (planId) query.set("plan", planId);
             const payload = await ownerFetch(
                 `/api/owner/projects/${encodeURIComponent(projectId)}/sessions?${query}`,
                 { method: "GET" },
@@ -815,7 +776,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             setLoadingDetail(false);
             loadSessionOptions();
         }
-    }, [mode, projectId, runwieldSessionId, listPage]);
+    }, [mode, projectId, runwieldSessionId, listPage, planId]);
 
     useEffect(() => {
         if (!draftKey) return;
@@ -1555,6 +1516,17 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }
     }
 
+    useEffect(() => {
+        if (!location.hash.startsWith("#interaction-")) return;
+        const interactionId = location.hash.slice("#interaction-".length);
+        if (!latestLiveWorkflowInteraction(transientItems.filter((item) => item.interactionId === interactionId))) {
+            return;
+        }
+        const target = document.getElementById(location.hash.slice(1));
+        const focusTarget = target?.querySelector?.("textarea, input, button, a") || target;
+        if (focusTarget instanceof HTMLElement) focusTarget.focus();
+    }, [transientItems]);
+
     if (mode === "list") {
         return (
             <SessionList
@@ -1652,6 +1624,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         ),
         ...(interruptedOperation ? [{ kind: "interruption", key: "interruption:lost-workspace-operation" }] : []),
     ];
+    const liveWorkflowInteraction = latestLiveWorkflowInteraction(transientItems);
     const activeExecutionWorkflow = asRecord(timeline?.snapshot?.activeExecutionWorkflow || {});
     const persistedWorkflowContext = asRecord(timeline?.snapshot?.workflowContext || {});
     const workflowContext = Object.keys(activeExecutionWorkflow).length
@@ -1663,18 +1636,70 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         : typeof persistedWorkflowContext.parentPlan === "string"
         ? persistedWorkflowContext.parentPlan
         : "";
+    const activeWorkflowPlan = typeof workflowContext.planName === "string"
+        ? workflowContext.planName
+        : typeof workflowContext.planId === "string"
+        ? workflowContext.planId
+        : "";
     const workflowSidebar = buildSessionSidebarProjection({
-        workflowPlan: typeof workflowContext.planName === "string"
-            ? workflowContext.planName
-            : typeof workflowContext.planId === "string"
-            ? workflowContext.planId
-            : "",
+        workflowPlan: activeWorkflowPlan,
         workflowEpic,
         workflowIntent: typeof persistedWorkflowContext.routingIntent === "string"
             ? persistedWorkflowContext.routingIntent
             : "",
+        workflowStatus: typeof workflowProgress?.plan?.status === "string" ? workflowProgress.plan.status : "",
+        workflowClassification: typeof workflowProgress?.plan?.classification === "string"
+            ? workflowProgress.plan.classification
+            : "",
+        workflowProgressFacts: Array.isArray(workflowProgress?.progressFacts)
+            ? workflowProgress.progressFacts
+            : undefined,
+        workflowDegradedMessage: typeof workflowProgress?.degraded?.message === "string"
+            ? workflowProgress.degraded.message
+            : workflowProgressError,
+        workflowSessionState: typeof workflowProgress?.session?.state === "string"
+            ? workflowProgress.session.state
+            : "",
+        workflowHasWorkingSession: Boolean(workflowProgress?.session?.runwieldSessionId || runwieldSessionId),
+        workflowHasLiveQuestion: liveWorkflowInteraction?.kind === "interaction",
+        workflowHasPlanReview: liveWorkflowInteraction?.kind === "plan-review",
+        workflowHasCodeReview: liveWorkflowInteraction?.kind === "code-review",
+        workflowCanResume: Boolean(runwieldSessionId && availability.canContinue),
+        workflowCanRecover: Boolean(runwieldSessionId && interruptedOperation),
     }).workflow;
-    const progressUrl = timeline ? activePlanProgressUrl(projectId, runwieldSessionId, timeline.snapshot) : "";
+    const planHomeFromSnapshot = timeline ? activePlanHomeUrl(projectId, runwieldSessionId, timeline.snapshot) : "";
+    const planHomeUrl = planHomeFromSnapshot;
+    const workflowActionUrl = liveWorkflowInteraction?.reviewUrl ||
+        (liveWorkflowInteraction?.interactionId ? `#interaction-${liveWorkflowInteraction.interactionId}` : "") ||
+        planHomeUrl;
+    async function runWorkflowAction(action) {
+        if (!["run", "resume", "recover"].includes(action.kind)) return;
+        const planId = activePlanId(timeline?.snapshot);
+        if (!planId) {
+            setMessage("Plan workflow evidence is unavailable.");
+            return;
+        }
+        try {
+            await ownerFetch(
+                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                    encodeURIComponent(runwieldSessionId)
+                }/plan-workflow`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({
+                        requestId: crypto.randomUUID(),
+                        planId,
+                        action: action.kind,
+                        expectedGeneration: timeline?.snapshot?.managed?.generation,
+                        expectedCurrentSegmentId: timeline?.snapshot?.managed?.currentSegmentId || null,
+                    }),
+                },
+            );
+            await refresh();
+        } catch (error) {
+            setMessage(errorMessage(error));
+        }
+    }
     const agents = Array.isArray(sessionOptions?.agents) ? sessionOptions.agents : [];
     const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
     const thinkingLevels = Array.isArray(sessionOptions?.thinkingLevels) ? sessionOptions.thinkingLevels : [];
@@ -1687,8 +1712,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const activeThinking = typeof timeline?.snapshot?.thinkingLevel === "string"
         ? timeline.snapshot.thinkingLevel
         : "default";
-    const hasActivePlan = Boolean(workflowContext.planId || workflowContext.planName || progressUrl);
-    const workflowStages = deriveWorkflowSidebarStages(workflowProgress);
+    const hasActivePlan = Boolean(workflowContext.planId || workflowContext.planName || planHomeFromSnapshot);
     const localOperationActive = Boolean(operation && !["completed", "failed", "unknown"].includes(operation.status));
     const canConfigureSession = availability.canContinue || (localOperationActive && !operation?.remote);
     const stagedAgent = pendingConfiguration?.agentName || timeline?.snapshot?.activeAgent || "";
@@ -1882,61 +1906,21 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                         <div className="session-context-panel" role="tabpanel">
                                             {hasActivePlan
                                                 ? (
-                                                    <>
-                                                        <dl>
-                                                            {workflowSidebar.epic
-                                                                ? (
-                                                                    <div>
-                                                                        <dt>Epic</dt>
-                                                                        <dd>{workflowSidebar.epic}</dd>
-                                                                    </div>
-                                                                )
-                                                                : null}
-                                                            <div>
-                                                                <dt>Plan</dt>
-                                                                <dd>{workflowSidebar.plan}</dd>
-                                                            </div>
-                                                        </dl>
-                                                        {workflowProgress
-                                                            ? (
-                                                                <ol
-                                                                    className="session-workflow-stage-list"
-                                                                    aria-label="Canonical workflow progress stages"
-                                                                >
-                                                                    {workflowStages.map((stage) => (
-                                                                        <li key={stage.id} data-state={stage.state}>
-                                                                            <span>{stage.label}</span>
-                                                                            <strong>
-                                                                                {String(stage.state || "unknown")
-                                                                                    .replaceAll(
-                                                                                        "_",
-                                                                                        " ",
-                                                                                    )}
-                                                                            </strong>
-                                                                            <p>{stage.detail}</p>
-                                                                        </li>
-                                                                    ))}
-                                                                </ol>
-                                                            )
-                                                            : (
-                                                                <p className="notice muted">
-                                                                    {workflowProgressError
-                                                                        ? "Workflow progress is temporarily unavailable."
-                                                                        : "Loading canonical workflow progress…"}
-                                                                </p>
-                                                            )}
-                                                        {progressUrl && !workflowProgressError
-                                                            ? (
-                                                                <RunWieldLink
-                                                                    variant="primary"
-                                                                    className="rw-plan-review-link"
-                                                                    href={progressUrl}
-                                                                >
-                                                                    Open progress
-                                                                </RunWieldLink>
-                                                            )
-                                                            : null}
-                                                    </>
+                                                    <WorkflowSidebar
+                                                        presentation={workflowSidebar}
+                                                        payload={{
+                                                            planHref: planHomeUrl,
+                                                            sessionHref: runwieldSessionId
+                                                                ? `/projects/${
+                                                                    encodeURIComponent(projectId)
+                                                                }/sessions/${encodeURIComponent(runwieldSessionId)}`
+                                                                : "",
+                                                            reviewHref: liveWorkflowInteraction?.reviewUrl || "",
+                                                            interactionHref: workflowActionUrl,
+                                                        }}
+                                                        title="Workflow"
+                                                        onAction={runWorkflowAction}
+                                                    />
                                                 )
                                                 : (
                                                     <p className="session-context-empty">

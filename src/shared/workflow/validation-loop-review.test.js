@@ -199,7 +199,12 @@ Deno.test("runValidationPhase resumes at validated_ci and skips CI before record
 });
 
 Deno.test("runValidationPhase reviews the diff scoped to the active workflow baseline from validated_ci", async () => {
-    const expectedWorkflowContext = { routingIntent: "QUICK_FIX", complexity: "MEDIUM", planName: "p" };
+    const expectedWorkflowContext = {
+        routingIntent: "QUICK_FIX",
+        complexity: "MEDIUM",
+        planName: "p",
+        status: "validated_ci",
+    };
     const { projectRoot, hostedSession } = await makeValidatedCiRun({ complexity: "MEDIUM" });
     const reviewPrompts = /** @type {string[]} */ ([]);
     assertEquals(hostedSession.getWorkflowContext(), expectedWorkflowContext);
@@ -517,14 +522,21 @@ Deno.test("runValidationPhase pauses a Reviewer outage without recording feedbac
 });
 
 Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Feedback Engineer and records feedback event", async () => {
-    const expectedWorkflowContext = { routingIntent: "QUICK_FIX", complexity: "MEDIUM", planName: "p" };
+    const expectedWorkflowContext = {
+        routingIntent: "QUICK_FIX",
+        complexity: "MEDIUM",
+        planName: "p",
+        status: "validated_ci",
+    };
     const { projectRoot, hostedSession, uiAPI } = await makeValidatedCiRun({
         complexity: "MEDIUM",
         executionAgent: "frontend-engineer",
     });
     const sessions = /** @type {any[]} */ ([]);
-    const reviewerWorkflowContexts = /** @type {Array<Record<string, string> | null>} */ ([]);
-    const repairWorkflowContexts = /** @type {Array<Record<string, string> | null>} */ ([]);
+    const reviewerWorkflowContexts =
+        /** @type {Array<import('../session/workflow-context-session.js').WorkflowContext | null>} */ ([]);
+    const repairWorkflowContexts =
+        /** @type {Array<import('../session/workflow-context-session.js').WorkflowContext | null>} */ ([]);
     const repairActiveOwners = /** @type {Array<string | undefined>} */ ([]);
     const repairActivePlanNames = /** @type {Array<string | null>} */ ([]);
 

@@ -78,6 +78,9 @@ class FakeElement {
     get textContent() {
         return this._textContent || this.children.map((child) => child.textContent).join("");
     }
+    get childNodes() {
+        return this.children;
+    }
     addEventListener(type, listener) {
         const listeners = this.listeners.get(type) || [];
         listeners.push(listener);
@@ -86,6 +89,9 @@ class FakeElement {
     dispatchEvent(event) {
         for (const listener of this.listeners.get(event.type) || []) listener(event);
         return !event.defaultPrevented;
+    }
+    focus() {
+        globalThis.document.activeElement = this;
     }
     getBoundingClientRect() {
         return { left: 0, width: 1440 };
@@ -346,6 +352,32 @@ Deno.test("Workspace sidebar updates rows in place, inserts new Sessions, remove
     assertEquals(sidebar.querySelector('[data-sidebar-session="ordinary"]'), null);
     assertEquals(project.getAttribute("open"), "");
     assertEquals(sidebar.querySelectorAll(":scope > .workspace-sidebar-empty").length, 0);
+});
+
+Deno.test("Workspace sidebar refresh keeps focus on Show more controls", () => {
+    const { document, sidebar } = installFakeBrowser("/projects/project-a/plans/plan-1");
+    const payload = {
+        projects: [{
+            projectId: "project-a",
+            displayName: "Project A",
+            enabled: true,
+            plans: Array.from({ length: 6 }, (_, index) => ({
+                planId: `plan-${index + 1}`,
+                title: `Plan ${index + 1}`,
+                status: "ready_for_work",
+                statusLabel: "Ready",
+            })),
+            sessions: [],
+        }],
+    };
+
+    renderSidebar(payload, currentRouteFromUrl(globalThis.location.href));
+    const button = sidebar.querySelector('[data-show-more-plans="project-a"]');
+    button.focus();
+    renderSidebar(payload, currentRouteFromUrl(globalThis.location.href));
+
+    assertEquals(document.activeElement.getAttribute("data-show-more-plans"), "project-a");
+    assertEquals(document.activeElement.getAttribute("data-sidebar-plan"), null);
 });
 
 Deno.test("Workspace sidebar active route uses both Project and Session keys", () => {

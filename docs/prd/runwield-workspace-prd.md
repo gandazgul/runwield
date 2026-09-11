@@ -312,6 +312,10 @@ Review offers distinct outcomes:
 
 Plan approval never implies ambient permission for a different Session to execute it.
 
+The Plan home and Session Workflow sidebar show the same workflow presentation: connected stages, current step, blocker,
+next action, and proven working Session link when available. The separate Plan Progress page is not a product surface;
+its read data feeds Plan home and Session context.
+
 ### 6.8 Durable knowledge search
 
 Workspace provides two human-facing durable-artifact scopes:

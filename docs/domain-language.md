@@ -381,7 +381,15 @@ replacement for Plans
 workflows, distinct from the uppercase `PROJECT` Routing Intent. _Avoid_: Workspace, workspace root, project space
 
 **Attention Dashboard**: The Workspace surface aggregating work needing user judgment and active or recent workflow
-state across Projects. _Avoid_: Project grid, task board, notifications page
+state across Projects. It has Needs You, Ready to Continue, In Progress, and Recently Finished groups. _Avoid_: Project
+grid, task board, notifications page
+
+**Plan Home**: The existing Workspace Plan detail route that shows the readable Plan, workflow diagram, blocker, next
+action, and proven working Session link. _Avoid_: Plan progress page, second Plan detail
+
+**Workflow Sidebar**: The Session context tab that shows the same Plan workflow presentation used by Plan Home, adapted
+for Workspace and TUI. It displays workflow facts; it does not own lifecycle transitions. _Avoid_: Progress page,
+Session status mapper
 
 **Code Surface**: The Workspace surface for inspecting or manually changing a Project's main checkout. _Avoid_:
 Workspace shell, Plan worktree editor, Agent terminal
