@@ -428,6 +428,9 @@ export async function applySequenceReviewDecision(
     }
     // Publication wakes live consumers immediately. Only a committed decision may start a child;
     // acceptance or commit failures above must remain fully compensatable without a Session event.
+    if (outcome?.outcome === "approved_execute" && outcome.planName) {
+        hostedSession.setWorkflowPlanName(outcome.planName);
+    }
     try {
         publishWorkflowToolEvent({ hostedSession, toolCallId, kind: "plan_written", payload: outcome! });
     } catch (error) {
