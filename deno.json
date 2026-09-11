@@ -162,6 +162,8 @@
         "release:candidate": "deno run -A scripts/release.js candidate",
         "release:promote": "deno run -A scripts/release.js promote",
         "release:stable": "deno run -A scripts/release.js stable",
+        "package:homebrew": "deno run -A scripts/package-homebrew.js",
+        "package:homebrew:check": "deno run -A scripts/package-homebrew-check.js",
         "compile:watch": "watchexec -e js,jsx,mjs,md,css,ts,tsx,json --ignore node_modules --ignore dist --ignore bin --ignore src/shared/version.js -- deno task compile",
         "prototype": "deno run -A scripts/run-prototype.js",
         "test:golden-tui": "deno run -A scripts/write-version.js && deno run -A scripts/run-tests.js --isolated src/ui/tui/testing src/ui/tui/golden-scenarios",

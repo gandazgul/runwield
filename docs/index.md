@@ -22,6 +22,9 @@ curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh 
 The installer downloads `wld`, required [Mnemoteca]/Cymbal runtime helpers, required agent-browser, and optional Snip,
 then installs missing binaries to `~/.local/bin` by default. Make sure that directory is on your `PATH`.
 
+Mac Homebrew packages are prepared for `gandazgul/homebrew-tap` but are pending owner publication. After publication,
+install with `brew install gandazgul/tap/wld`.
+
 Contributors can also run from source:
 
 ```bash

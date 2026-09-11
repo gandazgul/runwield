@@ -1,0 +1,35 @@
+{
+    "mnemoteca": {
+        "tag": "v0.3.1",
+        "license": "MIT",
+        "homepage": "https://github.com/gandazgul/mnemoteca",
+        "assets": {
+            "darwin-arm64": {
+                "url": "https://github.com/gandazgul/mnemoteca/releases/download/v0.3.1/mnemoteca_0.3.1_darwin_arm64.tar.gz",
+                "sha256": "bc0038b317b2a8ea4abb7fb73b9a88b6562e27c51cd5b5a61c5b13908534bd64"
+            },
+            "darwin-x64": {
+                "url": "https://github.com/gandazgul/mnemoteca/releases/download/v0.3.1/mnemoteca_0.3.1_darwin_amd64.tar.gz",
+                "sha256": "0366cbf71fc1bfe9fdc9885108e9fbecdbc46ac909a6c48e6abf0f09e9009fc9"
+            }
+        }
+    },
+    "homebrewDependencies": {
+        "cymbal": {
+            "formula": "1broseidon/tap/cymbal",
+            "testedVersion": "v0.7.7"
+        },
+        "ketch": {
+            "formula": "1broseidon/tap/ketch",
+            "testedVersion": "v0.8.3"
+        },
+        "agentBrowser": {
+            "formula": "agent-browser",
+            "testedVersion": "v0.2.7"
+        },
+        "git": {
+            "formula": "git",
+            "testedVersion": "2.51.0"
+        }
+    }
+}

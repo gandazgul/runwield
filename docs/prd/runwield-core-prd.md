@@ -76,6 +76,7 @@ Other surfaces reference these requirements and add only their own user experien
 - [Work records](#work-records)
 - [Agent and skill customization](#agent-and-skill-customization)
 - [Models and providers](#models-and-providers)
+- [Installation and updates](#installation-and-updates)
 - [Work protection](#work-protection)
 - [Session continuity](#session-continuity)
 - [Capability-organized product requirements](#capability-organized-product-requirements)
@@ -699,6 +700,37 @@ Future/open requirements:
   the backend-specific setup action instead of unrelated provider-login instructions.
 - When a backend cannot replay its internal activity, history distinguishes visible RunWield activity from unavailable
   backend internals.
+
+### Installation and updates
+
+**Scope and maturity:** Prepared Homebrew support; public tap availability is pending owner publication. Shell install
+remains current baseline for macOS/Linux.
+
+**Requirement: Install required local runtime pieces without hiding package ownership.**
+
+Users can install RunWield as a standalone binary with the shell installer or, after owner publication, with the
+`gandazgul/homebrew-tap` macOS tap. A package-managed install must not be overwritten by `wld update`.
+
+Homebrew requirements:
+
+- provide `gandazgul/tap/wld` for macOS Apple Silicon and Intel
+- provide independent `gandazgul/tap/mnemoteca`
+- use package dependencies for Mnemoteca, Cymbal, Ketch, agent-browser, and Git
+- keep Mnemoteca model setup and browser setup as first-use actions
+- store package-owner metadata beside the installed executable
+- make `wld update` and `wld upgrade` print the package-manager command for package-managed installs
+- keep Candidate and exact-version shell-installer options unavailable for Stable package-managed installs
+- keep public install docs marked pending until the owner publishes the tap
+
+**Acceptance scenarios:**
+
+- Given a Homebrew-owned `wld`, when the user runs `wld update`, RunWield prints `brew upgrade gandazgul/tap/wld` and
+  does not run the shell installer.
+- Given a standalone Unix install, when the user runs `wld update`, RunWield can still use the tag-pinned shell
+  installer.
+- Given missing helpers in a Homebrew-owned install, RunWield tells the user to repair Homebrew packages instead of
+  piping the shell installer.
+- Given a prepared but unpublished tap, public docs distinguish preparation from public availability.
 
 <a id="91-current"></a>
 <a id="92-future--open"></a>
