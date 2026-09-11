@@ -4,7 +4,7 @@ import { dirname, join } from "@std/path";
 import { redactCapabilityValue, redactSecrets } from "./capabilities.js";
 import { assertRecord, normalizeLocalSecretRecord } from "./protocol.js";
 import { getHomeDir, PROJECT_SECRET_STORE_RELATIVE_PATH } from "../../constants.js";
-import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
+import { enterProjectRuntime, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { ensureRunWieldOwnedGitignoreBlock } from "../runwield-owned-paths.ts";
 
 export const SECRET_STORE_SCHEMA_VERSION = 1;
@@ -26,11 +26,26 @@ export function secretRecordKey(planId, spaceId) {
  */
 
 /**
+ * @typedef {Object} SecretStoreLocation
+ * @property {"global"|"project"} owner
+ * @property {string} path
+ * @property {string} [projectRoot]
+ */
+
+/**
  * @param {string} [homeDir]
  * @returns {string}
  */
 export function getGlobalSecretStorePath(homeDir = getHomeDir()) {
     return join(homeDir, ".wld", "collaboration-secrets.json");
+}
+
+/**
+ * @param {string} [homeDir]
+ * @returns {SecretStoreLocation}
+ */
+export function getGlobalSecretStoreLocation(homeDir = getHomeDir()) {
+    return { owner: "global", path: getGlobalSecretStorePath(homeDir) };
 }
 
 /**
@@ -42,10 +57,31 @@ export function getProjectSecretStorePath(projectRoot) {
 }
 
 /**
- * @param {string} path
+ * @param {string} projectRoot
+ * @returns {Promise<SecretStoreLocation>}
+ */
+export async function getProjectSecretStoreLocation(projectRoot) {
+    const layout = await enterProjectRuntime(projectRoot);
+    return { owner: "project", projectRoot, path: layout.primary.projectSecretStorePath };
+}
+
+/**
+ * @param {string|SecretStoreLocation} location
+ * @returns {Promise<string>}
+ */
+async function resolveSecretStorePath(location) {
+    if (typeof location === "string") return location;
+    if (location.owner === "global") return location.path;
+    if (!location.projectRoot) throw new Error("Project secret store location requires a project root.");
+    return (await enterProjectRuntime(location.projectRoot)).primary.projectSecretStorePath;
+}
+
+/**
+ * @param {string|SecretStoreLocation} location
  * @returns {Promise<SecretStoreDocument>}
  */
-export async function readSecretStore(path) {
+export async function readSecretStore(location) {
+    const path = await resolveSecretStorePath(location);
     try {
         const raw = await Deno.readTextFile(path);
         return normalizeSecretStore(JSON.parse(raw));
@@ -56,10 +92,11 @@ export async function readSecretStore(path) {
 }
 
 /**
- * @param {string} path
+ * @param {string|SecretStoreLocation} location
  * @param {SecretStoreDocument} document
  */
-export async function writeSecretStore(path, document) {
+export async function writeSecretStore(location, document) {
+    const path = await resolveSecretStorePath(location);
     const normalized = normalizeSecretStore(document);
     await Deno.mkdir(dirname(path), { recursive: true });
     const tempPath = `${path}.${crypto.randomUUID()}.tmp`;
@@ -82,7 +119,7 @@ export async function writeSecretStore(path, document) {
 }
 
 /**
- * @param {string} path
+ * @param {string|SecretStoreLocation} path
  * @param {string} key
  * @param {import("./protocol.js").LocalSecretRecord} record
  */
@@ -93,7 +130,7 @@ export async function putSecretRecord(path, key, record) {
 }
 
 /**
- * @param {string} path
+ * @param {string|SecretStoreLocation} path
  * @param {string} key
  * @returns {Promise<import("./protocol.js").LocalSecretRecord | undefined>}
  */
@@ -151,7 +188,7 @@ function assertCompatiblePullSecretMatches(matches, expected) {
 }
 
 /**
- * @param {string[]} paths
+ * @param {(string|SecretStoreLocation)[]} paths
  * @param {string} planId
  * @param {string} spaceId
  * @returns {Promise<PullSecretMatch[]>}
@@ -160,7 +197,7 @@ async function collectPullSecretMatches(paths, planId, spaceId) {
     const keys = [secretRecordKey(planId, spaceId), planId];
     const documents = [];
     for (const path of paths) {
-        documents.push({ path, document: await readSecretStore(path) });
+        documents.push({ path: typeof path === "string" ? path : path.path, document: await readSecretStore(path) });
     }
     const matches = /** @type {PullSecretMatch[]} */ ([]);
     for (const key of keys) {
@@ -173,7 +210,7 @@ async function collectPullSecretMatches(paths, planId, spaceId) {
 }
 
 /**
- * @param {string[]} paths
+ * @param {(string|SecretStoreLocation)[]} paths
  * @param {string} planId
  * @param {string} spaceId
  * @param {import("./protocol.js").LocalSecretRecord} expected
@@ -184,7 +221,7 @@ export async function assertCompatiblePullSecretRecord(paths, planId, spaceId, e
 }
 
 /**
- * @param {string[]} paths
+ * @param {(string|SecretStoreLocation)[]} paths
  * @param {string} planId
  * @param {string} spaceId
  * @returns {Promise<PullSecretMatch | null>}
@@ -200,7 +237,7 @@ export async function resolvePullSecretRecord(paths, planId, spaceId) {
  * Space or legacy records with no stored spaceId. Records for another Shared
  * Space are ignored instead of being used for authorization.
  *
- * @param {string[]} paths
+ * @param {(string|SecretStoreLocation)[]} paths
  * @param {string} planId
  * @param {string} spaceId
  * @returns {Promise<PullSecretMatch | null>}
@@ -214,7 +251,7 @@ export async function resolveCompatibleSecretRecord(paths, planId, spaceId) {
 }
 
 /**
- * @param {string} path
+ * @param {string|SecretStoreLocation} path
  * @param {string} key
  * @param {import("./protocol.js").LocalSecretRecord} record
  */
@@ -234,7 +271,7 @@ export async function putCompatibleSecretRecord(path, key, record) {
 }
 
 /**
- * @param {string} path
+ * @param {string|SecretStoreLocation} path
  * @param {string} key
  */
 export async function deleteSecretRecord(path, key) {
@@ -255,7 +292,7 @@ export async function deleteSecretRecord(path, key) {
  * provided stores. Legacy planId-only records are deleted only when they are
  * not bound to a different Shared Space.
  *
- * @param {string[]} paths
+ * @param {(string|SecretStoreLocation)[]} paths
  * @param {string} planId
  * @param {string} spaceId
  * @returns {Promise<DeletedSecretRecord[]>}
@@ -270,7 +307,7 @@ export async function deleteCompatibleSecretRecords(paths, planId, spaceId) {
             const record = document.records[key];
             if (!record || !isCompatibleSecretRecord(record, planId, spaceId)) continue;
             delete document.records[key];
-            deleted.push({ path, key });
+            deleted.push({ path: typeof path === "string" ? path : path.path, key });
             changed = true;
         }
         if (changed) await writeSecretStore(path, document);
@@ -300,7 +337,7 @@ export function normalizeSecretStore(value) {
  * @param {string} projectRoot
  */
 export async function ensureProjectSecretStoreIgnored(projectRoot) {
-    const layout = resolveProjectRuntimeLayout(projectRoot);
+    const layout = await enterProjectRuntime(projectRoot);
     await Deno.mkdir(layout.primary.internalRoot, { recursive: true });
     await ensureRunWieldOwnedGitignoreBlock(layout.primary.checkoutRoot);
 }

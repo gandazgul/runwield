@@ -18,6 +18,7 @@ import {
 } from "../../shared/collaboration/secrets.js";
 import { buildCollaborationUrl } from "../../shared/collaboration/urls.js";
 import { normalizePlanServerUrl } from "../../shared/settings.js";
+import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 interface PlansPushArgs {
     target?: string;
@@ -125,6 +126,7 @@ export async function pushPlanRevision(
     pushOptions: PushPlanRevisionOptions,
 ): Promise<PushedPlanRevision> {
     const cwd = pushOptions.cwd || getCwd();
+    await enterProjectRuntime(cwd);
     const now = new Date().toISOString();
     const target = pushOptions.target;
     const resource = findResourceByNameOrId(await listPlanResources(cwd, { backfillMissing: false }), target);
@@ -295,9 +297,11 @@ export async function runPlansPushCommand(argv: string[]): Promise<void> {
         printPushHelp();
         return;
     }
+    const cwd = getCwd();
+    await enterProjectRuntime(cwd);
     const pushed = await pushPlanRevision({
         target: parsed.target as string,
-        cwd: getCwd(),
+        cwd,
         planServer: parsed.planServer,
         projectSecrets: parsed.projectSecrets,
     });

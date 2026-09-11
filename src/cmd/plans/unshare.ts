@@ -21,6 +21,7 @@ import {
     resolveCompatibleSecretRecord,
 } from "../../shared/collaboration/secrets.js";
 import { normalizePlanServerUrl } from "../../shared/settings.js";
+import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 interface PlansUnshareArgs {
     target?: string;
@@ -159,6 +160,7 @@ function confirmationMessage(details: RemoteDetails): string {
 
 export async function unsharePlan(unshareOptions: UnsharePlanOptions): Promise<UnsharedPlan> {
     const cwd = unshareOptions.cwd || getCwd();
+    await enterProjectRuntime(cwd);
     const now = new Date().toISOString();
     const target = unshareOptions.target;
     const resource = findResourceByNameOrId(await listPlanResources(cwd, { backfillMissing: false }), target);
@@ -335,9 +337,11 @@ export async function runPlansUnshareCommand(argv: string[]): Promise<void> {
         printUnshareHelp();
         return;
     }
+    const cwd = getCwd();
+    await enterProjectRuntime(cwd);
     const result = await unsharePlan({
         target: parsed.target as string,
-        cwd: getCwd(),
+        cwd,
         planServer: parsed.planServer,
         projectSecrets: parsed.projectSecrets,
         force: parsed.force,

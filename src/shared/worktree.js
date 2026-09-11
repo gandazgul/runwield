@@ -9,7 +9,7 @@ import { encodeCwdForSessionDir } from "./session/root-session.js";
 import { assertGitRepository, GitRepositoryRequiredError } from "./git.js";
 import { getWorkflowDiff } from "./workflow/git-snapshot.js";
 import { addEntry, listEntries, pruneStaleEntries, removeEntry } from "./worktree-registry.js";
-import { resolveProjectRoot, resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
+import { enterProjectRuntime, resolveProjectRoot, resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
 import { isRunWieldOwnedRuntimePath, RUNWIELD_OWNED_RUNTIME_PATHS } from "./runwield-owned-paths.ts";
 
 /**
@@ -768,6 +768,7 @@ export async function createWorktreeGitArtifacts(
     const slug = slugify(planName);
     const branch = `${WORKTREE_BRANCH_PREFIX}${slug}-${id}`;
     const repoName = basename(projectRoot);
+    if (!worktreeRoot && !getHomeDir()) await enterProjectRuntime(projectRoot);
     const parent = resolveWorktreeParent(projectRoot, worktreeRoot);
     const path = join(parent, `${repoName}-${slug}-${id}`);
     const now = new Date().toISOString();

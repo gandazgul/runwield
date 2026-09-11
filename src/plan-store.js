@@ -33,7 +33,7 @@ import { resolvePrimaryCheckoutRoot } from "./shared/primary-checkout.ts";
 import { writePlanDocumentAndController } from "./shared/workflow/state-transition.ts";
 import { escapeYamlDoubleQuoted } from "./shared/yaml-scalar.ts";
 import { pickControllerState, PLAN_RUNTIME_FIELDS, stripRuntimeFields } from "./shared/workflow/controller-state.ts";
-import { resolveProjectRuntimeLayout } from "./shared/project-runtime-layout.ts";
+import { enterProjectRuntime } from "./shared/project-runtime-layout.ts";
 import {
     bindControllerPlanIdentity,
     finishControllerPlanIdentity,
@@ -1672,10 +1672,11 @@ async function withProcessAwarePlanLock(key, lockPath, fn) {
  * @returns {Promise<T>}
  */
 export async function withPlanLock(cwd, planName, fn) {
+    const layout = await enterProjectRuntime(cwd);
     const key = `${resolve(cwd)}:${lockSafeSegment(planName)}`;
     return await withProcessAwarePlanLock(
         key,
-        join(resolveProjectRuntimeLayout(cwd).selected.planLocksDir, `${lockSafeSegment(planName)}.lock`),
+        join(layout.selected.planLocksDir, `${lockSafeSegment(planName)}.lock`),
         fn,
     );
 }
@@ -1687,10 +1688,11 @@ export async function withPlanLock(cwd, planName, fn) {
  * @returns {Promise<T>}
  */
 export async function withPlanCatalogLock(cwd, fn) {
+    const layout = await enterProjectRuntime(cwd);
     const key = `${resolve(cwd)}:catalog`;
     return await withProcessAwarePlanLock(
         key,
-        resolveProjectRuntimeLayout(cwd).selected.planCatalogLockPath,
+        layout.selected.planCatalogLockPath,
         fn,
     );
 }

@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { CLI_BIN } from "../../constants.js";
 import { pickControllerState, type WorkflowControllerState, WORKTREE_CONTEXT_FIELDS } from "./controller-state.ts";
-import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
+import { enterProjectRuntime, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import {
     controllerStatesEqual,
     restoreOwnControllerWrite,
@@ -179,14 +179,22 @@ export function getTransitionJournalPath(projectRoot: string, transitionId: stri
     return join(getTransitionJournalDir(projectRoot), `${transitionId}.json`);
 }
 
+async function enteredTransitionJournalDir(projectRoot: string): Promise<string> {
+    return (await enterProjectRuntime(projectRoot)).selected.transitionJournalsDir;
+}
+
+async function enteredTransitionJournalPath(projectRoot: string, transitionId: string): Promise<string> {
+    return join(await enteredTransitionJournalDir(projectRoot), `${transitionId}.json`);
+}
+
 async function writeJournal(projectRoot: string, transitionId: string, record: Record<string, unknown>) {
-    const path = getTransitionJournalPath(projectRoot, transitionId);
+    const path = await enteredTransitionJournalPath(projectRoot, transitionId);
     await Deno.mkdir(dirname(path), { recursive: true });
     await atomicWriteTextFile(path, `${JSON.stringify(record, null, 2)}\n`);
 }
 
 async function removeJournal(projectRoot: string, transitionId: string) {
-    await Deno.remove(getTransitionJournalPath(projectRoot, transitionId)).catch((error) => {
+    await Deno.remove(await enteredTransitionJournalPath(projectRoot, transitionId)).catch((error) => {
         if (!(error instanceof Deno.errors.NotFound)) throw error;
     });
 }
@@ -1292,7 +1300,7 @@ export async function writePlanDocumentAndController(opts: PlanDocumentUpdate) {
 
 /** Return unresolved transition journal records for diagnostics. */
 export async function listTransitionRecoveryRecords(projectRoot: string) {
-    const dir = getTransitionJournalDir(projectRoot);
+    const dir = await enteredTransitionJournalDir(projectRoot);
     /** @type {Array<Record<string, unknown>>} */
     const records = [];
     try {
@@ -1328,7 +1336,7 @@ export async function closeTransitionRecordByAttestation(
     transitionId: string,
     { note }: { note?: string } = {},
 ): Promise<{ closed: boolean; archivedPath?: string; reason?: string }> {
-    const activePath = getTransitionJournalPath(projectRoot, transitionId);
+    const activePath = await enteredTransitionJournalPath(projectRoot, transitionId);
     let record: Record<string, unknown>;
     try {
         record = JSON.parse(await Deno.readTextFile(activePath));
@@ -1340,7 +1348,7 @@ export async function closeTransitionRecordByAttestation(
         // going with what we know rather than making the corner permanent.
         record = { transitionId, unreadable: compactError(error) };
     }
-    const archiveDir = join(getTransitionJournalDir(projectRoot), "attested");
+    const archiveDir = join(await enteredTransitionJournalDir(projectRoot), "attested");
     const archivedPath = join(archiveDir, `${transitionId}.json`);
     await Deno.mkdir(archiveDir, { recursive: true });
     await atomicWriteTextFile(

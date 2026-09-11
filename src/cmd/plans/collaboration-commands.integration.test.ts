@@ -62,7 +62,7 @@ async function createLinkedCheckout(projectRoot: string, linkedRoot: string): Pr
     await git(projectRoot, ["config", "user.email", "fixture@runwield.test"]);
     await git(projectRoot, ["config", "user.name", "RunWield Fixture"]);
     await git(projectRoot, ["config", "commit.gpgsign", "false"]);
-    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["add", ".", ":!.wld/internal"]);
     await git(projectRoot, ["commit", "-m", "collaboration fixture"]);
     await Deno.remove(linkedRoot, { recursive: true });
     await git(projectRoot, ["worktree", "add", "-b", `linked-${crypto.randomUUID()}`, linkedRoot]);

@@ -8,7 +8,7 @@ import { readLockFileSnapshot, removeLockFileIfSnapshotMatches } from "./lock-fi
 import { getLockHostname, isPidAlive } from "./process-liveness.ts";
 import { CLI_BIN } from "../constants.js";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
-import { resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
+import { enterProjectRuntime, resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
 import { inspectPlanIdentityDocuments } from "./workflow/plan-diagnostic-evidence.ts";
 import { assertPublicationAttempt } from "./workflow/publication-attempt.ts";
 
@@ -274,8 +274,9 @@ function hasUnresolvedLegacyNonterminalEntries(entries) {
  * @returns {Promise<WorktreeRegistryEntry[]>}
  */
 async function readRegistry(projectRoot, options = {}) {
+    const layout = await enterProjectRuntime(projectRoot);
     try {
-        const inspected = await inspectWorktreeRegistryAtPath(getWorktreeRegistryPath(projectRoot));
+        const inspected = await inspectWorktreeRegistryAtPath(layout.primary.worktreeRegistryPath);
         if (inspected.readError) throw inspected.readError;
         if (inspected.version > 2) {
             throw new Error(`Unsupported worktree registry schema version: ${inspected.version}`);
@@ -356,7 +357,7 @@ function assertNoDuplicateNonterminalAttempt(entries, candidate) {
  * @param {WorktreeRegistryEntry[]} entries
  */
 async function writeRegistry(projectRoot, entries) {
-    const path = getWorktreeRegistryPath(projectRoot);
+    const path = (await enterProjectRuntime(projectRoot)).primary.worktreeRegistryPath;
     await Deno.mkdir(dirname(path), { recursive: true });
     const tmp = `${path}.${crypto.randomUUID()}.tmp`;
     const payload = `${JSON.stringify({ version: 2, entries }, null, 2)}\n`;
@@ -451,7 +452,8 @@ export async function withWorktreeRegistryLockAtPath(lockPath, fn) {
  * @returns {Promise<T>}
  */
 export async function withWorktreeRegistryLock(projectRoot, fn) {
-    return await withWorktreeRegistryLockAtPath(getWorktreeRegistryLockPath(projectRoot), fn);
+    const layout = await enterProjectRuntime(projectRoot);
+    return await withWorktreeRegistryLockAtPath(layout.primary.worktreeRegistryLockPath, fn);
 }
 
 /**
@@ -626,7 +628,8 @@ export async function inspectWorktreeRegistryAtPath(registryPath) {
  * @returns {Promise<{ version: number, entries: WorktreeRegistryEntry[], integrityIssues: Array<{ kind: string, message: string, ids: string[] }>, readError?: Error }>}
  */
 export async function inspectWorktreeRegistry(projectRoot) {
-    return await inspectWorktreeRegistryAtPath(getWorktreeRegistryPath(projectRoot));
+    const layout = await enterProjectRuntime(projectRoot);
+    return await inspectWorktreeRegistryAtPath(layout.primary.worktreeRegistryPath);
 }
 
 /** @param {string} projectRoot @param {{ migrate?: boolean }} [options] */

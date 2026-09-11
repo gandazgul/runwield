@@ -13,6 +13,7 @@ import { RuntimeEventTypes } from "../shared/session/session-runtime-events.js";
 import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.js";
 import { mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
+import { ProjectRuntimeEntryRefusedError } from "../shared/project-runtime-layout.ts";
 
 const ACP_AUTH_REQUIRED = -32000;
 const ACP_NOT_IMPLEMENTED = -32004;
@@ -145,6 +146,17 @@ function throwInvalidParams(message, data = {}) {
  */
 function throwUnknownSession(sessionId) {
     throw new RequestError(ACP_NOT_FOUND, `Unknown ACP session: ${sessionId}`, { sessionId });
+}
+
+/** @param {unknown} error @param {string} cwd @returns {never|void} */
+function throwProjectRuntimeRefusal(error, cwd) {
+    if (!(error instanceof ProjectRuntimeEntryRefusedError)) return;
+    throw new RequestError(ACP_INVALID_STATE, error.message, {
+        cwd,
+        reason: error.reason,
+        paths: error.paths,
+        ...(error.securityAction ? { securityAction: error.securityAction } : {}),
+    });
 }
 
 /**
@@ -451,10 +463,16 @@ function createRunWieldAcpServer(context) {
         const request = validateNewSessionParams(context.params);
         const readiness = getSelectedDefaultModelAvailability(request.cwd);
         if (!readiness.available) throwAuthenticationRequired(request.cwd);
-        const runtimeSessionId = await runtime.createPromptReadySession({
-            cwd: request.cwd,
-            mcpServers: request.runwieldMcpServers,
-        });
+        let runtimeSessionId;
+        try {
+            runtimeSessionId = await runtime.createPromptReadySession({
+                cwd: request.cwd,
+                mcpServers: request.runwieldMcpServers,
+            });
+        } catch (error) {
+            throwProjectRuntimeRefusal(error, request.cwd);
+            throw error;
+        }
         const snapshot = runtime.getSessionSnapshot(runtimeSessionId);
         if (!snapshot) throwUnknownSession(runtimeSessionId);
         const persistedSessionId = snapshot.sessionManagerId || runtimeSessionId;
@@ -510,6 +528,7 @@ function createRunWieldAcpServer(context) {
                 },
             };
         } catch (error) {
+            throwProjectRuntimeRefusal(error, request.cwd);
             const message = error instanceof Error ? error.message : String(error || "session/load failed");
             if (message.includes("already exists")) {
                 throw new RequestError(ACP_INVALID_STATE, message, { sessionId: request.sessionId });

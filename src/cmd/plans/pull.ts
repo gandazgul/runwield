@@ -33,6 +33,7 @@ import {
 } from "../../shared/collaboration/secrets.js";
 import { parseCollaborationUrl, redactCollaborationUrl } from "../../shared/collaboration/urls.js";
 import { normalizePlanServerUrl } from "../../shared/settings.js";
+import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 import { SessionRuntime } from "../../shared/session/session-runtime.js";
 import {
     buildPullRevisionRequest,
@@ -201,6 +202,7 @@ export async function pullPlanForRevision(
     pullOptions: PullPlanForRevisionOptions,
 ): Promise<PulledPlanRevision> {
     const cwd = pullOptions.cwd || getCwd();
+    await enterProjectRuntime(cwd);
     const now = new Date().toISOString();
     const target = pullOptions.target;
     const isUrl = looksLikeUrl(target);
@@ -482,9 +484,11 @@ export async function runPlansPullCommand(
         printPullHelp();
         return;
     }
+    const cwd = getCwd();
+    await enterProjectRuntime(cwd);
     const pulled = await pullPlanForRevision({
         target: parsed.target as string,
-        cwd: getCwd(),
+        cwd,
         planServer: parsed.planServer,
         projectSecrets: parsed.projectSecrets,
         to: parsed.to,

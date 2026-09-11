@@ -2,7 +2,7 @@
 import { dirname, join, resolve } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
-import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
+import { enterProjectRuntime, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { inspectWorktreeRegistry } from "../worktree-registry.js";
 import {
     CONTROLLER_STATE_FIELDS,
@@ -102,9 +102,19 @@ export function controllerRecordPath(cwd: string, identity: WorkflowIdentity): s
     );
 }
 
+async function enteredControllerRecordPath(cwd: string, identity: WorkflowIdentity): Promise<string> {
+    const key = identity.planId || `name:${identity.planName}`;
+    return join(
+        (await enterProjectRuntime(projectRoot(cwd))).primary.controllerPlansDir,
+        `${encodeURIComponent(key)}.json`,
+    );
+}
+
 export async function readControllerRecord(cwd: string, identity: WorkflowIdentity): Promise<ControllerRecord | null> {
     try {
-        const record: ControllerRecord = JSON.parse(await Deno.readTextFile(controllerRecordPath(cwd, identity)));
+        const record: ControllerRecord = JSON.parse(
+            await Deno.readTextFile(await enteredControllerRecordPath(cwd, identity)),
+        );
         if (record.version !== 1 || !Number.isInteger(record.revision) || !record.state) {
             throw new Error(
                 "RunWield could not read this Plan's saved workflow. Your files and commits are unchanged.",
@@ -155,7 +165,7 @@ export async function bindControllerPlanIdentity(cwd: string, identity: Workflow
     if (!identity.planId || await readControllerRecord(cwd, identity)) return;
     const temporaryIdentity = { planName: identity.planName };
     if (!await readControllerRecord(cwd, temporaryIdentity)) return;
-    const path = controllerRecordPath(cwd, temporaryIdentity);
+    const path = await enteredControllerRecordPath(cwd, temporaryIdentity);
     const lock = await Deno.open(`${path}.lock`, { create: true, read: true, write: true });
     try {
         await lock.lock(true);
@@ -170,7 +180,7 @@ export async function bindControllerPlanIdentity(cwd: string, identity: Workflow
 /** Called under the Plan lock only after the document's stable identity was saved. */
 export async function finishControllerPlanIdentity(cwd: string, identity: WorkflowIdentity): Promise<void> {
     if (!identity.planId || !await readControllerRecord(cwd, identity)) return;
-    const path = controllerRecordPath(cwd, { planName: identity.planName });
+    const path = await enteredControllerRecordPath(cwd, { planName: identity.planName });
     await Deno.remove(path).catch((error) => {
         if (!(error instanceof Deno.errors.NotFound)) throw error;
     });
@@ -182,7 +192,7 @@ export async function writeControllerState(
     updates: WorkflowControllerState,
     options: ControllerWriteOptions = {},
 ): Promise<ControllerRecord> {
-    const path = controllerRecordPath(cwd, identity);
+    const path = await enteredControllerRecordPath(cwd, identity);
     await Deno.mkdir(dirname(path), { recursive: true });
     // Keep this inode: deleting a lock file lets a third process lock a different
     // inode while an existing waiter still owns the original one.

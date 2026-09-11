@@ -33,6 +33,7 @@ import {
 } from "../../shared/collaboration/secrets.js";
 import { buildCollaborationUrl, redactCollaborationUrl } from "../../shared/collaboration/urls.js";
 import { getDefaultPlanServerUrl, normalizePlanServerUrl } from "../../shared/settings.js";
+import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 interface PlansShareArgs {
     planServer?: string;
@@ -205,6 +206,7 @@ export async function sharePlanForReview(
     shareOptions: SharePlanForReviewOptions,
 ): Promise<SharedPlanReviewLink> {
     const cwd = shareOptions.cwd || getCwd();
+    await enterProjectRuntime(cwd);
     const target = shareOptions.target;
     const resource = await resolveActivePlan(cwd, target);
     const args = {
@@ -411,9 +413,11 @@ export async function runPlansShareCommand(argv: string[]): Promise<void> {
         printShareHelp();
         return;
     }
+    const cwd = getCwd();
+    await enterProjectRuntime(cwd);
     const shared = await sharePlanForReview({
         target: args.target as string,
-        cwd: getCwd(),
+        cwd,
         planServer: args.planServer,
         projectSecrets: args.projectSecrets,
         allowExisting: false,

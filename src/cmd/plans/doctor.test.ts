@@ -11,6 +11,7 @@ import {
 import { runPlansDoctor, runPlansDoctorCommand } from "./doctor.ts";
 import { defineGitFixture, git } from "../../shared/git-test-fixture.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
+import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 type WorktreeRegistryEntry = import("../../shared/worktree-registry.js").WorktreeRegistryEntry;
 type WorktreeDeliveryEvidence = import("../../plan-store.js").WorktreeDeliveryEvidence;
@@ -623,6 +624,7 @@ Deno.test("plans doctor keeps a journal whose worktree may still hold work", asy
 Deno.test("plans doctor clears an abandoned Plan lock", async () => {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-lock-" });
     try {
+        await enterProjectRuntime(cwd);
         const resolvedCwd = Deno.realPathSync(cwd);
         const lockDir = join(getRunWieldRuntimeDir(resolvedCwd), PROJECT_INTERNAL_RUNTIME_DIR_NAME, "plan-locks");
         const lockPath = join(lockDir, "demo.lock");
