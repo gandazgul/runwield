@@ -221,7 +221,9 @@ graph TD
 - [Plan Lifecycle](plan-lifecycle.md) - durable plan and worktree state machine.
 - [Complete Plan workflow map](plan-workflow-map.md) - source-traced planner-to-merge tree, transition inputs, repair
   and resume branches, with a [dated transition audit](audits/2026-09-07-plan-workflow-transitions.md).
-- [Product Rules](product-rules.md) - owner-stated rules that constrain RunWield's behavior; cite these in review.
+- [Core capability requirements](prd/runwield-core-prd.md#capability-requirements) - lasting product constraints and
+  acceptance scenarios, including Plan ownership, automatic recovery, and workflow completion; cite the owning
+  capability in review. Technical decisions live in ADRs.
 - [ACP Implementation Details and Gaps](acp-implementation-details.md) - current ACP v1 MVP behavior, conformance gaps,
   and optional protocol coverage.
 - [Router Model Selection](router-model-selection.md) - evaluation findings for the Router model choice.

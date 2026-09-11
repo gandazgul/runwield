@@ -64,5 +64,17 @@ lasting product requirements. Other PRDs are transient: after implementation, fo
 appropriate central PRD, update references, and remove the completed PRD. Git history preserves earlier proposals; Work
 Records preserve delivery evidence. See `src/agent-definitions/document-formats/PRD-FORMAT.md`.
 
-ADRs in the current tree describe current architecture. Update or remove obsolete ADRs and fix current references; do
-not retain superseded ADRs as competing guidance. Use Git history for prior decisions.
+Organize requirements inside these five PRDs by capability, with stable links, named observable requirements, and
+acceptance scenarios. Each capability has one owning PRD; link shared requirements instead of duplicating them. In the
+same change that alters behavior, update the owning capability, scenarios, and affected references. Planning labels
+proposed additions, changes, and removals; it does not claim they shipped. Keep current, target, and deferred behavior
+distinct. The root PRD owns product-family promises, Core shared local behavior, Workspace browser/team journeys,
+Connect external-host use, and ACP external-client compatibility. This five-document ownership is specific to this repo;
+bundled agent guidance must work with any user's PRD structure.
+
+Delivery workflows conclude only after confirmed publication or deliberate user abandonment. Failures, retry limits, and
+internal inconsistencies are recoverable intermediate conditions. RunWield repairs its own locks, settings, storage,
+metadata, and synchronization automatically, without making the user operate its machinery. Keep the owning requirements
+and scenarios in `docs/prd/runwield-core-prd.md#execution-validation-and-recovery` authoritative.
+
+Follow the shared ADR authoring and maintenance policy in `src/agent-definitions/document-formats/ADR-FORMAT.md`.

@@ -28,6 +28,9 @@ status: "draft"
 
 What problem/request this plan addresses and the intended outcome.
 
+When a PRD informs the work, link the owning capability headings and name the requirements being added, changed, or
+removed, plus relevant behavior that must survive. Do not copy the whole PRD or imply proposed behavior already shipped.
+
 ## Objective
 
 What will be built/changed and why.
@@ -76,6 +79,10 @@ any step.
 When applicable, include an explicit step that updates the applicable domain-language file in the same change as the
 behavior it describes.
 
+When behavior changes a PRD capability, include an outcome that its owning requirements, acceptance scenarios, and
+affected references match the delivered behavior, with unmet intent still labeled target or deferred. Keep the update in
+the same implementation change; follow the project's document lifecycle policy.
+
 ## Approval Confirmation
 
 Before approval, show each proposed `supersedes` Work Record ID and explain why this Plan will materially replace that
@@ -93,6 +100,8 @@ confirms it. An existing declared value is already confirmed; preserve it unless
   behavior is expected to stop existing. Without that split, a test that no longer compiles gets deleted and the suite
   still passes.
 - When applicable: confirm the glossary describes implemented behavior and does not promote unimplemented proposals.
+- When a PRD applies: turn relevant capability scenarios into concrete checks, preserve unaffected behavior, and verify
+  the owning PRD and references are synchronized without falsely claiming unmet targets were delivered.
 
 ## Edge Cases & Considerations
 

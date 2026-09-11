@@ -132,6 +132,22 @@ Composers accept images by paste, drag-and-drop, or **Attach image**, including 
 before sending with a Remove action, and preserve it in the conversation after sending and reloading. Use the shared
 `.rw-image-previews` treatment. Save image drafts in IndexedDB; browser storage limits must never block Send.
 
+Keep the composer footer in one row, including on phones: a small **+** attachment button on the left, Agent,
+provider/model, Thinking, and an icon-only Send button. Stop and Queue also use labeled icons while working. Preserve
+accessible names and tooltips for icon buttons; model options include their provider. Enabled settings use normal text
+contrast, a visible control background and border, and a pointer cursor; only disabled controls look muted.
+
+The TUI is the behavior reference for Session controls and commands. Agent selection loads that Agent's settings,
+including the active model preset. Displaying these defaults does not create a manual override. Explicit model and
+thinking choices apply to that Agent; selecting a different Agent resets them, including before the first message. Model
+labels use `provider/model` so similarly named models remain distinct.
+
+Typing `/` at the start of the input opens `.rw-command-menu`, an anchored, scrollable command list above the composer.
+Filter as the user types; Up/Down selects, Enter/Tab completes, and Escape dismisses without stopping the Agent. Support
+touch selection and keep keyboard focus in the input. Agent and model commands offer argument choices; prompt templates
+and skills use the same catalog and Runtime expansion as the TUI. Browser actions open their corresponding Workspace
+surface rather than sending commands as messages to the model.
+
 Open conversations at the latest messages and offer **Load earlier messages** above the timeline. Loading old history
 must not disable Send. Keep Session generations, locks, and request-delivery details out of the ordinary screen.
 
@@ -305,6 +321,9 @@ Use `.rw-toolbar-button` for compact actions inside Workspace toolbars. This cla
 `src/ui/design-system/components.css` so related actions keep the same size, border, text color, hover state, and
 disabled state. Use it for toolbar actions that open side panels, switch helper views, or add comments. Do not make
 one-off local button styles for those actions.
+
+Use `.rw-toolbar-select` for native dropdowns alongside toolbar buttons. It shares the toolbar surface and text tokens,
+with explicit hover, keyboard focus, and disabled states.
 
 Use `.rw-segmented-toggle` for compact toolbar choices such as `Changes` / `Files`, `Side by side` / `Unified`, Plan
 mode choices, and settings choices. Each option must include an icon, a label in a `<span>`, and a `title` that matches
@@ -656,7 +675,9 @@ header controls as single-Plan review. Surface Lab includes standalone and embed
 
 ### Workflow transitions in Session history
 
-Every tool in `WORKFLOW_TOOL_NAMES` renders as an expanded `.rw-workflow-block`, separate from routine tool activity.
+Only tools that advance the workflow or record its decisions and completed steps belong in `WORKFLOW_TOOL_NAMES` and
+render as expanded `.rw-workflow-block` entries. Inspection tools such as `review_diff` stay collapsed with routine
+activity. Each workflow entry has one outer container; its Markdown body has no separate border, background, or padding.
 Show its name, running/completed/failed state, full report or decision, and available artifact/review actions. Keep
 routing intent, complexity, plan outcomes, completion summaries, review findings, and checklists visible. Accepted
 workflow records close the block even when a tool stops its own turn before a provider tool result is persisted. Live

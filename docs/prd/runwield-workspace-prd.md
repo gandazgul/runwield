@@ -2,7 +2,7 @@
 title: RunWield Workspace
 status: living-roadmap
 createdAt: "2026-07-06T00:00:00.000Z"
-updatedAt: "2026-08-12T10:29:00-04:00"
+updatedAt: "2026-09-11"
 ---
 
 # RunWield Workspace PRD
@@ -14,9 +14,11 @@ Keep this document as current product guidance. Fold lasting requirements from c
 implementation steps belong in Plans, architectural choices in ADRs, and delivery evidence in Work Records.
 
 **Status:** Living roadmap — current local Plan Workspace implemented; Personal Remote Workspace v1 next\
-**Last Updated:** 2026-08-12
+**Last Updated:** 2026-09-11
 
-## 1. Objective
+<a id="1-objective"></a>
+
+## Objective
 
 Evolve RunWield Workspace from a browser Plan Board for one checkout into the primary browser environment for working
 the RunWield way across multiple registered Projects.
@@ -30,7 +32,9 @@ product to be useful; completion of earlier implementation slices does not estab
 The browser experience preserves existing Plan approval, validation, recovery, and local developer control. A later team
 product should build on the personal experience; future collaboration must not burden ordinary use today.
 
-## 2. Problem Statement
+<a id="2-problem-statement"></a>
+
+## Problem Statement
 
 The current Workspace is useful but scoped to one checkout and centered on a Plan Board. RunWield Sessions primarily
 live in terminal processes, while browser review, Shared Plan collaboration, TUI operation, ACP clients, and future chat
@@ -52,7 +56,9 @@ That creates five product gaps:
 The answer is not a generic Agent manager, issue tracker, transcript memory system, or browser IDE. Workspace should
 remain a Plan- and workflow-first RunWield product.
 
-## 3. Product Thesis and Principles
+<a id="3-product-thesis-and-principles"></a>
+
+## Product Thesis and Principles
 
 RunWield Workspace is **AI-native collaborative software planning and workflow continuity**.
 
@@ -75,6 +81,10 @@ Product principles:
   local cache as authorization.
 - **One owner, one conversation across screens.** Leaving a TUI or browser open does not reserve a Session. The owner
   can continue it from another screen and see the resulting conversation when they return.
+- **Familiar behavior across screens.** Session commands, Agent defaults, and manual override behavior match the TUI.
+  Browser conveniences such as dropdowns and an image picker make the same actions easier to reach; they do not
+  introduce different Session semantics. Changing Agents resets model and thinking choices to the selected Agent's
+  settings.
 - **Plans own planned-work lifecycle.** Once a Plan exists, its workflow surface becomes the durable center for review,
   execution, validation, recovery, changes, and associated Sessions.
 - **Approval is not execution authorization.** The user can approve and run now or approve for later.
@@ -93,7 +103,9 @@ Product principles:
 - **Use the RunWield Design System.** Workspace, Plannotator, and related browser surfaces should remain visually and
   behaviorally coherent.
 
-## 4. Current Baseline
+<a id="4-current-baseline"></a>
+
+## Current Baseline
 
 RunWield currently provides:
 
@@ -117,31 +129,24 @@ implementation restrictions are not product requirements.
 Existing local Plan management and Shared Plan collaboration remain supported foundations. Personal Remote Workspace v1
 expands their containing product model rather than replacing their lifecycle or canonical storage.
 
-### Local Plan Management
+## Product Model
 
-`wld plans ui` remains a useful local browser board for the current checkout. It shows Plans by stage, separates active,
-held, and finished work, and presents Epics as top-level cards with child progress. Opening a Plan is read-first;
-editing has a clear action and saves explicitly. Refresh can recover an unsaved draft. Markdown structure and ordinary
-CLI use remain intact, and body editing does not accidentally change workflow fields.
+<a id="51-workspace"></a>
 
-Manual board moves record the user's choices without claiming automated review or verification. Users can reflect
-externally started or completed work, close without verification, or hold work. Failure and hold offer the appropriate
-recovery or resume actions. Plan, Epic, and useful filtered-view links remain stable after renaming. Local links need a
-running Workspace; sharing access remains explicit.
+<a id="1-workspace"></a>
 
-These local outcomes are the foundation, not a restriction to one Project in the personal multi-Project product. Later
-document surfaces should feel consistent while keeping Plan lifecycle controls specific to Plans.
-
-## 5. Resolved Product Model
-
-### 5.1 Workspace
+### Workspace
 
 **Workspace** is the browser environment containing registered Projects, durable Sessions, Plans, PRDs, ADRs, Work
 Records, review surfaces, search, and notifications
 
 The default home is the cross-Project **Attention Dashboard**, not a Project grid or a global Plan board.
 
-### 5.2 Project and Project Runtime
+<a id="52-project-and-project-runtime"></a>
+
+<a id="2-project-and-project-runtime"></a>
+
+### Project and Project Runtime
 
 A **Project** is a trusted repository or project directory registered with Workspace. Registration authorizes Workspace
 to operate within that root; it does not make every path on the machine accessible.
@@ -150,7 +155,11 @@ Each Project contains its own Sessions, Plans, knowledge, and health information
 once; returning to an inactive Project preserves its saved work. The first version uses local roots on the owner's
 machine. Hosted Projects are later scope.
 
-### 5.3 Session and Agent Session
+<a id="53-session-and-agent-session"></a>
+
+<a id="3-session-and-agent-session"></a>
+
+### Session and Agent Session
 
 A **Session** is the durable user-facing conversation and workflow thread within one Project. It spans Router Triage and
 specialist Agent handoffs and has a stable identity and human-readable Session Name.
@@ -166,11 +175,15 @@ creates a fresh associated Session; **Resume** re-enters the same Session.
 
 Workspace does not introduce a generic Work Item above Sessions, Plans, and artifacts.
 
-### 5.4 Durable artifacts
+<a id="54-durable-artifacts"></a>
+
+<a id="4-durable-artifacts"></a>
+
+### Durable artifacts
 
 - **Plan:** owns planned implementation lifecycle and may become the center of one or more associated Sessions.
-- **PRD:** independent product-intent artifact that may inform multiple Sessions or Plans and does not participate in
-  Plan Lifecycle.
+- **PRD:** product-intent artifact with capability-organized requirements and acceptance scenarios. It may inform
+  multiple Sessions or Plans and does not participate in Plan Lifecycle.
 - **ADR:** authoritative architecture-decision artifact.
 - **Work Record:** retrospective account of completed planned work and its durable future planning lessons.
 - **Session Transcript:** owner-private raw history used for human resume and search, not shared knowledge.
@@ -178,9 +191,7 @@ Workspace does not introduce a generic Work Item above Sessions, Plans, and arti
 Repository artifacts remain canonical. Workspace may index and project them, but must not silently replace them with
 browser-database-only copies.
 
-## 6. Personal Remote Workspace v1
-
-### 6.1 Target user and environment
+## Delivery Audience
 
 The first version serves:
 
@@ -193,7 +204,100 @@ The first version serves:
 
 This is a durable personal self-hosted mode, not merely a development demonstration.
 
-### 6.2 Attention Dashboard
+## Capability Requirements
+
+The capabilities below own browser-specific requirements. They reference Core for shared lifecycle, validation, and
+Session behavior. Scope labels distinguish the existing foundation, the required Personal v1 journey, and later team
+work; they do not claim rollout completion.
+
+- [Local Plan management](#local-plan-management)
+- [Shared Plan collaboration](#shared-plan-collaboration)
+- [Attention dashboard](#attention-dashboard)
+- [Project access and navigation](#project-access-and-navigation)
+- [Browser Sessions](#browser-sessions)
+- [TUI and phone continuity](#tui-and-phone-continuity)
+- [Browser Plan review and workflow](#browser-plan-review-and-workflow)
+- [Durable knowledge search](#durable-knowledge-search)
+- [Human cross-Project code search](#human-cross-project-code-search)
+- [Main-checkout Code Surface](#main-checkout-code-surface)
+- [Device pairing and remote trust](#device-pairing-and-remote-trust)
+- [Team planning and governance](#team-planning-and-governance)
+- [Team artifact privacy and authorship](#team-artifact-privacy-and-authorship)
+- [Team planning intelligence](#team-planning-intelligence)
+- [Team code review and delivery](#team-code-review-and-delivery)
+
+### Local Plan management
+
+**Scope and maturity:** Current local browser baseline.
+
+**Requirement: Edit and navigate Plans without changing their lifecycle accidentally.**
+
+`wld plans ui` remains a useful local browser board for the current checkout. It shows Plans by stage, separates active,
+held, and finished work, and presents Epics as top-level cards with child progress. Opening a Plan is read-first;
+editing has a clear action and saves explicitly. Refresh can recover an unsaved draft. Markdown structure and ordinary
+CLI use remain intact, and body editing does not accidentally change workflow fields.
+
+Manual board moves record the user's choices without claiming automated review or verification. Users can reflect
+externally started or completed work, close without verification, or hold work. Failure and hold offer the appropriate
+recovery or resume actions. Plan, Epic, and useful filtered-view links remain stable after renaming. Local links need a
+running Workspace; sharing access remains explicit.
+
+These local outcomes are the foundation, not a restriction to one Project in the personal multi-Project product. Later
+document surfaces should feel consistent while keeping Plan lifecycle controls specific to Plans.
+
+**Acceptance scenarios:**
+
+- Given a Plan opened from the board, when the user edits its body and saves, Markdown remains usable from the CLI and
+  lifecycle fields do not change accidentally.
+- When the user moves or manually closes work, the board reflects that choice without claiming automatic verification;
+  failure and hold expose recovery or resume.
+- When a Plan or Epic is renamed, its existing links still resolve and child progress remains visible.
+
+### Shared Plan collaboration
+
+**Scope and maturity:** Current self-hosted baseline; hosted deployment and additional browser actions remain deferred.
+
+**Requirement: Share review revisions with explicit access.**
+
+Workspace supports encrypted collaborative Plan sharing through self-hosted remote Workspace Shared Spaces.
+
+Current collaboration capabilities:
+
+- self-hosted encrypted Shared Spaces;
+- `wld plans share`, `pull`, `push`, and `unshare` for the review and publishing cycle;
+- distinct reviewer and maintainer links without exposing secrets in Plan documents;
+- browser comments, resolution/reopening, and Revision switching;
+- one agreed shared review version, with clear publishing and unsharing actions.
+
+The [Collaborative Planning PRD](collaborative-planning-PRD.md) defines these journeys. Storage and protocol details are
+in [collaboration documentation](../collaboration.md).
+
+Deferred collaboration surface:
+
+- hosted RunWield Workspace / Cloudflare D1 deployment
+- browser-side push, close, unshare/delete, or Plan body editing
+- automated notifications
+- Forge Change Request Delivery through GitHub or GitLab as an explicitly selected delivery and review mode (see
+  [forge-change-request-delivery-prd.md](./forge-change-request-delivery-prd.md)); RunWield-native review and Direct
+  Delivery remain the default
+
+Shared review consumes [Core Plan review](runwield-core-prd.md#plan-review) and
+[Plan lifecycle](runwield-core-prd.md#plan-lifecycle).
+
+**Acceptance scenarios:**
+
+- Given a deliberately shared Plan, when a reviewer follows their link, they can comment and switch Revisions within
+  that access without receiving maintainer secrets.
+- When the maintainer publishes a new review version or unshares, participants see the corresponding shared-review
+  outcome; ordinary repository documents do not acquire sharing secrets.
+
+<a id="62-attention-dashboard"></a>
+
+### Attention dashboard
+
+**Scope and maturity:** Personal Remote Workspace v1 target; existing UI is not proof of the complete journey.
+
+**Requirement: Surface the owner’s next consequential action.**
 
 The default Workspace home is an attention-first queue across registered Projects. Its primary question is:
 
@@ -205,12 +309,12 @@ workflow consequence while preserving exploration paths for users who want the b
 Default ordering:
 
 1. **Pinned:** user-pinned Sessions, Projects, Plans, or workflow items. Pinning makes work easier to find.
-2. **Needs You:** blocking human gates such as approval, feedback, retry, recovery, human review, Pair checkpoint,
-   repair-exhausted, failed validation, or unsafe/ambiguous workflow state.
+2. **Needs You:** actual human decisions or external prerequisites, such as approval, feedback, human review, or a Pair
+   checkpoint. Internal repair, failed validation, and retry exhaustion alone do not create user chores.
 3. **Ready to Continue:** approved Plans ready for work, paused workflows, child Plans ready in a PROJECT sequence, or
    other safe next actions.
-4. **Recently Finished:** recent verified, user-verified, closed, failed, or otherwise completed outcomes that may need
-   review or follow-up.
+4. **Recently Finished:** successfully published or deliberately abandoned delivery workflows, and completed
+   non-delivery requests. Failed attempts and verification attestations alone do not finish an undelivered workflow.
 5. **Running Quietly:** Sessions and Plan workflows currently progressing without a required human decision.
 
 The first screen should emphasize the top actionable queue and keep Running Quietly secondary. Project navigation,
@@ -220,7 +324,21 @@ remain explorable, but users should not have to inspect every Project to discove
 The Dashboard shows current work across Projects and links to the Session or Plan where the owner can act. It does not
 create an additional approval step or change which work the owner can continue.
 
-### 6.3 Project experience
+**Acceptance scenarios:**
+
+- Given two registered Projects with blocked, ready, finished, and running work, when the owner opens Workspace, the
+  queue surfaces what needs attention without opening each Project.
+- When the owner pins work, it becomes easier to find but does not gain approval or execution permission.
+- When work reaches a required human decision, the attention signal leads to the correct Session or Plan; quietly
+  running work stays secondary.
+
+<a id="63-project-experience"></a>
+
+### Project access and navigation
+
+**Scope and maturity:** Personal Remote Workspace v1 target.
+
+**Requirement: Limit Workspace reach to registered Projects.**
 
 For each registered Project, Workspace shows:
 
@@ -236,7 +354,20 @@ For each registered Project, Workspace shows:
 Registration, disabling, and removal affect Workspace access and indexing only. They must not delete repository data,
 Plans, Work Records, Session history, branches, or RunWield worktrees.
 
-### 6.4 Session experience
+**Acceptance scenarios:**
+
+- Given two registered roots and one unregistered directory, when the owner browses Projects, only the registered roots
+  are available to Workspace.
+- When a Project is disabled or removed, Workspace access and indexing stop without deleting repository data, saved
+  Sessions, branches, or worktrees.
+
+<a id="64-session-experience"></a>
+
+### Browser Sessions
+
+**Scope and maturity:** Existing browser baseline with the complete Personal v1 journey required.
+
+**Requirement: Preserve conversation, drafts, and controls in the browser.**
 
 The owner can create, reopen, follow, and continue Sessions in Workspace. The experience preserves the same conversation
 and selected Agent and model across TUI and browser. The primary timeline represents:
@@ -263,7 +394,29 @@ Several Sessions may run across several Projects. Closing a browser tab or losin
 On reconnection, Workspace shows the latest saved conversation and current work. The user can continue when the Session
 is ready for input without a separate takeover or preparation step.
 
-### 6.5 Moving between TUI and phone
+Shared behavior: [Core TUI conversation](runwield-core-prd.md#tui-conversation),
+[models and providers](runwield-core-prd.md#models-and-providers), and
+[Session continuity](runwield-core-prd.md#session-continuity). Browser command controls follow the same Agent defaults
+and override rules; switching Agents resets model and thinking choices to that Agent’s settings.
+
+**Acceptance scenarios:**
+
+- When the owner starts a Session with a command, it can use that first message as its list title; an empty Session with
+  no title or message does not appear.
+- Given a typed message and image attachments, when sending fails or the browser refreshes, the draft and previews
+  remain available.
+- When a workflow tool finishes, its full report and outcome remain readable in live and saved history and its block
+  stops showing Running.
+- When the owner changes Agents through browser controls, the selected Agent, model defaults, and thinking behavior
+  match the TUI.
+
+<a id="65-moving-between-tui-and-phone"></a>
+
+### TUI and phone continuity
+
+**Scope and maturity:** Personal v1 required journey; continuation fixes do not narrow this commitment.
+
+**Requirement: Change screens without losing input or duplicating work.**
 
 - As the owner, I can start a conversation in the TUI, leave it open, and send the next message from my phone when the
   Agent is ready for input, so I can keep working away from my desk.
@@ -281,7 +434,28 @@ is ready for input without a separate takeover or preparation step.
 - If an actual failure interrupts the Session, I keep my input and receive a concrete next action. Routine screen
   changes do not require recovery steps or technical knowledge.
 
-### 6.6 Plan actions
+The shared authority is [Core Session continuity](runwield-core-prd.md#session-continuity); these are its browser/phone
+journeys.
+
+**Acceptance scenarios:**
+
+- Given an idle TUI left open, when the owner continues from a paired phone, the same conversation advances and
+  automatically appears in the TUI on return.
+- Given a long history or completed Plan, when the owner sends a follow-up from either screen, it proceeds without
+  loading every old message or a takeover ceremony.
+- When the browser disconnects during work, work continues; reconnecting shows saved progress and retains the draft
+  without duplicate submission.
+- When a process handling a live question has stopped, the owner sees that it needs retry rather than a dead control or
+  an invented answer.
+
+<a id="66-plan-actions"></a>
+<a id="67-plan-workflow-surface"></a>
+
+### Browser Plan review and workflow
+
+**Scope and maturity:** Current review baseline with the complete Personal v1 journey required.
+
+**Requirement: Review the current Plan and preserve explicit execution choices.**
 
 The owner can review, give feedback, approve for later, or approve and run the current Plan from Workspace. Opening a
 Plan or its associated Session does not give that screen permanent control of the work.
@@ -289,8 +463,6 @@ Plan or its associated Session does not give that screen permanent control of th
 If a Plan changes after the owner opens it, Workspace shows the changed content before accepting an approval for the new
 version. Repeated delivery of the same click does not run the action twice. Actual failures explain what happened and
 how to continue without silently discarding work.
-
-### 6.7 Plan workflow surface
 
 Once a Plan exists, one Plan-centered surface unifies:
 
@@ -302,7 +474,7 @@ Once a Plan exists, one Plan-centered surface unifies:
 - validation, semantic review, Guided Review, and repair activity;
 - Plan worktree state and changes;
 - failure details and Plan Recovery;
-- terminal outcome and resulting Work Record.
+- confirmed publication or deliberate abandonment, with the applicable Work Record.
 
 Review offers distinct outcomes:
 
@@ -312,7 +484,31 @@ Review offers distinct outcomes:
 
 Plan approval never implies ambient permission for a different Session to execute it.
 
-### 6.8 Durable knowledge search
+Shared rules: [Core Plan review](runwield-core-prd.md#plan-review), [lifecycle](runwield-core-prd.md#plan-lifecycle),
+and [execution, validation, and recovery](runwield-core-prd.md#execution-validation-and-recovery).
+
+Internal locks, settings, storage, and synchronization are repaired automatically. Workspace keeps delivery active
+through failures and pauses; cancelling a turn does not abandon the workflow. When a real user decision or external
+prerequisite is needed, explain the outcome at stake and offer continuation or deliberate abandonment without exposing
+internal repair procedures.
+
+**Acceptance scenarios:**
+
+- Given a Plan changed since the review opened, when the owner tries to approve, the changed content is shown before the
+  approval is accepted.
+- When the same approval click is delivered twice, the action occurs once; Approve for Later never starts execution.
+- Given an executing Plan, when the owner opens its workflow surface, its review, changes, validation, recovery, and
+  resulting record are accessible in context.
+- Given a failed attempt caused by internal state, the workflow stays active while RunWield repairs it; it does not
+  become Recently Finished or require the owner to fix storage or locks.
+
+<a id="68-durable-knowledge-search"></a>
+
+### Durable knowledge search
+
+**Scope and maturity:** Personal Remote Workspace v1 target; existing record retrieval is the foundation.
+
+**Requirement: Retrieve eligible artifacts with scope and confidence visible.**
 
 Workspace provides two human-facing durable-artifact scopes:
 
@@ -339,7 +535,26 @@ records. Explicit history views expose drafts, superseded, pending, and archived
 surfaces link the relevant outcome record or explain that generation needs retry. Retrieval must not treat a completed
 PRD, old Plan, or Work Record as proof that a current end-to-end journey works.
 
-### 6.9 Human cross-Project code search
+[Core Work records](runwield-core-prd.md#work-records) owns record generation, eligibility, correction, and completion
+confidence. [Core capability-organized requirements](runwield-core-prd.md#capability-organized-product-requirements)
+owns PRD authoring behavior.
+
+**Acceptance scenarios:**
+
+- Given a sensitive Project opted out of Workspace Intelligence, when the owner searches across Projects, its artifacts
+  are absent and returned results identify their Project and type.
+- When an Agent retrieves planning knowledge, owner-private transcripts and source-code search results are not silently
+  included.
+- When the user opens historical Work Records, their completion and approval distinctions remain visible; a past record
+  does not prove a current journey works.
+
+<a id="69-human-cross-project-code-search"></a>
+
+### Human cross-Project code search
+
+**Scope and maturity:** Personal Remote Workspace v1 target; cross-Project Agent search remains excluded.
+
+**Requirement: Search only deliberately selected Projects.**
 
 Personal Remote Workspace v1 includes RunWield-owned Cymbal federation:
 
@@ -363,7 +578,21 @@ access to other Projects.
 Sourcebot is not a first-version dependency. It remains an optional future provider for organization-scale or remote
 committed-code search.
 
-### 6.10 Code Surface
+**Acceptance scenarios:**
+
+- Given selected registered Projects with duplicate symbol names, when the owner searches, results keep Project identity
+  and exclude Plan-worktree duplicates.
+- When one selected index fails, available results and the failure/freshness notice remain visible while unrelated work
+  continues.
+- When the user brings a chosen result into a Session, the Agent does not gain ambient access to the other Projects.
+
+<a id="610-code-surface"></a>
+
+### Main-checkout Code Surface
+
+**Scope and maturity:** Personal Remote Workspace v1 target; code-server remains subordinate and separately secured.
+
+**Requirement: Inspect and edit the authorized checkout without owning workflows.**
 
 Workspace may launch or connect to code-server as the subordinate **Code Surface** for a Project's main checkout.
 
@@ -381,7 +610,20 @@ conflicts, which RunWield handles through normal lifecycle and integration check
 Personal mode preserves existing local agency: QUICK_FIX and supported in-place workflows may modify the main checkout
 without being forced into Plan worktrees.
 
-### 6.11 Pairing and remote trust
+**Acceptance scenarios:**
+
+- When the user opens a global code result, the Code Surface navigates to its authorized main-checkout location rather
+  than pretending a worktree-only version exists there.
+- When the user edits through the Code Surface, normal stale-Plan and merge checks still apply; the editor does not take
+  ownership of Plan lifecycle or other roots.
+
+<a id="611-pairing-and-remote-trust"></a>
+
+### Device pairing and remote trust
+
+**Scope and maturity:** Personal Remote Workspace v1 target.
+
+**Requirement: Authorize devices explicitly and allow revocation.**
 
 Private networking is necessary but not sufficient authorization. The first version requires owner-approved browser
 device pairing:
@@ -406,7 +648,192 @@ Shared Plan capability authorization remains separate from Workspace device auth
 does not automatically receive a Shared Plan capability, and possessing a Shared Plan link does not authorize the owner
 Workspace.
 
-## 7. Product Constraints and Architectural Reference
+**Acceptance scenarios:**
+
+- Given a new browser device, when it requests access, the owner must deliberately pair it; revoked devices cannot
+  continue using Workspace.
+- Given a Shared Plan link without owner-device authorization, when someone follows it, they receive only the
+  shared-review access and cannot operate owner Workspace.
+- When Workspace is reached beyond loopback, access uses the documented secure boundary and exposes only registered
+  Projects; another website cannot act as the owner.
+
+### Team planning and governance
+
+**Scope and maturity:** Later collaborative SaaS scope; not Personal v1.
+
+**Requirement: Support team-chosen roles and approval policy.**
+
+Personal Workspace keeps its [Attention dashboard](#attention-dashboard). Team planned work uses the following
+Plan-centered experience.
+
+Primary areas:
+
+- Ideas
+- Planning
+- Review
+- Ready
+- In Progress
+- Verifying
+- Done
+- On Hold
+
+These are product-facing states for PMs, tech leads, and developers. Raw Core lifecycle statuses can remain visible in
+detail views for transparency and debugging.
+
+Natural actions from the Plan screen:
+
+- start a new idea
+- create or refine a PRD
+- create a Plan
+- create an Epic
+- review a Plan
+- inspect Work Records and planning memory
+
+Searching Work Records is important, but secondary to the Plan workspace.
+
+**Roles and permissions.**
+
+The team product adds independently hosted Projects, team and organization membership, Project-level authorization and
+policy, and collaborator-visible durable artifacts.
+
+The later team Workspace should start with minimal roles:
+
+- **Admin**
+- **Member**
+- **Reviewer/Guest**
+
+Do not encode PM, tech lead, or developer job-title roles by default. Teams should decide how strictly they divide
+planning, architecture, and execution responsibilities.
+
+Later, Workspace may allow more granular Member permissions, but this should not be required at launch.
+
+**Approval policy.**
+
+Workspace should use lightweight defaults with optional strictness.
+
+Default behavior:
+
+- Members can create and collaborate with minimal ceremony.
+- Important Plans go through review.
+- Work Records auto-approve after Recorder generation.
+- Epics require explicit approval before decomposition/work.
+
+Optional stricter settings:
+
+- restrict who can approve Plans
+- require Work Record review before retrieval
+- require ADR links for architectural Plans
+- require explicit approval before a Plan can enter Ready
+
+**Acceptance scenarios:**
+
+- Given a team using default policy, when members shape a Plan, they can collaborate without job-title roles while
+  important Plans and Epics receive their required review.
+- When a team enables stricter approval or Work Record review, those choices govern the relevant transition or retrieval
+  without redefining Core verification.
+- When a user opens team planning, they can move from an idea or PRD into a Plan or Epic and later discover the
+  resulting Work Record.
+
+### Team artifact privacy and authorship
+
+**Scope and maturity:** Later collaborative SaaS scope; owner-private conversation remains a product-wide principle.
+
+**Requirement: Share durable artifacts without sharing private working transcripts.**
+
+Workspace should persist durable artifacts, not raw planning conversation minutia.
+
+Requirements:
+
+- Plans, PRDs, ADRs, and Work Records are team-visible artifacts according to workspace permissions.
+- User/agent working conversations are private-first by default.
+- Individual chat messages should not be attached to Plans by default.
+- Code-review discussion, assignment, and approval state are collaboration process data. Workspace hosts them outside
+  the repository, as it does working conversations; only durable results — Plans, Work Records, and commits — enter the
+  repo.
+- Artifact metadata can store user and Agent authorship.
+- Details screens can show quiet metadata such as author, drafting Agent, approval mode, and source references.
+- Admin/debug session access may exist where policy allows.
+- Product analytics should be anonymized and aggregated for RunWield improvement unless users explicitly opt into
+  broader sharing.
+
+**Acceptance scenarios:**
+
+- Given a collaborator permitted to read a Plan, when they inspect its context, eligible artifacts and authorship are
+  visible but the author’s private working transcript is not.
+- When review discussion is saved, process data stays in Workspace; repository artifacts contain durable results, not
+  raw conversation or passive analytics content.
+
+### Team planning intelligence
+
+**Scope and maturity:** Later collaborative SaaS scope; distinct from Personal v1 human search.
+
+**Requirement: Retrieve trusted planning knowledge across permitted Projects.**
+
+The paid Workspace moat is shared cross-project planning intelligence.
+
+```text
+A trusted planning system where every material change has a reviewable intent, governed execution, independently verified outcome, and reusable record of what the team learned.
+```
+
+Workspace should extend Core's repo-local records with:
+
+- team-wide Work Record search
+- cross-project retrieval for new Plans
+- context packs for Ideator, Planner, and Architect
+- compression/deduplication of older records over time
+- answers to "what did we decide before?" across projects
+- filtering by project, area, Plan type, completion mode, and status
+
+This is a key reason to pay for Workspace. It should strengthen planning without reframing RunWield as hosted agent
+management. Organization-scale intelligence and optional external cross-repository search providers extend this later
+scope.
+
+**Acceptance scenarios:**
+
+- Given permitted current records across team Projects, when a Planner retrieves context, results retain provenance,
+  completion confidence, and applicable Project scope.
+- When older records are compressed or deduplicated, source Plans remain intact and the current guidance stays
+  distinguishable from historical material.
+
+### Team code review and delivery
+
+**Scope and maturity:** Later collaborative SaaS scope; owner-only review remains Personal v1.
+
+**Requirement: Preserve review responsibility and require shared checks before merge.**
+
+Teams adopting Workspace receive assignable human review with Agent assistance and a clear path from validated work to
+shared CI and merge. Required outcomes:
+
+- Human review defaults to Workspace. Discussion, assignment, and approval state stay outside the repository; only
+  durable results such as Plans, Work Records, and commits enter it.
+- Teams can explicitly select forge-hosted or Dual Review per repository, team, or instance. The gates do not
+  synchronize decisions or silently satisfy one another.
+- Workspace merges validated, approved work only after shared CI succeeds. Local checks remain a fast tier and never
+  replace shared CI. Publication uses a labeled Forge Change Request as the CI-and-merge envelope, preserving the actual
+  author, reviewer, and merger identities.
+- Approval counts, required checks, and self-merge policy have familiar forge-style meanings. GitHub sign-in and correct
+  person attribution are high-priority roadmap requirements; identity, audit, and review responsibility stay explicit.
+- Externally contributed work can become source material for a maintainer-owned Plan while preserving contributor and
+  maintainer provenance.
+
+**Shared requirements:** [Core execution and validation](runwield-core-prd.md#execution-validation-and-recovery) and
+[team planning and governance](#team-planning-and-governance). Independent hosted Projects, membership, and Project
+policy belong to team governance; broader search belongs to [team planning intelligence](#team-planning-intelligence).
+Hosted execution follows proven planning, workflow, isolation, and recovery.
+
+**Acceptance scenarios:**
+
+- Given validated work awaiting team delivery, when local checks pass but shared CI fails, Workspace must not merge it.
+- When a teammate is assigned review, assistance, decisions, and merge attribution preserve the author, reviewer, and
+  merger identities.
+- Given a repository explicitly using Dual Review, when one review gate changes, the other gate is not silently
+  synchronized or satisfied.
+- Given an external contribution, when a maintainer adopts it, the Plan and delivery preserve both contributor and
+  maintainer provenance.
+
+<a id="7-product-constraints-and-architectural-reference"></a>
+
+## Product Constraints and Architectural Reference
 
 - Local TUI and ACP use must remain available without starting Workspace or maintaining its registration database.
 - Workspace accesses only Projects the owner registered, and the owner can revoke device access.
@@ -422,9 +849,12 @@ Session storage, synchronization, and writer coordination are described in
 design must support. Internal lock phases, file layouts, and recovery algorithms belong in architecture and
 implementation records, not as additional user obligations.
 
-## 8. First-Version Acceptance Criteria
+<a id="8-first-version-acceptance-criteria"></a>
 
-Personal Remote Workspace v1 is complete only when one trusted developer can:
+## First-Version Acceptance Criteria
+
+This cross-capability journey proves that the independently described capabilities work together. Personal Remote
+Workspace v1 is complete only when one trusted developer can:
 
 1. Reach Workspace over a private network, pair a browser deliberately, list paired devices, and revoke one.
 2. Register at least two local Projects and verify Workspace cannot browse or search unregistered roots.
@@ -452,7 +882,9 @@ Personal Remote Workspace v1 is complete only when one trusted developer can:
 16. Receive an actionable attention signal for a required human interaction, return to the correct Session or Plan
     workflow. Pinning affects which work is easy to find; it does not change what the owner can do.
 
-## 9. Success Measures
+<a id="9-success-measures"></a>
+
+## Success Measures
 
 The first version succeeds when:
 
@@ -466,7 +898,9 @@ The first version succeeds when:
 - users can distinguish durable knowledge, private transcript history, main-checkout code, and Plan-worktree changes;
 - Workspace feels like a Plan/workflow product rather than an Agent fleet dashboard or browser IDE wrapper.
 
-## 10. Risks and Mitigations
+<a id="10-risks-and-mitigations"></a>
+
+## Risks and Mitigations
 
 | Risk                                                                  | Product mitigation                                                                                                                                        |
 | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -481,7 +915,9 @@ The first version succeeds when:
 | Workspace drifts into generic Agent management or noisy multitasking. | Organize around an attention-first queue, Projects, Sessions, and Plan workflows; keep Running Quietly secondary; do not add generic Tasks or Work Items. |
 | Personal architecture cannot evolve to SaaS.                          | Preserve independent Project access and a consistent Session experience so later team hosting can extend the product.                                     |
 
-## 11. Out of Scope for Personal Remote Workspace v1
+<a id="11-out-of-scope-for-personal-remote-workspace-v1"></a>
+
+## Out of Scope for Personal Remote Workspace v1
 
 - Public-internet exposure without a private network.
 - Team accounts, roles, organization membership, or shared-machine concurrency.
@@ -504,7 +940,9 @@ The first version succeeds when:
 - Hosted SaaS execution, billing, organization policy, or multi-tenant infrastructure.
 - Replacing Shared Plan capability links with Workspace device identity.
 
-## 12. Sequencing
+<a id="12-sequencing"></a>
+
+## Sequencing
 
 ### Current foundation
 
@@ -539,30 +977,14 @@ Telegram.
 
 ### Later: collaborative SaaS Workspace
 
-Extend the same concepts with:
+Deliver [team planning and governance](#team-planning-and-governance),
+[artifact privacy](#team-artifact-privacy-and-authorship), [team intelligence](#team-planning-intelligence), and
+[team review and delivery](#team-code-review-and-delivery). Hosted execution follows proven planning, workflow,
+isolation, and recovery.
 
-- independently hosted Projects;
-- team and organization membership;
-- Project-level authorization and policy;
-- collaborator-visible durable artifacts and review;
-- assignable human code review that replaces forge pull-request review by default, with Agents assisting reviewer and
-  author; review discussion, assignment, and approval state live in Workspace outside the repository, the same way
-  Sessions do, and only durable results (Plans, Work Records, commits) are committed;
-- a Workspace merge component that lands validated, approved work on the target branch only after shared CI is green;
-  publication uses a labeled Forge Change Request as the CI-and-merge envelope — review happens in Workspace, while the
-  request carries correct human identities (author, reviewer, merger) for attribution and policy;
-- a merge-gate policy model that mirrors the settings and defaults teams know from their forge — required approvals,
-  required checks, self-merge policy — so Workspace can replace branch protection without surprising semantics;
-- GitHub sign-in and actions attributed to the correct person, so teams can keep their existing accounts and review
-  responsibility remains clear; this is a high-priority roadmap item;
+<a id="13-proposed-domain-language"></a>
 
-- per-repository or per-team review policy: RunWield-native review by default, forge-hosted review, or Dual Review as
-  explicit opt-ins, with no state synchronization between gates;
-- organization-scale Workspace Intelligence;
-- optional external cross-repository search providers;
-- hosted execution only after planning, workflow, isolation, and recovery semantics are proven.
-
-## 13. Proposed Domain Language
+## Proposed Domain Language
 
 **Workspace Intelligence Search**: Deliberate retrieval over eligible durable artifacts across registered Projects,
 preserving source Project, artifact type, status, and freshness. _Avoid_: Public global search, Session Transcript
@@ -583,12 +1005,14 @@ _Avoid_: system of record for intent, review, or memory; required review gate
 These terms remain proposed until their respective capabilities ship. Workspace Intelligence Search does not itself
 establish the proposed Project Evidence Graph.
 
-## 14. References
+<a id="14-references"></a>
+
+## References
 
 - [RunWield Core PRD](./runwield-core-prd.md)
 - [Session Host and ACP PRD](./runwield-acp-protocol-prd.md)
 - [Cymbal multi-Project federation research](../research/cymbal-multiproject-search-federation.md)
-- [Core product requirements](./runwield-core-prd.md#4-current-local-workspace-surface)
+- [Shared Core Plan lifecycle](./runwield-core-prd.md#plan-lifecycle)
 - [Collaborative Planning PRD](./collaborative-planning-PRD.md)
 - [Forge Change Request Delivery PRD](./forge-change-request-delivery-prd.md)
 - [ADR-007: Local-First Workspace Plan Board](../adr/007-local-first-workspace-plan-board.md)

@@ -188,12 +188,15 @@ Deno.test("createUiApi keeps workflow tools as single custom blocks", () => {
     ui.startToolExecution("tool-1", "bash", "$ echo before");
     ui.startToolExecution("plan-1", "plan_written", "plan_written docs/plans/example.md");
     ui.startToolExecution("tool-2", "read", "read README.md");
+    const diff = ui.startToolExecution("diff-1", "review_diff", "review_diff README.md");
+    diff.endExecution(false, 1);
     ui.startToolExecution("triage-1", "triage_report", "triage_report FEATURE");
 
     const groups = messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionGroupBlock);
     assertEquals(groups.length, 2);
     assertEquals(groups[0].children.map((/** @type {any} */ child) => child.toolName), ["bash"]);
-    assertEquals(groups[1].children.map((/** @type {any} */ child) => child.toolName), ["read"]);
+    assertEquals(groups[1].children.map((/** @type {any} */ child) => child.toolName), ["read", "review_diff"]);
+    assertEquals(groups[1].expanded, false);
     assertEquals(
         messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionBlock).map(
             (/** @type {any} */ child) => child.toolName,

@@ -3,6 +3,13 @@
  * Prompt loop boundary for HostedSession-based interactive turns.
  */
 
+export {
+    getConfiguredAgentModel,
+    getConfiguredAgentThinkingLevel,
+    listPromptTemplates,
+    listSkills,
+} from "./session.js";
+
 import { AGENTS, SUBAGENTS } from "../../constants.js";
 import {
     readPersistedManualModelState,

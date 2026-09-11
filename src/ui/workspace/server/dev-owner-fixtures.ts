@@ -447,9 +447,27 @@ export function devOwnerSessionOptions() {
     return {
         defaults: { agentName: "router", provider: "fixture", model: "dev-model", thinkingLevel: "medium" },
         agents: [
-            { name: "router", displayName: "Router" },
-            { name: "engineer", displayName: "Engineer" },
-            { name: "planner", displayName: "Planner" },
+            {
+                name: "router",
+                displayName: "Router",
+                defaults: { provider: "fixture", model: "dev-model", thinkingLevel: "low" },
+            },
+            {
+                name: "engineer",
+                displayName: "Engineer",
+                defaults: { provider: "fixture", model: "dev-model", thinkingLevel: "medium" },
+            },
+            {
+                name: "planner",
+                displayName: "Planner",
+                defaults: { provider: "fixture", model: "dev-model", thinkingLevel: "high" },
+            },
+        ],
+        commands: [
+            { name: "agent", description: "Switch Agent", kind: "action" },
+            { name: "model", description: "Switch AI model", kind: "action" },
+            { name: "new", description: "Start a new Session", kind: "action" },
+            { name: "resume", description: "Resume a Session", kind: "action" },
         ],
         models: [
             { provider: "fixture", id: "dev-model", name: "Dev Model" },
