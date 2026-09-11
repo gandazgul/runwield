@@ -22,6 +22,11 @@ import { SYSTEM_SEMANTIC_REVIEW_PORT } from "../workflow/validation-session-adap
 import { settleWorkflowToolEvent } from "../workflow/workflow-tool-events.ts";
 import { createWorkRecordCompletedTool } from "../../tools/work-record-completed.ts";
 import { dedupeTicketReferencesByUrl } from "../ticket-references.js";
+import {
+    mergeRecorderDeviationText,
+    readPlanDeviations,
+    renderPlanDeviationsForWorkRecord,
+} from "../plan-deviations.ts";
 import { runPlanFrontMatterTransition } from "../workflow/state-transition.ts";
 import { buildWorkRecordFileName, deleteWorkRecord, listWorkRecords, writeWorkRecord } from "./store.js";
 import { syncWorkRecordToIndex } from "./index-adapter.js";
@@ -41,6 +46,7 @@ const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Va
  * @property {string} path
  * @property {string} planId
  * @property {import('../../plan-store.js').PlanFrontMatter} attrs
+ * @property {import('../plan-deviations.ts').PlanDeviation[]} [planDeviations]
  * @property {string} body
  * @property {string} markdown
  * @property {"planned_change"|"epic"} [scope]
@@ -298,6 +304,7 @@ export async function discoverWorkRecordSources(cwd) {
             path: loaded.path,
             planId: loaded.attrs.planId || "",
             attrs: loaded.attrs,
+            planDeviations: readPlanDeviations(loaded.attrs.planDeviations),
             body: loaded.body,
             markdown: loaded.markdown,
         });
@@ -318,6 +325,7 @@ export function buildActiveWorkRecordSource(name, loaded) {
         path: loaded.path,
         planId: loaded.attrs.planId || "",
         attrs: loaded.attrs,
+        planDeviations: readPlanDeviations(loaded.attrs.planDeviations),
         body: loaded.body,
         markdown: loaded.markdown,
     };
@@ -488,7 +496,7 @@ function buildRecorderPrompt(source, successorRecordId, settledSupersedes) {
     return JSON.stringify(
         {
             instruction:
-                "Generate a concise Work Record body draft and call work_record_completed with: title, summary, optional deviationsFromPlan, optional deferredWork, optional futurePlanningNotes, and optional supersessionProposals. supersessionProposals must be an array of {recordId, reason}; each recordId must be a plain UUID and each reason must be non-blank. settledSupersedes are already confirmed and must not be proposed again. Propose only other existing Work Records that this result appears to replace. Distill executionReport facts into the appropriate sections; RunWield will preserve the raw executionReport separately when present.",
+                "Generate a concise Work Record body draft and call work_record_completed with: title, summary, optional deviationsFromPlan, optional deferredWork, optional futurePlanningNotes, and optional supersessionProposals. source.planDeviations are already confirmed and RunWield will insert them deterministically under Deviations from Plan; do not repeat, omit, contradict, or reinterpret them. deviationsFromPlan is only for other meaningful retrospective deviations. supersessionProposals must be an array of {recordId, reason}; each recordId must be a plain UUID and each reason must be non-blank. settledSupersedes are already confirmed and must not be proposed again. Propose only other existing Work Records that this result appears to replace. Distill executionReport facts into the appropriate sections; RunWield will preserve the raw executionReport separately when present.",
             successorRecordId,
             settledSupersedes,
             source: {
@@ -502,12 +510,14 @@ function buildRecorderPrompt(source, successorRecordId, settledSupersedes) {
                 userVerifiedAt: source.attrs.userVerifiedAt,
                 executionReport: source.executionReport,
                 attrs: source.attrs,
+                planDeviations: aggregatePlanDeviations(source),
                 body: source.body,
                 children: (source.children || []).map((child) => ({
                     name: child.name,
                     path: child.relativePath,
                     status: child.attrs.status,
                     summary: child.attrs.summary,
+                    planDeviations: child.planDeviations || readPlanDeviations(child.attrs.planDeviations),
                 })),
             },
         },
@@ -628,6 +638,18 @@ export function aggregateWorkRecordTickets(source) {
     return dedupeTicketReferencesByUrl(source.attrs.tickets);
 }
 
+/** @param {WorkRecordSource} source */
+function aggregatePlanDeviations(source) {
+    const own = source.planDeviations || readPlanDeviations(source.attrs.planDeviations);
+    if (source.scope !== "epic") return own;
+    return [
+        ...own,
+        ...(source.children || [])
+            .sort(compareChildPlansByOrder)
+            .flatMap((child) => child.planDeviations || readPlanDeviations(child.attrs.planDeviations)),
+    ];
+}
+
 /**
  * Plans may require durable, deterministic statements in their Work Record.
  * The recorder can improve prose around them, but it cannot omit this section.
@@ -661,8 +683,13 @@ function buildBody(source, sections) {
         normalized.summary,
     ];
     sections = normalized;
-    if (nonEmptyString(sections.deviationsFromPlan)) {
-        lines.push("", "## Deviations from Plan", "", nonEmptyString(sections.deviationsFromPlan));
+    const confirmedDeviationText = renderPlanDeviationsForWorkRecord(aggregatePlanDeviations(source));
+    const deviationText = mergeRecorderDeviationText(
+        confirmedDeviationText,
+        nonEmptyString(sections.deviationsFromPlan),
+    );
+    if (nonEmptyString(deviationText)) {
+        lines.push("", "## Deviations from Plan", "", nonEmptyString(deviationText));
     }
     if (nonEmptyString(sections.deferredWork)) {
         lines.push("", "## Deferred Work", "", nonEmptyString(sections.deferredWork));

@@ -15,7 +15,8 @@
 
 import type { ContextEvent, ExtensionAPI, SessionCompactEvent } from "@earendil-works/pi-coding-agent";
 import { buildReAnchorMessage } from "../../shared/workflow/workflow-prompts.js";
-import { getStoredPlanPath, parsePlanFrontMatter } from "../../plan-store.js";
+import { projectEngineerPlanBody } from "../../shared/workflow/engineer-plan-projection.ts";
+import { getStoredPlanPath } from "../../plan-store.js";
 import { normalizeWorkflowPlanName } from "../../shared/session/workflow-context-session.js";
 import { normalizeLedger, renderOpenItems } from "../../shared/workflow/review-ledger.ts";
 import type { HostedSession } from "../../shared/session/hosted-session.js";
@@ -53,10 +54,10 @@ function resolveReAnchorContext(options: ReAnchorOptions): ReAnchorResolution {
 
     let planBody = "";
     if (planName && EXECUTION_AGENTS.has(options.agentName)) {
-        const projectRoot = activeWorkflow?.projectRoot || hostedSession?.cwd || "";
-        if (projectRoot) {
-            const markdown = Deno.readTextFileSync(getStoredPlanPath(projectRoot, planName));
-            planBody = parsePlanFrontMatter(markdown).body;
+        const executionCwd = activeWorkflow?.executionCwd || activeWorkflow?.projectRoot || hostedSession?.cwd || "";
+        if (executionCwd) {
+            const markdown = Deno.readTextFileSync(getStoredPlanPath(executionCwd, planName));
+            planBody = projectEngineerPlanBody(markdown);
         }
     }
 

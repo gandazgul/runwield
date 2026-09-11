@@ -140,6 +140,9 @@ function formatToolEventTitle(toolName, args) {
     } else if (toolName === "pair_checkpoint") {
         const summary = String(args?.summary || "").trim();
         headerArgs = summary.length > 60 ? summary.slice(0, 57) + "..." : summary;
+    } else if (toolName === "record_plan_deviation") {
+        const requirement = String(args?.supersededRequirement || "").trim();
+        headerArgs = requirement.length > 60 ? requirement.slice(0, 57) + "..." : requirement;
     } else if (toolName === "task_completed") {
         const message = args?.message || "";
         headerArgs = message.length > 60 ? message.slice(0, 57) + "..." : message;
