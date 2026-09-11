@@ -187,6 +187,9 @@ used or the process is cancelled.
 
 ## Personal owner Workspace
 
+For step-by-step setup, follow [Workspace on your computer and phone](workspace.md), including local startup, browser
+pairing, and Tailscale access.
+
 Persistent owner Workspace is the paired-device, multi-Project browser surface for personal remote use:
 
 ```bash
