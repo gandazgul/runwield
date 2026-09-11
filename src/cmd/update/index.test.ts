@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { dirname } from "@std/path";
 import { VERSION } from "../../shared/version.js";
+import { parseRunWieldReleaseVersion } from "../../shared/update-check.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { type InstallerProcessPort, type ProcessExitPort, runUpdateCommand, type UpdateNetworkPort } from "./index.ts";
 
@@ -83,27 +84,29 @@ async function assertRemoved(path: string): Promise<void> {
 }
 
 Deno.test("update downloads the pinned installer, writes a real temp script, executes it, and cleans up", async () => {
-    const network = createNetworkFixture(makeJsonResponse({ tag_name: "v999.0.0" }));
-    const installer = createInstallerFixture();
+    await withProcessGlobalTestLock(async () => {
+        const network = createNetworkFixture(makeJsonResponse({ tag_name: "v999.0.0" }));
+        const installer = createInstallerFixture();
 
-    const output = await captureConsole(() =>
-        runUpdateCommand([], {
-            networkPort: network.port,
-            installerPort: installer.port,
-            exitPort: createExitFixture().port,
-        })
-    );
+        const output = await captureConsole(() =>
+            runUpdateCommand([], {
+                networkPort: network.port,
+                installerPort: installer.port,
+                exitPort: createExitFixture().port,
+            })
+        );
 
-    assertEquals(network.urls, [
-        "https://api.github.com/repos/gandazgul/runwield/releases/latest",
-        "https://raw.githubusercontent.com/gandazgul/runwield/v999.0.0/install.sh",
-    ]);
-    assertEquals(installer.invocations.length, 1);
-    const invocation = installer.invocations[0];
-    assertEquals(invocation.script, "#!/usr/bin/env bash\n");
-    assertEquals(invocation.releaseTag, "v999.0.0");
-    assertStringIncludes(output.logs.join("\n"), "running from source");
-    await assertRemoved(dirname(invocation.scriptPath));
+        assertEquals(network.urls, [
+            "https://api.github.com/repos/gandazgul/runwield/releases/latest",
+            "https://raw.githubusercontent.com/gandazgul/runwield/v999.0.0/install.sh",
+        ]);
+        assertEquals(installer.invocations.length, 1);
+        const invocation = installer.invocations[0];
+        assertEquals(invocation.script, "#!/usr/bin/env bash\n");
+        assertEquals(invocation.releaseTag, "v999.0.0");
+        assertStringIncludes(output.logs.join("\n"), "running from source");
+        await assertRemoved(dirname(invocation.scriptPath));
+    });
 });
 
 Deno.test("update falls back to the GitHub web raw installer URL after raw.githubusercontent.com returns 403", async () => {
@@ -158,19 +161,21 @@ Deno.test("update passes the real WLD_INSTALL_DIR environment override to the in
 });
 
 Deno.test("update rejects arguments through the real usage formatter before external work", async () => {
-    const exits = createExitFixture();
-    const output = await captureConsole(() =>
-        runUpdateCommand(["extra"], {
-            networkPort: createNetworkFixture(makeJsonResponse({ tag_name: "v999.0.0" })).port,
-            installerPort: createInstallerFixture().port,
-            exitPort: exits.port,
-        })
-    );
+    await withProcessGlobalTestLock(async () => {
+        const exits = createExitFixture();
+        const output = await captureConsole(() =>
+            runUpdateCommand(["extra"], {
+                networkPort: createNetworkFixture(makeJsonResponse({ tag_name: "v999.0.0" })).port,
+                installerPort: createInstallerFixture().port,
+                exitPort: exits.port,
+            })
+        );
 
-    assertEquals(output.errors, [
-        "Usage: wld update [--rc | --to <tag>] [--downgrade] [--yes]\n       wld upgrade [--rc | --to <tag>] [--downgrade] [--yes]",
-    ]);
-    assertEquals(exits.codes, [1]);
+        assertEquals(output.errors, [
+            "Usage: wld update [--rc | --to <tag>] [--downgrade] [--yes]\n       wld upgrade [--rc | --to <tag>] [--downgrade] [--yes]",
+        ]);
+        assertEquals(exits.codes, [1]);
+    });
 });
 
 Deno.test("update installs latest RC only after confirmation", async () => {
@@ -246,23 +251,31 @@ Deno.test("update installs an exact stable tag without confirmation", async () =
     assertEquals(installer.invocations[0].releaseTag, "v999.1.0");
 });
 
-Deno.test("update refuses exact downgrade unless downgrade is explicit", async () => {
-    const installer = createInstallerFixture();
-    const exits = createExitFixture();
+Deno.test("update refuses exact downgrade only when the current build version is comparable", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const installer = createInstallerFixture();
+        const exits = createExitFixture();
 
-    const output = await captureConsole(() =>
-        runUpdateCommand(["--to", "v0.0.1"], {
-            networkPort: createNetworkFixture(makeJsonResponse({ tag_name: "v999.0.0" })).port,
-            installerPort: installer.port,
-            exitPort: exits.port,
-        })
-    );
+        const output = await captureConsole(() =>
+            runUpdateCommand(["--to", "v0.0.1"], {
+                networkPort: createNetworkFixture(makeJsonResponse({ tag_name: "v999.0.0" })).port,
+                installerPort: installer.port,
+                exitPort: exits.port,
+            })
+        );
 
-    assertEquals(output.errors, [
-        `RunWield update failed: Refusing to downgrade from ${VERSION} to v0.0.1 without --downgrade.`,
-    ]);
-    assertEquals(installer.invocations, []);
-    assertEquals(exits.codes, [1]);
+        if (parseRunWieldReleaseVersion(VERSION)) {
+            assertEquals(output.errors, [
+                `RunWield update failed: Refusing to downgrade from ${VERSION} to v0.0.1 without --downgrade.`,
+            ]);
+            assertEquals(installer.invocations, []);
+            assertEquals(exits.codes, [1]);
+        } else {
+            assertEquals(output.errors, []);
+            assertEquals(installer.invocations[0].releaseTag, "v0.0.1");
+            assertEquals(exits.codes, []);
+        }
+    });
 });
 
 Deno.test("update installs exact downgrade when it is explicit and confirmed", async () => {
@@ -311,36 +324,40 @@ Deno.test("update skips confirmation when yes is supplied for an RC", async () =
 });
 
 Deno.test("update cleans its real temp directory before forwarding installer failure", async () => {
-    const network = createNetworkFixture(makeJsonResponse({ tag_name: "v999.0.0" }));
-    const installer = createInstallerFixture(7);
-    const exits = createExitFixture();
+    await withProcessGlobalTestLock(async () => {
+        const network = createNetworkFixture(makeJsonResponse({ tag_name: "v999.0.0" }));
+        const installer = createInstallerFixture(7);
+        const exits = createExitFixture();
 
-    await captureConsole(() =>
-        runUpdateCommand([], {
-            networkPort: network.port,
-            installerPort: installer.port,
-            exitPort: exits.port,
-        })
-    );
+        await captureConsole(() =>
+            runUpdateCommand([], {
+                networkPort: network.port,
+                installerPort: installer.port,
+                exitPort: exits.port,
+            })
+        );
 
-    assertEquals(exits.codes, [7]);
-    await assertRemoved(dirname(installer.invocations[0].scriptPath));
+        assertEquals(exits.codes, [7]);
+        await assertRemoved(dirname(installer.invocations[0].scriptPath));
+    });
 });
 
 Deno.test("update reports release lookup failures without creating an installer process", async () => {
-    const network = createNetworkFixture(makeJsonResponse({}, 500));
-    const installer = createInstallerFixture();
-    const exits = createExitFixture();
+    await withProcessGlobalTestLock(async () => {
+        const network = createNetworkFixture(makeJsonResponse({}, 500));
+        const installer = createInstallerFixture();
+        const exits = createExitFixture();
 
-    const output = await captureConsole(() =>
-        runUpdateCommand([], {
-            networkPort: network.port,
-            installerPort: installer.port,
-            exitPort: exits.port,
-        })
-    );
+        const output = await captureConsole(() =>
+            runUpdateCommand([], {
+                networkPort: network.port,
+                installerPort: installer.port,
+                exitPort: exits.port,
+            })
+        );
 
-    assertEquals(output.errors, ["RunWield update failed: GitHub latest release request failed: 500"]);
-    assertEquals(installer.invocations, []);
-    assertEquals(exits.codes, [1]);
+        assertEquals(output.errors, ["RunWield update failed: GitHub latest release request failed: 500"]);
+        assertEquals(installer.invocations, []);
+        assertEquals(exits.codes, [1]);
+    });
 });
