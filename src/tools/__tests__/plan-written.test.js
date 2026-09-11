@@ -1,4 +1,4 @@
-import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertExists, assertMatch, assertStringIncludes } from "@std/assert";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { SESSION_COMPLETE_GUIDANCE } from "../../shared/workflow/plan-review-recovery.js";
@@ -376,6 +376,12 @@ Deno.test("plan_written compares a revised Plan with the first reviewed Plan", a
 
     const reviewRequests = interactionRequests.filter((request) => request.type === "plan_review");
     assertEquals(reviewRequests.length, 2);
+    const savedPlan = await loadPlan(cwd, "runtime-boundary");
+    assertExists(savedPlan);
+    assertEquals(reviewRequests[0]._meta.planId, savedPlan.attrs.planId);
+    assertEquals(reviewRequests[1]._meta.planId, savedPlan.attrs.planId);
+    assertEquals(typeof reviewRequests[0]._meta.expectedRevision, "string");
+    assertEquals(reviewRequests[0]._meta.expectedStatus, "approved");
     assertEquals(reviewRequests[0]._meta.previousPlan, undefined);
     assertEquals(reviewRequests[1]._meta.previousPlan, firstPlan);
     assertEquals(reviewRequests[0]._meta.planVersions.length, 1);
