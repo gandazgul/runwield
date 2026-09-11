@@ -7,7 +7,12 @@ import { __resetSettingsForTests } from "../../settings.js";
 import { loadAgentDef, resolveSessionToolNames } from "../agents.js";
 import { HostedSession } from "../hosted-session.js";
 import { loadSubAgentDefinition, REVIEWER_SUBAGENT_TOOLS } from "../subagent-definitions.ts";
-import { buildAgentSession, composeClaudeCliBridgedTools, resolveEffectiveSessionToolNames } from "../session.js";
+import {
+    buildAgentSession,
+    composeAgyCliBridgedTools,
+    composeClaudeCliBridgedTools,
+    resolveEffectiveSessionToolNames,
+} from "../session.js";
 import { createReviewDiffTool } from "../../workflow/review-diff-tool.js";
 import { startMcpToolPool } from "../../mcp/pool.ts";
 
@@ -271,6 +276,39 @@ Deno.test("set_session_name survives a narrowed runtime tool list", async () => 
 
     assertEquals(resolved.includes("read"), true);
     assertEquals(resolved.includes("set_session_name"), true);
+});
+
+Deno.test("Claude CLI and Agy CLI bridge the session name tool", async () => {
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-cli-session-name-tool-" });
+    const sessionManager = SessionManager.inMemory(tempHome);
+    const hostedSession = new HostedSession({
+        id: "cli-session-name-tool",
+        cwd: tempHome,
+        sessionManager: /** @type {never} */ (sessionManager),
+    });
+    const agentDef = await loadAgentDef(AGENTS.ENGINEER, REPO_ROOT);
+
+    try {
+        const claudeTools = await composeClaudeCliBridgedTools({
+            agentDef,
+            agentName: AGENTS.ENGINEER,
+            hostedSession,
+            triageMeta: undefined,
+            cwd: tempHome,
+        });
+        const agyTools = await composeAgyCliBridgedTools({
+            agentDef,
+            agentName: AGENTS.ENGINEER,
+            hostedSession,
+            triageMeta: undefined,
+            cwd: tempHome,
+        });
+
+        assertEquals(claudeTools.some((tool) => tool.name === "set_session_name"), true);
+        assertEquals(agyTools.some((tool) => tool.name === "set_session_name"), true);
+    } finally {
+        await removeTempDir(tempHome);
+    }
 });
 
 Deno.test("isolated Subagent definitions do not receive set_session_name", async () => {
