@@ -1,6 +1,7 @@
 import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import {
     appendPlanDeviation,
+    mergeRecorderDeviationText,
     normalizePlanDeviations,
     renderApprovedPlanDeviations,
     renderPlanDeviationsForWorkRecord,
@@ -111,4 +112,42 @@ Deno.test("Plan Deviation renderers state precedence and Work Record facts", () 
     assertStringIncludes(prompt, "Approved at: 2026-09-10T00:00:00.000Z");
     assertStringIncludes(record, "Superseded requirement: Replace nav.");
     assertEquals(record.includes("Approved at"), false);
+});
+
+Deno.test("Recorder deviation notes do not duplicate confirmed text", () => {
+    const confirmed = [
+        "1. Superseded requirement: Replace nav.",
+        "   Replacement requirement: Keep nav.",
+    ].join("\n");
+    const merged = mergeRecorderDeviationText(
+        confirmed,
+        `${confirmed}\n\n2. Superseded requirement: Use blue.\n   Replacement requirement: Use green.`,
+    );
+
+    assertEquals((merged.match(/Replace nav\./g) || []).length, 1);
+    assertStringIncludes(merged, "Additional Recorder notes:");
+    assertStringIncludes(merged, "Use green.");
+});
+
+Deno.test("Recorder deviation notes do not duplicate one confirmed entry mixed with new notes", () => {
+    const confirmed = [
+        "1. Superseded requirement: Replace nav.",
+        "   Replacement requirement: Keep nav.",
+        "2. Superseded requirement: Use blue.",
+        "   Replacement requirement: Use green.",
+    ].join("\n");
+    const merged = mergeRecorderDeviationText(
+        confirmed,
+        [
+            "1. Superseded requirement: Replace nav.",
+            "   Replacement requirement: Keep nav.",
+            "",
+            "Also changed the launch copy after user review.",
+        ].join("\n"),
+    );
+
+    assertEquals((merged.match(/Replace nav\./g) || []).length, 1);
+    assertStringIncludes(merged, "2. Superseded requirement: Use blue.");
+    assertStringIncludes(merged, "Additional Recorder notes:");
+    assertStringIncludes(merged, "Also changed the launch copy after user review.");
 });

@@ -367,10 +367,15 @@ and approves it or sends feedback. _Avoid_: AI code review, Plan Review Loop, Fo
 Reviewer re-verification. _Avoid_: Review log, durable Plan history, Work Record
 
 **Review Issue**: A blocking Semantic Code Review finding that shows the implementation fails an unambiguous approved
-Plan requirement and must be repaired before approval. _Avoid_: Review Advisory, style note, suggestion
+Plan requirement. It must be repaired, or resolved by a user-confirmed Plan Deviation that replaces the requirement,
+before approval. _Avoid_: Review Advisory, style note, suggestion
 
 **Review Advisory**: A non-blocking Semantic Code Review finding that explains an ambiguity in the approved Plan without
 preventing implementation approval. _Avoid_: Review Issue, warning, waived defect
+
+**Review Override**: A proposed one-delivery user decision to accept a specific Review Issue without changing the Plan
+requirement. It is not a Plan Deviation and does not become future Plan authority. _Avoid_: Plan Deviation, Review
+Advisory, permanent waiver
 
 **PRD**: An independent durable product-requirements artifact that may inform multiple Plans and Agent Sessions without
 participating in Plan Lifecycle. _Avoid_: Plan, Work Item, chat transcript
@@ -580,8 +585,8 @@ worktree Plan edit, lifecycle edit
 execution Agent proposes the superseded requirement, replacement requirement, and optional reason through
 `record_plan_deviation`; a typed user confirmation writes it to the authoritative execution Plan. Confirmed Plan
 Deviations supersede conflicting original Plan text for execution, Semantic Code Review, and Work Records. Ordinary Pair
-feedback, transcript text, metrics, and arbitrary Plan-file edits are not Plan Deviations. _Avoid_: automatic Plan
-Amendment, checkpoint feedback, review waiver, silent Plan edit
+feedback, transcript text, metrics, arbitrary Plan-file edits, and one-delivery Review Overrides are not Plan
+Deviations. _Avoid_: automatic Plan Amendment, checkpoint feedback, review waiver, silent Plan edit
 
 **Pair Execution**: A user-steered Plan execution style where Plan Engineer or Frontend Engineer delivers coherent
 observable increments and blocks at intentional feedback checkpoints. It is a collaboration style, not validation
@@ -773,7 +778,9 @@ continuation, database interaction record
   retrieval. Supersession does not change a Work Record's completion mode or remove its applicable confidence notices
   from explicit retrieval.
 - One implementation attempt has at most one temporary **Review Issue Ledger**.
-- A **Review Issue** blocks Semantic Code Review approval; a **Review Advisory** does not.
+- A **Review Issue** blocks Semantic Code Review approval until repaired or resolved by a confirmed Plan Deviation.
+- A **Review Advisory** does not block approval.
+- A proposed **Review Override** applies to one delivery only and does not change Plan authority.
 - Denied Plan review produces **Feedback**, and each response to Feedback produces one **Revision**.
 - A **PRD** may inform multiple Plans without participating in Plan Lifecycle.
 - A **Workspace** contains zero or more registered **Projects** and may host live Sessions across them.

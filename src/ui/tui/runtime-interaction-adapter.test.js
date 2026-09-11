@@ -117,6 +117,28 @@ Deno.test("TUI interaction adapter confirms Plan Deviations explicitly", async (
     ]);
 });
 
+Deno.test("TUI interaction adapter shows the full Plan Deviation confirmation prompt", async () => {
+    let prompt = "";
+    const tail = "This persistence warning must stay visible.";
+    const adapter = createTuiInteractionAdapter(
+        /** @type {any} */ ({
+            promptSelect: (/** @type {string} */ value) => {
+                prompt = value;
+                return Promise.resolve("confirm");
+            },
+            promptText: () => Promise.resolve(null),
+        }),
+    );
+
+    await adapter.requestInteraction({
+        type: "plan_deviation_confirmation",
+        prompt: `${"x".repeat(650)}\n${tail}`,
+    });
+
+    assertEquals(prompt.includes(tail), true);
+    assertEquals(prompt.endsWith("..."), false);
+});
+
 Deno.test("TUI interaction adapter returns canceled Plan Deviation confirmation", async () => {
     const adapter = createTuiInteractionAdapter(makeUi("cancel"));
 

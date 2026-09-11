@@ -108,7 +108,7 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
             if (request.type === RuntimeInteractionTypes.PLAN_DEVIATION_CONFIRMATION) {
                 const prompt = [
                     "Plan Deviation confirmation",
-                    formatPairPromptValue(request.prompt),
+                    typeof request.prompt === "string" ? request.prompt.trim() : "",
                 ].filter(Boolean).join("\n");
                 const options = request.options && request.options.length ? request.options : [
                     { value: "confirm", label: "Confirm Plan Deviation" },

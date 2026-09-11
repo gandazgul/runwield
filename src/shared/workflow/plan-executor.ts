@@ -26,6 +26,7 @@ import { buildExecutionSegmentContinuation } from "./execution-segment-handoff.t
 import { loadPlanActionEvidence, type PlanActionEvidence, type PlanWorktreeExpectation } from "./plan-actions.ts";
 import { runEngineerWithPlan, runEngineerWithSegmentHandoff } from "./engineer-runner.ts";
 import { resolvePlanExecutionRuntimeAgent } from "./execution-agent.ts";
+import { projectEngineerPlanBody } from "./engineer-plan-projection.ts";
 import { createExecutionStartPorts, startActiveExecutionWorkflow } from "./execution-start.ts";
 import { emitLaunchingExecutionAgent } from "./execution-preparation-progress.ts";
 import { findActiveByPlanName as findExecutionWorktreeByPlanName } from "../worktree-registry.js";
@@ -394,7 +395,7 @@ export async function executePlan({
     // PROJECT Epics are containers handled above; executable child planned-change plans use the normal single-plan execution path.
     const result = await executeSingleEngineerPlan({
         planName,
-        planBody: plan.body,
+        planBody: projectEngineerPlanBody(plan.markdown),
         approvedMarkdown: plan.markdown,
         approvalTriageMeta: _triageMeta,
         approvalEvidence,
@@ -579,7 +580,7 @@ export async function executeSingleEngineerPlan(
                 planName,
                 approvedRevision: approvalSnapshot.revision,
                 approvedStatus: approvalSnapshot.status,
-                approvedMarkdown: approvedMarkdown || planBody,
+                approvedMarkdown: approvedMarkdown ? projectEngineerPlanBody(approvedMarkdown) : planBody,
                 approvalFeedback: reviewFeedback,
                 approvalImages: reviewImages,
                 preparedEvidence: preparedEvidence.evidence,

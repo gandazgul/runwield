@@ -157,6 +157,29 @@ Deno.test("record_plan_deviation cancellation and unsupported capability do not 
     });
 });
 
+Deno.test("record_plan_deviation writes nothing when Pair execution stops after confirmation", async () => {
+    await withTempProject(async (projectRoot) => {
+        await makePlan(projectRoot);
+        const fixture = makeSession(projectRoot, [{ outcome: "accepted", value: true }]);
+        fixture.session.setInteractionAdapter({
+            supportsInteraction: (type) => type === "plan_deviation_confirmation",
+            requestInteraction: (request) => {
+                fixture.requests.push(request);
+                const workflow = fixture.session.getActiveExecutionWorkflow();
+                if (workflow) fixture.session.setActiveExecutionWorkflow({ ...workflow, pairStopRequested: true });
+                return Promise.resolve({ outcome: "accepted", value: true });
+            },
+        });
+
+        const result = await executeDeviation(createPlanDeviationTool({ hostedSession: fixture.session }), "call-stop");
+        const after = await loadPlan(projectRoot, "demo-plan");
+        if (!after) throw new Error("Plan disappeared.");
+
+        assertEquals(result.details, { decision: "stale", reason: "execution_context_changed" });
+        assertEquals(after.attrs.planDeviations, undefined);
+    });
+});
+
 Deno.test("record_plan_deviation stale revision writes nothing", async () => {
     await withTempProject(async (projectRoot) => {
         await makePlan(projectRoot);
