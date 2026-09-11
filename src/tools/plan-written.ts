@@ -565,7 +565,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 return recordWorkflowMetric(metric, cwd);
             }
 
-            const initialReviewEvidence = await loadPlanActionEvidence(cwd, planName);
+            const initialReviewEvidence = await loadPlanActionEvidence(cwd, String(effectiveMeta.planId || ""));
             const canonicalReviewEvidence = initialReviewEvidence.kind === "success"
                 ? initialReviewEvidence.evidence
                 : null;
@@ -617,7 +617,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                             prompt: `Review plan "${planName}"`,
                             _meta: {
                                 cwd,
-                                planId: canonicalReviewEvidence?.planId || planName,
+                                planId: canonicalReviewEvidence?.planId || effectiveMeta.planId,
                                 planName: canonicalReviewEvidence?.planName || planName,
                                 planPath,
                                 sequenceDocuments,
