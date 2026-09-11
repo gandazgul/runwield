@@ -15,6 +15,7 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-11"
 status: "draft"
+planId: "363848da-a5f1-469e-8da0-b06ed9a89da5"
 ---
 
 # Skippable Onboarding Tutorial
