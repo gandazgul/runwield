@@ -17,14 +17,14 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-11"
-status: "ready_for_work"
+status: "validated"
 origin: "internal"
 parentPlan: "package-manager-distribution"
 order: 1
 dependencies:
     []
 userVerifiedAt: null
-userVerificationNote: null
+targetBranch: "main"
 ---
 
 # Prepare the RunWield and Mnemoteca Homebrew Tap
