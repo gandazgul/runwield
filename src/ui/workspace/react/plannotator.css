@@ -910,6 +910,15 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     margin-bottom: 0 !important;
 }
 
+.rw-review-all-files-host .overflow-y-auto > div > div[style*="flex-direction: column"] {
+    gap: 1rem !important;
+}
+
+.rw-review-all-files-host .flex-shrink-0[style*="--panel-header-h"] {
+    box-sizing: border-box !important;
+    padding-block: 0.25rem !important;
+}
+
 /* CodeView centers its sticky render window when the complete accordion is
    shorter than the viewport. In that state virtualization is unnecessary, and
    the centering creates empty space above the first file. Keep the override

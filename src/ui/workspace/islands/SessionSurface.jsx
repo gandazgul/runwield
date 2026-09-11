@@ -248,14 +248,17 @@ export function shouldRefreshSessionAvailability(input) {
  * @typedef {{ activeModel?: SessionModelState | null, model?: string, provider?: string }} SessionModelSnapshot
  */
 
-/** @param {SessionModelSnapshot | undefined | null} snapshot */
+/** @typedef {{ planId?: string, planName?: string }} SessionPlanContext */
+/** @typedef {{ workflowContext?: SessionPlanContext, activeExecutionWorkflow?: SessionPlanContext, planAssociations?: SessionPlanContext[] }} SessionPlanSnapshot */
+
+/** @param {SessionPlanSnapshot | undefined | null} snapshot */
 export function activePlanId(snapshot) {
-    const context = asRecord(snapshot?.workflowContext || snapshot?.activeExecutionWorkflow || {});
-    return typeof context.planId === "string" && context.planId.trim()
-        ? context.planId.trim()
-        : typeof context.planName === "string" && context.planName.trim()
-        ? context.planName.trim()
-        : "";
+    const contexts = [snapshot?.activeExecutionWorkflow, snapshot?.workflowContext];
+    const identified = contexts.find((context) => context?.planId?.trim());
+    if (identified) return identified.planId.trim();
+    const planName = contexts.find((context) => context?.planName?.trim())?.planName?.trim();
+    if (!planName) return "";
+    return snapshot?.planAssociations?.findLast((association) => association.planName === planName)?.planId || "";
 }
 
 export function activePlanProgressUrl(projectId, runwieldSessionId, snapshot) {

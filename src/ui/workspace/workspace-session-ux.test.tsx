@@ -319,6 +319,19 @@ Deno.test("Session workflow sidebar uses canonical progress stages", async () =>
         "/api/owner/projects/project-1/plans/plan-demo/progress?session=session-1",
     );
     assertEquals(
+        activePlanProgressApiUrl("project-1", "session-1", {
+            workflowContext: { planName: "readme-wording" },
+            planAssociations: [{ planName: "readme-wording", planId: "plan-demo" }],
+        }),
+        "/api/owner/projects/project-1/plans/plan-demo/progress?session=session-1",
+    );
+    assertEquals(
+        activePlanProgressApiUrl("project-1", "session-1", {
+            workflowContext: { planName: "readme-wording" },
+        }),
+        "",
+    );
+    assertEquals(
         deriveWorkflowSidebarStages({
             stages: [
                 { id: "execution", label: "Execution", state: "passed", detail: "Implementation reached validation." },

@@ -1,4 +1,5 @@
-import { findPlanEvidenceById } from "../../../plan-store.js";
+import { findPlanEvidenceById, normalizeDeliveryEvidence } from "../../../plan-store.js";
+import { isCommitPublishedToTarget } from "../../../shared/isolated-publication.ts";
 import { findByPlanId, type WorktreeRegistryEntry } from "../../../shared/worktree-registry.js";
 import {
     isValidationCheckpoint,
@@ -195,8 +196,8 @@ function failureMessage(status: string, registry: WorktreeRegistryEntry | null) 
     return "Progress needs attention.";
 }
 
-function deriveStages(evidence: PlanEvidence, registry: WorktreeRegistryEntry | null) {
-    const status = text(evidence.attrs.status, "draft");
+function deriveStages(evidence: PlanEvidence, registry: WorktreeRegistryEntry | null, published = false) {
+    const status = published ? "validated" : text(evidence.attrs.status, "draft");
     const updatedAt = text(evidence.attrs.updatedAt) || text(evidence.attrs.verifiedAt) || registry?.updatedAt || null;
     const checkpoint = checkpointFrom(evidence.attrs);
     const checkpointActive = registry && checkpoint
@@ -250,7 +251,7 @@ function deriveStages(evidence: PlanEvidence, registry: WorktreeRegistryEntry | 
             updatedAt,
         );
     }
-    if (status === "verified") {
+    if (status === "verified" || published) {
         stages[4] = stage("delivery", "Delivery", "completed", "Delivery is complete.", updatedAt);
         stages[5] = stage("completion", "Completion", "completed", "The Plan is complete.", updatedAt);
     }
@@ -387,10 +388,6 @@ async function sessionProjection(store: OwnerStore, projectId: string, planId: s
                     current: segment.ordinal === currentOrdinal,
                 };
             });
-            const workflowContext = projection.snapshot.workflowContext;
-            if (workflowContext && !JSON.stringify(workflowContext).includes(planId)) {
-                throw new Error("Session is not associated with this Plan.");
-            }
         }
     }
     const activation = inspected.activation;
@@ -417,9 +414,18 @@ export async function loadOwnerPlanProgress(
     if (text(primary.attrs.classification) === "PROJECT") throw new Error("Epic progress is not available.");
     let registry: WorktreeRegistryEntry | null = null;
     let authoritative = primary;
+    let published = false;
     try {
         registry = await findByPlanId(projectRoot, primary.planId);
         if (registry?.path) authoritative = await findPlanEvidenceById(registry.path, primary.planId) as PlanEvidence;
+        const delivery = normalizeDeliveryEvidence(authoritative.attrs.deliveryEvidence);
+        if (!registry && delivery?.mode === "worktree_merge") {
+            published = await isCommitPublishedToTarget({
+                projectRoot,
+                targetBranch: delivery.targetBranch,
+                commit: delivery.executionCommit,
+            });
+        }
     } catch (error) {
         return degraded(
             options.projectId,
@@ -428,7 +434,7 @@ export async function loadOwnerPlanProgress(
             error instanceof Error ? error.message : String(error),
         );
     }
-    const derived = deriveStages(authoritative, registry);
+    const derived = deriveStages(authoritative, registry, published);
     const session = await sessionProjection(store, options.projectId, primary.planId, options.runwieldSessionId || "");
     const settled = derived.overallState === "completed" || derived.overallState === "needs_attention" ||
         derived.overallState === "paused";
@@ -440,7 +446,7 @@ export async function loadOwnerPlanProgress(
             planId: primary.planId,
             planName: primary.planName,
             title: planTitle(authoritative),
-            status: text(authoritative.attrs.status, "draft"),
+            status: published ? "validated" : text(authoritative.attrs.status, "draft"),
             classification: text(primary.attrs.classification, "PLANNED_CHANGE"),
             executionAgent: text(primary.attrs.executionAgent) || null,
             updatedAt: derived.updatedAt,

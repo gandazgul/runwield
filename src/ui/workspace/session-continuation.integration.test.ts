@@ -363,6 +363,7 @@ Deno.test("Workspace continuation publishes once and a TUI observer resumes from
 
                 const completed = await waitForOperation(service, started.operationId);
                 assertEquals(completed.status, "completed", JSON.stringify(completed));
+                assertEquals(completed.runwieldSessionId, fixture.session.runwieldSessionId);
                 assertEquals(fixture.modelRequests.length, 1);
 
                 const observedGeneration =
@@ -376,6 +377,7 @@ Deno.test("Workspace continuation publishes once and a TUI observer resumes from
                 try {
                     const recovered = restartedService.getOperation(started.operationId);
                     assertEquals(recovered.status, "completed");
+                    assertEquals(recovered.runwieldSessionId, fixture.session.runwieldSessionId);
                 } finally {
                     restartedService.close();
                     restartedService.store.close();

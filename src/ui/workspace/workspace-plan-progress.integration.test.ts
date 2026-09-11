@@ -5,6 +5,11 @@ import { addEntry, getWorktreeRegistryPath } from "../../shared/worktree-registr
 import { createPublicationAttempt, recordPublicationFailure } from "../../shared/workflow/publication-attempt.ts";
 import { makeValidationCheckpoint } from "../../shared/workflow/validation-checkpoint.ts";
 import { loadOwnerPlanProgress } from "./server/owner-plan-progress.ts";
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { makeManagedSessionFixture, readTranscriptEvidence } from "../../testing/managed-session-fixture.ts";
+import { defineCommittedGitFixture, git } from "../../shared/git-test-fixture.ts";
+
+const publicationFixture = defineCommittedGitFixture({ "README.md": "Before publication\n" });
 
 type StoreProject = { currentRoot: string };
 type StoreSession = { runwieldSessionId: string; projectId: string; displayName: string; transcriptCwd: string };
@@ -37,6 +42,103 @@ async function readIfExists(path: string) {
         return "";
     }
 }
+
+Deno.test("Workspace progress recognizes publication with an unchanged local checkout and no worktree", async () => {
+    const projectRoot = await publicationFixture.checkout();
+    const remoteRoot = await Deno.makeTempDir({ prefix: "workspace-progress-upstream-" });
+    try {
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+        await git(projectRoot, ["push", "-u", "origin", "main"]);
+        const originalHead = await git(projectRoot, ["rev-parse", "HEAD"]);
+        await git(projectRoot, ["switch", "-c", "candidate"]);
+        await Deno.writeTextFile(`${projectRoot}/README.md`, "Published wording\n");
+        await git(projectRoot, ["commit", "-am", "Update wording"]);
+        const candidate = await git(projectRoot, ["rev-parse", "HEAD"]);
+        await git(projectRoot, ["switch", "main"]);
+        await savePlan(projectRoot, "wording", "# Wording", {
+            planId: "wording-id",
+            classification: "PLANNED_CHANGE",
+            status: "ready_for_work",
+            validatedAt: "2026-09-10T20:00:00.000Z",
+            deliveryEvidence: {
+                version: 1,
+                mode: "worktree_merge",
+                executionCommit: candidate,
+                targetBranch: "main",
+                targetHeadBeforeMerge: originalHead,
+            },
+        });
+        const options = { projectId: "project-1", planId: "wording-id" };
+        const before = await loadOwnerPlanProgress(makeStore(projectRoot), options);
+        assertEquals(before.overall.settled, false);
+        const planPath = `${projectRoot}/docs/plans/wording.md`;
+        const originalPlan = await Deno.readTextFile(planPath);
+        await git(projectRoot, ["push", "origin", "candidate:main"]);
+
+        const after = await loadOwnerPlanProgress(makeStore(projectRoot), options);
+        assertEquals(after.overall.state, "completed");
+        assertEquals(after.overall.settled, true);
+        assertEquals(after.plan.status, "validated");
+        assertEquals(after.stages.find((stage) => stage.id === "delivery")?.state, "completed");
+        assertEquals(after.stages.find((stage) => stage.id === "mechanical")?.state, "passed");
+        assertEquals(await git(projectRoot, ["rev-parse", "HEAD"]), originalHead);
+        assertEquals(await Deno.readTextFile(`${projectRoot}/README.md`), "Before publication\n");
+        assertEquals(await Deno.readTextFile(planPath), originalPlan);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(remoteRoot, { recursive: true });
+    }
+});
+
+Deno.test("Workspace progress accepts a Session whose workflow stores the Plan name", async () => {
+    await withRuntimeCommandFixture("workspace-progress-session-", async ({ homeDir, projectRoot }) => {
+        const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+        try {
+            await savePlan(projectRoot, "readme-wording", "# README wording", {
+                planId: "readme-plan-id",
+                classification: "PLANNED_CHANGE",
+                status: "approved",
+            });
+            let proof = fixture.store.acquireSessionActivation({
+                runwieldSessionId: fixture.session.runwieldSessionId,
+                projectId: fixture.project.projectId,
+                ownerInstanceId: "progress-fixture",
+                ownerProcessKind: "test",
+                expectedGeneration: 0,
+                phase: "bootstrap",
+            });
+            await Deno.writeTextFile(
+                fixture.transcriptPath,
+                JSON.stringify({
+                    type: "custom",
+                    id: "workflow-context",
+                    parentId: "entry-assistant",
+                    timestamp: "2026-01-01T00:00:01.000Z",
+                    customType: "runwield.workflow_context",
+                    data: { planName: "readme-wording", routingIntent: "PLANNED_CHANGE" },
+                }) + "\n",
+                { append: true },
+            );
+            proof = fixture.store.changeSessionActivationPhase(proof, "checkpointing");
+            fixture.store.publishGenerationAndRelease(proof, {
+                generation: 1,
+                currentSegmentId: fixture.store.getCurrentSessionSegment(fixture.session.runwieldSessionId).segmentId,
+                ...await readTranscriptEvidence(fixture.transcriptPath),
+            });
+            const progress = await loadOwnerPlanProgress(fixture.store, {
+                projectId: fixture.project.projectId,
+                planId: "readme-plan-id",
+                runwieldSessionId: fixture.session.runwieldSessionId,
+            });
+            assertEquals(progress.ok, true);
+            assertEquals(progress.plan.planId, "readme-plan-id");
+            assertEquals(progress.session?.projectionState, "ok");
+        } finally {
+            await fixture.cleanup();
+        }
+    });
+});
 
 Deno.test("Workspace progress uses the authoritative execution Plan and never mutates workflow state", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-progress-" });

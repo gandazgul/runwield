@@ -40,6 +40,7 @@ try {
 const reviewPayload = plan && liveReview
     ? {
         mode: "workspace",
+        csrfToken: Astro.cookies.get("rw_owner_csrf")?.value || "",
         sequenceDocuments: liveReview.request?.planReview?.sequenceDocuments,
         plan: plan.markdown || plan.body || "",
         previousPlan: liveReview.request?.planReview?.previousPlan || undefined,
