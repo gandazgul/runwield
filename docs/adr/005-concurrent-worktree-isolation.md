@@ -38,9 +38,12 @@ The summary shown in lists is derived from the Plan's Context section. It is not
 Runtime fields may appear in an in-memory joined Plan view for consumers, but saving Markdown does not serialize them.
 The joined view does not make Front Matter another owner of registry state.
 
-Before execution, the project Plan is the editable document. Once the execution worktree is materialized, its Plan is
-authoritative. The primary copy may remain stale, missing, malformed, or dirty from unrelated user work. RunWield does
-not mirror status or execution metadata into that copy and does not require it to agree with the execution document.
+Before execution, the project Plan is the editable document. For a targeted Epic child, RunWield can first create a
+planning worktree from the current target branch. That worktree owns the selected child document during planning, but it
+is not active execution and does not make the Plan `in_progress`. Once execution starts, the same worktree is promoted
+and its Plan is authoritative. The primary copy may remain stale, missing, malformed, or dirty from unrelated user work.
+RunWield does not mirror status or execution metadata into that copy and does not require it to agree with the selected
+document.
 
 Document operations lock and update the selected document. Registry operations resolve the primary project's shared
 runtime directory even when called from a linked worktree. Callers must distinguish the document directory, execution
@@ -65,15 +68,17 @@ publication first. Stale primary copies with the same Plan ID remain hidden afte
 
 ### Lifecycle
 
-1. **Prepare:** resolve the approved Plan and target branch; create a unique attempt or resume the controller's live
-   attempt. Materialize the Plan and record its baseline in the registry before starting implementation.
-2. **Execute:** agents, editing tools, checks, diffs, and repair sessions use the explicit execution directory. RunWield
+1. **Plan child work:** when a targeted Epic child is opened for planning, resolve the latest target branch, create or
+   reuse one planning worktree, and bind Planner tools to that directory. This records document ownership only.
+2. **Prepare execution:** after approval, promote that planning worktree or create a new execution worktree for ordinary
+   Plans. Materialize the Plan and record the execution baseline before implementation starts.
+3. **Execute:** agents, editing tools, checks, diffs, and repair sessions use the explicit execution directory. RunWield
    does not change the process working directory to route an operation.
-3. **Checkpoint:** commit implementation changes, excluding RunWield runtime files. Record `implemented` in the
+4. **Checkpoint:** commit implementation changes, excluding RunWield runtime files. Record `implemented` in the
    execution Plan and `completed` for the attempt. A failed checkpoint leaves the attempt recoverable.
-4. **Validate:** run CI and review against that execution. Store retry/repair progress in the controller, not Markdown.
+5. **Validate:** run CI and review against that execution. Store retry/repair progress in the controller, not Markdown.
    Successful validation leaves the Plan at `validated`; publication is a separate operation.
-5. **Publish:** follow ADR-016. Commit the final Plan and Work Record, assemble the target integration in a separate
+6. **Publish:** follow ADR-016. Commit the final Plan and Work Record, assemble the target integration in a separate
    publication checkout, push with a lease, verify the target, then clean up. The Plan does not gain a `published`
    status or get rewritten after publication.
 

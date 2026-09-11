@@ -137,7 +137,9 @@ workflow state, not just a generated note.
 
 PROJECT plans are Epic containers by default. Loading an approved or decomposing Epic opens the interactive Slicer so
 you can discuss child FEATURE boundaries and materialize drafts under `docs/plans/<epic-name>/`. Once decomposition is
-finalized, loading the Epic offers child FEATURE selection; loading a child FEATURE runs the normal FEATURE review,
+finalized, loading the Epic offers child FEATURE selection. For an Epic that targets another branch, child selection and
+child planning read that target branch. RunWield creates or reuses a per-child planning worktree before Planner starts.
+Your current checkout does not need to switch branches. Loading a child FEATURE then runs the normal FEATURE review,
 execution, validation, and recovery flow.
 
 After a child FEATURE verifies, RunWield automatically continues the active Epic in strict child order. Verification now

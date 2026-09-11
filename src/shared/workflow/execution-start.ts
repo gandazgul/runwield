@@ -23,6 +23,7 @@ import {
 } from "../worktree.js";
 import {
     findById as findWorktreeRegistryEntryById,
+    listEntries as listWorktreeRegistryEntries,
     pruneEntry as pruneWorktreeRegistryEntry,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
@@ -361,7 +362,7 @@ export async function startActiveExecutionWorkflow(
             cachedWorkflow.worktreeId === triageMeta.worktreeId
         ? cachedWorkflow
         : null;
-    const reusable = !startsFresh && (currentStatus === "in_progress" || hasRecordedWorktree)
+    const activeReusable = !startsFresh && (currentStatus === "in_progress" || hasRecordedWorktree)
         ? await findReusable({
             projectRoot,
             planName,
@@ -369,6 +370,12 @@ export async function startActiveExecutionWorkflow(
             worktreeId: triageMeta.worktreeId || undefined,
         })
         : null;
+    const planningReusable = !startsFresh && !activeReusable
+        ? (await listWorktreeRegistryEntries(projectRoot)).find((entry) =>
+            entry.planId === stablePlanId && entry.planName === planName && entry.status === "planning"
+        ) || null
+        : null;
+    const reusable = activeReusable || planningReusable;
     if (reusable) {
         const requestedTarget = targetBranch
             ? await resolveTarget(projectRoot, targetBranch)
@@ -519,7 +526,7 @@ export async function startActiveExecutionWorkflow(
                     baseRef: worktreeArtifacts.baseRef,
                     baseCommit: worktreeArtifacts.baseCommit,
                 });
-                registerRollback("remove_clean_created_worktree", async () => {
+                registerRollback("remove_clean_created_worktree_and_registry_entry", async () => {
                     await removeWorktreeGitArtifacts({
                         projectRoot,
                         path: worktreeArtifacts.path,
@@ -537,6 +544,7 @@ export async function startActiveExecutionWorkflow(
                             ownedPreparationCommit: preparationCommit,
                         });
                     }
+                    await pruneWorktreeRegistryEntry(projectRoot, worktreeArtifacts.id);
                 });
                 worktree = await settleWorktreeAttempt(projectRoot, {
                     ...worktreeArtifacts,
@@ -548,9 +556,6 @@ export async function startActiveExecutionWorkflow(
                     path: worktree.path,
                     branch: worktree.branch,
                     status: worktree.status,
-                });
-                registerRollback("remove_created_registry_entry", async () => {
-                    await pruneWorktreeRegistryEntry(projectRoot, worktree.id);
                 });
             }
             const worktreeBaseBranch = worktree.baseBranch === "HEAD" ? undefined : worktree.baseBranch;
@@ -645,6 +650,14 @@ export async function startActiveExecutionWorkflow(
                     : undefined,
             };
             if (worktree.id) {
+                if (reusable?.status === "planning") {
+                    registerRollback("restore_planning_registry_entry", async () => {
+                        await updateWorktreeRegistryEntry(projectRoot, worktree.id, {
+                            status: "planning",
+                            executionBaselineTree: undefined,
+                        });
+                    });
+                }
                 await updateWorktreeRegistryEntry(projectRoot, worktree.id, {
                     status: "active",
                     executionBaselineTree: baselineTree,

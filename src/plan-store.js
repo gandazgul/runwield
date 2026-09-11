@@ -27,6 +27,7 @@ import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-fron
 import { normalizeTicketReferences } from "./shared/ticket-references.js";
 import { normalizePlanDeviations } from "./shared/plan-deviations.ts";
 import { resolveWorkflowPlanLocation } from "./shared/workflow/plan-location.ts";
+import { findTargetBranchPlansByParent } from "./shared/workflow/planning-worktree.ts";
 import { renameRestoredPlanEntry } from "./shared/worktree-registry.js";
 import { resolvePrimaryCheckoutRoot } from "./shared/primary-checkout.ts";
 import { writePlanDocumentAndController } from "./shared/workflow/state-transition.ts";
@@ -858,6 +859,7 @@ function normalizePlanStatusForOptionalHold(status) {
 function normalizeWorktreeStatus(status) {
     const allowed = new Set([
         "none",
+        "planning",
         "active",
         "completed",
         "execution_failed",
@@ -2706,6 +2708,37 @@ export async function listPlans(cwd) {
         await collectPlans(dir, [], results, parseIssues);
     } catch (error) {
         if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+    for (const projectPlan of [...results]) {
+        const targetBranch = typeof projectPlan.attrs.targetBranch === "string"
+            ? projectPlan.attrs.targetBranch.trim()
+            : "";
+        if (!targetBranch || !isProjectPlan(projectPlan.attrs)) continue;
+        let targetChildren;
+        try {
+            targetChildren = await findTargetBranchPlansByParent(cwd, targetBranch, projectPlan.name);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (
+                message.includes("Target branch does not exist") ||
+                message.includes("Could not refresh target branch")
+            ) continue;
+            throw error;
+        }
+        for (const child of targetChildren) {
+            const index = results.findIndex((item) =>
+                item.name === child.name || Boolean(child.attrs.planId && item.attrs.planId === child.attrs.planId)
+            );
+            if (
+                index >= 0 && results[index].name === child.name && results[index].attrs.planId && child.attrs.planId &&
+                results[index].attrs.planId !== child.attrs.planId
+            ) {
+                throw new Error(`Target Plan ${child.name} has a different Plan ID. Your files have not been changed.`);
+            }
+            const item = { name: child.name, path: child.path, attrs: child.attrs };
+            if (index < 0) results.push(item);
+            else results[index] = item;
+        }
     }
     const attempts = await listControllerDocumentWorktrees(cwd);
     for (const attempt of attempts) {

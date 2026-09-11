@@ -75,6 +75,7 @@ export type WorkflowWorktreeContext = {
     worktreeBaseBranch?: string | null;
     worktreeStatus?:
         | "none"
+        | "planning"
         | "active"
         | "completed"
         | "execution_failed"

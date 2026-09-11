@@ -2,7 +2,9 @@
 import { canonicalizeStoredPlanName, loadPlan } from "../../plan-store.js";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { findActiveByPlanName } from "../worktree-registry.js";
+import { isGitRepository } from "../git.js";
 import { listControllerDocumentWorktrees } from "./controller-registry.ts";
+import { findTargetBranchPlan, preparePlanningWorktreeForPlan } from "./planning-worktree.ts";
 import {
     executionWorktreePathExists,
     type MissingExecutionWorktreeRecovery,
@@ -14,6 +16,12 @@ export type { MissingExecutionWorktreeRecovery } from "./execution-worktree-resc
 
 interface ResolveWorkflowPlanLocationOptions {
     migrateRegistry?: boolean;
+}
+
+function inferParentPlanName(planName: string): string {
+    const segments = planName.split("/");
+    segments.pop();
+    return segments.join("/");
 }
 
 export async function resolveWorkflowPlanLocation(
@@ -46,20 +54,20 @@ export async function resolveWorkflowPlanLocation(
                 "Your branch and other files are unchanged. Restore that Plan file from Git history or a backup before continuing; the primary copy will not be used.",
         );
     } else {
-        // Reopening retires an execution attempt, not its reviewed document. Keep
-        // that document available across restarts without reviving its branch ID.
-        const retired = (await listControllerDocumentWorktrees(registryRoot))
-            .find((entry) => entry.planName === planName && entry.status === "abandoned");
-        if (retired) {
-            const plan = await loadPlan(retired.path, planName);
+        // Planning and reopened documents are document authorities too. They do
+        // not supply execution identity, but primary cannot shadow them.
+        const registered = (await listControllerDocumentWorktrees(registryRoot))
+            .find((entry) => entry.planName === planName);
+        if (registered) {
+            const plan = await loadPlan(registered.path, planName);
             if (
-                plan && (!retired.planId || plan.attrs.planId === retired.planId)
-            ) return { registryRoot, documentRoot: retired.path, plan };
-            if (await loadPlan(retired.path, `archived/${planName}`)) {
-                return { registryRoot, documentRoot: retired.path, plan: null, archived: true };
+                plan && (!registered.planId || plan.attrs.planId === registered.planId)
+            ) return { registryRoot, documentRoot: registered.path, plan };
+            if (await loadPlan(registered.path, `archived/${planName}`)) {
+                return { registryRoot, documentRoot: registered.path, plan: null, archived: true };
             }
             throw new Error(
-                `The reopened Plan is missing or has a different identity at ${retired.path}/docs/plans/${planName}.md. ` +
+                `The registered Plan is missing or has a different identity at ${registered.path}/docs/plans/${planName}.md. ` +
                     "Your files are unchanged. Restore that Plan file before continuing; the primary copy will not be used.",
             );
         }
@@ -72,6 +80,30 @@ export async function resolveWorkflowPlanLocation(
             throw new Error(
                 `This Plan is now named ${registered.planName}. Load that name to continue; the older primary copy is unchanged.`,
             );
+        }
+    }
+    if (!await isGitRepository(registryRoot)) return { registryRoot, documentRoot: cwd, plan };
+
+    const localTargetBranch = typeof plan?.attrs.targetBranch === "string" ? plan.attrs.targetBranch.trim() : "";
+    const parentPlanName = typeof plan?.attrs.parentPlan === "string" && plan.attrs.parentPlan.trim()
+        ? plan.attrs.parentPlan.trim()
+        : inferParentPlanName(planName);
+    let targetBranch = localTargetBranch;
+    if (!targetBranch && parentPlanName) {
+        const parentPlan = await loadPlan(cwd, parentPlanName);
+        targetBranch = typeof parentPlan?.attrs.targetBranch === "string" ? parentPlan.attrs.targetBranch.trim() : "";
+    }
+    if (targetBranch && parentPlanName) {
+        const targetPlan = await findTargetBranchPlan(registryRoot, targetBranch, planName);
+        if (
+            targetPlan &&
+            (!plan?.attrs.planId || !targetPlan.attrs.planId || targetPlan.attrs.planId === plan.attrs.planId)
+        ) {
+            const planning = await preparePlanningWorktreeForPlan(registryRoot, planName, targetPlan.attrs);
+            return { registryRoot, documentRoot: planning.entry.path, plan: planning.plan };
+        }
+        if (targetPlan) {
+            throw new Error(`Target Plan ${planName} has a different Plan ID. Your files have not been changed.`);
         }
     }
     return { registryRoot, documentRoot: cwd, plan };
