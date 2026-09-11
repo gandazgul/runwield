@@ -5,6 +5,7 @@
 
 import { join } from "@std/path";
 import { VERSION } from "../../shared/version.js";
+import { readRunWieldPackageInstallSync, type RunWieldPackageInstall } from "../../shared/package-install.ts";
 import {
     compareRunWieldVersions,
     fetchLatestRunWieldRcRelease,
@@ -88,6 +89,17 @@ function confirmUpgrade(message: string): boolean {
     return answer.trim() === "INSTALL";
 }
 
+function packageManagedUpdateMessage(install: RunWieldPackageInstall, parsedArgs: ParsedUpdateArgs): string {
+    const lines = [
+        `RunWield is managed by ${install.packageIdentifier}.`,
+        `Use ${install.updateCommand} to update it.`,
+    ];
+    if (parsedArgs.rc || parsedArgs.to || parsedArgs.downgrade) {
+        lines.push("Package-managed installs only follow the package's Stable channel.");
+    }
+    return lines.join("\n");
+}
+
 /** */
 async function downloadInstaller(urls: string[], fetchImpl: typeof globalThis.fetch): Promise<string> {
     let firstFailure = "";
@@ -118,10 +130,21 @@ export async function runUpdateCommand(argv: string[], options: UpdateCommandOpt
         return;
     }
 
+    const packageInstall = readRunWieldPackageInstallSync();
+    if (packageInstall) {
+        console.log(packageManagedUpdateMessage(packageInstall, parsedArgs));
+        return;
+    }
+
     let tempDir = "";
     /** @type {number | null} */
     let exitCode = null;
     try {
+        if (Deno.build.os === "windows") {
+            throw new Error(
+                "Native Windows updates are not installed by the Unix shell installer. Reinstall RunWield with your package manager or from the latest GitHub release.",
+            );
+        }
         const release = parsedArgs.to
             ? { tagName: normalizeRunWieldVersion(parsedArgs.to), version: normalizeRunWieldVersion(parsedArgs.to) }
             : parsedArgs.rc

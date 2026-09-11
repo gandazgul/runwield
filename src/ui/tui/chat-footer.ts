@@ -4,6 +4,7 @@ import { AGENTS, getCwd, getHomeDir, RUNWIELD_DIR_NAME } from "../../constants.j
 import { getSettingsManager } from "../../shared/settings.js";
 import { getAgentDisplayName } from "../../shared/session/agents.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
+import { readRunWieldPackageInstallSync } from "../../shared/package-install.ts";
 import type { Component } from "@earendil-works/pi-tui";
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 
@@ -83,9 +84,10 @@ function formatTokens(count: number): string {
 }
 
 export function renderUpdateNoticeLine(latestVersion: string, themeImpl: FooterTheme = theme): string {
+    const command = readRunWieldPackageInstallSync()?.updateCommand || "wld update";
     return `New version available: ${
         themeImpl.fg("routingQuickFix" as ThemeColor, latestVersion)
-    }. Run \`wld update\` to install it`;
+    }. Run \`${command}\` to install it`;
 }
 
 export function buildFooterContextStat(
