@@ -8,6 +8,15 @@ Generate formulas from immutable Stable release assets:
 deno task package:homebrew --wld-tag vX.Y.Z --mnemoteca-tag v0.3.1 --output /tmp/runwield-tap
 ```
 
+Refresh only Mnemoteca in an existing tap tree:
+
+```bash
+deno task package:homebrew --mnemoteca-tag vA.B.C --output /tmp/runwield-tap
+```
+
+Use `--test-only` for local URL overrides. Publishable output must use immutable GitHub release URLs and real license,
+homepage, and tested helper version metadata.
+
 Check the rendered tap on macOS before publishing it:
 
 ```bash
