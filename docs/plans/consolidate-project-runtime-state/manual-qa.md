@@ -77,3 +77,23 @@ Manual verification steps for consolidate-project-runtime-state/04-move-selected
       paths and refuses live legacy locks without moving authority.
 
 <!-- runwield:manual-qa:end child="consolidate-project-runtime-state/04-move-selected-checkout-runtime-stores" -->
+
+<!-- runwield:manual-qa:start child="consolidate-project-runtime-state/05-move-project-collaboration-secrets" -->
+
+## Move Project Collaboration Secrets
+
+Manual verification steps for consolidate-project-runtime-state/05-move-project-collaboration-secrets
+
+- [ ] In a disposable Git project with a linked worktree, share a Plan with project secrets and confirm the secret
+      record is in the primary checkout at `.wld/internal/collaboration-secrets.json`, not in either legacy or
+      linked-worktree secret path.
+- [ ] From the linked worktree, perform URL import, named pull, push, and unshare, and confirm the operations use the
+      same primary secret store while the Plan remains in the selected checkout.
+- [ ] Inspect the primary `.gitignore` after share and URL import. Confirm the managed block protects the secret file
+      and atomic temporary files, preserves unrelated content, and does not add a standalone legacy secret rule.
+- [ ] Confirm the secret file has restrictive permissions, contains no exposed secret values in displayed output, and
+      has no leftover temporary files after a write.
+- [ ] Confirm the global secret store and unrelated project-space records remain unchanged, and confirm the glossary
+      describes the project secret location under Primary-Checkout Runtime State.
+
+<!-- runwield:manual-qa:end child="consolidate-project-runtime-state/05-move-project-collaboration-secrets" -->
