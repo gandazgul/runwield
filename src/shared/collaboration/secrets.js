@@ -3,10 +3,12 @@
 import { dirname, join } from "@std/path";
 import { redactCapabilityValue, redactSecrets } from "./capabilities.js";
 import { assertRecord, normalizeLocalSecretRecord } from "./protocol.js";
-import { getHomeDir } from "../../constants.js";
+import { getHomeDir, PROJECT_SECRET_STORE_RELATIVE_PATH } from "../../constants.js";
+import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
+import { ensureRunWieldOwnedGitignoreBlock } from "../runwield-owned-paths.ts";
 
 export const SECRET_STORE_SCHEMA_VERSION = 1;
-export const PROJECT_SECRET_STORE_RELATIVE_PATH = ".wld/collaboration-secrets.json";
+export { PROJECT_SECRET_STORE_RELATIVE_PATH };
 
 /**
  * @param {string} planId
@@ -36,7 +38,7 @@ export function getGlobalSecretStorePath(homeDir = getHomeDir()) {
  * @returns {string}
  */
 export function getProjectSecretStorePath(projectRoot) {
-    return join(projectRoot, PROJECT_SECRET_STORE_RELATIVE_PATH);
+    return resolveProjectRuntimeLayout(projectRoot).primary.projectSecretStorePath;
 }
 
 /**
@@ -298,19 +300,9 @@ export function normalizeSecretStore(value) {
  * @param {string} projectRoot
  */
 export async function ensureProjectSecretStoreIgnored(projectRoot) {
-    const gitignorePath = join(projectRoot, ".gitignore");
-    await Deno.mkdir(projectRoot, { recursive: true });
-    await Deno.mkdir(join(projectRoot, ".wld"), { recursive: true });
-    let existing = "";
-    try {
-        existing = await Deno.readTextFile(gitignorePath);
-    } catch (error) {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-    }
-    const lines = existing.split(/\r?\n/).map((line) => line.trim());
-    if (lines.includes(PROJECT_SECRET_STORE_RELATIVE_PATH)) return;
-    const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-    await Deno.writeTextFile(gitignorePath, `${existing}${separator}${PROJECT_SECRET_STORE_RELATIVE_PATH}\n`);
+    const layout = resolveProjectRuntimeLayout(projectRoot);
+    await Deno.mkdir(layout.primary.internalRoot, { recursive: true });
+    await ensureRunWieldOwnedGitignoreBlock(layout.primary.checkoutRoot);
 }
 
 /**
