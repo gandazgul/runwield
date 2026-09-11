@@ -24,6 +24,7 @@ const payload = codeReview
         ...codeReview,
         token: `workspace:${operationId}:${interactionId}`,
         mode: "workspace",
+        csrfToken: Astro.cookies.get("rw_owner_csrf")?.value || "",
         projectId,
         runwieldSessionId,
         reviewContext: {

@@ -1566,6 +1566,7 @@ export class WorkspaceSessionContinuationService {
         }
         return {
             operationId,
+            runwieldSessionId: live?.runwieldSessionId || durable.runwieldSessionId,
             status: durable.status,
             generation: durable.resultGeneration,
             error: durable.errorMessage || durable.errorCode,

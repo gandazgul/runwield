@@ -581,7 +581,7 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
         setSubmitting("approve");
         try {
             await submit("feedback", { approved: true, ...buildReviewPayload() });
-            setSubmitted("approved");
+            completeReview("approved");
         } catch {
             // submit() owns the visible error state.
         } finally {
@@ -593,12 +593,25 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
         setSubmitting("feedback");
         try {
             await submit("feedback", { approved: false, ...buildReviewPayload() });
-            setSubmitted("feedback");
+            completeReview("feedback");
         } catch {
             // submit() owns the visible error state.
         } finally {
             setSubmitting(null);
         }
+    }
+
+    function completeReview(result) {
+        const sessionHref = initialPayload.reviewContext?.sessionHref;
+        if (initialPayload.mode === "workspace" && sessionHref) {
+            const event = new CustomEvent("runwield:workspace-navigate", {
+                cancelable: true,
+                detail: { href: sessionHref, history: "replace" },
+            });
+            if (document.dispatchEvent(event)) globalThis.location.replace(sessionHref);
+            return;
+        }
+        setSubmitted(result);
     }
 
     function attachReviewContextToConversation() {
