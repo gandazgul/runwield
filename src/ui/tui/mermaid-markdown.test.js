@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import { Markdown, visibleWidth } from "@earendil-works/pi-tui";
+import { getCapabilities, Markdown, setCapabilities, visibleWidth } from "@earendil-works/pi-tui";
 import stripAnsi from "strip-ansi";
 
 import { initRunWieldTheme } from "../theme/theme.js";
@@ -37,12 +37,18 @@ Deno.test("MermaidMarkdown matches upstream Markdown for non-Mermaid content", (
 });
 
 Deno.test("MermaidMarkdown renders URLs with BEL-delimited terminal hyperlinks", () => {
-    const url = "https://github.com/gandazgul/runwield/pull/80";
-    const rendered = renderMermaidMarkdown(`Opened draft PR #80: ${url}.`, 120).join("\n");
+    const capabilities = getCapabilities();
+    setCapabilities({ ...capabilities, hyperlinks: true });
+    try {
+        const url = "https://github.com/gandazgul/runwield/pull/80";
+        const rendered = renderMermaidMarkdown(`Opened draft PR #80: ${url}.`, 120).join("\n");
 
-    assertStringIncludes(stripAnsi(rendered), `Opened draft PR #80: ${url}.`);
-    assertStringIncludes(rendered, `\x1b]8;;${url}\x07`);
-    assertStringIncludes(rendered, "\x1b]8;;\x07.");
+        assertStringIncludes(stripAnsi(rendered), `Opened draft PR #80: ${url}.`);
+        assertStringIncludes(rendered, `\x1b]8;;${url}\x07`);
+        assertStringIncludes(rendered, "\x1b]8;;\x07.");
+    } finally {
+        setCapabilities(capabilities);
+    }
 });
 
 Deno.test("MermaidMarkdown renders a completed top-level flowchart as Unicode", () => {
