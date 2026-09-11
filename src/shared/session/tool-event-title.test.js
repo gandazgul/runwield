@@ -72,6 +72,26 @@ Deno.test("Runtime provides one stable tool descriptor for live, replay, TUI, AC
         title: "work_record_search prior auth work",
         kind: "search",
     });
+    assertEquals(describeRuntimeTool("web_search", { query: "current Deno docs" }), {
+        toolName: "web_search",
+        title: "web_search current Deno docs",
+        kind: "search",
+    });
+    assertEquals(describeRuntimeTool("web_code_search", { query: "Deno.Command", lang: "ts" }), {
+        toolName: "web_code_search",
+        title: "web_code_search Deno.Command",
+        kind: "search",
+    });
+    assertEquals(describeRuntimeTool("web_docs_search", { query: "useEffect cleanup", library: "react" }), {
+        toolName: "web_docs_search",
+        title: "web_docs_search react useEffect cleanup",
+        kind: "search",
+    });
+    assertEquals(describeRuntimeTool("web_fetch", { url: "https://deno.com/manual" }), {
+        toolName: "web_fetch",
+        title: "web_fetch https://deno.com/manual",
+        kind: "fetch",
+    });
     assertEquals(describeRuntimeTool("work_record_read", { recordId: "11111111-1111-4111-8111-111111111111" }), {
         toolName: "work_record_read",
         title: "work_record_read 11111111-1111-4111-8111-111111111111",

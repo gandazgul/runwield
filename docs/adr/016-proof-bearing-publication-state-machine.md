@@ -8,6 +8,12 @@ status: accepted
 
 Plan validation and Git publication are different facts.
 
+The [Core completion contract](../prd/runwield-core-prd.md#execution-validation-and-recovery) requires confirmed
+publication or deliberate user abandonment as the only delivery conclusions. A failed publication phase remains
+recoverable work. RunWield reconciles proof and repairs internal storage, locks, settings, and synchronization
+automatically; exposing an error and a repair command is not completion. Evidence requirements still forbid fabricated
+success, blind replay, or loss of user work.
+
 - Plan Front Matter records that validation succeeded. A worktree-backed Planned Change stops changing at `validated`.
 - The matching `.wld/worktrees.json` entry owns publication progress in one `publication` record.
 - Git commits and refs are evidence. Status strings, error text, Session memory, and transition journals are not

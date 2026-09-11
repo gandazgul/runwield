@@ -1,7 +1,8 @@
 # PRD Format
 
-PRDs live in `docs/prd/<feature-name>.md`. Read this guidance before writing or revising a PRD, or deriving an Epic or
-Plan from one. Preserve the user's decisions and existing substantive content when revising a document.
+Read this guidance before writing or revising a PRD, or deriving an Epic or Plan from one. Follow the user's project
+document locations and conventions; use `docs/prd/<feature-name>.md` when none exist. Preserve the user's decisions and
+existing substantive content when revising a document.
 
 Use the structure below as the default. Scale the detail to the product question; headings are a guide to a coherent
 proposal, not a reason to invent content. Existing PRDs may organize the same information differently. Do not copy an
@@ -9,25 +10,52 @@ old PRD's implementation-heavy sections merely because they already exist.
 
 ## Document Roles and Lifecycle
 
-Five **living central PRDs** provide current product principles and lasting requirements:
+Discover which PRDs the project treats as lasting product guidance and which are feature proposals. A small project may
+have one PRD; a larger product may have several owners.
 
-- `docs/prd/runwield.md`: product vision and relationships across the product family.
-- `docs/prd/runwield-core-prd.md`: shared local workflow and Core behavior.
-- `docs/prd/runwield-connect-prd.md`: external-host use and compatibility promises.
-- `docs/prd/runwield-acp-protocol-prd.md`: external ACP clients, protocol compatibility, and chat-channel integration.
-- `docs/prd/runwield-workspace-prd.md`: browser, personal continuity, and later team collaboration.
+Living PRDs own lasting product principles and capability requirements. Feature proposals describe a desired change and
+link to the affected capability in its owning PRD. Keep each requirement authoritative in one place; other documents
+link to it and describe only their own additional behavior. If no owner exists, use the project's existing convention or
+propose the smallest useful home rather than creating a parallel spec system.
 
-Mark each with **Document role: Living central PRD.** Keep them concise and current; link to the central owner of shared
-requirements instead of duplicating policy across all five.
+After implementation, reconcile changed capability requirements and scenarios with the delivered behavior and accepted
+product decisions. Preserve unresolved requirements as target or deferred scope, with remaining work in Plans. Follow
+the project's policy for retaining, consolidating, archiving, or removing completed proposals. Never delete unique
+requirements or imply something shipped merely because a Plan or proposal exists.
 
-Other PRDs are **transient feature proposals**. They remain while the feature is being shaped or implemented. After
-implementation, fold lasting product requirements and meaningful unresolved scope into the relevant central PRD, update
-references, then remove the completed feature PRD. Do not keep a `done/` PRD archive. Git history preserves the
-original; Work Records record what shipped. Do not delete an unfinished proposal or imply it shipped simply because its
-Plan exists. Completion is a reason to consolidate, not to lose unique product requirements.
+## Capability Requirements
 
-Central PRDs guide product decisions; they are not inventories of source code, implementation gaps, or historical
-choices. Preserve explicit user decisions and identify future scope separately from supported behavior.
+Organize requirements inside the PRD by **capability**: a coherent behavior users or downstream systems rely on, such as
+signing in, reviewing work, or exporting data. Use recognizable product terms, not internal modules or a list of agents.
+Keep the problem, audience, value, and scope around these requirements; a scenario catalog alone is not a PRD.
+
+Each capability needs:
+
+- **A stable heading or key** that Plans and other PRDs can link to. Reuse the existing name; preserve or update links
+  when renaming. Requirement IDs are optional unless the project already uses them.
+- **Scope and maturity:** distinguish current supported behavior, agreed target behavior, and deferred or unresolved
+  proposals. Label a mixed capability's individual requirements where needed. A requirement is a product commitment, not
+  proof of implementation or a new Plan lifecycle status.
+- **Named, observable requirements:** what the user can do, what result they receive, and relevant constraints. Use
+  plain language; MUST/SHOULD notation is optional. Keep library choices, storage schemas, internal locks, algorithms,
+  and implementation steps in ADRs and Plans unless they are explicit user-facing commitments.
+- **Representative acceptance scenarios:** a starting condition, action or event, and observable result. Cover the
+  normal journey and consequential boundaries such as refusal, cancellation, missing access, or recovery when relevant.
+  Scenarios specify behavior; they are not automatically executable tests. Do not invent edge cases or guarantees to
+  fill a template. Detailed test cases and commands belong in Plans.
+- **Links to shared requirements** instead of copies. Cross-capability journeys may reference several owners and state
+  the additional outcome at their intersection.
+
+For a change, identify the requirements being added, changed, or removed and the existing behavior that must survive.
+Use prose or a short change list in the proposal; no separate delta-spec files or mandatory new tooling. Do not rewrite
+current behavior as already delivered while planning. As part of planned change plans, update the owning capability and
+its scenarios at the same time as the code, retain unmet product intent explicitly, and fix affected references. A
+workaround or passing test does not silently redefine the owner's intended product.
+
+Ideator shapes capability outcomes and scenarios with the user. Planner links affected capabilities from the Plan, turns
+their scenarios into discriminating verification, and includes required PRD updates in implementation scope. Architect
+preserves those outcomes across the Epic and identifies which child work must fulfill and update them. None should
+require the user to rewrite unrelated PRDs before a bounded change can proceed.
 
 ## Template
 
@@ -65,6 +93,24 @@ what each reference demonstrates and which parts apply. Label inspiration and pr
 product behavior. If visual references are not available, describe the experience clearly; do not invent links or make
 producing a prototype an automatic prerequisite.
 
+## Capability Requirements
+
+### <Stable capability name>
+
+**Scope and maturity:** Current, target, or deferred; identify mixed scope explicitly.
+
+**Requirement: <Observable behavior>.** State the outcome and relevant product constraints.
+
+**Acceptance scenarios:**
+
+- Given <starting condition>, when <action or event>, then <observable result>.
+- Given <consequential boundary>, when <action or event>, then <expected refusal, preservation, or recovery>.
+
+**Shared requirements:** Link the owning capability for behavior this capability depends on; omit if unnecessary.
+
+Repeat for the capabilities affected by this PRD. Keep proposed additions, changes, and removals distinguishable from
+current behavior. A short PRD may have only one capability.
+
 ## Success Metrics
 
 Explain what success looks like and how we will measure it. Choose a small set of outcome measures relevant to the
@@ -72,8 +118,9 @@ problem, such as successful journey completion, time to first value, adoption, r
 each, state the baseline and target when known, the evidence or measurement method, and the observation period when
 agreed. Mark unknowns as open rather than inventing numbers or requiring a new analytics system.
 
-Include representative, non-exhaustive acceptance criteria for the essential user journeys. These show that the feature
-works; the outcome measures show whether it helped. Detailed test cases and commands belong in implementation Plans.
+Link the capability acceptance scenarios rather than copying them here. Scenarios show whether the required behavior is
+present; outcome measures show whether it helped. Add a cross-capability acceptance journey only when it proves
+something the individual scenarios do not.
 
 ## Delivery
 

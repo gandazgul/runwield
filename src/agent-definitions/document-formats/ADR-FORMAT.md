@@ -49,6 +49,9 @@ simple decisions.
 
 ## Status and Current Guidance
 
+This policy applies to every RunWield user's project. Accepted ADRs in the current tree describe current architectural
+decisions; proposed ADRs remain clearly separate from accepted guidance.
+
 Every ADR includes one machine-readable status:
 
 - `proposed` — an unaccepted architectural proposal, clearly distinguished from current guidance;
