@@ -29,7 +29,7 @@ const LOCK_RETRY_MS = 50;
  * @property {string} [executionBaselineTree]
  * @property {string} branch
  * @property {string} path
- * @property {"active"|"completed"|"execution_failed"|"validation_failed"|"validated"|"abandoned"} status
+ * @property {"planning"|"active"|"completed"|"execution_failed"|"validation_failed"|"validated"|"abandoned"} status
  * @property {string} createdAt
  * @property {string} updatedAt
  * @property {{ reason: string, recordedAt: string, candidates?: string[] }} [migrationIssue]
@@ -323,6 +323,7 @@ async function readRegistry(projectRoot, options = {}) {
 }
 
 const NONTERMINAL_STATUSES = new Set([
+    "planning",
     "active",
     "completed",
     "execution_failed",
@@ -1056,7 +1057,9 @@ export async function findByPlanName(projectRoot, planName) {
  */
 export async function findActiveByPlanName(projectRoot, planName, options = {}) {
     const entries = await listEntries(projectRoot, options);
-    const matches = entries.filter((entry) => entry.planName === planName && NONTERMINAL_STATUSES.has(entry.status));
+    const matches = entries.filter((entry) =>
+        entry.planName === planName && entry.status !== "planning" && NONTERMINAL_STATUSES.has(entry.status)
+    );
     if (matches.length > 1) throw duplicateLiveAttemptError(planName, matches);
     return matches[0] || null;
 }
@@ -1067,7 +1070,9 @@ export async function findActiveByPlanName(projectRoot, planName, options = {}) 
  */
 export async function findByPlanId(projectRoot, planId) {
     const entries = await listEntries(projectRoot);
-    const live = entries.filter((entry) => entry.planId === planId && NONTERMINAL_STATUSES.has(entry.status));
+    const live = entries.filter((entry) =>
+        entry.planId === planId && entry.status !== "planning" && NONTERMINAL_STATUSES.has(entry.status)
+    );
     // Picking the first of several would silently hand back one of two worktrees and
     // validate or merge whichever happened to be written first. This is the one place
     // the ambiguity has to surface, because it is the question that cannot be answered.
@@ -1092,7 +1097,7 @@ export async function readPlanActionWorktreeEvidence(projectRoot, planId) {
         return { kind: "ambiguous", message: integrityIssue.message, entryIds: integrityIssue.ids };
     }
     const entries = inspected.entries.filter((entry) => entry.planId === planId);
-    const live = entries.filter((entry) => NONTERMINAL_STATUSES.has(entry.status));
+    const live = entries.filter((entry) => entry.status !== "planning" && NONTERMINAL_STATUSES.has(entry.status));
     if (live.length > 1) {
         return {
             kind: "ambiguous",

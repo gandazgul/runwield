@@ -284,9 +284,10 @@ _Avoid_: Phase, stage
 **Plan Event**: A recorded workflow fact that the Plan Lifecycle uses to transition a Plan. _Avoid_: Next step, status
 update
 
-**Plan Action Evidence Check**: The action-time reload of canonical Plan status, Plan revision, and worktree registry
-evidence before a consequential Plan action runs under the Session Writer Lock. _Avoid_: Plan ownership, durable Plan
-lock, separate ownership record
+**Plan Action Evidence Check**: The action-time reload of selected Plan status, Plan revision, and worktree registry
+evidence before a consequential Plan action runs under the Session Writer Lock. For a targeted Epic child, the selected
+Plan can be in a planning worktree before execution starts. _Avoid_: Plan ownership, durable Plan lock, separate
+ownership record
 
 **Approved Plan**: A Plan whose Review Loop ended in user approval but whose pre-execution preparation may still be
 unfinished. _Avoid_: Ready plan, executable plan
@@ -306,8 +307,8 @@ For Work and PROJECT Epics to Ready For Decomposition. _Avoid_: Slicer phase, ex
 **Failed Plan**: A Plan that reached Ready For Work but could not complete execution successfully. _Avoid_: Rejected
 plan, invalid plan
 
-**In-Progress Plan**: A Plan whose execution has started and whose worktree may contain partial implementation work.
-_Avoid_: Running plan, active plan
+**In-Progress Plan**: A Plan whose execution has started and whose worktree may contain partial implementation work. A
+planning worktree for an Epic child does not make the Plan In Progress. _Avoid_: Running plan, active plan
 
 **On-Hold Plan**: A deferred non-verified Plan that preserves its prior Plan Status and staleness baseline for a future
 Resume Check. _Avoid_: Archived plan, canceled plan, completed plan
@@ -535,7 +536,8 @@ intended behavior. Recommended for structural or high-risk Plans; never a requir
 Reviewer, red team, adversarial validation
 
 **Epic**: A PROJECT Plan with `type: epic` or no type, containing design and decomposition context. Its approval action
-is Approve & Slice. _Avoid_: Initiative, umbrella task
+is Approve & Slice. For a targeted Epic, the target branch owns current child progress. _Avoid_: Initiative, umbrella
+task
 
 **Sequence**: A PROJECT Plan with `type: sequence` whose brief context and complete child Plans are authored by Planner
 and reviewed together. Approve & Execute starts the first child; normal PROJECT continuation runs subsequent children in
@@ -543,6 +545,7 @@ order. Each child retains its own validation and delivery. A Sequence has no agg
 automatic Epic release branch. _Avoid_: Epic, separate chain manifest
 
 **Child PLANNED_CHANGE Plan**: An executable PLANNED_CHANGE Plan linked to a PROJECT container through `parentPlan`.
+Targeted Epic children can have a planning worktree before execution; approval promotes that same checkout to execution.
 _Avoid_: Child FEATURE Plan, subtask, ticket, DAG node
 
 **Epic Artifact**: A reserved non-Plan Markdown file stored beside an Epic's Child PLANNED_CHANGE Plans. The first Epic

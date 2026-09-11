@@ -65,8 +65,10 @@ import {
     buildPlanRecoveryUserMessage,
     buildValidationRecoveryNotice,
 } from "../../shared/workflow/validation-user-messages.ts";
+import { isGitRepository } from "../../shared/git.js";
 import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
 import { findPlanAssociatedSessions, verifyPlanAssociatedSession } from "../../shared/session/plan-session-lookup.ts";
+import { preparePlanningWorktreeForPlan } from "../../shared/workflow/planning-worktree.ts";
 
 export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
 
@@ -384,7 +386,27 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             plan.body = identified.body;
             plan.revision = identified.revision;
         }
+        let planDocumentRoot = projectRoot;
         const planId = typeof plan.attrs.planId === "string" ? plan.attrs.planId : "";
+        if (
+            plan.attrs.parentPlan && planId && typeof plan.attrs.targetBranch === "string" &&
+            ["draft", "feedback", "approved", "ready_for_work"].includes(plan.attrs.status) &&
+            plan.attrs.worktreeStatus !== "active" && await isGitRepository(projectRoot)
+        ) {
+            const planning = await preparePlanningWorktreeForPlan(projectRoot, plan.planName, plan.attrs);
+            await switchPlanAgent(session.getEffectiveAgentName() || AGENTS.ROUTER, {
+                cwd: planning.entry.path,
+                forceRebuild: true,
+            });
+            refreshSessionSurface();
+            planDocumentRoot = planning.entry.path;
+            plan.path = planning.plan.path;
+            plan.attrs = planning.plan.attrs;
+            plan.markdown = planning.plan.markdown;
+            plan.body = planning.plan.body;
+            plan.revision = planning.plan.revision;
+            plan.hasFrontMatter = true;
+        }
         const associations = planId ? await runtime.listPlanAssociatedSessions(projectRoot, planId) : [];
         const safeAssociations = associations.filter((candidate) => candidate.safePlanningResume);
         const activeElsewhere = associations.find((candidate) => candidate.reason === "active_elsewhere");
@@ -709,13 +731,14 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         currentStatus: preReviewStatus,
                         session,
                     });
-                    await switchPlanAgent(agentName);
+                    await switchPlanAgent(agentName, { cwd: planDocumentRoot, forceRebuild: true });
 
                     const outcome = await runPlanningAgent({
                         agentName,
                         initialRequest: buildPlannerReReviewRequest(plan.planName),
                         triageMeta: plan.attrs,
                         planName: plan.planName,
+                        cwd: planDocumentRoot,
                     });
 
                     const planningDecision = decidePostPlanning(outcome, {
@@ -822,13 +845,14 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
         uiAPI.appendSystemMessage(buildPlanSummary(plan), false, "Plan");
         restoreAgentName = planFlowRestoreAgent;
         await session.activateForPlan(plan.planName);
-        await switchPlanAgent(agentName);
+        await switchPlanAgent(agentName, { cwd: planDocumentRoot, forceRebuild: true });
 
         const outcome = await runPlanningAgent({
             agentName,
             initialRequest: buildResumeRequest(plan.planName, plan.attrs),
             triageMeta: plan.attrs,
             planName: plan.planName,
+            cwd: planDocumentRoot,
         });
 
         const planningDecision = decidePostPlanning(outcome, {
