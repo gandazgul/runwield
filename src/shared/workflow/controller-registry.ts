@@ -240,7 +240,7 @@ export async function inspectControllerWorktree(cwd: string, identity: WorkflowI
 /** Only a live attempt supplies execution identity. History cannot reopen a branch. */
 export async function readControllerWorktree(cwd: string, identity: WorkflowIdentity) {
     const result = await inspectControllerWorktree(cwd, identity);
-    return result.kind === "live" ? result.entry : null;
+    return result.kind === "live" && result.entry.status !== "planning" ? result.entry : null;
 }
 
 /** Document candidates include reopened Plans, but never expose retired attempt IDs as live. */
@@ -268,7 +268,9 @@ export async function loadControllerView(
     const lookup = await inspectControllerWorktree(cwd, identity);
     const liveEntry = lookup.kind === "live" ? lookup.entry : null;
     const attempt = liveEntry?.status === "planning" ? null : liveEntry;
-    const documentEntry = liveEntry || (lookup.kind === "retired" ? lookup.entry : null);
+    const documentEntry = liveEntry?.status === "planning"
+        ? null
+        : liveEntry || (lookup.kind === "retired" ? lookup.entry : null);
     let record = await readControllerRecord(cwd, identity);
     if ((attempt || lookup.kind === "retired") && record?.recovery) {
         // Once the registry owns the attempt, old import hints are finished.
