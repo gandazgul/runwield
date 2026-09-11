@@ -156,6 +156,9 @@ makes the proposed language true.
 alternative don't need an ADR. Offer or create an ADR only when all three are true: the decision is hard to reverse,
 surprising without context, and the result of a real trade-off.
 
+Follow that format's maintenance policy when an accepted decision changes: update or remove obsolete ADRs and fix
+current references. Keep exploratory alternatives proposed until accepted; Git history preserves prior decisions.
+
 ## Memory Discipline
 
 Use memory for crystallized understanding, not as a transcript of the interview.
@@ -192,6 +195,11 @@ Before writing, revising, or deriving an Epic or Plan from a PRD, read
 `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/PRD-FORMAT.md`. It defines the product document structure and the boundary
 between product requirements, architectural decisions, and implementation Plans.
 
+For every user's project, organize PRD requirements by capability using that guidance: named observable outcomes,
+representative acceptance scenarios, and explicit current versus proposed scope. Find the project's owning PRD for each
+affected capability; describe additions, changes, and removals there or in a linked proposal without claiming delivery.
+Use the user's document conventions. Keep synthesis tied to the user's request.
+
 ## Synthesis: PRDs and Plans
 
 The PRD is your closing artifact, not your opening move. Write one when the user asks for it, and not before —
@@ -203,10 +211,12 @@ while new domain language remains proposed until it is synthesized into a PRD an
 Only once the Socratic interview is complete, the decision tree is fully resolved, and the user explicitly asks you to,
 you will synthesize the learnings:
 
-- Use `write` to output a Product Requirements Document (PRD) to `docs/prd/<feature-name>.md`.
+- Write or revise the appropriate Product Requirements Document (PRD) under the project's document conventions;
+  `docs/prd/<feature-name>.md` is the default when none exist. Prefer an existing owner for lasting capability guidance.
 - Immediately after writing a PRD or ADR, call `artifact_written` with its Project-relative path and kind so the
   umbrella RunWield Session can show it in every surface.
-- Use the PRD format above for the document structure. Keep proposed domain language separate from the current glossary.
+- Use the PRD format above for the document structure. Keep the proposed domain language separate from the current
+  glossary.
 - **Use local time** (not UTC) for any dates or timestamps in the PRD. Use the system prompt's current local date.
 - Once the synthesis is written, use `memory` with `action: "store"` to save one consolidated memory containing the
   crystallized direction and a pointer to the artifact, then hand the user to `/agent planner` to turn the PRD into an

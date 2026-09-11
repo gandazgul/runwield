@@ -3,6 +3,44 @@
 Plan status is the durable state machine for saved Plans. Workflow code records facts as Plan Events, and the Plan
 Lifecycle decides the next status and front matter updates.
 
+The [Core completion requirement](prd/runwield-core-prd.md#execution-validation-and-recovery) distinguishes workflow
+conclusions from implementation statuses: delivery ends only after confirmed publication or deliberate user abandonment.
+Failed or blocked states, cancelled turns, and verification attestations alone do not conclude an undelivered workflow.
+RunWield must automatically reconcile its own state while preserving the workflow. The statuses and mechanisms below
+describe implementation; their existence does not prove every recovery path meets this requirement.
+
+## Plan body ownership and external adoption
+
+The owning product requirements are
+[Plan authoring and external adoption](prd/runwield-core-prd.md#plan-authoring-and-external-adoption). RunWield owns
+front matter; the user owns the body and can edit it at any time with any tool. The body does not need to parse as
+RunWield data.
+
+- Metadata lifecycle decisions compare `getPlanFrontMatterRevisionForText()` / the loaded `frontMatterRevision`, not
+  whole-file Plan bytes. Changed product intent still requires the applicable review.
+- Whole-file compare-and-set protects writers that would replace the body, including review Markdown apply, Workspace
+  body saves, and Agent file edits.
+- Failed metadata transitions restore only their owned front matter onto the latest body, never an older whole file.
+- Malformed front matter diagnostics identify the leading block between `---` markers. User prose is not metadata and
+  cannot be the reason that block is invalid.
+
+A plain Markdown file in `docs/plans/` is a valid external Plan. Passive reads and listings use defaults without
+modifying bytes, assigning identity, or reporting absent metadata as corruption or drift. Deliberate `/load-plan`
+adoption calls `onboardExternalPlan()` in [plan-store.js](../src/plan-store.js), persists identity and defaults, and
+preserves the body exactly.
+
+Adoption defaults are a generated `planId`, `classification: PLANNED_CHANGE`, `complexity: MEDIUM`, `summary: ""`,
+`affectedPaths: []`, `status: draft`, and `origin: external`. Record `updatedAt` as now in its owning state store.
+Capture `createdAt` from the file's creation time before writing: atomic replacement changes birthtime. The current
+implementation falls back to modification time, then the current time, when creation time is unavailable. Leave
+`workKind`, `executionAgent`, and `collaborationRecommendation` unset so unknown intent stays unknown and policy
+supplies applicable defaults.
+
+Adoption is idempotent. Existing front matter is not reinitialized; identity can be ensured without resetting lifecycle
+decisions or age. Recheck under the lock so concurrent adoption cannot replace an identity already established.
+
+## State ownership
+
 Before execution starts, Plan lifecycle metadata is canonical in the target project's Plan file. Once RunWield activates
 an execution worktree, that worktree's Plan file is authoritative for the attempt through execution, recovery,
 validation, and publication. The corresponding file in the user's checkout may remain behind and must never be used to

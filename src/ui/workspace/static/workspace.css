@@ -2637,6 +2637,7 @@
 }
 
 .session-composer {
+    position: relative;
     box-sizing: border-box;
     min-width: 0;
     width: min(52rem, calc(100% - 2rem));
@@ -2733,30 +2734,31 @@
     align-items: center;
     display: flex;
     flex-wrap: nowrap;
-    gap: 0.4rem;
-    justify-content: flex-end;
+    gap: 0.25rem;
+    justify-content: flex-start;
     min-width: 0;
-    overflow: hidden;
 }
 
 .session-composer-actions select {
-    flex: 0 1 7.5rem;
-    min-width: 5.75rem;
-    min-height: var(--rw-control-height-compact);
-    max-width: 7.5rem;
-    border: 1px solid color-mix(in srgb, var(--rw-border) 58%, transparent);
-    border-radius: var(--rw-radius-control);
-    background: color-mix(in srgb, var(--rw-surface-muted) 58%, transparent);
-    color: var(--rw-text-muted);
-    padding: 0.12rem 1.45rem 0.12rem 0.4rem;
-    font: inherit;
-    font-size: 0.78rem;
-    font-weight: 700;
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 9rem;
 }
 
-.session-composer-actions select:focus-visible {
-    outline: 2px solid var(--rw-accent);
-    outline-offset: 2px;
+.session-composer-actions .session-model-select {
+    flex-grow: 1.6;
+    max-width: 18rem;
+}
+
+.session-composer-actions .session-composer-icon-button {
+    flex: 0 0 var(--rw-control-height-compact);
+    width: var(--rw-control-height-compact);
+    padding: 0;
+    justify-content: center;
+}
+
+.session-composer-actions .session-attach-button {
+    margin-right: auto;
 }
 
 @media (max-width: 720px) {
@@ -2766,9 +2768,6 @@
 }
 
 .session-send-button {
-    flex: 0 0 auto;
-    min-height: var(--rw-control-height-compact) !important;
-    padding-inline: 0.55rem !important;
     white-space: nowrap;
 }
 
@@ -2845,19 +2844,17 @@
 }
 
 @media (max-width: 640px) {
-    .session-composer-actions {
-        flex-wrap: wrap;
-    }
-
     .session-composer-actions select {
-        flex: 1 1 calc(33% - 0.4rem);
-        min-width: 0;
-        max-width: none;
         min-height: 44px;
     }
 
     .session-composer-actions button {
         min-height: 44px;
+    }
+
+    .session-composer-actions .session-composer-icon-button {
+        flex-basis: 32px;
+        width: 32px;
     }
 
     .owner-workspace-shell .workspace-main-shell > main,

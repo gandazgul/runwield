@@ -7,14 +7,21 @@ import { createHash } from "node:crypto";
 import { AGENTS } from "../../../constants.js";
 import { findPlanEvidenceById } from "../../../plan-store.js";
 import { getModelRegistry } from "../../../shared/models/model-registry.ts";
+import { parseProviderModel } from "../../../shared/models/model-validation.ts";
 import { getMergedCustomSetting, getSettingsManager } from "../../../shared/settings.js";
 import { listAvailableAgents } from "../../../shared/session/agents.js";
+import { getSlashCommandDefinitions } from "../../../cmd/registry.js";
+import { WORKSPACE_COMMAND_NAMES } from "../browser/session-commands.ts";
 import { normalizeBrowserNotificationPolicy } from "../../../shared/session/notification-content.ts";
 import { applySharedPlanReviewDecision } from "../../../shared/workflow/plan-review-actions.ts";
 import { getWorkflowDiff } from "../../../shared/workflow/git-snapshot.js";
 import {
     createSessionRuntime,
     deriveManagedSessionContinuationDecision,
+    getConfiguredAgentModel,
+    getConfiguredAgentThinkingLevel,
+    listPromptTemplates,
+    listSkills,
 } from "../../../shared/session/session-runtime.js";
 import { getRunWieldSessionDir } from "../../../shared/session/root-session.js";
 import { projectAggregateTranscript } from "../../../shared/session/session-transcript-manifest.ts";
@@ -345,20 +352,50 @@ export class WorkspaceSessionContinuationService {
         const defaultProvider = settings.getDefaultProvider?.() || "";
         const defaultModel = settings.getDefaultModel?.() || "";
         const defaultThinkingLevel = settings.getDefaultThinkingLevel?.() || "default";
+        const agentOptions = agents.map((agent) => {
+            const reference = getConfiguredAgentModel(agent.name, projectRoot) ||
+                getConfiguredAgentModel(AGENTS.ENGINEER, projectRoot) ||
+                (defaultModel ? `${defaultProvider}/${defaultModel}` : agent.model || "");
+            const parsed = parseProviderModel(reference);
+            return {
+                name: agent.name,
+                displayName: agent.displayName || agent.name,
+                description: agent.description || "",
+                defaults: {
+                    model: parsed.ok ? parsed.id : "",
+                    provider: parsed.ok ? parsed.provider : "",
+                    thinkingLevel: getConfiguredAgentThinkingLevel(agent.name, projectRoot) ||
+                        settings.getDefaultThinkingLevel?.() || agent.thinkingLevel || "default",
+                },
+            };
+        });
+        const [templates, skills] = await Promise.all([
+            listPromptTemplates({ cwd: projectRoot }),
+            listSkills({ cwd: projectRoot }),
+        ]);
+        const builtins = getSlashCommandDefinitions();
         return {
             defaults: {
                 agentName: AGENTS.ROUTER,
                 model: defaultModel,
                 provider: defaultProvider,
                 thinkingLevel: defaultThinkingLevel,
+                ...agentOptions.find((agent) => agent.name === AGENTS.ROUTER)?.defaults,
             },
-            agents: [
-                { name: AGENTS.ROUTER, displayName: "Router", description: "Choose the first RunWield step." },
-                ...agents.map((agent) => ({
-                    name: agent.name,
-                    displayName: agent.displayName || agent.name,
-                    description: agent.description || "",
-                })).filter((agent) => agent.name !== AGENTS.ROUTER),
+            agents: agentOptions,
+            commands: [
+                ...WORKSPACE_COMMAND_NAMES.map((name) => ({
+                    name,
+                    description: builtins.find((command) => command.name === name)?.description || "",
+                    kind: "action",
+                })),
+                ...templates.filter((template) => !builtins.some((command) => command.name === template.name))
+                    .map((template) => ({ name: template.name, description: template.description, kind: "prompt" })),
+                ...skills.map((skill) => ({
+                    name: `skill:${skill.name}`,
+                    description: skill.description,
+                    kind: "prompt",
+                })),
             ],
             models: models.map((model) => ({
                 id: model.id,
@@ -640,7 +677,7 @@ export class WorkspaceSessionContinuationService {
         );
         if (activeOperation) {
             const pendingConfiguration = {
-                ...(activeOperation.record.pendingConfiguration || {}),
+                ...(options.agentName ? {} : activeOperation.record.pendingConfiguration || {}),
                 ...(options.agentName ? { agentName: options.agentName } : {}),
                 ...(options.model ? { model: options.model, provider: options.provider || "" } : {}),
             };

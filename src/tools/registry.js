@@ -69,15 +69,15 @@ export const WORKFLOW_ADVANCEMENT_TOOL_NAMES = Object.freeze([
 ]);
 
 /**
- * Workflow decisions, handoffs, reviews, and delivered artifacts remain visible
- * as full blocks on every Session surface, including persisted history.
+ * Tools that advance a workflow or record its decisions and completed steps stay
+ * visible as full blocks. Inspection tools such as review_diff remain ordinary
+ * activity, even when the workflow records their results as evidence.
  * @type {readonly string[]}
  */
 export const WORKFLOW_TOOL_NAMES = Object.freeze([
     ...WORKFLOW_ADVANCEMENT_TOOL_NAMES,
     "artifact_written",
     "user_interview",
-    "review_diff",
     "work_record_completed",
     "manual_qa_completed",
 ]);

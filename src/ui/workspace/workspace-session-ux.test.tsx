@@ -9,6 +9,7 @@ import {
     reduceOperationTransientItems,
     serializeSessionImageForRequest,
     sessionAttachmentsKey,
+    SessionComposer,
     sessionDraftKey,
     shouldApplyOperationPoll,
     shouldRefreshSessionAvailability,
@@ -22,6 +23,44 @@ import {
     sessionInteractionChoiceResponse,
     sessionInteractionTypedResponse,
 } from "./components/SessionTimeline.jsx";
+
+Deno.test("Session composer keeps provider/model identities and opens slash choices before the first message", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const props = {
+        id: "new-session-request-text",
+        draft: "",
+        disabled: false,
+        canSend: false,
+        submitting: false,
+        agents: [{ name: "guide", displayName: "Guide" }],
+        agentValue: "guide",
+        models: [{ provider: "openai-codex", id: "gpt-5.6-luna", name: "Luna" }],
+        modelValue: "openai-codex\u001fgpt-5.6-luna",
+        thinkingLevels: ["low"],
+        thinkingValue: "low",
+        commands: [{ name: "model", description: "Switch AI model", kind: "action" }],
+        onDraftChange() {},
+        onSubmit() {},
+        onAgentChange() {},
+        onModelChange() {},
+        onThinkingChange() {},
+    };
+    const empty = renderToStaticMarkup(createElement(SessionComposer, props));
+    assertEquals(empty.includes("openai-codex/gpt-5.6-luna</option>"), true);
+    assertEquals(empty.match(/<select[^>]*disabled/g), null);
+    assertEquals(empty.includes('aria-label="Attach image"'), true);
+    assertEquals(empty.includes('title="Send"'), true);
+    const commands = renderToStaticMarkup(createElement(SessionComposer, { ...props, draft: "/mo", canSend: true }));
+    assertEquals(commands.includes('role="listbox" aria-label="Commands"'), true);
+    assertEquals(commands.includes('aria-expanded="true"'), true);
+    assertEquals(commands.includes('aria-activedescendant="new-session-request-text-commands-0"'), true);
+    assertEquals(commands.includes("<strong>/model</strong>"), true);
+    const models = renderToStaticMarkup(
+        createElement(SessionComposer, { ...props, draft: "/model luna", canSend: true }),
+    );
+    assertEquals(models.includes("<strong>openai-codex/gpt-5.6-luna</strong>"), true);
+});
 
 Deno.test("Session surface preserves drafts and replaces a lost live wait with one interruption line", () => {
     assertEquals(sessionDraftKey("project-1", "session-1"), "runwield:owner:project:project-1:session:session-1:draft");
@@ -387,6 +426,30 @@ Deno.test("idle Sessions can continue with planning or execution history", () =>
     });
     assertEquals(execution.key, "available");
     assertEquals(execution.canContinue, true);
+});
+
+Deno.test("review_diff stays collapsed while review_complete is an expanded workflow step", async () => {
+    const { SessionTimeline } = await import("./components/SessionTimeline.jsx");
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const started = { type: "tool_start", toolCallId: "diff", toolName: "review_diff" };
+    const completed = { type: "tool_end", toolCallId: "diff", toolName: "review_diff", output: "README diff" };
+    for (const events of [[started], [started, completed], [completed]]) {
+        const items = reduceSessionEvents(events);
+        assertEquals(items[0].kind, "tool");
+        const html = renderToStaticMarkup(createElement(SessionTimeline, { items }));
+        assertEquals(html.includes('<details class="session-tool '), true);
+        assertEquals(html.includes(" open="), false);
+        assertEquals(html.includes("rw-workflow-block"), false);
+    }
+    const items = reduceSessionEvents([
+        completed,
+        { type: "tool_end", toolCallId: "read", toolName: "read", output: "Plan requirements" },
+        { type: "tool_end", toolCallId: "review", toolName: "review_complete", output: "Review approved." },
+    ]);
+    assertEquals(items.map((item) => item.kind), ["activity", "workflow"]);
+    assertEquals(items[0].items.map((item) => item.toolName), ["review_diff", "read"]);
+    assertEquals(items[1].workflowMessage, "review_complete");
 });
 
 Deno.test("all workflow tools remain expanded outside routine activity, with accepted reports preserved", async () => {
