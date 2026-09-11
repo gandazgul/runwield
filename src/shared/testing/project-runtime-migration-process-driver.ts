@@ -1,9 +1,21 @@
 import { dirname, join } from "@std/path";
 import { getRunWieldRuntimeDir } from "../../constants.js";
-import { withPlanLock } from "../../plan-store.js";
+import { getLockHostname } from "../process-liveness.ts";
 import { migrateLegacyProjectRuntimeState, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { withWorktreeRegistryLockAtPath } from "../worktree-registry.js";
-import { acquireRecoveryLock, acquireSupersessionLock } from "../work-records/supersession.ts";
+
+interface LegacyPlanLockRecord {
+    token: string;
+    pid: number;
+    hostname: string;
+    updatedAtMs: number;
+}
+
+interface LegacyWorkRecordLockRecord {
+    token: string;
+    createdAt: number;
+    updatedAt: number;
+}
 
 type MigrationExitEffect =
     | "journal-commit"
@@ -36,23 +48,66 @@ if (command === "migrate") {
         await new Promise(() => {});
     });
 } else if (command === "hold-plan-lock") {
-    await withPlanLock(checkoutRoot, extra || "demo", async () => {
-        console.log(JSON.stringify({ ready: true }));
-        await new Promise(() => {});
-    });
+    await holdLegacyPlanLock(checkoutRoot, extra || "demo");
 } else if (command === "hold-work-record-lock") {
-    const lockPath = join(getRunWieldRuntimeDir(checkoutRoot), "work-record-supersession.lock");
-    await acquireSupersessionLock(checkoutRoot);
-    console.log(JSON.stringify({ ready: true, lockPath }));
-    await new Promise(() => {});
+    await holdLegacyWorkRecordLock(checkoutRoot, "work-record-supersession.lock");
 } else if (command === "hold-work-record-recovery-lock") {
-    const lockPath = join(getRunWieldRuntimeDir(checkoutRoot), "work-record-supersession-recovery.lock");
-    await acquireRecoveryLock(checkoutRoot);
-    console.log(JSON.stringify({ ready: true, lockPath }));
-    await new Promise(() => {});
+    await holdLegacyWorkRecordLock(checkoutRoot, "work-record-supersession-recovery.lock");
 } else {
     console.error(`Unknown project runtime migration process driver command: ${command}`);
     Deno.exit(2);
+}
+
+async function holdLegacyPlanLock(checkoutRoot: string, planName: string): Promise<never> {
+    const lockPath = join(getRunWieldRuntimeDir(checkoutRoot), "plan-locks", `${lockSafeSegment(planName)}.lock`);
+    await Deno.mkdir(dirname(lockPath), { recursive: true });
+    const file = await Deno.open(lockPath, { createNew: true, read: true, write: true });
+    file.lockSync(true);
+    const token = crypto.randomUUID();
+    await writePlanLockFile(file, { token, pid: Deno.pid, hostname: getLockHostname(), updatedAtMs: Date.now() });
+    const heartbeat = setInterval(() => {
+        writePlanLockFile(file, { token, pid: Deno.pid, hostname: getLockHostname(), updatedAtMs: Date.now() }).catch(
+            () => {},
+        );
+    }, 1_000);
+    Deno.unrefTimer(heartbeat);
+    console.log(JSON.stringify({ ready: true, lockPath }));
+    return await new Promise<never>(() => {});
+}
+
+async function holdLegacyWorkRecordLock(checkoutRoot: string, lockName: string): Promise<never> {
+    const lockPath = join(getRunWieldRuntimeDir(checkoutRoot), lockName);
+    await Deno.mkdir(dirname(lockPath), { recursive: true, mode: 0o700 });
+    const file = await Deno.open(lockPath, { createNew: true, read: true, write: true, mode: 0o600 });
+    file.lockSync(true);
+    const token = crypto.randomUUID();
+    const now = Date.now();
+    await writeWorkRecordLockFile(file, { token, createdAt: now, updatedAt: now });
+    const heartbeat = setInterval(() => {
+        writeWorkRecordLockFile(file, { token, createdAt: now, updatedAt: Date.now() }).catch(() => {});
+    }, 1_000);
+    Deno.unrefTimer(heartbeat);
+    console.log(JSON.stringify({ ready: true, lockPath }));
+    return await new Promise<never>(() => {});
+}
+
+function lockSafeSegment(value: string): string {
+    return String(value || "plan").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "plan";
+}
+
+async function writePlanLockFile(file: Deno.FsFile, record: LegacyPlanLockRecord): Promise<void> {
+    await writeJsonFile(file, `${JSON.stringify(record)}\n`);
+}
+
+async function writeWorkRecordLockFile(file: Deno.FsFile, record: LegacyWorkRecordLockRecord): Promise<void> {
+    await writeJsonFile(file, `${JSON.stringify(record)}\n`);
+}
+
+async function writeJsonFile(file: Deno.FsFile, text: string): Promise<void> {
+    await file.truncate(0);
+    await file.seek(0, Deno.SeekMode.Start);
+    await file.write(new TextEncoder().encode(text));
+    await file.sync();
 }
 
 function parseMigrationExitEffect(value: string | undefined): MigrationExitEffect {

@@ -1,9 +1,9 @@
 import { assert, assertEquals } from "@std/assert";
 import { dirname, join } from "@std/path";
+import { getRunWieldRuntimeDir, PROJECT_INTERNAL_RUNTIME_DIR_NAME } from "../../constants.js";
 import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import {
     closeTransitionRecordByAttestation,
-    getTransitionJournalDir,
     getTransitionJournalPath,
     listTransitionRecoveryRecords,
     reconcileTransitionRecoveryRecords,
@@ -13,12 +13,41 @@ import {
     runPlanFrontMatterTransition,
     runRecoveryTransition,
     runValidationOutcomeTransition,
+    withOrderedTransitionResources,
 } from "./state-transition.ts";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { withWorkflowMetricsFixture } from "../../testing/workflow-metrics-fixture.ts";
+import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
+
+const linkedCheckoutFixture = defineCommittedGitFixture({ ".gitignore": ".wld/\n", "app.ts": "// app\n" });
 
 async function makeProject() {
     return await Deno.makeTempDir({ prefix: "runwield-state-transition-" });
+}
+
+/** @param {string} projectRoot @param {string} transitionId */
+function selectedJournalPath(projectRoot, transitionId) {
+    return join(
+        getRunWieldRuntimeDir(Deno.realPathSync(projectRoot)),
+        PROJECT_INTERNAL_RUNTIME_DIR_NAME,
+        "plan-transitions",
+        `${transitionId}.json`,
+    );
+}
+
+/** @param {string} projectRoot @param {string} fileName */
+function selectedLockPath(projectRoot, fileName) {
+    return join(
+        getRunWieldRuntimeDir(Deno.realPathSync(projectRoot)),
+        PROJECT_INTERNAL_RUNTIME_DIR_NAME,
+        "plan-locks",
+        fileName,
+    );
+}
+
+/** @param {string} path */
+async function pathExists(path) {
+    return await Deno.stat(path).then(() => true).catch(() => false);
 }
 
 const PLAN_EVENT_TRANSITION_INVENTORY = [
@@ -363,6 +392,88 @@ Deno.test("checked-in transition inventory covers Plan Events and semantic write
     for (const row of [...PLAN_EVENT_TRANSITION_INVENTORY, ...SEMANTIC_WRITER_TRANSITION_INVENTORY]) {
         assertEquals(row.length, 7, `${row[0]} has event/writer, inputs, locks, effects, proof, rollback, recovery`);
         for (const cell of row) assert(Boolean(cell), `${row[0]} has no blank inventory cells`);
+    }
+});
+
+Deno.test("ordered transition resources use each selected checkout root", async () => {
+    const operationRoot = await makeProject();
+    const resourceRoot = await makeProject();
+    try {
+        await withOrderedTransitionResources(
+            operationRoot,
+            [
+                { kind: "target_ref", id: "main" },
+                { kind: "attempt", id: "attempt-one", root: resourceRoot },
+                { kind: "plan", id: "demo", root: resourceRoot },
+                { kind: "catalog", root: operationRoot },
+            ],
+            async () => {
+                await Deno.lstat(selectedLockPath(operationRoot, "catalog.lock"));
+                await Deno.lstat(selectedLockPath(operationRoot, "__target_ref-main.lock"));
+                await Deno.lstat(selectedLockPath(resourceRoot, "__attempt-attempt-one.lock"));
+                await Deno.lstat(selectedLockPath(resourceRoot, "demo.lock"));
+                assertEquals(await pathExists(selectedLockPath(operationRoot, "__attempt-attempt-one.lock")), false);
+                assertEquals(await pathExists(selectedLockPath(operationRoot, "demo.lock")), false);
+            },
+        );
+    } finally {
+        await Deno.remove(operationRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(resourceRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("failed transitions leave populated journals in the linked checkout that owns the Plan", async () => {
+    const root = await linkedCheckoutFixture.checkout({ prefix: "rw-transition-journal-primary-" });
+    const container = await Deno.makeTempDir({ prefix: "rw-transition-journal-tree-" });
+    const selected = join(container, "selected");
+    try {
+        await savePlan(root, "demo", "# Demo\n", { status: "implemented", classification: "FEATURE" });
+        await git(root, ["add", "docs"]);
+        await git(root, ["commit", "-m", "add Plan"]);
+        await git(root, ["worktree", "add", "-b", "worktree/transition-journal", selected, "HEAD"]);
+        const failure = await runValidationOutcomeTransition({
+            projectRoot: selected,
+            planName: "demo",
+            outcome: "failed",
+            settle: async ({ beforePlan }) => {
+                assert(beforePlan);
+                await updatePlanFrontMatter(selected, "demo", { failureReason: "half applied" }, beforePlan.attrs, {
+                    expectedRevision: beforePlan.revision,
+                });
+                const current = await loadPlan(selected, "demo");
+                const externalMarkdown = `${current?.markdown}`.replace(
+                    'status: "implemented"',
+                    'status: "implemented"\nfailureReason: "hand edited"',
+                );
+                await Deno.writeTextFile(beforePlan.path, externalMarkdown);
+                throw new Error("interrupted after an outside edit");
+            },
+        });
+
+        assertEquals(failure.status, "needs_recovery");
+        const [record] = await listTransitionRecoveryRecords(selected);
+        assert(record);
+        assertEquals(record.planName, "demo");
+        assertEquals(record.uncertainty, "plan_bytes_changed");
+        assertEquals(
+            await Deno.readTextFile(selectedJournalPath(selected, record.transitionId)),
+            JSON.stringify(record, null, 2) + "\n",
+        );
+        assertEquals(await pathExists(selectedJournalPath(root, record.transitionId)), false);
+        assertEquals(
+            await pathExists(
+                join(
+                    getRunWieldRuntimeDir(Deno.realPathSync(selected)),
+                    "plan-transitions",
+                    `${record.transitionId}.json`,
+                ),
+            ),
+            false,
+        );
+    } finally {
+        await git(root, ["worktree", "remove", "--force", selected]).catch(() => {});
+        await Deno.remove(container, { recursive: true }).catch(() => {});
+        await Deno.remove(root, { recursive: true }).catch(() => {});
     }
 });
 
@@ -903,6 +1014,17 @@ Deno.test("a transition refuses to undo Front Matter written outside RunWield", 
         assertEquals(await Deno.readTextFile(before.path), externalMarkdown, "the outside edit survives untouched");
         const [record] = await listTransitionRecoveryRecords(cwd);
         assertEquals(record.uncertainty, "plan_bytes_changed");
+        assertEquals(
+            await Deno.readTextFile(selectedJournalPath(cwd, record.transitionId)),
+            JSON.stringify(record, null, 2) + "\n",
+        );
+        assertEquals(
+            await pathExists(
+                join(getRunWieldRuntimeDir(Deno.realPathSync(cwd)), "plan-transitions", `${record.transitionId}.json`),
+            ),
+            false,
+            "normal transitions must not leave legacy journals",
+        );
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }
@@ -1172,7 +1294,20 @@ Deno.test("an unprovable record can be closed on user attestation without destro
         // Unblocked...
         assertEquals(await listTransitionRecoveryRecords(cwd), [], "the record no longer blocks the Plan");
         // ...but not destroyed. An attestation can be wrong, so the evidence survives.
-        const archived = JSON.parse(await Deno.readTextFile(`${getTransitionJournalDir(cwd)}/attested/stuck-1.json`));
+        const archivePath = join(
+            getRunWieldRuntimeDir(Deno.realPathSync(cwd)),
+            PROJECT_INTERNAL_RUNTIME_DIR_NAME,
+            "plan-transitions",
+            "attested",
+            "stuck-1.json",
+        );
+        const archived = JSON.parse(await Deno.readTextFile(archivePath));
+        assertEquals(
+            await pathExists(
+                join(getRunWieldRuntimeDir(Deno.realPathSync(cwd)), "plan-transitions", "attested", "stuck-1.json"),
+            ),
+            false,
+        );
         assertEquals(archived.state, "closed_by_user_attestation");
         assertEquals(archived.operation, "worktree_merge");
         assertEquals(archived.attestationNote, "checked by hand");
