@@ -7,6 +7,8 @@ recovery.
 Use these docs for RunWield-specific behavior. When a topic behaves the same as Pi, this index links to the upstream
 [Pi documentation](https://pi.dev/docs/latest) instead of duplicating it.
 
+**Use RunWield in your browser or on your phone:** [Start Workspace and connect with Tailscale](workspace.md).
+
 ## Get Started
 
 ### 1. Install RunWield
@@ -196,6 +198,8 @@ graph TD
 ### RunWield basics
 
 - [Quickstart](quickstart.md) - install, authenticate, initialize, and run the first routed request.
+- [Workspace on your computer and phone](workspace.md) - start the browser UI, pair devices, connect with Tailscale, and
+  continue TUI Sessions.
 - [Using RunWield](usage.md) - day-to-day commands, routing, agents, plans, and TUI differences from Pi.
 - [Bundled RunWield usage skill](../src/skills/runwield/SKILL.md) - shipped user-facing answer surface; update it
   alongside docs when user-visible behavior changes.

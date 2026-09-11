@@ -1,4 +1,5 @@
 ---
+planId: "a1a0491f-1e3f-44c4-b083-9b71558f239f"
 classification: "PLANNED_CHANGE"
 workKind: "MAINTENANCE"
 complexity: "MEDIUM"
@@ -16,19 +17,18 @@ affectedPaths:
     - "src/cmd/plans/doctor.test.ts"
     - "src/cmd/load-plan/plan-recovery-flow.test.ts"
     - "src/shared/project-runtime-layout.test.ts"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
+    - "src/shared/testing/project-runtime-migration-process-driver.ts"
+    - "src/shared/workflow/transition-recovery.test.ts"
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
 createdAt: "2026-08-29T03:04:57.881Z"
-status: "draft"
+status: "ready_for_work"
 origin: "internal"
 parentPlan: "consolidate-project-runtime-state"
 order: 4
 dependencies:
     - "03-move-primary-runtime-stores"
-planId: "a1a0491f-1e3f-44c4-b083-9b71558f239f"
-executionAgent: "engineer"
-collaborationRecommendation: "autonomous"
+userVerifiedAt: null
 targetBranch: "epic/consolidate-project-runtime-state"
 ---
 
@@ -40,9 +40,9 @@ Plan document locks, catalog locks, transition journals, and Work Record superse
 They protect the checkout that owns the document mutation or checkout-local operation. Today they use the old `.wld/`
 runtime location.
 
-This child requires child 03 to finish moving primary stores. At planning review on 2026-09-10, the layout and migration
-code exists on `epic/consolidate-project-runtime-state`, not `main`; child 03 is ready for work but not yet delivered.
-Verify its completed result on the execution branch before starting. Do not recreate its changes here.
+Child 03 is validated. The merged execution branch contains its primary-store changes and the shared layout and
+migration code. Selected-store writers still use legacy paths. Preserve child 03's completed changes; do not recreate
+them here.
 
 The parent Epic and ADR-017 already settle checkout ownership and the one-way migration policy. This child moves
 selected-checkout stores and preserves their authority. Shared project-entry checks remain child 06 work; this slice
@@ -112,12 +112,16 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
   root.
 - `src/cmd/plans/doctor.ts` — move its direct stale-Plan-lock reader with the writer; preserve existing repair rules.
   Verify its registered-worktree journal scan uses the updated journal helper.
-- `src/cmd/load-plan/plan-recovery-flow.ts` and `plan-recovery-actions.ts` — verify existing checkout selection and
-  owner-specific reconciliation/attestation; change only if a remaining old-path reader requires it.
+- `src/cmd/load-plan/plan-recovery-flow.ts`, `plan-recovery-actions.ts`, and
+  `src/shared/workflow/transition-recovery.ts` — verify existing checkout selection, automatic cleanup of proven-settled
+  records, and owner-specific reconciliation/attestation. Keep `evidenceProjectRoot` separate from journal ownership;
+  change only if a remaining old-path reader requires it.
 - Plan-store, `state-transition.test.js`, lifecycle, Doctor, Plan Recovery, and Work Record tests — prove filesystem
   placement, lock exclusion, rollback, and recovery. Update helpers that currently seed or inspect legacy paths.
-- `src/shared/project-runtime-layout.test.ts` — retain explicit legacy migration fixtures; normal writers must not
-  silently turn them into current-layout fixtures after this move.
+- `src/shared/project-runtime-layout.test.ts` and `src/shared/testing/project-runtime-migration-process-driver.ts` —
+  retain explicit legacy migration fixtures. The driver's Plan and both Work Record lock commands currently call normal
+  writers. After the move, they must instead hold explicit legacy lock files with valid ownership and heartbeat data,
+  using the legacy protocols. Do not add production fallback paths or test-only parameters to current store APIs.
 
 Primary stores, project secrets, entry checks, Git exclusions, and release documentation remain with their assigned
 children. The Epic-branch glossary already defines Selected-Checkout Runtime State and its ownership; no definition
@@ -144,7 +148,9 @@ change is needed.
       and registry state remain primary-owned. Tests inspect actual held locks and populated journals, not only helper
       return values or empty directories after success.
 - [ ] Existing concurrency, rollback, and recovery tests exercise the new locations without lost assertions. Legacy
-      migration tests still seed literal legacy paths and prove adoption of their original bytes.
+      migration tests still seed literal legacy paths and prove adoption of their original bytes. Subprocess fixtures
+      hold actual legacy Plan and both Work Record locks without calling the relocated current writers; migration
+      refuses those live locks without moving authority.
 - [ ] Focused tests, the seam check, and CI pass without skipping behavior owned by this child.
 
 ## Approval Confirmation
@@ -155,7 +161,7 @@ No Work Record supersession is proposed.
 
 ```sh
 deno run -A scripts/run-tests.js src/plan-store.test.js src/shared/workflow/state-transition.test.js src/shared/work-records/supersession.test.ts src/shared/workflow/plan-location.integration.test.ts
-deno run -A scripts/run-tests.js src/cmd/plans/doctor.test.ts src/cmd/load-plan/plan-recovery-flow.test.ts src/shared/project-runtime-layout.test.ts
+deno run -A scripts/run-tests.js src/cmd/plans/doctor.test.ts src/cmd/load-plan/plan-recovery-flow.test.ts src/shared/workflow/transition-recovery.test.ts src/shared/project-runtime-layout.test.ts
 deno run -A scripts/run-tests.js src/shared/workflow/validation-lifecycle-resume.test.js src/shared/workflow/validation-operational-recovery.test.ts src/shared/work-records
 deno task seams:check
 deno task ci
@@ -177,9 +183,11 @@ Required evidence:
   rollback, and before-facts. Uncertain rollback retains a readable record at that same path. Assert no legacy journal
   or primary copy was written for a selected-root transition.
 - **Registered-worktree recovery:** use the existing Doctor and Plan Recovery fixtures to seed valid settled and
-  uncertain records at a registered execution checkout's internal path. Read-only inspection retains both. Repair
-  removes only proven-settled records; uncertain effects remain. User attestation keeps the record in that owner's
-  `plan-transitions/attested/`, not primary. Include this proof even though single-checkout listing tests pass.
+  uncertain records at a registered execution checkout's internal path. Explicit read-only inspection retains both.
+  Doctor repair and Plan Recovery's existing automatic healing remove only proven-settled records; uncertain effects
+  remain. Opening Plan Recovery is not a read-only operation for these records. User attestation keeps the record in
+  that owner's `plan-transitions/attested/`, not primary. Preserve `evidenceProjectRoot` for evidence lookup without
+  changing journal ownership. Include this proof even though single-checkout listing tests pass.
 - **Work Record locking:** run real apply/confirm/reject operations against canonical fixture files. Pre-seed each new
   lock path with a valid fresh owner and prove the operation cannot mutate documents while it is held; release it and
   confirm the expected document changes. Exercise main and recovery locks separately. Retain stale malformed-lock,
@@ -190,7 +198,8 @@ Required evidence:
   checkout and read it through primary. Assert those populated files stay only in primary's internal root while selected
   locks/journals stay local.
 - **Migration fixtures:** explicitly seed old paths and run the real migration engine. Assert journal bytes are retained
-  at the new selected path and normal recovery can read them there. Keep live/stale legacy lock preflight coverage;
+  at the new selected path and normal recovery can read them there. Inspect each legacy lock while its subprocess is
+  alive, then assert migration refuses it without moving authority. Keep live/stale legacy lock preflight coverage;
   moving normal writers must not make a legacy fixture empty.
 - **Semantic review:** every listed owner uses its named layout property; no normal old-path fallback or duplicate
   writer remains. Verify import initialization still works with the layout module's existing migration dependencies. The
@@ -198,8 +207,8 @@ Required evidence:
 
 Behavior expected to stop: normal selected-checkout operations no longer create or inspect legacy runtime stores.
 Behavior preserved: Plan Markdown authority, revision checks, lock naming/order/exclusion, rollback safety, heartbeat
-and stale-lock rules, and owner-specific recovery. Do not restore the unrelated Plan Amendment code removed in the
-current working tree. No test skip is expected; a skip cannot replace proof of this child's behavior.
+and stale-lock rules, and owner-specific recovery. Do not restore removed Plan Amendment behavior. No test skip is
+expected; a skip cannot replace proof of this child's behavior.
 
 ## Edge Cases & Considerations
 
@@ -213,6 +222,10 @@ current working tree. No test skip is expected; a skip cannot replace proof of t
   process home or cwd must use `withProcessGlobalTestLock`.
 - Keep layout calls lazy where imports form cycles. Do not put migration calls into these stores; shared entry checks
   remain child 06 work.
-- The Plan file was clean during discovery. Source edits removing Plan Amendment behavior were present in
-  `plan-store.js`, its tests, and `state-transition.ts`; this child must not overwrite or reverse them.
+- The Plan file is clean at resumed discovery. Unrelated source and Plan edits are present; leave them unchanged.
+- Separate Epic issue, not part of this store move: `resolveSelectedRoots()` in `project-runtime-layout.ts` can omit
+  primary selected-store state when migration starts from a linked checkout. Before child 06 enables project-entry
+  migration, assign and fix this gap. Verification must enter from a linked checkout with legacy journals in both
+  checkouts and live selected-store locks in primary, proving adoption at each owner and refusal of live locks. Child 04
+  does not certify complete migration coverage.
 - Do not run upgrade experiments on the real project during this intermediate slice. Use disposable fixtures.

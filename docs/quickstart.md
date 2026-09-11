@@ -107,6 +107,18 @@ for idea sharpening, Operator for direct non-code operations, Engineer for bound
 FEATURE plans, or Architect for PROJECT Epics. PROJECT work becomes an Epic design plan first, then the interactive
 Slicer breaks it into child FEATURE plans after approval.
 
+## Open Workspace in your browser or on your phone
+
+Run this in a separate terminal and leave it running:
+
+```bash
+wld workspace serve
+```
+
+Your browser opens Workspace and shows a pairing code. Follow the [Workspace setup guide](workspace.md) to pair your
+browser, link your repository, and continue a TUI Session. The guide also walks through
+[phone access with Tailscale](workspace.md#connect-from-your-phone-with-tailscale).
+
 ## Common commands
 
 ```bash
@@ -126,6 +138,7 @@ wld version
 
 ## Next steps
 
+- [Workspace on your computer and phone](workspace.md) - browser setup, pairing, and Tailscale access.
 - [Using RunWield](usage.md) - day-to-day workflow and commands.
 - [Plans and workflows](workflows.md) - RunWield planning and validation behavior.
 - [Providers and models](providers.md) - RunWield-specific provider paths.
