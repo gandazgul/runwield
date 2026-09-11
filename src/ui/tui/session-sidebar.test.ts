@@ -2,6 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import stripAnsi from "strip-ansi";
 import {
     composePinnedSessionSidebar,
+    isSessionSidebarActionKey,
     isSessionSidebarCycleKey,
     TuiSessionSidebar,
     tuiSessionSidebarProjection,
@@ -114,6 +115,20 @@ Deno.test("TUI Session Sidebar cycles once for ctrl+] key-down only", () => {
     assertEquals(isSessionSidebarCycleKey("\x1b[93;5:2u"), false);
     assertEquals(isSessionSidebarCycleKey("\x1b[93;5:3u"), false);
     assertEquals(isSessionSidebarCycleKey("]"), false);
+});
+
+Deno.test("TUI Session Sidebar exposes a keyboard action without changing draft keys", () => {
+    assertEquals(isSessionSidebarActionKey("\x1b[13;5u"), true);
+    assertEquals(isSessionSidebarActionKey("\r"), false);
+    const sidebar = new TuiSessionSidebar(
+        () => "session-action",
+        () => ({
+            managed: { generation: 1 },
+            workflowContext: { planName: "needs-answer", liveQuestion: true },
+        }),
+    );
+    assertEquals(sidebar.currentAction()?.kind, "answer_agent");
+    assertStringIncludes(stripAnsi(sidebar.render(42).join("\n")), "ctrl+enter runs this action");
 });
 
 Deno.test("TUI Session Sidebar stays at the top of the visible transcript viewport", () => {

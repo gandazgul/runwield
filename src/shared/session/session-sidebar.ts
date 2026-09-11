@@ -2,7 +2,7 @@ import type { SessionArtifactReference } from "./file-session-store-types.ts";
 import {
     buildWorkflowPresentation,
     type WorkflowPresentation,
-    type WorkflowPresentationStageFact,
+    type WorkflowProgressFact,
 } from "../workflow/workflow-presentation.ts";
 
 export const SESSION_SIDEBAR_TABS = ["workflow", "session", "artifacts"] as const;
@@ -30,7 +30,13 @@ export interface SessionSidebarProjectionInput {
     workflowIntent?: string | null;
     workflowClassification?: string | null;
     workflowStatus?: string | null;
-    workflowStages?: WorkflowPresentationStageFact[];
+    workflowProgressFacts?: WorkflowProgressFact[];
+    workflowHasLiveQuestion?: boolean;
+    workflowHasPlanReview?: boolean;
+    workflowHasCodeReview?: boolean;
+    workflowCanRun?: boolean;
+    workflowCanResume?: boolean;
+    workflowCanRecover?: boolean;
     workflowDegradedMessage?: string | null;
     workflowSessionState?: string | null;
     workflowHasWorkingSession?: boolean;
@@ -142,10 +148,16 @@ export function buildSessionSidebarProjection(input: SessionSidebarProjectionInp
         intent: workflowIntent,
         classification: input.workflowClassification,
         status: input.workflowStatus,
-        stages: input.workflowStages,
+        progressFacts: input.workflowProgressFacts,
         degradedMessage: input.workflowDegradedMessage,
         sessionState: input.workflowSessionState,
         hasWorkingSession: input.workflowHasWorkingSession,
+        hasLiveQuestion: input.workflowHasLiveQuestion,
+        hasPlanReview: input.workflowHasPlanReview,
+        hasCodeReview: input.workflowHasCodeReview,
+        canRun: input.workflowCanRun,
+        canResume: input.workflowCanResume,
+        canRecover: input.workflowCanRecover,
     });
     const hasSessionStats = typeof input.userMessages === "number" || typeof input.assistantMessages === "number" ||
         typeof input.toolCalls === "number" || typeof input.compactionCount === "number";

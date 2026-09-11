@@ -14,6 +14,7 @@ import {
     deleteRemotelyPublishedWorktreeBranch,
     removeWorktreeGitArtifacts,
 } from "../worktree.js";
+import { writeControllerState } from "./controller-registry.ts";
 import {
     advancePublicationAttempt,
     assertPublicationAttempt,
@@ -328,6 +329,14 @@ export type PublicationCleanupResult = {
     details: string[];
 };
 
+async function retainPublicationCompletion(projectRoot: string, attempt: PublicationAttempt): Promise<void> {
+    if (!attempt.verifiedAt) return;
+    await writeControllerState(projectRoot, { planId: attempt.planId, planName: attempt.planName }, {
+        verifiedAt: attempt.verifiedAt,
+        updatedAt: attempt.verifiedAt,
+    });
+}
+
 /**
  * Finish verified publication cleanup without requiring the execution worktree
  * to still exist. This is the restart path for a process that died after deleting
@@ -339,12 +348,14 @@ export async function cleanupStoredPublication(
 ): Promise<PublicationCleanupResult> {
     let attempt = await reconcileStoredPublication(projectRoot, initial);
     if (attempt.phase === "cleanup_complete") {
+        await retainPublicationCompletion(projectRoot, attempt);
         await pruneEntry(projectRoot, attempt.attemptId);
         return { complete: true, attempt, worktreeKept: false, branchKept: false, details: [] };
     }
     if (attempt.phase !== "publication_verified") {
         throw new Error(`Publication cleanup requires verified publication, found ${attempt.phase}.`);
     }
+    await retainPublicationCompletion(projectRoot, attempt);
     const stillPublished = await publishedEvidence(projectRoot, attempt);
     if (!stillPublished) {
         const worktreeKept = await Deno.stat(attempt.executionCwd).then((value) => value.isDirectory).catch(() =>

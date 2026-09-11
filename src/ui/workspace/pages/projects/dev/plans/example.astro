@@ -41,14 +41,8 @@ const payload = {
     sessionHref: "/projects/dev-project/sessions/choose-terraform-folder-name",
     workflow: {
         sessionState: "active",
-        stages: [
-            { id: "planning", label: "Planning", state: "passed", detail: "Plan approved." },
-            { id: "execution", label: "Execution", state: "completed", detail: "Implementation changes are in this worktree." },
-            { id: "mechanical", label: "Tests and CI", state: "running", detail: "Focused checks are passing; wider checks remain." },
-            { id: "semantic", label: "AI review", state: "pending", detail: "Review has not started." },
-            { id: "repair", label: "Repair", state: "not_required", detail: "No repair loop is active." },
-            { id: "delivery", label: "Delivery", state: "pending", detail: "Delivery has not started." },
-            { id: "completion", label: "Completion", state: "pending", detail: "User verification remains." },
+        progressFacts: [
+            { kind: "validation_checkpoint", phase: "mechanical", state: "running" },
         ],
     },
 };

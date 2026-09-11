@@ -1,15 +1,14 @@
 import { assertEquals } from "@std/assert";
 import { buildWorkflowPresentation } from "./workflow-presentation.ts";
 
-Deno.test("workflow presentation derives current stage, blocker and recovery action from raw progress facts", () => {
+Deno.test("workflow presentation derives current stage and blocker from raw progress facts without fabricating recovery", () => {
     const presentation = buildWorkflowPresentation({
         planName: "workspace/diagram",
         epicName: "workspace",
         intent: "PLANNED_CHANGE",
-        stages: [
-            { id: "execution", label: "Execution", state: "passed", detail: "Implementation finished." },
-            { id: "mechanical", label: "Tests and CI", state: "needs_attention", detail: "CI failed." },
-            { id: "repair", label: "Repair", state: "not_required", detail: "No repair is active." },
+        status: "implemented",
+        progressFacts: [
+            { kind: "validation_checkpoint", phase: "mechanical", state: "awaiting_repair" },
         ],
     });
 
@@ -17,12 +16,36 @@ Deno.test("workflow presentation derives current stage, blocker and recovery act
     assertEquals(presentation.plan, "diagram");
     assertEquals(presentation.currentStage?.id, "mechanical");
     assertEquals(presentation.currentStage?.state, "blocked");
-    assertEquals(presentation.blocker, "CI failed.");
-    assertEquals(presentation.action?.kind, "recover");
-    assertEquals(presentation.stages.map((stage) => stage.id), ["execution", "mechanical"]);
+    assertEquals(presentation.blocker, "Tests and CI needs attention.");
+    assertEquals(presentation.action?.kind, "open_plan");
+    assertEquals(presentation.connections.some((connection) => connection.kind === "repair_return"), true);
 });
 
-Deno.test("workflow presentation gives idle Plan facts a real diagram instead of a host mapper", () => {
+Deno.test("workflow presentation exposes recovery only when live capability is present", () => {
+    const presentation = buildWorkflowPresentation({
+        planName: "workspace/diagram",
+        status: "implemented",
+        canRecover: true,
+        progressFacts: [{ kind: "validation_checkpoint", phase: "mechanical", state: "awaiting_repair" }],
+    });
+
+    assertEquals(presentation.action?.kind, "recover");
+});
+
+Deno.test("workflow presentation returns repairs to the failed check, not repair itself", () => {
+    const presentation = buildWorkflowPresentation({
+        planName: "workspace/diagram",
+        status: "validated_reviewer",
+        progressFacts: [{ kind: "registry", status: "validation_failed" }],
+    });
+
+    assertEquals(
+        presentation.connections.find((connection) => connection.kind === "repair_return"),
+        { from: "repair", to: "delivery", kind: "repair_return" },
+    );
+});
+
+Deno.test("workflow presentation does not fabricate review actions from missing live facts", () => {
     const presentation = buildWorkflowPresentation({
         planName: "ready-plan",
         intent: "PLANNED_CHANGE",
@@ -31,6 +54,18 @@ Deno.test("workflow presentation gives idle Plan facts a real diagram instead of
 
     assertEquals(presentation.currentStage?.id, "planning");
     assertEquals(presentation.currentStage?.state, "current");
-    assertEquals(presentation.action?.kind, "review_plan");
+    assertEquals(presentation.action?.kind, "open_session");
     assertEquals(presentation.stages.some((stage) => stage.id === "delivery"), true);
+});
+
+Deno.test("workflow presentation gives container Plans child-work stages", () => {
+    const presentation = buildWorkflowPresentation({
+        planName: "workspace",
+        classification: "PROJECT",
+        projectPlanType: "sequence",
+        status: "ready_for_decomposition",
+    });
+
+    assertEquals(presentation.stages.map((stage) => stage.id), ["review", "decomposition", "child_work", "completion"]);
+    assertEquals(presentation.currentStage?.id, "decomposition");
 });

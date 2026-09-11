@@ -4,7 +4,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 // OpenChamber is MIT licensed: Copyright (c) 2025 Bohdan Triapitsyn.
 import {
     RunWieldButton,
-    RunWieldLink,
     RunWieldPanelToggle,
     RunWieldThinkingDots,
 } from "../../design-system/components/react/RunWieldPrimitives.jsx";
@@ -20,6 +19,7 @@ import {
 } from "../../../shared/session/session-sidebar.ts";
 import { createSessionTabNotificationController } from "../browser/session-tab-notifications.ts";
 import { WorkspaceHeaderActionsPortal } from "../react/WorkspaceHeaderActionsPortal.tsx";
+import { WorkflowSidebar } from "../react/WorkflowSidebar.tsx";
 
 export const SESSION_PAGE_SIZE = 30;
 const TIMELINE_PAGE_LIMIT = 200;
@@ -97,7 +97,7 @@ async function ownerFetch(url, options = {}) {
     headers.set("x-runwield-csrf", decodeURIComponent(ownerCookie("rw_owner_csrf")));
     const response = await fetch(url, { ...options, headers });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
+    if (!response.ok || payload.error) {
         const error = new Error(payload.error || `Request failed with ${response.status}`);
         Reflect.set(error, "status", response.status);
         Reflect.set(error, "payload", payload);
@@ -181,6 +181,13 @@ export function reduceOperationTransientItems(events) {
     );
 }
 
+export function latestLiveWorkflowInteraction(items) {
+    return [...items].reverse().find((item) =>
+        item?.source === "transient" && ["interaction", "plan-review", "code-review"].includes(item.kind) &&
+        item.interactionId
+    ) || null;
+}
+
 let operationNotificationController = null;
 
 function getOperationNotificationController() {
@@ -249,10 +256,11 @@ export function shouldRefreshSessionAvailability(input) {
 /** @param {SessionModelSnapshot | undefined | null} snapshot */
 export function activePlanId(snapshot) {
     const context = asRecord(snapshot?.workflowContext || snapshot?.activeExecutionWorkflow || {});
+    const triageMeta = asRecord(context.triageMeta || {});
     return typeof context.planId === "string" && context.planId.trim()
         ? context.planId.trim()
-        : typeof context.planName === "string" && context.planName.trim()
-        ? context.planName.trim()
+        : typeof triageMeta.planId === "string" && triageMeta.planId.trim()
+        ? triageMeta.planId.trim()
         : "";
 }
 
@@ -458,8 +466,8 @@ function SessionComposer({
     );
 }
 
-/** @param {{ projectId: string, mode?: "list" | "detail" | "new", runwieldSessionId?: string }} props */
-export function SessionSurface({ projectId, mode = "detail", runwieldSessionId = "" }) {
+/** @param {{ projectId: string, mode?: "list" | "detail" | "new", runwieldSessionId?: string, planId?: string }} props */
+export function SessionSurface({ projectId, mode = "detail", runwieldSessionId = "", planId = "" }) {
     const [listData, setListData] = useState(/** @type {any} */ (null));
     const [listPage, setListPage] = useState(0);
     const [listError, setListError] = useState("");
@@ -559,6 +567,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         setListError("");
         try {
             const query = new URLSearchParams({ page: String(requestedPage), pageSize: String(SESSION_PAGE_SIZE) });
+            if (planId) query.set("plan", planId);
             const payload = await ownerFetch(
                 `/api/owner/projects/${encodeURIComponent(projectId)}/sessions?${query}`,
                 { method: "GET" },
@@ -720,7 +729,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             setLoadingDetail(false);
             loadSessionOptions();
         }
-    }, [mode, projectId, runwieldSessionId, listPage]);
+    }, [mode, projectId, runwieldSessionId, listPage, planId]);
 
     useEffect(() => {
         if (!draftKey) return;
@@ -1387,6 +1396,17 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }
     }
 
+    useEffect(() => {
+        if (!location.hash.startsWith("#interaction-")) return;
+        const interactionId = location.hash.slice("#interaction-".length);
+        if (!latestLiveWorkflowInteraction(transientItems.filter((item) => item.interactionId === interactionId))) {
+            return;
+        }
+        const target = document.getElementById(location.hash.slice(1));
+        const focusTarget = target?.querySelector?.("textarea, input, button, a") || target;
+        if (focusTarget instanceof HTMLElement) focusTarget.focus();
+    }, [transientItems]);
+
     if (mode === "list") {
         return (
             <SessionList
@@ -1483,6 +1503,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         ),
         ...(interruptedOperation ? [{ kind: "interruption", key: "interruption:lost-workspace-operation" }] : []),
     ];
+    const liveWorkflowInteraction = latestLiveWorkflowInteraction(transientItems);
     const activeExecutionWorkflow = asRecord(timeline?.snapshot?.activeExecutionWorkflow || {});
     const persistedWorkflowContext = asRecord(timeline?.snapshot?.workflowContext || {});
     const workflowContext = Object.keys(activeExecutionWorkflow).length
@@ -1509,7 +1530,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         workflowClassification: typeof workflowProgress?.plan?.classification === "string"
             ? workflowProgress.plan.classification
             : "",
-        workflowStages: Array.isArray(workflowProgress?.stages) ? workflowProgress.stages : undefined,
+        workflowProgressFacts: Array.isArray(workflowProgress?.progressFacts)
+            ? workflowProgress.progressFacts
+            : undefined,
         workflowDegradedMessage: typeof workflowProgress?.degraded?.message === "string"
             ? workflowProgress.degraded.message
             : workflowProgressError,
@@ -1517,11 +1540,45 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             ? workflowProgress.session.state
             : "",
         workflowHasWorkingSession: Boolean(workflowProgress?.session?.runwieldSessionId || runwieldSessionId),
+        workflowHasLiveQuestion: liveWorkflowInteraction?.kind === "interaction",
+        workflowHasPlanReview: liveWorkflowInteraction?.kind === "plan-review",
+        workflowHasCodeReview: liveWorkflowInteraction?.kind === "code-review",
+        workflowCanResume: Boolean(runwieldSessionId && availability.canContinue),
+        workflowCanRecover: Boolean(runwieldSessionId && interruptedOperation),
     }).workflow;
     const planHomeFromSnapshot = timeline ? activePlanHomeUrl(projectId, runwieldSessionId, timeline.snapshot) : "";
-    const planHomeUrl = activeWorkflowPlan
-        ? `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(activeWorkflowPlan)}`
-        : planHomeFromSnapshot;
+    const planHomeUrl = planHomeFromSnapshot;
+    const workflowActionUrl = liveWorkflowInteraction?.reviewUrl ||
+        (liveWorkflowInteraction?.interactionId ? `#interaction-${liveWorkflowInteraction.interactionId}` : "") ||
+        planHomeUrl;
+    async function runWorkflowAction(action) {
+        if (!["run", "resume", "recover"].includes(action.kind)) return;
+        const planId = activePlanId(timeline?.snapshot);
+        if (!planId) {
+            setMessage("Plan workflow evidence is unavailable.");
+            return;
+        }
+        try {
+            await ownerFetch(
+                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                    encodeURIComponent(runwieldSessionId)
+                }/plan-workflow`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({
+                        requestId: crypto.randomUUID(),
+                        planId,
+                        action: action.kind,
+                        expectedGeneration: timeline?.snapshot?.managed?.generation,
+                        expectedCurrentSegmentId: timeline?.snapshot?.managed?.currentSegmentId || null,
+                    }),
+                },
+            );
+            await refresh();
+        } catch (error) {
+            setMessage(errorMessage(error));
+        }
+    }
     const agents = Array.isArray(sessionOptions?.agents) ? sessionOptions.agents : [];
     const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
     const thinkingLevels = Array.isArray(sessionOptions?.thinkingLevels) ? sessionOptions.thinkingLevels : [];
@@ -1720,88 +1777,21 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                         <div className="session-context-panel" role="tabpanel">
                                             {hasActivePlan
                                                 ? (
-                                                    <>
-                                                        <dl>
-                                                            {workflowSidebar.epic
-                                                                ? (
-                                                                    <div>
-                                                                        <dt>Epic</dt>
-                                                                        <dd>{workflowSidebar.epic}</dd>
-                                                                    </div>
-                                                                )
-                                                                : null}
-                                                            <div>
-                                                                <dt>Plan</dt>
-                                                                <dd>{workflowSidebar.plan}</dd>
-                                                            </div>
-                                                        </dl>
-                                                        {workflowProgress
-                                                            ? (
-                                                                <>
-                                                                    <ol
-                                                                        className="session-workflow-stage-list workflow-diagram"
-                                                                        aria-label="Canonical workflow progress stages"
-                                                                    >
-                                                                        {workflowSidebar.stages.map((stage) => (
-                                                                            <li
-                                                                                key={stage.id}
-                                                                                data-state={stage.state}
-                                                                                aria-current={stage.current
-                                                                                    ? "step"
-                                                                                    : undefined}
-                                                                            >
-                                                                                <span>{stage.label}</span>
-                                                                                <strong>
-                                                                                    {String(stage.state || "unknown")}
-                                                                                </strong>
-                                                                                <p>{stage.detail}</p>
-                                                                            </li>
-                                                                        ))}
-                                                                    </ol>
-                                                                    {workflowSidebar.blocker
-                                                                        ? (
-                                                                            <section
-                                                                                className="workflow-next-card"
-                                                                                aria-label="Workflow blocker"
-                                                                            >
-                                                                                <h3>Blocked by</h3>
-                                                                                <p>{workflowSidebar.blocker}</p>
-                                                                            </section>
-                                                                        )
-                                                                        : null}
-                                                                    {workflowSidebar.action
-                                                                        ? (
-                                                                            <section
-                                                                                className="workflow-next-card"
-                                                                                aria-label="Workflow action"
-                                                                            >
-                                                                                <h3>Next action</h3>
-                                                                                <p>{workflowSidebar.action.detail}</p>
-                                                                                {planHomeUrl
-                                                                                    ? (
-                                                                                        <RunWieldLink
-                                                                                            variant="primary"
-                                                                                            className="rw-plan-review-link"
-                                                                                            href={planHomeUrl}
-                                                                                        >
-                                                                                            {workflowSidebar.action
-                                                                                                .label}
-                                                                                        </RunWieldLink>
-                                                                                    )
-                                                                                    : null}
-                                                                            </section>
-                                                                        )
-                                                                        : null}
-                                                                </>
-                                                            )
-                                                            : (
-                                                                <p className="notice muted">
-                                                                    {workflowProgressError
-                                                                        ? "Workflow progress is temporarily unavailable."
-                                                                        : "Loading canonical workflow progress…"}
-                                                                </p>
-                                                            )}
-                                                    </>
+                                                    <WorkflowSidebar
+                                                        presentation={workflowSidebar}
+                                                        payload={{
+                                                            planHref: planHomeUrl,
+                                                            sessionHref: runwieldSessionId
+                                                                ? `/projects/${
+                                                                    encodeURIComponent(projectId)
+                                                                }/sessions/${encodeURIComponent(runwieldSessionId)}`
+                                                                : "",
+                                                            reviewHref: liveWorkflowInteraction?.reviewUrl || "",
+                                                            interactionHref: workflowActionUrl,
+                                                        }}
+                                                        title="Workflow"
+                                                        onAction={runWorkflowAction}
+                                                    />
                                                 )
                                                 : (
                                                     <p className="session-context-empty">

@@ -9,44 +9,111 @@ import {
     getAstroOwnerWorkspaceStore,
     loadOwnerProjectPlanDetail,
 } from "../../../../server/astro-owner-data.js";
-import { loadOwnerPlanProgress } from "../../../../server/owner-plan-progress.ts";
+
+type WorkspacePlanAttrs = {
+    status?: string;
+    classification?: string;
+    type?: string;
+    parentPlan?: string;
+};
+
+type WorkspacePlanDetail = {
+    planName?: string;
+    title?: string;
+    status?: string;
+    classification?: string;
+    type?: string;
+    parentPlan?: string;
+    path?: string;
+    markdown?: string;
+    body?: string;
+    attrs?: WorkspacePlanAttrs;
+};
+
+type CanonicalPlanError = { error: string; repair: string };
+
+type WorkspaceSessionContinuation = {
+    getLivePlanReview?: (options: {
+        projectId: string;
+        planId: string;
+        runwieldSessionId: string;
+        operationId: string;
+        interactionId: string;
+    }) => Promise<{
+        request?: {
+            planReview?: {
+                sequenceDocuments?: Array<{ path?: string; title?: string; markdown?: string }>;
+                previousPlan?: string;
+                planVersions?: Array<{ label?: string; markdown?: string; createdAt?: string }>;
+                classification?: string;
+                agentLabel?: string;
+            };
+        };
+    } | null>;
+};
+
+type OwnerWorkspaceStore = {
+    inspectSessionActivation?: (runwieldSessionId: string) => {
+        activation?: { state?: string };
+        generation?: { generation?: number | null; currentSegmentId?: string | null };
+    };
+};
 
 const projectId = Astro.params.projectId ?? "";
 const planId = Astro.params.planId ?? "";
-const runwieldSessionId = Astro.url.searchParams.get("session") || "";
+const requestedSessionId = Astro.url.searchParams.get("session") || "";
 const operationId = Astro.url.searchParams.get("operation") || "";
 const interactionId = Astro.url.searchParams.get("interaction") || "";
-let liveReview = null;
-let plan = null;
-let progress = null;
-let error = null;
-let recoveryGeneration = null;
-let recoveryCurrentSegmentId = null;
+let liveReview: Awaited<ReturnType<NonNullable<WorkspaceSessionContinuation["getLivePlanReview"]>>> | null = null;
+let plan: WorkspacePlanDetail | null = null;
+let error: CanonicalPlanError | null = null;
+let recoveryGeneration: number | null = null;
+let recoveryCurrentSegmentId: string | null = null;
 try {
     plan = await loadOwnerProjectPlanDetail(projectId, planId);
-    const store = getAstroOwnerWorkspaceStore();
-    if (store && plan && !plan.isEpic && plan.classification !== "PROJECT") {
-        progress = await loadOwnerPlanProgress(store, { projectId, planId, runwieldSessionId });
-    }
-    if (runwieldSessionId && operationId && interactionId) {
-        liveReview = await getAstroOwnerWorkspaceSessionContinuation()?.getLivePlanReview?.({
+} catch (caught) {
+    const serializedError = await serializeCanonicalPlanError(caught) as CanonicalPlanError;
+    error = serializedError;
+    Astro.response.status = serializedError.error.includes("not found") || serializedError.error.includes("Plan not found")
+        ? 404
+        : 409;
+}
+const store = getAstroOwnerWorkspaceStore() as OwnerWorkspaceStore | null;
+const provenSessionId = requestedSessionId;
+if (plan && provenSessionId && operationId && interactionId && !error) {
+    try {
+        const continuation = getAstroOwnerWorkspaceSessionContinuation() as WorkspaceSessionContinuation | null;
+        liveReview = await continuation?.getLivePlanReview?.({
             projectId,
             planId,
-            runwieldSessionId,
+            runwieldSessionId: provenSessionId,
             operationId,
             interactionId,
         }) || null;
-        const inspected = getAstroOwnerWorkspaceStore()?.inspectSessionActivation?.(runwieldSessionId);
+        const inspected = getAstroOwnerWorkspaceStore()?.inspectSessionActivation?.(provenSessionId);
         recoveryGeneration = inspected?.generation?.generation ?? null;
         recoveryCurrentSegmentId = inspected?.generation?.currentSegmentId ?? null;
+    } catch {
+        liveReview = null;
     }
-} catch (caught) {
-    error = await serializeCanonicalPlanError(caught);
-    Astro.response.status = error.error.includes("not found") || error.error.includes("Plan not found") ? 404 : 409;
 }
 const fromDashboard = Astro.url.searchParams.get("from") === "dashboard";
-const sessionId = progress?.session?.runwieldSessionId || runwieldSessionId;
-const planHomePayload = plan && !plan.isEpic && plan.classification !== "PROJECT"
+const sessionId = provenSessionId;
+if (store && plan && sessionId && recoveryGeneration === null && !error) {
+    try {
+        const inspected = store.inspectSessionActivation?.(sessionId);
+        recoveryGeneration = inspected?.generation?.generation ?? null;
+        recoveryCurrentSegmentId = inspected?.generation?.currentSegmentId ?? null;
+    } catch {
+        recoveryGeneration = null;
+        recoveryCurrentSegmentId = null;
+    }
+}
+const sessionHref = sessionId
+    ? `/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}`
+    : `/projects/${encodeURIComponent(projectId)}/sessions?plan=${encodeURIComponent(planId)}`;
+const canRecover = false;
+const planHomePayload = plan
     ? {
         mode: "workspace",
         planId,
@@ -54,19 +121,34 @@ const planHomePayload = plan && !plan.isEpic && plan.classification !== "PROJECT
         title: plan.title || plan.planName || planId,
         status: plan.status || plan.attrs?.status,
         classification: plan.classification || plan.attrs?.classification,
+        type: plan.type || plan.attrs?.type,
         parentPlan: plan.parentPlan || plan.attrs?.parentPlan,
         artifactPath: plan.path,
         markdown: plan.markdown || plan.body || "",
         returnHref: fromDashboard ? "/" : `/projects/${encodeURIComponent(projectId)}/plans`,
         returnLabel: fromDashboard ? "Back to Dashboard" : "Back to Plans",
         planHref: `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}`,
-        sessionHref: sessionId
-            ? `/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}`
+        sessionHref,
+        reviewHref: operationId && interactionId && sessionId
+            ? `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}?session=${encodeURIComponent(sessionId)}&operation=${encodeURIComponent(operationId)}&interaction=${encodeURIComponent(interactionId)}`
             : "",
+        reviewKind: liveReview ? "plan" : "",
+        interactionHref: operationId && interactionId && sessionId
+            ? `${sessionHref}#interaction-${encodeURIComponent(interactionId)}`
+            : "",
+        progressApiUrl: `/api/owner/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}/progress${sessionId ? `?session=${encodeURIComponent(sessionId)}` : ""}`,
+        continueUrl: "",
+        planWorkflowUrl: sessionId
+            ? `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/plan-workflow`
+            : "",
+        recoveryUrl: "",
+        canRecover,
+        expectedGeneration: recoveryGeneration,
+        expectedCurrentSegmentId: recoveryCurrentSegmentId,
         workflow: {
-            sessionState: typeof progress?.session?.state === "string" ? progress.session.state : "",
-            degradedMessage: typeof progress?.degraded?.message === "string" ? progress.degraded.message : "",
-            stages: Array.isArray(progress?.stages) ? progress.stages : [],
+            sessionState: "",
+            degradedMessage: "",
+            progressFacts: [],
         },
     }
     : null;
@@ -81,14 +163,12 @@ const reviewPayload = plan && liveReview
         planPath: plan.path,
         classification: liveReview.request?.planReview?.classification,
         agentLabel: liveReview.request?.planReview?.agentLabel || "Planner",
-        runwieldSessionId,
+        runwieldSessionId: sessionId,
         reviewContext: {
             projectLabel: projectId,
-            sessionHref: `/projects/${encodeURIComponent(projectId)}/sessions/${
-                encodeURIComponent(runwieldSessionId)
-            }`,
-            sessionLabel: runwieldSessionId,
-            actingSession: runwieldSessionId,
+            sessionHref,
+            sessionLabel: sessionId,
+            actingSession: sessionId,
             planLabel: plan.title || plan.planName || planId,
             planStatus: plan.status || plan.attrs?.status,
             live: true,
@@ -103,19 +183,20 @@ const reviewPayload = plan && liveReview
         operationStatusUrl: `/api/owner/session-operations/${encodeURIComponent(operationId)}`,
         planDetailUrl: `/api/owner/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}`,
         recoveryUrl: `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
-            encodeURIComponent(runwieldSessionId)
+            encodeURIComponent(sessionId)
         }/force-recovery`,
         recoveryExpectedGeneration: recoveryGeneration,
         recoveryExpectedCurrentSegmentId: recoveryCurrentSegmentId,
         progressUrl: `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}?session=${
-            encodeURIComponent(runwieldSessionId)
+            encodeURIComponent(sessionId)
         }`,
     }
     : null;
+const surfaceTitle = reviewPayload && plan ? `Plan Review — ${plan.title || plan.planName || planId}` : "";
 ---
 <WorkspaceLayout
     title={plan ? `${plan.planName} · RunWield Workspace` : "Project Plan · RunWield Workspace"}
-    surfaceTitle={reviewPayload ? `Plan Review — ${plan.title || plan.planName || planId}` : ""}
+    surfaceTitle={surfaceTitle}
     selectedTab="projects"
     url={Astro.url.href}
 >
@@ -134,9 +215,9 @@ const reviewPayload = plan && liveReview
             plan={plan}
             url={Astro.url.href}
             editIntent={false}
-            progress={progress}
+            progress={null}
             projectId={projectId}
-            runwieldSessionId={runwieldSessionId}
+            runwieldSessionId={sessionId}
             client:load
         />
     )}

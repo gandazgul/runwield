@@ -75,6 +75,7 @@ import {
     ownerSessionOperationStatusApi,
     ownerSessionOperationStreamApi,
     ownerSessionOptionsApi,
+    ownerSessionPlanWorkflowApi,
     ownerSessionSteerApi,
     ownerSessionTimelineApi,
 } from "./routes/owner-session-api.js";
@@ -308,6 +309,7 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/live", ownerSessionLiveApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/bootstrap", ownerSessionBootstrapApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/continue", ownerSessionContinuationStartApi);
+    app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/plan-workflow", ownerSessionPlanWorkflowApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/configure", ownerSessionConfigureApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/force-recovery", ownerSessionForceRecoverApi);
     app.post(
@@ -751,6 +753,8 @@ function renderOwnerHome() {
         const sectionsRoot = root?.querySelector('[data-dashboard-sections]');
         const labels = ['Needs You', 'Ready to Continue', 'In Progress', 'Recently Finished'];
         let generation = 0;
+        let dashboardRefreshInFlight = null;
+        let dashboardRefreshTimer = null;
         function escapeText(value) {
             return String(value || '').replace(/[&<>\"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[char]));
         }
@@ -768,25 +772,43 @@ function renderOwnerHome() {
             '</section>';
         }
         async function refreshDashboard() {
+            if (dashboardRefreshInFlight) return dashboardRefreshInFlight;
             const current = ++generation;
-            try {
-                const response = await fetch('/api/owner/dashboard', { headers: { accept: 'application/json' } });
-                const payload = await response.json();
-                if (current !== generation) return;
-                if (!response.ok) throw new Error(payload.error || 'Dashboard failed to load.');
-                const sections = Array.isArray(payload.dashboard?.sections) ? payload.dashboard.sections : [];
-                const byLabel = new Map(sections.map((section) => [section.label, section]));
-                sectionsRoot.innerHTML = labels.map((label) => sectionHtml(byLabel.get(label) || { label, items: [] })).join('');
-                status.hidden = true;
-                status.removeAttribute('aria-busy');
-            } catch (error) {
-                if (current !== generation) return;
-                status.textContent = error instanceof Error ? error.message : String(error);
-            }
+            dashboardRefreshInFlight = (async () => {
+                try {
+                    const response = await fetch('/api/owner/dashboard', { headers: { accept: 'application/json' } });
+                    const payload = await response.json();
+                    if (current !== generation) return;
+                    if (!response.ok) throw new Error(payload.error || 'Dashboard failed to load.');
+                    const sections = Array.isArray(payload.dashboard?.sections) ? payload.dashboard.sections : [];
+                    const byLabel = new Map(sections.map((section) => [section.label, section]));
+                    sectionsRoot.innerHTML = labels.map((label) => sectionHtml(byLabel.get(label) || { label, items: [] })).join('');
+                    status.hidden = true;
+                    status.removeAttribute('aria-busy');
+                } catch (error) {
+                    if (current !== generation) return;
+                    status.hidden = false;
+                    status.removeAttribute('aria-busy');
+                    status.setAttribute('role', 'alert');
+                    status.textContent = error instanceof Error ? error.message : String(error);
+                } finally {
+                    dashboardRefreshInFlight = null;
+                }
+            })();
+            return dashboardRefreshInFlight;
         }
-        refreshDashboard();
-        let timer = setInterval(refreshDashboard, 5000);
-        document.addEventListener('astro:before-preparation', () => clearInterval(timer), { once: true });
+        function startDashboardRefreshLoop() {
+            if (dashboardRefreshTimer) return;
+            refreshDashboard();
+            dashboardRefreshTimer = setInterval(refreshDashboard, 5000);
+        }
+        function stopDashboardRefreshLoop() {
+            if (!dashboardRefreshTimer) return;
+            clearInterval(dashboardRefreshTimer);
+            dashboardRefreshTimer = null;
+        }
+        startDashboardRefreshLoop();
+        document.addEventListener('astro:before-preparation', stopDashboardRefreshLoop, { once: true });
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') refreshDashboard();
         });

@@ -2,7 +2,6 @@ import { findPlanEvidenceById } from "../../../plan-store.js";
 import { findByPlanId, type WorktreeRegistryEntry } from "../../../shared/worktree-registry.js";
 import {
     isValidationCheckpoint,
-    readValidationReviewState,
     type ValidationCheckpoint,
     validationCheckpointCanResume,
 } from "../../../shared/workflow/validation-checkpoint.ts";
@@ -10,6 +9,10 @@ import { getRunWieldSessionDir } from "../../../shared/session/root-session.js";
 import { projectAggregateTranscript } from "../../../shared/session/session-transcript-manifest.ts";
 import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
 import { validationStageLabel } from "../../../shared/workflow/validation-progress-presentation.ts";
+import {
+    buildWorkflowPresentation,
+    type WorkflowProgressFact,
+} from "../../../shared/workflow/workflow-presentation.ts";
 
 export type ProgressOverallState =
     | "waiting"
@@ -79,7 +82,16 @@ type OwnerStore = {
 };
 
 type ProgressStage = {
-    id: "execution" | "mechanical" | "semantic" | "repair" | "delivery" | "completion";
+    id:
+        | "review"
+        | "decomposition"
+        | "child_work"
+        | "execution"
+        | "mechanical"
+        | "semantic"
+        | "repair"
+        | "delivery"
+        | "completion";
     label: string;
     state: ProgressStageState;
     detail: string;
@@ -115,6 +127,7 @@ export type OwnerPlanProgress = {
         settled: boolean;
     };
     stages: ProgressStage[];
+    progressFacts: WorkflowProgressFact[];
     session: {
         runwieldSessionId: string;
         displayName: string;
@@ -126,19 +139,17 @@ export type OwnerPlanProgress = {
         progressUrl: string;
     } | null;
     degraded: { code: string; message: string } | null;
+    sessionHref?: string;
+    interactionHref?: string;
+    reviewHref?: string;
+    reviewKind?: string;
+    continueUrl?: string;
+    planWorkflowUrl?: string;
+    recoveryUrl?: string;
+    canRecover?: boolean;
+    expectedGeneration?: number | null;
+    expectedCurrentSegmentId?: string | null;
 };
-
-const STATUS_ORDER = [
-    "ready_for_work",
-    "in_progress",
-    "implemented",
-    "validated_ci",
-    "validated_reviewer",
-    "validated",
-    "verified",
-    "user_verified",
-    "closed_without_verification",
-];
 
 function text(value: JsonValue | undefined, fallback = "") {
     return typeof value === "string" && value.trim() ? value.trim() : fallback;
@@ -147,12 +158,6 @@ function text(value: JsonValue | undefined, fallback = "") {
 function planTitle(evidence: PlanEvidence) {
     const heading = evidence.body.split("\n").find((line) => line.startsWith("# "));
     return heading ? heading.replace(/^#\s+/, "").trim() : evidence.planName;
-}
-
-function statusAtLeast(status: string, required: string) {
-    const statusIndex = STATUS_ORDER.indexOf(status);
-    const requiredIndex = STATUS_ORDER.indexOf(required);
-    return statusIndex >= 0 && requiredIndex >= 0 && statusIndex >= requiredIndex;
 }
 
 function normalizeSegmentKind(kind: string) {
@@ -184,156 +189,86 @@ function stage(
     return { id, label, state, detail, updatedAt };
 }
 
-function failureMessage(status: string, registry: WorktreeRegistryEntry | null) {
-    if (status === "failed") return "Execution failed and needs attention.";
-    if (registry?.publication?.failure?.kind === "content_conflict") {
-        return "Delivery needs attention because the commits could not be combined cleanly.";
+function progressFactsFromEvidence(
+    evidence: PlanEvidence,
+    registry: WorktreeRegistryEntry | null,
+): WorkflowProgressFact[] {
+    const facts: WorkflowProgressFact[] = [];
+    const checkpoint = checkpointFrom(evidence.attrs);
+    if (
+        checkpoint && registry &&
+        validationCheckpointCanResume(checkpoint, registry.id, text(evidence.attrs.status, "draft"))
+    ) {
+        facts.push({
+            kind: "validation_checkpoint",
+            phase: checkpoint.nextPhase,
+            state: checkpoint.state,
+            repairKind: checkpoint.repairKind || null,
+            updatedAt: checkpoint.updatedAt,
+        });
     }
-    if (registry?.publication?.failure) return "Delivery stopped before the commits reached the target branch.";
-    if (registry?.status === "execution_failed") return "Execution failed in the worktree attempt.";
-    if (registry?.status === "validation_failed") return "Workflow Validation failed in the worktree attempt.";
-    return "Progress needs attention.";
+    if (registry?.publication) {
+        facts.push({
+            kind: "publication",
+            phase: registry.publication.phase,
+            failure: Boolean(registry.publication.failure),
+            updatedAt: registry.publication.updatedAt,
+        });
+    }
+    if (registry?.status) facts.push({ kind: "registry", status: registry.status, updatedAt: registry.updatedAt });
+    return facts;
 }
 
-function deriveStages(evidence: PlanEvidence, registry: WorktreeRegistryEntry | null) {
+function toProgressStageState(id: string, state: string): ProgressStageState {
+    if (state === "completed") return id === "completion" ? "completed" : "passed";
+    if (state === "current") return "running";
+    if (state === "blocked") return "needs_attention";
+    if (state === "paused") return "paused";
+    if (state === "skipped") return "not_required";
+    if (state === "unavailable") return "unknown";
+    return "pending";
+}
+
+function progressFromSharedPresentation(evidence: PlanEvidence, registry: WorktreeRegistryEntry | null) {
     const status = text(evidence.attrs.status, "draft");
     const updatedAt = text(evidence.attrs.updatedAt) || text(evidence.attrs.verifiedAt) || registry?.updatedAt || null;
-    const checkpoint = checkpointFrom(evidence.attrs);
-    const checkpointActive = registry && checkpoint
-        ? validationCheckpointCanResume(checkpoint, registry.id, status)
-        : false;
-    const reviewState = readValidationReviewState(checkpointActive ? checkpoint : null);
-    const testsAndCiLabel = validationStageLabel("ci");
-    const aiReviewLabel = validationStageLabel("semantic_review");
-    const stages: ProgressStage[] = [
-        stage("execution", "Execution", "pending", "Waiting for an execution agent.", updatedAt),
-        stage("mechanical", testsAndCiLabel, "pending", "Waiting for implementation to finish.", updatedAt),
-        stage("semantic", aiReviewLabel, "pending", "Waiting for tests and CI.", updatedAt),
-        stage("repair", "Repair", "not_required", "No repair is active.", updatedAt),
-        stage("delivery", "Delivery", "pending", "Waiting for AI code review.", updatedAt),
-        stage("completion", "Completion", "pending", "Waiting for delivery to finish.", updatedAt),
-    ];
-
-    if (status === "ready_for_work") {
-        stages[0] = stage("execution", "Execution", "pending", "Ready for work.", updatedAt);
-    }
-    if (status === "in_progress" || registry?.status === "active") {
-        stages[0] = stage("execution", "Execution", "running", "The execution attempt is active.", updatedAt);
-    }
-    if (status === "failed" || registry?.status === "execution_failed") {
-        stages[0] = stage("execution", "Execution", "failed", failureMessage(status, registry), updatedAt);
-    }
-    if (statusAtLeast(status, "implemented")) {
-        stages[0] = stage("execution", "Execution", "passed", "Implementation is ready for validation.", updatedAt);
-        stages[1] = stage(
-            "mechanical",
-            testsAndCiLabel,
-            "running",
-            "Tests and CI are running.",
+    const facts = progressFactsFromEvidence(evidence, registry);
+    const presentation = buildWorkflowPresentation({
+        planName: evidence.planName,
+        classification: text(evidence.attrs.classification, "PLANNED_CHANGE"),
+        projectPlanType: text(evidence.attrs.type),
+        status,
+        progressFacts: facts,
+    });
+    const stages = presentation.stages.map((item) =>
+        stage(
+            item.id as ProgressStage["id"],
+            item.id === "mechanical"
+                ? validationStageLabel("ci")
+                : item.id === "semantic"
+                ? validationStageLabel("semantic_review")
+                : item.label,
+            toProgressStageState(item.id, item.state),
+            item.detail,
             updatedAt,
-        );
-    }
-    if (statusAtLeast(status, "validated_ci")) {
-        stages[1] = stage("mechanical", testsAndCiLabel, "passed", "Tests and CI passed.", updatedAt);
-        stages[2] = stage("semantic", aiReviewLabel, "running", "AI code review is running.", updatedAt);
-    }
-    if (statusAtLeast(status, "validated_reviewer")) {
-        stages[2] = stage("semantic", aiReviewLabel, "passed", "AI code review passed.", updatedAt);
-        stages[4] = stage("delivery", "Delivery", "running", "Delivery is active.", updatedAt);
-    }
-    if (statusAtLeast(status, "validated")) {
-        stages[4] = stage(
-            "delivery",
-            "Delivery",
-            registry?.status === "validated" ? "running" : "passed",
-            "Delivery evidence exists.",
-            updatedAt,
-        );
-    }
-    if (status === "verified") {
-        stages[4] = stage("delivery", "Delivery", "completed", "Delivery is complete.", updatedAt);
-        stages[5] = stage("completion", "Completion", "completed", "The Plan is complete.", updatedAt);
-    }
-    if (status === "user_verified" || status === "closed_without_verification") {
-        stages[3] = stage("repair", "Repair", "not_required", "No repair is required.", updatedAt);
-        stages[4] = stage("delivery", "Delivery", "not_required", "RunWield delivery was not required.", updatedAt);
-        stages[5] = stage("completion", "Completion", "completed", "The Plan is closed.", updatedAt);
-    }
-    if (registry?.publication?.failure) {
-        stages[4] = stage(
-            "delivery",
-            "Delivery",
-            "needs_attention",
-            failureMessage(status, registry),
-            registry.updatedAt,
-        );
-    }
-    if (registry?.status === "validation_failed") {
-        const failedStage = status === "implemented" ? 1 : status === "validated_ci" ? 2 : 3;
-        stages[failedStage] = {
-            ...stages[failedStage],
-            state: "needs_attention",
-            detail: failureMessage(status, registry),
-            updatedAt: registry.updatedAt,
-        };
-    }
-    const activeCheckpoint = checkpointActive ? checkpoint : null;
-    if (activeCheckpoint) {
-        const next = activeCheckpoint.nextPhase;
-        const state = activeCheckpoint.state === "paused"
-            ? "paused"
-            : activeCheckpoint.state === "awaiting_repair"
-            ? "needs_attention"
-            : "running";
-        if (next === "mechanical") {
-            stages[1] = stage(
-                "mechanical",
-                testsAndCiLabel,
-                state,
-                "Tests and CI can continue.",
-                activeCheckpoint.updatedAt,
-            );
-        }
-        if (next === "semantic") {
-            stages[2] = stage(
-                "semantic",
-                aiReviewLabel,
-                state,
-                reviewState
-                    ? `AI code review round ${reviewState.semanticRound} needs attention.`
-                    : "AI code review can continue.",
-                activeCheckpoint.updatedAt,
-            );
-            if (activeCheckpoint.state === "awaiting_repair" || activeCheckpoint.repairKind === "semantic") {
-                stages[3] = stage(
-                    "repair",
-                    "Repair",
-                    state === "paused" ? "paused" : "running",
-                    "AI code review repair is active.",
-                    activeCheckpoint.updatedAt,
-                );
-            }
-        }
-        if (next === "delivery") {
-            stages[4] = stage("delivery", "Delivery", state, "Delivery can continue.", activeCheckpoint.updatedAt);
-        }
-    }
+        )
+    );
     const priority = stages.find((item) => ["failed", "needs_attention", "paused", "running"].includes(item.state)) ||
-        stages[5];
-    const overallState: ProgressOverallState = priority.state === "failed" || priority.state === "needs_attention"
+        stages.at(-1);
+    const overallState: ProgressOverallState = priority?.state === "failed" || priority?.state === "needs_attention"
         ? "needs_attention"
-        : priority.state === "paused"
+        : priority?.state === "paused"
         ? "paused"
-        : priority.id === "repair" && priority.state === "running"
+        : priority?.id === "repair" && priority?.state === "running"
         ? "repairing"
-        : priority.id === "delivery" && priority.state === "running"
+        : priority?.id === "delivery" && priority?.state === "running"
         ? "delivering"
-        : stages[5].state === "completed"
+        : stages.at(-1)?.state === "completed"
         ? "completed"
-        : priority.state === "running"
+        : priority?.state === "running"
         ? "running"
         : "waiting";
-    return { stages, overallState, updatedAt };
+    return { stages, overallState, updatedAt, progressFacts: facts };
 }
 
 function degraded(projectId: string, plan: PlanEvidence, code: string, message: string): OwnerPlanProgress {
@@ -353,6 +288,7 @@ function degraded(projectId: string, plan: PlanEvidence, code: string, message: 
         },
         overall: { state: "degraded", label: "Progress needs attention", detail: message, updatedAt, settled: true },
         stages: [stage("execution", "Execution", "unknown", "Evidence is degraded.", updatedAt)],
+        progressFacts: [],
         session: null,
         degraded: { code, message },
     };
@@ -414,7 +350,6 @@ export async function loadOwnerPlanProgress(
 ): Promise<OwnerPlanProgress> {
     const projectRoot = requireOwnerProjectRoot(store, options.projectId);
     const primary = await findPlanEvidenceById(projectRoot, options.planId) as PlanEvidence;
-    if (text(primary.attrs.classification) === "PROJECT") throw new Error("Epic progress is not available.");
     let registry: WorktreeRegistryEntry | null = null;
     let authoritative = primary;
     try {
@@ -428,7 +363,7 @@ export async function loadOwnerPlanProgress(
             error instanceof Error ? error.message : String(error),
         );
     }
-    const derived = deriveStages(authoritative, registry);
+    const derived = progressFromSharedPresentation(authoritative, registry);
     const session = await sessionProjection(store, options.projectId, primary.planId, options.runwieldSessionId || "");
     const settled = derived.overallState === "completed" || derived.overallState === "needs_attention" ||
         derived.overallState === "paused";
@@ -455,6 +390,7 @@ export async function loadOwnerPlanProgress(
             settled,
         },
         stages: derived.stages,
+        progressFacts: derived.progressFacts,
         session,
         degraded: null,
     };

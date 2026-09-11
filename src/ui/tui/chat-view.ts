@@ -35,9 +35,11 @@ import { hasClipboardImage } from "./clipboard.ts";
 import type { Component } from "@earendil-works/pi-tui";
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { ImageAttachment } from "../../shared/session/types.js";
+import type { WorkflowPresentationAction } from "../../shared/workflow/workflow-presentation.ts";
 import type { UiAPI } from "./types.js";
 import {
     composePinnedSessionSidebar,
+    isSessionSidebarActionKey,
     isSessionSidebarCycleKey,
     TuiSessionSidebar,
     type TuiSessionSidebarSnapshot,
@@ -60,6 +62,7 @@ export interface ChatViewOptions {
     suppressStartupHeader: boolean;
     setActiveModel(model: string, provider?: string): Promise<{ status: "active" | "deferred"; message?: string }>;
     configureUiAPI?: (uiAPI: UiAPI) => void;
+    onWorkflowAction?: (action: WorkflowPresentationAction, snapshot: ChatViewSessionSnapshot) => void | Promise<void>;
 }
 export interface ChatView {
     uiAPI: UiAPI;
@@ -248,6 +251,16 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         activeInteractionContainer,
         queuedInputContainer,
     );
+    const removeSidebarActionListener = tui.addInputListener((data) => {
+        if (!isSessionSidebarActionKey(data)) return undefined;
+        const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+        const action = sessionSidebar.currentAction(snapshot || undefined);
+        if (!snapshot || !action) return undefined;
+        void Promise.resolve(options.onWorkflowAction?.(action, snapshot)).catch((error) => {
+            uiAPI.appendSystemMessage(error instanceof Error ? error.message : String(error), true, "Workflow action");
+        });
+        return { consume: true };
+    });
     const baseSetManagedSyncStatus = uiAPI.setManagedSyncStatus?.bind(uiAPI);
     uiAPI.setManagedSyncStatus = (state) => {
         baseSetManagedSyncStatus?.(state);
@@ -373,6 +386,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         },
         dispose() {
             removeSidebarKeyListener();
+            removeSidebarActionListener();
             clearInterval(clipboardPollingInterval);
             unsubscribeThemeChange();
             if (isViewportTUI(tui)) tui.setLayoutRoot(undefined);

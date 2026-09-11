@@ -71,6 +71,7 @@ export function createSilentUiApi() {
         isOutputSuppressed: () => true,
         suppressOutput: () => {},
         abortActivePrompt: () => {},
+        focusActivePrompt: () => false,
     };
 }
 
@@ -134,6 +135,8 @@ export function createUiApi(
 
     /** @type {(() => void) | null} */
     let activePromptCancel = null;
+    /** @type {(() => void) | null} */
+    let activePromptFocus = null;
 
     let toolsExpanded = false;
     /** @type {ToolExecutionGroupBlock | null} */
@@ -675,6 +678,13 @@ export function createUiApi(
             }
         },
 
+        focusActivePrompt: () => {
+            if (!activePromptFocus) return false;
+            activePromptFocus();
+            tui.requestRender();
+            return true;
+        },
+
         /**
          * @param {string} title
          * @param {Array<{value: string, label: string}>} options
@@ -688,6 +698,7 @@ export function createUiApi(
                 activePromptContainer.addChild(block);
                 activePromptContainer.addChild(spacer);
 
+                activePromptFocus = () => tui.setFocus(block);
                 tui.setFocus(block);
                 tui.requestRender();
 
@@ -696,6 +707,7 @@ export function createUiApi(
                 // Single path for settling and cleanup
                 const settleAndCleanup = (/** @type {string | null} */ value) => {
                     activePromptCancel = null;
+                    activePromptFocus = null;
                     activePromptContainer.removeChild(block);
                     activePromptContainer.removeChild(spacer);
                     if (shouldPersistResult && !outputSuppressed) {
@@ -745,12 +757,14 @@ export function createUiApi(
                 activePromptContainer.addChild(block);
                 activePromptContainer.addChild(spacer);
 
+                activePromptFocus = () => tui.setFocus(block);
                 tui.setFocus(block);
                 tui.requestRender();
 
                 // Single path for settling and cleanup
                 const settleAndCleanup = (/** @type {string | null} */ value) => {
                     activePromptCancel = null;
+                    activePromptFocus = null;
                     activePromptContainer.removeChild(block);
                     activePromptContainer.removeChild(spacer);
                     if (persistResult && !outputSuppressed) {
@@ -798,6 +812,7 @@ export function createUiApi(
             validationPanelBlock = null;
             validationReportOrder = 0;
             activePromptCancel = null;
+            activePromptFocus = null;
             currentToolGroup = null;
             for (const id of toolElapsedTimers.keys()) {
                 clearToolElapsedTimer(id);
@@ -810,6 +825,7 @@ export function createUiApi(
                 activePromptCancel();
                 activePromptCancel = null;
             }
+            activePromptFocus = null;
             tui.setFocus(null);
             messageList.clear();
             queuedInputContainer?.clear?.();
@@ -833,6 +849,7 @@ export function createUiApi(
                 activePromptCancel();
                 activePromptCancel = null;
             }
+            activePromptFocus = null;
             stopBusyFrameTimer();
             runtimeBusy = false;
             promptActive = false;

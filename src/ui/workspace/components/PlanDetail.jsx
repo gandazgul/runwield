@@ -9,6 +9,7 @@ import { BoardColumn } from "./BoardColumn.jsx";
 import { MarkdownView } from "./MarkdownView.jsx";
 import { ComplexityLabel, workspaceHref } from "./PlanCard.jsx";
 import { buildWorkflowPresentation } from "../../../shared/workflow/workflow-presentation.ts";
+import { WorkflowSidebar } from "../react/WorkflowSidebar.tsx";
 
 const CLOSED_STATUSES = new Set(["validated", "verified", "user_verified", "closed_without_verification"]);
 
@@ -536,14 +537,16 @@ function StaticPlanBody({ plan }) {
 
 /** @param {{ plan: any, progress?: any, projectId?: string, runwieldSessionId?: string }} props */
 function PlanWorkflowSummary({ plan, progress, projectId = "", runwieldSessionId = "" }) {
-    if (isEpicDetail(plan)) return null;
     const presentation = buildWorkflowPresentation({
         planName: plan.planName || plan.planId,
         epicName: plan.parentPlan,
         intent: plan.classification,
         classification: plan.classification,
+        projectPlanType: plan.type || plan.attrs?.type,
         status: plan.status,
-        stages: Array.isArray(progress?.stages) ? progress.stages : undefined,
+        progressFacts: Array.isArray(progress?.stages)
+            ? progress.stages.map((stage) => ({ id: stage.id, state: stage.state, updatedAt: stage.updatedAt }))
+            : undefined,
         degradedMessage: typeof progress?.degraded?.message === "string" ? progress.degraded.message : "",
         sessionState: typeof progress?.session?.state === "string" ? progress.session.state : "",
         hasWorkingSession: Boolean(progress?.session?.runwieldSessionId || runwieldSessionId),
@@ -552,40 +555,7 @@ function PlanWorkflowSummary({ plan, progress, projectId = "", runwieldSessionId
     const sessionHref = projectId && sessionId
         ? `/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}`
         : "";
-    return (
-        <section className="plan-workflow-card" aria-label="Plan workflow">
-            <p className="kicker">Workflow</p>
-            <h2>{presentation.currentStage?.label || "Current workflow"}</h2>
-            <ol className="session-workflow-stage-list workflow-diagram" aria-label="Plan workflow stages">
-                {presentation.stages.map((stage) => (
-                    <li key={stage.id} data-state={stage.state} aria-current={stage.current ? "step" : undefined}>
-                        <span>{stage.label}</span>
-                        <strong>{stage.state}</strong>
-                        <p>{stage.detail}</p>
-                    </li>
-                ))}
-            </ol>
-            {presentation.blocker
-                ? (
-                    <section className="workflow-next-card" aria-label="Workflow blocker">
-                        <h3>Blocked by</h3>
-                        <p>{presentation.blocker}</p>
-                    </section>
-                )
-                : null}
-            {presentation.action
-                ? (
-                    <section className="workflow-next-card" aria-label="Workflow action">
-                        <h3>Next action</h3>
-                        <p>{presentation.action.detail}</p>
-                        {sessionHref
-                            ? <a className="rw-toolbar-button" href={sessionHref}>{presentation.action.label}</a>
-                            : null}
-                    </section>
-                )
-                : null}
-        </section>
-    );
+    return <WorkflowSidebar presentation={presentation} payload={{ sessionHref }} title="Plan workflow" />;
 }
 
 /** @param {{ plan: any }} props */

@@ -179,8 +179,11 @@ reader.
 Workspace navigation uses a draggable `.rw-panel-resize-handle` on its right edge. Keep the sidebar between 220 and
 480px while reserving at least 420px for the main pane. Remember its width separately from its collapsed state. The
 handle is a focusable separator: arrow keys adjust width, Home/End select the limits, and double-click restores 280px.
-Hide the handle in the narrow-screen overlay layout. Session lists use saved names (including rename entries), never the
-first prompt. Omit unnamed, empty Sessions by default; keep named, nonempty, and unreadable Sessions accessible.
+Hide the handle in the narrow-screen overlay layout. Project navigation lists active Plans before standalone Sessions.
+Nest up to two proven associated Sessions below each Plan, exclude those Sessions from the standalone list, and expand
+Plan or nested-Session overflow in place so focus stays in the sidebar. Muted On-Hold Plans appear after active work.
+Session lists use saved names (including rename entries), never the first prompt. Omit unnamed, empty Sessions by
+default; keep named, nonempty, and unreadable Sessions accessible.
 
 ## Token model
 
@@ -632,7 +635,15 @@ proof-bearing RunWield Verified. Badges, buttons, and metadata should reuse exis
 closed/success states and pair the label with explanatory text such as “verified by the user; Workflow Validation was
 not claimed.” Do not add a separate theme or token for this status.
 
-### Workflow progress
+### Plan home, Dashboard rows, and workflow progress
+
+Plan home uses a two-column reader/sidebar layout: the Plan document stays readable on the left, and the right sidebar
+shows workflow state and the next action. On narrow screens the columns stack, with the document first. Keep Plan home
+usable even when workflow evidence is unavailable.
+
+The owner Dashboard uses compact category rows for **Needs You**, **Ready to Continue**, **In Progress**, and **Recently
+Finished**. Rows are links to the repair destination, Plan, or Session. Long names shrink and truncate inside the row;
+the action label must remain reachable on phones.
 
 Use the workflow progress pattern when Plan home or a Session Workflow sidebar must show an ordered RunWield workflow
 such as execution, Mechanical Validation, Semantic Code Review, repair, delivery, and completion.
@@ -642,8 +653,8 @@ such as execution, Mechanical Validation, Semantic Code Review, repair, delivery
 - Put blocker text and the next action near the diagram. The action must route to the existing review, prompt, Session,
   continuation, or recovery flow.
 - Use `--rw-*` semantic tokens for borders, surfaces, success, warning, error, and accent states.
-- Keep the model read-only. Workflow diagrams can link to related Plan and Session pages, but they must not advance the
-  workflow by themselves.
+- Use links for navigation actions and buttons for existing continuation or recovery actions. Do not add a second
+  workflow mutation path.
 - Long failure text must wrap inside the card and must not create whole-page horizontal overflow.
 
 ## Grouped Plan review

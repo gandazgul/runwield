@@ -1479,6 +1479,11 @@
     outline: none;
 }
 
+.owner-dashboard-row > span:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .owner-dashboard-row strong,
 .owner-dashboard-row small {
     display: block;
@@ -2034,6 +2039,23 @@
     border-top: 1px solid var(--rw-border-subtle, var(--rw-border));
     border-radius: 0;
     background: transparent;
+    position: relative;
+}
+
+.workflow-diagram-connected li:not(:last-child)::after {
+    background: var(--rw-border);
+    bottom: -0.55rem;
+    content: "";
+    left: 0.18rem;
+    position: absolute;
+    top: calc(100% - 0.15rem);
+    width: 1px;
+}
+
+.workflow-repair-return {
+    color: var(--rw-text-muted);
+    font-size: 0.78rem;
+    margin: 0;
 }
 
 .session-workflow-stage-list li > span {
@@ -3392,6 +3414,34 @@
 
 .workspace-sidebar-plan {
     min-height: 30px;
+}
+
+.workspace-sidebar-plan-group.muted {
+    opacity: 0.64;
+}
+
+.workspace-sidebar-plan-sessions {
+    display: grid;
+    gap: 2px;
+    margin: 0 0 4px 14px;
+}
+
+.workspace-sidebar-session-nested {
+    font-size: 0.78rem;
+    min-height: 26px;
+}
+
+.workspace-sidebar-diagnostic {
+    color: var(--rw-danger-text);
+    display: block;
+    font-size: 0.78rem;
+    padding: 4px 8px;
+    text-decoration: none;
+}
+
+.workspace-sidebar-diagnostic:hover,
+.workspace-sidebar-diagnostic:focus-visible {
+    text-decoration: underline;
 }
 
 .workspace-sidebar-more {

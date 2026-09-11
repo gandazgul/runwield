@@ -134,6 +134,68 @@ Deno.test("workflow context derives execution metadata with legacy feature norma
     );
 });
 
+Deno.test("workflow context retains validation and publication progress facts across Session projection", () => {
+    const sessionManager = makeSessionManager();
+    /** @type {Array<import('../workflow/workflow-presentation.ts').WorkflowProgressFact>} */
+    const progressFacts = [
+        {
+            kind: "validation_checkpoint",
+            phase: "semantic",
+            state: "awaiting_repair",
+            repairKind: "semantic",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        {
+            kind: "publication",
+            phase: "target_published",
+            failure: false,
+            updatedAt: "2026-01-01T00:01:00.000Z",
+        },
+    ];
+
+    recordNormalizedWorkflowContext(sessionManager, {
+        planName: "release-plan",
+        status: "validated_ci",
+        progressFacts,
+        canResume: true,
+        canRecover: true,
+    });
+
+    assertEquals(readPersistedWorkflowContext(sessionManager), {
+        planName: "release-plan",
+        status: "validated_ci",
+        progressFacts,
+        canResume: true,
+        canRecover: true,
+    });
+});
+
+Deno.test("workflow context derives current checkpoint facts from execution metadata", () => {
+    assertEquals(
+        deriveWorkflowContextFromExecutionWorkflow({
+            planName: "recover-plan",
+            triageMeta: {
+                classification: "FEATURE",
+                complexity: "MEDIUM",
+                status: "implemented",
+                validationCheckpoint: {
+                    nextPhase: "mechanical",
+                    state: "awaiting_repair",
+                    repairKind: "ci",
+                    updatedAt: "2026-01-01T00:00:00.000Z",
+                },
+            },
+        })?.progressFacts,
+        [{
+            kind: "validation_checkpoint",
+            phase: "mechanical",
+            state: "awaiting_repair",
+            repairKind: "ci",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        }],
+    );
+});
+
 Deno.test("workflow context records normalized execution context without duplicate markers", () => {
     const sessionManager = makeSessionManager();
     const context = { routingIntent: "FEATURE", complexity: "medium", planName: "docs/plans/footer-plan.md" };

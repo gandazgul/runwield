@@ -550,7 +550,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             throw new Error("Invalid Plan Lifecycle transition: manual_user_verified requires userVerificationNote.");
         }
         updates.status = "user_verified";
-        updates.userVerifiedAt = now;
+        updates.userVerifiedAt = details.triageMeta?.userVerifiedAt || now;
         updates.userVerificationNote = note;
     }
 
@@ -722,11 +722,12 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "epic_done_enough") {
-        updates.validatedAt = now;
+        const completedAt = details.triageMeta?.epicDoneEnoughAt || now;
+        updates.validatedAt = details.triageMeta?.validatedAt || completedAt;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
         updates.epicCompletionMode = "done_enough";
-        updates.epicDoneEnoughAt = now;
+        updates.epicDoneEnoughAt = completedAt;
         updates.epicDoneEnoughSummary = details.epicDoneEnoughSummary || "Epic marked done enough for now.";
         updates.failureReason = null;
         updates.failedAt = null;

@@ -1427,9 +1427,9 @@ export class WorkspaceSessionContinuationService {
     }
 
     /**
-     * @param {{ runwieldSessionId: string, projectId: string, expectedGeneration: number, planName: string, triageMeta?: Record<string, unknown>, reviewFeedback?: string, reviewImages?: Array<{ base64: string, mimeType: string }> }} options
+     * @param {{ action?: string, runwieldSessionId: string, projectId: string, expectedGeneration: number, planName: string, planContent?: string, triageMeta?: Record<string, unknown>, reviewFeedback?: string, reviewImages?: Array<{ base64: string, mimeType: string }> }} options
      */
-    async startPlanExecutionHandoff(options) {
+    async startPlanWorkflowHandoff(options) {
         const session = this.store.getSessionById(options.runwieldSessionId);
         if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {
             throw new Error("Session not found.");
@@ -1441,6 +1441,19 @@ export class WorkspaceSessionContinuationService {
         if (!options.triageMeta) throw new Error("Plan execution handoff requires approval-time Plan action evidence.");
         const adopted = this.runtime.adoptManagedSession({ session, generation: options.expectedGeneration });
         try {
+            const status = String(options.triageMeta.status || "");
+            const validationStatus = ["implemented", "validated_ci", "validated_reviewer", "validated"].includes(
+                status,
+            );
+            if (validationStatus || options.action === "recover") {
+                return await this.runtime.runValidation(adopted.sessionId, {
+                    planName: options.planName,
+                    planContent: options.planContent || "",
+                    triageMeta: options.triageMeta,
+                    trigger: options.action === "recover" ? "repair" : "session_resume",
+                    expectedGeneration: options.expectedGeneration,
+                });
+            }
             return await this.runtime.executePlan(adopted.sessionId, {
                 planName: options.planName,
                 triageMeta: options.triageMeta,

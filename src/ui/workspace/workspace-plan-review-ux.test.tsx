@@ -24,10 +24,8 @@ Deno.test("Workspace Plan Review uses the owner header and starts directly at th
     const portal = await Deno.readTextFile("src/ui/workspace/react/WorkspaceHeaderActionsPortal.tsx");
     const workspaceStyles = await Deno.readTextFile("src/ui/workspace/static/workspace.css");
 
-    assertStringIncludes(
-        route,
-        "surfaceTitle={reviewPayload ? `Plan Review — ${plan.title || plan.planName || planId}`",
-    );
+    assertStringIncludes(route, "const surfaceTitle = reviewPayload && plan ? `Plan Review — ${plan.title");
+    assertStringIncludes(route, "surfaceTitle={surfaceTitle}");
     assertStringIncludes(layout, 'class="workspace-main-session-name" data-workspace-surface-title');
     assertStringIncludes(shell, 'header.querySelector("[data-workspace-main-session-name]")?.remove()');
     assertStringIncludes(layout, '<BrowserNotificationPermissionControl client:only="react" />');
