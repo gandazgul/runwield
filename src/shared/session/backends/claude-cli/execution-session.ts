@@ -3,6 +3,7 @@ import type { SessionManager, ToolDefinition } from "@earendil-works/pi-coding-a
 import type { RunWieldModel } from "../../../models/model-registry.ts";
 import type { HostedSession } from "../../hosted-session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "../../session-runtime-events.js";
+import type { ImageAttachment } from "../../types.js";
 import { WorkflowStepCompleted } from "../../../workflow/workflow-tool-events.ts";
 import {
     prepareClaudeCliCommand,
@@ -50,6 +51,14 @@ export interface ClaudeCliRunOptions {
     attemptId?: string;
 }
 
+interface ClaudeCliQueueUpdateEvent {
+    type: "queue_update";
+    steering: string[];
+    followUp: string[];
+}
+
+type ClaudeCliQueueListener = (event: ClaudeCliQueueUpdateEvent) => void;
+
 class RuntimeDeltaBuffer {
     private buffered = "";
     private flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -87,6 +96,8 @@ export class ClaudeCliExecutionSession {
     private readonly bridgedTools: ToolDefinition[];
     private readonly persistModelChange: boolean;
     private readonly messages: AgentMessage[] = [];
+    private readonly steeringMessages: string[] = [];
+    private readonly queueListeners = new Set<ClaudeCliQueueListener>();
     private turnAbortController: AbortController | null = null;
     isStreaming = false;
 
@@ -115,7 +126,50 @@ export class ClaudeCliExecutionSession {
         this.turnAbortController?.abort();
     }
 
-    clearQueue(): void {}
+    clearQueue(): void {
+        if (this.steeringMessages.length === 0) return;
+        this.steeringMessages.splice(0, this.steeringMessages.length);
+        this.emitQueueUpdate();
+    }
+
+    steer(text: string, images?: ImageAttachment[]): Promise<void> {
+        if (images && images.length > 0) {
+            throw new Error("Claude CLI execution backend does not support image attachments in live steering");
+        }
+        this.steeringMessages.push(text);
+        this.emitQueueUpdate();
+        return Promise.resolve();
+    }
+
+    async followUp(text: string, images?: ImageAttachment[]): Promise<void> {
+        await this.steer(text, images);
+    }
+
+    getSteeringMessages(): string[] {
+        return [...this.steeringMessages];
+    }
+
+    consumeSteeringMessages(): string[] {
+        const messages = this.getSteeringMessages();
+        if (messages.length === 0) return messages;
+        this.steeringMessages.splice(0, this.steeringMessages.length);
+        this.emitQueueUpdate();
+        return messages;
+    }
+
+    subscribe(listener: ClaudeCliQueueListener): () => void {
+        this.queueListeners.add(listener);
+        return () => this.queueListeners.delete(listener);
+    }
+
+    private emitQueueUpdate(): void {
+        const event: ClaudeCliQueueUpdateEvent = {
+            type: "queue_update",
+            steering: this.getSteeringMessages(),
+            followUp: [],
+        };
+        for (const listener of this.queueListeners) listener(event);
+    }
 
     async runTurn(options: ClaudeCliRunOptions): Promise<AgentMessage[]> {
         if (options.images && options.images.length > 0) {
@@ -180,6 +234,7 @@ export class ClaudeCliExecutionSession {
                             emitFailure("bridge_disconnected", null);
                         },
                         beforeRuntimeToolEvent: () => flushRuntimeDeltas(),
+                        consumePendingSteering: () => this.consumeSteeringMessages(),
                     });
                 } catch {
                     emitFailure("bridge_startup_failed", null);

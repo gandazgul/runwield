@@ -188,6 +188,8 @@ async function main(): Promise<void> {
 
     const mcpConfigIndex = Deno.args.indexOf("--mcp-config");
     if (mcpConfigIndex >= 0) {
+        const beforeMcpSleepMsText = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_BEFORE_MCP_SLEEP_MS");
+        if (beforeMcpSleepMsText) await sleep(Number.parseInt(beforeMcpSleepMsText, 10));
         await runMcpCalls(Deno.args[mcpConfigIndex + 1]);
     }
 

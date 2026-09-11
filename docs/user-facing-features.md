@@ -229,8 +229,8 @@
   - Use prompt templates as slash commands when they do not collide with built-ins.
   - Load project, home, bundled, and external ecosystem skills.
   - Invoke bundled skills with `/skill:<name>`.
-  - Use bundled skills for documentation, web lookup, diagnosis, prototyping, research, test writing, skill writing, and
-    codebase design tasks.
+  - Use bundled skills for documentation, web lookup, diagnosis, prototyping, research, test writing, skill writing,
+    codebase design tasks, and terminal setup wizards.
   - Read RunWield-specific global instructions from `~/.wld/RUNWIELD.md` or `~/.wld/AGENTS.md`.
   - Optionally fall back to shared `~/.agents/AGENTS.md` instructions.
 

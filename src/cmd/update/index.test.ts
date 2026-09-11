@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { dirname } from "@std/path";
+import { VERSION } from "../../shared/version.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { type InstallerProcessPort, type ProcessExitPort, runUpdateCommand, type UpdateNetworkPort } from "./index.ts";
 
@@ -166,8 +167,147 @@ Deno.test("update rejects arguments through the real usage formatter before exte
         })
     );
 
-    assertEquals(output.errors, ["Usage: wld update\n       wld upgrade"]);
+    assertEquals(output.errors, [
+        "Usage: wld update [--rc | --to <tag>] [--downgrade] [--yes]\n       wld upgrade [--rc | --to <tag>] [--downgrade] [--yes]",
+    ]);
     assertEquals(exits.codes, [1]);
+});
+
+Deno.test("update installs latest RC only after confirmation", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const prompts: string[] = [];
+        const previousPrompt = globalThis.prompt;
+        globalThis.prompt = (message = "") => {
+            prompts.push(message);
+            return "INSTALL";
+        };
+        try {
+            const network = createNetworkFixture(
+                new Response(JSON.stringify([{ tag_name: "v999.0.0-rc.2", prerelease: true, draft: false }])),
+            );
+            const installer = createInstallerFixture();
+
+            await runUpdateCommand(["--rc"], {
+                networkPort: network.port,
+                installerPort: installer.port,
+                exitPort: createExitFixture().port,
+            });
+
+            assertEquals(network.urls, [
+                "https://api.github.com/repos/gandazgul/runwield/releases",
+                "https://raw.githubusercontent.com/gandazgul/runwield/v999.0.0-rc.2/install.sh",
+            ]);
+            assertEquals(installer.invocations[0].releaseTag, "v999.0.0-rc.2");
+            assertEquals(prompts, [
+                `RunWield will install from ${VERSION} to v999.0.0-rc.2.\nType INSTALL to continue:`,
+            ]);
+        } finally {
+            globalThis.prompt = previousPrompt;
+        }
+    });
+});
+
+Deno.test("update cancels RC installation when confirmation is not exact", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousPrompt = globalThis.prompt;
+        globalThis.prompt = () => "yes";
+        try {
+            const network = createNetworkFixture(
+                new Response(JSON.stringify([{ tag_name: "v999.0.0-rc.2", prerelease: true, draft: false }])),
+            );
+            const installer = createInstallerFixture();
+            const output = await captureConsole(() =>
+                runUpdateCommand(["--rc"], {
+                    networkPort: network.port,
+                    installerPort: installer.port,
+                    exitPort: createExitFixture().port,
+                })
+            );
+
+            assertEquals(output.logs, ["RunWield update cancelled."]);
+            assertEquals(installer.invocations, []);
+        } finally {
+            globalThis.prompt = previousPrompt;
+        }
+    });
+});
+
+Deno.test("update installs an exact stable tag without confirmation", async () => {
+    const network = createNetworkFixture(makeJsonResponse({ tag_name: "v111.0.0" }));
+    const installer = createInstallerFixture();
+
+    await runUpdateCommand(["--to", "v999.1.0"], {
+        networkPort: network.port,
+        installerPort: installer.port,
+        exitPort: createExitFixture().port,
+    });
+
+    assertEquals(network.urls, ["https://raw.githubusercontent.com/gandazgul/runwield/v999.1.0/install.sh"]);
+    assertEquals(installer.invocations[0].releaseTag, "v999.1.0");
+});
+
+Deno.test("update refuses exact downgrade unless downgrade is explicit", async () => {
+    const installer = createInstallerFixture();
+    const exits = createExitFixture();
+
+    const output = await captureConsole(() =>
+        runUpdateCommand(["--to", "v0.0.1"], {
+            networkPort: createNetworkFixture(makeJsonResponse({ tag_name: "v999.0.0" })).port,
+            installerPort: installer.port,
+            exitPort: exits.port,
+        })
+    );
+
+    assertEquals(output.errors, [
+        `RunWield update failed: Refusing to downgrade from ${VERSION} to v0.0.1 without --downgrade.`,
+    ]);
+    assertEquals(installer.invocations, []);
+    assertEquals(exits.codes, [1]);
+});
+
+Deno.test("update installs exact downgrade when it is explicit and confirmed", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousPrompt = globalThis.prompt;
+        globalThis.prompt = () => "INSTALL";
+        try {
+            const installer = createInstallerFixture();
+
+            await runUpdateCommand(["--to", "v0.0.1", "--downgrade"], {
+                networkPort: createNetworkFixture(makeJsonResponse({ tag_name: "v999.0.0" })).port,
+                installerPort: installer.port,
+                exitPort: createExitFixture().port,
+            });
+
+            assertEquals(installer.invocations[0].releaseTag, "v0.0.1");
+        } finally {
+            globalThis.prompt = previousPrompt;
+        }
+    });
+});
+
+Deno.test("update skips confirmation when yes is supplied for an RC", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousPrompt = globalThis.prompt;
+        globalThis.prompt = () => {
+            throw new Error("prompt should not be called");
+        };
+        try {
+            const network = createNetworkFixture(
+                new Response(JSON.stringify([{ tag_name: "v999.0.0-rc.2", prerelease: true, draft: false }])),
+            );
+            const installer = createInstallerFixture();
+
+            await runUpdateCommand(["--rc", "--yes"], {
+                networkPort: network.port,
+                installerPort: installer.port,
+                exitPort: createExitFixture().port,
+            });
+
+            assertEquals(installer.invocations[0].releaseTag, "v999.0.0-rc.2");
+        } finally {
+            globalThis.prompt = previousPrompt;
+        }
+    });
 });
 
 Deno.test("update cleans its real temp directory before forwarding installer failure", async () => {

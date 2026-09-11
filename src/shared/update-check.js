@@ -8,6 +8,7 @@ import { getSettingsDir } from "./settings.js";
 
 export const RUNWIELD_REPO = "gandazgul/runwield";
 export const LATEST_RELEASE_API_URL = `https://api.github.com/repos/${RUNWIELD_REPO}/releases/latest`;
+export const RELEASES_API_URL = `https://api.github.com/repos/${RUNWIELD_REPO}/releases`;
 export const LATEST_RELEASE_WEB_URL = `https://github.com/${RUNWIELD_REPO}/releases/latest`;
 export const UPDATE_CHECK_CACHE_FILENAME = "update-check.json";
 export const UPDATE_CHECK_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -90,15 +91,27 @@ function compareParsedVersions(a, b) {
 }
 
 /**
+ * @param {string} leftVersion
+ * @param {string} rightVersion
+ * @returns {number | null}
+ */
+export function compareRunWieldVersions(leftVersion, rightVersion) {
+    const left = parseRunWieldReleaseVersion(leftVersion);
+    const right = parseRunWieldReleaseVersion(rightVersion);
+    if (!left || !right) return null;
+    return compareParsedVersions(left, right);
+}
+
+/**
  * @param {string} latestVersion
  * @param {string} currentVersion
  */
 export function isNewerRunWieldVersion(latestVersion, currentVersion) {
+    const comparison = compareRunWieldVersions(latestVersion, currentVersion);
+    if (comparison !== null) return comparison > 0;
     const latest = parseRunWieldReleaseVersion(latestVersion);
     if (!latest) return false;
-    const current = parseRunWieldReleaseVersion(currentVersion);
-    if (!current) return normalizeRunWieldVersion(currentVersion) !== latest.normalized;
-    return compareParsedVersions(latest, current) > 0;
+    return normalizeRunWieldVersion(currentVersion) !== latest.normalized;
 }
 
 export function getUpdateCheckCachePath() {
@@ -235,6 +248,19 @@ function releaseMetadataFromTag(tag) {
     return { tagName, version: tagName };
 }
 
+/** @typedef {{ tag_name?: string, prerelease?: boolean, draft?: boolean }} GitHubReleaseRecord */
+
+/**
+ * @param {GitHubReleaseRecord} release
+ * @returns {RunWieldReleaseMetadata | null}
+ */
+function rcMetadataFromReleaseRecord(release) {
+    if (release.draft || !release.prerelease || typeof release.tag_name !== "string") return null;
+    const parsed = parseRunWieldReleaseVersion(release.tag_name);
+    if (!parsed || parsed.stable) return null;
+    return { tagName: parsed.normalized, version: parsed.normalized };
+}
+
 /**
  * @param {Response} response
  * @returns {Promise<RunWieldReleaseMetadata>}
@@ -277,6 +303,28 @@ export async function fetchLatestRunWieldRelease(network) {
         );
     }
     return await releaseMetadataFromLatestWebResponse(webResponse);
+}
+
+/**
+ * @param {UpdateCheckNetworkPort} network
+ * @returns {Promise<RunWieldReleaseMetadata>}
+ */
+export async function fetchLatestRunWieldRcRelease(network) {
+    const response = await network.fetch(RELEASES_API_URL);
+    if (!response.ok) throw new Error(`GitHub releases request failed: ${response.status}`);
+    const data = await response.json();
+    if (!Array.isArray(data)) throw new Error("GitHub releases response is not a release list.");
+
+    /** @type {RunWieldReleaseMetadata | null} */
+    let latest = null;
+    for (const release of data) {
+        const candidate = rcMetadataFromReleaseRecord(/** @type {GitHubReleaseRecord} */ (release));
+        if (!candidate) continue;
+        const comparison = latest ? compareRunWieldVersions(candidate.version, latest.version) : 1;
+        if (comparison !== null && comparison > 0) latest = candidate;
+    }
+    if (!latest) throw new Error("No RunWield release candidate is published.");
+    return latest;
 }
 
 /**
