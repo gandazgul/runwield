@@ -1,10 +1,11 @@
 import { assert, assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import { dirname, join } from "@std/path";
-import { injectFrontMatter, loadPlan, savePlan } from "../../plan-store.js";
+import { injectFrontMatter, loadPlan, savePlan, updatePlanCollaborationMetadata } from "../../plan-store.js";
 import { git } from "../../shared/git-test-fixture.ts";
 import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout.ts";
 import { createCollaborationClient, SYSTEM_COLLABORATION_FETCH } from "../../shared/collaboration/client.js";
 import { encryptJsonPayload, importContentKey } from "../../shared/collaboration/crypto.js";
+import { COLLABORATION_LOCK_BYPASS } from "../../shared/collaboration/lock.js";
 import {
     getGlobalSecretStorePath,
     getProjectSecretStorePath,
@@ -210,6 +211,7 @@ Deno.test("project-local collaboration commands share one primary store across l
         async ({ alternateRoot, projectRoot }) => {
             const originalSandboxHome = Deno.env.get("WLD_TEST_SANDBOX_HOME");
             try {
+                Deno.env.delete("WLD_TEST_SANDBOX_HOME");
                 await seedPlan(projectRoot, "project-secret-plan");
                 await createLinkedCheckout(projectRoot, alternateRoot);
                 const globalPath = getGlobalSecretStorePath();
@@ -241,7 +243,8 @@ Deno.test("project-local collaboration commands share one primary store across l
                         projectSecrets: true,
                     });
                     const maintainer = parseCollaborationUrl(shared.maintainerUrl);
-                    const primaryStorePath = getProjectSecretStorePath(alternateRoot);
+                    const primaryStorePath = join(projectRoot, ".wld", "internal", "collaboration-secrets.json");
+                    assertEquals(getProjectSecretStorePath(alternateRoot), primaryStorePath);
                     const projectStore = await readSecretStore(primaryStorePath);
                     const recordKey = `${shared.planId}:${shared.spaceId}`;
                     assertEquals(projectStore.records[recordKey].contentKey, maintainer.contentKey);
@@ -268,10 +271,25 @@ Deno.test("project-local collaboration commands share one primary store across l
                     });
                     assertEquals(pushed.revision, 2);
 
-                    assertEquals(
-                        (await loadPlan(projectRoot, "project-secret-plan"))?.body.trimEnd(),
-                        pushedBody.trimEnd(),
+                    const primaryAfterPush = await loadPlan(projectRoot, "project-secret-plan");
+                    assert(primaryAfterPush);
+                    await updatePlanCollaborationMetadata(
+                        alternateRoot,
+                        "project-secret-plan",
+                        { ...primaryAfterPush.attrs, collaborationRevision: 1 },
+                        COLLABORATION_LOCK_BYPASS.pull,
+                        { body: primaryAfterPush.body },
                     );
+                    const pulledByName = await pullPlanForRevision({
+                        target: "project-secret-plan",
+                        cwd: alternateRoot,
+                        projectSecrets: true,
+                    });
+                    assertEquals(pulledByName.revision, 2);
+                    const linkedPulledPlan = await loadPlan(alternateRoot, "project-secret-plan");
+                    assert(linkedPulledPlan);
+                    assertEquals(linkedPulledPlan.body.trimEnd(), pushedBody.trimEnd());
+                    assertEquals(linkedPulledPlan.attrs.collaborationRevision, 2);
 
                     await Deno.writeTextFile(
                         primaryStorePath,
@@ -319,6 +337,7 @@ Deno.test("project maintainer URL import writes only the fresh primary store and
         const freshPrimary = await Deno.makeTempDir({ prefix: "runwield-url-import-primary-" });
         const freshLinked = await Deno.makeTempDir({ prefix: "runwield-url-import-linked-" });
         try {
+            Deno.env.delete("WLD_TEST_SANDBOX_HOME");
             await seedPlan(projectRoot, "source-url-plan");
             await withCollaborationServer(async ({ serverUrl }) => {
                 const shared = await sharePlanForReview({
@@ -341,7 +360,13 @@ Deno.test("project maintainer URL import writes only the fresh primary store and
                 assert(importedPlan);
                 assertEquals(importedPlan.path?.startsWith(freshLinked), true);
                 assertEquals(pulled.secretImported, true);
-                const freshStorePath = getProjectSecretStorePath(freshLinked);
+                const freshStorePath = join(
+                    await Deno.realPath(freshPrimary),
+                    ".wld",
+                    "internal",
+                    "collaboration-secrets.json",
+                );
+                assertEquals(getProjectSecretStorePath(freshLinked), freshStorePath);
                 const maintainer = parseCollaborationUrl(shared.maintainerUrl);
                 assertEquals(
                     (await readSecretStore(freshStorePath)).records[`${shared.planId}:${shared.spaceId}`]
@@ -369,6 +394,7 @@ Deno.test("project share does not write local secrets when primary ignore protec
         async ({ alternateRoot, projectRoot }) => {
             const originalSandboxHome = Deno.env.get("WLD_TEST_SANDBOX_HOME");
             try {
+                Deno.env.delete("WLD_TEST_SANDBOX_HOME");
                 await seedPlan(projectRoot, "ignore-failure-plan");
                 await createLinkedCheckout(projectRoot, alternateRoot);
                 await Deno.remove(join(projectRoot, ".gitignore")).catch(() => {});

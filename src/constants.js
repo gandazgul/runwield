@@ -290,9 +290,23 @@ if (IS_TEST_REALM && !readOptionalEnv("WLD_TEST_SANDBOX_HOME")) {
  * @returns {string | null}
  */
 export function describeUnsandboxedTestRun({ isTestRealm, sandboxHome, homeDir }) {
-    if (!isTestRealm || !homeDir || sandboxHome) return null;
+    if (!isTestRealm || !homeDir || sandboxHome || isTempTestHome(homeDir)) return null;
     return `Refusing to resolve a home directory (${homeDir}) during an unsandboxed test run. ` +
         UNSANDBOXED_TEST_RUN_MESSAGE;
+}
+
+/**
+ * @param {string} homeDir
+ * @returns {boolean}
+ */
+function isTempTestHome(homeDir) {
+    try {
+        const tempDir = Deno.realPathSync(readOptionalEnv("TMPDIR") || "/tmp");
+        const resolvedHome = Deno.realPathSync(homeDir);
+        return resolvedHome === tempDir || resolvedHome.startsWith(`${tempDir}/`);
+    } catch {
+        return false;
+    }
 }
 
 /**

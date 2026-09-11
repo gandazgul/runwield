@@ -147,6 +147,54 @@ Deno.test("project secret path honors sandbox routing", async () => {
     }
 });
 
+Deno.test("secret store write cleans up temporary files when atomic rename fails", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-rename-fail-" });
+    try {
+        const path = join(dir, "store.json");
+        await Deno.mkdir(path);
+
+        await assertRejects(
+            () => writeSecretStore(path, { schemaVersion: SECRET_STORE_SCHEMA_VERSION, records: {} }),
+            Error,
+            "Unable to write collaboration secret store",
+        );
+
+        const siblingTemps = [];
+        for await (const entry of Deno.readDir(dir)) {
+            if (entry.name.includes(".tmp")) siblingTemps.push(entry.name);
+        }
+        assertEquals(siblingTemps, []);
+        assert((await Deno.stat(path)).isDirectory);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("secret store replacement leaves the file readable only by its owner", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-replace-" });
+    try {
+        const path = join(dir, "store.json");
+        await Deno.writeTextFile(
+            path,
+            `${JSON.stringify({ schemaVersion: SECRET_STORE_SCHEMA_VERSION, records: {} })}\n`,
+            {
+                mode: 0o644,
+            },
+        );
+        await Deno.chmod(path, 0o644);
+
+        await writeSecretStore(path, {
+            schemaVersion: SECRET_STORE_SCHEMA_VERSION,
+            records: { "plan-1:space-1": secretRecord() },
+        });
+
+        assertEquals((await readSecretStore(path)).records["plan-1:space-1"], secretRecord());
+        assertEquals(((await Deno.stat(path)).mode ?? 0) & 0o777, 0o600);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
 Deno.test("secret stores delete records idempotently", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-delete-" });
     try {
