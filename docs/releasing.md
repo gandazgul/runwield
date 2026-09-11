@@ -143,9 +143,11 @@ The first public tap release must use a RunWield Stable that contains package-ow
 release's checksum proof with a new local binary's update behavior proof. The checked formula installs metadata beside
 `libexec/wld`; a Homebrew-owned `wld update` prints `brew upgrade gandazgul/tap/wld` and must not run `install.sh`.
 
-`mnemoteca` can be refreshed independently by passing a new `--mnemoteca-tag` after updating
-`packaging/homebrew/tested-dependencies.json` with the verified macOS URLs and SHA-256 values. Formula installation does
-not run Mnemoteca model setup or `agent-browser install`; those remain first-use operations.
+`mnemoteca` can be refreshed independently by omitting `--wld-tag` and passing a new `--mnemoteca-tag` against an
+existing tap tree. First update `packaging/homebrew/tested-dependencies.json` with the verified macOS URLs, SHA-256
+values, license, homepage, and tested helper versions. Base URL overrides require `--test-only`; publishable output must
+point at immutable GitHub release URLs. Formula installation does not run Mnemoteca model setup or
+`agent-browser install`; those remain first-use operations.
 
 ## GitHub workflow ownership
 

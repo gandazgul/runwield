@@ -1,0 +1,55 @@
+name: prepare-homebrew-tap
+
+on:
+    workflow_dispatch:
+        inputs:
+            wld_tag:
+                description: Stable RunWield tag. Leave empty to refresh only Mnemoteca.
+                required: false
+                type: string
+            mnemoteca_tag:
+                description: Stable Mnemoteca tag.
+                required: true
+                type: string
+                default: v0.3.1
+            test_only:
+                description: Mark output as test-only.
+                required: true
+                type: boolean
+                default: false
+
+permissions:
+    contents: read
+
+jobs:
+    prepare:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+
+            - name: Setup Deno
+              uses: denoland/setup-deno@v2
+              with:
+                  deno-version: v2.9.3
+
+            - name: Render Homebrew tap artifact
+              env:
+                  WLD_TAG: ${{ inputs.wld_tag }}
+                  MNEMOTECA_TAG: ${{ inputs.mnemoteca_tag }}
+                  TEST_ONLY: ${{ inputs.test_only }}
+              run: |
+                  args=(--mnemoteca-tag "$MNEMOTECA_TAG" --output homebrew-tap)
+                  if [[ -n "$WLD_TAG" ]]; then args+=(--wld-tag "$WLD_TAG"); fi
+                  if [[ "$TEST_ONLY" == "true" ]]; then args+=(--test-only); fi
+                  deno task package:homebrew "${args[@]}"
+                  tar -czf "runwield-homebrew-tap-${MNEMOTECA_TAG}.tar.gz" -C homebrew-tap .
+                  shasum -a 256 "runwield-homebrew-tap-${MNEMOTECA_TAG}.tar.gz" > "runwield-homebrew-tap-${MNEMOTECA_TAG}.tar.gz.sha256"
+
+            - name: Upload Homebrew tap artifact
+              uses: actions/upload-artifact@v5
+              with:
+                  name: runwield-homebrew-tap-${{ inputs.mnemoteca_tag }}
+                  path: |
+                      runwield-homebrew-tap-${{ inputs.mnemoteca_tag }}.tar.gz
+                      runwield-homebrew-tap-${{ inputs.mnemoteca_tag }}.tar.gz.sha256

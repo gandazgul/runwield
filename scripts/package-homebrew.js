@@ -27,8 +27,15 @@ const ARCHES = Object.freeze(["darwin-arm64", "darwin-x64"]);
  */
 
 /**
+ * @typedef {Object} TestedDependencyInput
+ * @property {string} formula
+ * @property {string} testedVersion
+ */
+
+/**
  * @typedef {Object} HomebrewInputs
  * @property {MnemotecaInput} mnemoteca
+ * @property {Record<string, TestedDependencyInput>} homebrewDependencies
  */
 
 /**
@@ -44,8 +51,9 @@ const ARCHES = Object.freeze(["darwin-arm64", "darwin-x64"]);
 
 function usage() {
     return [
-        "Usage: package-homebrew.js --wld-tag <stable-tag> --mnemoteca-tag <stable-tag> --output <dir>",
+        "Usage: package-homebrew.js [--wld-tag <stable-tag>] --mnemoteca-tag <stable-tag> --output <dir>",
         "       [--inputs <path>] [--wld-base-url <url>] [--mnemoteca-base-url <url>] [--test-only]",
+        "       Omit --wld-tag to refresh only the Mnemoteca formula in an existing tap tree.",
     ].join("\n");
 }
 
@@ -64,9 +72,8 @@ export function parsePackageHomebrewArgs(args) {
         else if (arg === "--mnemoteca-base-url") options.mnemotecaBaseUrl = args[++index] || "";
         else throw new Error(`Unknown package:homebrew option: ${arg}\n${usage()}`);
     }
-    if (!options.wldTag || !options.mnemotecaTag || !options.output || !options.inputsPath) {
-        throw new Error(usage());
-    }
+    if (!options.mnemotecaTag || !options.output || !options.inputsPath) throw new Error(usage());
+    if (!options.wldTag && options.wldBaseUrl) throw new Error("--wld-base-url requires --wld-tag.");
     return options;
 }
 
@@ -92,6 +99,16 @@ function assetUrl(baseUrl, name) {
  */
 function releaseBaseUrl(repo, tag, baseUrl) {
     return baseUrl || `https://github.com/${repo}/releases/download/${tag}`;
+}
+
+/**
+ * @param {string} url
+ * @param {string} repo
+ * @param {string} tag
+ */
+function assertReleasedAssetUrl(url, repo, tag) {
+    const expected = `https://github.com/${repo}/releases/download/${tag}/`;
+    if (!url.startsWith(expected)) throw new Error(`Publishable Homebrew asset must use ${expected}: ${url}`);
 }
 
 /** @param {Uint8Array} bytes */
@@ -169,6 +186,25 @@ function assertNoPlaceholders(text) {
 }
 
 /**
+ * @param {HomebrewInputs} inputs
+ * @param {string} tag
+ */
+function validateInputs(inputs, tag) {
+    if (!inputs.mnemoteca?.tag || !inputs.mnemoteca.assets) throw new Error("Missing Mnemoteca input metadata.");
+    if (inputs.mnemoteca.tag !== tag) {
+        throw new Error(`Inputs contain ${inputs.mnemoteca.tag}, not requested Mnemoteca tag ${tag}.`);
+    }
+    if (!inputs.mnemoteca.license || !inputs.mnemoteca.homepage) {
+        throw new Error("Mnemoteca inputs must include license and homepage.");
+    }
+    for (const [name, dependency] of Object.entries(inputs.homebrewDependencies || {})) {
+        if (!dependency.formula || !dependency.testedVersion) {
+            throw new Error(`Homebrew dependency ${name} must include formula and testedVersion.`);
+        }
+    }
+}
+
+/**
  * @param {{ version: string, assets: Record<string, AssetInput> }} wld
  * @param {boolean} testOnly
  */
@@ -178,8 +214,8 @@ function renderWldFormula(wld, testOnly) {
 class Wld < Formula
   desc "Plan-first AI coding harness"
   homepage "https://github.com/gandazgul/runwield"
-  license :cannot_represent
   version "${wld.version}"
+  license "https://github.com/gandazgul/runwield/blob/v#{version}/LICENSE" => :cannot_represent
 
   on_macos do
     if Hardware::CPU.arm?
@@ -213,7 +249,7 @@ class Wld < Formula
 
   test do
     assert_match "runwield", shell_output("#{bin}/wld --version")
-    assert_match "Usage", shell_output("#{bin}/wld help")
+    assert_match "brew upgrade gandazgul/tap/wld", shell_output("#{bin}/wld update")
   end
 end
 ${testOnly ? "# test-only artifact; do not publish this formula\n" : ""}`;
@@ -242,7 +278,9 @@ function renderMnemotecaFormula(mnemoteca) {
   end
 
   test do
+    ENV["MNEMOTECA_DB_PATH"] = testpath/"mnemoteca.sqlite3"
     assert_match "mnemoteca", shell_output("#{bin}/mnemoteca --help")
+    system "#{bin}/mnemoteca", "init", "--name", "homebrew-test"
   end
 end
 `;
@@ -260,61 +298,127 @@ brew install gandazgul/tap/wld
 brew install gandazgul/tap/mnemoteca
 \`\`\`
 
+RunWield license: https://github.com/gandazgul/runwield/blob/main/LICENSE
+
+The RunWield formula links to the versioned project license with Homebrew's \`:cannot_represent\` metadata.
+
 Regenerate from this repository with:
 
 \`\`\`sh
 deno task package:homebrew --wld-tag <stable-tag> --mnemoteca-tag <stable-tag> --output <dir>
+deno task package:homebrew --mnemoteca-tag <stable-tag> --output <existing-tap-dir>
 \`\`\`
 `;
 }
 
+/**
+ * @typedef {Object} ExistingRunWieldPackage
+ * @property {string} wldTag
+ * @property {boolean} testOnly
+ */
+
+/**
+ * @param {string} output
+ * @param {boolean} requestedTestOnly
+ * @returns {Promise<ExistingRunWieldPackage>}
+ */
+async function readExistingRunWieldPackage(output, requestedTestOnly) {
+    const formulaPath = join(output, "Formula", "wld.rb");
+    const manifestPath = join(output, "runwield-homebrew-package.json");
+    const formula = await Deno.readTextFile(formulaPath).catch((error) => {
+        if (error instanceof Deno.errors.NotFound) {
+            throw new Error("Mnemoteca-only refresh requires an existing Formula/wld.rb.");
+        }
+        throw error;
+    });
+    const manifest = JSON.parse(
+        await Deno.readTextFile(manifestPath).catch((error) => {
+            if (error instanceof Deno.errors.NotFound) {
+                throw new Error("Mnemoteca-only refresh requires an existing package manifest.");
+            }
+            throw error;
+        }),
+    );
+    if (!manifest.wldTag || !Array.isArray(manifest.formulas) || !manifest.formulas.includes("Formula/wld.rb")) {
+        throw new Error("Mnemoteca-only refresh requires a manifest that preserves Formula/wld.rb and wldTag.");
+    }
+    const parsed = assertStableTag(manifest.wldTag);
+    if (manifest.testOnly && !requestedTestOnly) {
+        throw new Error("Cannot refresh a test-only RunWield formula as publishable output.");
+    }
+    if (!requestedTestOnly) {
+        if (formula.includes("test-only artifact")) {
+            throw new Error("Cannot publish a preserved test-only RunWield formula.");
+        }
+        for (const url of formula.matchAll(/url "([^"]+)"/g)) assertReleasedAssetUrl(url[1], RUNWIELD_REPO, parsed.tag);
+    }
+    return { wldTag: parsed.tag, testOnly: Boolean(manifest.testOnly) || requestedTestOnly };
+}
+
 /** @param {HomebrewOptions} options */
 export async function packageHomebrew(options) {
-    const wldTag = assertStableTag(options.wldTag);
+    if (!options.testOnly && (options.wldBaseUrl || options.mnemotecaBaseUrl)) {
+        throw new Error("Base URL overrides require --test-only.");
+    }
+    const wldTag = options.wldTag ? assertStableTag(options.wldTag) : null;
     const mnemotecaTag = assertStableTag(options.mnemotecaTag);
     const inputs = /** @type {HomebrewInputs} */ (JSON.parse(await Deno.readTextFile(options.inputsPath)));
-    if (inputs.mnemoteca.tag !== mnemotecaTag.tag) {
-        throw new Error(`Inputs contain ${inputs.mnemoteca.tag}, not requested Mnemoteca tag ${mnemotecaTag.tag}.`);
+    validateInputs(inputs, mnemotecaTag.tag);
+    const existingWld = wldTag ? null : await readExistingRunWieldPackage(options.output, options.testOnly);
+
+    const mnemotecaBase = options.mnemotecaBaseUrl || releaseBaseUrl(MNEMOTECA_REPO, mnemotecaTag.tag, undefined);
+    const mnemotecaAssets = await verifiedMnemotecaAssets(inputs.mnemoteca, mnemotecaBase);
+    if (!options.testOnly) {
+        for (const asset of Object.values(mnemotecaAssets)) {
+            assertReleasedAssetUrl(asset.url, MNEMOTECA_REPO, mnemotecaTag.tag);
+        }
     }
 
-    const wldBase = releaseBaseUrl(RUNWIELD_REPO, wldTag.tag, options.wldBaseUrl);
-    const mnemotecaAssets = await verifiedMnemotecaAssets(
-        inputs.mnemoteca,
-        options.mnemotecaBaseUrl || releaseBaseUrl(MNEMOTECA_REPO, mnemotecaTag.tag, undefined),
-    );
     /** @type {Record<string, AssetInput>} */
     const wldAssets = {};
-    for (const arch of ARCHES) {
-        const name = `wld-${wldTag.tag}-${arch}.tar.gz`;
-        wldAssets[arch] = await verifiedRunWieldAsset(wldBase, name);
+    if (wldTag) {
+        const wldBase = releaseBaseUrl(RUNWIELD_REPO, wldTag.tag, options.wldBaseUrl);
+        for (const arch of ARCHES) {
+            const name = `wld-${wldTag.tag}-${arch}.tar.gz`;
+            wldAssets[arch] = await verifiedRunWieldAsset(wldBase, name);
+            if (!options.testOnly) assertReleasedAssetUrl(wldAssets[arch].url, RUNWIELD_REPO, wldTag.tag);
+        }
     }
 
     const formulaDir = join(options.output, "Formula");
     const readmePath = join(options.output, "README.md");
-    await Deno.remove(options.output, { recursive: true }).catch((error) => {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-    });
+    if (wldTag) {
+        await Deno.remove(options.output, { recursive: true }).catch((error) => {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        });
+    }
     await Deno.mkdir(formulaDir, { recursive: true });
 
-    const wldFormula = renderWldFormula({ version: wldTag.tag.slice(1), assets: wldAssets }, options.testOnly);
     const mnemotecaFormula = renderMnemotecaFormula({
         version: mnemotecaTag.tag.slice(1),
         assets: mnemotecaAssets,
         license: inputs.mnemoteca.license,
         homepage: inputs.mnemoteca.homepage,
     });
-    for (const text of [wldFormula, mnemotecaFormula]) assertNoPlaceholders(text);
+    const formulas = ["Formula/wld.rb", "Formula/mnemoteca.rb"];
+    const generatedTexts = [mnemotecaFormula];
+    if (wldTag) {
+        const wldFormula = renderWldFormula({ version: wldTag.tag.slice(1), assets: wldAssets }, options.testOnly);
+        generatedTexts.unshift(wldFormula);
+        await Deno.writeTextFile(join(formulaDir, "wld.rb"), wldFormula);
+    }
+    for (const text of generatedTexts) assertNoPlaceholders(text);
 
-    await Deno.writeTextFile(join(formulaDir, "wld.rb"), wldFormula);
     await Deno.writeTextFile(join(formulaDir, "mnemoteca.rb"), mnemotecaFormula);
     await Deno.writeTextFile(readmePath, renderReadme());
 
     const manifest = {
-        testOnly: options.testOnly,
-        wldTag: wldTag.tag,
+        testOnly: existingWld?.testOnly || options.testOnly,
+        wldTag: wldTag?.tag || existingWld?.wldTag,
         mnemotecaTag: mnemotecaTag.tag,
         generatedAt: new Date().toISOString(),
-        formulas: ["Formula/wld.rb", "Formula/mnemoteca.rb"],
+        formulas,
+        testedDependencies: inputs.homebrewDependencies,
     };
     await Deno.writeTextFile(
         join(options.output, "runwield-homebrew-package.json"),
