@@ -1,0 +1,16 @@
+{
+    "pairs": [
+        {
+            "source": "src/agent-definitions/ideator.md",
+            "skill": "skills/ideator/SKILL.md",
+            "sourceHash": "6f1835618b21e147a68c67b805177a48db96085c6022b115cb79d29ae00c9909",
+            "skillHash": "1d369226a418bd228529f4c9f209e654e8b4899d8cc07075ec6d6b8b124b9ecd"
+        },
+        {
+            "source": "src/agent-definitions/guide.md",
+            "skill": "skills/guide/SKILL.md",
+            "sourceHash": "bc2b0fd0d8de904d66d24c800e0d70e9a1549f78b04437333dbd20de15269c51",
+            "skillHash": "ec7c59d5213ab3a4c24b78e96244c6177b974c06dac4e52bcae3d5849dc49c1a"
+        }
+    ]
+}

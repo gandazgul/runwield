@@ -6,10 +6,14 @@
 import { join } from "@std/path";
 import { VERSION } from "../../shared/version.js";
 import {
+    compareRunWieldVersions,
+    fetchLatestRunWieldRcRelease,
     fetchLatestRunWieldRelease,
     getInstalledWldDirectoryFromExecPath,
     getTagPinnedInstallerUrls,
     isNewerRunWieldVersion,
+    normalizeRunWieldVersion,
+    parseRunWieldReleaseVersion,
 } from "../../shared/update-check.js";
 
 export interface UpdateNetworkPort {
@@ -46,7 +50,42 @@ export const SYSTEM_INSTALLER_PROCESS_PORT: InstallerProcessPort = {
 export const SYSTEM_PROCESS_EXIT_PORT: ProcessExitPort = { exit: Deno.exit };
 
 function usage(): string {
-    return "Usage: wld update\n       wld upgrade";
+    return "Usage: wld update [--rc | --to <tag>] [--downgrade] [--yes]\n       wld upgrade [--rc | --to <tag>] [--downgrade] [--yes]";
+}
+
+interface ParsedUpdateArgs {
+    rc: boolean;
+    to: string | null;
+    downgrade: boolean;
+    yes: boolean;
+}
+
+function parseUpdateArgs(argv: string[]): ParsedUpdateArgs | null {
+    const parsed: ParsedUpdateArgs = { rc: false, to: null, downgrade: false, yes: false };
+    for (let index = 0; index < argv.length; index += 1) {
+        const arg = argv[index];
+        if (arg === "--rc") parsed.rc = true;
+        else if (arg === "--downgrade") parsed.downgrade = true;
+        else if (arg === "--yes" || arg === "-y") parsed.yes = true;
+        else if (arg === "--to") {
+            const value = argv[index + 1];
+            if (!value || value.startsWith("--")) return null;
+            parsed.to = value;
+            index += 1;
+        } else if (arg.startsWith("--to=")) {
+            const value = arg.slice("--to=".length);
+            if (!value) return null;
+            parsed.to = value;
+        } else return null;
+    }
+    if (parsed.rc && parsed.to) return null;
+    if (parsed.downgrade && !parsed.to) return null;
+    return parsed;
+}
+
+function confirmUpgrade(message: string): boolean {
+    const answer = globalThis.prompt(`${message}\nType INSTALL to continue:`) || "";
+    return answer.trim() === "INSTALL";
 }
 
 /** */
@@ -71,8 +110,9 @@ export async function runUpdateCommand(argv: string[], options: UpdateCommandOpt
     const network = options.networkPort;
     const installerProcess = options.installerPort;
     const processExit = options.exitPort;
+    const parsedArgs = parseUpdateArgs(argv);
 
-    if (argv.length > 0) {
+    if (!parsedArgs) {
         console.error(usage());
         processExit.exit(1);
         return;
@@ -82,10 +122,35 @@ export async function runUpdateCommand(argv: string[], options: UpdateCommandOpt
     /** @type {number | null} */
     let exitCode = null;
     try {
-        const release = await fetchLatestRunWieldRelease(network);
-        if (!isNewerRunWieldVersion(release.version, VERSION)) {
+        const release = parsedArgs.to
+            ? { tagName: normalizeRunWieldVersion(parsedArgs.to), version: normalizeRunWieldVersion(parsedArgs.to) }
+            : parsedArgs.rc
+            ? await fetchLatestRunWieldRcRelease(network)
+            : await fetchLatestRunWieldRelease(network);
+        const targetVersion = parseRunWieldReleaseVersion(release.version);
+        if (!targetVersion) throw new Error(`Invalid RunWield release tag: ${release.version}`);
+
+        const comparison = compareRunWieldVersions(release.version, VERSION);
+        const isDowngrade = comparison !== null && comparison < 0;
+        if (isDowngrade && !parsedArgs.downgrade) {
+            throw new Error(`Refusing to downgrade from ${VERSION} to ${release.version} without --downgrade.`);
+        }
+        if (comparison === 0) {
+            console.log(`RunWield is already at ${VERSION}.`);
+            return;
+        }
+        if (!parsedArgs.to && !parsedArgs.rc && !isNewerRunWieldVersion(release.version, VERSION)) {
             console.log(`RunWield is already up to date (${VERSION}).`);
             return;
+        }
+
+        const needsConfirmation = !parsedArgs.yes && (parsedArgs.rc || !targetVersion.stable || isDowngrade);
+        if (needsConfirmation) {
+            const direction = isDowngrade ? "downgrade" : "install";
+            if (!confirmUpgrade(`RunWield will ${direction} from ${VERSION} to ${release.version}.`)) {
+                console.log("RunWield update cancelled.");
+                return;
+            }
         }
 
         const installerUrls = getTagPinnedInstallerUrls(release.tagName);

@@ -56,6 +56,7 @@ Bundled skills:
 - `resolving-merge-conflicts`: resolve in-progress merge or rebase conflicts.
 - `runwield`: answer user-facing questions about RunWield and `wld`.
 - `tdd`: use a red-green-refactor loop.
+- `wizard`: generate terminal wizards for human-only external setup, credentials, CI secrets, migrations, and cutovers.
 - `write-a-skill`: create predictable agent skills.
 - `write-tests`: write, update, or repair automated tests.
 
