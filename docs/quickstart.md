@@ -7,7 +7,7 @@ For terminal setup, keybindings, and model-provider background that are inherite
 
 ## Install
 
-On macOS or Linux:
+On macOS or Linux, the shell installer is available:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
@@ -15,6 +15,14 @@ curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh 
 
 The installer installs `wld` plus required [Mnemoteca]/Cymbal/agent-browser helpers and optional Snip to `~/.local/bin`
 by default. If your shell cannot find `wld`, add the install directory to your `PATH`.
+
+Homebrew packages for macOS are prepared but not public until the owner publishes `gandazgul/homebrew-tap`. After that,
+use:
+
+```bash
+brew install gandazgul/tap/wld
+brew install gandazgul/tap/mnemoteca
+```
 
 To choose a different install directory:
 
@@ -44,6 +52,11 @@ The one-line installer is the complete standalone setup path. It installs missin
 project/global memory, `cymbal` for symbol-aware code search, and `agent-browser` for headed browser inspection) beside
 `wld`, preserving helper binaries you already manage elsewhere on `PATH` or in `WLD_INSTALL_DIR`. It also attempts
 optional `snip` for compact shell-output rewriting; RunWield still starts if Snip is missing.
+
+The prepared Homebrew package uses Homebrew dependencies instead of the shell helper installer:
+`gandazgul/tap/mnemoteca`, `1broseidon/tap/cymbal`, `1broseidon/tap/ketch`, `agent-browser`, and `git`.
+`agent-browser install` and Mnemoteca model setup still run on first use, not during formula installation. A
+Homebrew-owned `wld update` prints `brew upgrade gandazgul/tap/wld` instead of replacing package files.
 
 [Mnemoteca]'s model payload is not downloaded by the installer. It is fetched lazily by Mnemoteca on first semantic
 memory use.

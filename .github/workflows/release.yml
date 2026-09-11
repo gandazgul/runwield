@@ -281,3 +281,38 @@ jobs:
                       release-artifacts/**/*.sha256
                       release-artifacts/SHA256SUMS
                       config.schema.json
+
+    homebrew-package:
+        runs-on: ubuntu-latest
+        if: needs.metadata.outputs.kind == 'stable'
+        needs:
+            - metadata
+            - release
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+              with:
+                  ref: ${{ needs.metadata.outputs.tag }}
+
+            - name: Setup Deno
+              uses: denoland/setup-deno@v2
+              with:
+                  deno-version: v2.9.3
+
+            - name: Render Homebrew tap artifact
+              run: |
+                  deno task package:homebrew \
+                    --wld-tag "${{ needs.metadata.outputs.tag }}" \
+                    --mnemoteca-tag "v0.3.1" \
+                    --output homebrew-tap
+                  tar -czf "runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz" -C homebrew-tap .
+                  shasum -a 256 "runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz" > "runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz.sha256"
+
+            - name: Upload Homebrew tap artifact
+              uses: actions/upload-artifact@v5
+              with:
+                  name: runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}
+                  path: |
+                      runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz
+                      runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz.sha256

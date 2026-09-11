@@ -84,6 +84,8 @@ deno task release:promote --candidate vX.Y.Z-rc.N [--dry-run]
 deno task release:stable --tag vX.Y.Z [--dry-run]
 deno task release:metadata --tag vX.Y.Z[-rc.N]
 deno task release:check --build-version vX.Y.Z[-rc.N]
+deno task package:homebrew --wld-tag vX.Y.Z --mnemoteca-tag vA.B.C --output <dir>
+deno task package:homebrew:check --tap <dir>
 ```
 
 Dry runs perform read-only tag, version, and source preflight and print the proposed tag target and tag push. They must
@@ -124,11 +126,33 @@ Direct Stable is an exceptional path. Use it only when explicitly chosen and app
 follows the same source selection, tag workflow, GitHub Actions qualification, and post-publication notes-editing rules
 as Candidate creation, but the target tag is a Stable tag.
 
+## Homebrew tap preparation
+
+The macOS Homebrew tap is prepared from immutable Stable release assets. Candidate releases never update Stable package
+output.
+
+The release workflow renders a `runwield-homebrew-tap-<tag>` artifact after Stable asset publication succeeds. Before
+pushing that tree to `gandazgul/homebrew-tap`, run the check against the exact rendered output:
+
+```bash
+deno task package:homebrew --wld-tag vX.Y.Z --mnemoteca-tag v0.3.1 --output /tmp/runwield-tap
+deno task package:homebrew:check --tap /tmp/runwield-tap
+```
+
+The first public tap release must use a RunWield Stable that contains package-owner metadata. Do not combine an old
+release's checksum proof with a new local binary's update behavior proof. The checked formula installs metadata beside
+`libexec/wld`; a Homebrew-owned `wld update` prints `brew upgrade gandazgul/tap/wld` and must not run `install.sh`.
+
+`mnemoteca` can be refreshed independently by passing a new `--mnemoteca-tag` after updating
+`packaging/homebrew/tested-dependencies.json` with the verified macOS URLs and SHA-256 values. Formula installation does
+not run Mnemoteca model setup or `agent-browser install`; those remain first-use operations.
+
 ## GitHub workflow ownership
 
-The tag-triggered workflow owns release qualification, builds, GitHub release creation, and asset upload. Local release
-commands validate release metadata, create and push tags, and monitor that workflow. They must not require local
-qualification and must not call `gh release create`, `gh release edit`, `glab release create`, or `glab release edit`.
+The tag-triggered workflow owns release qualification, builds, GitHub release creation, asset upload, and Stable-only
+Homebrew tap artifact rendering. Local release commands validate release metadata, create and push tags, and monitor
+that workflow. They must not require local qualification and must not call `gh release create`, `gh release edit`,
+`glab release create`, or `glab release edit`.
 
 The workflow also exposes a required-tag manual dispatch solely for recovery when a tag cannot or should not be
 moved—for example, after its GitHub Release has made it immutable, or when a workflow-only fix on the default branch can

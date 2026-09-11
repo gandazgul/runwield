@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
-import { dirname } from "@std/path";
+import { dirname, join } from "@std/path";
 import { VERSION } from "../../shared/version.js";
 import { parseRunWieldReleaseVersion } from "../../shared/update-check.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
@@ -360,4 +360,60 @@ Deno.test("update reports release lookup failures without creating an installer 
         assertEquals(installer.invocations, []);
         assertEquals(exits.codes, [1]);
     });
+});
+
+Deno.test("package-managed update prints the package command and does not run the installer", async () => {
+    const root = await Deno.makeTempDir({ prefix: "runwield-package-update-" });
+    try {
+        const libexec = join(root, "Cellar", "wld", "1.2.3", "libexec");
+        const bin = join(root, "bin");
+        await Deno.mkdir(libexec, { recursive: true });
+        await Deno.mkdir(bin, { recursive: true });
+        const exe = join(libexec, "wld");
+        const link = join(bin, "wld");
+        await Deno.copyFile(Deno.execPath(), exe);
+        await Deno.chmod(exe, 0o755);
+        await Deno.symlink(exe, link);
+        await Deno.writeTextFile(
+            join(libexec, "runwield-install.json"),
+            JSON.stringify({
+                schemaVersion: 1,
+                packageManager: "homebrew",
+                packageIdentifier: "gandazgul/tap/wld",
+                updateCommand: "brew upgrade gandazgul/tap/wld",
+                repairCommand: "brew reinstall gandazgul/tap/wld",
+                installDirectory: libexec,
+                version: "v1.2.3",
+            }),
+        );
+        const child = join(root, "assert-update.ts");
+        await Deno.writeTextFile(
+            child,
+            `import { assertEquals, assertStringIncludes } from "@std/assert";\n` +
+                `import { runUpdateCommand } from ${JSON.stringify(new URL("./index.ts", import.meta.url).href)};\n` +
+                `const calls = [];\n` +
+                `const originalLog = console.log;\n` +
+                `const logs = [];\n` +
+                `console.log = (message = "") => logs.push(String(message));\n` +
+                `await runUpdateCommand(["--rc"], {\n` +
+                `  networkPort: { fetch: () => { throw new Error("network should not be used"); } },\n` +
+                `  installerPort: { run: async () => { calls.push("installer"); return 0; } },\n` +
+                `  exitPort: { exit: (code) => { throw new Error("exit " + code); } },\n` +
+                `});\n` +
+                `console.log = originalLog;\n` +
+                `assertEquals(calls, []);\n` +
+                `assertStringIncludes(logs.join("\\n"), "brew upgrade gandazgul/tap/wld");\n` +
+                `assertStringIncludes(logs.join("\\n"), "Stable channel");\n`,
+        );
+        const result = await new Deno.Command(link, {
+            args: ["run", "-A", "--config", join(Deno.cwd(), "deno.json"), child],
+            stdout: "piped",
+            stderr: "piped",
+        }).output();
+        const stdout = new TextDecoder().decode(result.stdout);
+        const stderr = new TextDecoder().decode(result.stderr);
+        assertEquals(result.code, 0, `${stdout}\n${stderr}`);
+    } finally {
+        await Deno.remove(root, { recursive: true });
+    }
 });

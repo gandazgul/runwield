@@ -579,8 +579,8 @@ export const commandRegistry = {
         name: COMMAND_NAMES.UPDATE,
         aliases: ["upgrade"],
         displayName: "Update",
-        description: "Install a RunWield release",
-        summary: "Update RunWield by running the public tag-pinned installer.",
+        description: "Update RunWield",
+        summary: "Update RunWield with the correct installer or package manager.",
         usage: [
             `${bin("update")} [--rc | --to <tag>] [--downgrade] [--yes]`,
             `${bin("upgrade")} [--rc | --to <tag>] [--downgrade] [--yes]`,
@@ -590,8 +590,8 @@ export const commandRegistry = {
             "Use --rc to install the latest Candidate prerelease after confirmation.",
             "Use --to <tag> to install an exact tag. Older tags also require --downgrade.",
             "Use --yes to skip confirmation for scripted Candidate or downgrade installs.",
-            "When possible, WLD_INSTALL_DIR is set to the current wld binary directory before running install.sh.",
-            "Set WLD_INSTALL_DIR yourself to choose a specific installation directory.",
+            "Standalone Unix installs use the tag-pinned shell installer.",
+            "Package-managed installs print the package-manager upgrade command.",
         ],
         execute: (argv, options) =>
             runUpdateCommand(argv, {
