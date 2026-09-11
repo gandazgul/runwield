@@ -61,6 +61,14 @@ function trimOuterBlankLines(lines) {
     return lines.slice(start, end);
 }
 
+/** @param {string} line */
+function normalizeOsc8Terminators(line) {
+    // Some terminals do not activate OSC 8 links that use ST (ESC backslash).
+    // BEL is the form already used by RunWield's hand-built review links.
+    // deno-lint-ignore no-control-regex
+    return line.replace(/\x1b\]8;;([^\x07\x1b]*)\x1b\\/g, "\x1b]8;;$1\x07");
+}
+
 /**
  * Markdown adapter that renders completed top-level Mermaid fences as compact
  * Unicode diagrams when they fit, otherwise preserving upstream Markdown output.
@@ -86,6 +94,14 @@ export class MermaidMarkdown extends RuntimeMarkdown {
         this.mermaidCache = new Map();
         this.renderMermaid = mermaidOptions.renderMermaid ||
             ((source) => renderMermaidASCII(source, MERMAID_RENDER_OPTIONS));
+    }
+
+    /**
+     * @param {number} width
+     * @returns {string[]}
+     */
+    render(width) {
+        return /** @type {string[]} */ (super.render(width)).map((line) => normalizeOsc8Terminators(line));
     }
 
     /**

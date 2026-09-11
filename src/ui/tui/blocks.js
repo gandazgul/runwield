@@ -3,7 +3,6 @@ import {
     Image,
     Input,
     Key,
-    Markdown,
     matchesKey,
     SelectList,
     Spacer,
@@ -370,8 +369,10 @@ export class ReviewResultBlock {
         this.bgToken = approved ? "toolSuccessBg" : "toolErrorBg";
 
         this.container.addChild(new Text(theme.fg("success", theme.bold(`${this.agentName}:`)), 0, 0));
-        this.markdown = new Markdown(this.markdownText, 0, 0, getMarkdownTheme());
-        this.container.addChild(this.markdown);
+        this.markdown = new MermaidMarkdown(this.markdownText, 0, 0, getMarkdownTheme());
+        this.container.addChild(
+            /** @type {import('@earendil-works/pi-tui').Component} */ (/** @type {unknown} */ (this.markdown)),
+        );
         this.block = new StyledBlock(this.bgToken, 2, 1, this.container);
     }
 
@@ -435,7 +436,7 @@ export class ValidationHandoffBlock {
     appendMarkdownSection(lines, title, markdownText, width) {
         lines.push("");
         lines.push(theme.fg("accent", theme.bold(title)));
-        const markdown = new Markdown(markdownText || "(no report text)", 0, 0, getMarkdownTheme());
+        const markdown = new MermaidMarkdown(markdownText || "(no report text)", 0, 0, getMarkdownTheme());
         lines.push(...markdown.render(width));
     }
 
