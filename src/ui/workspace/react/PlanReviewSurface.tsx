@@ -64,6 +64,10 @@ function workspaceNavigate(href, history = "push") {
     }
 }
 
+function isStaleReviewError(message) {
+    return /Review is out of date|Plan changed while review was open|stale/i.test(message || "");
+}
+
 export function PlanReviewSurface({ payload, presentation = "standalone" }) {
     const source = payload || readEmbeddedPayload("review-payload") || DEFAULT_PLAN_PAYLOAD;
     return source.sequenceDocuments?.length
@@ -168,6 +172,7 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
     const [submitted, setSubmitted] = useState(null);
     const [error, setError] = useState("");
     const [recoveryRequest, setRecoveryRequest] = useState(null);
+    const staleReviewError = isStaleReviewError(error);
     const [pendingReviewDraft, setPendingReviewDraft] = useState(null);
     const [reviewDraftReady, setReviewDraftReady] = useState(false);
     const [reviewDraftStorageError, setReviewDraftStorageError] = useState("");
@@ -948,7 +953,22 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                     {reviewDraftStorageError && (
                         <p className="rw-review-error" role="alert">{reviewDraftStorageError}</p>
                     )}
-                    {error && <p className="rw-review-error" role="alert">{error}</p>}
+                    {error && !staleReviewError && <p className="rw-review-error" role="alert">{error}</p>}
+                    {staleReviewError
+                        ? (
+                            <section className="rw-plan-review-notice state-recovery" role="alert">
+                                <strong>Review is out of date</strong>
+                                <p>{error}</p>
+                                <button
+                                    type="button"
+                                    className="rw-plan-review-recovery-action"
+                                    onClick={() => globalThis.location.reload()}
+                                >
+                                    Reload review
+                                </button>
+                            </section>
+                        )
+                        : null}
                     {recoveryRequest
                         ? (
                             <section className="rw-plan-review-notice state-recovery" role="alert">

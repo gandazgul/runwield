@@ -163,7 +163,17 @@ export async function applySharedPlanReviewDecision({
     if (location.plan && resolve(location.plan.path) === resolve(planPath)) {
         cwd = location.documentRoot;
     } else if (location.plan && resolve(getStoredPlanPath(cwd, planName)) === resolve(planPath)) {
-        return reviewRejected("The execution Plan is now the editable copy. Reload the review to continue.");
+        const reviewedBody = splitPlanMarkdownBody(planWithFrontMatter).body;
+        if (!reviewSourceStillMatches(location.plan, originalAttrs, reviewedBody)) {
+            return reviewRejected(
+                "Review is out of date. The Plan changed while this review was open. Reload this review, then send your decision again.",
+            );
+        }
+        cwd = location.documentRoot;
+        planPath = location.plan.path;
+        planWithFrontMatter = location.plan.markdown;
+        planRevision = location.plan.revision;
+        originalAttrs = location.plan.attrs;
     }
     try {
         if (projectPlanType(location.plan?.attrs || originalAttrs) === "sequence") {
