@@ -85,6 +85,15 @@ Deno.test("Plan review exposes Workspace recovery when live Plan evidence requir
     assertStringIncludes(surface, "runRecoveryAction");
 });
 
+Deno.test("Plan review stale errors offer a clear reload action", async () => {
+    const surface = await Deno.readTextFile(SURFACE_PATH);
+
+    assertStringIncludes(surface, "staleReviewError");
+    assertStringIncludes(surface, "Review is out of date");
+    assertStringIncludes(surface, "Reload review");
+    assertStringIncludes(surface, "globalThis.location.reload()");
+});
+
 Deno.test("Plan feedback action sits above the annotation list with theme accent styling", async () => {
     const surface = await Deno.readTextFile(SURFACE_PATH);
     const styles = await Deno.readTextFile("src/ui/workspace/react/plannotator.css");

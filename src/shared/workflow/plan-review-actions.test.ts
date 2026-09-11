@@ -106,6 +106,79 @@ Deno.test("shared Plan review rejects stale revision status and worktree before 
     }
 });
 
+Deno.test("shared Plan review automatically applies an old primary review to the current workflow Plan", async () => {
+    const fixture = await makePlanFile({
+        status: "ready_for_work",
+        planId: "plan-id",
+        worktreeId: "wt-prior",
+        worktreeStatus: "active",
+    });
+    const executionDir = await addActiveWorktree(fixture.dir);
+    try {
+        const result = await applySharedPlanReviewDecision({
+            cwd: fixture.dir,
+            planName: "plan",
+            planPath: fixture.planPath,
+            planWithFrontMatter: fixture.markdown,
+            planRevision: fixture.revision,
+            originalAttrs: fixture.attrs,
+            trustedClassification: "PLANNED_CHANGE",
+            decision: {
+                approved: true,
+                feedback: "run it",
+                approvalAction: "run",
+                executionAgent: "engineer",
+                collaborationRecommendation: "autonomous",
+            },
+        });
+
+        assertEquals(result.approved, true);
+        assertEquals(result.cancellationReason, undefined);
+        assertEquals((await loadPlan(executionDir, "plan"))?.attrs.status, "approved");
+        assertEquals((await loadPlan(fixture.dir, "plan"))?.attrs.status, "ready_for_work");
+    } finally {
+        await Deno.remove(fixture.dir, { recursive: true });
+    }
+});
+
+Deno.test("shared Plan review still rejects an old primary review when the current workflow Plan changed", async () => {
+    const fixture = await makePlanFile({
+        status: "ready_for_work",
+        planId: "plan-id",
+        worktreeId: "wt-prior",
+        worktreeStatus: "active",
+    });
+    const executionDir = await addActiveWorktree(fixture.dir);
+    try {
+        const executionPlanPath = getStoredPlanPath(executionDir, "plan");
+        await Deno.writeTextFile(executionPlanPath, fixture.markdown.replace("Do the thing.", "Do another thing."));
+
+        const result = await applySharedPlanReviewDecision({
+            cwd: fixture.dir,
+            planName: "plan",
+            planPath: fixture.planPath,
+            planWithFrontMatter: fixture.markdown,
+            planRevision: fixture.revision,
+            originalAttrs: fixture.attrs,
+            trustedClassification: "PLANNED_CHANGE",
+            decision: {
+                approved: true,
+                feedback: "run it",
+                approvalAction: "run",
+                executionAgent: "engineer",
+                collaborationRecommendation: "autonomous",
+            },
+        });
+
+        assertEquals(result.cancellationReason, "stale_plan_review");
+        assertStringIncludes(result.feedback || "", "Reload this review");
+        assertEquals((result.feedback || "").includes("execution Plan"), false);
+        assertEquals((result.feedback || "").includes("editable copy"), false);
+    } finally {
+        await Deno.remove(fixture.dir, { recursive: true });
+    }
+});
+
 Deno.test("shared Plan review approval accepts every execution policy combination", async () => {
     const combinations = [
         { executionAgent: "engineer", collaborationRecommendation: "autonomous" },
