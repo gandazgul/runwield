@@ -294,6 +294,12 @@ function resolveExecutionThinkingLevel(options) {
             thinkingLevelSource = "settings agent thinking level";
         }
     }
+    if (!resolvedThinkingLevel && options.agentName === AGENTS.REVIEWER_FEEDBACK_ENGINEER) {
+        resolvedThinkingLevel = getConfiguredAgentThinkingLevel(AGENTS.ENGINEER, options.cwd);
+        if (resolvedThinkingLevel) {
+            thinkingLevelSource = "Engineer fallback thinking level";
+        }
+    }
     if (!resolvedThinkingLevel) {
         resolvedThinkingLevel = getSettingsManager(options.cwd).getDefaultThinkingLevel();
         if (resolvedThinkingLevel) thinkingLevelSource = "settings default thinking level";

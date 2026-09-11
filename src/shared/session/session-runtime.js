@@ -45,6 +45,7 @@ import {
     exportRootSessionToJsonl,
     getRootSessionBranchEntries,
     getRunWieldSessionMemoryBackupDir,
+    isPathInside,
     listCatalogSafeRootSessionLocators,
     listPersistedRootSessions,
     openPersistedRootSession,
@@ -85,6 +86,7 @@ import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../models/mode
 import { parseProviderModel } from "../models/model-validation.ts";
 import { spawnForegroundShell } from "../foreground-process.ts";
 import { openFileSessionStore } from "./file-session-store.ts";
+import { sessionDirForRoot } from "./file-session-storage.ts";
 import { FileSessionStoreOwner } from "./file-session-store-owner.ts";
 import { listRecentResumableSessions } from "./session-resume-list.ts";
 import { buildSessionContextReport } from "./session-context-report.js";
@@ -4004,10 +4006,23 @@ export class SessionRuntime {
             activeProof = this.#sessionStore.changeSessionActivationPhase(activeProof, "hydrated");
             capability.updateProof(activeProof);
             hydrated = true;
+            const transcriptProjectRoot = managed?.projectId
+                ? this.#sessionStore.requireSessionProjectRoot(managed.projectId)
+                : null;
+            const transcriptProjectSessionDir = transcriptProjectRoot
+                ? sessionDirForRoot(this.#sessionStore.path, transcriptProjectRoot)
+                : "";
+            const transcriptPath = generationSegment?.transcriptPath || managed.transcriptPath;
             const { sessionManager } = await openPersistedRootSession({
                 cwd: generationSegment?.transcriptCwd || hostedSession.cwd,
                 sessionId: generationSegment?.piSessionId || managed.piSessionId,
-                sessionPath: generationSegment?.transcriptPath || managed.transcriptPath,
+                sessionPath: transcriptPath,
+                sessionDir: generationSegment && transcriptProjectSessionDir && isPathInside(
+                        transcriptPath,
+                        transcriptProjectSessionDir,
+                    )
+                    ? transcriptProjectSessionDir
+                    : undefined,
             });
             hostedSession.setRootSessionManager(/** @type {any} */ (sessionManager), capability);
             const pendingModel = pendingIntent.model || pendingIntent.provider

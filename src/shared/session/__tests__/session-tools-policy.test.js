@@ -7,7 +7,12 @@ import { __resetSettingsForTests } from "../../settings.js";
 import { loadAgentDef, resolveSessionToolNames } from "../agents.js";
 import { HostedSession } from "../hosted-session.js";
 import { loadSubAgentDefinition, REVIEWER_SUBAGENT_TOOLS } from "../subagent-definitions.ts";
-import { buildAgentSession, composeClaudeCliBridgedTools, resolveEffectiveSessionToolNames } from "../session.js";
+import {
+    buildAgentSession,
+    buildExecutionSession,
+    composeClaudeCliBridgedTools,
+    resolveEffectiveSessionToolNames,
+} from "../session.js";
 import { createReviewDiffTool } from "../../workflow/review-diff-tool.js";
 import { startMcpToolPool } from "../../mcp/pool.ts";
 
@@ -704,6 +709,170 @@ Deno.test("buildAgentSession applies invocation thinking override before setting
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);
             __resetSettingsForTests();
+            await removeTempDir(tempHome);
+        }
+    });
+});
+
+Deno.test("Validation Repair Engineer thinking falls back through repair, Engineer, then defaults", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-repair-thinking-fallback-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession[]} */
+        const sessions = [];
+        try {
+            Deno.env.set("HOME", tempHome);
+            await writeVisionModelConfig(tempHome);
+            const settingsPath = join(tempHome, ".wld", "settings.json");
+
+            await Deno.writeTextFile(
+                settingsPath,
+                JSON.stringify({
+                    agents: {
+                        engineer: { thinkingLevel: "high" },
+                        [AGENTS.REVIEWER_FEEDBACK_ENGINEER]: { model: "test/text" },
+                    },
+                    defaultThinkingLevel: "low",
+                }),
+            );
+            __resetSettingsForTests();
+            const engineerFallback = await buildAgentSession({
+                cwd: tempHome,
+                agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+                modelOverride: "test/text",
+                subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
+            });
+            sessions.push(engineerFallback.session);
+            assertEquals(engineerFallback.resolvedThinkingLevel, "high");
+
+            await Deno.writeTextFile(
+                settingsPath,
+                JSON.stringify({
+                    agents: {
+                        engineer: { thinkingLevel: "high" },
+                        [AGENTS.REVIEWER_FEEDBACK_ENGINEER]: { thinkingLevel: "minimal" },
+                    },
+                    defaultThinkingLevel: "low",
+                }),
+            );
+            __resetSettingsForTests();
+            const repairSpecific = await buildAgentSession({
+                cwd: tempHome,
+                agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+                modelOverride: "test/text",
+                subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
+            });
+            sessions.push(repairSpecific.session);
+            assertEquals(repairSpecific.resolvedThinkingLevel, "minimal");
+
+            await Deno.writeTextFile(
+                settingsPath,
+                JSON.stringify({
+                    agents: { engineer: { thinkingLevel: "off" } },
+                    defaultThinkingLevel: "low",
+                }),
+            );
+            __resetSettingsForTests();
+            const offFallback = await buildAgentSession({
+                cwd: tempHome,
+                agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+                modelOverride: "test/text",
+                subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
+            });
+            sessions.push(offFallback.session);
+            assertEquals(offFallback.resolvedThinkingLevel, "off");
+
+            await Deno.writeTextFile(
+                settingsPath,
+                JSON.stringify({
+                    defaultThinkingLevel: "low",
+                }),
+            );
+            __resetSettingsForTests();
+            const defaultFallback = await buildAgentSession({
+                cwd: tempHome,
+                agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+                modelOverride: "test/text",
+                subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
+            });
+            sessions.push(defaultFallback.session);
+            assertEquals(defaultFallback.resolvedThinkingLevel, "low");
+
+            await Deno.writeTextFile(
+                settingsPath,
+                JSON.stringify({
+                    activeModelPreset: "repair",
+                    modelPresets: {
+                        repair: {
+                            agents: {
+                                engineer: { thinkingLevel: "medium" },
+                            },
+                        },
+                    },
+                    agents: { engineer: { thinkingLevel: "high" } },
+                    defaultThinkingLevel: "low",
+                }),
+            );
+            __resetSettingsForTests();
+            const presetFallback = await buildAgentSession({
+                cwd: tempHome,
+                agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+                modelOverride: "test/text",
+                subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
+            });
+            sessions.push(presetFallback.session);
+            assertEquals(presetFallback.resolvedThinkingLevel, "medium");
+
+            const invocationOverride = await buildAgentSession({
+                cwd: tempHome,
+                agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+                modelOverride: "test/text",
+                thinkingLevelOverride: "xhigh",
+                subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
+            });
+            sessions.push(invocationOverride.session);
+            assertEquals(invocationOverride.resolvedThinkingLevel, "xhigh");
+        } finally {
+            for (const session of sessions) session.dispose();
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            await removeTempDir(tempHome);
+        }
+    });
+});
+
+Deno.test("Validation Repair Engineer thinking fallback reaches execution session construction", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-repair-thinking-execution-" });
+        try {
+            Deno.env.set("HOME", tempHome);
+            await writeVisionModelConfig(tempHome);
+            await Deno.writeTextFile(
+                join(tempHome, ".wld", "settings.json"),
+                JSON.stringify({
+                    agents: {
+                        engineer: { thinkingLevel: "high" },
+                        [AGENTS.REVIEWER_FEEDBACK_ENGINEER]: { model: "test/text" },
+                    },
+                    defaultThinkingLevel: "low",
+                }),
+            );
+            __resetSettingsForTests();
+
+            const built = await buildExecutionSession({
+                cwd: tempHome,
+                agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+                modelOverride: "test/text",
+                subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
+            });
+            assertEquals(built.resolvedThinkingLevel, "high");
+            built.session.dispose();
+        } finally {
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
             await removeTempDir(tempHome);
         }
     });

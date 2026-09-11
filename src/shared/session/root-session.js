@@ -161,6 +161,7 @@ export async function resolveCreatedRootSessionPath(cwd, sessionManager) {
  * @property {string} cwd
  * @property {string} sessionId
  * @property {string} [sessionPath]
+ * @property {string} [sessionDir]
  */
 
 /**
@@ -379,17 +380,33 @@ export async function resolvePersistedRootSession(options) {
         throw new Error("resolvePersistedRootSession requires a session id");
     }
     const canonicalCwd = canonicalizeCwd(options.cwd);
-    const sessionDir = getRunWieldSessionDir(canonicalCwd);
-    const sessions = await listPersistedRootSessions(options.cwd);
+    const sessionDir = options.sessionDir ? resolve(options.sessionDir) : getRunWieldSessionDir(canonicalCwd);
     const requestedPath = options.sessionPath ? resolve(options.sessionPath) : "";
-    if (requestedPath && !isPathInside(requestedPath, sessionDir)) {
-        throw new Error("Persisted session path is outside the RunWield session directory for cwd");
+    if (requestedPath) {
+        const locator = await readCatalogSafeRootSessionLocator({
+            cwd: options.cwd,
+            sessionDir,
+            sessionPath: requestedPath,
+        });
+        if (locator.piSessionId !== options.sessionId) {
+            throw new Error(`Persisted session not found for cwd: ${options.sessionId}`);
+        }
+        return {
+            cwd: isAbsolute(locator.headerCwd) ? locator.headerCwd : canonicalCwd,
+            sessionDir,
+            sessionId: locator.piSessionId,
+            sessionPath: locator.sessionPath,
+            info: {
+                id: locator.piSessionId,
+                path: locator.sessionPath,
+                cwd: locator.headerCwd,
+                modified: locator.modified || undefined,
+            },
+        };
     }
 
-    const match = sessions.find((session) => {
-        if (requestedPath) return resolve(session.path) === requestedPath && session.id === options.sessionId;
-        return session.id === options.sessionId;
-    });
+    const sessions = await listPersistedRootSessions(options.cwd);
+    const match = sessions.find((session) => session.id === options.sessionId);
     if (!match) throw new Error(`Persisted session not found for cwd: ${options.sessionId}`);
 
     return {

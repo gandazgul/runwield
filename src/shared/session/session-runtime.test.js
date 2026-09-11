@@ -13,6 +13,7 @@ import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { __resetSettingsForTests } from "../settings.js";
 import { SessionHost } from "./session-host.js";
+import { captureTranscriptEvidence } from "./session-transcript-projection.js";
 import { switchActiveAgent } from "./agent-switching.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { RuntimeInteractionTypes } from "./session-runtime-interactions.js";
@@ -589,6 +590,88 @@ Deno.test("SessionRuntime persists a newly managed Pi transcript before catalogi
                 await runtime.closeAllSessionsWhenIdle?.();
             }
         } finally {
+            store.close();
+            Deno.env.set("HOME", previousHome);
+            await removeTempDir(home);
+        }
+    });
+});
+
+Deno.test("SessionRuntime submits follow-up when transcript storage root differs from worktree cwd", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = getHomeDir();
+        const home = await Deno.makeTempDir({ prefix: "runwield-runtime-worktree-header-" });
+        Deno.env.set("HOME", home);
+        const projectRoot = `${home}/project`;
+        const worktreeRoot = `${home}/worktree`;
+        await Deno.mkdir(projectRoot, { recursive: true });
+        await Deno.mkdir(worktreeRoot, { recursive: true });
+        const store = openFileSessionStore();
+        let manager;
+        try {
+            ensureRuntimeModelFixture();
+            const project = store.ensureRuntimeProject({ root: projectRoot });
+            const projectSessionDir = getRunWieldSessionDir(projectRoot);
+            manager = SessionManager.create(worktreeRoot, projectSessionDir, { id: "worktree-follow-up" });
+            manager.appendMessage({
+                role: "user",
+                timestamp: Date.now(),
+                content: [{ type: "text", text: "Initial repair blocker context" }],
+            });
+            const transcriptPath = manager.getSessionFile?.();
+            if (!transcriptPath) throw new Error("Expected a persisted transcript path");
+            const writableManager = /** @type {any} */ (manager);
+            if (typeof writableManager._rewriteFile === "function") writableManager._rewriteFile();
+
+            const acquired = await store.ensureSessionCatalogRecordAndAcquire({
+                locator: {
+                    projectId: project.projectId,
+                    piSessionId: "worktree-follow-up",
+                    transcriptPath,
+                    transcriptCwd: worktreeRoot,
+                    source: "created",
+                },
+                activation: {
+                    ownerInstanceId: "runtime-test-owner",
+                    ownerProcessKind: "test",
+                    operationId: "fixture-create",
+                },
+            });
+            const evidence = await captureTranscriptEvidence({
+                transcriptPath,
+                transcriptCwd: worktreeRoot,
+            });
+            const hydratedProof = store.changeSessionActivationPhase(acquired.proof, "hydrated");
+            const checkpointProof = store.changeSessionActivationPhase(hydratedProof, "checkpointing");
+            store.publishGenerationAndRelease(checkpointProof, { ...evidence, generation: 0 });
+            const runtime = createSessionRuntime({
+                sessionStore: store,
+                ownerProcessKind: "test",
+                ownerInstanceId: "runtime-test-owner",
+            });
+            let promptText = "";
+            setRuntimeModelResponseFactories([(context) => {
+                promptText = JSON.stringify(context);
+                return fauxAssistantMessage(fauxText("Follow-up reached the repair Agent."));
+            }]);
+            try {
+                const adopted = runtime.adoptManagedSession({
+                    session: acquired.session,
+                    generation: 0,
+                    activeAgent: "reviewer-feedback-engineer",
+                });
+                const result = await runtime.promptUserTurn(adopted.sessionId, {
+                    initialRequest: "Summarize remaining repair work.",
+                });
+                assertEquals(result.ok, true);
+                assertStringIncludes(promptText, "Summarize remaining repair work.");
+                assertEquals(runtime.getSessionSnapshot(adopted.sessionId)?.cwd, worktreeRoot);
+                assertEquals(runtime.getSessionSnapshot(adopted.sessionId)?.managed?.generation, 1);
+            } finally {
+                await runtime.closeAllSessionsWhenIdle?.();
+            }
+        } finally {
+            await Promise.resolve((/** @type {any} */ (manager))?.dispose?.());
             store.close();
             Deno.env.set("HOME", previousHome);
             await removeTempDir(home);

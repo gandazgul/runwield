@@ -317,8 +317,9 @@ Model resolution for an agent invocation:
 2. Invocation-specific model, such as a prompt-template `model` frontmatter value.
 3. Active preset `modelPresets.<activeModelPreset>.agents.<agent>.model`.
 4. Base `agents.<agent>.model`.
-5. `defaultProvider` plus `defaultModel`.
-6. Layered agent definition frontmatter `model` (`./.wld` > `~/.wld` > bundled).
+5. For non-Engineer Agents with no earlier model, Engineer's configured model.
+6. `defaultProvider` plus `defaultModel`.
+7. Layered agent definition frontmatter `model` (`./.wld` > `~/.wld` > bundled).
 
 If none of these resolve to a registered, authenticated model, RunWield reports an error instead of falling through to
 the underlying agent library's built-in fallback.
@@ -327,8 +328,9 @@ Thinking level resolution:
 
 1. Active preset `modelPresets.<activeModelPreset>.agents.<agent>.thinkingLevel`.
 2. Base `agents.<agent>.thinkingLevel`.
-3. `defaultThinkingLevel`.
-4. Layered agent definition frontmatter `thinkingLevel` (`./.wld` > `~/.wld` > bundled).
+3. For Validation Repair Engineer with no earlier thinking level, Engineer's configured thinking level.
+4. `defaultThinkingLevel`.
+5. Layered agent definition frontmatter `thinkingLevel` (`./.wld` > `~/.wld` > bundled).
 
 Temperature resolution:
 
