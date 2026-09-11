@@ -22,7 +22,7 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-10"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "epic/consolidate-project-runtime-state"
