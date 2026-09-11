@@ -1,13 +1,18 @@
 import { assertEquals } from "@std/assert";
+import { fromFileUrl } from "@std/path";
 import {
+    discoverSkillsInContainers,
     findProjectSpecificLeaks,
     findSkillSyncDrift,
+    findUnpublishedSkills,
     formatDrift,
+    isInternalSkill,
     readCurrentPairs,
     type SkillSyncBaseline,
 } from "./check-skill-sync.ts";
 
 const BASELINE_PATH = new URL("./skill-sync-baseline.json", import.meta.url);
+const REPO_ROOT = fromFileUrl(new URL("../", import.meta.url)).replace(/\/$/, "");
 
 function pair(sourceHash: string, skillHash: string) {
     return { source: "src/agent-definitions/ideator.md", skill: "skills/ideator/SKILL.md", sourceHash, skillHash };
@@ -71,6 +76,46 @@ Deno.test("an Agent Definition is full of the vocabulary a skill must shed", asy
     assertEquals(terms.has("/agent planner"), true);
     assertEquals(terms.has("user_interview"), true);
     assertEquals(terms.has("{{BUNDLED_AGENT_DEFS_DIR}}"), true);
+    assertEquals(terms.has("`memory`"), true);
+});
+
+Deno.test("a skill is internal only when its metadata says so", () => {
+    const frontmatter = (body: string) => `---\nname: x\ndescription: y\n${body}---\n\n# x\n`;
+
+    assertEquals(isInternalSkill(frontmatter("metadata:\n  internal: true\n")), true);
+    assertEquals(isInternalSkill(frontmatter("")), false);
+    assertEquals(isInternalSkill(frontmatter("metadata:\n  internal: false\n")), false);
+    assertEquals(isInternalSkill("# no front matter at all\n"), false);
+});
+
+Deno.test("a skill nobody meant to publish is reported, and an internal one is not", () => {
+    const discovered = [
+        { path: "skills/ideator/SKILL.md", internal: false },
+        { path: ".agents/skills/borrowed/SKILL.md", internal: false },
+        { path: ".agents/skills/ours-only/SKILL.md", internal: true },
+    ];
+
+    assertEquals(findUnpublishedSkills(discovered, ["skills/ideator/SKILL.md"]), [
+        ".agents/skills/borrowed/SKILL.md",
+    ]);
+});
+
+Deno.test("installing from this repository offers exactly the skills the baseline publishes", async () => {
+    const baseline: SkillSyncBaseline = JSON.parse(await Deno.readTextFile(BASELINE_PATH));
+    const discovered = await discoverSkillsInContainers(REPO_ROOT);
+
+    assertEquals(
+        discovered.filter((skill) => !skill.internal).map((skill) => skill.path).sort(),
+        baseline.pairs.map((entry) => entry.skill).sort(),
+    );
+});
+
+Deno.test("the skills vendored for our own use stay out of an install", async () => {
+    const discovered = await discoverSkillsInContainers(REPO_ROOT);
+    const vendored = discovered.filter((skill) => skill.path.startsWith(".agents/skills/"));
+
+    assertEquals(vendored.length > 0, true);
+    assertEquals(vendored.every((skill) => skill.internal), true);
 });
 
 Deno.test("the committed skills carry none of it", async () => {
