@@ -40,6 +40,7 @@ import {
 import { recordWorkflowMetric } from "./metrics.js";
 
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.ts";
+import { createPlanDeviationTool } from "../../tools/plan-deviation.ts";
 import { autoGenerateWorkRecordForCompletedPlan } from "../work-records/auto-generation.js";
 import type { WorkRecordMnemotecaPort } from "../work-records/mnemoteca-port.ts";
 import {
@@ -383,7 +384,7 @@ async function runCompletionGatedRepair({
 }: RunCompletionGatedRepairOptions): Promise<boolean> {
     const workflow = hostedSession.getActiveExecutionWorkflow?.();
     const customTools = workflow?.collaborationStyle === "pair"
-        ? [createPairCheckpointTool({ hostedSession })]
+        ? [createPairCheckpointTool({ hostedSession }), createPlanDeviationTool({ hostedSession })]
         : undefined;
     const { event } = await runValidationAgentUntilEvent({ runIsolatedAgentSession: runActiveAgentTurn }, {
         hostedSession,

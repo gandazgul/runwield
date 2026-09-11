@@ -6,18 +6,18 @@ Lifecycle, close Review Issues, move a target branch, or authorize cleanup.
 
 ## Authority matrix
 
-| Fact                                                         | Durable owner                                                                                                                          | Read/resume rule                                                                                                          |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Plan definition and lifecycle status                         | Primary Plan before execution; execution-worktree Plan after activation                                                                | Locate the live attempt in the registry and read that document. Never compare its runtime metadata with another copy.     |
-| Human planning policy and history                            | Plan document: identity, classification, execution policy, actual `targetBranch`, relationships, holds, archive and verification notes | Preserve the body and human fields. Derive summaries from Context.                                                        |
-| Validation attempt, next phase, counters, and repair receipt | `.wld/controller/plans/<planId>.json`                                                                                                  | Reload the controller record and claim with its revision; a Plan revision is not a checkpoint revision.                   |
-| Review Issues and semantic repair generation                 | Controller `validationCheckpoint.reviewState` and repair fields                                                                        | Resume the same ledger and consume the matching repair completion once.                                                   |
-| Human code-review decision                                   | Controller human-review fields                                                                                                         | Reload the decision; a closed browser is not approval.                                                                    |
-| Worktree identity, path, branch, target and baseline         | `.wld/worktrees.json` and Git                                                                                                          | The registry is the owner, not a value to compare against Plan YAML. Verify actual Git facts before a destructive action. |
-| Mechanical repair result                                     | Structured isolated Agent result                                                                                                       | Rerun CI after completion; after process loss rerun checks, never replay an Agent turn.                                   |
-| Publication phase and target movement                        | Registry publication record and local/remote Git refs                                                                                  | Reconcile idempotent effects from Git; retain the attempt until publication and cleanup are proven.                       |
-| Delivery evidence and workflow timestamps                    | Controller record; implementation and delivery commits in Git                                                                          | Never require runtime proof to be copied back into Plan Front Matter.                                                     |
-| Interrupted lifecycle transition                             | Controller/Plan transition journal                                                                                                     | Restore only writes owned by the transition. Include controller state when proving rollback or restart safety.            |
+| Fact                                                         | Durable owner                                                                                                                                           | Read/resume rule                                                                                                          |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Plan definition and lifecycle status                         | Primary Plan before execution; execution-worktree Plan after activation                                                                                 | Locate the live attempt in the registry and read that document. Never compare its runtime metadata with another copy.     |
+| Human planning policy and history                            | Plan document: identity, classification, execution policy, actual `targetBranch`, relationships, holds, Plan Deviations, archive and verification notes | Preserve the body and human fields. Derive summaries from Context.                                                        |
+| Validation attempt, next phase, counters, and repair receipt | `.wld/controller/plans/<planId>.json`                                                                                                                   | Reload the controller record and claim with its revision; a Plan revision is not a checkpoint revision.                   |
+| Review Issues and semantic repair generation                 | Controller `validationCheckpoint.reviewState` and repair fields                                                                                         | Resume the same ledger and consume the matching repair completion once.                                                   |
+| Human code-review decision                                   | Controller human-review fields                                                                                                                          | Reload the decision; a closed browser is not approval.                                                                    |
+| Worktree identity, path, branch, target and baseline         | `.wld/worktrees.json` and Git                                                                                                                           | The registry is the owner, not a value to compare against Plan YAML. Verify actual Git facts before a destructive action. |
+| Mechanical repair result                                     | Structured isolated Agent result                                                                                                                        | Rerun CI after completion; after process loss rerun checks, never replay an Agent turn.                                   |
+| Publication phase and target movement                        | Registry publication record and local/remote Git refs                                                                                                   | Reconcile idempotent effects from Git; retain the attempt until publication and cleanup are proven.                       |
+| Delivery evidence and workflow timestamps                    | Controller record; implementation and delivery commits in Git                                                                                           | Never require runtime proof to be copied back into Plan Front Matter.                                                     |
+| Interrupted lifecycle transition                             | Controller/Plan transition journal                                                                                                                      | Restore only writes owned by the transition. Include controller state when proving rollback or restart safety.            |
 
 ## Typed inputs
 
@@ -27,9 +27,16 @@ The workflow distinguishes these inputs before choosing a lifecycle event:
 - accepted `review_complete` calls contain approval, stable Review Issues, and non-blocking advisories;
 - repair completion contains a consume-once repair generation and an untrusted per-item report;
 - publication returns committed, rolled back, blocked, or needs recovery, retaining the typed cause;
-- user decisions are explicit interaction outcomes, including stop and cancel.
+- user decisions are explicit interaction outcomes, including stop, cancel, and confirmed Plan Deviations.
 
 Error text is for people and diagnostics. It is not a lifecycle discriminator.
+
+A confirmed Plan Deviation is a Plan-definition write, not a validation checkpoint or Plan Amendment gate. It is valid
+only after the dedicated confirmation interaction writes `planDeviations` to the authoritative execution Plan with a
+fresh Plan revision. If execution stops before that write, there is no durable approval and the user must confirm again.
+If execution stops after that write, retrying the same tool call recovers the saved entry by tool-call identity and does
+not replay transcript approval. Semantic Review reloads that Plan and treats the replacement as higher priority than
+conflicting original text. Work Record generation renders the saved entries deterministically.
 
 Every Agent-owned workflow step ends through its accepted completion tool. The validation owner registers its listener
 before dispatch, accepts only events from that invocation, then stops the producer before starting the next phase.

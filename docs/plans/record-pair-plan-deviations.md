@@ -1,4 +1,5 @@
 ---
+planId: "6fab52da-b258-4a81-a36b-6695ce226c60"
 classification: "PLANNED_CHANGE"
 workKind: "BUG_FIX"
 complexity: "HIGH"
@@ -21,14 +22,13 @@ affectedPaths:
     - "docs/validation-authority.md"
     - "docs/plan-workflow-map.md"
     - "src/skills/runwield/PLANS.md"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: "2026-09-07T23:52:50-04:00"
-status: "draft"
-planId: "6fab52da-b258-4a81-a36b-6695ce226c60"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
+createdAt: "2026-09-07T23:52:50-04:00"
+status: "validated"
+origin: "internal"
+userVerifiedAt: null
+targetBranch: "epic/consolidate-project-runtime-state"
 ---
 
 # Record Pair Plan Deviations

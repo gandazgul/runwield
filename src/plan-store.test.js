@@ -159,6 +159,7 @@ Deno.test("front matter key constants expose canonical planning metadata order",
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.map(String).includes("objectiveChecksBaseline"), false);
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.map(String).includes("objectiveCheckWaivers"), false);
     assertEquals(PLAN_FRONT_MATTER_KEYS.supersedes, "supersedes");
+    assertEquals(PLAN_FRONT_MATTER_KEYS.planDeviations, "planDeviations");
     assertEquals(
         PLAN_FRONT_MATTER_KEY_ORDER.indexOf(PLAN_FRONT_MATTER_KEYS.tickets) <
             PLAN_FRONT_MATTER_KEY_ORDER.indexOf(PLAN_FRONT_MATTER_KEYS.supersedes),
@@ -166,6 +167,11 @@ Deno.test("front matter key constants expose canonical planning metadata order",
     );
     assertEquals(
         PLAN_FRONT_MATTER_KEY_ORDER.indexOf(PLAN_FRONT_MATTER_KEYS.supersedes) <
+            PLAN_FRONT_MATTER_KEY_ORDER.indexOf(PLAN_FRONT_MATTER_KEYS.planDeviations),
+        true,
+    );
+    assertEquals(
+        PLAN_FRONT_MATTER_KEY_ORDER.indexOf(PLAN_FRONT_MATTER_KEYS.planDeviations) <
             PLAN_FRONT_MATTER_KEY_ORDER.indexOf(PLAN_FRONT_MATTER_KEYS.executionAgent),
         true,
     );
@@ -194,6 +200,66 @@ Deno.test("injectFrontMatter keeps markdown formatted after front matter updates
     assertStringIncludes(firstWrite, "---\n\n# Plan");
     assertStringIncludes(secondWrite, "---\n\n# Plan");
     assertEquals(parsePlanFrontMatter(emptyWrite).body, "");
+});
+
+Deno.test("Plan Deviation metadata round trips as Plan-owned definition", () => {
+    const markdown = injectFrontMatter("# Plan\n\nBody", {
+        status: "in_progress",
+        planDeviations: [
+            {
+                id: "call-1",
+                supersededRequirement: "Replace nav.",
+                replacementRequirement: "Keep current nav.",
+                reason: "User decided during Pair Execution.",
+                approvedAt: "2026-09-10T00:00:00.000Z",
+            },
+            {
+                id: "call-2",
+                supersededRequirement: "Use blue.",
+                replacementRequirement: "Use green.",
+                approvedAt: "2026-09-10T00:01:00.000Z",
+            },
+        ],
+    });
+
+    const { attrs } = parsePlanFrontMatter(markdown);
+
+    assertEquals(attrs.status, "in_progress");
+    assertEquals(attrs.planDeviations, [
+        {
+            id: "call-1",
+            supersededRequirement: "Replace nav.",
+            replacementRequirement: "Keep current nav.",
+            reason: "User decided during Pair Execution.",
+            approvedAt: "2026-09-10T00:00:00.000Z",
+        },
+        {
+            id: "call-2",
+            supersededRequirement: "Use blue.",
+            replacementRequirement: "Use green.",
+            approvedAt: "2026-09-10T00:01:00.000Z",
+        },
+    ]);
+    assertStringIncludes(markdown, "planDeviations:\n  - id:");
+    assertStringIncludes(markdown, "replacementRequirement:");
+});
+
+Deno.test("malformed Plan Deviation metadata blocks Plan parsing", () => {
+    assertThrows(
+        () =>
+            parsePlanFrontMatter(`---
+classification: PLANNED_CHANGE
+planDeviations:
+  - id: call-1
+    supersededRequirement: "Old requirement."
+    replacementRequirement: " "
+    approvedAt: "2026-09-10T00:00:00.000Z"
+---
+# Plan
+`),
+        Error,
+        "replacementRequirement",
+    );
 });
 
 Deno.test("Plan Work Record metadata round trips with nested YAML", () => {
