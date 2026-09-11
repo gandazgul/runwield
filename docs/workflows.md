@@ -170,8 +170,9 @@ and does not silently adopt Plan body or definition edits from the execution wor
 In Pair Execution, a Plan Engineer or Frontend Engineer can record a narrow **Plan Deviation** when the user explicitly
 replaces an effective requirement. RunWield shows the superseded requirement, replacement, and optional reason; only a
 confirmed interaction appends the entry to the authoritative execution Plan. Canceled, stale, unsupported, or inferred
-feedback writes nothing. Semantic Review uses confirmed replacements over conflicting original text, and Work Records
-list them under `## Deviations from Plan`.
+feedback writes nothing. If the session is lost before the write, the user must confirm again. If it is lost after the
+write, RunWield recovers that one entry by tool-call identity and does not replay transcript approval. Semantic Review
+uses confirmed replacements over conflicting original text, and Work Records list them under `## Deviations from Plan`.
 
 CI repairs run in independent Reviewer-Feedback Engineer sessions. A live repair `task_completed` result returns only to
 the validation invocation that dispatched it. It is not written to the root Task Completion journal. The validation

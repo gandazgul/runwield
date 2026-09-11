@@ -190,9 +190,9 @@ export function createPlanDeviationTool({ hostedSession }: PlanDeviationToolOpti
             }
 
             const latestWorkflow = hostedSession.getActiveExecutionWorkflow?.();
-            if (!sameExecutionIdentity(workflow, latestWorkflow)) {
+            if (!isActivePairWorkflow(latestWorkflow) || !sameExecutionIdentity(workflow, latestWorkflow)) {
                 return deviationResult(
-                    "The active execution context changed before the Plan Deviation could be saved. Ask for confirmation again against the current Plan.",
+                    "The active Pair execution context changed before the Plan Deviation could be saved. Ask for confirmation again against the current Plan.",
                     { decision: "stale", reason: "execution_context_changed" },
                 );
             }

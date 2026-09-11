@@ -167,9 +167,9 @@ E2. Agent implements
 │  └─ U stop/cancel → in_progress pause; no completion
 ├─ T record_plan_deviation (Pair only, when feedback conflicts with the effective Plan)
 │  ├─ U confirm + unchanged Plan revision → append ordered `planDeviations` entry to execution Plan
-│  │  → replacement becomes effective Plan authority
+│  │  → replacement becomes effective Plan authority; restart after write recovers by tool-call identity
 │  ├─ U cancel → original Plan requirement remains authority
-│  ├─ stale Plan revision / changed execution identity → no write; ask again against current Plan
+│  ├─ loss before write / stale Plan revision / changed execution identity → no write; ask again against current Plan
 │  └─ unsupported confirmation host → pause; no inferred approval
 ├─ ordinary final text / error / interruption without accepted task_completed
 │  → unfinished; remain in_progress, later owner follow-up or R

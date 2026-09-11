@@ -510,13 +510,14 @@ function buildRecorderPrompt(source, successorRecordId, settledSupersedes) {
                 userVerifiedAt: source.attrs.userVerifiedAt,
                 executionReport: source.executionReport,
                 attrs: source.attrs,
-                planDeviations: source.planDeviations || readPlanDeviations(source.attrs.planDeviations),
+                planDeviations: aggregatePlanDeviations(source),
                 body: source.body,
                 children: (source.children || []).map((child) => ({
                     name: child.name,
                     path: child.relativePath,
                     status: child.attrs.status,
                     summary: child.attrs.summary,
+                    planDeviations: child.planDeviations || readPlanDeviations(child.attrs.planDeviations),
                 })),
             },
         },
@@ -637,6 +638,18 @@ export function aggregateWorkRecordTickets(source) {
     return dedupeTicketReferencesByUrl(source.attrs.tickets);
 }
 
+/** @param {WorkRecordSource} source */
+function aggregatePlanDeviations(source) {
+    const own = source.planDeviations || readPlanDeviations(source.attrs.planDeviations);
+    if (source.scope !== "epic") return own;
+    return [
+        ...own,
+        ...(source.children || [])
+            .sort(compareChildPlansByOrder)
+            .flatMap((child) => child.planDeviations || readPlanDeviations(child.attrs.planDeviations)),
+    ];
+}
+
 /**
  * Plans may require durable, deterministic statements in their Work Record.
  * The recorder can improve prose around them, but it cannot omit this section.
@@ -670,9 +683,7 @@ function buildBody(source, sections) {
         normalized.summary,
     ];
     sections = normalized;
-    const confirmedDeviationText = renderPlanDeviationsForWorkRecord(
-        source.planDeviations || source.attrs.planDeviations,
-    );
+    const confirmedDeviationText = renderPlanDeviationsForWorkRecord(aggregatePlanDeviations(source));
     const deviationText = mergeRecorderDeviationText(
         confirmedDeviationText,
         nonEmptyString(sections.deviationsFromPlan),

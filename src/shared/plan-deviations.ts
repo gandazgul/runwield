@@ -122,6 +122,12 @@ export function renderPlanDeviationsForWorkRecord(value: PlanDeviationInput[] | 
     }).join("\n");
 }
 
+function renderedDeviationEntries(text: string): string[] {
+    return text.match(/(?:^|\n)\d+\. Superseded requirement:[\s\S]*?(?=\n\d+\. Superseded requirement:|$)/g)
+        ?.map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0) || [];
+}
+
 export function mergeRecorderDeviationText(
     confirmedDeviationText: string,
     recorderDeviationText: string | undefined,
@@ -132,5 +138,10 @@ export function mergeRecorderDeviationText(
     if (recorderText === confirmedDeviationText || confirmedDeviationText.includes(recorderText)) {
         return confirmedDeviationText;
     }
-    return `${confirmedDeviationText}\n\nAdditional Recorder notes:\n\n${recorderText}`;
+    let remainingRecorderText = recorderText.replace(confirmedDeviationText, "").trim();
+    for (const entry of renderedDeviationEntries(confirmedDeviationText)) {
+        remainingRecorderText = remainingRecorderText.split(entry).join("").trim();
+    }
+    if (!remainingRecorderText) return confirmedDeviationText;
+    return `${confirmedDeviationText}\n\nAdditional Recorder notes:\n\n${remainingRecorderText}`;
 }

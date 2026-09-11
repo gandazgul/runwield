@@ -533,6 +533,61 @@ Deno.test("Work Record generation always includes confirmed Plan Deviations", as
     }
 });
 
+Deno.test("Work Record generation includes confirmed child Plan Deviations in Epic records", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic", "# Epic\n\n## Plan\n\nParent body.", {
+            planId: "plan-epic-deviated",
+            classification: "PROJECT",
+            complexity: "MEDIUM",
+            summary: "Epic with child deviation.",
+            affectedPaths: [],
+            createdAt: "2026-07-14T00:00:00.000Z",
+            status: "verified",
+            epicCompletionMode: "done_enough",
+        });
+        await savePlan(cwd, "epic/01-child", "# Child\n\n## Plan\n\nReplace nav.", {
+            planId: "plan-child-deviated",
+            classification: "FEATURE",
+            complexity: "LOW",
+            summary: "Child feature.",
+            affectedPaths: [],
+            createdAt: "2026-07-14T00:00:00.000Z",
+            status: "verified",
+            parentPlan: "epic",
+            order: 1,
+            planDeviations: [{
+                id: "call-child",
+                supersededRequirement: "Replace child nav.",
+                replacementRequirement: "Keep child nav.",
+                approvedAt: "2026-09-10T00:00:00.000Z",
+            }],
+        });
+        const source = (await previewWorkRecordBackfill(cwd)).eligible.find((candidate) => candidate.name === "epic");
+        if (!source) throw new Error("Expected Epic source.");
+
+        const outcome = await generateWorkRecordForSource(cwd, source, {
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
+            idGenerator: () => "46464646-4646-4646-8646-464646464646",
+            now: () => new Date("2026-07-16T00:00:00.000Z"),
+            runRecorderStep: recorderResponse({ title: "Epic Outcome", summary: "Completed the Epic." }),
+        });
+
+        assertEquals(outcome.status, "generated");
+        const record = await findWorkRecordById(cwd, "46464646-4646-4646-8646-464646464646");
+        assertStringIncludes(
+            record?.sections["Deviations from Plan"] || "",
+            "Superseded requirement: Replace child nav.",
+        );
+        assertStringIncludes(
+            record?.sections["Deviations from Plan"] || "",
+            "Replacement requirement: Keep child nav.",
+        );
+    } finally {
+        await cleanupTempProject(cwd);
+    }
+});
+
 Deno.test("Work Record generation rejects missing and self Recorder proposals before successor write", async () => {
     const cases = [
         {
