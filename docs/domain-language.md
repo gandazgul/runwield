@@ -125,8 +125,9 @@ the selected or primary checkout matters
 
 **Primary-Checkout Runtime State**: Project Runtime State shared through the primary checkout. It includes controller
 Plan records, the worktree registry and its lock, registry migration reports, publication staging, the project
-collaboration secret store, and the no-home fallback worktrees root. _Avoid_: global runtime state, selected-checkout
-locks
+collaboration secret store at `.wld/internal/collaboration-secrets.json`, and the no-home fallback worktrees root. The
+home-directory collaboration secret store stays under `~/.wld/` and is not Project Runtime State. _Avoid_: global
+runtime state, selected-checkout locks
 
 **Selected-Checkout Runtime State**: Project Runtime State owned by the selected checkout. It includes Plan locks, the
 Plan catalog lock, transition journals, and Work Record supersession locks. _Avoid_: primary runtime state, shared

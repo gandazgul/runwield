@@ -12,6 +12,9 @@ export const CLI_BIN = "wld";
 /** Fallback source-run invocation used in contributor docs and local dev. */
 export const DEV_CLI_RUN = "deno run -A --unstable-no-legacy-abort src/cli.ts";
 
+/** Legacy project-local collaboration secret path, retained for migration and Git hazard checks. */
+export const PROJECT_SECRET_STORE_RELATIVE_PATH = ".wld/collaboration-secrets.json";
+
 /**
  * Primary project root used for RunWield metadata, settings, and command state.
  *
