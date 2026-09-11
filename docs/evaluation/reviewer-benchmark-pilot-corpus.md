@@ -87,7 +87,9 @@ so the Reviewer must assess whether the test proves real behavior.
 The cases are synthetic reductions, not copies of private or historical source. Their behavior is informed by existing
 RunWield rules and regressions, including:
 
-- Plan body and lifecycle ownership in [RunWield product rules](../product-rules.md);
+- Plan body ownership in
+  [Core Plan authoring and external adoption](../prd/runwield-core-prd.md#plan-authoring-and-external-adoption) and the
+  [Plan lifecycle reference](../plan-lifecycle.md#plan-body-ownership-and-external-adoption);
 - validation completion and recovery in [Validation authority](../validation-authority.md);
 - worktree isolation in
   [Concurrent worktrees execution isolation](../plans/archived/concurrent-worktrees-execution-isolation.md);

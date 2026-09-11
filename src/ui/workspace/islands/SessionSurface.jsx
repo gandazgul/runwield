@@ -21,6 +21,7 @@ import {
 import { createSessionTabNotificationController } from "../browser/session-tab-notifications.ts";
 import { WorkspaceHeaderActionsPortal } from "../react/WorkspaceHeaderActionsPortal.tsx";
 import { loadSessionDrafts, readSessionDraft, saveSessionDraft } from "../browser/session-drafts.ts";
+import { sessionAgentSelection, sessionCommandSuggestions, sessionModelLabel } from "../browser/session-commands.ts";
 
 export const SESSION_PAGE_SIZE = 30;
 const TIMELINE_PAGE_LIMIT = 200;
@@ -354,7 +355,7 @@ function SessionBusyPanel() {
     );
 }
 
-function SessionComposer({
+export function SessionComposer({
     id,
     draft,
     disabled,
@@ -384,9 +385,39 @@ function SessionComposer({
     modelFallback = null,
     thinkingFallback = null,
     queuedMessages = [],
+    commands = [],
+    onCommand = undefined,
 }) {
     const textareaRef = useRef(null);
     const fileInputRef = useRef(null);
+    const [commandIndex, setCommandIndex] = useState(0);
+    const [dismissedCommandDraft, setDismissedCommandDraft] = useState(null);
+    const commandSuggestions = dismissedCommandDraft === draft ? [] : sessionCommandSuggestions(draft, {
+        commands,
+        agents,
+        models,
+    });
+    const selectedCommandIndex = Math.min(commandIndex, Math.max(0, commandSuggestions.length - 1));
+    const commandListId = `${id}-commands`;
+    useEffect(() => setCommandIndex(0), [draft]);
+    useEffect(() => {
+        document.getElementById(`${commandListId}-${selectedCommandIndex}`)?.scrollIntoView({ block: "nearest" });
+    }, [commandListId, selectedCommandIndex, draft]);
+    async function pickCommand(suggestion) {
+        if (suggestion.kind === "command") {
+            onDraftChange(suggestion.value);
+        } else {
+            if (controlsDisabled) return;
+            const apply = suggestion.kind === "agent" ? onAgentChange : onModelChange;
+            const applied = await apply(suggestion.value);
+            if (applied !== false) onDraftChange("");
+        }
+        textareaRef.current?.focus();
+    }
+    function submitComposer() {
+        if (draft.startsWith("/") && onCommand?.(draft) === true) return;
+        onSubmit();
+    }
     useEffect(() => resizeComposerTextArea(textareaRef.current), [draft]);
     return (
         <form
@@ -401,9 +432,30 @@ function SessionComposer({
             }}
             onSubmit={(event) => {
                 event.preventDefault();
-                onSubmit();
+                submitComposer();
             }}
         >
+            {commandSuggestions.length > 0 && (
+                <div className="rw-command-menu" id={commandListId} role="listbox" aria-label="Commands">
+                    {commandSuggestions.map((suggestion, index) => (
+                        <button
+                            key={suggestion.key}
+                            id={`${commandListId}-${index}`}
+                            type="button"
+                            role="option"
+                            aria-selected={index === selectedCommandIndex}
+                            disabled={controlsDisabled && suggestion.kind !== "command"}
+                            tabIndex={-1}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() =>
+                                pickCommand(suggestion)}
+                        >
+                            <strong>{suggestion.label}</strong>
+                            <span>{suggestion.description}</span>
+                        </button>
+                    ))}
+                </div>
+            )}
             {queuedMessages.length
                 ? (
                     <ol className="session-composer-queue" aria-label="Queued messages">
@@ -435,19 +487,48 @@ function SessionComposer({
                 value={draft}
                 rows={2}
                 disabled={disabled}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={commandSuggestions.length > 0}
+                aria-controls={commandSuggestions.length ? commandListId : undefined}
+                aria-activedescendant={commandSuggestions.length
+                    ? `${commandListId}-${selectedCommandIndex}`
+                    : undefined}
                 onPaste={onPaste}
                 onChange={(event) => {
+                    setDismissedCommandDraft(null);
                     onDraftChange(event.currentTarget.value);
                     resizeComposerTextArea(event.currentTarget);
                 }}
                 onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing) return;
+                    if (commandSuggestions.length) {
+                        if (event.key === "Escape") {
+                            event.preventDefault();
+                            setDismissedCommandDraft(draft);
+                            return;
+                        }
+                        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                            event.preventDefault();
+                            setCommandIndex(
+                                (selectedCommandIndex + (event.key === "ArrowDown" ? 1 : -1) +
+                                    commandSuggestions.length) % commandSuggestions.length,
+                            );
+                            return;
+                        }
+                        if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
+                            event.preventDefault();
+                            void pickCommand(commandSuggestions[selectedCommandIndex]);
+                            return;
+                        }
+                    }
                     if (event.key === "Escape" && onStop) {
                         event.preventDefault();
                         onStop();
                     }
                     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                         event.preventDefault();
-                        if (canSend && !submitting) onSubmit();
+                        if (canSend && !submitting) submitComposer();
                     }
                 }}
                 placeholder="Ask RunWield..."
@@ -480,14 +561,27 @@ function SessionComposer({
                 />
                 <button
                     type="button"
-                    className="rw-toolbar-button"
+                    className="rw-toolbar-button session-composer-icon-button session-attach-button"
+                    aria-label="Attach image"
+                    title="Attach image"
                     disabled={disabled}
                     onClick={() => fileInputRef.current?.click()}
                 >
-                    Attach image
+                    <svg
+                        className="rw-session-toolbar-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        aria-hidden="true"
+                    >
+                        <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+                    </svg>
                 </button>
                 <select
                     aria-label="Agent"
+                    className="rw-toolbar-select"
+                    title={`Agent: ${agents.find((agent) => agent.name === agentValue)?.displayName || agentValue}`}
                     value={agentValue}
                     disabled={controlsDisabled || !agents.length}
                     onChange={(event) => onAgentChange(event.currentTarget.value)}
@@ -499,6 +593,8 @@ function SessionComposer({
                 </select>
                 <select
                     aria-label="Model"
+                    className="rw-toolbar-select session-model-select"
+                    title={`Provider/model: ${modelValue?.replace("\u001f", "/") || "Project default"}`}
                     value={modelValue}
                     disabled={controlsDisabled || !models.length}
                     onChange={(event) => onModelChange(event.currentTarget.value)}
@@ -506,12 +602,14 @@ function SessionComposer({
                     {modelFallback}
                     {models.map((model) => (
                         <option key={`${model.provider}/${model.id}`} value={`${model.provider}\u001f${model.id}`}>
-                            {model.name || model.id}
+                            {sessionModelLabel(model)}
                         </option>
                     ))}
                 </select>
                 <select
                     aria-label="Thinking"
+                    className="rw-toolbar-select"
+                    title={`Thinking: ${thinkingValue}`}
                     value={thinkingValue}
                     disabled={controlsDisabled || !thinkingLevels.length}
                     onChange={(event) => onThinkingChange(event.currentTarget.value)}
@@ -519,31 +617,57 @@ function SessionComposer({
                     {thinkingFallback}
                     {thinkingLevels.map((level) => <option key={level} value={level}>{level}</option>)}
                 </select>
-                {onStop ? <button type="button" className="rw-toolbar-button" onClick={onStop}>Stop</button> : null}
+                {onStop
+                    ? (
+                        <button
+                            type="button"
+                            className="rw-toolbar-button session-composer-icon-button"
+                            onClick={onStop}
+                            aria-label="Stop"
+                            title="Stop"
+                        >
+                            <svg
+                                className="rw-session-toolbar-icon"
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                                aria-hidden="true"
+                            >
+                                <rect x="6" y="6" width="12" height="12" rx="2" />
+                            </svg>
+                        </button>
+                    )
+                    : null}
                 {onQueue
                     ? (
                         <button
                             type="button"
-                            className="rw-toolbar-button"
+                            className="rw-toolbar-button session-composer-icon-button"
+                            aria-label="Queue"
+                            title="Queue follow-up"
                             disabled={!canSend || submitting}
                             onClick={onQueue}
                         >
-                            Queue
+                            <svg
+                                className="rw-session-toolbar-icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                aria-hidden="true"
+                            >
+                                <path strokeLinecap="round" d="M4 6h16M4 12h9M4 18h9m5-5v8m-4-4h8" />
+                            </svg>
                         </button>
                     )
                     : null}
                 <button
                     type="submit"
-                    className="rw-toolbar-button session-send-button"
+                    className="rw-toolbar-button session-composer-icon-button session-send-button"
                     disabled={!canSend || submitting}
                     aria-label={submitting ? "Sending" : sendLabel}
+                    title={submitting ? "Sending" : sendLabel}
                 >
-                    {submitting ? <RunWieldThinkingDots label="Sending" /> : (
-                        <>
-                            <PaperAirplaneIcon />
-                            <span>{sendLabel}</span>
-                        </>
-                    )}
+                    {submitting ? <RunWieldThinkingDots label="Sending" /> : <PaperAirplaneIcon />}
                 </button>
             </div>
         </form>
@@ -596,11 +720,14 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         /** @type {Record<string, string> | null} */ (null),
     );
     const [liveThinkingLevel, setLiveThinkingLevel] = useState("");
+    useEffect(() => setLiveThinkingLevel(""), [timeline?.snapshot?.activeAgent, timeline?.snapshot?.thinkingLevel]);
     const [sessionOptions, setSessionOptions] = useState(/** @type {any} */ (null));
     const [optionsError, setOptionsError] = useState("");
     const [selectedAgent, setSelectedAgent] = useState("router");
     const [selectedModelKey, setSelectedModelKey] = useState("");
     const [selectedThinking, setSelectedThinking] = useState("default");
+    const [modelExplicitlySelected, setModelExplicitlySelected] = useState(false);
+    const [thinkingExplicitlySelected, setThinkingExplicitlySelected] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [attachingImages, setAttachingImages] = useState(false);
     const [loadingEarlier, setLoadingEarlier] = useState(false);
@@ -686,9 +813,88 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                     ? defaults.thinkingLevel
                     : "default",
             );
+            setModelExplicitlySelected(false);
+            setThinkingExplicitlySelected(false);
         } catch (error) {
             setOptionsError(errorMessage(error));
         }
+    }
+
+    function selectNewAgent(agentName) {
+        const agent = sessionOptions?.agents?.find((item) => item.name === agentName);
+        if (!agent) return false;
+        const defaults = sessionAgentSelection(agent);
+        setSelectedAgent(agentName);
+        setSelectedModelKey(defaults.model ? `${defaults.provider}\u001f${defaults.model}` : "");
+        setSelectedThinking(defaults.thinkingLevel);
+        setModelExplicitlySelected(false);
+        setThinkingExplicitlySelected(false);
+        return true;
+    }
+
+    function selectNewModel(modelKey) {
+        setSelectedModelKey(modelKey);
+        setModelExplicitlySelected(Boolean(modelKey));
+    }
+
+    function selectNewThinking(thinkingLevel) {
+        setSelectedThinking(thinkingLevel);
+        setThinkingExplicitlySelected(thinkingLevel !== "default");
+    }
+
+    function handleComposerCommand(text) {
+        const [rawName, ...args] = text.trim().slice(1).split(/\s+/);
+        const name = rawName === "models" ? "model" : rawName === "agents" ? "agent" : rawName;
+        const command = sessionOptions?.commands?.find((item) => item.name === name);
+        if (command?.kind === "prompt") return false;
+        if (!command) {
+            setMessage(`Unknown command: /${name}. Type / to see available commands.`);
+            return true;
+        }
+        const argument = args.join(" ");
+        if (["agent", "model"].includes(name)) {
+            if (!argument) {
+                setDraft(`/${name} `);
+                return true;
+            }
+            const agent = sessionOptions.agents.find((item) => item.name === argument || item.displayName === argument);
+            const model = sessionOptions.models.find((item) => sessionModelLabel(item) === argument);
+            if ((name === "agent" && !agent) || (name === "model" && !model)) {
+                setMessage(`No matching ${name}. Choose an available option from the command picker.`);
+                return true;
+            }
+            if (mode === "new") {
+                if (name === "agent") selectNewAgent(agent.name);
+                if (name === "model") selectNewModel(`${model.provider}\u001f${model.id}`);
+                setDraft("");
+            } else {
+                const change = name === "agent"
+                    ? { agentName: agent.name }
+                    : { provider: model.provider, model: model.id };
+                void configureSession(change).then((applied) => {
+                    if (applied) setDraft("");
+                });
+            }
+            return true;
+        }
+        const projectPath = `/projects/${encodeURIComponent(projectId)}`;
+        const destination = {
+            new: `${projectPath}/sessions/new`,
+            resume: `${projectPath}/sessions`,
+            settings: `${projectPath}/settings`,
+            plans: `${projectPath}/plans`,
+        }[name];
+        if (destination) {
+            setDraft("");
+            void saveSessionDraft(draftKey, null).then(() => workspaceNavigate(destination));
+        } else if (name === "help") {
+            setDraft("/");
+        } else {
+            setContextCollapsed(false);
+            setSessionSidebarTab("session");
+            setDraft("");
+        }
+        return true;
     }
 
     async function fetchTimeline(beforeEventId = "") {
@@ -899,9 +1105,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             text,
             images: imageAttachments.map(serializeSessionImageForRequest),
             agentName: selectedAgent,
-            model: selectedModel || "",
-            provider: selectedProvider || "",
-            thinkingLevel: selectedThinking,
+            model: modelExplicitlySelected ? selectedModel || "" : "",
+            provider: modelExplicitlySelected ? selectedProvider || "" : "",
+            thinkingLevel: thinkingExplicitlySelected ? selectedThinking : "default",
             status: "pending",
             createdAt: new Date().toISOString(),
         };
@@ -1010,7 +1216,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     }
 
     async function configureSession(change) {
-        if (!Number.isInteger(timeline?.generation)) return;
+        if (!Number.isInteger(timeline?.generation)) return false;
         setMessage("");
         try {
             const result = await ownerFetch(
@@ -1023,12 +1229,15 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 },
             );
             setPendingConfiguration(result.pendingConfiguration || null);
+            if (change.agentName) setLiveThinkingLevel("");
             if (change.thinkingLevel) setLiveThinkingLevel(String(change.thinkingLevel));
             setMessage(result.status === "staged" ? "Applies after this response." : "Session settings updated.");
             const currentOperation = operationRef.current;
             if (result.status !== "staged" && !currentOperation?.operationId) await loadTimeline();
+            return true;
         } catch (error) {
             setMessage(errorMessage(error));
+            return false;
         }
     }
 
@@ -1626,9 +1835,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             agentValue={selectedAgent}
                             modelValue={selectedModelKey}
                             thinkingValue={selectedThinking}
-                            onAgentChange={setSelectedAgent}
-                            onModelChange={setSelectedModelKey}
-                            onThinkingChange={setSelectedThinking}
+                            onAgentChange={selectNewAgent}
+                            onModelChange={selectNewModel}
+                            onThinkingChange={selectNewThinking}
+                            commands={sessionOptions?.commands || []}
+                            onCommand={handleComposerCommand}
                             agentFallback={agents.length ? null : <option value="router">Router</option>}
                             modelFallback={<option value="">Project default</option>}
                             thinkingFallback={<option value="default">Default</option>}
@@ -1692,10 +1903,15 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const localOperationActive = Boolean(operation && !["completed", "failed", "unknown"].includes(operation.status));
     const canConfigureSession = availability.canContinue || (localOperationActive && !operation?.remote);
     const stagedAgent = pendingConfiguration?.agentName || timeline?.snapshot?.activeAgent || "";
+    const stagedAgentDefaults = pendingConfiguration?.agentName
+        ? agents.find((agent) => agent.name === pendingConfiguration.agentName)?.defaults
+        : null;
     const stagedModelKey = pendingConfiguration?.model
         ? `${pendingConfiguration.provider || ""}\u001f${pendingConfiguration.model}`
+        : stagedAgentDefaults?.model
+        ? `${stagedAgentDefaults.provider}\u001f${stagedAgentDefaults.model}`
         : activeModelKey;
-    const displayedThinking = liveThinkingLevel || activeThinking;
+    const displayedThinking = liveThinkingLevel || stagedAgentDefaults?.thinkingLevel || activeThinking;
     const showBusyPanel = ["active", "workspace-running", "execution-workflow"].includes(availability.key);
     const canSubmitSession = availability.canContinue || ["active", "workspace-running"].includes(availability.key);
     const sessionSidebar = buildSessionSidebarProjection({
@@ -1820,9 +2036,12 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                 onAgentChange={(agentName) => configureSession({ agentName })}
                                 onModelChange={(value) => {
                                     const [provider, model] = value ? value.split("\u001f") : ["", ""];
-                                    if (model) configureSession({ provider, model });
+                                    if (model) return configureSession({ provider, model });
+                                    return false;
                                 }}
                                 onThinkingChange={(thinkingLevel) => configureSession({ thinkingLevel })}
+                                commands={sessionOptions?.commands || []}
+                                onCommand={handleComposerCommand}
                                 agentFallback={agents.some((agent) => agent.name === timeline.snapshot?.activeAgent)
                                     ? null
                                     : (
@@ -1832,7 +2051,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                     )}
                                 modelFallback={activeModelKey &&
                                         !models.some((model) => `${model.provider}\u001f${model.id}` === activeModelKey)
-                                    ? <option value={activeModelKey}>{activeModelId}</option>
+                                    ? <option value={activeModelKey}>{activeProvider}/{activeModelId}</option>
                                     : null}
                                 thinkingFallback={thinkingLevels.includes(displayedThinking)
                                     ? null

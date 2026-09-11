@@ -476,6 +476,104 @@ Deno.test("Workspace Session options and timeline expose supported Agy model fac
     });
 });
 
+Deno.test("Workspace Agent defaults follow presets and manual choices expire on an Agent change", async () => {
+    await withRuntimeCommandFixture("workspace-agent-defaults-", async ({ homeDir, projectRoot, setModelResponse }) => {
+        const modelsPath = `${homeDir}/.wld/models.json`;
+        const modelConfiguration = JSON.parse(await Deno.readTextFile(modelsPath));
+        for (const model of modelConfiguration.providers["runtime-command-fixture"].models) model.reasoning = true;
+        await Deno.writeTextFile(modelsPath, JSON.stringify(modelConfiguration));
+        const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+        const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+        try {
+            await setCustomSetting(
+                "agents",
+                {
+                    ideator: { model: "runtime-command-fixture/fixture-model", thinkingLevel: "low" },
+                    guide: { model: "runtime-command-fixture/alternate-model", thinkingLevel: "medium" },
+                },
+                "project",
+                projectRoot,
+            );
+            await setCustomSetting(
+                "modelPresets",
+                {
+                    chosen: {
+                        agents: {
+                            ideator: { model: "runtime-command-fixture/alternate-model", thinkingLevel: "high" },
+                        },
+                    },
+                },
+                "project",
+                projectRoot,
+            );
+            await setCustomSetting("activeModelPreset", "chosen", "project", projectRoot);
+            const options = await service.listSessionOptions(fixture.project.projectId);
+            assert(options.agents.some((agent) => agent.name === AGENTS.ROUTER));
+            assertEquals(options.agents.find((agent) => agent.name === AGENTS.IDEATOR).defaults, {
+                model: "alternate-model",
+                provider: "runtime-command-fixture",
+                thinkingLevel: "high",
+            });
+            assertEquals(options.agents.find((agent) => agent.name === AGENTS.GUIDE).defaults, {
+                model: "alternate-model",
+                provider: "runtime-command-fixture",
+                thinkingLevel: "medium",
+            });
+            assert(options.commands.some((command) => command.name === "agent"));
+            assert(options.commands.some((command) => command.name.startsWith("skill:")));
+            setModelResponse("Ready.");
+            const created = await service.createSession({
+                projectId: fixture.project.projectId,
+                requestId: "agent-defaults",
+                text: "Start here.",
+                agentName: AGENTS.IDEATOR,
+            });
+            const completed = await waitForOperation(service, created.operationId);
+            assertEquals(completed.status, "completed", JSON.stringify(completed));
+            const readTimeline = () =>
+                service.timeline(completed.runwieldSessionId, { projectId: fixture.project.projectId });
+            let timeline = await readTimeline();
+            assertEquals(timeline.snapshot.model, "alternate-model");
+            assertEquals(timeline.snapshot.thinkingLevel, "high");
+            await service.configureSession({
+                projectId: fixture.project.projectId,
+                runwieldSessionId: completed.runwieldSessionId,
+                expectedGeneration: timeline.generation,
+                provider: "runtime-command-fixture",
+                model: "fixture-model",
+                thinkingLevel: "low",
+            });
+            timeline = await readTimeline();
+            const continuation = await service.startContinuation({
+                projectId: fixture.project.projectId,
+                runwieldSessionId: completed.runwieldSessionId,
+                expectedGeneration: timeline.generation,
+                requestId: "manual-follow-up",
+                text: "Continue here.",
+            });
+            assertEquals((await waitForOperation(service, continuation.operationId)).status, "completed");
+            timeline = await readTimeline();
+            assertEquals(timeline.snapshot.model, "fixture-model");
+            assertEquals(timeline.snapshot.thinkingLevel, "low");
+            await service.configureSession({
+                projectId: fixture.project.projectId,
+                runwieldSessionId: completed.runwieldSessionId,
+                expectedGeneration: timeline.generation,
+                agentName: AGENTS.GUIDE,
+            });
+            timeline = await readTimeline();
+            assertEquals(timeline.snapshot.activeAgent, AGENTS.GUIDE);
+            assertEquals(timeline.snapshot.model, "alternate-model");
+            assertEquals(timeline.snapshot.thinkingLevel, "medium");
+        } finally {
+            await service.runtime.closeAllSessionsWhenIdle();
+            service.close();
+            service.store.close();
+            await fixture.cleanup();
+        }
+    }, { additionalModels: [{ id: "alternate-model", name: "Alternate" }] });
+});
+
 Deno.test("Workspace configuration stages Agent changes during a local active operation", async () => {
     await withRuntimeCommandFixture(
         "workspace-active-config-",

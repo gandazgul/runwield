@@ -24,6 +24,9 @@ status: "draft"
 
 What problem/request this plan addresses and the intended outcome.
 
+When PRDs inform the Epic, link their owning capability headings and distinguish existing behavior from proposed
+additions, changes, and removals. Preserve user outcomes across capability and eventual child-Plan boundaries.
+
 ## Objective
 
 Clear statement of what changes and why. Reference any ADRs created. Name the main option you did not take and what it
@@ -67,6 +70,10 @@ that is red before the work and green after. "The migration is complete" is not 
 constructs a database handle" is.
 
 - `<Outcome>` — observable evidence a child Plan can assert against.
+
+Connect outcomes to the relevant PRD acceptance scenarios. Identify which eventual child outcomes must update the owning
+capability requirements and references when delivered, including cross-child journeys that no single child proves. Leave
+decomposition to Slicer; do not mark target capabilities delivered while writing the Epic.
 
 Also state, across the whole Epic:
 

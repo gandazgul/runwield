@@ -65,6 +65,82 @@
     opacity: 0.58;
 }
 
+.rw-toolbar-select {
+    min-height: var(--rw-control-height-compact);
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-control);
+    background: var(--rw-surface);
+    color: var(--rw-text);
+    padding: 0.25rem 0.3rem;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-overflow: ellipsis;
+}
+
+.rw-toolbar-select:hover:not(:disabled) {
+    border-color: var(--rw-accent);
+}
+
+.rw-toolbar-select:focus-visible {
+    outline: 2px solid var(--rw-accent);
+    outline-offset: 2px;
+}
+
+.rw-toolbar-select:disabled {
+    color: var(--rw-text-dim);
+    cursor: not-allowed;
+    opacity: 0.58;
+}
+
+.rw-command-menu {
+    position: absolute;
+    inset-inline: 0;
+    bottom: calc(100% + 0.35rem);
+    z-index: 10;
+    max-height: min(20rem, 45dvh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.3rem;
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-card);
+    background: var(--rw-surface-raised);
+}
+
+.rw-command-menu [role="option"] {
+    display: grid;
+    gap: 0.15rem;
+    width: 100%;
+    min-height: 44px;
+    padding: 0.45rem 0.65rem;
+    border: 0;
+    border-radius: var(--rw-radius-control);
+    background: transparent;
+    color: var(--rw-text);
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+}
+
+.rw-command-menu [role="option"] span {
+    color: var(--rw-text-muted);
+    font-size: 0.8rem;
+}
+
+.rw-command-menu [role="option"] strong,
+.rw-command-menu [role="option"] span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rw-command-menu [role="option"]:hover,
+.rw-command-menu [role="option"][aria-selected="true"] {
+    background: var(--rw-surface-muted);
+    color: var(--rw-accent-text);
+}
+
 .rw-segmented-toggle {
     display: inline-flex;
     gap: 0.25rem;
@@ -1296,6 +1372,13 @@ button.danger-action:disabled {
 }
 .rw-workflow-block > header {
     color: var(--rw-accent-text);
+}
+.rw-workflow-block > .markdown-view {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
 }
 .rw-workflow-block > header > span,
 .rw-workflow-block > footer {

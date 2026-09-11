@@ -6,7 +6,9 @@ and Connect.
 Keep this document as current product guidance. Fold lasting requirements from completed feature PRDs here;
 implementation steps belong in Plans, architectural choices in ADRs, and delivery evidence in Work Records.
 
-## 1. Vision & Strategy
+<a id="1-vision--strategy"></a>
+
+## Vision & Strategy
 
 **RunWield** is collaborative software planning with AI.
 
@@ -23,9 +25,15 @@ ideate -> plan -> execute -> record -> use records to plan better
 RunWield should not be positioned as an agent management platform, issue tracker, ticket system, Scrum tool, or generic
 AI chat product. Agents are implementation partners inside the planning loop, not the product category.
 
-## 2. Product Architecture
+<a id="2-product-architecture"></a>
 
-### 2.1 RunWield Core
+## Product Architecture
+
+<a id="21-runwield-core"></a>
+
+<a id="1-runwield-core"></a>
+
+### RunWield Core
 
 **RunWield Core** is the free local harness and runtime. It owns the canonical local workflow:
 
@@ -43,7 +51,11 @@ hosted product.
 The detailed Core product requirements live in [runwield-core-prd.md](./runwield-core-prd.md). This root PRD summarizes
 Core only enough to place it inside the broader RunWield product architecture.
 
-### 2.2 RunWield Workspace
+<a id="22-runwield-workspace"></a>
+
+<a id="2-runwield-workspace"></a>
+
+### RunWield Workspace
 
 **RunWield Workspace** is the browser environment for working across Projects. Personal Workspace first serves one owner
 moving between the TUI and their phone: starting, continuing, and returning to the same conversation must be ordinary
@@ -67,7 +79,11 @@ The detailed Workspace product requirements live in [runwield-workspace-prd.md](
 marries the local Plan management UI and encrypted collaborative planning directions into the self-hostable and hosted
 Workspace story.
 
-### 2.3 RunWield Connect
+<a id="23-runwield-connect"></a>
+
+<a id="3-runwield-connect"></a>
+
+### RunWield Connect
 
 **RunWield Connect** is the plugin ecosystem that brings RunWield planning, verification, recovery, Work Records, and
 memory into external agent hosts such as Claude Code, Codex, OpenCode, and Pi. It begins with first-party plugins built
@@ -85,7 +101,11 @@ When RunWield Core owns the Session and invokes another harness non-interactivel
 `claude -p` or Antigravity CLI, that harness is an **Execution Backend** alongside Pi. Execution Backends are Core
 capabilities, not RunWield Connect plugins or separately branded product modes.
 
-### 2.4 Naming
+<a id="24-naming"></a>
+
+<a id="4-naming"></a>
+
+### Naming
 
 - **RunWield**: public product and umbrella brand.
 - **RunWield Core**: free local harness.
@@ -96,7 +116,9 @@ capabilities, not RunWield Connect plugins or separately branded product modes.
 
 Avoid public phrasing such as "Wield AI" because it risks brand collision and points toward the wrong category.
 
-## 3. Core Philosophies
+<a id="3-core-philosophies"></a>
+
+## Core Philosophies
 
 - **Planning is the category:** RunWield should own AI-native/collaborative software planning, not agent management.
 - **Plan-by-Default:** Material work starts with a Plan unless it is explicitly a bounded operation or quick fix.
@@ -111,9 +133,15 @@ Avoid public phrasing such as "Wield AI" because it risks brand collision and po
 - **Lightweight defaults, optional strictness:** Flow should be easy by default, with stricter approval and governance
   policies available for teams that need them.
 
-## 4. Core Objects
+<a id="4-core-objects"></a>
 
-### 4.1 Plan
+## Core Objects
+
+<a id="41-plan"></a>
+
+<a id="1-plan"></a>
+
+### Plan
 
 The **Plan** is the central product object.
 
@@ -133,313 +161,181 @@ erase the repo-local Plan model. Optional external Ticket links preserve user-id
 navigation; RunWield still does not make external trackers mandatory, fetch Ticket data, or synchronize Ticket lifecycle
 state.
 
-### 4.2 PRD
+<a id="42-prd"></a>
 
-PRDs capture product intent, customer/user context, constraints, and desired outcomes. They should be first-class
-planning inputs and can be created or refined through RunWield agents.
+<a id="2-prd"></a>
 
-### 4.3 ADR
+### PRD
+
+PRDs capture user needs, product intent, scope, and capability-organized requirements with acceptance scenarios. Each
+capability has one owning PRD; current, target, and deferred behavior stay distinct. They are first-class planning
+inputs that RunWield agents can create or refine within the user’s document conventions.
+
+<a id="43-adr"></a>
+
+<a id="3-adr"></a>
+
+### ADR
 
 ADRs remain the authoritative artifact for architecture and technical decisions. Work Records and Plans may reference
 ADRs, but should not become a parallel technical-decision authority.
 
-### 4.4 Work Record
+<a id="44-work-record"></a>
 
-**Work Records** are retrospective planning-memory artifacts. They capture what was actually built, why the final
-outcome matters, what was deferred, and what future planning agents or humans should remember.
+<a id="4-work-record"></a>
 
-Work Records are not raw review logs. Review history may exist for manual audit, but the planning-memory surface should
-contain distilled final decisions and rationale so future LLM planning does not receive mixed signals.
+### Work Record
 
-Work Records should be:
+Work Records are retrospective planning-memory artifacts: what completed work produced, why it matters, deferred scope,
+and lessons worth retrieving. They link to source Plans and preserve the actual completion confidence. They do not
+replace ADRs, raw conversations, or Git’s commit history. Detailed generation, backfill, retrieval, and external-record
+scope belong to [Core Work records](runwield-core-prd.md#work-records).
 
-- repo-local markdown in Core, likely under `docs/work-records/`
-- generated automatically for verified planned work
-- auto-approved by default
-- optionally reviewed manually when a team enables stricter ceremony
-- linked to source Plans and discoverable from the completed work
-- searchable and retrievable by relevance for future planning
-- compressible or reorganizable later without mutating source Plans
+## Capability Ownership
 
-Work Records are not generated for no-plan `QUICK_FIX` work. Quick fixes are usually local, one-off, and too granular
-for durable planning memory, and those changes are explained by their commit messages. Merges made outside RunWield's
-Plan workflow likewise produce commits, not records — with one exception: a maintainer may explicitly record substantial
-externally contributed work as an **external Work Record** that certifies provenance (the source change, the
-contributor, the reviewing maintainer, and the validation that actually ran) rather than RunWield validation. External
-records are opt-in, never automatic.
+These five documents are this project's living PRDs. The product-family capabilities below own shared product promises;
+each surface document owns its detailed behavior. A reference adds context, not another independently maintained copy.
 
-The guarantee runs one direction: every verified Plan produces a Work Record with delivery evidence, but no merge is
-required to have a Plan or a Work Record. Work Records are a layer of memory over planned work, not the authoritative
-history of the target branch — the git log owns commit-level history. RunWield is responsible for the provenance of its
-own merges, with clear commits that point back to their Plans; each team owns its commit discipline for everything else.
+| Owning PRD                                                     | Capability scope                                                                                                                          |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| [RunWield](#capability-requirements)                           | Reviewed intent, consistent cross-surface outcomes, durable knowledge, independent adoption and privacy                                   |
+| [Core](runwield-core-prd.md#capability-requirements)           | Routing, Plan review/lifecycle, execution, validation, recovery, Sessions, context, records, customization, PRD authoring                 |
+| [Workspace](runwield-workspace-prd.md#capability-requirements) | Local boards and sharing, attention, browser/phone journeys, Project access, knowledge/code search, pairing, later team governance/review |
+| [Connect](runwield-connect-prd.md#capability-requirements)     | External-host opt-in, host model ownership, host compatibility, privacy, setup and recovery                                               |
+| [ACP](runwield-acp-protocol-prd.md#capability-requirements)    | External-client Sessions, negotiated interactions, Telegram reference journey, recovery and protocol conformance                          |
 
-## 5. RunWield Core Requirements
+When behavior changes, update the owning capability and its acceptance scenarios in the same implementation change.
+Other PRDs and Plans link to that owner. Proposed additions, changes, and removals stay labeled until reconciled with
+actual delivery; unmet intent is retained explicitly. Keep the five-document ownership rule in this project's
+`AGENTS.md`; bundled guidance supports any user's PRD structure.
 
-This section is a product-level summary. See [runwield-core-prd.md](./runwield-core-prd.md) for the fuller Core PRD that
-preserves the detailed local harness, TUI, routing, lifecycle, tooling, and validation requirements.
+## Capability Requirements
 
-### 5.1 Session Host and Clients
+- [Reviewed intent and proportional work](#reviewed-intent-and-proportional-work)
+- [Consistent workflow outcomes across surfaces](#consistent-workflow-outcomes-across-surfaces)
+- [Durable capability requirements and planning memory](#durable-capability-requirements-and-planning-memory)
+- [Independent adoption and private working space](#independent-adoption-and-private-working-space)
 
-Users can create, reopen, continue, cancel, and follow multiple independent Sessions through the TUI, local browser UI,
-and external ACP clients. Moving between screens preserves the same conversation, Agent, model, and workflow. Leaving an
-idle screen open must not prevent the same owner from continuing elsewhere.
+### Reviewed intent and proportional work
 
-The local browser experience remains useful without SaaS. Runtime boundaries and coordination belong in
-[ADR-010](../adr/010-session-runtime-sibling-adapters-and-acp.md) and
-[ADR-015](../adr/015-file-authoritative-session-bundles.md).
+**Scope and maturity:** Lasting product promise. Core’s capability sections distinguish the current baseline and
+follow-up scope.
 
-### 5.2 Router and Agent Workflows
+**Requirement: Review material intent before implementation.**
 
-The Router is the default triage Agent in Core. It is a peer Agent, not a special system wrapper.
+Users can clarify ideas, review intended changes while revision is cheap, and receive a level of planning appropriate to
+the work. Inquiry and bounded operations stay lightweight; material planned work is reviewed before execution; large
+projects become independently deliverable children. Work Kind preserves whether planned work is a bug, feature,
+refactor, maintenance, or documentation.
 
-Routing intents:
+Detailed owners: [Core request routing](runwield-core-prd.md#request-routing),
+[Plan review](runwield-core-prd.md#plan-review), and
+[Epic decomposition and hold](runwield-core-prd.md#epic-decomposition-and-hold). Workspace may also offer direct actions
+into Ideator, Planner, or Architect when the user already knows the artifact they need.
 
-- `INQUIRY`: read-mostly understanding work
-- `IDEATION`: product/research exploration and Socratic shaping before planning
-- `OPERATION`: direct non-code repository or environment operations
-- `QUICK_FIX`: bounded code implementation with no Plan file
-- `PLANNED_CHANGE`: planned executable work. Work Kind (`BUG_FIX`, `FEATURE`, `REFACTOR`, `MAINTENANCE`) separately
-  records the nature of the work; legacy `FEATURE` routing and classification values normalize here.
-- `PROJECT`: Epic-scale work that is decomposed into child Planned Change Plans
+**Acceptance scenarios:**
 
-Workspace planning flows may invoke Router with a planning-oriented route set and may also offer direct actions into
-Ideator, Planner, or Architect when the user already knows what artifact they want.
+- Given a user exploring an idea, when they clarify product intent, the result can inform a capability-organized PRD and
+  later a reviewed Plan without prematurely starting implementation.
+- Given a small bounded fix versus a broad migration, when each is routed, the fix receives proportionate checks while
+  the migration receives architecture and independently reviewed child work.
 
-### 5.3 TUI Shell and Agent Switching
+### Consistent workflow outcomes across surfaces
 
-The TUI remains a first-class Core client.
+**Scope and maturity:** Lasting product promise; availability depends on the surface’s stated delivery scope.
 
-By default, a new interactive session starts with Router. After Router hands off to a specialist, the specialist remains
-the active root Agent so follow-up messages keep useful context. Users can use `/new` for a fresh routed session or
-`/agent router` to route another request in the same session.
+**Requirement: Preserve approval and completion meaning across surfaces.**
 
-Dynamic Agent switching should preserve:
+Users receive the same meaning of approval, execution, validation, recovery, and completion through every supported
+RunWield surface. Local Core remains useful without hosted Workspace. Personal Workspace supports the same owner moving
+between screens. Connect preserves the external host’s conversation and model ownership. ACP exposes a RunWield-owned
+Session through an external client. Core Execution Backends are another way to run turns inside Core, not Connect.
 
-- active Agent identity
-- persisted session state
-- pending handoffs
-- model/thinking state
-- workflow execution state
-- project-state context
+Detailed owners: [Core Session continuity](runwield-core-prd.md#session-continuity),
+[Plan lifecycle](runwield-core-prd.md#plan-lifecycle), and
+[execution, validation, and recovery](runwield-core-prd.md#execution-validation-and-recovery). Surface-specific
+constraints and maturity belong in the ownership table below. Unsupported host or client behavior must be disclosed
+without weakening shared completion claims.
 
-### 5.4 Triage and Plan Review
+A delivery workflow concludes only after confirmed publication or deliberate user abandonment. Internal failures are
+intermediate conditions RunWield repairs automatically, hidden from the user. Waiting for a real user decision or
+external prerequisite preserves the workflow. The detailed requirements and scenarios belong to Core execution and
+recovery above.
 
-Router explains the request's classification and hands off to the appropriate specialist. Planner and Architect present
-saved Plans for review, preserve feedback in the conversation, and distinguish approval for later from proceeding to
-readiness and execution. Agent prose alone does not establish a completed workflow outcome.
+**Acceptance scenarios:**
 
-### 5.5 Plan Lifecycle, Validation, and Recovery
+- Given an approved Plan saved for later on one screen, when the user opens another supported surface, it remains
+  approved for later rather than starting implicitly.
+- Given locally validated work whose target publication failed, when any surface shows its outcome, it reports the
+  ongoing delivery and automatic recovery without claiming success or treating the failed attempt as a conclusion.
+- Given a supported same-owner continuation, when the user changes screens, an idle open screen does not force a
+  separate conversation or reserve the work.
 
-Plan status communicates the work’s stage and the actions the user can take next.
+### Durable capability requirements and planning memory
 
-Canonical statuses:
+**Scope and maturity:** Lasting product promise; capability authoring guidance is agreed here, while richer team
+retrieval remains later scope.
 
-- `draft`
-- `feedback`
-- `approved`
-- `ready_for_decomposition`
-- `ready_for_work`
-- `in_progress`
-- `failed`
-- `implemented`
-- `verified`
-- `closed_without_verification`
-- `on_hold`
+**Requirement: Keep requirements and reusable outcomes discoverable.**
 
-Lifecycle gates:
+Users can find what a capability must do in its owning PRD, why architecture was chosen in an ADR, what work is planned
+in a Plan, and what completed work taught the team in a Work Record. Requirements stay organized by capability with
+named observable outcomes and acceptance scenarios. Shared requirements have one owner and references; current, target,
+and deferred behavior remain distinct. A Plan or record is not proof that an unmet target already works.
 
-- **Review Gate:** Plannotator or Workspace approval records review events and feedback.
-- **Readiness Gate:** Planned Change Plans promote to `ready_for_work`; PROJECT Epics promote to
-  `ready_for_decomposition`, then `ready_for_work` when Slicer finalizes child Plans.
-- **Execution Gate:** executable Plans start only from `ready_for_work`.
-- **Implementation Gate:** implementation being finished remains distinct from verification.
-- **Workflow Validation Gate:** executable Planned Change and legacy non-Epic PROJECT work runs local validation and
-  semantic review before reaching `verified`.
+Project artifacts remain repository-owned Markdown and usable outside RunWield. They survive surface changes without
+conversion to proprietary document-only storage. Work Records distill results and lessons rather than becoming raw
+review logs or replacing Git’s commit history. Operational memory remains separate from these durable artifacts.
 
-PROJECT Epics are containers, not directly executable implementation work. Child Planned Change Plans validate
-independently. A user may mark an Epic done enough for now with an explanation, visibly distinguishing that outcome from
-completing every child Plan.
+Detailed owners:
+[Core capability-organized product requirements](runwield-core-prd.md#capability-organized-product-requirements),
+[Work records](runwield-core-prd.md#work-records), and
+[project context](runwield-core-prd.md#project-context-and-initialization). Workspace owns
+[durable knowledge search](runwield-workspace-prd.md#durable-knowledge-search) and later
+[team planning intelligence](runwield-workspace-prd.md#team-planning-intelligence).
 
-Loading an `in_progress`, `failed`, or `implemented` Plan opens a recovery path. The user can inspect the scoped diff,
-continue, reset to the captured execution baseline, re-open for review, or retry validation.
+**Acceptance scenarios:**
 
-### 5.6 Work Record Generation
+- Given a changed capability, when its implementation is delivered, its owning PRD and scenarios are reconciled in the
+  same change and references remain useful without hunting through old Plans.
+- Given an unimplemented proposal, when someone reads the living PRD, target scope stays distinguishable from current
+  behavior.
+- When a user plans related work later, relevant eligible records are available with their completion confidence,
+  without treating raw transcript debate as settled requirements.
 
-Recorder turns completed top-level planned work into concise, reusable records. An Epic record can summarize its child
-outcomes and deferred scope. Generation is enabled by default, can be disabled, and is best effort: a failure leaves the
-completed work intact and offers backfill.
+### Independent adoption and private working space
 
-Records distinguish RunWield verification, user-attested verification, closure without verification, and done-enough
-completion. Search defaults to current approved records; historical or unapproved material carries clear notices.
-Routine no-plan work remains explained by commits. External or manual records are explicit choices and must not claim
-validation that did not run.
+**Scope and maturity:** Lasting product promise; team roles and governance remain later Workspace scope.
 
-The [Core PRD](runwield-core-prd.md#work-records) owns detailed product behavior for generation, backfill, retrieval,
-correction, and user-confirmed replacement. Workspace adds browser and cross-Project access; Connect uses the same
-recording principles without importing external conversations.
+**Requirement: Support independent use without exposing private conversations.**
 
-## 6. RunWield Workspace Requirements
+Users can adopt Core, Workspace, or Connect for the value each provides. Core remains independently useful locally;
+Connect is a supported destination rather than a deliberately weakened trial. Workspace earns adoption through browser
+continuity, shared planning, review, and intelligence. Hosted execution follows those outcomes rather than leading the
+product.
 
-### 6.1 Primary Surface
+Working conversations remain private-first. Shared knowledge comes from deliberate artifacts and synthesized outcomes.
+Teams choose responsibilities and optional stricter governance; RunWield does not impose job-title roles, external
+trackers, or forge pull-request review as universal prerequisites.
 
-Personal Workspace opens with the attention queue described in the [Workspace PRD](runwield-workspace-prd.md). The Plan
-workspace remains the center for planned work; the team collaboration requirements below are later scope.
+Detailed owners: [Connect first-class use](runwield-connect-prd.md#first-class-connect-use),
+[artifact privacy](runwield-connect-prd.md#artifact-privacy-and-records), and later Workspace
+[team governance](runwield-workspace-prd.md#team-planning-and-governance),
+[team privacy](runwield-workspace-prd.md#team-artifact-privacy-and-authorship), and
+[team review and delivery](runwield-workspace-prd.md#team-code-review-and-delivery).
 
-Primary areas:
+**Acceptance scenarios:**
 
-- Ideas
-- Planning
-- Review
-- Ready
-- In Progress
-- Verifying
-- Done
-- On Hold
+- Given a developer who uses only local Core or stays in Connect, when they perform supported work, feasible
+  capabilities are not withheld merely to force Workspace adoption.
+- Given a shared artifact, when another permitted person reads it, they do not automatically receive the author’s
+  private conversation.
+- Given a team choosing forge-hosted or dual review, when it adopts that policy, each gate keeps its own decisions;
+  RunWield-native review remains the default product direction.
 
-These are product-facing states for PMs, tech leads, and developers. Raw Core lifecycle statuses can remain visible in
-detail views for transparency and debugging.
+<a id="8-delivery-and-references"></a>
 
-Natural actions from the Plan screen:
-
-- start a new idea
-- create or refine a PRD
-- create a Plan
-- create an Epic
-- review a Plan
-- inspect Work Records and planning memory
-
-Searching Work Records is important, but secondary to the Plan workspace.
-
-### 6.2 Collaboration and Privacy
-
-Workspace should persist durable artifacts, not raw planning conversation minutia.
-
-Requirements:
-
-- Plans, PRDs, ADRs, and Work Records are team-visible artifacts according to workspace permissions.
-- User/agent working conversations are private-first by default.
-- Individual chat messages should not be attached to Plans by default.
-- Code-review discussion, assignment, and approval state are collaboration process data. Workspace hosts them outside
-  the repository, as it does working conversations; only durable results — Plans, Work Records, and commits — enter the
-  repo.
-- Artifact metadata can store user and Agent authorship.
-- Details screens can show quiet metadata such as author, drafting Agent, approval mode, and source references.
-- Admin/debug session access may exist where policy allows.
-- Product analytics should be anonymized and aggregated for RunWield improvement unless users explicitly opt into
-  broader sharing.
-
-### 6.3 Roles and Permissions
-
-The later team Workspace should start with minimal roles:
-
-- **Admin**
-- **Member**
-- **Reviewer/Guest**
-
-Do not encode PM, tech lead, or developer job-title roles by default. Teams should decide how strictly they divide
-planning, architecture, and execution responsibilities.
-
-Later, Workspace may allow more granular Member permissions, but this should not be required at launch.
-
-### 6.4 Approval Gates
-
-Workspace should use lightweight defaults with optional strictness.
-
-Default behavior:
-
-- Members can create and collaborate with minimal ceremony.
-- Important Plans go through review.
-- Work Records auto-approve after Recorder generation.
-- Epics require explicit approval before decomposition/work.
-
-Optional stricter settings:
-
-- restrict who can approve Plans
-- require Work Record review before retrieval
-- require ADR links for architectural Plans
-- require explicit approval before a Plan can enter Ready
-
-### 6.5 Cross-Project Intelligence
-
-The paid Workspace moat is shared cross-project planning intelligence.
-
-```text
-A trusted planning system where every material change has a reviewable intent, governed execution, independently verified outcome, and reusable record of what the team learned.
-```
-
-Workspace should extend Core's repo-local records with:
-
-- team-wide Work Record search
-- cross-project retrieval for new Plans
-- context packs for Ideator, Planner, and Architect
-- compression/deduplication of older records over time
-- answers to "what did we decide before?" across projects
-- filtering by project, area, Plan type, completion mode, and status
-
-This is a key reason to pay for Workspace. It should strengthen planning without reframing RunWield as hosted agent
-management.
-
-### 6.6 Code Review and Merge
-
-Under the default posture, Workspace replaces the forge pull-request loop for teams that adopt it:
-
-- human code review happens in Workspace and can be assigned to a teammate, with Agents available to reviewer and author
-  for context and changes;
-- a Workspace merge component lands validated, approved work on the target branch only after shared CI is green;
-- identity, audit, and person provenance are Workspace responsibilities, with GitHub identity and permission integration
-  high on the roadmap;
-- per repository, team, or instance, a team can instead keep forge-hosted review or run both review gates; the two gates
-  never synchronize state;
-- externally contributed work (for example, a drive-by pull request from someone without RunWield) becomes source
-  material for a maintainer-owned Plan, preserving both author and maintainer provenance.
-
-Local validation never replaces shared CI. Teams integrated with a forge keep a fast local validation tier and a fuller
-shared CI tier, mirroring this repository's `deno task ci` versus `deno task release:check` separation.
-
-## 7. Advanced Core Capabilities
-
-### 7.1 Memory and Indexing
-
-- **Mnemoteca Integration:** project/global persistent memory for user preferences, project facts, and critical context.
-- **Memory Maintenance:** cleanup and organization flows through built-in commands.
-- **Code Intelligence:** structural and semantic project search through local tooling.
-- **Project Brief:** compressed project context injected where useful without flooding every prompt.
-
-RunWield should distinguish Mnemoteca-style operational memory from Work Records. Mnemoteca stores recallable agent
-memory; Work Records are durable planning artifacts owned by the project/team.
-
-### 7.2 Agent Specialization
-
-Bundled Agents include Router, Guide, Ideator, Operator, Planner, Architect, Slicer, Engineer, Tester, Reviewer, and
-Recorder.
-
-Users can customize Agents and load Skills, but customization should preserve protected workflow tools needed for Core
-behavior.
-
-### 7.3 Agent Tool Policy
-
-Users can customize Agents at project or personal scope while retaining bundled defaults. Required workflow tools remain
-available so customization does not disable planning and verification. The Core product document describes the
-customization experience; loading and tool-resolution rules belong in technical documentation.
-
-### 7.4 Models, Skills, and Tools
-
-- Provider/model configuration maps Agents and tasks to appropriate models.
-- Provider support should include OpenAI-compatible providers and local providers where practical.
-- Skills are loaded from local project, home, bundled, and external-compatible directories.
-- Slash-command skill invocation injects full Skill instructions only when needed.
-- CLI tools remain preferred for many integrations.
-- MCP remains optional rather than default context pollution.
-
-### 7.5 Safety and Guardrails
-
-- Execution must respect project/worktree boundaries.
-- Dangerous shell actions need guardrails.
-- Workflow Validation should prove implementation work before marking Plans verified.
-- Worktree isolation should remain available for separating agent execution from the primary checkout.
-- Governance should be optional and configurable, not a default blocker for small teams.
-
-## 8. Delivery and References
+## Delivery and References
 
 Core delivers the useful local planning-to-record loop. Personal Workspace makes that work usable from a browser and
 phone. Connect brings the same workflow to supported external agent hosts. Collaborative SaaS follows with shared
@@ -457,7 +353,9 @@ meaningful unresolved scope into the appropriate living PRD, update references, 
 Git history preserves its earlier text; Work Records preserve delivery evidence. Completion does not make historical
 implementation restrictions current product policy.
 
-## 9. Product Non-Goals
+<a id="9-product-non-goals"></a>
+
+## Product Non-Goals
 
 - Do not frame RunWield as agent fleet management.
 - Do not lead with hosted execution as the first SaaS wedge.
@@ -469,7 +367,9 @@ implementation restrictions current product policy.
   team.
 - Do not treat Work Records as the audit history of the target branch; the git log owns commit-level history.
 
-## 10. Success Metrics
+<a id="10-success-metrics"></a>
+
+## Success Metrics
 
 Core metrics:
 
