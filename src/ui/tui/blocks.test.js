@@ -124,6 +124,18 @@ Deno.test("AgentMessageBlock renders without background (like Pi)", () => {
     assertEquals(plain.includes("TestAgent:"), true, "Should contain agent name");
 });
 
+Deno.test("AgentMessageBlock renders Markdown URLs with BEL-delimited terminal hyperlinks", () => {
+    const url = "https://github.com/gandazgul/runwield/pull/80";
+    const block = new AgentMessageBlock("Operator");
+    block.appendText(`Opened draft PR #80: ${url}.`);
+
+    const rendered = block.render(140).join("\n");
+
+    assertEquals(stripAnsi(rendered).includes(`Opened draft PR #80: ${url}.`), true);
+    assertEquals(rendered.includes(`\x1b]8;;${url}\x07`), true);
+    assertEquals(rendered.includes("\x1b]8;;\x07."), true);
+});
+
 Deno.test("AgentMessageBlock renders completed Mermaid fences as Unicode diagrams", () => {
     const block = new AgentMessageBlock("Planner");
     block.appendText("```mermaid\ngraph TD\n  A --> B\n```");

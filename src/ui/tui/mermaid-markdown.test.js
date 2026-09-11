@@ -36,6 +36,15 @@ Deno.test("MermaidMarkdown matches upstream Markdown for non-Mermaid content", (
     assertEquals(mermaid.render(80), upstream.render(80));
 });
 
+Deno.test("MermaidMarkdown renders URLs with BEL-delimited terminal hyperlinks", () => {
+    const url = "https://github.com/gandazgul/runwield/pull/80";
+    const rendered = renderMermaidMarkdown(`Opened draft PR #80: ${url}.`, 120).join("\n");
+
+    assertStringIncludes(stripAnsi(rendered), `Opened draft PR #80: ${url}.`);
+    assertStringIncludes(rendered, `\x1b]8;;${url}\x07`);
+    assertStringIncludes(rendered, "\x1b]8;;\x07.");
+});
+
 Deno.test("MermaidMarkdown renders a completed top-level flowchart as Unicode", () => {
     const rendered = plain(renderMermaidMarkdown(fence("graph TD\n  A --> B"), 120));
 
