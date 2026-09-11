@@ -30,12 +30,14 @@ import { dirname, join } from "@std/path";
  * every platform the test suite runs on, and rather than pulling in `@std/fs` for
  * one function.
  */
-async function copyTree(source: string, destination: string) {
+async function copyTree(source: string, destination: string, insideGitDir = false) {
     await Deno.mkdir(destination, { recursive: true });
     for await (const entry of Deno.readDir(source)) {
         const from = join(source, entry.name);
         const to = join(destination, entry.name);
-        if (entry.isDirectory) await copyTree(from, to);
+        const entryInsideGitDir = insideGitDir || entry.name === ".git";
+        if (entryInsideGitDir && entry.name.endsWith(".lock")) continue;
+        if (entry.isDirectory) await copyTree(from, to, entryInsideGitDir);
         else if (entry.isSymlink) await Deno.symlink(await Deno.readLink(from), to);
         else await Deno.copyFile(from, to);
     }

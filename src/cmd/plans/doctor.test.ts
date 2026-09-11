@@ -1,7 +1,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { dirname, join } from "@std/path";
 import { injectFrontMatter, listPlans, savePlan } from "../../plan-store.js";
-import { getRunWieldRuntimeDir, PLAN_LOCKS_DIR_NAME } from "../../constants.js";
+import { getRunWieldRuntimeDir, PROJECT_INTERNAL_RUNTIME_DIR_NAME } from "../../constants.js";
 import { addEntry, findById, getWorktreeRegistryPath, listEntries } from "../../shared/worktree-registry.js";
 import {
     listTransitionRecoveryRecords,
@@ -623,10 +623,10 @@ Deno.test("plans doctor keeps a journal whose worktree may still hold work", asy
 Deno.test("plans doctor clears an abandoned Plan lock", async () => {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-lock-" });
     try {
-        // Ask where locks live rather than hardcoding it: under a sandboxed test run
-        // they are namespaced per run so two suites cannot block each other.
-        const lockDir = join(getRunWieldRuntimeDir(cwd), PLAN_LOCKS_DIR_NAME);
+        const resolvedCwd = Deno.realPathSync(cwd);
+        const lockDir = join(getRunWieldRuntimeDir(resolvedCwd), PROJECT_INTERNAL_RUNTIME_DIR_NAME, "plan-locks");
         const lockPath = join(lockDir, "demo.lock");
+        const legacyLockPath = join(getRunWieldRuntimeDir(resolvedCwd), "plan-locks", "demo.lock");
         await Deno.mkdir(lockDir, { recursive: true });
         await Deno.writeTextFile(lockPath, JSON.stringify({ pid: 999999, updatedAtMs: 0 }));
         const old = new Date(Date.now() - 60 * 60_000);
@@ -641,6 +641,7 @@ Deno.test("plans doctor clears an abandoned Plan lock", async () => {
         const repaired = await runPlansDoctor(cwd, true);
         assertEquals(repaired.repaired >= 1, true);
         assertEquals(await Deno.stat(lockPath).then(() => true).catch(() => false), false);
+        assertEquals(await Deno.stat(legacyLockPath).then(() => true).catch(() => false), false);
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }

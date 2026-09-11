@@ -976,6 +976,7 @@ Deno.test("legacy migration blocks active Work Record supersession and recovery 
         const lockPath = join(getRunWieldRuntimeDir(supersession.selectedRoot), "work-record-supersession.lock");
         supersessionChild = spawnDriver("hold-work-record-lock", supersession.selectedRoot);
         await readReadyLine(supersessionChild.stdout);
+        assertEquals(typeof JSON.parse(await Deno.readTextFile(lockPath)).token, "string");
         const result = await migrateLegacyProjectRuntimeState(supersession.selectedRoot);
         if (result.kind !== "blocked") throw new Error(`Expected blocked, got ${result.kind}`);
         assertEquals(result.reason, "active_legacy_writer");
@@ -992,6 +993,7 @@ Deno.test("legacy migration blocks active Work Record supersession and recovery 
         const lockPath = join(getRunWieldRuntimeDir(recovery.selectedRoot), "work-record-supersession-recovery.lock");
         recoveryChild = spawnDriver("hold-work-record-recovery-lock", recovery.selectedRoot);
         await readReadyLine(recoveryChild.stdout);
+        assertEquals(typeof JSON.parse(await Deno.readTextFile(lockPath)).token, "string");
         const result = await migrateLegacyProjectRuntimeState(recovery.selectedRoot);
         if (result.kind !== "blocked") throw new Error(`Expected blocked, got ${result.kind}`);
         assertEquals(result.reason, "active_legacy_writer");
@@ -1028,6 +1030,7 @@ Deno.test("legacy migration blocks active Plan locks held by a subprocess", asyn
         const lockPath = join(getRunWieldRuntimeDir(project.selectedRoot), "plan-locks", "demo.lock");
         child = spawnDriver("hold-plan-lock", project.selectedRoot, "demo");
         await readReadyLine(child.stdout);
+        assertEquals(typeof JSON.parse(await Deno.readTextFile(lockPath)).pid, "number");
         const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
         if (result.kind !== "blocked") throw new Error(`Expected blocked, got ${result.kind}`);
         assertEquals(result.reason, "active_legacy_writer");

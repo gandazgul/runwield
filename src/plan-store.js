@@ -17,11 +17,9 @@ import { basename, dirname, join, relative, resolve } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
     CLI_BIN,
-    getRunWieldRuntimeDir,
     isPlannedChangeClassification,
     normalizePlanClassification,
     normalizeWorkKind,
-    PLAN_LOCKS_DIR_NAME,
     PLANS_DIR_NAME,
     ROUTING_INTENT_PLANNED_CHANGE,
 } from "./constants.js";
@@ -33,6 +31,7 @@ import { resolvePrimaryCheckoutRoot } from "./shared/primary-checkout.ts";
 import { writePlanDocumentAndController } from "./shared/workflow/state-transition.ts";
 import { escapeYamlDoubleQuoted } from "./shared/yaml-scalar.ts";
 import { pickControllerState, PLAN_RUNTIME_FIELDS, stripRuntimeFields } from "./shared/workflow/controller-state.ts";
+import { resolveProjectRuntimeLayout } from "./shared/project-runtime-layout.ts";
 import {
     bindControllerPlanIdentity,
     finishControllerPlanIdentity,
@@ -1666,7 +1665,7 @@ export async function withPlanLock(cwd, planName, fn) {
     const key = `${resolve(cwd)}:${lockSafeSegment(planName)}`;
     return await withProcessAwarePlanLock(
         key,
-        join(getRunWieldRuntimeDir(cwd), PLAN_LOCKS_DIR_NAME, `${lockSafeSegment(planName)}.lock`),
+        join(resolveProjectRuntimeLayout(cwd).selected.planLocksDir, `${lockSafeSegment(planName)}.lock`),
         fn,
     );
 }
@@ -1681,7 +1680,7 @@ export async function withPlanCatalogLock(cwd, fn) {
     const key = `${resolve(cwd)}:catalog`;
     return await withProcessAwarePlanLock(
         key,
-        join(getRunWieldRuntimeDir(cwd), PLAN_LOCKS_DIR_NAME, "catalog.lock"),
+        resolveProjectRuntimeLayout(cwd).selected.planCatalogLockPath,
         fn,
     );
 }
