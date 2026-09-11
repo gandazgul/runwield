@@ -620,6 +620,7 @@ async function writeVisionModelConfig(tempHome) {
                         { id: "model", input: ["text"] },
                         { id: "text", input: ["text"] },
                         { id: "vision", input: ["text", "image"] },
+                        { id: "cli", input: ["text"], executionBackend: "claude-cli" },
                     ],
                 },
             },
@@ -744,12 +745,13 @@ Deno.test("Validation Repair Engineer thinking falls back through repair, Engine
             });
             sessions.push(engineerFallback.session);
             assertEquals(engineerFallback.resolvedThinkingLevel, "high");
+            assertEquals(engineerFallback.resolvedModel.id, "text");
 
             await Deno.writeTextFile(
                 settingsPath,
                 JSON.stringify({
                     agents: {
-                        engineer: { thinkingLevel: "high" },
+                        engineer: { model: "test/model", thinkingLevel: "high" },
                         [AGENTS.REVIEWER_FEEDBACK_ENGINEER]: { thinkingLevel: "minimal" },
                     },
                     defaultThinkingLevel: "low",
@@ -759,11 +761,31 @@ Deno.test("Validation Repair Engineer thinking falls back through repair, Engine
             const repairSpecific = await buildAgentSession({
                 cwd: tempHome,
                 agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
-                modelOverride: "test/text",
                 subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
             });
             sessions.push(repairSpecific.session);
             assertEquals(repairSpecific.resolvedThinkingLevel, "minimal");
+            assertEquals(repairSpecific.resolvedModel.id, "model");
+
+            await Deno.writeTextFile(
+                settingsPath,
+                JSON.stringify({
+                    agents: {
+                        engineer: { thinkingLevel: "high" },
+                        [AGENTS.REVIEWER_FEEDBACK_ENGINEER]: { thinkingLevel: "off" },
+                    },
+                    defaultThinkingLevel: "low",
+                }),
+            );
+            __resetSettingsForTests();
+            const repairOff = await buildAgentSession({
+                cwd: tempHome,
+                agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
+                modelOverride: "test/text",
+                subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
+            });
+            sessions.push(repairOff.session);
+            assertEquals(repairOff.resolvedThinkingLevel, "off");
 
             await Deno.writeTextFile(
                 settingsPath,
@@ -842,7 +864,7 @@ Deno.test("Validation Repair Engineer thinking falls back through repair, Engine
     });
 });
 
-Deno.test("Validation Repair Engineer thinking fallback reaches execution session construction", async () => {
+Deno.test("Validation Repair Engineer thinking fallback reaches CLI execution session construction", async () => {
     await withProcessGlobalTestLock(async () => {
         const originalHome = Deno.env.get("HOME");
         const tempHome = await Deno.makeTempDir({ prefix: "runwield-repair-thinking-execution-" });
@@ -854,7 +876,7 @@ Deno.test("Validation Repair Engineer thinking fallback reaches execution sessio
                 JSON.stringify({
                     agents: {
                         engineer: { thinkingLevel: "high" },
-                        [AGENTS.REVIEWER_FEEDBACK_ENGINEER]: { model: "test/text" },
+                        [AGENTS.REVIEWER_FEEDBACK_ENGINEER]: { model: "claude-cli/sonnet" },
                     },
                     defaultThinkingLevel: "low",
                 }),
@@ -864,9 +886,9 @@ Deno.test("Validation Repair Engineer thinking fallback reaches execution sessio
             const built = await buildExecutionSession({
                 cwd: tempHome,
                 agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
-                modelOverride: "test/text",
                 subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
             });
+            assertEquals(built.resolvedModel.executionBackend, "claude-cli");
             assertEquals(built.resolvedThinkingLevel, "high");
             built.session.dispose();
         } finally {

@@ -60,13 +60,41 @@ Deno.test("root-session opens a validated transcript stored under the Project se
                 "outside the RunWield session directory",
             );
 
+            await assertRejects(
+                () =>
+                    openPersistedRootSession({
+                        cwd: worktreeRoot,
+                        sessionId: "worktree-header",
+                        sessionPath: transcriptPath,
+                        sessionDir: projectSessionDir,
+                    }),
+                Error,
+                "managed Project evidence",
+            );
+
+            await assertRejects(
+                () =>
+                    openPersistedRootSession({
+                        cwd: projectRoot,
+                        sessionId: "worktree-header",
+                        sessionPath: transcriptPath,
+                        sessionDir: projectSessionDir,
+                        managedProjectRoot: projectRoot,
+                        managedSegmentCwd: projectRoot,
+                    }),
+                Error,
+                "Persisted session cwd does not match requested cwd",
+            );
+
             opened = await openPersistedRootSession({
                 cwd: worktreeRoot,
                 sessionId: "worktree-header",
                 sessionPath: transcriptPath,
                 sessionDir: projectSessionDir,
+                managedProjectRoot: projectRoot,
+                managedSegmentCwd: worktreeRoot,
             });
-            assertEquals(opened.resolved.cwd, worktreeRoot);
+            assertEquals(opened.resolved.cwd, await Deno.realPath(worktreeRoot));
             assertEquals(opened.resolved.sessionDir, projectSessionDir);
             assertEquals(opened.resolved.sessionPath, transcriptPath);
             assertEquals(opened.sessionManager.getSessionId(), "worktree-header");
@@ -79,6 +107,8 @@ Deno.test("root-session opens a validated transcript stored under the Project se
                         sessionId: "wrong-session",
                         sessionPath: transcriptPath,
                         sessionDir: projectSessionDir,
+                        managedProjectRoot: projectRoot,
+                        managedSegmentCwd: worktreeRoot,
                     }),
                 Error,
                 "Persisted session not found",
