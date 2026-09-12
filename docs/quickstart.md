@@ -24,6 +24,15 @@ brew install gandazgul/tap/wld
 brew install gandazgul/tap/mnemoteca
 ```
 
+Windows x64 WinGet packaging is prepared but public catalog availability is pending owner submission and acceptance.
+After acceptance, use:
+
+```powershell
+winget install --id Gandazgul.RunWield --exact
+```
+
+Git for Windows is required and is declared as a package dependency.
+
 To choose a different install directory:
 
 ```bash
@@ -57,6 +66,11 @@ The prepared Homebrew package uses Homebrew dependencies instead of the shell he
 `gandazgul/tap/mnemoteca`, `1broseidon/tap/cymbal`, `1broseidon/tap/ketch`, `agent-browser`, and `git`.
 `agent-browser install` and Mnemoteca model setup still run on first use, not during formula installation. A
 Homebrew-owned `wld update` prints `brew upgrade gandazgul/tap/wld` instead of replacing package files.
+
+The prepared Windows package bundles Mnemoteca, Cymbal, Ketch, and agent-browser beside `wld.exe`. It does not require a
+user-installed Deno, Go, Rust, npm helper install, or WSL. A WinGet-owned `wld update` prints
+`winget upgrade --id Gandazgul.RunWield --exact`. Snip remains optional. Windows arm64 and image clipboard parity are
+not part of this package.
 
 [Mnemoteca]'s model payload is not downloaded by the installer. It is fetched lazily by Mnemoteca on first semantic
 memory use.

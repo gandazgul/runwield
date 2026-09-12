@@ -3,7 +3,7 @@
  * Detect package-manager-owned RunWield installs from metadata beside the executable.
  */
 
-import { dirname, join } from "@std/path";
+import { dirname, isAbsolute, join } from "@std/path";
 
 export type RunWieldPackageManager = "homebrew" | "winget";
 
@@ -75,8 +75,53 @@ export function readRunWieldPackageInstallSync(execPath = Deno.execPath()): RunW
     const metadataPath = packageMetadataPathForExecutablePath(execPath);
     if (!metadataPath) return null;
     try {
-        return parsePackageMetadata(Deno.readTextFileSync(metadataPath));
+        const install = parsePackageMetadata(Deno.readTextFileSync(metadataPath));
+        if (!install) return null;
+        return {
+            ...install,
+            installDirectory: isAbsolute(install.installDirectory)
+                ? install.installDirectory
+                : join(dirname(metadataPath), install.installDirectory),
+        };
     } catch {
         return null;
     }
+}
+
+export function bundledHelperDirectoryForInstall(install: RunWieldPackageInstall): string | null {
+    const helpers = join(install.installDirectory, "runtime", "helpers");
+    const executableSuffix = Deno.build.os === "windows" ? ".exe" : "";
+    for (const name of ["mnemoteca", "cymbal", "ketch", "agent-browser"]) {
+        try {
+            const stat = Deno.statSync(join(helpers, `${name}${executableSuffix}`));
+            if (!stat.isFile) return null;
+        } catch {
+            return null;
+        }
+    }
+    return helpers;
+}
+
+function pathEnvironmentKey(env: Record<string, string>): string {
+    if (Deno.build.os !== "windows") return "PATH";
+    const existing = Object.keys(env).find((key) => key.toLowerCase() === "path");
+    return existing || "Path";
+}
+
+export function prependToPathEnv(env: Record<string, string>, directory: string): Record<string, string> {
+    const key = pathEnvironmentKey(env);
+    const current = env[key] || "";
+    const separator = Deno.build.os === "windows" ? ";" : ":";
+    return { ...env, [key]: current ? `${directory}${separator}${current}` : directory };
+}
+
+export function exposeBundledHelpersSync(execPath = Deno.execPath()): string | null {
+    const install = readRunWieldPackageInstallSync(execPath);
+    if (!install) return null;
+    const helpers = bundledHelperDirectoryForInstall(install);
+    if (!helpers) return null;
+    const env = prependToPathEnv(Deno.env.toObject(), helpers);
+    const key = pathEnvironmentKey(env);
+    Deno.env.set(key, env[key]);
+    return helpers;
 }

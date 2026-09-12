@@ -236,6 +236,9 @@ jobs:
                   tar -cf - "${{ matrix.binary_name }}" | zstd -10 -T0 -o "${ASSET_BASE}.tar.zst"
                   sha256sum "${ASSET_BASE}.tar.gz" > "${ASSET_BASE}.tar.gz.sha256"
                   sha256sum "${ASSET_BASE}.tar.zst" > "${ASSET_BASE}.tar.zst.sha256"
+                  if [[ "${{ matrix.asset_suffix }}" == "windows-x64" ]]; then
+                    deno task package:windows --tag "$VERSION" --binary "${{ matrix.binary_name }}" --output .
+                  fi
 
             - name: Upload build artifact
               uses: actions/upload-artifact@v5
@@ -244,13 +247,46 @@ jobs:
                   path: |
                       *.tar.gz
                       *.tar.zst
+                      *.zip
+                      *.json
                       *.sha256
+
+    windows-package-check:
+        runs-on: windows-latest
+        needs:
+            - metadata
+            - build
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+              with:
+                  ref: ${{ needs.metadata.outputs.tag }}
+
+            - name: Setup Deno
+              uses: denoland/setup-deno@v2
+              with:
+                  deno-version: v2.9.3
+
+            - name: Download Windows package artifact
+              uses: actions/download-artifact@v5
+              with:
+                  name: wld-windows-x64
+                  path: windows-package
+
+            - name: Run native Windows package checks
+              shell: pwsh
+              run: |
+                  $zip = Get-ChildItem windows-package -Filter "wld-*-windows-x64.zip" | Select-Object -First 1
+                  if (-not $zip) { throw "Windows package ZIP not found" }
+                  deno task package:windows:check --package $zip.FullName
 
     release:
         runs-on: ubuntu-latest
         needs:
             - metadata
             - build
+            - windows-package-check
 
         steps:
             - name: Checkout
@@ -278,9 +314,43 @@ jobs:
                   files: |
                       release-artifacts/**/*.tar.gz
                       release-artifacts/**/*.tar.zst
+                      release-artifacts/**/*.zip
+                      release-artifacts/**/*.json
                       release-artifacts/**/*.sha256
                       release-artifacts/SHA256SUMS
                       config.schema.json
+
+    winget-package:
+        runs-on: ubuntu-latest
+        if: needs.metadata.outputs.kind == 'stable'
+        needs:
+            - metadata
+            - release
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+              with:
+                  ref: ${{ needs.metadata.outputs.tag }}
+
+            - name: Setup Deno
+              uses: denoland/setup-deno@v2
+              with:
+                  deno-version: v2.9.3
+
+            - name: Render WinGet manifest artifact
+              run: |
+                  deno task package:winget --tag "${{ needs.metadata.outputs.tag }}" --output winget-manifests
+                  tar -czf "runwield-winget-manifests-${{ needs.metadata.outputs.tag }}.tar.gz" -C winget-manifests .
+                  shasum -a 256 "runwield-winget-manifests-${{ needs.metadata.outputs.tag }}.tar.gz" > "runwield-winget-manifests-${{ needs.metadata.outputs.tag }}.tar.gz.sha256"
+
+            - name: Upload WinGet manifest artifact
+              uses: actions/upload-artifact@v5
+              with:
+                  name: runwield-winget-manifests-${{ needs.metadata.outputs.tag }}
+                  path: |
+                      runwield-winget-manifests-${{ needs.metadata.outputs.tag }}.tar.gz
+                      runwield-winget-manifests-${{ needs.metadata.outputs.tag }}.tar.gz.sha256
 
     homebrew-package:
         runs-on: ubuntu-latest
