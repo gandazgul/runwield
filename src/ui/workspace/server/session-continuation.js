@@ -1002,6 +1002,39 @@ export class WorkspaceSessionContinuationService {
                 generation: operation?.generation ?? null,
             };
         }
+        let preparedSessionId = "";
+        if ((options.images || []).length > 0) {
+            try {
+                const created = await this.runtime.createInteractiveSession({
+                    cwd: project.currentRoot,
+                    mode: "new",
+                    deferManagedActivationUntilAgentReady: true,
+                });
+                preparedSessionId = created.sessionId;
+                if (launch.model) {
+                    const modelResult = await this.runtime.reconfigureSessionModel(
+                        preparedSessionId,
+                        launch.model,
+                        launch.provider,
+                    );
+                    if (!modelResult?.ok) throw new Error("Selected model could not be applied.");
+                }
+                if (launch.thinkingLevel !== "default") {
+                    const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (launch.thinkingLevel);
+                    const thinkingResult = await this.runtime.setSessionThinkingLevel(preparedSessionId, thinkingLevel);
+                    if (!thinkingResult?.ok) throw new Error("Selected thinking level could not be applied.");
+                }
+                const preflight = await this.runtime.preflightUserTurnImages(preparedSessionId, {
+                    initialRequest: options.text,
+                    initialImages: options.images || [],
+                    agentName: launch.agentName,
+                });
+                if (!preflight.ok) throw new Error(preflight.message);
+            } catch (error) {
+                if (preparedSessionId) this.runtime.closeSessionWhenIdle(preparedSessionId);
+                throw error;
+            }
+        }
         const operationId = crypto.randomUUID();
         this.createRequests.set(createKey, { requestHash, operationId });
         this.setOperation(operationId, {
@@ -1011,15 +1044,17 @@ export class WorkspaceSessionContinuationService {
             runwieldSessionId: null,
         });
         queueMicrotask(async () => {
-            let sessionId = "";
+            let sessionId = preparedSessionId;
             let unsubscribe = () => {};
             try {
-                const created = await this.runtime.createInteractiveSession({
-                    cwd: project.currentRoot,
-                    mode: "new",
-                    deferManagedActivationUntilAgentReady: true,
-                });
-                sessionId = created.sessionId;
+                if (!sessionId) {
+                    const created = await this.runtime.createInteractiveSession({
+                        cwd: project.currentRoot,
+                        mode: "new",
+                        deferManagedActivationUntilAgentReady: true,
+                    });
+                    sessionId = created.sessionId;
+                }
                 this.setOperation(operationId, {
                     ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
                     status: "running",
@@ -1030,18 +1065,20 @@ export class WorkspaceSessionContinuationService {
                 unsubscribe = this.runtime.subscribeSessionEvents(sessionId, (event) => {
                     this.appendOperationEvent(operationId, event);
                 });
-                if (launch.model) {
-                    const modelResult = await this.runtime.reconfigureSessionModel(
-                        sessionId,
-                        launch.model,
-                        launch.provider,
-                    );
-                    if (!modelResult?.ok) throw new Error("Selected model could not be applied.");
-                }
-                if (launch.thinkingLevel !== "default") {
-                    const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (launch.thinkingLevel);
-                    const thinkingResult = await this.runtime.setSessionThinkingLevel(sessionId, thinkingLevel);
-                    if (!thinkingResult?.ok) throw new Error("Selected thinking level could not be applied.");
+                if (!preparedSessionId) {
+                    if (launch.model) {
+                        const modelResult = await this.runtime.reconfigureSessionModel(
+                            sessionId,
+                            launch.model,
+                            launch.provider,
+                        );
+                        if (!modelResult?.ok) throw new Error("Selected model could not be applied.");
+                    }
+                    if (launch.thinkingLevel !== "default") {
+                        const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (launch.thinkingLevel);
+                        const thinkingResult = await this.runtime.setSessionThinkingLevel(sessionId, thinkingLevel);
+                        if (!thinkingResult?.ok) throw new Error("Selected thinking level could not be applied.");
+                    }
                 }
                 const result = await this.runtime.promptUserTurn(sessionId, {
                     initialRequest: options.text,
@@ -1128,6 +1165,31 @@ export class WorkspaceSessionContinuationService {
             expectedGeneration: options.expectedGeneration,
         });
         if (!decision.ok) throw new Error(decision.message);
+        let preflightAdopted = null;
+        if ((options.images || []).length > 0) {
+            try {
+                preflightAdopted = this.runtime.adoptManagedSession({
+                    session,
+                    generation: options.expectedGeneration,
+                    activeAgent: committedFacts.activeAgent,
+                    model: committedFacts.model,
+                    provider: committedFacts.provider,
+                    thinkingLevel: committedFacts.thinkingLevel,
+                    workflowContext:
+                        /** @type {import('../../../shared/session/workflow-context-session.js').WorkflowContext | null} */ (committedFacts
+                            .workflowContext || null),
+                });
+                const preflight = await this.runtime.preflightUserTurnImages(preflightAdopted.sessionId, {
+                    initialRequest: options.text,
+                    initialImages: options.images || [],
+                    agentName: decision.agentName,
+                });
+                if (!preflight.ok) throw new Error(preflight.message);
+            } catch (error) {
+                if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
+                throw error;
+            }
+        }
         const receipt = requireReceipt(this.store.createOrGetOperationReceipt({
             deviceId: options.deviceId || null,
             requestId: options.requestId,
@@ -1138,12 +1200,14 @@ export class WorkspaceSessionContinuationService {
             kind: "continuation",
         }));
         if (this.operations.has(receipt.operationId)) {
+            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
             return {
                 operationId: receipt.operationId,
                 status: this.operations.get(receipt.operationId)?.status || "running",
             };
         }
         if (receipt.status !== "accepted") {
+            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
             return { operationId: receipt.operationId, status: receipt.status, generation: receipt.resultGeneration };
         }
         this.store.updateOperationReceipt(receipt.operationId, { status: "running" });
@@ -1154,7 +1218,7 @@ export class WorkspaceSessionContinuationService {
             runwieldSessionId: options.runwieldSessionId,
             expectedGeneration: options.expectedGeneration,
         });
-        const adopted = this.runtime.adoptManagedSession({
+        const adopted = preflightAdopted || this.runtime.adoptManagedSession({
             session,
             generation: options.expectedGeneration,
             activeAgent: committedFacts.activeAgent,

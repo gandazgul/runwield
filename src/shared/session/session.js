@@ -91,7 +91,13 @@ import {
     resolveAgentDefsDir as _resolveAgentDefsDir,
     resolveSessionToolNames,
 } from "./agents.js";
-import { getCustomSetting, getMergedCustomSetting, getSettingsDir, getSettingsManager } from "../settings.js";
+import {
+    getCustomSetting,
+    getMergedCustomSetting,
+    getResolvedVisionFallbackModelSetting,
+    getSettingsDir,
+    getSettingsManager,
+} from "../settings.js";
 import { modelSupportsImageInput, prepareImagesForModel, resolveVisionFallbackModel } from "./image-attachments.js";
 import { readPersistedActiveAgentName, readPersistedModelState, recordActiveAgent } from "./active-agent-session.js";
 import { extractBundledSkills, getBundledAgentDefsPath } from "./agent-assets.js";
@@ -680,11 +686,13 @@ export async function steerAgentSessionWithTarget(session, text, images) {
     if (!session.isStreaming) return null;
     if (typeof session.steer !== "function") return null;
     const activeModel = session.model || { input: ["text", "image"] };
+    const projectRoot = /** @type {any} */ (session).runWieldProjectRoot;
     const fallback = images && images.length > 0 && session.model && !modelSupportsImageInput(session.model)
         ? await resolveVisionFallbackModel(
             /** @type {any} */ (session).runWieldModelRegistry || /** @type {any} */ (session).modelRegistry ||
                 getModelRegistry(),
             SYSTEM_MODEL_DISCOVERY_NETWORK,
+            projectRoot,
         )
         : undefined;
     const prepared = prepareImagesForModel({
@@ -1121,7 +1129,7 @@ function emitAgentModelFallback(hostedSession, agentName, displayName, engineerM
  *
  * @returns {Promise<any>}
  */
-async function resolveModel(
+export async function resolveModel(
     modelOverride,
     agentDef,
     agentName,
@@ -2039,9 +2047,9 @@ export async function buildAgentSession({
     );
     assertModelExecutionBackendSupported(resolvedModel);
     const activeModelSupportsImages = modelSupportsImageInput(resolvedModel);
-    const visionFallback = activeModelSupportsImages
+    const visionFallbackModelRef = activeModelSupportsImages
         ? undefined
-        : await resolveVisionFallbackModel(modelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK);
+        : getResolvedVisionFallbackModelSetting(sessionCwd);
     const effectiveSessionManager = sessionManager || SessionManager.inMemory(sessionCwd);
 
     const customToolNames = (customTools || []).map((t) => t.name);
@@ -2062,7 +2070,7 @@ export async function buildAgentSession({
             if (!tools.includes(tool.name)) tools.push(tool.name);
         }
     }
-    if (!activeModelSupportsImages && visionFallback && !tools.includes("see_image")) {
+    if (!activeModelSupportsImages && visionFallbackModelRef && !tools.includes("see_image")) {
         tools = [...tools, "see_image"];
     }
 
@@ -2182,11 +2190,12 @@ export async function buildAgentSession({
         finalCustomTools.push(createEditDocsToolDefinition(sessionCwd));
     }
 
-    if (tools.includes("see_image") && visionFallback && !finalCustomTools.find((t) => t.name === "see_image")) {
+    if (
+        tools.includes("see_image") && visionFallbackModelRef && !finalCustomTools.find((t) => t.name === "see_image")
+    ) {
         finalCustomTools.push(createSeeImageTool({
             cwd: sessionCwd,
             sessionManager: effectiveSessionManager,
-            fallbackModel: visionFallback.model,
             completeSimpleFn: completeSimple,
         }));
     }
@@ -2259,6 +2268,7 @@ export async function buildAgentSession({
     });
     applyNamedInvocationExpansionToPiSession(session, effectiveSessionManager);
     /** @type {any} */ (session).runWieldModelRegistry = modelRegistry;
+    /** @type {any} */ (session).runWieldProjectRoot = sessionCwd;
     installEarlySteeringInterruption(/** @type {any} */ (session));
     installEngineerAutoCompactionThreshold(session, agentName);
     installTaskCompletedAutoCompactionExclusion(session);
@@ -2309,7 +2319,7 @@ export async function buildAgentSession({
     // Ensure extension lifecycle hooks (e.g. session_start) are activated for this agent invocation.
     await session.bindExtensions({});
 
-    const imageMode = activeModelSupportsImages ? "direct" : (visionFallback ? "fallback" : "blocked");
+    const imageMode = activeModelSupportsImages ? "direct" : (visionFallbackModelRef ? "fallback" : "blocked");
     await recordWorkflowMetric({
         category: "model_selection",
         event: "session_configured",
@@ -2326,7 +2336,7 @@ export async function buildAgentSession({
                 ? modelSelectionSourceByModel.get(resolvedModel)
                 : undefined,
             imageMode,
-            hasVisionFallback: Boolean(visionFallback),
+            hasVisionFallback: Boolean(visionFallbackModelRef),
             resolvedThinkingLevel,
             thinkingLevelSource,
             temperatureConfigured: resolvedTemperature !== undefined,
@@ -2344,7 +2354,7 @@ export async function buildAgentSession({
         resolvedTemperature,
         contextProjection,
         imageMode,
-        visionFallbackModelRef: visionFallback?.modelRef,
+        visionFallbackModelRef,
     };
 }
 
@@ -3407,11 +3417,13 @@ export async function runPrompt({
 }) {
     subscriberState.resetTurn();
 
+    const projectRoot = cwd || /** @type {any} */ (session).runWieldProjectRoot;
     const fallback = images && images.length > 0 && !modelSupportsImageInput(session.model)
         ? await resolveVisionFallbackModel(
             /** @type {any} */ (session).runWieldModelRegistry || /** @type {any} */ (session).modelRegistry ||
                 getModelRegistry(),
             SYSTEM_MODEL_DISCOVERY_NETWORK,
+            projectRoot,
         )
         : undefined;
     const preparedImages = prepareImagesForModel({

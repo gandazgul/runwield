@@ -1163,7 +1163,16 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 setMessage("");
             }
         } catch (error) {
-            await saveSessionDraft(requestKey, JSON.stringify({ ...envelope, status: "network-error" }));
+            setPendingUserMessages([]);
+            const errorRecord = asRecord(error);
+            const status = Number(errorRecord.status || 0);
+            await saveSessionDraft(
+                requestKey,
+                JSON.stringify({
+                    ...envelope,
+                    status: status === 422 ? "validation-error" : "network-error",
+                }),
+            );
             setMessage(errorMessage(error));
         } finally {
             setSubmitting(false);
@@ -1393,7 +1402,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 queueContinuation(envelope);
                 return;
             }
-            const nextStatus = status === 503 ? "unavailable" : "network-error";
+            const nextStatus = status === 503 ? "unavailable" : (status === 422 ? "validation-error" : "network-error");
             await saveSessionDraft(requestKey, JSON.stringify({ ...envelope, status: nextStatus }));
             if (status === 503) await loadTimeline();
             setMessage(errorMessage(error));

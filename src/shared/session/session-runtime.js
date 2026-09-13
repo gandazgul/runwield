@@ -18,7 +18,7 @@ import {
     resolveResumeAgentName,
 } from "./active-agent-session.js";
 import { resolveActiveWorkflowRuntimeAgent, resolvePlanExecutionRuntimeAgent } from "../workflow/execution-agent.ts";
-import { getAgentDisplayName } from "./agents.js";
+import { getAgentDisplayName, loadAgentDef } from "./agents.js";
 import { runActiveAgentTurn, switchActiveAgent } from "./agent-switching.js";
 import {
     abortActiveSession as abortActiveSessionFn,
@@ -31,6 +31,7 @@ import {
     listLoadedAgentMdFiles,
     listPromptTemplates,
     listSkills,
+    resolveModel,
     runIsolatedAgentSession,
     steerActiveSessionWithTarget,
     steerAgentSessionWithTarget,
@@ -218,6 +219,7 @@ async function resolvePersistedRootConfiguration(agentName, sessionManager, cwd)
  * @property {boolean} [emitInitialEvents]
  * @property {boolean} [suppressEpicContinuation]
  * @property {string} [modelRequest]
+ * @property {string} [modelOverride]
  * @property {import('./named-invocation.ts').NamedInvocationPayload} [namedInvocationPayload]
  * @property {AbortSignal} [signal]
  */
@@ -2089,8 +2091,55 @@ export class SessionRuntime {
             (modelProvider && modelId ? modelRegistry.find(modelProvider, modelId) : undefined);
         let fallbackModelRef;
         if (images.length > 0 && !modelSupportsImageInput(activeModel)) {
-            fallbackModelRef = (await resolveVisionFallbackModel(modelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK))
-                ?.modelRef;
+            fallbackModelRef = (await resolveVisionFallbackModel(
+                modelRegistry,
+                SYSTEM_MODEL_DISCOVERY_NETWORK,
+                session.cwd,
+            ))?.modelRef;
+        }
+        return preflightImageAttachments(images, { activeModel, fallbackModelRef });
+    }
+
+    /**
+     * @param {string} sessionId
+     * @param {PromptSessionOptions} options
+     */
+    async preflightUserTurnImages(sessionId, options) {
+        const session = this.#sessionHost.getSession(sessionId);
+        if (!session) return { ok: false, message: "Runtime session not found." };
+        const images = options.initialImages || [];
+        if (images.length === 0) return { ok: true, mode: "none" };
+        const namedInvocation = await resolveNamedInvocation({
+            cwd: session.cwd,
+            text: options.initialRequest,
+            images,
+        });
+        const activeAgentInfo = session.getActiveAgentInfo?.() || null;
+        const agentName = namedInvocation.kind === "prompt_template"
+            ? namedInvocation.agentName
+            : options.agentName || activeAgentInfo?.agentName || session.getRootAgentName?.() || AGENTS.ROUTER;
+        const modelOverride = namedInvocation.kind === "prompt_template"
+            ? namedInvocation.model
+            : options.modelOverride;
+        const ignoreManualModelOverride = namedInvocation.kind === "prompt_template";
+        const agentDef = await loadAgentDef(agentName, session.cwd);
+        const modelRegistry = getModelRegistry();
+        const activeModel = await resolveModel(
+            modelOverride,
+            agentDef,
+            agentName,
+            modelRegistry,
+            session,
+            session.cwd,
+            { ignoreManualModelOverride },
+        );
+        let fallbackModelRef;
+        if (!modelSupportsImageInput(activeModel)) {
+            fallbackModelRef = (await resolveVisionFallbackModel(
+                modelRegistry,
+                SYSTEM_MODEL_DISCOVERY_NETWORK,
+                session.cwd,
+            ))?.modelRef;
         }
         return preflightImageAttachments(images, { activeModel, fallbackModelRef });
     }
@@ -3641,6 +3690,13 @@ export class SessionRuntime {
                     let result = null;
                     if (!hostedSession.beginTurn(turnId)) throw new SessionTurnInProgressError(hostedSession.id);
                     try {
+                        const imagePreflight = await this.preflightUserTurnImages(hostedSession.id, {
+                            initialRequest: invocation.payload.compactInvocation,
+                            initialImages: options.initialImages || [],
+                            agentName: invocation.agentName,
+                            modelOverride: invocation.model,
+                        });
+                        if (!imagePreflight.ok) throw new Error(imagePreflight.message);
                         const images = await this.#persistPendingPromptImages(
                             hostedSession,
                             options.initialImages || [],
@@ -3768,18 +3824,21 @@ export class SessionRuntime {
         const deferredFirstTurnId = isDeferredFirstTurn ? crypto.randomUUID() : "";
         let deferredBusyStarted = false;
         if (isDeferredFirstTurn) {
-            this.#emitSessionEvent(hostedSession.id, {
-                type: RuntimeEventTypes.USER_MESSAGE,
-                turnId: deferredFirstTurnId,
-                text: displayRequest,
-                images: (options.initialImages || []).map((image) => ({ ...image })),
-            });
-            this.#emitSessionEvent(hostedSession.id, {
-                type: RuntimeEventTypes.TURN_START,
-                turnId: deferredFirstTurnId,
-            });
-            this.#beginBusyOperation(sessionId, deferredFirstTurnId);
-            deferredBusyStarted = true;
+            const hasInitialImages = (options.initialImages || []).length > 0;
+            if (!hasInitialImages) {
+                this.#emitSessionEvent(hostedSession.id, {
+                    type: RuntimeEventTypes.USER_MESSAGE,
+                    turnId: deferredFirstTurnId,
+                    text: displayRequest,
+                    images: (options.initialImages || []).map((image) => ({ ...image })),
+                });
+                this.#emitSessionEvent(hostedSession.id, {
+                    type: RuntimeEventTypes.TURN_START,
+                    turnId: deferredFirstTurnId,
+                });
+                this.#beginBusyOperation(sessionId, deferredFirstTurnId);
+                deferredBusyStarted = true;
+            }
             const activeAgentInfo = hostedSession.getActiveAgentInfo?.() || null;
             const agentName = options.agentName || activeAgentInfo?.agentName || AGENTS.ROUTER;
             hostedSession.mergePendingManagedTurnIntent?.({ agentName });
@@ -3807,7 +3866,12 @@ export class SessionRuntime {
             managed = hostedSession.getManagedMetadata() || managed;
         }
         const requestOptions = deferredFirstTurnId
-            ? { ...options, initialRequest: displayRequest, turnId: deferredFirstTurnId, emitInitialEvents: false }
+            ? {
+                ...options,
+                initialRequest: displayRequest,
+                turnId: deferredFirstTurnId,
+                emitInitialEvents: (options.initialImages || []).length > 0 ? undefined : false,
+            }
             : { ...options, initialRequest: displayRequest };
         const buildResult = (
             /** @type {{ ok: boolean, turns: number, error?: string }} */ result,
@@ -5029,6 +5093,8 @@ export class SessionRuntime {
             /** @type {{ ok: boolean, turns: number, error?: string, replacementSessionId?: string } | null} */ (null);
 
         try {
+            const imagePreflight = await this.preflightSessionImages(sessionId, images);
+            if (!imagePreflight.ok) throw new Error(imagePreflight.message);
             const cleanup = options.onTurnStarted?.({ turnId });
             if (typeof cleanup === "function") cleanupTurn = cleanup;
             images = await this.#persistPendingPromptImages(hostedSession, images);

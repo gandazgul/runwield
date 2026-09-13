@@ -221,6 +221,8 @@ Behavior:
 - Text-only active model with fallback: image paste/submission is allowed, RunWield warns that `visionFallback.model`
   will describe images, raw image bytes are withheld from the primary model, and `see_image` can inspect
   `attachment:<uuid>` or safe project-relative image paths.
+- Fallback settings are resolved from the active Project, not from the process working directory. RunWield validates
+  fallback model support and credentials when an image is sent or inspected, not when a text-only Session starts.
 - Text-only active model without fallback: image paste/submission is blocked non-destructively with:
 
 ```text

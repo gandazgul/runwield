@@ -47,6 +47,7 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     materializePromptReadySession: "initializer_adopter",
     persistSessionImage: "fenced_standalone_mutation",
     preflightSessionImages: "read_only",
+    preflightUserTurnImages: "read_only",
     promptManagedSession: "nested_only_mutation",
     promptSession: "fenced_standalone_mutation",
     promptUserTurn: "fenced_standalone_mutation",

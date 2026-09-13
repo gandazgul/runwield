@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import { fromFileUrl, join } from "@std/path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
@@ -911,10 +911,12 @@ Deno.test("buildAgentSession omits see_image for text-only model without fallbac
     });
 });
 
-Deno.test("buildAgentSession fails clearly for invalid vision fallback", async () => {
+Deno.test("buildAgentSession defers invalid optional vision fallback until image use", async () => {
     await withProcessGlobalTestLock(async () => {
         const originalHome = Deno.env.get("HOME");
         const tempHome = await Deno.makeTempDir({ prefix: "runwield-see-image-invalid-fallback-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
+        let session;
         try {
             Deno.env.set("HOME", tempHome);
             __resetSettingsForTests();
@@ -925,18 +927,22 @@ Deno.test("buildAgentSession fails clearly for invalid vision fallback", async (
                     visionFallback: { model: "not-valid" },
                 }),
             );
+            await Deno.writeFile(join(tempHome, "shot.png"), new Uint8Array([1]));
 
-            await assertRejects(
-                () =>
-                    buildAgentSession({
-                        cwd: tempHome,
-                        agentName: "operator",
-                        modelOverride: "test/text",
-                    }),
-                Error,
-                "Invalid visionFallback.model",
-            );
+            const built = await buildAgentSession({
+                cwd: tempHome,
+                agentName: "operator",
+                modelOverride: "test/text",
+            });
+            session = built.session;
+            const seeImage = /** @type {any} */ (built.finalCustomTools.find((tool) => tool.name === "see_image"));
+            assert(seeImage, "expected see_image custom tool");
+            const result = await seeImage.execute("1", { imageRef: "shot.png" }, undefined, undefined, {});
+
+            assertEquals(result.isError, true);
+            assertEquals(result.content[0].text, "Invalid visionFallback.model: not-valid. Use provider/id.");
         } finally {
+            session?.dispose();
             __resetSettingsForTests();
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);

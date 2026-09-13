@@ -403,8 +403,8 @@ and override rules; switching Agents resets model and thinking choices to that A
 
 - When the owner starts a Session with a command, it can use that first message as its list title; an empty Session with
   no title or message does not appear.
-- Given a typed message and image attachments, when sending fails or the browser refreshes, the draft and previews
-  remain available.
+- Given a typed message and image attachments, when sending fails, image setup is invalid, or the browser refreshes, the
+  draft and previews remain available.
 - When a workflow tool finishes, its full report and outcome remain readable in live and saved history and its block
   stops showing Running.
 - When the owner changes Agents through browser controls, the selected Agent, model defaults, and thinking behavior

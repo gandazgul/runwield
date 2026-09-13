@@ -1240,7 +1240,6 @@ Deno.test("SessionRuntime emits the first user message before busy and persisten
         runtime.markPromptReadyAgent(created.sessionId, { agentName: "router" });
         const result = await runtime.promptUserTurn(created.sessionId, {
             initialRequest: "hello",
-            initialImages: [{ base64: btoa("img"), mimeType: "image/png" }],
         });
         assertEquals(result.ok, true);
         await presentationTurn;

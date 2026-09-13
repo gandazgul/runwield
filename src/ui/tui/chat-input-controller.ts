@@ -321,23 +321,18 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             await awaitPendingImagePastes(images);
             images = images.filter((image) => pastedImages.includes(image));
             if (!userRequest && images.length === 0) return;
-            const imagesNeedingPreflight = images.filter((image) => !preflightedImageRefs.has(imageWarningKey(image)));
-            if (imagesNeedingPreflight.length > 0) {
-                const preflight = await preflightCurrentImages(imagesNeedingPreflight);
-                if (!preflight.ok) {
-                    uiAPI.appendSystemMessage(preflight.message);
-                    view.requestRender();
-                    return;
-                }
-                for (const image of imagesNeedingPreflight) preflightedImageRefs.add(imageWarningKey(image));
-                const unwarnedImages = imagesNeedingPreflight.filter((image) =>
-                    !warnedImageRefs.has(imageWarningKey(image))
-                );
-                const submitWarning = getPreflightWarning(preflight);
-                if (submitWarning && unwarnedImages.length > 0) {
-                    uiAPI.appendSystemMessage(submitWarning);
-                    for (const image of unwarnedImages) warnedImageRefs.add(imageWarningKey(image));
-                }
+            const preflight = await preflightCurrentImages(images);
+            if (!preflight.ok) {
+                uiAPI.appendSystemMessage(preflight.message);
+                view.requestRender();
+                return;
+            }
+            for (const image of images) preflightedImageRefs.add(imageWarningKey(image));
+            const unwarnedImages = images.filter((image) => !warnedImageRefs.has(imageWarningKey(image)));
+            const submitWarning = getPreflightWarning(preflight);
+            if (submitWarning && unwarnedImages.length > 0) {
+                uiAPI.appendSystemMessage(submitWarning);
+                for (const image of unwarnedImages) warnedImageRefs.add(imageWarningKey(image));
             }
         }
         endBlink();
