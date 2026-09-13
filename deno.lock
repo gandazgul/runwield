@@ -46,7 +46,7 @@
     "npm:@codemirror/legacy-modes@^6.5.3": "6.5.3",
     "npm:@codemirror/state@^6.7.1": "6.7.1",
     "npm:@codemirror/view@^6.43.6": "6.43.6",
-    "npm:@deno/astro-adapter@0.6": "0.6.0_astro@7.2.9__@emnapi+core@1.11.3__@emnapi+runtime@1.11.3_@emnapi+core@1.11.3_@emnapi+runtime@1.11.3",
+    "npm:@deno/astro-adapter@0.6": "0.6.0_astro@7.3.2__@emnapi+core@1.11.3__@emnapi+runtime@1.11.3_@emnapi+core@1.11.3_@emnapi+runtime@1.11.3",
     "npm:@earendil-works/pi-agent-core@~0.85.1": "0.85.1_@modelcontextprotocol+sdk@1.30.0__zod@4.4.3",
     "npm:@earendil-works/pi-ai@~0.85.1": "0.85.1_@modelcontextprotocol+sdk@1.30.0__zod@4.4.3",
     "npm:@earendil-works/pi-coding-agent@~0.85.1": "0.85.1_@modelcontextprotocol+sdk@1.30.0__zod@4.4.3",
@@ -78,15 +78,13 @@
     "npm:@xterm/headless@5.5.0": "5.5.0",
     "npm:@zag-js/dialog@^1.42.0": "1.42.0",
     "npm:@zag-js/preact@^1.43.0": "1.43.3_preact@10.29.8",
-    "npm:astro@*": "7.2.9_@emnapi+core@1.11.3_@emnapi+runtime@1.11.3",
-    "npm:astro@^7.2.9": "7.2.9_@emnapi+core@1.11.3_@emnapi+runtime@1.11.3",
+    "npm:astro@^7.3.1": "7.3.2_@emnapi+core@1.11.3_@emnapi+runtime@1.11.3",
     "npm:beautiful-mermaid@1.1.3": "1.1.3",
     "npm:beautiful-mermaid@^1.1.3": "1.1.3",
     "npm:chalk@6": "6.0.0",
     "npm:class-variance-authority@~0.7.1": "0.7.1",
     "npm:clsx@^2.1.1": "2.1.1",
     "npm:codemirror@^6.0.2": "6.0.2",
-    "npm:diff@8.0.4": "8.0.4",
     "npm:diff@9": "9.0.0",
     "npm:dockview-react@^8.2.0": "8.2.0_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:dompurify@*": "3.4.11",
@@ -221,10 +219,7 @@
   },
   "npm": {
     "@agentclientprotocol/sdk@1.4.0_zod@4.4.3": {
-      "integrity": "sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg==",
-      "dependencies": [
-        "zod"
-      ]
+      "integrity": "sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg=="
     },
     "@antfu/install-pkg@1.1.0": {
       "integrity": "sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==",
@@ -335,8 +330,8 @@
         "unified"
       ]
     },
-    "@astrojs/internal-helpers@0.10.4": {
-      "integrity": "sha512-nozZSy/mKYLqe4YrqbKtdOszedAfXYCtw3wZ0d+CAjz4GqQ4L9rl1ltIL5BlgwmYVinJg/RZ0MgGuWOdlyRZlA==",
+    "@astrojs/internal-helpers@0.11.0": {
+      "integrity": "sha512-3rzxJ+xbo0+8YyqOzLziIN32wmsHdCjEVz2sGOpRxJ+Ben/KiLph4ItxBy1abEL+E8fkRzqjg0rfXmaHJGw9JA==",
       "dependencies": [
         "@types/hast",
         "@types/mdast",
@@ -372,10 +367,10 @@
       ],
       "bin": true
     },
-    "@astrojs/markdown-satteri@0.3.8": {
-      "integrity": "sha512-n8ItpFTCmlDsVR5+rwDmehSf+jFCYLWmZiisZNGuF7xILqYhsVeBfcha4qgS2Seq3fAc9Tm58ZVrvqFQ6RQgRQ==",
+    "@astrojs/markdown-satteri@0.4.1": {
+      "integrity": "sha512-EniHbFNa6SQHDih7JnpPos3NWXO6hdt4raBcOosfGmlfc3gP9CI/sESA3VOf1PgJZ7SFfewlZW9Livn0JugEZg==",
       "dependencies": [
-        "@astrojs/internal-helpers@0.10.4",
+        "@astrojs/internal-helpers@0.11.0",
         "@astrojs/prism",
         "github-slugger",
         "satteri"
@@ -1080,7 +1075,7 @@
         "w3c-keyname"
       ]
     },
-    "@deno/astro-adapter@0.6.0_astro@7.2.9__@emnapi+core@1.11.3__@emnapi+runtime@1.11.3_@emnapi+core@1.11.3_@emnapi+runtime@1.11.3": {
+    "@deno/astro-adapter@0.6.0_astro@7.3.2__@emnapi+core@1.11.3__@emnapi+runtime@1.11.3_@emnapi+core@1.11.3_@emnapi+runtime@1.11.3": {
       "integrity": "sha512-zltNm5I7MME7Udb5TtAGIfLrfOHiuDG1FrKWDqYbFQ+AurmwxHvfwVCca4f+jfGQY3DnwYLDvb0tnmeI8aUWfg==",
       "dependencies": [
         "astro"
@@ -1920,13 +1915,14 @@
         "json-schema-typed",
         "pkce-challenge",
         "raw-body",
-        "zod",
         "zod-to-json-schema"
       ]
     },
     "@napi-rs/wasm-runtime@1.2.3_@emnapi+core@1.11.1_@emnapi+runtime@1.11.1": {
       "integrity": "sha512-UMduMbqO5s5zF2NkNacMT/yK5Y5QiKvWr2+50bzIIxFDwVJ2h49b+oyjaCGPhJxd2/gC2x39EHv/gHVuu36x2Q==",
       "dependencies": [
+        "@emnapi/core@1.11.1",
+        "@emnapi/runtime@1.11.1",
         "@tybys/wasm-util"
       ]
     },
@@ -4110,11 +4106,11 @@
     "aria-query@5.3.2": {
       "integrity": "sha512-COROpnaoap1E2F000S62r6A60uHZnmlvomhfyT2DlTcrY1OrBKn2UhH7qn5wTC9zMvD0AY7csdPSNwKP+7WiQw=="
     },
-    "astro@7.2.9_@emnapi+core@1.11.3_@emnapi+runtime@1.11.3": {
-      "integrity": "sha512-o5nZFo/bieF6rp4x9sQSLhI7GO7Bahpld38Y4LvX27nFoxNiuttjI+Hea81w5ksORLHgdPUlQpU9obPz5QRa8g==",
+    "astro@7.3.2_@emnapi+core@1.11.3_@emnapi+runtime@1.11.3": {
+      "integrity": "sha512-ysTcdpGP61XZpHoMRYC/CK19DQ94qkBvzXMtXEo0gEqPNkmOU/Tv++CtWmzaI4nF2Ck8RXFdiWvdlTWa2oOr9w==",
       "dependencies": [
         "@astrojs/compiler-rs",
-        "@astrojs/internal-helpers@0.10.4",
+        "@astrojs/internal-helpers@0.11.0",
         "@astrojs/markdown-satteri",
         "@astrojs/telemetry",
         "@capsizecss/unpack",
@@ -6874,13 +6870,10 @@
       "integrity": "sha512-4LCcse/U2MHZ63HAJVE+v71o7yOdIe4cZ70Wpf8D/IyjDKYQLV5GD46B+hSTjJsvV5PztjvHoU580EftxjDZFQ=="
     },
     "zod-to-json-schema@3.25.2_zod@4.4.3": {
-      "integrity": "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==",
-      "dependencies": [
-        "zod"
-      ]
+      "integrity": "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="
     },
-    "zod@4.4.3": {
-      "integrity": "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="
+    "zod@4.6.2": {
+      "integrity": "sha512-lh5RCAGFa1Cm2hjtNwLQhSs/AsqdWnTQaBER9fEwN/88pSh7KOtJavtBx/0VlkN/uFd61SwYmljLMDAsHlvzBQ=="
     },
     "zwitch@2.0.4": {
       "integrity": "sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A=="
@@ -7007,7 +7000,7 @@
       "npm:@xterm/headless@5.5.0",
       "npm:@zag-js/dialog@^1.42.0",
       "npm:@zag-js/preact@^1.43.0",
-      "npm:astro@^7.2.9",
+      "npm:astro@^7.3.1",
       "npm:beautiful-mermaid@^1.1.3",
       "npm:chalk@6",
       "npm:class-variance-authority@~0.7.1",
@@ -7036,11 +7029,6 @@
       "npm:typescript@^5.9.3",
       "npm:unique-username-generator@^1.5.1",
       "npm:vite@^8.1.5"
-    ],
-    "packageJson": {
-      "dependencies": [
-        "npm:diff@8.0.4"
-      ]
-    }
+    ]
   }
 }
