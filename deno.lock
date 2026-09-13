@@ -86,7 +86,6 @@
     "npm:class-variance-authority@~0.7.1": "0.7.1",
     "npm:clsx@^2.1.1": "2.1.1",
     "npm:codemirror@^6.0.2": "6.0.2",
-    "npm:diff@8.0.4": "8.0.4",
     "npm:diff@9": "9.0.0",
     "npm:dockview-react@^8.2.0": "8.2.0_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:dompurify@*": "3.4.11",
@@ -95,7 +94,7 @@
     "npm:fuse.js@^7.4.2": "7.4.2",
     "npm:highlight.js@^11.11.1": "11.11.1",
     "npm:katex@~0.18.4": "0.18.5",
-    "npm:lucide-react@^1.25.0": "1.26.0_react@19.2.7",
+    "npm:lucide-react@^1.41.0": "1.45.0_react@19.2.7",
     "npm:marked@^18.0.11": "18.0.11",
     "npm:mermaid@^11.16.0": "11.16.0",
     "npm:motion@^13.1.1": "13.2.0_react@19.2.7_react-dom@19.2.7__react@19.2.7",
@@ -5579,8 +5578,8 @@
     "lru_map@0.4.1": {
       "integrity": "sha512-I+lBvqMMFfqaV8CJCISjI3wbjmwVu/VyOoU7+qtu9d7ioW5klMgsTTiUOUp+DJvfTTzKXoPbyC6YfgkNcyPSOg=="
     },
-    "lucide-react@1.26.0_react@19.2.7": {
-      "integrity": "sha512-raglYVR2+VkMfJL158krjVmE+rV5ST2lzA/KQm1FRSjMHT4MnWaegHxoVEpmc2So3nOEhp9oGejJwAPX8MoAjg==",
+    "lucide-react@1.45.0_react@19.2.7": {
+      "integrity": "sha512-yH1ubCAduho9UR7oJhRXIQXogksRILBiTuZC4/bQIGeB9JOkxMlSuEHyyZpo1Z3S0yWJO2KTSUZbjiNvVxeOUw==",
       "dependencies": [
         "react"
       ]
@@ -7020,7 +7019,7 @@
       "npm:fuse.js@^7.4.2",
       "npm:highlight.js@^11.11.1",
       "npm:katex@~0.18.4",
-      "npm:lucide-react@^1.25.0",
+      "npm:lucide-react@^1.41.0",
       "npm:marked@^18.0.11",
       "npm:mermaid@^11.16.0",
       "npm:motion@^13.1.1",
@@ -7036,11 +7035,6 @@
       "npm:typescript@^5.9.3",
       "npm:unique-username-generator@^1.5.1",
       "npm:vite@^8.1.5"
-    ],
-    "packageJson": {
-      "dependencies": [
-        "npm:diff@8.0.4"
-      ]
-    }
+    ]
   }
 }
