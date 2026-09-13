@@ -70,7 +70,7 @@
     "npm:@radix-ui/react-tabs@^1.1.21": "1.1.21_@types+react@19.2.18_@types+react-dom@19.2.3__@types+react@19.2.18_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@radix-ui/react-tooltip@^1.2.12": "1.2.12_@types+react@19.2.18_@types+react-dom@19.2.3__@types+react@19.2.18_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@tailwindcss/vite@^4.3.3": "4.3.3_vite@8.2.0__esbuild@0.28.2_esbuild@0.28.2",
-    "npm:@tanstack/react-table@^8.21.3": "8.21.3_react@19.2.7_react-dom@19.2.7__react@19.2.7",
+    "npm:@tanstack/react-table@^9.2.4": "9.2.4_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@types/react-dom@^19.2.3": "19.2.3_@types+react@19.2.18",
     "npm:@types/react@^19.2.18": "19.2.18",
     "npm:@vitejs/plugin-react@^6.0.5": "6.1.0_vite@8.2.0__esbuild@0.28.2",
@@ -86,7 +86,6 @@
     "npm:class-variance-authority@~0.7.1": "0.7.1",
     "npm:clsx@^2.1.1": "2.1.1",
     "npm:codemirror@^6.0.2": "6.0.2",
-    "npm:diff@8.0.4": "8.0.4",
     "npm:diff@9": "9.0.0",
     "npm:dockview-react@^8.2.0": "8.2.0_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:dompurify@*": "3.4.11",
@@ -3557,16 +3556,31 @@
         "vite@8.2.0_esbuild@0.28.2"
       ]
     },
-    "@tanstack/react-table@8.21.3_react@19.2.7_react-dom@19.2.7__react@19.2.7": {
-      "integrity": "sha512-5nNMTSETP4ykGegmVkhjcS8tTLW6Vl4axfEGQN3v0zdHYbK4UfoqfPChclTrJ4EoK9QynqAu9oUf8VEmrpZ5Ww==",
+    "@tanstack/react-store@0.11.1_react@19.2.7_react-dom@19.2.7__react@19.2.7": {
+      "integrity": "sha512-HaIGKI3YLmjBYIvy5DFDY23oNaYZIsTZfngey07Uh5iLVJgM3bIGCnZeOFOqzjFld9JHWcaHJnasD/bKoGKwJQ==",
       "dependencies": [
-        "@tanstack/table-core",
+        "@tanstack/store",
         "react",
-        "react-dom"
+        "react-dom",
+        "use-sync-external-store"
       ]
     },
-    "@tanstack/table-core@8.21.3": {
-      "integrity": "sha512-ldZXEhOBb8Is7xLs01fR3YEc3DERiz5silj8tnGkFZytt1abEvl/GhUmCE0PMLaMPTa3Jk4HbKmRlHmu+gCftg=="
+    "@tanstack/react-table@9.2.4_react@19.2.7_react-dom@19.2.7__react@19.2.7": {
+      "integrity": "sha512-Rzp1Q4e0/nIgEjmISYR5HeEgLTNtrG+C7NFZf/AbCxPO5hg+zC3yNGwcoECigUk8SFzzvhXbd2rFdtP2ZiGrfA==",
+      "dependencies": [
+        "@tanstack/react-store",
+        "@tanstack/table-core",
+        "react"
+      ]
+    },
+    "@tanstack/store@0.11.1": {
+      "integrity": "sha512-mzTOBhypOuDJAy/D8n2MfUZ1HFkXnmSETviRyhqEC8LUE7/IZQExOTxMANj3KjTofYTkFNpBY67qaVrT41YccA=="
+    },
+    "@tanstack/table-core@9.2.4": {
+      "integrity": "sha512-GwdDyGGr6UXAtubF14yAwcXvdaogqfsQgIk89Suebjxob/Rjq2xvfmXsjDF1rQmKmhHsJm9TOY7myxv3i6geJw==",
+      "dependencies": [
+        "@tanstack/store"
+      ]
     },
     "@tybys/wasm-util@0.10.3": {
       "integrity": "sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==",
@@ -6999,7 +7013,7 @@
       "npm:@radix-ui/react-tabs@^1.1.21",
       "npm:@radix-ui/react-tooltip@^1.2.12",
       "npm:@tailwindcss/vite@^4.3.3",
-      "npm:@tanstack/react-table@^8.21.3",
+      "npm:@tanstack/react-table@^9.2.4",
       "npm:@types/react-dom@^19.2.3",
       "npm:@types/react@^19.2.18",
       "npm:@vitejs/plugin-react@^6.0.5",
@@ -7036,11 +7050,6 @@
       "npm:typescript@^5.9.3",
       "npm:unique-username-generator@^1.5.1",
       "npm:vite@^8.1.5"
-    ],
-    "packageJson": {
-      "dependencies": [
-        "npm:diff@8.0.4"
-      ]
-    }
+    ]
   }
 }
