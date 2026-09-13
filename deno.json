@@ -84,7 +84,7 @@
         "@codemirror/language": "npm:@codemirror/language@^6.12.4",
         "@codemirror/legacy-modes": "npm:@codemirror/legacy-modes@^6.5.3",
         "@codemirror/state": "npm:@codemirror/state@^6.7.1",
-        "@codemirror/view": "npm:@codemirror/view@^6.43.6",
+        "@codemirror/view": "npm:@codemirror/view@^6.43.11",
         "@lezer/common": "npm:@lezer/common@^1.5.2",
         "@lezer/highlight": "npm:@lezer/highlight@^1.2.3",
         "@pierre/diffs/worker/worker.js": "./src/ui/workspace/react/pierre-diffs-worker-shim.js",
