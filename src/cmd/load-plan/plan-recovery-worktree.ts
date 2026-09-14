@@ -21,7 +21,6 @@ import { getWorktreeStatus } from "../../shared/worktree.js";
 import {
     findActiveByPlanName as findWorktreeByPlanName,
     findById as findWorktreeById,
-    updateEntry as updateWorktreeRegistryEntry,
 } from "../../shared/worktree-registry.js";
 import { buildPlanSummary } from "../../shared/plan-presentation.ts";
 import { transitionFailureError } from "./transition-failure.ts";
@@ -260,9 +259,8 @@ export function assertRecoveryWorktreeIsManaged(
 }
 
 /**
- * Detach any prior execution generation before sending a Plan back through
- * review. The physical worktree is retained for inspection, but it is no
- * longer eligible for execution reuse.
+ * Reopen review without retiring the implementation. Reapproval continues in
+ * the same worktree, including its committed and uncommitted changes.
  *
  * @param {Object} opts
  * @param {string} opts.projectRoot
@@ -304,8 +302,6 @@ export async function reopenPlanForReview({
         reopen: async ({ beforePlan, markEffect }) => {
             if (!beforePlan) throw new Error(`Plan not found: ${plan.planName}`);
             const updates = buildPlanEventUpdates("review_reopened", currentStatus, { triageMeta: beforePlan.attrs });
-            await updateWorktreeRegistryEntry(projectRoot, priorWorktreeId, { status: "abandoned" });
-            await markEffect("worktree_registry_abandoned", { worktreeId: priorWorktreeId });
             const updatedAttrs = await updatePlanFrontMatter(documentRoot, plan.planName, updates, beforePlan.attrs, {
                 expectedRevision: beforePlan.revision,
             });

@@ -361,14 +361,15 @@ export async function startActiveExecutionWorkflow(
             cachedWorkflow.worktreeId === triageMeta.worktreeId
         ? cachedWorkflow
         : null;
-    const reusable = !startsFresh && (currentStatus === "in_progress" || hasRecordedWorktree)
-        ? await findReusable({
-            projectRoot,
-            planName,
-            planId: stablePlanId,
-            worktreeId: triageMeta.worktreeId || undefined,
-        })
-        : null;
+    // The registry owns attempt identity. Review status or missing projected
+    // metadata must not turn existing implementation into a fresh worktree.
+    // Explicitly abandoned attempts are excluded by the registry lookup.
+    const reusable = await findReusable({
+        projectRoot,
+        planName,
+        planId: stablePlanId,
+        worktreeId: triageMeta.worktreeId || undefined,
+    });
     if (reusable) {
         const requestedTarget = targetBranch
             ? await resolveTarget(projectRoot, targetBranch)

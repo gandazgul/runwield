@@ -62,7 +62,7 @@ Do you approve this Plan change?
 
 Type to search, arrows to navigate, Enter to select, Esc to cancel
 
-## Core PRD gaps — recommended implementation order
+## Core PRD gaps: recommended implementation order
 
 Source: [Core PRD](docs/prd/runwield-core-prd.md). Read the
 [detailed audit and planning handoff](docs/reports/core-prd-gap-audit.md) before drafting. It preserves source evidence,

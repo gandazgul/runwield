@@ -157,6 +157,11 @@ Planner or Architect presents a saved Plan for review. Users can approve, save i
 Feedback stays in the planning conversation so the Agent can revise it. Approval leads to a readiness check before
 execution or decomposition; a Plan needing repair explains what prevents it from proceeding.
 
+**Requirement: Keep long review waits responsive.**
+
+Users can leave Plan Review open and return later without the waiting Session accumulating background work or becoming
+slower to accept their decision. Terminal progress animations pause during human input and resume when work continues.
+
 **Acceptance scenarios:**
 
 - Given a saved Plan, when the user submits feedback, the planning conversation receives it and can revise the Plan
@@ -165,6 +170,8 @@ execution or decomposition; a Plan needing repair explains what prevents it from
   appropriate execution or decomposition proceeds.
 - When the user cancels review or readiness fails, the UI explains the next action without treating Agent prose as
   approval.
+- Given Plan Review remains open in a browser while `wld` waits in the terminal, progress timers remain paused;
+  returning to submit a decision continues the same Session without restarting it or losing the pending review.
 
 ### Plan authoring and external adoption
 
@@ -296,6 +303,21 @@ RunWield carries an accepted delivery workflow through to confirmed publication 
 There is no automatic terminal failure path. Internal errors, retry limits, or an Agent ending its turn cannot strand
 the user, clear the active workflow, or require them to start a replacement workflow. A pause for approval, an actual
 external prerequisite, or a user-requested hold preserves the same work and its immediate continuation path.
+
+**Requirement: Replanning preserves the existing implementation.**
+
+Returning to Planner or reopening Plan review does not abandon the execution attempt. Approve & Run first reuses the
+same Plan's available worktree, preserving its commits, staged changes, and untracked files while applying the newly
+approved Plan. Reapproval invalidates earlier validation evidence, not the implementation. Only an explicit user reset
+or abandonment retires that attempt; published attempts are not reused.
+
+Acceptance scenarios:
+
+- Given an implemented Plan with review findings and committed and uncommitted repairs, when the user revises and
+  approves it again, execution continues in the same worktree with the approved revision and all repairs intact.
+- Given a restarted Session without cached execution details, approval finds the existing attempt in the registry
+  instead of creating a replacement. The primary checkout's unrelated edits remain unchanged.
+- Given an explicitly abandoned attempt, approval does not reactivate it or discard its preserved files.
 
 **Requirement: RunWield repairs its own machinery automatically.**
 

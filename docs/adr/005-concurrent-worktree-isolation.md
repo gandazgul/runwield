@@ -88,10 +88,11 @@ Loading a Plan locates its document through the controller's attempt, then reads
 Hold, resume, review, validation, and approval use that same document selection. A healthy execution Plan must remain
 usable even if the primary copy cannot be parsed.
 
-Reopening for review retires the previous execution attempt. Its branch and directory remain available for inspection,
-but its ID and branch are not supplied as an active execution context. The reopened document remains discoverable in
-that directory across restarts. A later approval starts a new attempt from the revised definition with a new ID and
-branch; it cannot accidentally reuse the retired branch name.
+Reopening for review preserves the execution attempt, its branch, commits, and uncommitted changes. It invalidates prior
+approval and validation evidence, not the implementation. Approve & Run discovers the existing live attempt by Plan
+identity in the registry and continues from the approved revision in that same directory, including after restart.
+Automatically abandoning it was rejected because review feedback revises existing work; it is not permission to start
+over. Only explicit user reset or abandonment retires an unfinished attempt. Published attempts are not reused.
 
 The controller keeps a document-location reference to the registry entry separately from active execution. That
 reference survives hold/resume and moves to the new attempt when execution starts. After that attempt is published and

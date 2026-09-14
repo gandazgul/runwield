@@ -1,6 +1,9 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { NO_OPEN_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { createTuiInteractionAdapter as createAdapter } from "./runtime-interaction-adapter.js";
+import { getStoredPlanPath, savePlan } from "../../plan-store.js";
+import { createScriptedReviewBrowser } from "../review/review-test-fixture.ts";
+import { RuntimeInteractionTypes } from "../../shared/session/session-runtime-interactions.js";
 
 /** @param {import('./types.js').UiAPI} uiAPI */
 function createTuiInteractionAdapter(uiAPI) {
@@ -18,6 +21,34 @@ function makeUi(selection, state = {}) {
         setBusy: (/** @type {boolean} */ busy) => state.busyValues?.push(busy),
     });
 }
+
+Deno.test("TUI Plan review resumes progress after feedback and review failures", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-review-progress-" });
+    const busyValues = /** @type {boolean[]} */ ([]);
+    const scripted = createScriptedReviewBrowser("deny", { feedback: "Add a test" });
+    const adapter = createAdapter(makeUi(null, { busyValues }), { browser: scripted.browser });
+    try {
+        await savePlan(cwd, "plan", "# Plan\n\nDo the work.\n", {
+            classification: "PLANNED_CHANGE",
+            status: "draft",
+        });
+        const request = {
+            type: RuntimeInteractionTypes.PLAN_REVIEW,
+            prompt: "Review the Plan",
+            _meta: { cwd, planName: "plan", planPath: getStoredPlanPath(cwd, "plan") },
+        };
+        const response = await adapter.requestInteraction(request);
+        assertEquals(response.outcome, "selected");
+        assertEquals(response._meta?.feedback, "Add a test");
+        assertEquals(busyValues, [false, true]);
+
+        await Deno.remove(request._meta.planPath);
+        await assertRejects(async () => await adapter.requestInteraction(request));
+        assertEquals(busyValues, [false, true, false, true]);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
 
 Deno.test("TUI interaction adapter rejects invalid selected options", async () => {
     const adapter = createTuiInteractionAdapter(makeUi("invalid"));

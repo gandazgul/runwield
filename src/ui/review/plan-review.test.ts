@@ -412,11 +412,7 @@ async function makeExecutedPlanWithWorktree(status: PlanFrontMatter["status"]): 
     };
 }
 
-Deno.test("submitPlanForReview approval detaches the prior execution generation in one transaction", async () => {
-    // Reviewing a Plan that already ran has to move it off its worktree and mark
-    // that worktree abandoned. Both writes commit together: an approval recorded
-    // while the entry stayed active is a Plan the next execution would run in a
-    // worktree it no longer owns.
+Deno.test("submitPlanForReview approval preserves the prior execution attempt", async () => {
     const { dir, executionDir, planPath, primaryMarkdown } = await makeExecutedPlanWithWorktree("ready_for_work");
     const scriptedBrowser = createScriptedReviewBrowser("decision", approvedDecision());
     try {
@@ -432,11 +428,11 @@ Deno.test("submitPlanForReview approval detaches the prior execution generation 
         assertEquals(savedPlan?.attrs.status, "approved");
         assertEquals(
             savedPlan?.attrs.worktreeId,
-            undefined,
-            "a retired attempt must not be supplied as active execution context",
+            "wt-prior",
+            "review must retain the implementation attempt",
         );
-        assertEquals(savedPlan?.attrs.worktreeStatus, "abandoned");
-        assertEquals((await findRegistryEntryById(dir, "wt-prior"))?.status, "abandoned");
+        assertEquals(savedPlan?.attrs.worktreeStatus, "active");
+        assertEquals((await findRegistryEntryById(dir, "wt-prior"))?.status, "active");
         assertEquals(await Deno.readTextFile(getStoredPlanPath(dir, "plan")), primaryMarkdown);
     } finally {
         await Deno.remove(dir, { recursive: true });

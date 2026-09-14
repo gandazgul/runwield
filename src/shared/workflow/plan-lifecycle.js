@@ -810,17 +810,13 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.verifiedAt = null;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
-        updates.executionMode = null;
+        updates.validatedAt = null;
         updates.deliveryEvidence = null;
         updates.humanReviewMode = null;
         updates.humanReviewDecision = null;
         updates.humanReviewedAt = null;
-        updates.executionBaselineTree = null;
-        updates.worktreeId = null;
-        updates.worktreePath = null;
-        updates.worktreeBranch = null;
-        updates.worktreeBaseBranch = null;
-        updates.worktreeStatus = "abandoned";
+        // Replanning invalidates review evidence, not the implementation attempt.
+        // Only explicit reset/abandon actions retire the registered worktree.
     }
 
     return updates;
@@ -1169,9 +1165,9 @@ export function isExecutablePlanStatus(status) {
  * Whether a review decision can be recorded from `status` as-is.
  *
  * Any other status means the Plan has already passed readiness or execution, so
- * recording a decision requires first detaching it from that generation — a
- * `review_reopened` transition covering both the Plan and its worktree registry
- * entry. This lives here, beside `ALLOWED_FROM`, because it is the same rule:
+ * recording a decision requires first invalidating its prior review evidence.
+ * `review_reopened` preserves the implementation and its worktree. This lives
+ * here, beside `ALLOWED_FROM`, because it is the same rule:
  * `review_approved` and `review_feedback` are legal only from these statuses,
  * and two modules keeping private copies of it is how the reopen came to run
  * twice, once against a stale status.

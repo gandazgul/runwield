@@ -16,14 +16,15 @@ affectedPaths:
     - "src/ui/review/"
     - "src/ui/workspace/server.js"
     - "docs/prd/runwield-acp-protocol-prd.md"
+executionAgent: "engineer"
+collaborationRecommendation: "pair"
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173/dev/session-question"
 devServerHmr: true
 createdAt: "2026-09-11"
-status: "feedback"
+status: "ready_for_work"
 origin: "internal"
-executionAgent: "engineer"
-collaborationRecommendation: "pair"
+userVerifiedAt: null
 ---
 
 # Shared Slash Commands for ACP
@@ -33,9 +34,15 @@ collaborationRecommendation: "pair"
 In a new WebStorm chat, the user sent `/agent`. RunWield started Router, produced a Triage Report about
 `guided-validation-repair`, and handed off to Planner. A command intended to select an Agent became a User Request.
 
-Source confirms that ACP passes converted prompt text to `SessionRuntime.promptUserTurn()`. Core resolves prompt
-templates and Skills, but does not dispatch built-in commands. TUI dispatches built-ins separately; Workspace has its
-own smaller command list and browser actions. ACP also sends no `available_commands_update` catalog.
+Before the first implementation, ACP passed converted prompt text to `SessionRuntime.promptUserTurn()` without built-in
+command dispatch or an `available_commands_update` catalog. The first pass added both. This revision preserves those
+changes and repairs the four remaining review findings below; the initial diagnosis is not the current code state.
+
+Implementation evidence was checked on 2026-09-14 in the existing worktree:
+`/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-acp-shared-slash-commands-94eaf837`,
+at commit `91d69ccc` plus its uncommitted repairs. Resume that work; do not rebuild from `main` or discard its edits.
+The canonical Plan revision is `docs/plans/acp-shared-slash-commands.md` in the main checkout. Runtime tests and browser
+checks remain execution work; this revision's findings come from source and test inspection, not a claimed passing run.
 
 The source of the Plan reference in the screenshot is not proven. ACP currently joins text and resource-link blocks. An
 IDE attachment could explain it, but there is no captured WebStorm request. Do not claim that an old Session was loaded
@@ -57,6 +64,12 @@ For clients without form support, the owner approved browser questions: a local 
 selection, text question, or approval; its answer continues the same waiting command. This is not a new Session or Plan.
 
 Owning requirements and proposed changes:
+
+The worktree already contains first-pass PRD edits. Keep their accepted scope, but correct any implication that the four
+unfinished repairs are delivered. In particular, preserve the named requirements **Load and continue the same Session
+through compatible clients**, **Negotiate capabilities and settle interactions truthfully**, **Keep follow-ups with
+their active specialist**, **Continue the same saved work across clients**, and **Preserve conversation, drafts, and
+controls in the browser**. Add the concrete regression scenarios below under those owners, not duplicate requirements.
 
 - [ACP Session access](../prd/runwield-acp-protocol-prd.md#acp-session-access): add named requirements for advertised,
   executable slash commands, the agreed exclusions, and the bare `/agent` regression scenario.
@@ -81,7 +94,113 @@ ACP advertises and executes every existing TUI slash command except the seven ag
 behavior is shared Core behavior, not an ACP copy of TUI handlers. A bare `/agent` opens Agent selection and does not
 call a model, load a Plan, or start Router triage. Selecting an Agent affects the next ordinary User Request.
 
+The first implementation did not satisfy the approved Plan. Check the current worktree, repair the findings below, and
+prove each repair before the next review. Preserve the original command scope and exclusions.
+
+Still missing handoff:
+
+R1-1 — Shared Core command operations
+
+Current state:
+
+- ACP no longer passes fake editor/tui objects for commands I touched.
+- /agent and /model were adjusted to work with ACP-style uiAPI.
+
+Still missing:
+
+- A real shared Core command-operation layer.
+- TUI and ACP must both call shared operations, not TUI-shaped handlers.
+- Workspace agent default/selection behavior still has its own logic in listSessionOptions.
+
+Needed work:
+
+- Create shared command operations for at least Agent and Model selection.
+- Move selection policy out of src/cmd/agents/index.ts TUI path.
+- Make TUI, ACP, and Workspace call the same shared operation.
+- Keep surface-specific rendering/input wrappers thin.
+
+R1-8 — Production browser question UI
+
+Current state:
+
+- Browser fallback still uses Deno.serve with inline HTML/CSS in src/acp/interaction-mapper.js.
+- SessionQuestionForm.tsx is still development-only / not production-wired.
+
+Still missing:
+
+- Use existing Workspace/review-server/Astro composition.
+- Serve hydrated compiled assets in production wld.
+- Use shared Workspace controls.
+- Add real answer/cancel handlers.
+- Include Session/interaction identity.
+- Remove or replace the inline browser renderer/server path.
+
+Needed work:
+
+- Move question form into production Workspace asset pipeline.
+- Add route/API for live ACP question answer/cancel.
+- Notify ACP client with production URL.
+- Ensure compiled binary includes needed assets.
+- Reuse existing design-system controls.
+
+R1-16 — Real local workflow reviews
+
+Current state:
+
+- I removed false PLAN_REVIEW support from ACP interaction adapter so it no longer auto-shares and auto-accepts.
+- CODE_REVIEW and ARTIFACT_REVIEW remain unsupported.
+
+Still missing:
+
+- Real local Plan review launcher.
+- Real local Code review launcher.
+- Real local Artifact review launcher.
+- ACP command/session flow must wait for an actual review decision.
+
+Needed work:
+
+- Reuse Workspace local review machinery or create shared review operation entrypoints.
+- ACP interaction adapter should advertise review support only when it can launch the local review surface.
+- Returned interaction response must reflect the actual user decision, not remote share metadata.
+
+R1-17 — Durable Session continuity
+
+Current state:
+
+- ACP in-memory Session replacement handling was improved.
+- Runtime still creates a new durable Session for execution follow-up.
+
+Still missing:
+
+- Execution follow-ups must preserve the original durable Session.
+- /load-plan follow-up must continue through same-Session continuation machinery.
+- Restart/session load must resolve to the continued durable Session, not the old pre-replacement conversation.
+
+Needed work:
+
+- Change SessionRuntime.replaceSessionForExecutionFollowUp behavior.
+- Do not create a new durable root Session for execution follow-up.
+- Preserve original durable runwieldSessionId.
+- Continue with same managed Session/generation machinery.
+- Update load/resume mapping so persisted ID remains stable across follow-up.
+
 ## Approach
+
+### Verified repair baseline
+
+All four findings remain open in the inspected worktree. Existing code is a starting point, not proof of completion.
+
+| Finding | Current evidence                                                                                                                                                                      | Required repair                                                                                                           |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| R1-1    | Both dispatchers use the registry, but `runAgentsCommandTUI` still owns selection policy. ACP's `showModelSelector` and Workspace `listSessionOptions` apply separate rules.          | Core owns choices, defaults, validation and application. TUI, ACP and Workspace collect input and display the result.     |
+| R1-8    | `interaction-mapper.js` still serves inline HTML. `SessionQuestionForm.tsx` has fixed fixture data and no working submit/cancel handlers; its page is development-only.               | Live questions use shared controls and the production Astro runtime, including compiled assets and real response routes.  |
+| R1-16   | `createAcpInteractionAdapter` supports select/text/approval only. Existing Plan and Code review launchers wait for real decisions. The artifact launcher opens a read-only page only. | ACP launches those reviews and waits. Add feedback/accept/cancel controls to the standalone artifact review presentation. |
+| R1-17   | `replaceSessionForExecutionFollowUp` calls `createInteractiveSession({ mode: "new" })`. `replaceRuntimeSession` updates only an in-memory ACP map.                                    | Use an execution successor segment in the original durable Session, with restart/load proof.                              |
+
+Already implemented and to preserve: registry surface rules, ACP pre-flattening dispatch, catalog notifications, request
+reservation, event subscriptions before command execution, and cancellation through Runtime. `/load-plan` only starts
+TUI when no attached `uiAPI` is supplied; do not report an unconditional startup defect. The attached path must still
+finish without terminal objects.
 
 ### One catalog, shared operations, surface-specific presentation
 
@@ -119,6 +238,30 @@ Shared command results must be visible through each surface's normal status/hist
 commands to a model or inventing tool calls. Read-only commands need not materialize a new Session solely to show help.
 Commands which intentionally use an Agent, such as `/init`, `/sleep`, and `/compact`, still use their real Core path.
 
+For R1-1, put user selection operations under `src/shared/session/`. The operations own available choices, configured
+Agent model/thinking defaults, user-selection validation, and application results. Reuse `listAvailableAgents`,
+`switchActiveAgent`, `resolveModel`, `resolveExecutionThinkingLevel`, and Runtime mutations; do not copy their policy.
+Support both a named choice and a choice collected through a Runtime interaction. Workspace needs the same
+choice/default projection before Session creation and the same application rules for `createSession`,
+`configureSession`, and `applyPendingConfiguration`. Preserve its distinction between displayed defaults and explicit
+user overrides.
+
+```text
+Today: TUI handler / ACP picker / Workspace helpers -> separate choice rules -> Runtime mutation
+After: each surface -> Core choice/default and selection operations -> Runtime mutation -> result
+```
+
+Move policy out of `runAgentsCommandTUI`, ACP's `showModelSelector`, and Workspace's `listSessionOptions`,
+`validateAgentSelection`, and `validateModelSelection`. Surface wrappers may format options, collect input, restore
+focus and display results; a Core wrapper which calls the old TUI policy is not a repair. Keep workflow-only Agents
+unavailable to user selection without restricting internal workflow activation.
+
+Named and picker `/model` must both change only the Session, as required by this Plan. The current
+`setActiveSessionModel` also writes settings defaults, while ACP's bare picker and Workspace use
+`reconfigureSessionModel`. Separate Session selection from explicit CLI/settings default changes. Preserve those
+explicit default-changing operations. Report success only after a successful mutation; ACP currently ignores the picker
+mutation's `ok` result. A rejected Agent or model choice preserves previous Agent/model/thinking state.
+
 ### ACP input and request lifetime
 
 Recognize commands before resource-link flattening and named-template expansion. Keep the user command separate from
@@ -127,10 +270,11 @@ an Agent name or a request to load the Plan. Retain ordinary prompt and template
 actual WebStorm frame, if obtainable, to confirm text-block selection. Reject ambiguous command input visibly rather
 than guessing a workflow from attachment contents.
 
-Command dispatch must install event subscriptions and interaction handling before it starts work. Today these are
-installed only from `promptUserTurn().onTurnStarted`. Reserve the ACP request through command completion, cancellation,
-and final notification delivery as for model turns. Do not release the request while a browser question is pending. Use
-Runtime authority for each operation; do not wrap nested Runtime mutations in a second writer lock.
+Preserve `dispatchAcpBuiltinCommand` installing event subscriptions and interaction handling before it starts work. Its
+request reservation already covers commands which do not start a model turn. Extend the same lifetime to the new
+production questions and reviews, through completion, cancellation, and final notification delivery. Do not release the
+request while a browser question is pending. Use Runtime authority for each operation; do not wrap nested Runtime
+mutations in a second writer lock.
 
 Send standard `available_commands_update` notifications after new/load setup and when the command catalog changes,
 including `/reload`. Include descriptions and argument hints for enabled built-ins, templates and Skills. Keep built-in
@@ -157,6 +301,17 @@ an unguessable per-question capability; require that capability for reads and an
 and accept at most one valid answer. No Workspace account, registration, or owner database is required. Do not expose
 the review server's unrelated file, upload, or Agent APIs through this small question surface.
 
+For R1-8, replace `renderQuestionHtml` and the ACP-owned question server with a restricted question launcher in the
+existing browser composition. Use `layouts/ReviewLayout.astro`, a production page, and the Astro renderer/asset serving
+in `src/ui/workspace/server.js`. Extract working input controls and answer helpers from
+`SessionTimeline.jsx#SessionInteractionCard`; turn `SessionQuestionForm.tsx` into a live-data component rather than
+keeping a separate fixture implementation. Existing question CSS in `src/ui/design-system/components.css` is reusable.
+The development route remains a fixture and stays unavailable in production.
+
+Extend `build-workspace-runtime.js` and `assert-workspace-review-runtime.js` for the new route. Compile already includes
+the built server and client assets; prove the new page joins that pipeline rather than adding a second bundle path.
+Production verification must execute the page's JavaScript and submit its controls, not only inspect hydration markup.
+
 Use the existing Runtime response validation and approval meaning. Native forms and browser forms must produce identical
 semantic answers. Cancellation, Session close, and process cleanup cancel pending questions; an invalid or late answer
 cannot mutate the Session. A closed browser tab alone does not approve or cancel a question: the link remains usable
@@ -167,6 +322,32 @@ requirements from the attached command path. Where those workflows need local Pl
 `src/ui/review/` launchers and wait for the real decision; a generic question cannot replace review. Preserve explicit
 Shared Plan operations rather than silently publishing a Plan as a substitute for local command completion. Keep Pair
 capability reporting truthful; this Plan does not add Pair Execution support to ACP.
+
+For R1-16, wire the ACP interaction adapter to `submitPlanForReview` in `src/ui/review/plan-review.ts` and
+`runCodeReview` in `src/ui/review/code-review.ts`. Preserve complete decision metadata, feedback, annotations/images,
+execution choices and cancellation reasons. Reuse launcher results, not the TUI interaction adapter. Add a ready-URL
+notification where needed so browser-opening failure does not hide a working link.
+
+`startArtifactReadSurface` is read-only; opening it cannot complete `ARTIFACT_REVIEW`. Reuse `ArtifactReadSurface.tsx`
+and shared controls for a standalone review presentation with feedback, explicit acceptance, and Cancel. Preserve
+`artifact_written` meanings: nonempty text requests revision; explicit acceptance returns empty text; Cancel returns
+`CANCELED`. Normal artifact reading remains read-only. Do not turn artifact acceptance into Plan approval. All three
+review types must stay pending until their actual decision arrives. Pass the Runtime abort signal through launchers, and
+close request-owned listeners/retained review servers on cancellation or Session close, including between review rounds.
+Pair checkpoints remain unsupported.
+
+For R1-17, replace new-root creation in `replaceSessionForExecutionFollowUp` with the existing
+`rollManagedSessionSegment` / `rollSessionTranscriptSegment` path and persisted continuation data. The caller is
+`openFollowUpRecoveryPlan` -> `createPlanSessionSurface().replaceWithExecutionSession`. Keep the original
+`runwieldSessionId`, Project bundle, aggregate history and MCP ownership; commit a linked execution successor with the
+workflow, worktree context, execution Agent and Plan Association. Honor existing generation and Session Writer Lock
+rules. A failed rollover must not expose an uncommitted successor or discard the original committed conversation.
+
+Selecting execution follow-up currently waits for the user's next request. Preserve that behavior: do not call
+`executePreparedPlanSegmentHandoff` merely to reuse it, because it starts Engineer immediately. Extend the existing
+continuation handling only as needed so restart/load restores this waiting follow-up and the next request runs in the
+execution worktree. A transport ID alias, copied transcript, or manually reassigned ID on a new root is not continuity.
+No new ACP persistence store is needed. Preserve legitimate Session replacement behavior outside this path.
 
 Prefer this shared route over an ACP-only command switch: the latter would fix `/agent` but leave three command lists
 and different command meanings to drift again.
@@ -183,8 +364,9 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
   conditional-import workaround.
 - `src/cmd/agents/`, `models/`, `auth/`, `settings/`, reporting/export commands, `init/`, `sleep/`, and `load-plan/` —
   separate shared operations from TUI presentation. Authentication setup itself is not redesigned.
-- `src/shared/session/session-runtime.js`, interactions and named invocation support — command operation integration,
-  cancellation, output, catalog changes, and built-in precedence without bypassing Session authority.
+- `src/shared/session/` selection operations, `session-runtime.js`, `segment-rollover.ts` and continuation handling —
+  shared Agent/model rules, same-Session execution follow-up, cancellation and committed generation evidence. Existing
+  interactions and named invocation keep command precedence without bypassing Session authority.
 - `src/acp/server.js`, `event-mapper.js`, `interaction-mapper.js`, `session-map.js`, and their tests — standard command
   advertising, dispatch before prompt conversion, request lifetime, browser fallback, and truthful Session mapping.
 - `src/ui/tui/slash-dispatch.ts`, `chat-session.ts`, runtime interaction adapter and Golden scenarios — consume shared
@@ -199,7 +381,9 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
   page and assets work in compiled `wld`, not only Astro development.
 - The owning PRDs above, `docs/acp-implementation-details.md`, `docs/usage.md`, `docs/design-system.md`, and
   `docs/adr/010-session-runtime-sibling-adapters-and-acp.md` — synchronize behavior, limitations, shared ownership and
-  the browser fallback. No new domain term is needed; do not change the glossary merely to name implementation helpers.
+  the browser fallback. Keep `docs/adr/015-file-authoritative-session-bundles.md` authoritative for continuity; repair
+  references and any conflicting descriptions in the same change, without creating a competing storage decision. No new
+  domain term is needed; preserve the glossary's Session and Session Transcript Segment definitions.
 
 ## Reuse Opportunities
 
@@ -231,7 +415,10 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 
 2. **Shared commands perform the existing operations through Core.** TUI and ACP use the same implementations for every
    enabled built-in. Workspace uses the shared catalog and existing Core operations, not duplicate Agent/model policy.
-   These are required outcomes, not just successful dispatch:
+   **R1-1 closes only when** Core owns both choice/default resolution and application for Agent/model selection; the
+   former TUI/ACP/Workspace policy branches are gone. Named and picker selection produce the same Session-only model
+   changes and truthful failure results. Workspace new-Session defaults remain defaults, not manual overrides. These are
+   required outcomes, not just successful dispatch:
 
    | Commands                        | Required result                                                                                                                                |
    | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -256,7 +443,9 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
    usable local URL and wait for a valid answer. Required-field, option and approval validation runs on the server.
    Cancel, duplicate submissions, wrong tokens, cross-question tokens, and late replies cannot apply a choice twice or
    affect a different Session. The page supports keyboard use, pending/error states, and explicit cancellation. The
-   `/dev/session-question` fixture covers these views using the existing Surface Lab.
+   `/dev/session-question` fixture covers these views using the existing Surface Lab. **R1-8 closes only when** the live
+   form comes from the production Astro runtime and shared working controls, not ACP inline HTML or development fixture
+   data. Compiled-binary browser tests must submit and cancel actual pending interactions.
 
 4. **ACP dispatch and catalog updates reach the shared behavior.** New/load sends the standard catalog; reload and
    resource changes replace it. Built-ins are recognized before ordinary prompt flattening. A fresh `/agent` with
@@ -271,8 +460,11 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
    transitions use existing same-Session segment handoffs. Inspect the existing execution-follow-up replacement path: it
    must not silently map an ACP ID to a different durable Session and then reload the old one after restart. Apply the
    needed shared continuity correction, using existing segment/continuation machinery rather than a new ACP alias store.
-   Preserve worktree, MCP tools, Plan Associations and saved history. Do not add the separate proposed Guided Repair
-   workflow as part of this command fix.
+   Preserve worktree, MCP tools, Plan Associations and saved history. **R1-16 closes only when** Plan, Code and Artifact
+   review each return real browser decisions, retain metadata and clean up on cancellation. **R1-17 closes only when**
+   the real recovery follow-up creates a committed execution successor under the original durable Session; selecting
+   follow-up starts no model request, and restart/load of the original ACP ID continues it in the worktree. Do not add
+   the separate proposed Guided Repair workflow as part of this command fix.
 
 6. **Shipped builds and documentation match the result.** Compiled `wld` contains hydrated question assets. The owning
    PRD requirements, scenarios, ACP audit, command documentation, design-system description and ADR-010 references
@@ -285,6 +477,48 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 No Work Record supersession is proposed.
 
 ## Verification Plan
+
+### Required evidence for the four repair findings
+
+First add or strengthen tests against the current worktree and record which fail before repair. Do not infer a fix from
+the first-pass completion commit or existing green tests. These checks are required in addition to the original command
+coverage below:
+
+- **R1-1 — shared policy and actual effects.** Extend `src/cmd/agents/index.test.ts`, `src/cmd/models/index.test.ts`,
+  `src/acp/server.test.js` and `src/ui/workspace/session-continuation.integration.test.ts`. Exercise real surface entry
+  points with the same custom Agents, presets and unavailable models. Assert choices/defaults, user rejection of
+  workflow-only Agents, named/picker parity, failure preserving prior state, and no false success output. Snapshot
+  global/project settings around Session model selection: they must not change. Explicit CLI/settings default changes
+  must still persist. Follow-up requests preserve explicit overrides; Agent switches reset them. Trace ownership as
+  described below as well as testing results: three duplicate implementations can pass equal-output tests.
+- **R1-8 — production form.** Extend the runtime build gate and ACP browser integration coverage. Start the real
+  compiled `wld` ACP process with isolated HOME, no development server and no Workspace registration. In a real browser,
+  open its emitted question URL and use the hydrated controls to select an Agent; then test live text, approval decline
+  and Cancel. Check Session/question identity, dynamic options, validation errors and changed Runtime state. Inspect
+  console/network errors and client asset loads. Confirm `/dev/session-question` is unavailable in production and that
+  the question listener does not expose unrelated review file/upload/Agent routes. Direct `fetch` submissions or a
+  static HTML page alone cannot satisfy this check.
+- **R1-16 — each real review.** Through the ACP server and Runtime, exercise Plan, Code and Artifact review with real
+  Plan/Git/artifact fixtures and the production review routes. For each type, show that opening the URL alone leaves the
+  request pending, an overlapping prompt is refused, and actual feedback, acceptance or cancellation reaches the waiting
+  workflow. Assert saved Plan decisions and annotations/images/execution metadata where applicable; artifact feedback
+  returns revision text, acceptance returns empty text, and cancellation is not acceptance. Test browser-open failure,
+  cancellation during startup and between rounds, Session close, and duplicate/late answers. Request-owned listeners
+  must close; another Session's pending review must remain usable. Do not replace the review engine or interaction
+  adapter with a fake decision.
+- **R1-17 — stable saved conversation.** Replace the map-only proof in `src/acp/segment-stable-identity.test.js` with a
+  real ACP `/load-plan` recovery flow using temporary Git, Plan and file Session storage. Record the original ACP ID,
+  durable ID, Project bundle, prior conversation, generation and segment. Select worktree execution follow-up; assert no
+  model request yet, no second root bundle, a linked execution successor and a committed generation naming it. Stop the
+  ACP process, start a fresh process without the old in-memory map, and load the original ACP ID from the original
+  Project. Assert old and new history, workflow, Agent, Plan Association and next-turn worktree/tool context. Keep MCP
+  availability/disposal coverage. Also test failed rollover: saved committed history remains readable and no uncommitted
+  successor appears in its projection. A new root plus an alias or copied history must fail these checks.
+
+Use the real-file pattern in `named-invocation-active-segment.integration.test.ts`. Strengthen source-only assertions in
+`execution-segment-runtime.test.ts` where this path needs runtime proof. Do not delete the behavior they were meant to
+protect. Existing command tests that require a Session `/model` to save global defaults must change to Session-only
+assertions; retain separate coverage for intentional CLI/settings default persistence.
 
 ### Behavior tests that distinguish a real fix
 
@@ -300,8 +534,8 @@ Replace only external model, browser-launch, provider-network or subprocess boun
 - **Original regression:** through ACP `session/new` then `session/prompt`, send `/agent` alone, then with a Plan
   resource link and the WebStorm text-context shape if captured. Assert zero model requests, zero `triage_report` and
   `plan_written` calls, no Plan Association, and a pending selector. Choose a configured Agent; assert actual active
-  Agent/model/thinking state. Submit a normal follow-up and assert it reaches that Agent. A raw-prompt pass-through
-  implementation must fail this test before the fix.
+  Agent/model/thinking state. Submit a normal follow-up and assert it reaches that Agent. This first-pass regression
+  test must remain green during repairs and must fail if command dispatch is replaced with raw-prompt pass-through.
 - **Discovery:** assert the wire catalog equals enabled built-ins plus invokable templates/Skills, with hints and no
   duplicates or excluded aliases. Repeat on load and after adding/removing a template followed by `/reload`. Assert no
   CLI-only commands leak into ACP. A catalog-only fix must fail invocation tests.
@@ -333,7 +567,7 @@ Tests expecting unsupported select/text/approval solely because ACP form support
 browser-fallback cases. For local review, replace the immediate automatic-share response expectation with a real pending
 browser decision; keep explicit Shared Plan operations covered. Tests for truly unsupported capabilities, invalid native
 answers, cancellation, authentication, resource links, templates, MCP tools, Session replay and cumulative cost must
-remain. No other coverage is retired.
+remain. Apart from the Session-model default-write expectations explicitly replaced above, no other coverage is retired.
 
 ### Semantic review of shared ownership
 
@@ -347,7 +581,8 @@ choices. Shared exports, equal test results, and forbidden-import checks alone d
 
 ### Commands
 
-Run through the isolated test runner only:
+Run from the existing implementation worktree through the isolated test runner only. Include its dirty repairs; do not
+validate the unrelated main checkout. Extend the targeted paths for new selection/question tests as they are added:
 
 ```sh
 deno run -A scripts/run-tests.js src/acp src/cmd src/shared/session src/ui/named-invocation-cross-surface.integration.test.ts
@@ -401,5 +636,11 @@ directly. Use `getHomeDir()`/`getCwd()` and `withProcessGlobalTestLock` for proc
 - No new replaceable seam for command dispatch, Plan writes, locks or Session storage. ADR-010's dependency direction
   remains enforced. Extend that ADR for shared command ownership and local question presentation rather than adding
   competing architectural guidance.
-- The planning tree had unrelated edits, including another recovery Plan. Do not overwrite those changes. Recheck the
-  current load-plan and review implementation before execution; preserve concurrent completed fixes.
+- Both checkouts have uncommitted changes. Preserve the ACP worktree's repairs to command, interaction, Workspace and
+  release files. Main has separate TUI interaction/API and Core PRD edits; do not overwrite them. Recheck those changes
+  before integration, especially cancellation handling. The worktree Plan also has lifecycle metadata; use normal Plan
+  synchronization rather than replacing its Front Matter by hand. Recheck load-plan and review code before execution;
+  preserve concurrent completed fixes.
+- Source inspection confirms the four gaps, but no runtime tests were run during this revision. Execution must record
+  the repair evidence for each R1 identifier and retain the original all-command verification scope. A successful build
+  or a working bare `/agent` is not proof that all four findings are resolved.

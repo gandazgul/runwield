@@ -13,7 +13,6 @@ import {
 } from "../../plan-store.js";
 import { buildPlanEventUpdates, isPlanReviewableWithoutReopen, recordPlanEvent } from "./plan-lifecycle.js";
 import { runPlanReviewDecisionTransition } from "./state-transition.ts";
-import { findById as findWorktreeById, updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { PLAN_APPROVAL_ACTIONS } from "./plan-approval.js";
 import { pickControllerState, stripRuntimeFields } from "./controller-state.ts";
 import { writeControllerState } from "./controller-registry.ts";
@@ -237,7 +236,7 @@ export async function applySharedPlanReviewDecision({
             planName,
             approved,
             worktreeId: reopenWorktreeId,
-            decide: async ({ beforePlan, markEffect, registerRollback }) => {
+            decide: async ({ beforePlan }) => {
                 if (!beforePlan) throw new Error(`Plan not found: ${planName}`);
                 if (
                     beforePlan.revision !== planRevision &&
@@ -257,18 +256,6 @@ export async function applySharedPlanReviewDecision({
                     nextMarkdown = injectFrontMatter(nextMarkdown, reopenUpdates);
                     nextAttrs = { ...nextAttrs, ...reopenUpdates };
                     status = "feedback";
-                    if (reopenWorktreeId) {
-                        const before = await findWorktreeById(cwd, reopenWorktreeId);
-                        registerRollback(`restore worktree registry status for ${reopenWorktreeId}`, async () => {
-                            if (before?.status) {
-                                await updateWorktreeRegistryEntry(cwd, reopenWorktreeId, {
-                                    status: before.status,
-                                });
-                            }
-                        });
-                        await updateWorktreeRegistryEntry(cwd, reopenWorktreeId, { status: "abandoned" });
-                        await markEffect("worktree_registry_abandoned", { worktreeId: reopenWorktreeId });
-                    }
                 }
                 const event = approved ? "review_approved" : "review_feedback";
                 const eventUpdates = buildPlanEventUpdates(event, status, {

@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import {
     getPlanRevisionForText,
@@ -12,6 +12,12 @@ import { addEntry as addRegistryEntry, findById as findRegistryEntryById } from 
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 import { applySharedPlanReviewDecision } from "./plan-review-actions.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
+import { HostedSession } from "../session/hosted-session.js";
+import { startActiveExecutionWorkflow } from "./workflow.js";
+import { createExecutionStartPorts } from "./execution-start.ts";
+import { recordPlanEvent } from "./plan-lifecycle.js";
+import { listEntries, updateEntry } from "../worktree-registry.js";
+import { findReusableWorktree } from "../worktree.js";
 
 interface PlanReviewFixture {
     dir: string;
@@ -63,6 +69,111 @@ async function addActiveWorktree(dir: string): Promise<string> {
         updatedAt: "2026-01-01T00:00:00.000Z",
     });
     return path;
+}
+
+for (
+    const { status, reopenFirst } of [
+        { status: "implemented", reopenFirst: false },
+        { status: "implemented", reopenFirst: true },
+        { status: "in_progress", reopenFirst: false },
+        { status: "in_progress", reopenFirst: true },
+    ] as const
+) {
+    Deno.test(`reapproval reuses ${status} commits and dirty files (reopen first: ${reopenFirst})`, async () => {
+        const fixture = await makePlanFile({
+            status,
+            planId: "plan-id",
+            executionMode: "worktree",
+            executionAgent: "engineer",
+            targetBranch: "main",
+        });
+        const executionDir = await addActiveWorktree(fixture.dir);
+        const hostedSession = new HostedSession({ id: "reapproval", cwd: fixture.dir });
+        try {
+            await Deno.writeTextFile(join(executionDir, "implementation.ts"), "export const done = true;\n");
+            await git(executionDir, ["add", "implementation.ts"]);
+            await git(executionDir, ["commit", "-m", "First implementation"]);
+            const implementationCommit = await git(executionDir, ["rev-parse", "HEAD"]);
+            await Deno.writeTextFile(join(executionDir, "implementation.ts"), "export const done = 'repair';\n");
+            await Deno.writeTextFile(join(executionDir, "pending.ts"), "// untracked repair\n");
+            await Deno.writeTextFile(join(executionDir, "staged.ts"), "// staged repair\n");
+            await git(executionDir, ["add", "staged.ts"]);
+            const stagedDiff = await git(executionDir, ["diff", "--cached"]);
+            await updateEntry(fixture.dir, "wt-prior", { status: "completed" });
+            const primaryBytes = await Deno.readTextFile(fixture.planPath);
+            if (reopenFirst) {
+                await recordPlanEvent({
+                    cwd: fixture.dir,
+                    planName: "plan",
+                    event: "review_reopened",
+                    currentStatus: status,
+                });
+            }
+            const reviewed = await loadPlan(executionDir, "plan");
+            assert(reviewed);
+            const revision = reviewed.markdown.replace(
+                "Do the thing.",
+                "Continue the existing implementation and fix review findings.",
+            );
+            const result = await applySharedPlanReviewDecision({
+                cwd: fixture.dir,
+                planName: "plan",
+                planPath: reviewed.path,
+                planWithFrontMatter: reviewed.markdown,
+                planRevision: reviewed.revision,
+                originalAttrs: reviewed.attrs,
+                trustedClassification: "PLANNED_CHANGE",
+                decision: {
+                    approved: true,
+                    approvalAction: "run",
+                    executionAgent: "engineer",
+                    collaborationRecommendation: "autonomous",
+                    plan: revision,
+                },
+            });
+            assertEquals(result.approved, true);
+            assertEquals((await findRegistryEntryById(fixture.dir, "wt-prior"))?.status, "completed");
+            await recordPlanEvent({
+                cwd: fixture.dir,
+                planName: "plan",
+                event: "readiness_passed",
+                currentStatus: "approved",
+            });
+            const approved = await loadPlan(executionDir, "plan");
+            assert(approved);
+            const workflow = await startActiveExecutionWorkflow({
+                planName: "plan",
+                triageMeta: approved.attrs,
+                currentStatus: "ready_for_work",
+                hostedSession,
+                ports: createExecutionStartPorts(),
+            });
+            assertEquals(workflow.worktreeId, "wt-prior");
+            assertEquals(workflow.executionCwd, executionDir);
+            assertEquals((await listEntries(fixture.dir)).length, 1);
+            assertEquals(await git(executionDir, ["rev-parse", "HEAD"]), implementationCommit);
+            assertEquals(
+                await Deno.readTextFile(join(executionDir, "implementation.ts")),
+                "export const done = 'repair';\n",
+            );
+            assertEquals(await Deno.readTextFile(join(executionDir, "pending.ts")), "// untracked repair\n");
+            assertEquals(await git(executionDir, ["diff", "--cached"]), stagedDiff);
+            assertStringIncludes(
+                (await loadPlan(executionDir, "plan"))?.body || "",
+                "Continue the existing implementation",
+            );
+            assertEquals(await Deno.readTextFile(fixture.planPath), primaryBytes);
+            await updateEntry(fixture.dir, "wt-prior", { status: "abandoned" });
+            assertEquals(
+                await findReusableWorktree({ projectRoot: fixture.dir, planName: "plan", planId: "plan-id" }),
+                null,
+            );
+            assertEquals(await Deno.readTextFile(join(executionDir, "pending.ts")), "// untracked repair\n");
+        } finally {
+            hostedSession.dispose();
+            await Deno.remove(fixture.dir, { recursive: true });
+        }
+    });
 }
 
 Deno.test("shared Plan review rejects stale revision status and worktree before mutation", async () => {

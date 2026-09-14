@@ -162,6 +162,14 @@ function sanitizeApiErrorMessage(msg) {
 }
 
 /**
+ * @param {string | undefined} msg
+ * @returns {boolean}
+ */
+function isAbortSignalMessage(msg) {
+    return String(msg || "").trim().toLowerCase() === "the signal has been aborted";
+}
+
+/**
  * @param {string | undefined} debugLogPath
  * @param {string} text
  */
@@ -3146,7 +3154,7 @@ export function attachSessionEventSubscribers(
 
                 if (
                     event.message.role === "assistant" && event.message.stopReason === "error" &&
-                    !cancellationSignal?.aborted
+                    !cancellationSignal?.aborted && !isAbortSignalMessage(event.message.errorMessage)
                 ) {
                     const message = sanitizeApiErrorMessage(event.message.errorMessage || "Unknown LLM error");
                     emitRuntimeEvent({

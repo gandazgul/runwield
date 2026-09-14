@@ -59,6 +59,22 @@ Deno.test("explicit isolated-step cancellation does not erase the validation pan
     state.unsubscribe();
 });
 
+Deno.test("aborted signal assistant errors stay hidden when Esc already reported cancellation", () => {
+    const { session, emit } = makeSubscribableSession();
+    const { hostedSession, events } = makeRuntimeHarness("agent-cancellation-abort-error");
+    const state = attachSessionEventSubscribers(session, agentDef, undefined, hostedSession);
+
+    emit({
+        type: "message_end",
+        message: { role: "assistant", stopReason: "error", errorMessage: "The signal has been aborted" },
+    });
+    emit({ type: "turn_end" });
+
+    assertEquals(events.filter((event) => event.type === "terminal_error").length, 0);
+    assertEquals(events.filter((event) => event.type === "turn_end").length, 1);
+    state.unsubscribe();
+});
+
 Deno.test("session subscriber emits thinking, message, status, error, usage, and lifecycle events only", () => {
     const { session, emit } = makeSubscribableSession();
     const { hostedSession, events } = makeRuntimeHarness("subscriber-streams");

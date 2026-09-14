@@ -37,7 +37,14 @@ async function copyTree(source: string, destination: string) {
         const to = join(destination, entry.name);
         if (entry.isDirectory) await copyTree(from, to);
         else if (entry.isSymlink) await Deno.symlink(await Deno.readLink(from), to);
-        else await Deno.copyFile(from, to);
+        else {
+            try {
+                await Deno.copyFile(from, to);
+            } catch (error) {
+                if (entry.name.endsWith(".lock") && error instanceof Deno.errors.NotFound) continue;
+                throw error;
+            }
+        }
     }
 }
 
