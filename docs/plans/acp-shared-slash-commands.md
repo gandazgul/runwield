@@ -16,14 +16,16 @@ affectedPaths:
     - "src/ui/review/"
     - "src/ui/workspace/server.js"
     - "docs/prd/runwield-acp-protocol-prd.md"
+executionAgent: "engineer"
+collaborationRecommendation: "pair"
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173/dev/session-question"
 devServerHmr: true
 createdAt: "2026-09-11"
-status: "feedback"
+status: "in_progress"
 origin: "internal"
-executionAgent: "engineer"
-collaborationRecommendation: "pair"
+userVerifiedAt: null
+targetBranch: "main"
 ---
 
 # Shared Slash Commands for ACP
