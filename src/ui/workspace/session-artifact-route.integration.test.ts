@@ -39,6 +39,12 @@ Deno.test("registered Session artifacts open through the owner route and reject 
         if (built) assertEquals(response.status, 200);
         const html = await response.text();
         if (response.status === 200) {
+            // The loader must be visible server HTML, not only an inert hydration template.
+            const readerStart = html.indexOf('component-export="ArtifactReadSurface"');
+            const fallbackTemplate = html.indexOf('<template data-astro-template="fallback"', readerStart);
+            const visibleReader = html.slice(readerStart, fallbackTemplate);
+            assertStringIncludes(visibleReader, 'aria-label="Loading artifact"');
+            assertStringIncludes(visibleReader, 'class="rw-thinking-glyph"');
             assertStringIncludes(html, "Saved Plan");
             assertStringIncludes(html, "Artifact route regression.");
             assertStringIncludes(html, sessionPath);

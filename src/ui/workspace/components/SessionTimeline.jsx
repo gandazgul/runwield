@@ -12,6 +12,7 @@ const MESSAGE_TYPES = new Set([
     "workflow",
     "message",
     "thinking",
+    "busy",
     "tool",
     "status",
     "usage",
@@ -66,6 +67,7 @@ export function reduceSessionEvents(events, options = {}) {
     const byKey = new Map();
     const source = options.source || "committed";
     const startIndex = options.startIndex || 0;
+    let busy = false;
     let lastSegmentKey = null;
     /** @type {Record<string, any> | null} */
     let lastAssistantMessage = null;
@@ -133,6 +135,10 @@ export function reduceSessionEvents(events, options = {}) {
     events.forEach((raw, index) => {
         const event = asRecord(raw);
         const type = text(event.type);
+        if (type === "busy_changed") {
+            busy = event.busy === true;
+            return;
+        }
         const id = text(event.messageId || event.toolCallId || event.eventId || `${source}:${startIndex + index}`);
         const timestamp = text(event.timestamp);
         const segmentOrdinal = Number.isInteger(event.segmentOrdinal) ? event.segmentOrdinal : null;
@@ -335,7 +341,12 @@ export function reduceSessionEvents(events, options = {}) {
             }
         }
     });
-    return compactCompletedActivity(items.filter((item) => MESSAGE_TYPES.has(item.kind)));
+    const visibleItems = compactCompletedActivity(items.filter((item) => MESSAGE_TYPES.has(item.kind)));
+    // Runtime activity belongs at the live edge, never in saved conversation history.
+    if (source === "transient" && busy) {
+        visibleItems.push({ kind: "busy", key: "runtime-busy", source });
+    }
+    return visibleItems;
 }
 
 /** Full workflow output is never truncated or folded into routine tool activity. */
@@ -621,7 +632,7 @@ export function SessionTimeline({ items, events, emptyMessage = "", sessionPath 
         <ol className="session-timeline" aria-label="Session timeline">
             {timelineItems.map((item, index) => (
                 <li key={item.key || `${item.kind}:${index}`} className={`session-timeline-item item-${item.kind}`}>
-                    {item.kind === "workflow"
+                    {item.kind === "busy" ? <RunWieldThinkingDots label="Thinking..." /> : item.kind === "workflow"
                         ? (
                             <article
                                 className={`rw-workflow-block status-${item.status}`}

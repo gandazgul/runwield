@@ -109,6 +109,13 @@ class FakeElement {
             this.children.push(node);
         }
     }
+    prepend(...nodes) {
+        for (const node of nodes) {
+            node.parentElement?.removeChild(node);
+            node.parentElement = this;
+        }
+        this.children.unshift(...nodes);
+    }
     before(...nodes) {
         const parent = this.parentElement;
         if (!parent) return;
@@ -206,7 +213,11 @@ function installFakeBrowser(pathname = "/projects/project-a/sessions/session-a")
     document.append(shell);
     globalThis.document = document;
     globalThis.location = { href: `http://workspace.local${pathname}`, pathname, assign() {}, replace() {} };
-    globalThis.localStorage = { getItem: () => null, setItem() {} };
+    Object.defineProperty(globalThis, "localStorage", {
+        configurable: true,
+        writable: true,
+        value: { getItem: () => null, setItem() {} },
+    });
     globalThis.CSS = { escape: (value) => String(value) };
     return { document, sidebar };
 }
@@ -429,4 +440,21 @@ Deno.test("Workspace owner layout persists the real sidebar and owns navigation"
     assertStringIncludes(layout, 'document.addEventListener("runwield:workspace-navigate"');
     assertEquals(layout.includes("__runwieldWorkspaceNavigate"), false);
     assertStringIncludes(layout, '<script is:inline type="module" src="/workspace-shell.js"></script>');
+});
+
+Deno.test("artifact and review headers keep one surface title and a reachable Workspace restore control", () => {
+    const { document } = installFakeBrowser("/projects/project-a/sessions/session-a/artifacts/artifact-a");
+    const header = document.querySelector("[data-workspace-main-header-left]");
+    const title = document.createElement("strong");
+    title.dataset.workspaceSurfaceTitle = "";
+    title.textContent = "Artifact title";
+    header.append(title);
+    const payload = { projects: [{ projectId: "project-a", displayName: "Project A", enabled: true, sessions: [] }] };
+    const current = currentRouteFromUrl(globalThis.location.href);
+    renderSidebar(payload, current);
+    renderSidebar(payload, current);
+    assertEquals(header.querySelector("[data-workspace-main-session-name]"), null);
+    assertEquals(header.children.length, 2);
+    assertStrictEquals(header.children[1], title);
+    assertEquals(header.children[0].getAttribute("aria-label"), "Open Workspace sidebar");
 });

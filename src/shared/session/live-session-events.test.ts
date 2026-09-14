@@ -57,3 +57,24 @@ Deno.test("a long operation retains its latest question and terminal events", ()
     assertEquals(events.at(-2)?.type, "interaction_requested");
     assertEquals(events.at(-1)?.type, "turn_end");
 });
+
+Deno.test("long live turns retain the latest Core busy state for browser attachment", () => {
+    const events: SessionRuntimeEvent[] = [];
+    for (const busy of [true, false]) {
+        appendLiveSessionEvent(events, createSessionRuntimeEvent("session", { type: "busy_changed", busy }));
+        for (let index = 0; index < 1100; index++) {
+            appendLiveSessionEvent(
+                events,
+                createSessionRuntimeEvent("session", {
+                    type: "system_status",
+                    message: "Progress",
+                    level: "info",
+                }),
+            );
+        }
+        const latestBusy = events.findLast((event) => event.type === "busy_changed");
+        assert(latestBusy?.type === "busy_changed");
+        assertEquals(latestBusy.busy, busy);
+        assertEquals(events.length, 1000);
+    }
+});

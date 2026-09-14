@@ -1631,23 +1631,26 @@
 
 .workspace-main-shell:has(.session-surface-detail) {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
-    height: 100vh;
+    height: 100dvh;
     overflow: hidden;
     padding-bottom: 0;
 }
 
 .workspace-main-shell:has(.rw-review-embedded) {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
     row-gap: var(--rw-space-panel);
-    height: 100vh;
+    height: 100dvh;
     overflow: hidden;
     padding-bottom: 0;
 }
 
 .workspace-main-shell:has(.rw-review-embedded) > main,
 .workspace-main-shell:has(.rw-review-embedded) > main > astro-island {
+    min-width: 0;
     display: block;
     height: 100%;
     min-height: 0;
@@ -2818,24 +2821,33 @@
 
 @media (max-width: 900px) {
     .session-detail-layout {
-        grid-template-columns: 1fr;
-        grid-template-rows: auto minmax(0, 1fr);
-    }
-
-    .session-detail-layout--chat-only {
+        position: relative;
+        grid-template-columns: minmax(0, 1fr);
         grid-template-rows: minmax(0, 1fr);
     }
 
     .session-context-sidebar {
-        max-height: 40vh;
-        overflow: auto;
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        min-height: 0;
+        align-content: stretch;
+        overflow: hidden;
+        border-left: 0;
     }
 
-    .session-workflow-sidebar {
-        border-left: 0;
-        border-bottom: 1px solid var(--rw-border);
-        position: static;
-        order: -1;
+    .session-context-content {
+        display: grid;
+        gap: 0.7rem;
+        min-height: 0;
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .session-context-panel {
+        min-height: 0;
+        align-content: start;
+        overflow: auto;
+        overscroll-behavior: contain;
     }
 
     .session-create-panel {
@@ -3540,7 +3552,18 @@
         flex: 1 1 auto;
     }
 
+    .workspace-main-surface-header .workspace-main-header-left {
+        flex-basis: 100%;
+    }
+
+    .workspace-main-surface-header .workspace-main-header-actions {
+        flex: 1 1 100%;
+        max-width: 100%;
+    }
+
     .workspace-main-header-actions .rw-plannotator-actions {
+        min-width: 0;
+        flex-wrap: wrap;
         position: static;
         width: 100%;
         padding: 0;
@@ -3548,4 +3571,15 @@
         background: transparent;
         box-shadow: none;
     }
+}
+
+.workspace-navigation-loading:not([hidden]) {
+    position: fixed;
+    bottom: 1rem;
+    right: 1rem;
+    z-index: 100;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-panel);
+    background: var(--rw-surface);
 }

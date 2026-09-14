@@ -236,6 +236,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string|null} [devServerUrl] - Local URL expected for browser verification, if known.
  * @property {boolean|null} [devServerHmr] - Whether the dev server is expected to support hot module reload.
  * @property {string|null} [worktreeBaseBranch] - Target branch this child FEATURE should execute from and merge back into.
+ * @property {string|null} [worktreeBaseCommit] - Recorded base commit for worktree recovery.
  * @property {string} [targetBranch] - User-selected target branch for this child.
  * @property {string[]} dependencies - Sibling child plan names or identifiers required first.
  * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Direct child Ticket References; omitted preserves existing child references, [] clears.

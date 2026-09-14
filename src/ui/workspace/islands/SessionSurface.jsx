@@ -347,14 +347,6 @@ function resizeComposerTextArea(textarea) {
     textarea.style.height = `${textarea.scrollHeight}px`;
 }
 
-function SessionBusyPanel() {
-    return (
-        <div className="session-inline-loader" role="status">
-            <RunWieldThinkingDots label="Working" />
-        </div>
-    );
-}
-
 export function SessionComposer({
     id,
     draft,
@@ -667,7 +659,7 @@ export function SessionComposer({
                     aria-label={submitting ? "Sending" : sendLabel}
                     title={submitting ? "Sending" : sendLabel}
                 >
-                    {submitting ? <RunWieldThinkingDots label="Sending" /> : <PaperAirplaneIcon />}
+                    {submitting ? <RunWieldThinkingDots label="Sending" showLabel={false} /> : <PaperAirplaneIcon />}
                 </button>
             </div>
         </form>
@@ -1406,6 +1398,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         const events = Array.isArray(payload.events) ? payload.events : [];
         let items = reduceOperationTransientItems(events);
         if (payload.liveInteraction?.interactionId) {
+            items = items.filter((item) => item.kind !== "busy");
             const request = payload.liveInteraction.request || {};
             const isPlanReview = request.type === "plan_review";
             const isCodeReview = request.type === "code_review";
@@ -1912,7 +1905,6 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         ? `${stagedAgentDefaults.provider}\u001f${stagedAgentDefaults.model}`
         : activeModelKey;
     const displayedThinking = liveThinkingLevel || stagedAgentDefaults?.thinkingLevel || activeThinking;
-    const showBusyPanel = ["active", "workspace-running", "execution-workflow"].includes(availability.key);
     const canSubmitSession = availability.canContinue || ["active", "workspace-running"].includes(availability.key);
     const sessionSidebar = buildSessionSidebarProjection({
         sessionName: timeline?.snapshot?.name,
@@ -1974,7 +1966,6 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                     : message
                                     ? <div className="session-surface-status" aria-live="polite">{message}</div>
                                     : null}
-                                {showBusyPanel ? <SessionBusyPanel /> : null}
                                 {latestActivityAvailable
                                     ? (
                                         <div className="session-scroll-offer" role="status">
@@ -1992,7 +1983,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                             onClick={loadEarlierMessages}
                                             disabled={loadingEarlier}
                                         >
-                                            {loadingEarlier ? "Loading…" : "Load earlier messages"}
+                                            {loadingEarlier
+                                                ? <RunWieldThinkingDots label="Loading earlier messages" />
+                                                : "Load earlier messages"}
                                         </RunWieldButton>
                                     )
                                     : null}
@@ -2141,7 +2134,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                                                 <p className="notice muted">
                                                                     {workflowProgressError
                                                                         ? "Workflow progress is temporarily unavailable."
-                                                                        : "Loading canonical workflow progress…"}
+                                                                        : (
+                                                                            <RunWieldThinkingDots label="Loading workflow progress" />
+                                                                        )}
                                                                 </p>
                                                             )}
                                                         {progressUrl && !workflowProgressError

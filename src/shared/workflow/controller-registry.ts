@@ -285,6 +285,7 @@ export async function loadControllerView(
                     worktreePath: legacy.worktreePath,
                     worktreeBranch: legacy.worktreeBranch,
                     worktreeBaseBranch: legacy.worktreeBaseBranch,
+                    worktreeBaseCommit: legacy.worktreeBaseCommit,
                     worktreeStatus: legacy.worktreeStatus,
                     executionBaselineTree: legacy.executionBaselineTree,
                 }
@@ -302,6 +303,7 @@ export async function loadControllerView(
             worktreePath: attempt.path,
             worktreeBranch: attempt.branch,
             worktreeBaseBranch: attempt.baseBranch,
+            worktreeBaseCommit: attempt.baseCommit,
             worktreeStatus: attempt.status === "validated" ? "completed" : attempt.status,
             executionBaselineTree: attempt.executionBaselineTree || attempt.baseTree,
         }

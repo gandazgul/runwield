@@ -196,10 +196,10 @@ export async function resolveRecoveryWorktree(
         // The primary-checkout Plan is intentionally immutable during publication,
         // so its older worktreeStatus must not hide a failed push or conflict.
         status: entry?.status || plan.attrs.worktreeStatus || undefined,
-        baseRef: entry?.baseRef,
-        baseCommit: entry?.baseCommit,
+        baseRef: entry?.baseRef || plan.attrs.worktreeBaseCommit || undefined,
+        baseCommit: entry?.baseCommit || plan.attrs.worktreeBaseCommit || undefined,
         baseTree: entry?.baseTree,
-        executionBaselineTree: entry?.executionBaselineTree,
+        executionBaselineTree: entry?.executionBaselineTree || plan.attrs.executionBaselineTree || undefined,
         publication: entry?.publication,
     };
 }

@@ -1,4 +1,5 @@
 ---
+import LoadingSurface from "../../../components/LoadingSurface.astro";
 import WorkspaceLayout from "../../../layouts/WorkspaceLayout.astro";
 import { ReviewDevSurface } from "../../../react/ReviewDevSurface.tsx";
 
@@ -14,5 +15,7 @@ const reviewTitle = variant === "project" ? "Fixture PROJECT Epic: Plan Review U
     selectedTab="projects"
     url={Astro.url.href}
 >
-    <ReviewDevSurface surface="plan" presentation="workspace" variant={variant} client:only="react" />
+    <ReviewDevSurface surface="plan" presentation="workspace" variant={variant} client:only="react">
+        <LoadingSurface slot="fallback" label="Loading review" />
+    </ReviewDevSurface>
 </WorkspaceLayout>

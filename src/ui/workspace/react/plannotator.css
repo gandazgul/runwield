@@ -18,6 +18,7 @@ html[class*="theme-"] {
 }
 
 .rw-plannotator-host {
+    min-width: 0;
     display: flex;
     flex-direction: column;
     min-height: calc(100vh - 9rem);
@@ -676,7 +677,7 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     display: grid;
     flex: 1;
     height: 100%;
-    min-height: 72vh;
+    min-height: 0;
     min-width: 0;
 }
 
@@ -727,11 +728,41 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     grid-template-columns: minmax(14rem, 17.5rem) minmax(0, 1fr);
 }
 
-.rw-artifact-read .rw-plannotator-plan-layout > aside {
+.rw-artifact-read .rw-artifact-read-layout {
+    min-height: 0;
+}
+
+.rw-artifact-document-toolbar {
+    display: flex;
+    align-items: center;
+    flex: none;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--rw-border);
+}
+
+.rw-artifact-document-toolbar .rw-artifact-path {
+    margin-left: auto;
+    min-width: 0;
+}
+
+.rw-artifact-contents {
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--rw-surface);
+}
+
+.rw-artifact-contents > aside {
     display: flex;
     position: relative;
     top: auto;
+    width: 100% !important;
     height: 100%;
+}
+
+.rw-review-embedded .rw-plan-content-area {
+    padding-bottom: 0;
 }
 
 .rw-artifact-read-title-block {
@@ -1121,6 +1152,7 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 }
 
 .rw-plannotator-scroll-area {
+    min-width: 0;
     flex: 1;
     min-height: 0;
 }
@@ -1135,6 +1167,7 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 }
 
 .rw-plan-document-canvas {
+    min-width: 0;
     display: flex;
     width: 100%;
     justify-content: center;
@@ -1155,6 +1188,7 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 
 .rw-plan-review[data-plan-width="wide"] .rw-plan-document-canvas > .relative,
 .rw-plan-review[data-plan-width="wide"] .rw-markdown-editor-pane > .relative {
+    min-width: 0;
     max-width: none !important;
     flex: 1;
 }
@@ -1217,9 +1251,16 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     }
 
     .rw-plan-review-execution-policy {
+        min-width: 0;
+        max-width: 100%;
         width: 100%;
         overflow-x: auto;
         padding: 0 0 0.2rem;
+    }
+
+    .workspace-main-header-actions .rw-plan-review-execution-policy {
+        flex-wrap: wrap;
+        overflow-x: visible;
     }
 
     .rw-plan-review .rw-plannotator-plan-layout > aside:not([data-annotation-panel]),
@@ -1257,21 +1298,57 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
         padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
     }
 
-    .rw-plannotator-plan-layout,
-    .rw-plannotator-code-layout,
-    .rw-artifact-read-layout,
-    .rw-artifact-read-layout[data-sidebar-open="true"] {
-        grid-template-columns: 1fr;
+    /* Override every desktop panel-state combination, not just the base grid. */
+    .rw-plannotator-plan-layout[data-sidebar-open][data-annotations-open],
+    .rw-plannotator-code-layout[data-file-tree-open][data-annotations-open] {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .rw-plan-review-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .rw-plan-review-controls .rw-review-toolbar-edge:empty {
+        display: none;
+    }
+
+    .rw-plan-review-controls .rw-review-toolbar-edge-right {
+        margin-left: auto;
+    }
+
+    .rw-plan-review-mode-actions {
+        order: 1;
+        flex: 1 0 100%;
+        width: 100%;
+    }
+
+    .rw-plannotator-annotation-toolstrip {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .rw-plan-document-canvas > .relative {
+        min-width: 0;
+    }
+
+    .rw-plan-document-canvas article {
+        overflow-wrap: anywhere;
+    }
+
+    .rw-review-embedded .rw-plannotator-plan-layout > [data-annotation-panel] {
+        bottom: 0;
     }
 
     .rw-code-file-resize-handle {
         display: none;
     }
 
-    .rw-artifact-read .rw-plannotator-plan-layout > aside {
-        height: min(18rem, 38vh);
-        border-right: 0;
-        border-bottom: 1px solid var(--rw-border, #2d3748);
+    .rw-artifact-contents {
+        position: absolute;
+        inset: 0;
+        z-index: 70;
     }
 
     .rw-artifact-read-heading h1 {

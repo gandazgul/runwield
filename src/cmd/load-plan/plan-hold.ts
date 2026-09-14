@@ -426,7 +426,7 @@ export async function resetHeldPlanToDraft({
         expectedRevision: (plan as { revision?: string }).revision,
         action: action === "reset_delete" ? "abandon" : "reset",
         recover: async ({ beforePlan, markEffect }) => {
-            let retained = false;
+            let retained = action === "reset_keep" && hasWorktreeContext(worktreeContext);
             if (action === "reset_delete") {
                 for await (const cleanup of discardWorktreeGitArtifacts({ projectRoot, ...worktreeContext })) {
                     if (cleanup.status === "blocked") throw new Error(cleanup.message);

@@ -22,6 +22,7 @@ import {
     reduceSessionEvents,
     sessionInteractionChoiceResponse,
     sessionInteractionTypedResponse,
+    SessionTimeline,
 } from "./components/SessionTimeline.jsx";
 
 Deno.test("Session composer keeps provider/model identities and opens slash choices before the first message", async () => {
@@ -584,4 +585,28 @@ Deno.test("image-only user messages survive the browser timeline reducer", () =>
     const items = reduceSessionEvents([{ type: "user_message", messageId: "image", text: "", images }]);
     assertEquals(items[0].images, images);
     assertEquals(items[0].role, "user");
+});
+
+Deno.test("Core busy events show Thinking at the live edge before any assistant output and clear on idle", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const events = [
+        { type: "user_message", messageId: "request", text: "Hello" },
+        { type: "busy_changed", busy: true },
+    ];
+    let items = reduceOperationTransientItems(events);
+    const html = renderToStaticMarkup(createElement(SessionTimeline, { items }));
+    assertEquals(html.includes('aria-label="Thinking..."'), true);
+    assertEquals(html.includes('class="rw-thinking-glyph"'), true);
+    assertEquals(items.at(-1).kind, "busy");
+    events.push({ type: "assistant_text_delta", messageId: "reply", delta: "Hello back" });
+    events.push({ type: "busy_changed", busy: true });
+    items = reduceOperationTransientItems(events);
+    assertEquals(items.filter((item) => item.kind === "busy").length, 1);
+    assertEquals(items.at(-1).kind, "busy");
+    events.push({ type: "busy_changed", busy: false });
+    assertEquals(reduceOperationTransientItems(events).some((item) => item.kind === "busy"), false);
+    // An old busy event must not turn a reopened transcript into a running Session.
+    assertEquals(reduceSessionEvents(events.slice(0, 2)).some((item) => item.kind === "busy"), false);
+    assertEquals(reduceOperationTransientItems([]).length, 0);
 });

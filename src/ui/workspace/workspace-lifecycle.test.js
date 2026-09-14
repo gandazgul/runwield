@@ -130,7 +130,7 @@ Deno.test("ArtifactReadSurface keeps the React read surface to Contents, notices
     const cssSource = await Deno.readTextFile(new URL("./react/plannotator.css", import.meta.url));
 
     assertStringIncludes(pageSource, 'payload.surface === "artifact-read"');
-    assertStringIncludes(pageSource, '<ArtifactReadSurface payload={payload} client:only="react" />');
+    assertStringIncludes(pageSource, '<ArtifactReadSurface payload={payload} client:only="react">');
     assertStringIncludes(surfaceSource, "data-artifact-kind={artifactKind}");
     assertStringIncludes(surfaceSource, "aria-label={`${artifactLabel} notices`}");
     assertStringIncludes(surfaceSource, "{notices.map((notice) => <p key={notice}>{notice}</p>)}");
@@ -147,7 +147,7 @@ Deno.test("ArtifactReadSurface keeps the React read surface to Contents, notices
     assertStringIncludes(surfaceSource, "readOnly");
     assertStringIncludes(cssSource, '.rw-artifact-read-layout[data-sidebar-open="true"]');
     assertStringIncludes(cssSource, "@media (max-width: 980px)");
-    assertStringIncludes(cssSource, ".rw-artifact-read .rw-plannotator-plan-layout > aside");
+    assertStringIncludes(cssSource, ".rw-artifact-contents > aside");
     assertEquals(surfaceSource.includes("Feedback"), false);
     assertEquals(surfaceSource.includes("Approve"), false);
     assertEquals(surfaceSource.includes("WorkspaceMarkdownEditor"), false);

@@ -1,4 +1,5 @@
 ---
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { ClientRouter } from "astro:transitions";
 import { BrowserNotificationPermissionControl } from "../react/BrowserNotificationPermissionControl.tsx";
 import { PLAN_SEARCH_QUERY_PARAM, PLAN_UI_TOKEN_QUERY } from "../constants.js";
@@ -40,6 +41,16 @@ function linkWithToken(path: string) {
         {!localShell && (
             <script>
                 import { navigate } from "astro:transitions/client";
+                document.addEventListener("astro:before-preparation", (event) => {
+                    const indicator = document.querySelector<HTMLElement>("[data-workspace-navigation-loading]");
+                    if (!indicator) return;
+                    indicator.hidden = false;
+                    const load = event.loader;
+                    event.loader = async () => {
+                        try { await load(); }
+                        finally { indicator.hidden = true; }
+                    };
+                });
                 document.addEventListener("runwield:workspace-navigate", (event) => {
                     if (!(event instanceof CustomEvent)) return;
                     event.preventDefault();
@@ -73,7 +84,7 @@ function linkWithToken(path: string) {
                             <span>RunWield</span>
                         </a>
                     </div>
-                    <p class="workspace-sidebar-empty">Loading Workspace…</p>
+                    <p class="workspace-sidebar-empty"><RunWieldThinkingDots label="Loading Workspace" /></p>
                 </aside>
                 <div class="workspace-main-shell">
                     <header class:list={["workspace-main-header", surfaceTitle && "workspace-main-surface-header"]}>
@@ -101,6 +112,9 @@ function linkWithToken(path: string) {
                 </div>
             </div>
         )}
+        {!localShell && <div class="workspace-navigation-loading" data-workspace-navigation-loading hidden>
+            <RunWieldThinkingDots label="Loading page" />
+        </div>}
         {!localShell && <script is:inline type="module" src="/workspace-shell.js"></script>}
     </body>
 </html>

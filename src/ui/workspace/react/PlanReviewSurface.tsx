@@ -1,4 +1,5 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 import { RunWieldTabs } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -982,7 +983,9 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                             disabled={submitting !== null}
                                             onClick={runRecoveryAction}
                                         >
-                                            {submitting === "recovery" ? "Recovering…" : "Recover in Workspace"}
+                                            {submitting === "recovery"
+                                                ? <RunWieldThinkingDots label="Recovering" />
+                                                : "Recover in Workspace"}
                                         </button>
                                     )
                                     : null}
@@ -1309,7 +1312,9 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                                             plannerWorking}
                                                         isLoading={submitting === "feedback"}
                                                         label="Send Annotations"
-                                                        loadingLabel="Sending Annotations…"
+                                                        loadingLabel={
+                                                            <RunWieldThinkingDots label="Sending Annotations" />
+                                                        }
                                                         title={!hasReviewFeedback
                                                             ? "Add a Plan or file annotation, attachment, or direct Plan edit before sending annotations"
                                                             : "Send annotations"}
@@ -1572,8 +1577,14 @@ function PlanApprovalSplitButton({ primaryAction, onApprove, disabled, isLoading
                         aria-label={primaryLabel}
                         iconLeft={<CheckIcon />}
                     >
-                        <span className="md:hidden">{isLoading ? "…" : primaryMobileLabel}</span>
-                        <span className="hidden md:inline">{isLoading ? loadingLabel : primaryLabel}</span>
+                        <span className="md:hidden">
+                            {isLoading
+                                ? <RunWieldThinkingDots label="Approving" showLabel={false} />
+                                : primaryMobileLabel}
+                        </span>
+                        <span className="hidden md:inline">
+                            {isLoading ? <RunWieldThinkingDots label={loadingLabel} /> : primaryLabel}
+                        </span>
                     </Button>
                     <Button
                         variant="success"

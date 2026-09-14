@@ -1,4 +1,5 @@
 // @ts-nocheck: Workspace React UI is the scoped TypeScript/TSX exception zone.
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createCollaborationClient } from "../../../shared/collaboration/client.js";
@@ -211,7 +212,13 @@ export function RemotePlanReview({ spaceId }) {
                                 : <p>Decrypting Shared Space…</p>}
                         </div>
                         <div className="rw-remote-review-actions">
-                            {saving ? <span className="badge warning">Saving encrypted comment…</span> : null}
+                            {saving
+                                ? (
+                                    <span className="badge warning">
+                                        <RunWieldThinkingDots label="Saving encrypted comment" />
+                                    </span>
+                                )
+                                : null}
                             {space?.status
                                 ? <span className={closed ? "badge warning" : "badge success"}>{space.status}</span>
                                 : null}
@@ -274,7 +281,13 @@ export function RemotePlanReview({ spaceId }) {
                         </div>
                     </div>
 
-                    {loading ? <p className="notice">Loading encrypted Shared Space…</p> : null}
+                    {loading
+                        ? (
+                            <p className="notice">
+                                <RunWieldThinkingDots label="Loading encrypted Shared Space" />
+                            </p>
+                        )
+                        : null}
 
                     <div className="rw-remote-review-grid rw-remote-plannotator-grid">
                         <article className="rw-remote-plan-card rw-remote-plannotator-plan-card">

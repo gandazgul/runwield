@@ -1,6 +1,6 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
 import { TooltipProvider } from "@plannotator/ui/components/Tooltip.tsx";
 import { Viewer } from "@plannotator/ui/components/Viewer.tsx";
@@ -11,6 +11,8 @@ import { usePrintMode } from "@plannotator/ui/hooks/usePrintMode.ts";
 import { useConfigValue } from "@plannotator/ui/config/index.ts";
 import { extractFrontmatter, parseMarkdownToBlocks } from "@plannotator/ui/utils/parser.ts";
 import { getUIPreferences, PLAN_WIDTH_OPTIONS } from "@plannotator/ui/utils/uiPreferences.ts";
+import { RunWieldPanelToggle, RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
+import { WorkspaceHeaderActionsPortal } from "./WorkspaceHeaderActionsPortal.tsx";
 import "./plannotator.css";
 
 const DEFAULT_READ_PAYLOAD = {
@@ -59,6 +61,17 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
     const [closeBlocked, setCloseBlocked] = useState(false);
     const [error, setError] = useState("");
     const uiPreferences = useMemo(() => getUIPreferences(), []);
+    const [sidebarOpen, setSidebarOpen] = useState(() =>
+        !globalThis.matchMedia("(max-width: 980px)").matches && uiPreferences.tocEnabled
+    );
+    useEffect(() => {
+        const narrow = globalThis.matchMedia("(max-width: 980px)");
+        const collapseOnPhone = () => {
+            if (narrow.matches) setSidebarOpen(false);
+        };
+        narrow.addEventListener("change", collapseOnPhone);
+        return () => narrow.removeEventListener("change", collapseOnPhone);
+    }, []);
     const gridEnabled = useConfigValue("gridEnabled");
     const planMaxWidth = useMemo(
         () => PLAN_WIDTH_OPTIONS.find((option) => option.id === uiPreferences.planWidth)?.px || 832,
@@ -110,6 +123,23 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
         }
     }
 
+    const closeAction = (
+        <button
+            className="rw-artifact-close-button rw-review-action-button"
+            type="button"
+            onClick={closeReadSurface}
+            disabled={closing || closed}
+        >
+            {presentation === "workspace"
+                ? "Back to Session"
+                : closing
+                ? <RunWieldThinkingDots label="Closing" />
+                : closed
+                ? "Closed"
+                : "Close"}
+        </button>
+    );
+
     return (
         <ThemeProvider
             defaultTheme="dark"
@@ -124,33 +154,37 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                     }`}
                     data-artifact-kind={artifactKind}
                 >
-                    <header className="rw-plannotator-toolbar">
-                        <div className="rw-plan-review-heading rw-artifact-read-heading">
-                            <img src="/brand/logo.svg" alt="" aria-hidden="true" />
-                            <div className="rw-artifact-read-title-block">
-                                <h1>{title}</h1>
-                                {initialPayload.artifactPath && (
-                                    <p className="rw-artifact-path">{initialPayload.artifactPath}</p>
-                                )}
-                            </div>
-                        </div>
-                        <div className="rw-plannotator-actions">
-                            <button
-                                className="rw-artifact-close-button rw-review-action-button"
-                                type="button"
-                                onClick={closeReadSurface}
-                                disabled={closing || closed}
-                            >
-                                {presentation === "workspace"
-                                    ? "Back to Session"
-                                    : closing
-                                    ? "Closing…"
-                                    : closed
-                                    ? "Closed"
-                                    : "Close"}
-                            </button>
-                        </div>
-                    </header>
+                    {presentation === "workspace"
+                        ? <WorkspaceHeaderActionsPortal>{closeAction}</WorkspaceHeaderActionsPortal>
+                        : (
+                            <header className="rw-plannotator-toolbar">
+                                <div className="rw-plan-review-heading rw-artifact-read-heading">
+                                    <img src="/brand/logo.svg" alt="" aria-hidden="true" />
+                                    <div className="rw-artifact-read-title-block">
+                                        <h1>{title}</h1>
+                                        {initialPayload.artifactPath && (
+                                            <p className="rw-artifact-path">{initialPayload.artifactPath}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="rw-plannotator-actions">{closeAction}</div>
+                            </header>
+                        )}
+                    <div className="rw-artifact-document-toolbar">
+                        <RunWieldPanelToggle
+                            side="left"
+                            collapsed={!sidebarOpen}
+                            label="Contents"
+                            controls="artifact-contents"
+                            onClick={() => setSidebarOpen(!sidebarOpen)}
+                        />
+                        <span>Contents</span>
+                        {presentation === "workspace" && initialPayload.artifactPath && (
+                            <span className="rw-artifact-path" title={initialPayload.artifactPath}>
+                                {initialPayload.artifactPath}
+                            </span>
+                        )}
+                    </div>
                     {error && <p className="rw-review-error" role="alert">{error}</p>}
                     {closed && closeBlocked && (
                         <div className="rw-artifact-close-notice" role="status">
@@ -162,35 +196,54 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                         </div>
                     )}
                     <ScrollViewportContext.Provider value={scrollViewport}>
-                        <div className="rw-plannotator-plan-layout rw-artifact-read-layout" data-sidebar-open="true">
-                            <SidebarContainer
-                                activeTab="toc"
-                                onTabChange={() => {}}
-                                onClose={() => {}}
-                                width={280}
-                                blocks={parsed.blocks}
-                                annotations={[]}
-                                activeSection={activeSection}
-                                onTocNavigate={setActiveSection}
-                                showFilesTab={false}
-                                showVersionsTab={false}
-                                versionInfo={null}
-                                versions={[]}
-                                selectedBaseVersion={null}
-                                onSelectBaseVersion={() => {}}
-                                isPlanDiffActive={false}
-                                hasPreviousVersion={false}
-                                onActivatePlanDiff={() => {}}
-                                isLoadingVersions={false}
-                                isSelectingVersion={false}
-                                fetchingVersion={null}
-                                onFetchVersions={() => {}}
-                                showArchiveTab={false}
-                                archivePlans={[]}
-                                selectedArchiveFile={null}
-                                onArchiveSelect={() => {}}
-                                isLoadingArchive={false}
-                            />
+                        <div
+                            className="rw-plannotator-plan-layout rw-artifact-read-layout"
+                            data-sidebar-open={sidebarOpen}
+                            data-annotations-open="false"
+                        >
+                            {sidebarOpen && (
+                                <div
+                                    id="artifact-contents"
+                                    className="rw-artifact-contents"
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Escape") setSidebarOpen(false);
+                                    }}
+                                >
+                                    <SidebarContainer
+                                        activeTab="toc"
+                                        onTabChange={() => {}}
+                                        onClose={() => setSidebarOpen(false)}
+                                        width={280}
+                                        blocks={parsed.blocks}
+                                        annotations={[]}
+                                        activeSection={activeSection}
+                                        onTocNavigate={(section) => {
+                                            setActiveSection(section);
+                                            if (globalThis.matchMedia("(max-width: 980px)").matches) {
+                                                setSidebarOpen(false);
+                                            }
+                                        }}
+                                        showFilesTab={false}
+                                        showVersionsTab={false}
+                                        versionInfo={null}
+                                        versions={[]}
+                                        selectedBaseVersion={null}
+                                        onSelectBaseVersion={() => {}}
+                                        isPlanDiffActive={false}
+                                        hasPreviousVersion={false}
+                                        onActivatePlanDiff={() => {}}
+                                        isLoadingVersions={false}
+                                        isSelectingVersion={false}
+                                        fetchingVersion={null}
+                                        onFetchVersions={() => {}}
+                                        showArchiveTab={false}
+                                        archivePlans={[]}
+                                        selectedArchiveFile={null}
+                                        onArchiveSelect={() => {}}
+                                        isLoadingArchive={false}
+                                    />
+                                </div>
+                            )}
                             <main className="rw-plannotator-main-pane">
                                 {notices.length > 0 && (
                                     <section className="rw-artifact-notices" aria-label={`${artifactLabel} notices`}>

@@ -230,52 +230,73 @@
     opacity: 0.45;
 }
 
+/* TUI Braille frames: ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏, advancing every 120 ms.
+ * One mask sprite also replaces spinners inside imported review components. */
+:root {
+    --rw-loading-dots: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20154%2018%22%3E%3Ccircle%20cx%3D%224%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%224%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2210%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2218%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2224%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2224%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2238%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2238%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2238%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2260%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2266%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2266%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2266%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2274%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2280%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2280%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2288%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2288%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2294%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22102%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22102%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22102%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22108%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22116%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22116%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22116%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22130%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22130%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22130%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22136%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22144%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22144%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22150%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3C%2Fsvg%3E");
+}
+
 .rw-thinking-dots {
-    align-items: baseline;
+    align-items: center;
     color: var(--rw-text-muted);
     display: inline-flex;
-    gap: 0.14rem;
-    white-space: nowrap;
+    gap: 0.4rem;
 }
 
-.rw-thinking-dot {
-    animation: rw-thinking-dot-pulse 1s infinite ease-in-out;
+.rw-thinking-glyph,
+.animate-spin,
+.group > .absolute.inset-0.animate-pulse::before {
+    animation: rw-loading-dots 1.2s steps(10) infinite;
     background: currentColor;
-    border-radius: 50%;
+    border: 0;
+    border-radius: 0;
     display: inline-block;
-    height: 0.25rem;
-    opacity: 0.35;
-    transform: translateY(-0.08rem);
-    width: 0.25rem;
+    flex: none;
+    height: 1.125em;
+    width: 0.875em;
+    mask-image: var(--rw-loading-dots);
+    mask-size: 1100% 100%;
+    mask-repeat: no-repeat;
+    mask-position: 0% 0;
+    transform: none;
 }
 
-.rw-thinking-dot:nth-child(3) {
-    animation-delay: 160ms;
+/* Imported image previews use a skeleton while the image loads. */
+.group > .absolute.inset-0.animate-pulse {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: none;
+    background: transparent;
 }
 
-.rw-thinking-dot:nth-child(4) {
-    animation-delay: 320ms;
+.group > .absolute.inset-0.animate-pulse::before {
+    content: "";
 }
 
-@keyframes rw-thinking-dot-pulse {
-    0%,
-    80%,
-    100% {
-        opacity: 0.28;
-        transform: translateY(-0.08rem) scale(0.82);
+/* Keep vendor layout and accessible labels, replace only the loading artwork. */
+svg.animate-spin > * {
+    visibility: hidden;
+}
+
+@keyframes rw-loading-dots {
+    to {
+        mask-position: 100% 0;
     }
+}
 
-    40% {
-        opacity: 0.9;
-        transform: translateY(-0.08rem) scale(1);
-    }
+.rw-loading-surface {
+    display: grid;
+    min-height: 10rem;
+    place-items: center;
+    padding: 1.5rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .rw-thinking-dot {
+    .rw-thinking-glyph,
+    .animate-spin,
+    .group > .absolute.inset-0.animate-pulse::before {
         animation: none;
-        opacity: 0.7;
-        transform: translateY(-0.08rem);
     }
 }
 
