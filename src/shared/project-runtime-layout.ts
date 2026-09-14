@@ -955,9 +955,6 @@ async function currentConflictsInRoot(
     if (!entries) return [];
     const conflicts: string[] = [];
     for (const entry of entries) {
-        if (entry.name === "work-record-supersession.lock" || entry.name === "work-record-supersession-recovery.lock") {
-            continue;
-        }
         if (allowedRootNames.has(entry.name)) continue;
         const path = join(internalRoot, entry.name);
         if (allowedPaths.has(path)) continue;
@@ -975,8 +972,7 @@ async function inspectLegacyLocks(
     const active: string[] = [];
     const retire: MigrationRetireOperation[] = [];
     const registryLock = legacyWorktreeRegistryLockPath(primaryCheckoutRoot);
-    const legacyRegistryExists = await lstatOrNull(legacyWorktreeRegistryPath(primaryCheckoutRoot));
-    if (!options.legacyRegistryLockHeld && legacyRegistryExists) {
+    if (!options.legacyRegistryLockHeld) {
         const registryStatus = await classifyProcessLock(registryLock, 30_000);
         if (registryStatus.status === "active") active.push(registryLock);
         if (registryStatus.status === "stale") retire.push(retireLockOperation(registryLock, registryStatus.snapshot));

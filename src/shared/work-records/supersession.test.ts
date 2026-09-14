@@ -47,7 +47,9 @@ async function assertLinkedWorkRecordLockExclusion(
     const container = await Deno.makeTempDir({ prefix: "rw-work-record-lock-tree-" });
     const selected = join(container, "selected");
     try {
+        await enterProjectRuntime(root);
         await git(root, ["worktree", "add", "-b", branchName, selected, "HEAD"]);
+        await enterProjectRuntime(selected);
         const selectedPath = selectedInternalPath(selected, fileName);
         const primaryPath = selectedInternalPath(root, fileName);
         const legacySelectedPath = join(getRunWieldRuntimeDir(Deno.realPathSync(selected)), fileName);

@@ -16,8 +16,8 @@ import { COLLABORATION_LOCK_BYPASS, COLLABORATION_STATE_REMOTE_CANONICAL } from 
 import { normalizeSharedSpaceMetadata } from "../../shared/collaboration/protocol.js";
 import {
     deleteCompatibleSecretRecords,
-    getGlobalSecretStorePath,
-    getProjectSecretStorePath,
+    getGlobalSecretStoreLocation,
+    getProjectSecretStoreLocation,
     resolveCompatibleSecretRecord,
 } from "../../shared/collaboration/secrets.js";
 import { normalizePlanServerUrl } from "../../shared/settings.js";
@@ -103,10 +103,10 @@ function normalizeSpaceResponse(value: WireValue): ReturnType<typeof normalizeSh
 }
 
 /** @param {string} cwd @param {boolean} projectSecrets */
-function secretPaths(cwd: string, projectSecrets: boolean): string[] {
-    const globalPath = getGlobalSecretStorePath();
-    const projectPath = getProjectSecretStorePath(cwd);
-    return projectSecrets ? [projectPath, globalPath] : [globalPath, projectPath];
+async function secretPaths(cwd: string, projectSecrets: boolean) {
+    const globalLocation = getGlobalSecretStoreLocation();
+    const projectLocation = await getProjectSecretStoreLocation(cwd);
+    return projectSecrets ? [projectLocation, globalLocation] : [globalLocation, projectLocation];
 }
 
 function findResourceByNameOrId(resources: PlanResource[], target: string): PlanResource | null {
@@ -187,7 +187,7 @@ export async function unsharePlan(unshareOptions: UnsharePlanOptions): Promise<U
         );
     }
 
-    const paths = secretPaths(cwd, Boolean(unshareOptions.projectSecrets));
+    const paths = await secretPaths(cwd, Boolean(unshareOptions.projectSecrets));
     const found = await resolveCompatibleSecretRecord(paths, planId, spaceId);
     if (!found?.record?.contentKey) {
         throw new Error("Shared Plan local content key is missing; pull with the maintainer URL to import secrets.");

@@ -66,18 +66,17 @@ export async function getProjectSecretStoreLocation(projectRoot) {
 }
 
 /**
- * @param {string|SecretStoreLocation} location
+ * @param {SecretStoreLocation} location
  * @returns {Promise<string>}
  */
 async function resolveSecretStorePath(location) {
-    if (typeof location === "string") return location;
     if (location.owner === "global") return location.path;
     if (!location.projectRoot) throw new Error("Project secret store location requires a project root.");
     return (await enterProjectRuntime(location.projectRoot)).primary.projectSecretStorePath;
 }
 
 /**
- * @param {string|SecretStoreLocation} location
+ * @param {SecretStoreLocation} location
  * @returns {Promise<SecretStoreDocument>}
  */
 export async function readSecretStore(location) {
@@ -92,7 +91,7 @@ export async function readSecretStore(location) {
 }
 
 /**
- * @param {string|SecretStoreLocation} location
+ * @param {SecretStoreLocation} location
  * @param {SecretStoreDocument} document
  */
 export async function writeSecretStore(location, document) {
@@ -119,7 +118,7 @@ export async function writeSecretStore(location, document) {
 }
 
 /**
- * @param {string|SecretStoreLocation} path
+ * @param {SecretStoreLocation} path
  * @param {string} key
  * @param {import("./protocol.js").LocalSecretRecord} record
  */
@@ -130,7 +129,7 @@ export async function putSecretRecord(path, key, record) {
 }
 
 /**
- * @param {string|SecretStoreLocation} path
+ * @param {SecretStoreLocation} path
  * @param {string} key
  * @returns {Promise<import("./protocol.js").LocalSecretRecord | undefined>}
  */
@@ -188,7 +187,7 @@ function assertCompatiblePullSecretMatches(matches, expected) {
 }
 
 /**
- * @param {(string|SecretStoreLocation)[]} paths
+ * @param {SecretStoreLocation[]} paths
  * @param {string} planId
  * @param {string} spaceId
  * @returns {Promise<PullSecretMatch[]>}
@@ -197,7 +196,7 @@ async function collectPullSecretMatches(paths, planId, spaceId) {
     const keys = [secretRecordKey(planId, spaceId), planId];
     const documents = [];
     for (const path of paths) {
-        documents.push({ path: typeof path === "string" ? path : path.path, document: await readSecretStore(path) });
+        documents.push({ path: path.path, document: await readSecretStore(path) });
     }
     const matches = /** @type {PullSecretMatch[]} */ ([]);
     for (const key of keys) {
@@ -210,7 +209,7 @@ async function collectPullSecretMatches(paths, planId, spaceId) {
 }
 
 /**
- * @param {(string|SecretStoreLocation)[]} paths
+ * @param {SecretStoreLocation[]} paths
  * @param {string} planId
  * @param {string} spaceId
  * @param {import("./protocol.js").LocalSecretRecord} expected
@@ -221,7 +220,7 @@ export async function assertCompatiblePullSecretRecord(paths, planId, spaceId, e
 }
 
 /**
- * @param {(string|SecretStoreLocation)[]} paths
+ * @param {SecretStoreLocation[]} paths
  * @param {string} planId
  * @param {string} spaceId
  * @returns {Promise<PullSecretMatch | null>}
@@ -237,7 +236,7 @@ export async function resolvePullSecretRecord(paths, planId, spaceId) {
  * Space or legacy records with no stored spaceId. Records for another Shared
  * Space are ignored instead of being used for authorization.
  *
- * @param {(string|SecretStoreLocation)[]} paths
+ * @param {SecretStoreLocation[]} paths
  * @param {string} planId
  * @param {string} spaceId
  * @returns {Promise<PullSecretMatch | null>}
@@ -251,7 +250,7 @@ export async function resolveCompatibleSecretRecord(paths, planId, spaceId) {
 }
 
 /**
- * @param {string|SecretStoreLocation} path
+ * @param {SecretStoreLocation} path
  * @param {string} key
  * @param {import("./protocol.js").LocalSecretRecord} record
  */
@@ -271,7 +270,7 @@ export async function putCompatibleSecretRecord(path, key, record) {
 }
 
 /**
- * @param {string|SecretStoreLocation} path
+ * @param {SecretStoreLocation} path
  * @param {string} key
  */
 export async function deleteSecretRecord(path, key) {
@@ -292,7 +291,7 @@ export async function deleteSecretRecord(path, key) {
  * provided stores. Legacy planId-only records are deleted only when they are
  * not bound to a different Shared Space.
  *
- * @param {(string|SecretStoreLocation)[]} paths
+ * @param {SecretStoreLocation[]} paths
  * @param {string} planId
  * @param {string} spaceId
  * @returns {Promise<DeletedSecretRecord[]>}
@@ -307,7 +306,7 @@ export async function deleteCompatibleSecretRecords(paths, planId, spaceId) {
             const record = document.records[key];
             if (!record || !isCompatibleSecretRecord(record, planId, spaceId)) continue;
             delete document.records[key];
-            deleted.push({ path: typeof path === "string" ? path : path.path, key });
+            deleted.push({ path: path.path, key });
             changed = true;
         }
         if (changed) await writeSecretStore(path, document);

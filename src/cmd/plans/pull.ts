@@ -25,8 +25,8 @@ import {
 import {
     assertCompatiblePullSecretRecord,
     ensureProjectSecretStoreIgnored,
-    getGlobalSecretStorePath,
-    getProjectSecretStorePath,
+    getGlobalSecretStoreLocation,
+    getProjectSecretStoreLocation,
     putCompatibleSecretRecord,
     resolvePullSecretRecord,
     secretRecordKey,
@@ -164,10 +164,10 @@ function normalizeCommentsResponse(value: WireValue): EncryptedComment[] {
 }
 
 /** @param {string} cwd @param {boolean} projectSecrets */
-function secretPaths(cwd: string, projectSecrets: boolean): string[] {
-    const globalPath = getGlobalSecretStorePath();
-    const projectPath = getProjectSecretStorePath(cwd);
-    return projectSecrets ? [projectPath, globalPath] : [globalPath, projectPath];
+async function secretPaths(cwd: string, projectSecrets: boolean) {
+    const globalLocation = getGlobalSecretStoreLocation();
+    const projectLocation = await getProjectSecretStoreLocation(cwd);
+    return projectSecrets ? [projectLocation, globalLocation] : [globalLocation, projectLocation];
 }
 
 function findResourceByPlanId(resources: PlanResource[], planId: string): PlanResource | null {
@@ -231,7 +231,7 @@ export async function pullPlanForRevision(
         if (!planId || !spaceId || !resource.attrs.collaborationServerUrl) {
             throw new Error("Shared Plan is missing collaboration metadata; cannot pull.");
         }
-        const paths = secretPaths(cwd, Boolean(pullOptions.projectSecrets));
+        const paths = await secretPaths(cwd, Boolean(pullOptions.projectSecrets));
         const found = await resolvePullSecretRecord(paths, planId, spaceId);
         if (!found?.record?.contentKey || !found.record.maintainerCapability) {
             throw new Error(
@@ -286,7 +286,7 @@ export async function pullPlanForRevision(
     }
 
     if (isUrl) {
-        const paths = secretPaths(cwd, Boolean(pullOptions.projectSecrets));
+        const paths = await secretPaths(cwd, Boolean(pullOptions.projectSecrets));
         const importedSecretRecord = {
             planId: planPayload.planId,
             spaceId: resolved.spaceId,

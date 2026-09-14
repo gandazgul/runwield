@@ -90,8 +90,12 @@ function canonicalPath(path: string): string {
     }
 }
 
+function selectedRoot(cwd: string): string {
+    return canonicalPath(resolve(cwd));
+}
+
 function projectRoot(cwd: string): string {
-    return canonicalPath(resolvePrimaryCheckoutRoot(resolve(cwd)));
+    return canonicalPath(resolvePrimaryCheckoutRoot(selectedRoot(cwd)));
 }
 
 export function controllerRecordPath(cwd: string, identity: WorkflowIdentity): string {
@@ -105,7 +109,7 @@ export function controllerRecordPath(cwd: string, identity: WorkflowIdentity): s
 async function enteredControllerRecordPath(cwd: string, identity: WorkflowIdentity): Promise<string> {
     const key = identity.planId || `name:${identity.planName}`;
     return join(
-        (await enterProjectRuntime(projectRoot(cwd))).primary.controllerPlansDir,
+        (await enterProjectRuntime(selectedRoot(cwd))).primary.controllerPlansDir,
         `${encodeURIComponent(key)}.json`,
     );
 }
@@ -231,7 +235,7 @@ export async function writeControllerState(
 
 /** Absence, history, and an unreadable registry have different import semantics. */
 export async function inspectControllerWorktree(cwd: string, identity: WorkflowIdentity) {
-    const registry = await inspectWorktreeRegistry(projectRoot(cwd));
+    const registry = await inspectWorktreeRegistry(selectedRoot(cwd));
     if (registry.readError) return { kind: "uncertain" as const };
     const candidates = registry.entries.filter((entry) =>
         identity.planId && entry.planId ? entry.planId === identity.planId : entry.planName === identity.planName
@@ -255,7 +259,7 @@ export async function readControllerWorktree(cwd: string, identity: WorkflowIden
 
 /** Document candidates include reopened Plans, but never expose retired attempt IDs as live. */
 export async function listControllerDocumentWorktrees(cwd: string) {
-    const registry = await inspectWorktreeRegistry(projectRoot(cwd));
+    const registry = await inspectWorktreeRegistry(selectedRoot(cwd));
     const live = registry.entries.filter((entry) => entry.status !== "abandoned");
     const selected = new Set(live.map((entry) => entry.planName));
     const retired = registry.entries.filter((entry) => entry.status === "abandoned")
