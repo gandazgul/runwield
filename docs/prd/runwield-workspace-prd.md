@@ -405,10 +405,30 @@ and override rules; switching Agents resets model and thinking choices to that A
   no title or message does not appear.
 - Given a typed message and image attachments, when sending fails or the browser refreshes, the draft and previews
   remain available.
+- On a phone, opening the Session sidebar fills the available height below the Workspace header. Its tabs and close
+  control remain reachable while scrolling; closing it restores the conversation and composer in place.
+- When Core becomes busy after a message, the live end of the conversation immediately shows the shared dots loader and
+  “Thinking...”, including before any assistant text arrives. It clears when Core is idle or the live operation ends,
+  and pauses while a human answer is needed. Reopening saved history does not show an old busy indicator.
 - When a workflow tool finishes, its full report and outcome remain readable in live and saved history and its block
   stops showing Running.
 - When the owner changes Agents through browser controls, the selected Agent, model defaults, and thinking behavior
   match the TUI.
+
+**Requirement: Read Session artifacts comfortably on desktop and phone.**
+
+Opening an artifact gives immediate loading feedback until its document is ready. Browser waiting states use one
+consistent dots indicator, familiar from the TUI. An embedded reader uses Workspace’s title and actions, with no second
+application header. Contents starts collapsed on small screens and can be opened and closed with the same panel control
+as Plan and Code Review. The owner can return directly to the originating Session.
+
+**Acceptance scenarios:**
+
+- On a slow connection, opening an artifact shows loading feedback during navigation and reader startup, then the
+  document replaces it.
+- On a phone, an artifact opens with its document visible and Contents closed; the owner can open Contents, select a
+  heading, and return to the document, or collapse Contents without selecting anything.
+- In Workspace, the artifact title appears once in the shared header and Back to Session returns to its conversation.
 
 <a id="65-moving-between-tui-and-phone"></a>
 
@@ -460,6 +480,8 @@ journeys.
 The owner can review, give feedback, approve for later, or approve and run the current Plan from Workspace. Opening a
 Plan or its associated Session does not give that screen permanent control of the work.
 
+Embedded Plan and Code Review use Workspace’s header for their title and actions, without a second application header.
+
 If a Plan changes after the owner opens it, Workspace shows the changed content before accepting an approval for the new
 version. Repeated delivery of the same click does not run the action twice. Actual failures explain what happened and
 how to continue without silently discarding work.
@@ -496,6 +518,8 @@ internal repair procedures.
 
 - Given a Plan changed since the review opened, when the owner tries to approve, the changed content is shown before the
   approval is accepted.
+- On a phone, the Plan document fits the screen with its controls and approval actions reachable. Opening or closing
+  Contents or Annotations does not widen the page, and the owner can scroll to the end of the document.
 - When the same approval click is delivered twice, the action occurs once; Approve for Later never starts execution.
 - Given an executing Plan, when the owner opens its workflow surface, its review, changes, validation, recovery, and
   resulting record are accessible in context.
