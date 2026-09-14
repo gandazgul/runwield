@@ -20,6 +20,7 @@ import { getRunWieldRuntimeDir, PROJECT_INTERNAL_RUNTIME_DIR_NAME } from "../../
 import { savePlan } from "../../plan-store.js";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 import { createWorkRecordMnemotecaFixture } from "./test-fixtures/mnemoteca-port.ts";
+import { enterProjectRuntime } from "../project-runtime-layout.ts";
 
 const linkedCheckoutFixture = defineCommittedGitFixture({ ".gitignore": ".wld/\n", "README.md": "# Fixture\n" });
 
@@ -46,7 +47,9 @@ async function assertLinkedWorkRecordLockExclusion(
     const container = await Deno.makeTempDir({ prefix: "rw-work-record-lock-tree-" });
     const selected = join(container, "selected");
     try {
+        await enterProjectRuntime(root);
         await git(root, ["worktree", "add", "-b", branchName, selected, "HEAD"]);
+        await enterProjectRuntime(selected);
         const selectedPath = selectedInternalPath(selected, fileName);
         const primaryPath = selectedInternalPath(root, fileName);
         const legacySelectedPath = join(getRunWieldRuntimeDir(Deno.realPathSync(selected)), fileName);
@@ -213,6 +216,7 @@ Deno.test("supersession recovers malformed locks only after their file mtimes ar
     const cwd = await Deno.makeTempDir();
     try {
         await seed(cwd, false);
+        await enterProjectRuntime(cwd);
         const runtimeDir = join(getRunWieldRuntimeDir(Deno.realPathSync(cwd)), PROJECT_INTERNAL_RUNTIME_DIR_NAME);
         const lockPath = join(runtimeDir, "work-record-supersession.lock");
         const recoveryLockPath = join(runtimeDir, "work-record-supersession-recovery.lock");
@@ -409,6 +413,7 @@ Deno.test("rollback failure reports original error and every uncertain canonical
         const originalRename = Deno.rename;
         try {
             await seed(cwd, false);
+            await enterProjectRuntime(cwd);
             let calls = 0;
             Deno.rename = (oldpath, newpath) => {
                 calls += 1;

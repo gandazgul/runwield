@@ -7,7 +7,9 @@ import { createCollaborationClient, SYSTEM_COLLABORATION_FETCH } from "../../sha
 import { encryptJsonPayload, importContentKey } from "../../shared/collaboration/crypto.js";
 import { COLLABORATION_LOCK_BYPASS } from "../../shared/collaboration/lock.js";
 import {
+    getGlobalSecretStoreLocation,
     getGlobalSecretStorePath,
+    getProjectSecretStoreLocation,
     getProjectSecretStorePath,
     readSecretStore,
 } from "../../shared/collaboration/secrets.js";
@@ -62,7 +64,7 @@ async function createLinkedCheckout(projectRoot: string, linkedRoot: string): Pr
     await git(projectRoot, ["config", "user.email", "fixture@runwield.test"]);
     await git(projectRoot, ["config", "user.name", "RunWield Fixture"]);
     await git(projectRoot, ["config", "commit.gpgsign", "false"]);
-    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["add", ".", ":!.wld/internal"]);
     await git(projectRoot, ["commit", "-m", "collaboration fixture"]);
     await Deno.remove(linkedRoot, { recursive: true });
     await git(projectRoot, ["worktree", "add", "-b", `linked-${crypto.randomUUID()}`, linkedRoot]);
@@ -117,7 +119,7 @@ Deno.test("share, push, pull, and unshare compose through real Plan, crypto, sec
                 assertEquals(sharedPlan.markdown.includes(reviewer.contentKey), false);
                 assertEquals(sharedPlan.markdown.includes(maintainer.bearerCapability), false);
 
-                const globalSecrets = await readSecretStore(getGlobalSecretStorePath());
+                const globalSecrets = await readSecretStore(getGlobalSecretStoreLocation());
                 const storedSecret = globalSecrets.records[`${sharedPlan.attrs.planId}:${reviewer.spaceId}`];
                 assert(storedSecret);
                 assertEquals(storedSecret.contentKey, reviewer.contentKey);
@@ -188,7 +190,7 @@ Deno.test("share, push, pull, and unshare compose through real Plan, crypto, sec
                 assert(unsharedPlan);
                 assertEquals(unsharedPlan.body.trimEnd(), pushedBody.trimEnd());
                 assertEquals(unsharedPlan.attrs.collaborationState, undefined);
-                assertEquals(Object.keys((await readSecretStore(getGlobalSecretStorePath())).records).length, 0);
+                assertEquals(Object.keys((await readSecretStore(getGlobalSecretStoreLocation())).records).length, 0);
 
                 const deletedClient = createCollaborationClient({
                     serverUrl,
@@ -245,7 +247,7 @@ Deno.test("project-local collaboration commands share one primary store across l
                     const maintainer = parseCollaborationUrl(shared.maintainerUrl);
                     const primaryStorePath = join(projectRoot, ".wld", "internal", "collaboration-secrets.json");
                     assertEquals(getProjectSecretStorePath(alternateRoot), primaryStorePath);
-                    const projectStore = await readSecretStore(primaryStorePath);
+                    const projectStore = await readSecretStore(await getProjectSecretStoreLocation(alternateRoot));
                     const recordKey = `${shared.planId}:${shared.spaceId}`;
                     assertEquals(projectStore.records[recordKey].contentKey, maintainer.contentKey);
                     assertEquals(projectStore.records["global-plan:global-space"], undefined);
@@ -318,7 +320,7 @@ Deno.test("project-local collaboration commands share one primary store across l
                         force: true,
                     });
                     assertEquals(result.deletedSecretCount, 1);
-                    const afterUnshare = await readSecretStore(primaryStorePath);
+                    const afterUnshare = await readSecretStore(await getProjectSecretStoreLocation(projectRoot));
                     assertEquals(afterUnshare.records[recordKey], undefined);
                     assertEquals(afterUnshare.records["other-plan:other-space"]?.planId, "other-plan");
                     assertEquals(await Deno.readTextFile(globalPath), globalBefore);
@@ -369,11 +371,12 @@ Deno.test("project maintainer URL import writes only the fresh primary store and
                 assertEquals(getProjectSecretStorePath(freshLinked), freshStorePath);
                 const maintainer = parseCollaborationUrl(shared.maintainerUrl);
                 assertEquals(
-                    (await readSecretStore(freshStorePath)).records[`${shared.planId}:${shared.spaceId}`]
-                        .maintainerCapability,
+                    (await readSecretStore(await getProjectSecretStoreLocation(freshLinked))).records[
+                        `${shared.planId}:${shared.spaceId}`
+                    ].maintainerCapability,
                     maintainer.bearerCapability,
                 );
-                assertEquals(Object.keys((await readSecretStore(getGlobalSecretStorePath())).records).length, 0);
+                assertEquals(Object.keys((await readSecretStore(getGlobalSecretStoreLocation())).records).length, 0);
                 await assertRejects(() => Deno.stat(join(freshLinked, ".wld", "collaboration-secrets.json")));
                 await assertRejects(() =>
                     Deno.stat(join(freshLinked, ".wld", "internal", "collaboration-secrets.json"))
@@ -531,7 +534,7 @@ Deno.test("declining the real unshare prompt preserves remote and local state", 
 
             await client.getSharedSpace(shared.spaceId);
             assertEquals((await loadPlan(projectRoot, "keep-shared"))?.attrs.collaborationState, "remote_canonical");
-            assert(Object.keys((await readSecretStore(getGlobalSecretStorePath())).records).length > 0);
+            assert(Object.keys((await readSecretStore(getGlobalSecretStoreLocation())).records).length > 0);
             await unsharePlan({ target: "keep-shared", cwd: projectRoot, force: true });
         });
     });
@@ -558,7 +561,7 @@ Deno.test("unshare recovers real local state when the remote Space is already de
             assertEquals(result.alreadyDeleted, true);
             assertEquals(result.localMetadataCleared, true);
             assertEquals((await loadPlan(projectRoot, "deleted-remote"))?.attrs.collaborationState, undefined);
-            assertEquals(Object.keys((await readSecretStore(getGlobalSecretStorePath())).records).length, 0);
+            assertEquals(Object.keys((await readSecretStore(getGlobalSecretStoreLocation())).records).length, 0);
         });
     });
 });

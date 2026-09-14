@@ -3,6 +3,7 @@ import { dirname, join } from "@std/path";
 import { defineGitFixture, git } from "../git-test-fixture.ts";
 import { listPlans } from "../../plan-store.js";
 import { listEntries, updateEntry } from "../worktree-registry.js";
+import { enterProjectRuntime } from "../project-runtime-layout.ts";
 import { loadControllerView } from "./controller-registry.ts";
 import { resolveWorkflowPlanLocation } from "./plan-location.ts";
 import { findTargetBranchPlansByParent, preparePlanningWorktreeForPlan } from "./planning-worktree.ts";
@@ -220,6 +221,7 @@ Deno.test("target discovery errors stop the catalog before stale overlays", asyn
 
 Deno.test("planning preparation serializes duplicate callers", async () => {
     const repo = await fixture.checkout();
+    await enterProjectRuntime(repo);
 
     const [first, second] = await Promise.all([
         preparePlanningWorktreeForPlan(repo, "epic/01-child", {

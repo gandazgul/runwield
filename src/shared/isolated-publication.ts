@@ -6,6 +6,7 @@
 import { basename, dirname, join } from "@std/path";
 import { assertPreMergeCandidateUnchanged, mergeExecutionWorktree } from "./worktree.js";
 import { RUNWIELD_GITIGNORE_BLOCK } from "./runwield-owned-paths.ts";
+import { enterProjectRuntime } from "./project-runtime-layout.ts";
 
 interface CommandResult {
     code: number;
@@ -279,6 +280,7 @@ export async function isCommitPublishedToTarget(
 export async function publishExecutionWorktreeIsolated(
     args: IsolatedPublicationArgs,
 ): Promise<IsolatedPublicationResult> {
+    await enterProjectRuntime(args.projectRoot);
     args.onProgress?.("preparing");
     await assertPreMergeCandidateUnchanged({
         worktreePath: args.executionCwd,

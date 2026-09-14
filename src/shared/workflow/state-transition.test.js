@@ -18,6 +18,7 @@ import {
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { withWorkflowMetricsFixture } from "../../testing/workflow-metrics-fixture.ts";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
+import { enterProjectRuntime } from "../project-runtime-layout.ts";
 
 const linkedCheckoutFixture = defineCommittedGitFixture({ ".gitignore": ".wld/\n", "app.ts": "// app\n" });
 
@@ -796,6 +797,7 @@ Deno.test("semantic transitions allow nested same-Plan lifecycle events they own
 Deno.test("transitions block unresolved journals even when the Plan file is missing", async () => {
     const cwd = await makeProject();
     try {
+        await enterProjectRuntime(cwd);
         const journalPath = getTransitionJournalPath(cwd, "existing-transition");
         await Deno.mkdir(dirname(journalPath), { recursive: true });
         await Deno.writeTextFile(
@@ -1274,6 +1276,7 @@ Deno.test("an unprovable record can be closed on user attestation without destro
     // cannot prove, but refusing forever leaves `rm` on a JSON file as the only exit.
     const cwd = await Deno.makeTempDir();
     try {
+        await enterProjectRuntime(cwd);
         const path = getTransitionJournalPath(cwd, "stuck-1");
         await Deno.mkdir(dirname(path), { recursive: true });
         await Deno.writeTextFile(

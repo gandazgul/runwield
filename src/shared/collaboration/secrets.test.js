@@ -10,6 +10,7 @@ import {
     deleteSecretRecord,
     ensureProjectSecretStoreIgnored,
     getGlobalSecretStorePath,
+    getProjectSecretStoreLocation,
     getProjectSecretStorePath,
     getSecretRecord,
     putCompatibleSecretRecord,
@@ -23,6 +24,20 @@ import {
 } from "./secrets.js";
 
 const gitFixture = defineCommittedGitFixture({ "README.md": "# Collaboration secrets fixture\n" });
+
+/**
+ * @typedef {Object} TestSecretStore
+ * @property {"global"} owner
+ * @property {string} path
+ */
+
+/**
+ * @param {string} path
+ * @returns {TestSecretStore}
+ */
+function testSecretStore(path) {
+    return { owner: "global", path };
+}
 
 function secretRecord() {
     return {
@@ -69,9 +84,12 @@ Deno.test("secret stores read missing files as empty documents and write atomica
     const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-" });
     try {
         const path = join(dir, ".wld", "collaboration-secrets.json");
-        assertEquals(await readSecretStore(path), { schemaVersion: SECRET_STORE_SCHEMA_VERSION, records: {} });
-        await putSecretRecord(path, "plan-1", secretRecord());
-        assertEquals(await getSecretRecord(path, "plan-1"), secretRecord());
+        assertEquals(await readSecretStore(testSecretStore(path)), {
+            schemaVersion: SECRET_STORE_SCHEMA_VERSION,
+            records: {},
+        });
+        await putSecretRecord(testSecretStore(path), "plan-1", secretRecord());
+        assertEquals(await getSecretRecord(testSecretStore(path), "plan-1"), secretRecord());
         assertEquals(((await Deno.stat(path)).mode ?? 0) & 0o777, 0o600);
         const siblingTemps = [];
         for await (const entry of Deno.readDir(join(dir, ".wld"))) {
@@ -98,13 +116,13 @@ Deno.test("project secret writes from linked checkouts populate only the primary
                 selectedCheckout,
             ]);
             const primaryLayout = resolveProjectRuntimeLayout(primaryCheckout);
-            const selectedPath = getProjectSecretStorePath(selectedCheckout);
-            await putSecretRecord(selectedPath, "plan-1:space-1", secretRecord());
+            const selectedLocation = await getProjectSecretStoreLocation(selectedCheckout);
+            const selectedPath = selectedLocation.path;
+            await putSecretRecord(selectedLocation, "plan-1:space-1", secretRecord());
 
             assertEquals(selectedPath, primaryLayout.primary.projectSecretStorePath);
             assertEquals(
-                (await readSecretStore(join(primaryCheckout, ".wld", "internal", "collaboration-secrets.json")))
-                    .records["plan-1:space-1"],
+                (await readSecretStore(await getProjectSecretStoreLocation(primaryCheckout))).records["plan-1:space-1"],
                 secretRecord(),
             );
             await assertRejects(
@@ -154,7 +172,7 @@ Deno.test("secret store write cleans up temporary files when atomic rename fails
         await Deno.mkdir(path);
 
         await assertRejects(
-            () => writeSecretStore(path, { schemaVersion: SECRET_STORE_SCHEMA_VERSION, records: {} }),
+            () => writeSecretStore(testSecretStore(path), { schemaVersion: SECRET_STORE_SCHEMA_VERSION, records: {} }),
             Error,
             "Unable to write collaboration secret store",
         );
@@ -183,12 +201,12 @@ Deno.test("secret store replacement leaves the file readable only by its owner",
         );
         await Deno.chmod(path, 0o644);
 
-        await writeSecretStore(path, {
+        await writeSecretStore(testSecretStore(path), {
             schemaVersion: SECRET_STORE_SCHEMA_VERSION,
             records: { "plan-1:space-1": secretRecord() },
         });
 
-        assertEquals((await readSecretStore(path)).records["plan-1:space-1"], secretRecord());
+        assertEquals((await readSecretStore(testSecretStore(path))).records["plan-1:space-1"], secretRecord());
         assertEquals(((await Deno.stat(path)).mode ?? 0) & 0o777, 0o600);
     } finally {
         await Deno.remove(dir, { recursive: true });
@@ -199,10 +217,10 @@ Deno.test("secret stores delete records idempotently", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-delete-" });
     try {
         const path = join(dir, ".wld", "collaboration-secrets.json");
-        await putSecretRecord(path, "plan-1:space-1", secretRecord());
-        await deleteSecretRecord(path, "plan-1:space-1");
-        await deleteSecretRecord(path, "plan-1:space-1");
-        assertEquals(await getSecretRecord(path, "plan-1:space-1"), undefined);
+        await putSecretRecord(testSecretStore(path), "plan-1:space-1", secretRecord());
+        await deleteSecretRecord(testSecretStore(path), "plan-1:space-1");
+        await deleteSecretRecord(testSecretStore(path), "plan-1:space-1");
+        assertEquals(await getSecretRecord(testSecretStore(path), "plan-1:space-1"), undefined);
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
@@ -213,12 +231,22 @@ Deno.test("deleteCompatibleSecretRecords clears pair and legacy records across s
     try {
         const globalPath = join(dir, "global.json");
         const projectPath = join(dir, "project.json");
-        await putSecretRecord(globalPath, "plan-1:space-1", secretRecord());
-        await putSecretRecord(globalPath, "plan-1", secretRecord());
-        await putSecretRecord(projectPath, "plan-1", { ...secretRecord(), reviewerCapability: "project-reviewer" });
-        await putSecretRecord(projectPath, "plan-1:other-space", { ...secretRecord(), spaceId: "other-space" });
+        await putSecretRecord(testSecretStore(globalPath), "plan-1:space-1", secretRecord());
+        await putSecretRecord(testSecretStore(globalPath), "plan-1", secretRecord());
+        await putSecretRecord(testSecretStore(projectPath), "plan-1", {
+            ...secretRecord(),
+            reviewerCapability: "project-reviewer",
+        });
+        await putSecretRecord(testSecretStore(projectPath), "plan-1:other-space", {
+            ...secretRecord(),
+            spaceId: "other-space",
+        });
 
-        const deleted = await deleteCompatibleSecretRecords([globalPath, projectPath], "plan-1", "space-1");
+        const deleted = await deleteCompatibleSecretRecords(
+            [testSecretStore(globalPath), testSecretStore(projectPath)],
+            "plan-1",
+            "space-1",
+        );
 
         assertEquals(
             deleted.map((entry) => `${entry.path}:${entry.key}`).sort(),
@@ -228,10 +256,13 @@ Deno.test("deleteCompatibleSecretRecords clears pair and legacy records across s
                 `${projectPath}:plan-1`,
             ].sort(),
         );
-        assertEquals(await getSecretRecord(globalPath, "plan-1"), undefined);
-        assertEquals(await getSecretRecord(globalPath, "plan-1:space-1"), undefined);
-        assertEquals(await getSecretRecord(projectPath, "plan-1"), undefined);
-        assertEquals((await getSecretRecord(projectPath, "plan-1:other-space"))?.spaceId, "other-space");
+        assertEquals(await getSecretRecord(testSecretStore(globalPath), "plan-1"), undefined);
+        assertEquals(await getSecretRecord(testSecretStore(globalPath), "plan-1:space-1"), undefined);
+        assertEquals(await getSecretRecord(testSecretStore(projectPath), "plan-1"), undefined);
+        assertEquals(
+            (await getSecretRecord(testSecretStore(projectPath), "plan-1:other-space"))?.spaceId,
+            "other-space",
+        );
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
@@ -240,7 +271,10 @@ Deno.test("deleteCompatibleSecretRecords clears pair and legacy records across s
 Deno.test("deleteCompatibleSecretRecords tolerates missing stores", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-unshare-missing-" });
     try {
-        assertEquals(await deleteCompatibleSecretRecords([join(dir, "missing.json")], "plan-1", "space-1"), []);
+        assertEquals(
+            await deleteCompatibleSecretRecords([testSecretStore(join(dir, "missing.json"))], "plan-1", "space-1"),
+            [],
+        );
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
@@ -250,10 +284,10 @@ Deno.test("deleteCompatibleSecretRecords preserves unrelated legacy space record
     const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-unshare-preserve-" });
     try {
         const path = join(dir, "store.json");
-        await putSecretRecord(path, "plan-1", { ...secretRecord(), spaceId: "other-space" });
+        await putSecretRecord(testSecretStore(path), "plan-1", { ...secretRecord(), spaceId: "other-space" });
 
-        assertEquals(await deleteCompatibleSecretRecords([path], "plan-1", "space-1"), []);
-        assertEquals((await getSecretRecord(path, "plan-1"))?.spaceId, "other-space");
+        assertEquals(await deleteCompatibleSecretRecords([testSecretStore(path)], "plan-1", "space-1"), []);
+        assertEquals((await getSecretRecord(testSecretStore(path), "plan-1"))?.spaceId, "other-space");
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
@@ -264,9 +298,13 @@ Deno.test("pull secret resolution prefers planId-space records across stores", a
     try {
         const globalPath = join(dir, "global.json");
         const projectPath = join(dir, "project.json");
-        await putSecretRecord(globalPath, "plan-1", secretRecord());
-        await putSecretRecord(projectPath, "plan-1:space-1", secretRecord());
-        const resolved = await resolvePullSecretRecord([globalPath, projectPath], "plan-1", "space-1");
+        await putSecretRecord(testSecretStore(globalPath), "plan-1", secretRecord());
+        await putSecretRecord(testSecretStore(projectPath), "plan-1:space-1", secretRecord());
+        const resolved = await resolvePullSecretRecord(
+            [testSecretStore(globalPath), testSecretStore(projectPath)],
+            "plan-1",
+            "space-1",
+        );
         assertEquals(resolved?.path, projectPath);
         assertEquals(resolved?.key, "plan-1:space-1");
         assertEquals(resolved?.record.maintainerCapability, "maintainer-cap");
@@ -280,10 +318,14 @@ Deno.test("compatible secret resolution ignores records bound to other Shared Sp
     try {
         const globalPath = join(dir, "global.json");
         const projectPath = join(dir, "project.json");
-        await putSecretRecord(globalPath, "plan-1", { ...secretRecord(), spaceId: "other-space" });
-        await putSecretRecord(projectPath, "plan-1:space-1", secretRecord());
+        await putSecretRecord(testSecretStore(globalPath), "plan-1", { ...secretRecord(), spaceId: "other-space" });
+        await putSecretRecord(testSecretStore(projectPath), "plan-1:space-1", secretRecord());
 
-        const resolved = await resolveCompatibleSecretRecord([globalPath, projectPath], "plan-1", "space-1");
+        const resolved = await resolveCompatibleSecretRecord(
+            [testSecretStore(globalPath), testSecretStore(projectPath)],
+            "plan-1",
+            "space-1",
+        );
 
         assertEquals(resolved?.path, projectPath);
         assertEquals(resolved?.key, "plan-1:space-1");
@@ -296,9 +338,9 @@ Deno.test("compatible secret resolution returns null for only unrelated space re
     const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-compatible-null-" });
     try {
         const path = join(dir, "store.json");
-        await putSecretRecord(path, "plan-1", { ...secretRecord(), spaceId: "other-space" });
+        await putSecretRecord(testSecretStore(path), "plan-1", { ...secretRecord(), spaceId: "other-space" });
 
-        assertEquals(await resolveCompatibleSecretRecord([path], "plan-1", "space-1"), null);
+        assertEquals(await resolveCompatibleSecretRecord([testSecretStore(path)], "plan-1", "space-1"), null);
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
@@ -309,11 +351,19 @@ Deno.test("pull secret resolution refuses conflicts across stores and legacy rec
     try {
         const globalPath = join(dir, "global.json");
         const projectPath = join(dir, "project.json");
-        await putSecretRecord(projectPath, "plan-1:space-1", secretRecord());
-        await putSecretRecord(globalPath, "plan-1", { ...secretRecord(), maintainerCapability: "different-cap" });
+        await putSecretRecord(testSecretStore(projectPath), "plan-1:space-1", secretRecord());
+        await putSecretRecord(testSecretStore(globalPath), "plan-1", {
+            ...secretRecord(),
+            maintainerCapability: "different-cap",
+        });
 
         await assertRejects(
-            () => resolvePullSecretRecord([projectPath, globalPath], "plan-1", "space-1"),
+            () =>
+                resolvePullSecretRecord(
+                    [testSecretStore(projectPath), testSecretStore(globalPath)],
+                    "plan-1",
+                    "space-1",
+                ),
             Error,
             "Conflicting collaboration secret record for maintainerCapability",
         );
@@ -327,14 +377,23 @@ Deno.test("URL import compatibility checks all stores before writing target reco
     try {
         const globalPath = join(dir, "global.json");
         const projectPath = join(dir, "project.json");
-        await putSecretRecord(globalPath, "plan-1", { ...secretRecord(), contentKey: "different-key" });
+        await putSecretRecord(testSecretStore(globalPath), "plan-1", {
+            ...secretRecord(),
+            contentKey: "different-key",
+        });
 
         await assertRejects(
-            () => assertCompatiblePullSecretRecord([projectPath, globalPath], "plan-1", "space-1", secretRecord()),
+            () =>
+                assertCompatiblePullSecretRecord(
+                    [testSecretStore(projectPath), testSecretStore(globalPath)],
+                    "plan-1",
+                    "space-1",
+                    secretRecord(),
+                ),
             Error,
             "Conflicting collaboration secret record for contentKey",
         );
-        assertEquals(await getSecretRecord(projectPath, "plan-1:space-1"), undefined);
+        assertEquals(await getSecretRecord(testSecretStore(projectPath), "plan-1:space-1"), undefined);
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
@@ -344,10 +403,10 @@ Deno.test("putCompatibleSecretRecord refuses conflicting imported maintainer sec
     const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-conflict-" });
     try {
         const path = join(dir, "store.json");
-        await putCompatibleSecretRecord(path, "plan-1:space-1", secretRecord());
+        await putCompatibleSecretRecord(testSecretStore(path), "plan-1:space-1", secretRecord());
         await assertRejects(
             () =>
-                putCompatibleSecretRecord(path, "plan-1:space-1", {
+                putCompatibleSecretRecord(testSecretStore(path), "plan-1:space-1", {
                     ...secretRecord(),
                     maintainerCapability: "different-cap",
                 }),
@@ -364,7 +423,11 @@ Deno.test("secret store rejects corrupt schema with redacted actionable errors",
     try {
         const path = join(dir, "collaboration-secrets.json");
         await Deno.writeTextFile(path, JSON.stringify({ schemaVersion: 999, records: {} }));
-        await assertRejects(() => readSecretStore(path), Error, "Unable to read collaboration secret store");
+        await assertRejects(
+            () => readSecretStore(testSecretStore(path)),
+            Error,
+            "Unable to read collaboration secret store",
+        );
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
@@ -437,7 +500,7 @@ Deno.test("writeSecretStore validates records before persisting", async () => {
             schemaVersion: 1,
             records: { bad: /** @type {any} */ ({}) },
         });
-        await assertRejects(() => writeSecretStore(join(dir, "store.json"), document));
+        await assertRejects(() => writeSecretStore(testSecretStore(join(dir, "store.json")), document));
     } finally {
         await Deno.remove(dir, { recursive: true });
     }

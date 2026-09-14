@@ -40,7 +40,11 @@ goals require a distinct product surface.
   project work so simple tasks are not over-planned and large work is not under-specified.
 - **Artifacts over vibes:** Plans, PRDs, ADRs, validation notes, and Work Records are durable project memory.
 - **Session continuity:** Fresh sessions start with Router, but follow-up messages stay with the specialist Agent that
-  owns the current topic unless the user explicitly starts fresh or returns to Router.
+  owns the current topic unless the user explicitly starts fresh or returns to Router. Opening an empty composer does
+  not create project runtime state; the first submitted work enters the project runtime.
+- **Work protection:** Before normal project runtime access, Core uses Project Runtime Entry to adopt eligible legacy
+  state or refuse unsafe layouts. Refusals keep the reason and safe paths, stop writes, and are retryable after cleanup.
+  This follows [ADR-017](../adr/017-project-runtime-state-under-wld-internal.md).
 - **Tool-driven workflow:** Agents declare intent with custom tools; orchestration code decides lifecycle transitions,
   execution, validation, and recovery.
 - **Local-first control:** Core must remain useful without the hosted Workspace.
@@ -52,6 +56,18 @@ goals require a distinct product surface.
   workflow tools preserve Core invariants.
 
 ## 3. Current Core Product Surface
+
+### Session continuity
+
+Fresh sessions start with Router, and an empty composer stays in memory until the first submitted work. Follow-up
+messages stay with the specialist Agent that owns the current topic unless the user explicitly starts fresh or returns
+to Router.
+
+### Work protection
+
+Core enters project runtime state before normal project-local runtime reads, locks, or writes. Entry adopts eligible
+legacy state or refuses unsafe layouts with a retryable reason and safe paths. Refusal stops normal writes and preserves
+user work. See [ADR-017](../adr/017-project-runtime-state-under-wld-internal.md).
 
 ### 3.1 TUI Shell and Root Agent Behavior
 

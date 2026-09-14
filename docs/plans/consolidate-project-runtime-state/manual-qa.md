@@ -97,3 +97,25 @@ Manual verification steps for consolidate-project-runtime-state/05-move-project-
       describes the project secret location under Primary-Checkout Runtime State.
 
 <!-- runwield:manual-qa:end child="consolidate-project-runtime-state/05-move-project-collaboration-secrets" -->
+
+<!-- runwield:manual-qa:start child="consolidate-project-runtime-state/06-wire-project-entry-guards" -->
+
+## Wire Project Entry Guards
+
+Manual verification steps for consolidate-project-runtime-state/06-wire-project-entry-guards
+
+- [ ] In a disposable Git checkout, run a Plan list with eligible legacy runtime data; confirm adoption, migrated
+      values, stable repeated entry, and no authoritative legacy files remain.
+- [ ] In a separate blocked checkout, use first message, Plan list, ACP new/load, Init, and a collaboration operation;
+      confirm each shows the migration reason and safe paths, makes no runtime or project writes, and does not create a
+      Session.
+- [ ] Remove the blocker and repeat an operation; confirm it succeeds, then add legacy state for another checkout and
+      confirm that a later operation detects it.
+- [ ] Open a fresh empty TUI and its resume picker without submitting work; confirm no runtime, migration, project
+      identity, or transcript files are created, and confirm help and version do not migrate or refuse.
+- [ ] Invoke a direct project store operation with a blocked legacy state; confirm it refuses before normal file or lock
+      changes, including when a saved publication path is supplied.
+- [ ] Review the glossary and Core PRD; confirm they describe Project Runtime Entry, adoption, refusal, and
+      empty-composer behavior consistently.
+
+<!-- runwield:manual-qa:end child="consolidate-project-runtime-state/06-wire-project-entry-guards" -->

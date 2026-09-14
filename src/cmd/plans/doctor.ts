@@ -20,7 +20,7 @@ import {
     loadPlanFileStrict,
     loadPlanStrict,
 } from "../../plan-store.js";
-import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout.ts";
+import { ProjectRuntimeEntryRefusedError, resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout.ts";
 import { inspectPlanIdentityDocuments } from "../../shared/workflow/plan-diagnostic-evidence.ts";
 import {
     getTransitionJournalDir,
@@ -547,7 +547,12 @@ async function collectWorktreeJournalIssues(
         if (entry.path === projectRoot) continue;
         const journalDir = getTransitionJournalDir(entry.path);
         if (!(await Deno.stat(journalDir).then((stat) => stat.isDirectory).catch(() => false))) continue;
-        const reconciliations = await reconcileTransitionRecoveryRecords(entry.path, { apply: repair }).catch(() => []);
+        const reconciliations = await reconcileTransitionRecoveryRecords(entry.path, { apply: repair }).catch(
+            (error) => {
+                if (error instanceof ProjectRuntimeEntryRefusedError) throw error;
+                return [];
+            },
+        );
         for (const reconciliation of reconciliations) {
             if (reconciliation.resolved) {
                 results.push({ repaired: true });

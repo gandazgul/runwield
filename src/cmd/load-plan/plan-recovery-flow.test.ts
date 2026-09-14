@@ -20,6 +20,7 @@ import {
     findById as findWorktreeRegistryEntryById,
     getWorktreeRegistryPath,
 } from "../../shared/worktree-registry.js";
+import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { UiAPI } from "../../ui/tui/types.js";
@@ -661,6 +662,7 @@ Deno.test("registered worktree recovery keeps uncertain journals at that worktre
             createdAt: "2026-01-01T00:00:00.000Z",
             updatedAt: "2026-01-01T00:00:00.000Z",
         });
+        await enterProjectRuntime(worktreePath);
         await writeUnresolvedTransitionRecord(worktreePath, "registered-uncertain", project.plan.planName);
         const activePath = `${getTransitionJournalDir(worktreePath)}/registered-uncertain.json`;
         const primaryActivePath = `${getTransitionJournalDir(project.projectRoot)}/registered-uncertain.json`;

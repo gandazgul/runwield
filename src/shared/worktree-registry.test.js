@@ -3,7 +3,7 @@ import { dirname, join } from "@std/path";
 import { listPlans, savePlan } from "../plan-store.js";
 import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
 import { defineCommittedGitFixture, git } from "./git-test-fixture.ts";
-import { resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
+import { enterProjectRuntime, resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
 import {
     addEntry,
     findById,
@@ -142,6 +142,7 @@ Deno.test("exact-path worktree registry locking serializes on the requested lock
 Deno.test("worktree registry list reads do not overwrite malformed top-level registries", async () => {
     const projectRoot = await Deno.makeTempDir();
     try {
+        await enterProjectRuntime(projectRoot);
         const path = getWorktreeRegistryPath(projectRoot);
         await Deno.mkdir(dirname(path), { recursive: true });
         await Deno.writeTextFile(path, "null\n");
@@ -324,6 +325,7 @@ Deno.test("a damaged attempt for one Plan does not disable every other Plan", as
     // the question that genuinely cannot be answered.
     const projectRoot = await Deno.makeTempDir();
     try {
+        await enterProjectRuntime(projectRoot);
         await Deno.mkdir(dirname(getWorktreeRegistryPath(projectRoot)), { recursive: true });
         await Deno.writeTextFile(
             getWorktreeRegistryPath(projectRoot),
@@ -379,6 +381,7 @@ Deno.test("worktree registry throws on missing-id update", async () => {
 Deno.test("worktree registry rejects duplicate durable ids on read", async () => {
     const projectRoot = await Deno.makeTempDir();
     try {
+        await enterProjectRuntime(projectRoot);
         const path = getWorktreeRegistryPath(projectRoot);
         await Deno.mkdir(dirname(path), { recursive: true });
         await Deno.writeTextFile(
@@ -477,6 +480,7 @@ Deno.test("worktree registry migration resolves unambiguous legacy plan names", 
 Deno.test("worktree registry migration classifies duplicate live legacy attempts for recovery", async () => {
     const projectRoot = await Deno.makeTempDir();
     try {
+        await enterProjectRuntime(projectRoot);
         const path = getWorktreeRegistryPath(projectRoot);
         await Deno.mkdir(dirname(path), { recursive: true });
         await Deno.writeTextFile(
@@ -516,6 +520,8 @@ Deno.test("registry migration keeps distinct execution documents ambiguous", asy
     try {
         const firstPath = join(projectRoot, "first");
         const secondPath = join(projectRoot, "second");
+        await Deno.mkdir(firstPath, { recursive: true });
+        await Deno.mkdir(secondPath, { recursive: true });
         for (const root of [projectRoot, firstPath, secondPath]) {
             await savePlan(root, "demo-plan", "# Same Plan identity\n", {
                 planId: "plan-1",
@@ -564,6 +570,7 @@ Deno.test("registry migration keeps distinct execution documents ambiguous", asy
 Deno.test("worktree registry migration preserves unresolved legacy schema and records evidence", async () => {
     const projectRoot = await Deno.makeTempDir();
     try {
+        await enterProjectRuntime(projectRoot);
         const path = getWorktreeRegistryPath(projectRoot);
         await Deno.mkdir(dirname(path), { recursive: true });
         await Deno.writeTextFile(

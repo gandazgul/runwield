@@ -97,6 +97,20 @@ export type ProjectRuntimeMigrationResult =
     | ProjectRuntimeMigrationReadyResult
     | ProjectRuntimeMigrationBlockedResult;
 
+export class ProjectRuntimeEntryRefusedError extends Error {
+    reason: ProjectRuntimeMigrationBlockedReason;
+    paths: string[];
+    securityAction?: ProjectRuntimeMigrationSecurityAction;
+
+    constructor(refusal: ProjectRuntimeMigrationBlockedResult) {
+        super(refusal.paths.length > 0 ? `${refusal.message} Paths: ${refusal.paths.join(", ")}` : refusal.message);
+        this.name = "ProjectRuntimeEntryRefusedError";
+        this.reason = refusal.reason;
+        this.paths = refusal.paths;
+        if (refusal.securityAction) this.securityAction = refusal.securityAction;
+    }
+}
+
 type PathKind = "file" | "directory";
 
 type MigrationRenameOperation = {
@@ -240,6 +254,17 @@ export function resolveProjectRuntimeLayout(selectedCheckoutRoot: string): Proje
             ),
         },
     };
+}
+
+export async function enterProjectRuntime(selectedCheckoutRoot: string): Promise<ProjectRuntimeLayout> {
+    const rootInfo = await Deno.lstat(selectedCheckoutRoot).catch((error) => {
+        if (error instanceof Deno.errors.NotFound) return null;
+        throw error;
+    });
+    if (rootInfo && !rootInfo.isDirectory) throw new Error("Project root must be a directory");
+    const result = await migrateLegacyProjectRuntimeState(selectedCheckoutRoot);
+    if (result.kind === "blocked") throw new ProjectRuntimeEntryRefusedError(result);
+    return result.layout;
 }
 
 export async function migrateLegacyProjectRuntimeState(
@@ -482,7 +507,7 @@ async function preflight(
         existingJournal.journal?.selectedCheckoutRoots || [],
     );
     if (isBlocked(selectedRoots)) return selectedRoots;
-    const markerSelectedRoots = validateMarkerSelectedRoots(layout, marker, gitWorktrees.worktrees);
+    const markerSelectedRoots = await validateMarkerSelectedRoots(layout, marker, gitWorktrees.worktrees);
     if (isBlocked(markerSelectedRoots)) return markerSelectedRoots;
 
     const selectedSymlink = await findSymlinkBlocker(layout, primaryCheckoutRoot, selectedRoots.roots);
@@ -590,14 +615,18 @@ async function validateMarkerRoots(
     return undefined;
 }
 
-function validateMarkerSelectedRoots(
+async function validateMarkerSelectedRoots(
     layout: ProjectRuntimeLayout,
     marker: LayoutMarker | null,
     gitWorktrees: GitWorktree[],
-): ProjectRuntimeMigrationBlockedResult | undefined {
+): Promise<ProjectRuntimeMigrationBlockedResult | undefined> {
     if (!marker) return undefined;
     const byRealPath = new Set(gitWorktrees.map((worktree) => worktree.realPath));
-    const missing = marker.adoptedSelectedCheckoutRoots.filter((root) => !byRealPath.has(root));
+    const existingRoots: string[] = [];
+    for (const root of marker.adoptedSelectedCheckoutRoots) {
+        if (await lstatOrNull(root)) existingRoots.push(root);
+    }
+    const missing = existingRoots.filter((root) => !byRealPath.has(root));
     if (missing.length > 0) {
         return block(
             "malformed_migration_evidence",
@@ -611,18 +640,29 @@ function validateMarkerSelectedRoots(
 async function listGitWorktrees(
     primaryCheckoutRoot: string,
 ): Promise<{ worktrees: GitWorktree[] } | ProjectRuntimeMigrationBlockedResult> {
-    const output = await new Deno.Command("git", {
-        cwd: primaryCheckoutRoot,
-        args: ["worktree", "list", "--porcelain"],
-        stdout: "piped",
-        stderr: "piped",
-    }).output();
+    let output: Deno.CommandOutput;
+    try {
+        output = await new Deno.Command("git", {
+            cwd: primaryCheckoutRoot,
+            args: ["worktree", "list", "--porcelain"],
+            stdout: "piped",
+            stderr: "piped",
+        }).output();
+    } catch (error) {
+        if (!(await lstatOrNull(join(primaryCheckoutRoot, ".git")))) {
+            return { worktrees: [{ path: primaryCheckoutRoot, realPath: primaryCheckoutRoot, branch: "" }] };
+        }
+        throw error;
+    }
     if (output.code !== 0) {
-        return block(
-            "invalid_registered_checkout",
-            [primaryCheckoutRoot],
-            "Git could not list this project's worktrees.",
-        );
+        if (await lstatOrNull(join(primaryCheckoutRoot, ".git"))) {
+            return block(
+                "invalid_registered_checkout",
+                [primaryCheckoutRoot],
+                "Git could not list this project's worktrees.",
+            );
+        }
+        return { worktrees: [{ path: primaryCheckoutRoot, realPath: primaryCheckoutRoot, branch: "" }] };
     }
     const text = new TextDecoder().decode(output.stdout);
     const worktrees: GitWorktree[] = [];
@@ -754,13 +794,20 @@ async function findTrackedRuntimePaths(
     const runtimePaths = new Set<string>();
     const secretPaths = new Set<string>();
     for (const root of new Set([primaryCheckoutRoot, ...selectedRoots])) {
-        const output = await new Deno.Command("git", {
-            cwd: root,
-            args: ["ls-files", "-z", "--", ...runtimeGitPathspecs()],
-            stdout: "piped",
-            stderr: "null",
-        }).output();
+        let output: Deno.CommandOutput;
+        try {
+            output = await new Deno.Command("git", {
+                cwd: root,
+                args: ["ls-files", "-z", "--", ...runtimeGitPathspecs()],
+                stdout: "piped",
+                stderr: "null",
+            }).output();
+        } catch (error) {
+            if (!(await lstatOrNull(join(root, ".git")))) continue;
+            throw error;
+        }
         if (output.code !== 0) {
+            if (!(await lstatOrNull(join(root, ".git")))) continue;
             return block(
                 "invalid_registered_checkout",
                 [root],
