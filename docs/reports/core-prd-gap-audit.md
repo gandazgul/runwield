@@ -6,7 +6,7 @@ inspection. No implementation was changed. No tests or browser journeys were run
 ## Purpose and limits
 
 Preserve the investigation behind the
-[ordered TODO section](../../TODO.md#core-prd-gaps--recommended-implementation-order) so Planner does not have to start
+[ordered TODO section](../../TODO.md#core-prd-gaps-recommended-implementation-order) so Planner does not have to start
 again. This is an evidence report, not an executable Plan. The work groups below need Planner-owned draft Plans. They
 describe observed gaps and required outcomes, not a chosen implementation.
 
