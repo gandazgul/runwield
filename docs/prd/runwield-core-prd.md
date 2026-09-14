@@ -90,7 +90,8 @@ Other surfaces reference these requirements and add only their own user experien
 **Requirement: Keep follow-ups with their active specialist.**
 
 The TUI is currently the primary interactive Core client. It starts a session, renders the conversation, hosts slash
-commands, and displays workflow/tool progress.
+commands, and displays workflow/tool progress. Core owns command meaning; each surface owns only which commands it makes
+available and how it presents questions.
 
 New sessions start with the **Router** Agent.
 
@@ -103,6 +104,9 @@ Users can:
 - use `/agent router` to route the next message in the same session
 - use `/resume` for chat-session resume
 - use `/load-plan <plan>` for Plan workflow resume
+
+A leading slash that resolves to an available command is a command, not a User Request. Disabled or unknown commands
+must fail visibly and must not fall through to Router.
 
 **Acceptance scenarios:**
 
@@ -633,7 +637,8 @@ Core supports layered Skill discovery:
 3. bundled skills
 4. external-compatible skills
 
-Slash-command skill invocation injects full Skill instructions only when needed.
+Slash-command skill invocation injects full Skill instructions only when needed. Built-in command names and aliases take
+precedence over prompt templates and Skills on all surfaces, including built-ins unavailable on that surface.
 
 CLI tools remain preferred for many integrations. MCP is optional and should not add unused prompt context.
 Configuration and loading details belong in [customization documentation](../customization.md).

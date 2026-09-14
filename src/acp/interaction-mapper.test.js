@@ -89,7 +89,10 @@ Deno.test("ACP interaction adapter distinguishes approval acceptance from declin
     });
 });
 
-Deno.test("ACP interaction adapter returns unsupported without form capabilities", async () => {
+Deno.test("ACP interaction adapter browser fallback cancels with the request signal", async () => {
     const adapter = createAcpInteractionAdapter({ acpSessionId: "acp-1", clientCapabilities: {}, context: {} });
-    assertEquals((await adapter.requestInteraction({ type: "text", prompt: "Name?" })).outcome, "unsupported");
+    const controller = new AbortController();
+    const pending = adapter.requestInteraction({ type: "text", prompt: "Name?" }, controller.signal);
+    controller.abort();
+    assertEquals(await pending, { outcome: "canceled", message: "Interaction canceled." });
 });

@@ -1,12 +1,13 @@
 /** List available Agents or start/switch to a chosen active Agent. */
 
 import type { Component } from "@earendil-works/pi-tui";
-import { printCommandHelp } from "../help/index.ts";
+import { formatCommandHelp, printCommandHelp } from "../help/index.ts";
 import {
     buildWorkflowOnlyAgentMessage,
     isWorkflowOnlyAgent,
     listAvailableAgents,
 } from "../../shared/session/agents.js";
+import { applyUserAgentSelection, listUserAgentOptions } from "../../shared/session/user-selection.ts";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { AGENTS, getCwd } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
@@ -22,12 +23,13 @@ interface AgentsCommandOptions {
     sessionId?: string;
     sessionRuntime?: SessionRuntime;
     sessionPort: InteractiveSessionPort;
+    slashSurface?: "tui" | "acp" | "workspace";
 }
 
 interface AgentsTuiOptions {
-    tui: import("../../ui/tui/types.js").TuiAPI;
+    tui?: import("../../ui/tui/types.js").TuiAPI;
     uiAPI: import("../../ui/tui/types.js").UiAPI;
-    editor: import("../../ui/tui/types.js").EditorAPI;
+    editor?: import("../../ui/tui/types.js").EditorAPI;
     sessionId?: string;
     sessionRuntime?: SessionRuntime;
 }
@@ -74,12 +76,11 @@ async function runAgentsCommandTUI(
 ): Promise<void> {
     const { tui, uiAPI, editor, sessionId, sessionRuntime } = options;
     const projectRoot = sessionId && sessionRuntime ? sessionRuntime.getSessionSnapshot(sessionId)?.cwd : undefined;
-    const agents = await listAvailableAgents(projectRoot);
-    editor.setText("");
+    editor?.setText("");
 
     let chosenAgent: string | null = agentName;
     if (!chosenAgent) {
-        const agentOptions = agents
+        const agentOptions = (await listUserAgentOptions(projectRoot))
             .slice()
             .sort((agentA, agentB) => agentA.name.localeCompare(agentB.name))
             .map((agent) => ({
@@ -93,46 +94,23 @@ async function runAgentsCommandTUI(
         chosenAgent = selected;
     }
 
-    const match = agents.find((agent) => agent.name === chosenAgent);
-    if (!match) {
-        // An explicitly named workflow-only Agent is not a typo; say what activates
-        // it and leave the active Agent alone.
-        uiAPI.appendSystemMessage(
-            await isWorkflowOnlyAgent(chosenAgent, projectRoot)
-                ? buildWorkflowOnlyAgentMessage(chosenAgent, projectRoot)
-                : `Agent "${chosenAgent}" not found`,
-        );
+    if (!sessionId || !sessionRuntime) {
+        uiAPI.appendSystemMessage("Agent switching requires an interactive RunWield session.", true);
         return;
     }
 
-    if (sessionId && sessionRuntime) {
-        try {
-            const switchResult = await sessionRuntime.switchAgent(sessionId, {
-                agentName: match.name,
-                releaseActiveWorkflow: true,
-            });
-            if (!switchResult?.ok) {
-                const detail = typeof switchResult?.error === "string" ? switchResult.error : "Agent switch failed";
-                uiAPI.appendSystemMessage(
-                    `Could not switch to Agent "${match.name}": ${detail}. The active Agent did not change. Use /model or /settings to choose an available model, then try /agent again.`,
-                    true,
-                );
-                tui.setFocus(editor as import("../../ui/tui/types.js").EditorAPI & Component);
-                return;
-            }
-            if (!sessionRuntime.getSessionSnapshot(sessionId)?.name) setTerminalTitleForName(undefined);
-        } catch (error) {
-            const detail = error instanceof Error ? error.message : String(error);
-            uiAPI.appendSystemMessage(
-                `Could not switch to Agent "${match.name}": ${detail}. The active Agent did not change. Use /model or /settings to choose an available model, then try /agent again.`,
-                true,
-            );
-            tui.setFocus(editor as import("../../ui/tui/types.js").EditorAPI & Component);
-            return;
-        }
+    const switchResult = await applyUserAgentSelection(sessionRuntime, sessionId, chosenAgent);
+    if (!switchResult.ok) {
+        uiAPI.appendSystemMessage(
+            `Could not switch to Agent "${chosenAgent}": ${switchResult.error}. The active Agent did not change. Use /model or /settings to choose an available model, then try /agent again.`,
+            true,
+        );
+        if (tui && editor) tui.setFocus(editor as import("../../ui/tui/types.js").EditorAPI & Component);
+        return;
     }
+    if (!sessionRuntime.getSessionSnapshot(sessionId)?.name) setTerminalTitleForName(undefined);
 
-    tui.setFocus(editor as import("../../ui/tui/types.js").EditorAPI & Component);
+    if (tui && editor) tui.setFocus(editor as import("../../ui/tui/types.js").EditorAPI & Component);
 }
 
 export async function runAgentsCommand(
@@ -142,11 +120,13 @@ export async function runAgentsCommand(
     const [agentName = ""] = argv;
 
     if (agentName === "help" || agentName === "--help" || agentName === "-h") {
-        printCommandHelp(COMMAND_NAMES.AGENT);
+        const help = formatCommandHelp(COMMAND_NAMES.AGENT);
+        if (options.uiAPI && help) options.uiAPI.appendSystemMessage(help);
+        else printCommandHelp(COMMAND_NAMES.AGENT);
         return;
     }
 
-    if (options.uiAPI && options.editor && options.tui) {
+    if (options.uiAPI && (options.slashSurface === "acp" || (options.editor && options.tui))) {
         await runAgentsCommandTUI(agentName, {
             uiAPI: options.uiAPI,
             editor: options.editor,

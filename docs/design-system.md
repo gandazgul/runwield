@@ -168,7 +168,9 @@ Typing `/` at the start of the input opens `.rw-command-menu`, an anchored, scro
 Filter as the user types; Up/Down selects, Enter/Tab completes, and Escape dismisses without stopping the Agent. Support
 touch selection and keep keyboard focus in the input. Agent and model commands offer argument choices; prompt templates
 and skills use the same catalog and Runtime expansion as the TUI. Browser actions open their corresponding Workspace
-surface rather than sending commands as messages to the model.
+surface rather than sending commands as messages to the model. Standalone local question pages for ACP use the same
+control hierarchy: clear heading, native form fields, primary submit, secondary cancel, visible focus, and semantic
+`--rw-*` token intent.
 
 Open conversations at the latest messages and offer **Load earlier messages** above the timeline. Loading old history
 must not disable Send. Keep Session generations, locks, and request-delivery details out of the ordinary screen.

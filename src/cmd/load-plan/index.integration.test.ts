@@ -255,16 +255,16 @@ async function assertImplementedFollowUpRebindsFromAgent(initialAgentName: strin
                     editor: ui.editor,
                 });
 
-                const rebound = runtime.getSessionSnapshot(replacementId);
-                assertEquals(Boolean(replacementId && replacementId !== sessionId), true);
+                const rebound = runtime.getSessionSnapshot(sessionId);
+                assertEquals(replacementId, sessionId);
                 assertEquals(rebound?.activeAgent, "plan-engineer");
                 assertEquals(rebound?.activeExecutionWorkflow?.planName, fixture.planName);
                 assertEquals(rebound?.activeExecutionWorkflow?.executionAgent, "engineer");
                 assertEquals(rebound?.activeExecutionWorkflow?.executionCwd, fixture.worktreePath);
                 assertEquals(modelCalls, 0);
 
-                await runtime.promptSession(replacementId, { initialRequest: "Review the implemented change." });
-                const afterTurn = runtime.getSessionSnapshot(replacementId);
+                await runtime.promptSession(sessionId, { initialRequest: "Review the implemented change." });
+                const afterTurn = runtime.getSessionSnapshot(sessionId);
                 assertEquals(afterTurn?.activeExecutionWorkflow?.executionCwd, fixture.worktreePath);
                 assertEquals(modelCalls, 1);
                 assertStringIncludes(systemPrompt, "You are the Plan Engineer");
@@ -308,15 +308,15 @@ Deno.test("load-plan follow-up replaces the TUI Session with one rooted in the e
                     editor: ui.editor,
                 });
 
-                const replacement = runtime.getSessionSnapshot(replacementId);
-                assertEquals(Boolean(replacementId && replacementId !== sessionId), true);
+                const replacement = runtime.getSessionSnapshot(sessionId);
+                assertEquals(replacementId, sessionId);
                 assertEquals(replacement?.cwd, fixture.worktreePath);
                 assertEquals(replacement?.activeAgent, "plan-engineer");
                 assertEquals(replacement?.activeExecutionWorkflow?.executionCwd, fixture.worktreePath);
                 assertEquals(await git(fixture.worktreePath, ["branch", "--show-current"]), fixture.worktreeBranch);
 
-                await runtime.promptSession(replacementId, { initialRequest: "Review the implemented change." });
-                const afterTurn = runtime.getSessionSnapshot(replacementId);
+                await runtime.promptSession(sessionId, { initialRequest: "Review the implemented change." });
+                const afterTurn = runtime.getSessionSnapshot(sessionId);
                 assertEquals(afterTurn?.cwd, fixture.worktreePath);
                 assertEquals(afterTurn?.activeExecutionWorkflow?.executionCwd, fixture.worktreePath);
                 assertStringIncludes(systemPrompt, "You are the Plan Engineer");

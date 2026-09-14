@@ -614,6 +614,62 @@ Deno.test("ACP session/new and session/prompt can invoke a real MCP fixture tool
     });
 });
 
+Deno.test("ACP /agent opens selection without a model turn and affects the next request", async () => {
+    await withRuntimeCommandFixture("runwield-acp-agent-command-", async (fixture) => {
+        fixture.setModelResponseFactory(() => {
+            throw new Error("/agent must not call the model");
+        });
+        const handle = startTestServer();
+        try {
+            await request(handle, {
+                jsonrpc: "2.0",
+                id: "init-form",
+                method: "initialize",
+                params: { protocolVersion: 1, clientCapabilities: { elicitation: { form: {} } } },
+            });
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "agent-command",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "/agent" }] },
+            });
+            let elicitation = null;
+            for (let index = 0; index < 40; index++) {
+                const message = await readMessage(handle);
+                if (message.method === "elicitation/create") {
+                    elicitation = message;
+                    break;
+                }
+            }
+            assert(elicitation, "ACP /agent should ask the client to choose an Agent");
+            assertEquals(elicitation.params.sessionId, sessionId);
+            assertEquals(elicitation.params._meta.runwield.interactionType, "select");
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: elicitation.id,
+                result: { action: "accept", content: { answer: "guide" } },
+            });
+            const result = await readThroughResponse(handle, "agent-command");
+            assertEquals(result.response.result.stopReason, "end_turn");
+            assertStringIncludes(JSON.stringify(result.messages), "Active agent: guide");
+
+            fixture.setModelResponse("Guide handled this follow-up.");
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "follow-up",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "Now answer normally" }] },
+            });
+            const followUp = await readThroughResponse(handle, "follow-up");
+            assertStringIncludes(joinedAgentText(followUp.messages), "Guide handled this follow-up.");
+            assertStringIncludes(JSON.stringify(followUp.messages), '"agentName":"guide"');
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
 Deno.test("ACP session/prompt resolves Prompt Template invocations through Core", async () => {
     await withRuntimeCommandFixture("runwield-acp-named-invocation-", async (fixture) => {
         const promptDir = join(fixture.projectRoot, ".wld", "prompts");
@@ -1244,9 +1300,46 @@ Deno.test("ACP interaction adapter distinguishes approval acceptance from declin
     });
 });
 
-Deno.test("ACP interaction adapter returns unsupported without form capabilities", async () => {
-    const adapter = createAcpInteractionAdapter({ acpSessionId: "acp-1", clientCapabilities: {}, context: {} });
-    assertEquals((await adapter.requestInteraction({ type: "text", prompt: "Name?" })).outcome, "unsupported");
+Deno.test("ACP interaction adapter falls back to a local browser question without form capabilities", async () => {
+    /** @type {Record<string, any>[]} */
+    const notifications = [];
+    const adapter = createAcpInteractionAdapter({
+        acpSessionId: "acp-1",
+        clientCapabilities: {},
+        context: {
+            notify: (
+                /** @type {string} */ _method,
+                /** @type {Record<string, any>} */ params,
+            ) => {
+                notifications.push(params);
+            },
+        },
+    });
+    const pending = adapter.requestInteraction({
+        id: "interaction-browser",
+        type: "select",
+        prompt: "Choose Agent",
+        options: [{ value: "guide", label: "Guide" }, { value: "planner", label: "Planner" }],
+    });
+    for (let attempt = 0; attempt < 20 && notifications.length === 0; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const text = String(notifications[0]?.update?.content?.text || "");
+    const [questionUrl] = text.match(/http:\/\/127\.0\.0\.1:\d+\/session-question\?token=[^\s]+/) || [];
+    assert(questionUrl, text);
+    const page = await fetch(questionUrl);
+    const pageText = await page.text();
+    assert([200, 503].includes(page.status), pageText);
+    if (page.status === 200) assertStringIncludes(pageText, "Choose Agent");
+    else assertStringIncludes(pageText, "Workspace Astro build unavailable");
+    const answerUrl = questionUrl.replace("/session-question", "/api/session-question/answer");
+    const submitted = await fetch(answerUrl, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", origin: new URL(questionUrl).origin },
+        body: "answer=guide",
+    });
+    assertEquals(submitted.status, 200);
+    assertEquals(await pending, { outcome: "selected", value: "guide", valueLabel: "Guide" });
 });
 
 Deno.test("ACP event mapper maps Plan review links without maintainer secrets", () => {

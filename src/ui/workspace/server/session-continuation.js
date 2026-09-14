@@ -4,22 +4,24 @@ import { validateSequenceReviewDecision } from "../../../shared/workflow/sequenc
 import { appendLiveSessionEvent } from "../../../shared/session/live-session-events.ts";
 import { readLiveSessionConnection } from "../../../shared/session/live-session-connection.ts";
 import { createHash } from "node:crypto";
-import { AGENTS } from "../../../constants.js";
 import { findPlanEvidenceById } from "../../../plan-store.js";
-import { getModelRegistry } from "../../../shared/models/model-registry.ts";
-import { parseProviderModel } from "../../../shared/models/model-validation.ts";
 import { getMergedCustomSetting, getSettingsManager } from "../../../shared/settings.js";
-import { listAvailableAgents } from "../../../shared/session/agents.js";
-import { getSlashCommandDefinitions } from "../../../cmd/registry.js";
-import { WORKSPACE_COMMAND_NAMES } from "../browser/session-commands.ts";
+import {
+    applyUserAgentSelection,
+    applyUserModelSelection,
+    getDefaultUserAgentOption,
+    listUserAgentOptions,
+    listUserModelOptions,
+    requireUserAgentOption,
+    requireUserModelOption,
+} from "../../../shared/session/user-selection.ts";
+import { getCommandDefinition, getSlashCommandDefinitions } from "../../../cmd/registry.js";
 import { normalizeBrowserNotificationPolicy } from "../../../shared/session/notification-content.ts";
 import { applySharedPlanReviewDecision } from "../../../shared/workflow/plan-review-actions.ts";
 import { getWorkflowDiff } from "../../../shared/workflow/git-snapshot.js";
 import {
     createSessionRuntime,
     deriveManagedSessionContinuationDecision,
-    getConfiguredAgentModel,
-    getConfiguredAgentThinkingLevel,
     listPromptTemplates,
     listSkills,
 } from "../../../shared/session/session-runtime.js";
@@ -346,50 +348,32 @@ export class WorkspaceSessionContinuationService {
     async listSessionOptions(projectId) {
         const projectRoot = requireOwnerProjectRoot(this.store, projectId);
         const settings = getSettingsManager(projectRoot);
-        const agents = await listAvailableAgents(projectRoot);
-        const registry = getModelRegistry();
-        const models = registry.getSelectable();
+        const agentOptions = await listUserAgentOptions(projectRoot);
+        const defaultAgent = await getDefaultUserAgentOption(projectRoot);
+        const models = await listUserModelOptions();
         const defaultProvider = settings.getDefaultProvider?.() || "";
         const defaultModel = settings.getDefaultModel?.() || "";
         const defaultThinkingLevel = settings.getDefaultThinkingLevel?.() || "default";
-        const agentOptions = agents.map((agent) => {
-            const reference = getConfiguredAgentModel(agent.name, projectRoot) ||
-                getConfiguredAgentModel(AGENTS.ENGINEER, projectRoot) ||
-                (defaultModel ? `${defaultProvider}/${defaultModel}` : agent.model || "");
-            const parsed = parseProviderModel(reference);
-            return {
-                name: agent.name,
-                displayName: agent.displayName || agent.name,
-                description: agent.description || "",
-                defaults: {
-                    model: parsed.ok ? parsed.id : "",
-                    provider: parsed.ok ? parsed.provider : "",
-                    thinkingLevel: getConfiguredAgentThinkingLevel(agent.name, projectRoot) ||
-                        settings.getDefaultThinkingLevel?.() || agent.thinkingLevel || "default",
-                },
-            };
-        });
         const [templates, skills] = await Promise.all([
             listPromptTemplates({ cwd: projectRoot }),
             listSkills({ cwd: projectRoot }),
         ]);
-        const builtins = getSlashCommandDefinitions();
+        const builtins = getSlashCommandDefinitions("workspace");
         return {
             defaults: {
-                agentName: AGENTS.ROUTER,
-                model: defaultModel,
-                provider: defaultProvider,
-                thinkingLevel: defaultThinkingLevel,
-                ...agentOptions.find((agent) => agent.name === AGENTS.ROUTER)?.defaults,
+                agentName: defaultAgent.name,
+                model: defaultAgent.defaults.model || defaultModel,
+                provider: defaultAgent.defaults.provider || defaultProvider,
+                thinkingLevel: defaultAgent.defaults.thinkingLevel || defaultThinkingLevel,
             },
             agents: agentOptions,
             commands: [
-                ...WORKSPACE_COMMAND_NAMES.map((name) => ({
-                    name,
-                    description: builtins.find((command) => command.name === name)?.description || "",
+                ...builtins.map((command) => ({
+                    name: command.name,
+                    description: command.description,
                     kind: "action",
                 })),
-                ...templates.filter((template) => !builtins.some((command) => command.name === template.name))
+                ...templates.filter((template) => !getCommandDefinition(template.name))
                     .map((template) => ({ name: template.name, description: template.description, kind: "prompt" })),
                 ...skills.map((skill) => ({
                     name: `skill:${skill.name}`,
@@ -397,14 +381,7 @@ export class WorkspaceSessionContinuationService {
                     kind: "prompt",
                 })),
             ],
-            models: models.map((model) => ({
-                id: model.id,
-                name: model.name || model.id,
-                provider: model.provider || "",
-                providerName: registry.getProviderDisplayName(model.provider || ""),
-                executionBackend: model.executionBackend || "pi",
-                reasoning: model.reasoning === true,
-            })),
+            models,
             thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
         };
     }
@@ -587,26 +564,20 @@ export class WorkspaceSessionContinuationService {
 
     /**
      * @param {string | undefined} agentName
-     * @param {{ agents: Array<{ name: string }> }} sessionOptions
+     * @param {string} projectRoot
      */
-    validateAgentSelection(agentName, sessionOptions) {
+    async validateAgentSelection(agentName, projectRoot) {
         if (typeof agentName !== "string" || !agentName) return;
-        const agentAllowed = sessionOptions.agents.some((agent) => agent.name === agentName);
-        if (!agentAllowed) throw new Error("Selected Agent is not available for this Project.");
+        await requireUserAgentOption(agentName, projectRoot);
     }
 
     /**
      * @param {string | undefined} model
      * @param {string | undefined} provider
-     * @param {{ models: Array<{ id: string, provider?: string }> }} sessionOptions
      */
-    validateModelSelection(model, provider, sessionOptions) {
+    async validateModelSelection(model, provider) {
         if (typeof model !== "string" || !model) return;
-        const selectedProvider = provider || "";
-        const modelAllowed = sessionOptions.models.some((item) =>
-            item.id === model && (item.provider || "") === selectedProvider
-        );
-        if (!modelAllowed) throw new Error("Selected model is not available.");
+        await requireUserModelOption(model, provider || "");
     }
 
     /**
@@ -643,19 +614,21 @@ export class WorkspaceSessionContinuationService {
      */
     async applyPendingConfiguration(runtimeSessionId, pendingConfiguration) {
         if (pendingConfiguration.agentName) {
-            const result = await this.runtime.switchAgent(runtimeSessionId, {
-                agentName: pendingConfiguration.agentName,
-                releaseActiveWorkflow: true,
-            });
-            if (!result?.ok) throw new Error(result?.error || "Selected Agent could not be applied.");
+            const result = await applyUserAgentSelection(
+                this.runtime,
+                runtimeSessionId,
+                pendingConfiguration.agentName,
+            );
+            if (!result.ok) throw new Error(result.error || "Selected Agent could not be applied.");
         }
         if (pendingConfiguration.model) {
-            const result = await this.runtime.reconfigureSessionModel(
+            const result = await applyUserModelSelection(
+                this.runtime,
                 runtimeSessionId,
                 pendingConfiguration.model,
                 pendingConfiguration.provider || "",
             );
-            if (!result?.ok) throw new Error(result?.error || "Selected model could not be applied.");
+            if (!result.ok) throw new Error(result.error || "Selected model could not be applied.");
         }
     }
 
@@ -667,9 +640,10 @@ export class WorkspaceSessionContinuationService {
         if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {
             throw new Error("Session not found.");
         }
+        const projectRoot = requireOwnerProjectRoot(this.store, options.projectId);
         const sessionOptions = await this.listSessionOptions(options.projectId);
-        this.validateAgentSelection(options.agentName, sessionOptions);
-        this.validateModelSelection(options.model, options.provider, sessionOptions);
+        await this.validateAgentSelection(options.agentName, projectRoot);
+        await this.validateModelSelection(options.model, options.provider);
         this.validateThinkingSelection(options.thinkingLevel, sessionOptions);
         const activeOperation = this.findActiveWorkspaceOperation(
             options.runwieldSessionId,
@@ -704,19 +678,17 @@ export class WorkspaceSessionContinuationService {
         const adopted = await this.adoptIdleManagedSession(options.runwieldSessionId, options.expectedGeneration);
         try {
             if (typeof options.agentName === "string" && options.agentName) {
-                const result = await this.runtime.switchAgent(adopted.sessionId, {
-                    agentName: options.agentName,
-                    releaseActiveWorkflow: true,
-                });
-                if (!result?.ok) throw new Error(result?.error || "Selected Agent could not be applied.");
+                const result = await applyUserAgentSelection(this.runtime, adopted.sessionId, options.agentName);
+                if (!result.ok) throw new Error(result.error || "Selected Agent could not be applied.");
             }
             if (typeof options.model === "string" && options.model) {
-                const result = await this.runtime.reconfigureSessionModel(
+                const result = await applyUserModelSelection(
+                    this.runtime,
                     adopted.sessionId,
                     options.model,
                     options.provider || "",
                 );
-                if (!result?.ok) throw new Error(result?.error || "Selected model could not be applied.");
+                if (!result.ok) throw new Error(result.error || "Selected model could not be applied.");
             }
             if (typeof options.thinkingLevel === "string" && options.thinkingLevel) {
                 const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (options.thinkingLevel);
@@ -963,21 +935,17 @@ export class WorkspaceSessionContinuationService {
         await Promise.resolve();
         const project = this.store.getProjectById(options.projectId);
         if (!project || project.lifecycle !== "enabled") throw new Error("Project not found.");
+        const projectRoot = requireOwnerProjectRoot(this.store, options.projectId);
+        const defaultAgent = await getDefaultUserAgentOption(projectRoot);
         const launch = {
-            agentName: options.agentName || AGENTS.ROUTER,
+            agentName: options.agentName || defaultAgent.name,
             model: options.model || "",
             provider: options.provider || "",
             thinkingLevel: options.thinkingLevel || "default",
         };
         const sessionOptions = await this.listSessionOptions(options.projectId);
-        const agentAllowed = sessionOptions.agents.some((agent) => agent.name === launch.agentName);
-        if (!agentAllowed) throw new Error("Selected Agent is not available for this Project.");
-        if (launch.model) {
-            const modelAllowed = sessionOptions.models.some((model) =>
-                model.id === launch.model && (model.provider || "") === launch.provider
-            );
-            if (!modelAllowed) throw new Error("Selected model is not available.");
-        }
+        await this.validateAgentSelection(launch.agentName, projectRoot);
+        await this.validateModelSelection(launch.model, launch.provider);
         if (launch.thinkingLevel !== "default" && !sessionOptions.thinkingLevels.includes(launch.thinkingLevel)) {
             throw new Error("Selected thinking level is not supported.");
         }
@@ -1031,12 +999,13 @@ export class WorkspaceSessionContinuationService {
                     this.appendOperationEvent(operationId, event);
                 });
                 if (launch.model) {
-                    const modelResult = await this.runtime.reconfigureSessionModel(
+                    const modelResult = await applyUserModelSelection(
+                        this.runtime,
                         sessionId,
                         launch.model,
                         launch.provider,
                     );
-                    if (!modelResult?.ok) throw new Error("Selected model could not be applied.");
+                    if (!modelResult.ok) throw new Error(modelResult.error || "Selected model could not be applied.");
                 }
                 if (launch.thinkingLevel !== "default") {
                     const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (launch.thinkingLevel);

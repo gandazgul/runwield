@@ -3,6 +3,7 @@
  * Maps adapter-neutral SessionRuntime events to ACP session/update notifications.
  */
 
+import { getCommandDefinition, getSlashCommandDefinitions } from "../cmd/registry.js";
 import { RuntimeEventTypes } from "../shared/session/session-runtime-events.js";
 
 /** @param {unknown} value */
@@ -164,6 +165,28 @@ export function mapRuntimeEventToAcpUpdate(event, sessionCostUsd = 0) {
                     type: event.type,
                     thinkingLevel: event.thinkingLevel,
                 }),
+            };
+        }
+        case RuntimeEventTypes.COMMAND_CATALOG_CHANGED: {
+            return {
+                sessionUpdate: "available_commands_update",
+                availableCommands: [
+                    ...getSlashCommandDefinitions("acp").map((command) => ({
+                        name: command.name,
+                        description: command.description,
+                        ...(command.usage?.[0] ? { input: { hint: command.usage[0].replace(/^.*?\s+/, "") } } : {}),
+                    })),
+                    ...(event.promptTemplates || []).filter((template) => !getCommandDefinition(template.name))
+                        .map((template) => ({
+                            name: template.name,
+                            description: template.description || "Prompt template",
+                            ...(template.argumentHint ? { input: { hint: template.argumentHint } } : {}),
+                        })),
+                    ...(event.skills || []).map((skill) => ({
+                        name: `skill:${skill.name}`,
+                        description: skill.description || "Skill",
+                    })),
+                ],
             };
         }
         case RuntimeEventTypes.SYSTEM_STATUS:

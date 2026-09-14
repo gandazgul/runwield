@@ -281,7 +281,9 @@ flows.
 
 ## Slash commands
 
-Type `/` in the editor for completion.
+Type `/` in the editor for completion. TUI shows all interactive commands. ACP advertises and runs the same shared
+commands except `/copy`, `/theme`, `/quit`, `/exit`, `/new`, `/resume`, and `/login`. Workspace hides `/theme`, `/quit`,
+and `/exit` and keeps its browser navigation commands.
 
 | Command          | Description                                                                     |
 | ---------------- | ------------------------------------------------------------------------------- |

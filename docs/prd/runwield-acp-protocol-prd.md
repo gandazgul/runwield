@@ -94,8 +94,9 @@ Stage labels below are delivery scope, not new lifecycle states or claims of shi
 
 `wld acp` and `wld --mode acp` expose RunWield to ACP clients. The core experience includes Session creation and
 loading, text and resource-link prompts, cancellation, closing, history replay, Agent and tool progress, usage, Plan
-links, and structured questions when supported by the client. Compatibility documentation must clearly state the
-capabilities actually available.
+links, advertised slash commands, and structured questions. ACP executes all shared slash commands except `/copy`,
+`/theme`, `/quit`, `/exit`, `/new`, `/resume`, and `/login`. A bare `/agent` opens Agent selection and is never routed
+as a model request. Compatibility documentation must clearly state the capabilities actually available.
 
 Shared requirements: [Core Session continuity](runwield-core-prd.md#session-continuity),
 [Plan review](runwield-core-prd.md#plan-review), and
@@ -130,7 +131,11 @@ Stage 1 proves the reference journey through the shared Session experience. Prot
   client from continuing it. If work is currently running, the client reports that state without losing the user's
   input. Session storage and writer coordination follow ADR-015.
 - Cancellation waits for Runtime settlement and final mapped updates before `session/prompt` returns `cancelled`.
+- ACP sends `available_commands_update` for enabled built-ins, prompt templates, and Skills. Built-in names and aliases
+  have precedence over prompt resources, including built-ins unavailable on ACP.
 - OpenAB advertises and handles generic ACP form elicitation for RunWield select, text, and approval interactions.
+- If a client has no form support, local select, text, and approval questions expose a loopback browser URL and wait for
+  an explicit answer or cancellation. This does not claim remote browser reachability.
 - Unsupported interaction capabilities fail visibly and safely rather than selecting a default.
 - Plan review links remain useful as normal text even when a client ignores `_meta.runwield` enhancements.
 - Black-box compatibility coverage exercises the actual ACP wire behavior OpenAB depends on.
@@ -142,8 +147,9 @@ requirement.
 
 - When a client requests an unsupported protocol version, initialization negotiates supported behavior instead of
   pretending that version is supported.
-- Given a required select, text, or approval interaction unsupported by the client, when RunWield asks it, the failure
-  is visible and no default answer is silently chosen.
+- Given a required select, text, or approval interaction unsupported by native client forms, when RunWield asks it, a
+  local browser question can collect the same semantic answer; if that page cannot be reached, no default answer is
+  silently chosen.
 - When the user cancels a live turn, final updates and cancellation settle before the turn is reported available for
   another request.
 - When the client displays cost, the advertised ACP shape and cumulative USD Session cost are accurate; missing

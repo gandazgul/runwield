@@ -116,6 +116,7 @@ function requireInteractiveCommandContext(options) {
  * @property {"new" | "continue"} [sessionStartMode]
  * @property {(nextSessionId: string) => void} [replaceRuntimeSession]
  * @property {(eventName: string, options?: object) => void | Promise<unknown>} [notifyRunWieldEvent]
+ * @property {"tui" | "acp" | "workspace"} [slashSurface]
  * @property {boolean} [skipPostLoginSetup]
  */
 
@@ -134,6 +135,7 @@ function requireInteractiveCommandContext(options) {
  * @property {string[]} [notes]
  * @property {CommandHandler} execute
  * @property {("cli" | "slash")[]} surfaces
+ * @property {("tui" | "acp" | "workspace")[]} [slashSurfaces]
  * @property {(argumentPrefix: string) => Promise<CommandCompletionItem[]>} [getArgumentCompletions]
  */
 
@@ -210,6 +212,7 @@ export const commandRegistry = {
         execute: (argv, options) =>
             runAgentsCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT }),
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui", "acp", "workspace"],
         getArgumentCompletions: getAgentCompletions,
     },
     [COMMAND_NAMES.MODEL]: {
@@ -231,6 +234,7 @@ export const commandRegistry = {
         ],
         execute: runModelsCommand,
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui", "acp", "workspace"],
         getArgumentCompletions: getModelCompletions,
     },
     [COMMAND_NAMES.LOGIN]: {
@@ -255,6 +259,7 @@ export const commandRegistry = {
             "Credentials are stored in RunWield config at ~/.wld/auth.json.",
             "Use /status to inspect configured providers.",
         ],
+        slashSurfaces: ["tui"],
         execute: async (argv, options) => {
             if (options?.uiAPI) {
                 await runLoginCommand(argv, requireInteractiveCommandContext(options));
@@ -281,6 +286,7 @@ export const commandRegistry = {
         ],
         execute: (argv, options) => runLogoutCommand(argv, requireInteractiveCommandContext(options)),
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.STATUS]: {
         name: COMMAND_NAMES.STATUS,
@@ -295,6 +301,7 @@ export const commandRegistry = {
         ],
         execute: (argv, options) => runStatusCommand(argv, requireInteractiveCommandContext(options)),
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.LOAD_PLAN]: {
         name: COMMAND_NAMES.LOAD_PLAN,
@@ -313,6 +320,7 @@ export const commandRegistry = {
         ],
         execute: runLoadPlanCommand,
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui", "acp"],
         getArgumentCompletions: getLoadPlanCompletions,
     },
     [COMMAND_NAMES.RESUME]: {
@@ -329,6 +337,7 @@ export const commandRegistry = {
         ],
         execute: runResumeCommand,
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui", "workspace"],
     },
     [COMMAND_NAMES.NEW]: {
         name: COMMAND_NAMES.NEW,
@@ -344,6 +353,7 @@ export const commandRegistry = {
         ],
         execute: runNewCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "workspace"],
     },
     [COMMAND_NAMES.NAME]: {
         name: COMMAND_NAMES.NAME,
@@ -359,6 +369,7 @@ export const commandRegistry = {
         ],
         execute: runNameCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.SESSION]: {
         name: COMMAND_NAMES.SESSION,
@@ -373,6 +384,7 @@ export const commandRegistry = {
         ],
         execute: runSessionCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp", "workspace"],
     },
     [COMMAND_NAMES.CONTEXT]: {
         name: COMMAND_NAMES.CONTEXT,
@@ -388,6 +400,7 @@ export const commandRegistry = {
         ],
         execute: runContextCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp", "workspace"],
     },
     [COMMAND_NAMES.SHARE]: {
         name: COMMAND_NAMES.SHARE,
@@ -403,6 +416,7 @@ export const commandRegistry = {
         ],
         execute: (argv, options) => runShareCommand(argv, { ...options, githubCli: SYSTEM_GITHUB_CLI_PORT }),
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.EXPORT]: {
         name: COMMAND_NAMES.EXPORT,
@@ -420,6 +434,7 @@ export const commandRegistry = {
         ],
         execute: runExportCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.PLANS]: {
         name: COMMAND_NAMES.PLANS,
@@ -466,6 +481,7 @@ export const commandRegistry = {
         ],
         execute: runPlansCommand,
         surfaces: ["cli"],
+        slashSurfaces: ["workspace"],
     },
     [COMMAND_NAMES.WORKSPACE]: {
         name: COMMAND_NAMES.WORKSPACE,
@@ -544,6 +560,7 @@ export const commandRegistry = {
                 sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT,
             }),
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.HELP]: {
         name: COMMAND_NAMES.HELP,
@@ -560,6 +577,7 @@ export const commandRegistry = {
         notes: [],
         execute: runHelpCommand,
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui", "acp", "workspace"],
     },
     [COMMAND_NAMES.VERSION]: {
         name: COMMAND_NAMES.VERSION,
@@ -574,6 +592,7 @@ export const commandRegistry = {
         notes: [],
         execute: runVersionCommand,
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.UPDATE]: {
         name: COMMAND_NAMES.UPDATE,
@@ -611,6 +630,7 @@ export const commandRegistry = {
         notes: [],
         execute: runQuitCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui"],
     },
     [COMMAND_NAMES.EXIT]: {
         name: COMMAND_NAMES.EXIT,
@@ -621,6 +641,7 @@ export const commandRegistry = {
         notes: [],
         execute: runQuitCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui"],
     },
     [COMMAND_NAMES.INIT]: {
         name: COMMAND_NAMES.INIT,
@@ -651,6 +672,7 @@ export const commandRegistry = {
                     sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT,
                 }),
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.THEME]: {
         name: COMMAND_NAMES.THEME,
@@ -667,6 +689,7 @@ export const commandRegistry = {
         ],
         execute: runThemeCommand,
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui"],
     },
     [COMMAND_NAMES.INSTALL]: {
         name: COMMAND_NAMES.INSTALL,
@@ -736,6 +759,7 @@ export const commandRegistry = {
         ],
         execute: runCompactCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.SETTINGS]: {
         name: COMMAND_NAMES.SETTINGS,
@@ -751,6 +775,7 @@ export const commandRegistry = {
         ],
         execute: runSettingsCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp", "workspace"],
     },
     [COMMAND_NAMES.COPY]: {
         name: COMMAND_NAMES.COPY,
@@ -766,6 +791,7 @@ export const commandRegistry = {
         ],
         execute: runCopyCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui"],
     },
     [COMMAND_NAMES.RELOAD]: {
         name: COMMAND_NAMES.RELOAD,
@@ -781,16 +807,24 @@ export const commandRegistry = {
         ],
         execute: runReloadCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp"],
     },
 };
 
 /**
+ * @typedef {"tui" | "acp" | "workspace"} SlashSurface
+ */
+
+/**
  * @param {CommandDefinition} command
  * @param {"cli" | "slash"} surface
+ * @param {SlashSurface} [slashSurface]
  * @returns {boolean}
  */
-export function hasCommandSurface(command, surface) {
-    return command.surfaces.includes(surface);
+export function hasCommandSurface(command, surface, slashSurface = "tui") {
+    if (surface !== "slash") return command.surfaces.includes(surface);
+    if (command.surfaces.includes("slash")) return (command.slashSurfaces || ["tui"]).includes(slashSurface);
+    return (command.slashSurfaces || []).includes(slashSurface);
 }
 
 /**
@@ -812,10 +846,11 @@ export function getCliCommandDefinitions() {
 }
 
 /**
+ * @param {SlashSurface} [slashSurface]
  * @returns {CommandDefinition[]}
  */
-export function getSlashCommandDefinitions() {
-    return Object.values(commandRegistry).filter((command) => hasCommandSurface(command, "slash"));
+export function getSlashCommandDefinitions(slashSurface = "tui") {
+    return Object.values(commandRegistry).filter((command) => hasCommandSurface(command, "slash", slashSurface));
 }
 
 /**
@@ -827,18 +862,20 @@ export function getCommandInvocationNames(command) {
 }
 
 /**
+ * @param {SlashSurface} [slashSurface]
  * @returns {string[]}
  */
-export function getSlashCommandInvocationNames() {
-    return getSlashCommandDefinitions().flatMap(getCommandInvocationNames);
+export function getSlashCommandInvocationNames(slashSurface = "tui") {
+    return getSlashCommandDefinitions(slashSurface).flatMap(getCommandInvocationNames);
 }
 
 /**
  * @param {string | undefined} commandName
+ * @param {SlashSurface} [slashSurface]
  * @returns {CommandDefinition | undefined}
  */
-export function getSlashCommandDefinition(commandName) {
+export function getSlashCommandDefinition(commandName, slashSurface = "tui") {
     const command = getCommandDefinition(commandName);
-    if (!command || !hasCommandSurface(command, "slash")) return undefined;
+    if (!command || !hasCommandSurface(command, "slash", slashSurface)) return undefined;
     return command;
 }

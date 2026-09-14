@@ -4529,44 +4529,48 @@ export class SessionRuntime {
         if (!executionAgent) {
             throw new Error("SessionRuntime.replaceSessionForExecutionFollowUp requires an execution Agent");
         }
-        const created = await this.createInteractiveSession({
-            cwd: executionCwd,
-            mode: "new",
-            deferManagedActivationUntilAgentReady: true,
-        });
-        const newSessionId = created.sessionId;
-        const newSession = this.#sessionHost.getSession(newSessionId);
-        if (!newSession) throw new Error("Execution follow-up replacement session was not retained");
+        const originalCwd = oldSession.cwd;
         try {
-            newSession.setInteractionAdapter(oldSession.getInteractionAdapter());
-            await this.#activateSessionAgent(newSession, {
+            oldSession.rebindProjectRoot(executionCwd);
+            const managed = oldSession.getManagedMetadata?.();
+            if (managed) {
+                await this.rollManagedSessionSegment(oldSession.id, {
+                    kind: "execution",
+                    continuation: JSON.parse(JSON.stringify({
+                        kind: "execution",
+                        activeWorkflow: workflow,
+                        executionOwner: executionAgent,
+                    })),
+                    expectedGeneration: managed.generation,
+                });
+            }
+            const switched = await this.switchAgent(oldSession.id, {
                 agentName: executionAgent,
                 mcpRootTools: oldSession.getMcpRootTools?.() || [],
             });
-            newSession.setActiveExecutionWorkflow(workflow);
+            if (!switched?.ok) throw new Error(switched?.error || "Execution follow-up Agent switch failed");
+            oldSession.setActiveExecutionWorkflow(workflow);
             const planId = typeof workflow?.triageMeta?.planId === "string" ? workflow.triageMeta.planId : "";
             const planName = typeof workflow?.planName === "string" ? workflow.planName : "";
             if (planId && planName) {
-                const recorded = await this.recordPlanAssociation(newSessionId, {
+                const recorded = await this.recordPlanAssociation(oldSession.id, {
                     planId,
                     planName,
                     purpose: "execution",
                 });
                 if (recorded?.ok === false) throw new Error(recorded.error || "Execution Plan Association failed");
             }
-            if (workflow.planName) await this.renameSession(newSessionId, workflow.planName);
-            oldSession.moveMcpStateTo?.(newSession);
+            if (workflow.planName) await this.renameSession(oldSession.id, workflow.planName);
             this.#emitSessionEvent(oldSession.id, {
                 type: RuntimeEventTypes.SESSION_REPLACED,
                 oldSessionId: oldSession.id,
-                newSessionId,
+                newSessionId: oldSession.id,
                 reason: "execution_follow_up",
                 planName: workflow.planName || "Plan follow-up",
             });
-            await this.closeSession(oldSession.id);
-            return newSessionId;
+            return oldSession.id;
         } catch (error) {
-            await this.closeSession(newSessionId);
+            oldSession.rebindProjectRoot(originalCwd);
             throw error;
         }
     }
