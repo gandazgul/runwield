@@ -5,7 +5,7 @@
 
 import { parseArgs } from "@std/cli/parse-args";
 import { CLI_BIN } from "../../constants.js";
-import { getCliCommandDefinitions, getCommandDefinition } from "../registry.js";
+import { getCliCommandDefinitions, getCommandDefinition, getSlashCommandDefinitions } from "../registry.js";
 
 interface HelpCommandUi {
     appendSystemMessage(message: string, isError?: boolean): void;
@@ -13,9 +13,10 @@ interface HelpCommandUi {
 
 interface HelpCommandOptions {
     uiAPI?: HelpCommandUi;
+    slashSurface?: "tui" | "acp" | "workspace";
 }
 
-function formatGlobalHelp(): string {
+function formatGlobalHelp(slashSurface?: "tui" | "acp" | "workspace"): string {
     const lines = [
         "RunWield — Plan-by-Default Coding Harness",
         "",
@@ -27,7 +28,7 @@ function formatGlobalHelp(): string {
         "Commands:",
     ];
 
-    const commands = getCliCommandDefinitions();
+    const commands = slashSurface ? getSlashCommandDefinitions(slashSurface) : getCliCommandDefinitions();
     const nameWidth = Math.max(...commands.map((command) => command.name.length));
     for (const command of commands) lines.push(`  ${command.name.padEnd(nameWidth)} ${command.summary}`);
 
@@ -48,7 +49,7 @@ function formatGlobalHelp(): string {
     return lines.join("\n");
 }
 
-function formatCommandHelp(commandName: string): string | null {
+export function formatCommandHelp(commandName: string): string | null {
     const command = getCommandDefinition(commandName);
     if (!command) return null;
 
@@ -84,7 +85,7 @@ export async function runHelpCommand(argv: string[], options: HelpCommandOptions
     const [commandName] = parsed._.map(String);
 
     if (options.uiAPI) {
-        const message = commandName ? formatCommandHelp(commandName) : formatGlobalHelp();
+        const message = commandName ? formatCommandHelp(commandName) : formatGlobalHelp(options.slashSurface);
         if (message) {
             options.uiAPI.appendSystemMessage(message);
             return;

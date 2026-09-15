@@ -163,6 +163,20 @@ Deno.test("handleSlashCommand executes built-in help through the real command re
     });
 });
 
+Deno.test("handleSlashCommand keeps disabled built-ins reserved instead of dispatching same-named prompt templates", async () => {
+    await withSlashFixture({}, async ({ context, messages, submittedRequests }) => {
+        const slashContext = context("/mcp agy-cli");
+        slashContext.promptTemplateByName.set("mcp", {
+            name: "mcp",
+            path: join("prompts", "mcp.md"),
+        });
+
+        assertEquals(await handleSlashCommand(slashContext), true);
+        assertEquals(messages, ["Command /mcp is not available in this surface."]);
+        assertEquals(submittedRequests, []);
+    });
+});
+
 Deno.test("handleSlashCommand keeps hidden init reserved instead of dispatching a same-named prompt template", async () => {
     await withSlashFixture({ initPromptTemplate: true }, async ({ context, messages, submittedRequests }) => {
         const slashContext = context("/init use fixture state");

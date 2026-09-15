@@ -89,7 +89,42 @@ Deno.test("ACP interaction adapter distinguishes approval acceptance from declin
     });
 });
 
-Deno.test("ACP interaction adapter returns unsupported without form capabilities", async () => {
+Deno.test("ACP interaction adapter browser fallback cancels with the request signal", async () => {
     const adapter = createAcpInteractionAdapter({ acpSessionId: "acp-1", clientCapabilities: {}, context: {} });
-    assertEquals((await adapter.requestInteraction({ type: "text", prompt: "Name?" })).outcome, "unsupported");
+    const controller = new AbortController();
+    const pending = adapter.requestInteraction({ type: "text", prompt: "Name?" }, controller.signal);
+    controller.abort();
+    assertEquals(await pending, { outcome: "canceled", message: "Interaction canceled." });
+});
+
+Deno.test("ACP browser fallback rejects answer submissions without same-origin proof", async () => {
+    let questionUrl = "";
+    const adapter = createAcpInteractionAdapter({
+        acpSessionId: "acp-session-1",
+        clientCapabilities: {},
+        context: {
+            notify: (
+                /** @type {string} */ _method,
+                /** @type {{ update: { _meta: { runwield: { questionUrl: string } } } }} */ params,
+            ) => {
+                questionUrl = params.update._meta.runwield.questionUrl;
+            },
+        },
+    });
+    const controller = new AbortController();
+    const pending = adapter.requestInteraction({
+        id: "question-1",
+        type: "text",
+        prompt: "Name?",
+    }, controller.signal);
+    while (!questionUrl) await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const noOrigin = await fetch(questionUrl.replace("/session-question", "/api/session-question/answer"), {
+        method: "POST",
+        body: new URLSearchParams({ answer: "Ada" }),
+    });
+    assertEquals(noOrigin.status, 403);
+
+    controller.abort();
+    assertEquals(await pending, { outcome: "canceled", message: "Interaction canceled." });
 });

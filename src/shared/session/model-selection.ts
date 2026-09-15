@@ -18,15 +18,13 @@ export async function setDefaultModelSelection(
     await settingsManager.setDefaultProvider(provider || "");
 }
 
-/**
- * Reconfigure the real Runtime session and persist the user's selection in the
- * settings scoped to that session's project.
- */
+/** Reconfigure the real Runtime session without changing future Session defaults. */
 export async function setActiveSessionModel(
     runtime: SessionRuntime,
     sessionId: string,
     model: string,
     provider?: string,
+    options: { persistUnactivatedDefault?: boolean } = {},
 ): Promise<ModelActivationResult> {
     const snapshot = runtime.getSessionSnapshot(sessionId);
     if (!snapshot) throw new Error("Cannot set model for a missing runtime session.");
@@ -36,23 +34,16 @@ export async function setActiveSessionModel(
         if (!result?.ok) throw new Error("The active Session could not switch models.");
     } catch (error) {
         if (!(error instanceof Error) || !isUnsupportedModelExecutionBackendError(error)) throw error;
-        try {
-            await setDefaultModelSelection(snapshot.cwd, model, provider);
-        } catch (persistenceError) {
-            console.error(`Failed to persist deferred model selection: ${persistenceError}`);
-        }
         return {
             status: "deferred",
-            message: `${error.message} Saved ${
-                provider ? `${provider}/${model}` : model
-            } for later. The current Session was not switched.`,
+            message: `${error.message} The current Session was not switched.`,
         };
     }
 
-    try {
-        await setDefaultModelSelection(snapshot.cwd, model, provider);
-    } catch (error) {
-        console.error(`Failed to persist model selection: ${error}`);
+    const afterSwitch = runtime.getSessionSnapshot(sessionId);
+    if (options.persistUnactivatedDefault !== false && !afterSwitch?.activeAgent) {
+        await setDefaultModelSelection(afterSwitch?.cwd || snapshot.cwd, model, provider || "");
     }
+
     return { status: "active" };
 }

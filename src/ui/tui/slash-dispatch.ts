@@ -119,6 +119,11 @@ export async function handleSlashCommand(ctx: SlashContext): Promise<boolean> {
         return true;
     }
 
+    if (registryModule.getCommandDefinition(command)) {
+        ctx.uiAPI.appendSystemMessage(`Command /${command} is not available in this surface.`);
+        return true;
+    }
+
     const template = ctx.promptTemplateByName.get(command);
     if (template) {
         maybeUpdateTitleForSlashCommand(ctx.sessionRuntime, ctx.sessionId);
@@ -162,6 +167,7 @@ async function dispatchBuiltin(
             originalHandleInput: ctx.originalHandleInput,
             replaceRuntimeSession: ctx.replaceRuntimeSession,
             notifyRunWieldEvent,
+            slashSurface: "tui",
         });
     } catch (error) {
         if (ctx.generationGuard.isCurrent(thisGen)) {

@@ -1409,3 +1409,81 @@ button.danger-action:disabled {
 .rw-workflow-block.status-failed {
     border-inline-start-color: var(--rw-error);
 }
+
+.rw-question-fixture {
+    display: grid;
+    justify-items: center;
+    padding: var(--rw-space-panel) 0 2rem;
+}
+
+.rw-question-card {
+    display: grid;
+    gap: 0.85rem;
+    width: min(42rem, 100%);
+    padding: var(--rw-space-panel);
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-panel);
+    background: var(--rw-surface-raised);
+}
+
+.rw-question-card h1,
+.rw-question-card p {
+    margin: 0;
+}
+
+.rw-question-help {
+    color: var(--rw-text-muted);
+}
+
+.rw-question-error {
+    color: var(--rw-error);
+}
+
+.rw-question-complete {
+    color: var(--rw-success);
+}
+
+.rw-question-field {
+    display: grid;
+    gap: 0.5rem;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.rw-question-field textarea {
+    min-height: 7rem;
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-control);
+    background: var(--rw-surface);
+    color: var(--rw-text);
+    padding: 0.65rem;
+    font: inherit;
+}
+
+.rw-question-option {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 2.75rem;
+    padding: 0.65rem;
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-control);
+    background: var(--rw-surface);
+}
+
+.rw-question-option:focus-within {
+    border-color: var(--rw-accent);
+}
+
+.rw-question-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.rw-toolbar-button-primary {
+    background: var(--rw-accent);
+    color: var(--rw-page-bg);
+}

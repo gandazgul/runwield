@@ -396,8 +396,10 @@ is ready for input without a separate takeover or preparation step.
 
 Shared behavior: [Core TUI conversation](runwield-core-prd.md#tui-conversation),
 [models and providers](runwield-core-prd.md#models-and-providers), and
-[Session continuity](runwield-core-prd.md#session-continuity). Browser command controls follow the same Agent defaults
-and override rules; switching Agents resets model and thinking choices to that Agent’s settings.
+[Session continuity](runwield-core-prd.md#session-continuity). Browser command controls use the shared command catalog
+and follow the same Agent defaults and override rules; switching Agents resets model and thinking choices to that
+Agent’s settings. Workspace hides `/theme`, `/quit`, and `/exit`, keeps existing navigation commands, and does not
+expose TUI-only process controls.
 
 **Acceptance scenarios:**
 

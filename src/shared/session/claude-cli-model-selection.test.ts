@@ -16,7 +16,7 @@ Deno.test("configured Claude CLI model is supported by typed execution backend d
     assertModelExecutionBackendSupported(model);
 });
 
-Deno.test("explicit Claude CLI selection persists a deferred default and leaves current runtime Session unchanged", async () => {
+Deno.test("explicit Claude CLI selection defers without changing defaults or current runtime Session", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousHome = Deno.env.get("HOME");
         const home = await Deno.makeTempDir({ prefix: "runwield-claude-cli-selection-home-" });
@@ -58,8 +58,8 @@ Deno.test("explicit Claude CLI selection persists a deferred default and leaves 
             assertStringIncludes(result.message || "", "current Session was not switched");
             assertEquals(calls, [{ model: "opus", provider: "claude-cli" }]);
             const settings = getSettingsManager(project);
-            assertEquals(settings.getDefaultProvider(), "claude-cli");
-            assertEquals(settings.getDefaultModel(), "opus");
+            assertEquals(settings.getDefaultProvider(), undefined);
+            assertEquals(settings.getDefaultModel(), undefined);
         } finally {
             __resetSettingsForTests();
             if (previousHome === undefined) Deno.env.delete("HOME");
