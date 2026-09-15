@@ -233,11 +233,13 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], exclu
             const file = queue.shift();
             if (!file) return;
             const name = relative(REPO_ROOT, file);
+            console.error(`[tests] start ${name}`);
             const result = await runWithSnip("deno", ["test", "-A", "--no-check", "--quiet", file], {
                 cwd: REPO_ROOT,
                 env,
                 failureLabel: "tests",
             });
+            console.error(`[tests] done ${name}: exit ${result.code}`);
             completed += 1;
             if (result.code !== 0) {
                 failures.push({
