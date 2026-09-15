@@ -22,7 +22,7 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173/dev/session-question"
 devServerHmr: true
 createdAt: "2026-09-11"
-status: "validated_reviewer"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
