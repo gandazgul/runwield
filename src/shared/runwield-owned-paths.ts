@@ -11,6 +11,17 @@ import {
     WORKTREE_REGISTRY_LOCK_FILE,
 } from "../constants.js";
 
+export interface RunWieldGitignoreWarning {
+    kind: "broad_wld_ignore" | "unmatched_managed_marker";
+    message: string;
+    rule?: string;
+}
+
+export interface RunWieldGitignoreReconciliationResult {
+    warnings: RunWieldGitignoreWarning[];
+    changed: boolean;
+}
+
 function underRunWield(name: string): string {
     return `${RUNWIELD_DIR_NAME}/${name}`;
 }
@@ -98,11 +109,110 @@ export const runwieldOwnedPathspecExclusions = Object.freeze(
 const GITIGNORE_START = "# BEGIN RunWield owned runtime state";
 const GITIGNORE_END = "# END RunWield owned runtime state";
 
-export const RUNWIELD_GITIGNORE_BLOCK = `${GITIGNORE_START}\n${
-    RUNWIELD_OWNED_RUNTIME_PATHS.join("\n")
-}\n${GITIGNORE_END}\n`;
+export const RUNWIELD_GITIGNORE_BLOCK = `${GITIGNORE_START}\n${CURRENT_RUNTIME_ROOT}/\n${GITIGNORE_END}\n`;
 
-export async function ensureRunWieldOwnedGitignoreBlock(projectRoot: string): Promise<void> {
+const OBSOLETE_GITIGNORE_LINES = new Set([
+    ...LEGACY_RUNTIME_DIRECTORIES.flatMap((path) => [path, `${path}/`]),
+    ...LEGACY_RUNTIME_FILES,
+    ...LEGACY_RUNTIME_TEMP_FILE_PATTERNS,
+]);
+
+interface GitignoreLine {
+    text: string;
+    eol: string;
+}
+
+function splitLines(input: string): GitignoreLine[] {
+    const matches = input.match(/.*(?:\r\n|\n|\r)|.+$/g) || [];
+    return matches.map((line) => {
+        const eol = line.endsWith("\r\n") ? "\r\n" : line.endsWith("\n") ? "\n" : line.endsWith("\r") ? "\r" : "";
+        return { text: eol ? line.slice(0, -eol.length) : line, eol };
+    });
+}
+
+function preferredEol(input: string): string {
+    return input.includes("\r\n") ? "\r\n" : "\n";
+}
+
+function canonicalBlock(eol: string): string {
+    return [GITIGNORE_START, `${CURRENT_RUNTIME_ROOT}/`, GITIGNORE_END, ""].join(eol);
+}
+
+function isBroadRunWieldIgnoreRule(line: string): boolean {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("!")) return false;
+    return trimmed === ".wld" || trimmed === ".wld/" || trimmed === "/.wld" || trimmed === "/.wld/" ||
+        trimmed === ".wld/**" || trimmed === "/.wld/**";
+}
+
+function isObsoleteRunWieldLine(line: string): boolean {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("!")) return false;
+    return OBSOLETE_GITIGNORE_LINES.has(normalizeGitPath(trimmed));
+}
+
+function reconcileGitignore(existing: string): { content: string; warnings: RunWieldGitignoreWarning[] } {
+    const eol = preferredEol(existing);
+    const lines = splitLines(existing);
+    const warnings: RunWieldGitignoreWarning[] = [];
+    const kept: GitignoreLine[] = [];
+    let insertedBlock = false;
+    let removedManagedBlock = false;
+    for (let index = 0; index < lines.length; index++) {
+        const line = lines[index];
+        if (line.text === GITIGNORE_START) {
+            const endIndex = lines.findIndex((candidate, candidateIndex) =>
+                candidateIndex > index && candidate.text === GITIGNORE_END
+            );
+            if (endIndex === -1) {
+                warnings.push({
+                    kind: "unmatched_managed_marker",
+                    message: "RunWield found an unmatched .gitignore managed-block marker and left it unchanged.",
+                });
+                kept.push(line);
+                continue;
+            }
+            if (!insertedBlock) {
+                kept.push(...splitLines(canonicalBlock(eol)));
+                insertedBlock = true;
+            }
+            removedManagedBlock = true;
+            index = endIndex;
+            continue;
+        }
+        if (line.text === GITIGNORE_END) {
+            warnings.push({
+                kind: "unmatched_managed_marker",
+                message: "RunWield found an unmatched .gitignore managed-block marker and left it unchanged.",
+            });
+            kept.push(line);
+            continue;
+        }
+        if (isBroadRunWieldIgnoreRule(line.text)) {
+            warnings.push({
+                kind: "broad_wld_ignore",
+                rule: line.text.trim(),
+                message:
+                    `The .gitignore rule ${line.text.trim()} also hides .wld/settings.json, .wld/agents/, .wld/skills/, and .wld/prompts/ from Git.`,
+            });
+            kept.push(line);
+            continue;
+        }
+        if (isObsoleteRunWieldLine(line.text)) continue;
+        kept.push(line);
+    }
+    if (!insertedBlock) {
+        if (kept.length > 0 && kept[kept.length - 1].eol === "") kept[kept.length - 1].eol = eol;
+        kept.push(...splitLines(canonicalBlock(eol)));
+    }
+    const content = kept.map((line) => `${line.text}${line.eol}`).join("");
+    if (!removedManagedBlock && existing === "") return { content: canonicalBlock(eol), warnings };
+    return { content, warnings };
+}
+
+export async function ensureRunWieldOwnedGitignoreBlock(
+    projectRoot: string,
+): Promise<RunWieldGitignoreReconciliationResult> {
     const gitignorePath = join(projectRoot, ".gitignore");
     let existing = "";
     try {
@@ -110,13 +220,8 @@ export async function ensureRunWieldOwnedGitignoreBlock(projectRoot: string): Pr
     } catch (error) {
         if (!(error instanceof Deno.errors.NotFound)) throw error;
     }
-    const pattern = new RegExp(
-        `${GITIGNORE_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*?${
-            GITIGNORE_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-        }\\n?`,
-    );
-    const next = pattern.test(existing)
-        ? existing.replace(pattern, RUNWIELD_GITIGNORE_BLOCK)
-        : `${existing}${existing && !existing.endsWith("\n") ? "\n" : ""}${RUNWIELD_GITIGNORE_BLOCK}`;
-    if (next !== existing) await Deno.writeTextFile(gitignorePath, next);
+    const { content, warnings } = reconcileGitignore(existing);
+    const changed = content !== existing;
+    if (changed) await Deno.writeTextFile(gitignorePath, content);
+    return { warnings, changed };
 }

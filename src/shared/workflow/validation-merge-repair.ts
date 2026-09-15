@@ -10,6 +10,7 @@ import type { PhaseContext, UserActionPause, ValidationLoopArgs } from "./valida
 import { emitStatus } from "./validation-emit.ts";
 import { buildValidationUserMessage, validationMergeRepairMessage } from "./validation-user-messages.ts";
 import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
+import { assertNoTrackedOrIndexedRuntimePaths, stageGitChangesExcludingRuntime } from "../git-runtime-safety.ts";
 
 type GitCommandResult = { code: number; stdout: string; stderr: string };
 
@@ -71,8 +72,9 @@ export async function finalizeMergeRepair(repairCwd: string): Promise<boolean> {
 
     const mergeHead = await runRepairGit(repairCwd, ["rev-parse", "--verify", "MERGE_HEAD"]);
     if (mergeHead.code === 0) {
-        const staged = await runRepairGit(repairCwd, ["add", "-A"]);
-        if (staged.code !== 0) return false;
+        await assertNoTrackedOrIndexedRuntimePaths(repairCwd);
+        await stageGitChangesExcludingRuntime(repairCwd);
+        await assertNoTrackedOrIndexedRuntimePaths(repairCwd);
         const committed = await runRepairGit(repairCwd, ["commit", "--no-edit"]);
         if (committed.code !== 0) {
             await logValidationFailure(new Error(committed.stderr || committed.stdout), "merge_repair_commit");
@@ -82,8 +84,9 @@ export async function finalizeMergeRepair(repairCwd: string): Promise<boolean> {
 
     const mergeCommit = await runRepairGit(repairCwd, ["rev-list", "--merges", "-n", "1", "HEAD"]);
     if (mergeCommit.code !== 0 || !mergeCommit.stdout) return false;
-    const staged = await runRepairGit(repairCwd, ["add", "-A"]);
-    if (staged.code !== 0) return false;
+    await assertNoTrackedOrIndexedRuntimePaths(repairCwd);
+    await stageGitChangesExcludingRuntime(repairCwd);
+    await assertNoTrackedOrIndexedRuntimePaths(repairCwd);
     const pending = await runRepairGit(repairCwd, ["diff", "--cached", "--quiet"]);
     if (pending.code === 1) {
         const committed = await runRepairGit(repairCwd, ["commit", "-m", "Complete RunWield publication repair"]);

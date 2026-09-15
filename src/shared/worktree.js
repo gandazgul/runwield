@@ -11,6 +11,12 @@ import { getWorkflowDiff } from "./workflow/git-snapshot.js";
 import { addEntry, listEntries, pruneStaleEntries, removeEntry } from "./worktree-registry.js";
 import { enterProjectRuntime, resolveProjectRoot, resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
 import { isRunWieldOwnedRuntimePath, RUNWIELD_OWNED_RUNTIME_PATHS } from "./runwield-owned-paths.ts";
+import {
+    assertNoRuntimePathsInNewHistory,
+    assertNoTrackedOrIndexedRuntimePaths,
+    gitStatusPaths,
+    stageGitChangesExcludingRuntime,
+} from "./git-runtime-safety.ts";
 
 /**
  * @param {string} cwd
@@ -205,34 +211,7 @@ async function restoreExistingPathsFromHead(cwd, paths) {
  * @param {string} worktreePath
  */
 async function stageDirtyPathsExceptOwnedRuntime(worktreePath) {
-    const tracked = parseNameOnlyPaths(
-        await runGit(worktreePath, ["diff", "--name-only", "--no-renames", "HEAD", "--"]),
-    ).filter((path) => !isRunWieldOwnedRuntimePath(path));
-    const untracked = parseNameOnlyPaths(
-        await runGit(worktreePath, ["ls-files", "--others", "--exclude-standard"]),
-    ).filter((path) => !isRunWieldOwnedRuntimePath(path));
-    const indexed = tracked.length > 0
-        ? new Set(parseNameOnlyPaths(await runGit(worktreePath, ["ls-files", "--cached", "--", ...tracked])))
-        : new Set();
-    const trackedUpdates = tracked.filter((path) => indexed.has(path));
-    if (trackedUpdates.length > 0) await runGit(worktreePath, ["add", "-u", "--", ...trackedUpdates]);
-    if (untracked.length > 0) await runGit(worktreePath, ["add", "--", ...untracked]);
-}
-
-/**
- * @param {string} worktreePath
- * @param {string} mergeTargetRef
- */
-async function untrackOwnedRuntimePathsAbsentFromMergeTarget(worktreePath, mergeTargetRef) {
-    const trackedText = await runGit(worktreePath, ["ls-files", "--", ...RUNWIELD_OWNED_RUNTIME_PATHS]);
-    const tracked = parseNameOnlyPaths(trackedText).filter(isRunWieldOwnedRuntimePath);
-    if (tracked.length === 0) return;
-    const absent = [];
-    for (const path of tracked) {
-        const existedInMergeTarget = await runGitResult(worktreePath, ["cat-file", "-e", `${mergeTargetRef}:${path}`]);
-        if (existedInMergeTarget.code !== 0) absent.push(path);
-    }
-    if (absent.length > 0) await runGit(worktreePath, ["rm", "-r", "--cached", "--ignore-unmatch", "--", ...absent]);
+    await stageGitChangesExcludingRuntime(worktreePath);
 }
 
 /**
@@ -495,23 +474,23 @@ function buildWorktreeCommitMessage({
  * @param {string} branch
  * @param {WorktreeCommitMessageOptions} [messageOptions]
  * @param {string[]} [allowedDirtyPaths]
- * @param {string} [mergeTargetRef]
+ * @param {string} [_mergeTargetRef]
  */
 async function commitDirtyWorktreeState(
     worktreePath,
     branch,
     messageOptions = {},
     allowedDirtyPaths = [],
-    mergeTargetRef,
+    _mergeTargetRef = undefined,
 ) {
     const currentBranch = (await runGit(worktreePath, ["branch", "--show-current"])).trim();
     if (currentBranch !== branch) {
         throw new Error(`Worktree path ${worktreePath} is on ${currentBranch || "detached HEAD"}, not ${branch}`);
     }
+    await assertNoTrackedOrIndexedRuntimePaths(worktreePath);
     if (allowedDirtyPaths.length > 0) {
         const allowedPathSet = new Set(allowedDirtyPaths);
-        const status = await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
-        const dirtyPaths = parseStatusPaths(status);
+        const dirtyPaths = await gitStatusPaths(worktreePath);
         const disallowedPaths = filterUserDirtyPaths(dirtyPaths, allowedPathSet);
         if (disallowedPaths.length > 0) {
             throw new Error(
@@ -530,7 +509,7 @@ async function commitDirtyWorktreeState(
     } else {
         await stageDirtyPathsExceptOwnedRuntime(worktreePath);
     }
-    if (mergeTargetRef) await untrackOwnedRuntimePathsAbsentFromMergeTarget(worktreePath, mergeTargetRef);
+    await assertNoTrackedOrIndexedRuntimePaths(worktreePath);
     const stagedDiff = await runGit(worktreePath, ["diff", "--cached", "--name-only"]);
     const stagedPaths = parseNameOnlyPaths(stagedDiff);
     if (stagedPaths.length === 0) return;
@@ -600,10 +579,11 @@ export async function checkpointExecutionPreparation({
     if (committedPlan.code !== 0) {
         throw new Error(`Execution preparation commit ${preparationCommit} does not contain ${planRelativePath}.`);
     }
-    const status = await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
-    const remainingDirtyPaths = parseStatusPaths(status).filter((path) => !isRunWieldOwnedRuntimePath(path));
+    const remainingDirtyPaths = (await gitStatusPaths(worktreePath)).filter((path) =>
+        !isRunWieldOwnedRuntimePath(path)
+    );
     if (remainingDirtyPaths.length > 0) {
-        throw new Error(`Execution worktree is dirty after preparation commit:\n${status}`);
+        throw new Error(`Execution worktree is dirty after preparation commit:\n${remainingDirtyPaths.join("\n")}`);
     }
     return { preparationCommit };
 }
@@ -632,7 +612,7 @@ export async function assertPreMergeCandidateUnchanged({ worktreePath, sealedExe
     const committed = parseNameOnlyPaths(
         await runGit(worktreePath, ["diff", "--name-only", `${sealedExecutionCommit}..HEAD`]),
     );
-    const dirty = parseStatusPaths(await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]));
+    const dirty = await gitStatusPaths(worktreePath);
     const changed = [...new Set([...committed, ...dirty])];
     const disallowed = filterUserDirtyPaths(changed, allowed);
     if (disallowed.length > 0) {
@@ -668,10 +648,11 @@ export async function checkpointExecutionWorktree({
         [],
         mergeTargetRef,
     );
-    const status = await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
-    const remainingDirtyPaths = parseStatusPaths(status).filter((path) => !isRunWieldOwnedRuntimePath(path));
+    const remainingDirtyPaths = (await gitStatusPaths(worktreePath)).filter((path) =>
+        !isRunWieldOwnedRuntimePath(path)
+    );
     if (remainingDirtyPaths.length > 0) {
-        throw new Error(`Execution worktree is dirty after checkpoint commit:\n${status}`);
+        throw new Error(`Execution worktree is dirty after checkpoint commit:\n${remainingDirtyPaths.join("\n")}`);
     }
     const executionCommit = (await runGit(worktreePath, ["rev-parse", "HEAD"])).trim();
     return { executionCommit };
@@ -932,12 +913,11 @@ async function resolvePlanMergeConflicts(cwd, branch, preservePlanPaths) {
  * @param {string[]} allowedDirtyPaths
  */
 async function assertNoOverlappingDirtyPaths(cwd, branch, allowedDirtyPaths) {
-    const statusText = await runGit(cwd, ["status", "--porcelain", "--untracked-files=all"]);
     const allowed = new Set(allowedDirtyPaths);
     const branchChangedPaths = new Set(
         parseNameOnlyPaths(await runGit(cwd, ["diff", "--name-only", `HEAD...${branch}`])),
     );
-    const blockingDirtyPaths = filterUserDirtyPaths(parseStatusPaths(statusText), allowed).filter((path) =>
+    const blockingDirtyPaths = filterUserDirtyPaths(await gitStatusPaths(cwd), allowed).filter((path) =>
         overlapsBranchChangedPath(path, branchChangedPaths)
     );
     if (blockingDirtyPaths.length > 0) {
@@ -980,6 +960,8 @@ async function mergeExecutionWorktreeIntoCurrentCheckout(
             return;
         }
         await assertNoOverlappingDirtyPaths(projectRoot, branch, allowedDirtyPaths);
+        const currentHead = (await runGit(projectRoot, ["rev-parse", "HEAD"])).trim();
+        await assertNoRuntimePathsInNewHistory(projectRoot, currentHead, branch);
         await runGit(projectRoot, ["merge", "--no-ff", branch]);
         if (preservePlanPaths.length > 0) {
             await restoreExistingPathsFromHead(projectRoot, preservePlanPaths);
@@ -1047,6 +1029,7 @@ async function publishRepairedMergeWorktree(
         });
     }
 
+    await assertNoTrackedOrIndexedRuntimePaths(mergeWorktreePath);
     const statusText = await runGit(mergeWorktreePath, ["status", "--porcelain"]);
     if (statusText.trim()) {
         throw attachMergeRepairDetails(
@@ -1119,6 +1102,7 @@ async function publishRepairedMergeWorktree(
             mergeCommit,
             targetBranch,
         );
+        await assertNoRuntimePathsInNewHistory(mergeWorktreePath, oldTargetCommit, mergeCommit);
         await runGit(projectRoot, ["update-ref", `refs/heads/${targetBranch}`, mergeCommit, oldTargetCommit]);
     } catch {
         await cleanupDetachedMergeWorktree(projectRoot, mergeWorktreePath);
@@ -1250,6 +1234,7 @@ async function mergeExecutionWorktreeIntoTargetBranch({
                     mergeCommit,
                     targetBranch,
                 );
+                await assertNoRuntimePathsInNewHistory(mergeWorktreePath, oldTargetCommit, mergeCommit);
                 await runGit(projectRoot, ["update-ref", `refs/heads/${targetBranch}`, mergeCommit, oldTargetCommit]);
                 return;
             } catch (updateError) {

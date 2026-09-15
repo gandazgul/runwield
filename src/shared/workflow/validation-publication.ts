@@ -88,6 +88,7 @@ export function publicationFailureKindFromMergeKind(failureKind: string | undefi
         case "content_conflict":
             return "content_conflict";
         case "primary_checkout_dirty":
+        case "runwield_runtime_tracked":
             return "primary_checkout_dirty";
         case "target_branch_advanced":
         case "target_history_rewrite":

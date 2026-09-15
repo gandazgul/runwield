@@ -77,7 +77,22 @@ Deno.test("isolated publication pushes the target upstream without touching the 
         await Deno.writeTextFile(`${worktree.path}/implementation.txt`, "validated implementation\n");
         await Deno.mkdir(`${worktree.path}/docs/work-records`, { recursive: true });
         await Deno.writeTextFile(`${worktree.path}/docs/work-records/isolated.md`, "work record\n");
-        await git(worktree.path, ["add", "implementation.txt", "docs/work-records/isolated.md"]);
+        await Deno.mkdir(`${worktree.path}/.wld/agents`, { recursive: true });
+        await Deno.mkdir(`${worktree.path}/.wld/skills/local`, { recursive: true });
+        await Deno.mkdir(`${worktree.path}/.wld/prompts`, { recursive: true });
+        await Deno.writeTextFile(`${worktree.path}/.wld/settings.json`, "{}\n");
+        await Deno.writeTextFile(`${worktree.path}/.wld/agents/local.md`, "agent\n");
+        await Deno.writeTextFile(`${worktree.path}/.wld/skills/local/SKILL.md`, "skill\n");
+        await Deno.writeTextFile(`${worktree.path}/.wld/prompts/local.md`, "prompt\n");
+        await git(worktree.path, [
+            "add",
+            "implementation.txt",
+            "docs/work-records/isolated.md",
+            ".wld/settings.json",
+            ".wld/agents/local.md",
+            ".wld/skills/local/SKILL.md",
+            ".wld/prompts/local.md",
+        ]);
         await git(worktree.path, ["commit", "-m", "Validated execution candidate"]);
         const sealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
 
@@ -119,6 +134,11 @@ Deno.test("isolated publication pushes the target upstream without touching the 
         await git(projectRoot, ["merge-base", "--is-ancestor", sealedCommit, "origin/main"]);
         assertEquals(await git(projectRoot, ["show", "origin/main:implementation.txt"]), "validated implementation");
         assertEquals(await git(projectRoot, ["show", "origin/main:docs/work-records/isolated.md"]), "work record");
+        assertEquals(await git(projectRoot, ["show", "origin/main:.wld/settings.json"]), "{}");
+        assertEquals(await git(projectRoot, ["show", "origin/main:.wld/agents/local.md"]), "agent");
+        assertEquals(await git(projectRoot, ["show", "origin/main:.wld/skills/local/SKILL.md"]), "skill");
+        assertEquals(await git(projectRoot, ["show", "origin/main:.wld/prompts/local.md"]), "prompt");
+        await assertRejects(() => git(projectRoot, ["show", "origin/main:.wld/internal/state.json"]));
         assertEquals(
             await isExecutionCommitPublishedUpstream({
                 projectRoot,
@@ -128,6 +148,54 @@ Deno.test("isolated publication pushes the target upstream without touching the 
             }),
             true,
         );
+    } finally {
+        if (worktree) {
+            await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("remote publication refuses runtime history even when the final tree is clean", async () => {
+    const projectRoot = await makeRepo();
+    const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-publication-runtime-remote-" });
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-publication-runtime-worktree-" });
+    let worktree: Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined;
+    try {
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+        await git(projectRoot, ["push", "-u", "origin", "main"]);
+        worktree = await createTestWorktreeAttempt({ projectRoot, planName: "runtime-history", worktreeRoot });
+        await Deno.mkdir(`${worktree.path}/.wld/internal/future`, { recursive: true });
+        await Deno.writeTextFile(`${worktree.path}/.wld/internal/future/state.json`, "runtime\n");
+        await git(worktree.path, ["add", ".wld/internal/future/state.json"]);
+        await git(worktree.path, ["commit", "-m", "Accidentally track runtime"]);
+        await Deno.remove(`${worktree.path}/.wld/internal/future/state.json`);
+        await Deno.writeTextFile(`${worktree.path}/implementation.txt`, "safe final tree\n");
+        await git(worktree.path, ["add", "."]);
+        await git(worktree.path, ["commit", "-m", "Remove runtime and keep work"]);
+        const sealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
+        const remoteHeadBefore = (await git(projectRoot, ["ls-remote", "origin", "refs/heads/main"])).split(/\s+/)[0];
+
+        const failure = await assertRejects(() =>
+            publishExecutionWorktreeIsolated({
+                projectRoot,
+                executionCwd: worktree!.path,
+                executionBranch: worktree!.branch,
+                targetBranch: "main",
+                planName: "runtime-history",
+                sealedExecutionCommit: sealedCommit,
+                allowedPlanPaths: [],
+            })
+        );
+
+        assert(failure instanceof IsolatedPublicationError);
+        assertEquals(failure.mergeFailureKind, "runwield_runtime_tracked");
+        assertStringIncludes(failure.message, ".wld/internal/future/state.json");
+        const remoteHeadAfter = (await git(projectRoot, ["ls-remote", "origin", "refs/heads/main"])).split(/\s+/)[0];
+        assertEquals(remoteHeadAfter, remoteHeadBefore);
     } finally {
         if (worktree) {
             await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});

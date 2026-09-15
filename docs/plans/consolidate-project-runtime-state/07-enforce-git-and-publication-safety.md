@@ -20,7 +20,7 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-29T03:04:59.963Z"
-status: "in_progress"
+status: "implemented"
 origin: "internal"
 parentPlan: "consolidate-project-runtime-state"
 order: 7
@@ -52,8 +52,8 @@ policy. Core's [work protection](../../prd/runwield-core-prd.md#work-protection)
 requirement **Keep Project Runtime State out of repository changes**, with scenarios for runtime exclusion, trackable
 configuration, preserved ignore rules, and non-destructive refusal. Extend the child 06 requirement if it already covers
 this outcome rather than duplicate it. Preserve **Preserve user work and require deliberate destructive actions** and
-[execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery), including
-**Publish successfully or end only by deliberate user abandonment**. No product requirement is removed.
+[execution, validation, and recovery](../../prd/runwield-core-prd.md#36-execution-worktrees-validation-and-recovery),
+including **Publish successfully or end only by deliberate user abandonment**. No product requirement is removed.
 
 ## Objective
 

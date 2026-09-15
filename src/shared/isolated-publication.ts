@@ -7,6 +7,11 @@ import { basename, dirname, join } from "@std/path";
 import { assertPreMergeCandidateUnchanged, mergeExecutionWorktree } from "./worktree.js";
 import { RUNWIELD_GITIGNORE_BLOCK } from "./runwield-owned-paths.ts";
 import { enterProjectRuntime } from "./project-runtime-layout.ts";
+import {
+    assertNoRuntimePathsInNewHistory,
+    assertNoTrackedOrIndexedRuntimePaths,
+    stageGitChangesExcludingRuntime,
+} from "./git-runtime-safety.ts";
 
 interface CommandResult {
     code: number;
@@ -98,6 +103,7 @@ export class IsolatedPublicationError extends Error {
     repairCwd?: string;
     mergeWorktreePath?: string;
     mergeFailureKind?: string;
+    blockingPaths?: string[];
 
     constructor(message: string, details: Partial<IsolatedPublicationError> = {}) {
         super(message);
@@ -202,7 +208,9 @@ async function pushPublication(
 }
 
 async function commitPublicationMetadata(publicationRoot: string, planName: string): Promise<string> {
-    await runGit(publicationRoot, ["add", "-A"]);
+    await assertNoTrackedOrIndexedRuntimePaths(publicationRoot);
+    await stageGitChangesExcludingRuntime(publicationRoot);
+    await assertNoTrackedOrIndexedRuntimePaths(publicationRoot);
     const staged = await runGit(publicationRoot, ["diff", "--cached", "--name-only"]);
     if (staged) {
         await runGit(publicationRoot, [
@@ -383,6 +391,7 @@ export async function publishExecutionWorktreeIsolated(
             }
             const deliveryCommit = await runGit(publicationRoot, ["rev-parse", "HEAD"]);
             const publicationCommit = await commitPublicationMetadata(publicationRoot, args.planName);
+            await assertNoRuntimePathsInNewHistory(publicationRoot, targetHeadBeforeMerge, publicationCommit);
             await args.onIntegrated?.({
                 targetBaseCommit: targetHeadBeforeMerge,
                 integrationCommit: publicationCommit,
@@ -506,14 +515,18 @@ export async function publishExecutionWorktreeIsolated(
         } catch (error) {
             preserveForRecovery = true;
             const mergeError = error instanceof Error ? error : new Error(String(error));
+            const classified = mergeError as IsolatedPublicationError;
+            const runtimeRefusal = classified.mergeFailureKind === "runwield_runtime_tracked";
             throw new IsolatedPublicationError(mergeError.message, {
                 repairCwd: publicationRoot,
                 mergeWorktreePath: publicationRoot,
-                mergeFailureKind: "isolated_publication_conflict",
+                mergeFailureKind: runtimeRefusal ? classified.mergeFailureKind : "isolated_publication_conflict",
+                blockingPaths: classified.blockingPaths,
             });
         }
         const deliveryCommit = await runGit(publicationRoot, ["rev-parse", "HEAD"]);
         const publicationCommit = await commitPublicationMetadata(publicationRoot, args.planName);
+        await assertNoRuntimePathsInNewHistory(publicationRoot, targetHeadBeforeMerge, publicationCommit);
         await args.onIntegrated?.({
             targetBaseCommit: targetHeadBeforeMerge,
             integrationCommit: publicationCommit,
@@ -579,10 +592,9 @@ async function publishToLocalTarget(
     let savedOwnedGitignore: string | undefined;
     const savedAuthoritativePlans = new Map<string, Uint8Array>();
     try {
-        const trackedChanges = (await runGit(args.projectRoot, ["diff", "--name-only", "HEAD", "--"]))
-            .split("\n")
-            .map((path) => path.trim())
-            .filter(Boolean);
+        const trackedChanges = (await runGit(args.projectRoot, ["diff", "--name-only", "-z", "HEAD", "--"]))
+            .split("\0")
+            .filter((path) => path.length > 0);
         const allowedPrimaryChanges = new Set(args.allowedPlanPaths);
         if (hasOwnedGitignore) allowedPrimaryChanges.add(".gitignore");
         const blockingTrackedChanges = trackedChanges.filter((path) => !allowedPrimaryChanges.has(path));
@@ -652,6 +664,7 @@ async function publishToLocalTarget(
         });
         args.onProgress?.("verifying");
         const publicationCommit = await runGit(args.projectRoot, ["rev-parse", `refs/heads/${args.targetBranch}`]);
+        await assertNoRuntimePathsInNewHistory(args.projectRoot, targetHeadBeforeMerge, publicationCommit);
         await args.onIntegrated?.({
             targetBaseCommit: targetHeadBeforeMerge,
             integrationCommit: publicationCommit,
