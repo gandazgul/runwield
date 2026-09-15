@@ -27,6 +27,9 @@ workRecord:
     recordId: "b44de949-fa27-4c59-b7b4-eda624c44dfe"
     path: "docs/work-records/2026-09-08-collapsed-tui-tool-calls-into-compact-groups.md"
     lastAttemptAt: "2026-09-08T13:12:53.925Z"
+archivedAt: "2026-09-15T18:26:59.380Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/collapse-tui-tool-call-groups.md"
 targetBranch: "main"
 ---
 

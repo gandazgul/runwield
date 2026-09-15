@@ -20,6 +20,9 @@ status: "validated"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
+archivedAt: "2026-09-15T18:29:03.448Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/fix-validation-repair-followup.md"
 targetBranch: "main"
 ---
 

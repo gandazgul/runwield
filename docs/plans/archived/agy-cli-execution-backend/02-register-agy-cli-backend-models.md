@@ -21,6 +21,9 @@ order: 2
 dependencies:
     - "01-prove-agy-custom-agent-execution-spike"
 userVerifiedAt: null
+archivedAt: "2026-09-15T18:22:33.131Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/agy-cli-execution-backend/02-register-agy-cli-backend-models.md"
 targetBranch: "feature/agy-cli-execution-backend"
 ---
 

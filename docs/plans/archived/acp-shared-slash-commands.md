@@ -25,6 +25,9 @@ createdAt: "2026-09-11"
 status: "validated"
 origin: "internal"
 userVerifiedAt: null
+archivedAt: "2026-09-15T18:29:11.941Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/acp-shared-slash-commands.md"
 targetBranch: "main"
 ---
 

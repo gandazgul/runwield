@@ -29,6 +29,9 @@ workRecord:
     recordId: "018b70db-22f4-4b54-aee7-53306bf6e515"
     path: "docs/work-records/2026-09-04-persisted-agent-switch-notices.md"
     lastAttemptAt: "2026-09-04T03:15:30.275Z"
+archivedAt: "2026-09-15T18:28:28.582Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/persist-agent-switch-notices.md"
 targetBranch: "main"
 ---
 

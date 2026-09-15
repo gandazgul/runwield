@@ -28,6 +28,9 @@ workRecord:
 epicCompletionMode: "done_enough"
 epicDoneEnoughAt: "2026-09-08T04:09:09.766Z"
 epicDoneEnoughSummary: "All 6 child plans are completed after agy-cli-execution-backend/06-surface-agy-cli-selection-and-caveats."
+archivedAt: "2026-09-15T18:22:33.131Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/agy-cli-execution-backend.md"
 ---
 
 # Antigravity CLI Execution Backend

@@ -31,6 +31,9 @@ order: 4
 dependencies:
     - "03-add-agy-cli-backend-transcript-tracer-bullet"
 userVerifiedAt: null
+archivedAt: "2026-09-15T18:22:33.131Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/agy-cli-execution-backend/04-bridge-agy-workflow-signals-through-mcp.md"
 targetBranch: "feature/agy-cli-execution-backend"
 ---
 
