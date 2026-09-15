@@ -104,6 +104,8 @@
     "npm:proper-lockfile@^4.1.2": "4.1.2",
     "npm:quikdown@^1.2.21": "1.2.21",
     "npm:react-dom@^19.2.7": "19.2.7_react@19.2.7",
+    "npm:react-test-renderer@19.2.7": "19.2.7_react@19.2.7",
+    "npm:react-test-renderer@^19.2.7": "19.2.7_react@19.2.7",
     "npm:react@^19.2.7": "19.2.7",
     "npm:shiki@3": "3.23.0",
     "npm:strip-ansi@^7.2.0": "7.2.0",
@@ -5998,6 +6000,9 @@
         "scheduler"
       ]
     },
+    "react-is@19.3.0": {
+      "integrity": "sha512-UpMYezM4v5/18F28aC66AEsjXIgE02kyEMH6yLdgLXu/UTfa1Ntwck/nNLrbqJsEXW7gPb0coNO9FQse9WTovA=="
+    },
     "react-refresh@0.18.0": {
       "integrity": "sha512-QgT5//D3jfjJb6Gsjxv0Slpj23ip+HtOpnNgnb2S5zU3CB26G/IDPGoy4RJB42wzFE46DRsstbW6tKHoKbhAxw=="
     },
@@ -6038,6 +6043,14 @@
       ],
       "optionalPeers": [
         "@types/react"
+      ]
+    },
+    "react-test-renderer@19.2.7_react@19.2.7": {
+      "integrity": "sha512-U4TyPDJ9MsC8rFimXuJum8w40aPc9kbOZYO8Pc2/4A884i8hwJsMNA/JNyuOc/f2/37wHvk7HjpVl1V4re7Dig==",
+      "dependencies": [
+        "react",
+        "react-is",
+        "scheduler"
       ]
     },
     "react@19.2.7": {
@@ -7029,6 +7042,7 @@
       "npm:proper-lockfile@^4.1.2",
       "npm:quikdown@^1.2.21",
       "npm:react-dom@^19.2.7",
+      "npm:react-test-renderer@^19.2.7",
       "npm:react@^19.2.7",
       "npm:strip-ansi@^7.2.0",
       "npm:tailwind-merge@^3.6.0",

@@ -24,6 +24,31 @@ import {
     sessionInteractionTypedResponse,
 } from "./components/SessionTimeline.jsx";
 
+function RejectedImageDraftHarness({ createElement, useState, submissions }) {
+    const [draft, setDraft] = useState("describe bad image");
+    const [images, setImages] = useState([
+        { id: "image-1", name: "bad.png", mimeType: "image/png", base64: btoa("bad") },
+    ]);
+    return createElement(SessionComposer, {
+        id: "session-request-text",
+        draft,
+        disabled: false,
+        canSend: draft.trim().length > 0 || images.length > 0,
+        submitting: false,
+        imageAttachments: images,
+        onDraftChange: setDraft,
+        onSubmit() {
+            submissions.push({ text: draft, images: images.map((image) => image.name) });
+            if (submissions.length === 1) return;
+            setDraft("");
+            setImages([]);
+        },
+        onRemoveImage(id) {
+            setImages((current) => current.filter((image) => image.id !== id));
+        },
+    });
+}
+
 Deno.test("Session composer keeps provider/model identities and opens slash choices before the first message", async () => {
     const { createElement } = await import("react");
     const { renderToStaticMarkup } = await import("react-dom/server");
@@ -60,6 +85,72 @@ Deno.test("Session composer keeps provider/model identities and opens slash choi
         createElement(SessionComposer, { ...props, draft: "/model luna", canSend: true }),
     );
     assertEquals(models.includes("<strong>openai-codex/gpt-5.6-luna</strong>"), true);
+});
+
+Deno.test("Session composer renders restored image draft previews ready for corrected send", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const html = renderToStaticMarkup(
+        createElement(SessionComposer, {
+            id: "session-request-text",
+            draft: "  describe again  ",
+            disabled: false,
+            canSend: true,
+            submitting: false,
+            imageAttachments: [{ id: "image-1", name: "draft.png", mimeType: "image/png", base64: btoa("img") }],
+            onDraftChange() {},
+            onSubmit() {},
+            onRemoveImage() {},
+        }),
+    );
+
+    assertEquals(html.includes("  describe again  "), true);
+    assertEquals(html.includes('aria-label="Attached images"'), true);
+    assertEquals(html.includes("draft.png · image/png"), true);
+    assertEquals(html.includes('aria-label="Send"'), true);
+    assertEquals(html.includes('aria-label="Sending"'), false);
+});
+
+Deno.test("Session composer restores a rejected draft and sends the corrected image draft", async () => {
+    const previousDocument = globalThis.document;
+    const previousActFlag = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    globalThis.document = { getElementById: () => null };
+    try {
+        const { createElement, useState } = await import("react");
+        const { act, create } = await import("react-test-renderer");
+        const submissions = [];
+        let renderer;
+        await act(() => {
+            renderer = create(createElement(RejectedImageDraftHarness, { createElement, useState, submissions }));
+        });
+        const form = () => renderer.root.findByType("form");
+        const textarea = () => renderer.root.findByType("textarea");
+        await act(() => {
+            form().props.onSubmit({ preventDefault() {} });
+        });
+        assertEquals(textarea().props.value, "describe bad image");
+        assertEquals(
+            renderer.root.findAllByType("span").some((item) => item.children.join("").includes("bad.png")),
+            true,
+        );
+        await act(() => {
+            textarea().props.onChange({ currentTarget: { value: "describe good image", style: {}, scrollHeight: 32 } });
+        });
+        await act(() => {
+            form().props.onSubmit({ preventDefault() {} });
+        });
+        assertEquals(submissions, [
+            { text: "describe bad image", images: ["bad.png"] },
+            { text: "describe good image", images: ["bad.png"] },
+        ]);
+        assertEquals(textarea().props.value, "");
+    } finally {
+        if (previousDocument === undefined) delete globalThis.document;
+        else globalThis.document = previousDocument;
+        if (previousActFlag === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+        else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActFlag;
+    }
 });
 
 Deno.test("Session surface preserves drafts and replaces a lost live wait with one interruption line", () => {

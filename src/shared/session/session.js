@@ -2499,6 +2499,15 @@ function assertAgyCliImageInputSupported(images) {
     }
 }
 
+/** @param {unknown} error */
+function isImageDispatchRejection(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("Cannot attach image") ||
+        message.includes("visionFallback.model") ||
+        message.includes("image attachments") ||
+        message.includes("Image input");
+}
+
 /**
  * Build the model-selected execution session for root and HostedSession-backed isolated turns.
  * Pi models continue through buildAgentSession(); Claude CLI models bypass Pi entirely.
@@ -3915,17 +3924,18 @@ export async function runRootTurn({
         ...(images || []),
         ...transitionSteering.flatMap((entry) => entry.images || []),
     ];
-    if (backend === "agy-cli") assertAgyCliImageInputSupported(effectiveImages);
-    const dispatch = prepareRequestDispatch(sessionManager, {
-        userRequest: effectiveUserRequest,
-        dispatchKind,
-        backend,
-    });
-    meta.rootTurnCount += 1;
-    const finalRequest = dispatch.promptMode === "continuation"
-        ? dispatch.userRequest
-        : applyAttentionNudge(agentName, dispatch.userRequest, meta.rootTurnCount);
+    let dispatch = null;
     try {
+        if (backend === "agy-cli") assertAgyCliImageInputSupported(effectiveImages);
+        dispatch = prepareRequestDispatch(sessionManager, {
+            userRequest: effectiveUserRequest,
+            dispatchKind,
+            backend,
+        });
+        meta.rootTurnCount += 1;
+        const finalRequest = dispatch.promptMode === "continuation"
+            ? dispatch.userRequest
+            : applyAttentionNudge(agentName, dispatch.userRequest, meta.rootTurnCount);
         let messages;
         if (isExecutionSession(session) && (session.kind === "claude-cli" || session.kind === "agy-cli")) {
             messages = await session.session.runTurn({
@@ -3951,7 +3961,16 @@ export async function runRootTurn({
         completeRequestDispatch(sessionManager, dispatch);
         return messages;
     } catch (error) {
-        failRequestDispatch(sessionManager, dispatch, getRootExecutionMessages(session).length > priorMessages.length);
+        if (transitionSteering.length > 0 && isImageDispatchRejection(error)) {
+            targetHostedSession.restoreAgentTransitionSteering?.(transitionSteering);
+        }
+        if (dispatch) {
+            failRequestDispatch(
+                sessionManager,
+                dispatch,
+                getRootExecutionMessages(session).length > priorMessages.length,
+            );
+        }
         throw error;
     }
 }

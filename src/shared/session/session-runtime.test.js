@@ -550,6 +550,192 @@ Deno.test("SessionRuntime keeps dormant managed image persistence read-only but 
     });
 });
 
+Deno.test("SessionRuntime uses the model selected by image preflight for submission", async () => {
+    await withRuntimeCommandFixture(
+        "runtime-image-model-agreement-",
+        async ({ projectRoot, settingsPath, setModelResponseFactory }) => {
+            /** @type {string[]} */
+            const requestedModels = [];
+            setModelResponseFactory((_context, _options, _state, model) => {
+                requestedModels.push(model.id);
+                return fauxAssistantMessage(fauxText("SessionRuntime fixture response."));
+            });
+            const runtime = createSessionRuntime();
+            const created = await runtime.createInteractiveSession({
+                cwd: projectRoot,
+                mode: "new",
+                deferManagedActivationUntilAgentReady: true,
+            });
+            try {
+                const image = { base64: btoa("img"), mimeType: "image/png" };
+                const preflight = await runtime.preflightUserTurnImages(created.sessionId, {
+                    initialRequest: "describe this",
+                    initialImages: [image],
+                });
+                assertEquals(preflight.ok, true);
+                const preparedModelOverride = "preparedModelOverride" in preflight
+                    ? preflight.preparedModelOverride
+                    : undefined;
+                assertEquals(preparedModelOverride, "runtime-command-fixture/fixture-model");
+                await Deno.writeTextFile(
+                    settingsPath,
+                    JSON.stringify({
+                        defaultProvider: "runtime-command-fixture",
+                        defaultModel: "alternate-model",
+                        notifications: { enabled: false },
+                    }),
+                );
+                __resetSettingsForTests();
+
+                const result = await runtime.promptUserTurn(created.sessionId, {
+                    initialRequest: "describe this",
+                    initialImages: [image],
+                    preparedModelOverride,
+                });
+
+                assertEquals(result.ok, true);
+                assertEquals(runtime.getSessionSnapshot(created.sessionId)?.activeModel, {
+                    provider: "runtime-command-fixture",
+                    model: "fixture-model",
+                });
+                assertEquals(requestedModels, ["fixture-model"]);
+            } finally {
+                await runtime.closeAllSessionsWhenIdle?.();
+            }
+        },
+        { additionalModels: [{ id: "alternate-model", name: "Alternate" }] },
+    );
+});
+
+Deno.test("SessionRuntime keeps a prepared image model through Prompt Template preflight and provider submission", async () => {
+    await withRuntimeCommandFixture(
+        "runtime-template-image-model-agreement-",
+        async ({ homeDir, projectRoot, settingsPath, setModelResponseFactory }) => {
+            const promptDir = join(projectRoot, ".wld", "prompts");
+            await Deno.mkdir(promptDir, { recursive: true });
+            await Deno.writeTextFile(
+                join(promptDir, "vision-note.md"),
+                ["---", "agent: operator", "---", "Describe this image: {{input}}"].join("\n"),
+            );
+            /** @type {string[]} */
+            const requestedModels = [];
+            setModelResponseFactory((_context, _options, _state, model) => {
+                requestedModels.push(model.id);
+                return fauxAssistantMessage(fauxText("Template image response."));
+            });
+            const runtime = createSessionRuntime();
+            const created = await runtime.createInteractiveSession({
+                cwd: projectRoot,
+                mode: "new",
+                deferManagedActivationUntilAgentReady: true,
+            });
+            try {
+                const image = { base64: btoa("img"), mimeType: "image/png" };
+                const preflight = await runtime.preflightUserTurnImages(created.sessionId, {
+                    initialRequest: "/vision-note carefully",
+                    initialImages: [image],
+                });
+                assertEquals(preflight.ok, true);
+                const preparedModelOverride = "preparedModelOverride" in preflight
+                    ? preflight.preparedModelOverride
+                    : undefined;
+                assertEquals(preparedModelOverride, "runtime-command-fixture/fixture-model");
+                await Deno.writeTextFile(
+                    join(homeDir, ".wld", "models.json"),
+                    JSON.stringify({
+                        providers: {
+                            "runtime-command-fixture": {
+                                name: "Runtime Command Fixture Provider",
+                                baseUrl: "http://127.0.0.1:0",
+                                apiKey: "fixture-key",
+                                api: "runtime-command-faux",
+                                models: [{
+                                    id: "fixture-model",
+                                    name: "Runtime Command Fixture Model",
+                                    api: "runtime-command-faux",
+                                    input: ["text", "image"],
+                                    contextWindow: 128000,
+                                    maxTokens: 4096,
+                                }, {
+                                    id: "text-only-model",
+                                    name: "Text Only",
+                                    api: "runtime-command-faux",
+                                    input: ["text"],
+                                    contextWindow: 128000,
+                                    maxTokens: 4096,
+                                }],
+                            },
+                        },
+                    }),
+                );
+                await Deno.writeTextFile(
+                    settingsPath,
+                    JSON.stringify({
+                        defaultProvider: "runtime-command-fixture",
+                        defaultModel: "text-only-model",
+                        notifications: { enabled: false },
+                    }),
+                );
+                __resetSettingsForTests();
+
+                const result = await runtime.promptUserTurn(created.sessionId, {
+                    initialRequest: "/vision-note carefully",
+                    initialImages: [image],
+                    preparedModelOverride,
+                });
+
+                assertEquals(result.ok, true);
+                assertEquals(requestedModels, ["fixture-model"]);
+            } finally {
+                await runtime.closeAllSessionsWhenIdle?.();
+            }
+        },
+        { additionalModels: [{ id: "text-only-model", name: "Text Only" }] },
+    );
+});
+
+Deno.test("SessionRuntime rejects a persisted image before hydrating a deferred Session", async () => {
+    await withRuntimeCommandFixture(
+        "runtime-persisted-image-preflight-",
+        async ({ homeDir, projectRoot, settingsPath }) => {
+            const modelsPath = `${homeDir}/.wld/models.json`;
+            const modelConfiguration = JSON.parse(await Deno.readTextFile(modelsPath));
+            modelConfiguration.providers["runtime-command-fixture"].models[0].input = ["text"];
+            await Deno.writeTextFile(modelsPath, JSON.stringify(modelConfiguration));
+            await Deno.writeTextFile(
+                settingsPath,
+                JSON.stringify({
+                    defaultProvider: "runtime-command-fixture",
+                    defaultModel: "fixture-model",
+                    notifications: { enabled: false },
+                }),
+            );
+            __resetSettingsForTests();
+            const runtime = createSessionRuntime();
+            const created = await runtime.createInteractiveSession({
+                cwd: projectRoot,
+                mode: "new",
+                deferManagedActivationUntilAgentReady: true,
+            });
+            const imagePath = join(projectRoot, "image.png");
+            await Deno.writeFile(imagePath, new TextEncoder().encode("img"));
+            try {
+                const result = await runtime.preflightUserTurnImages(created.sessionId, {
+                    initialRequest: "describe this",
+                    initialImages: [{ path: imagePath, mimeType: "image/png", base64: "" }],
+                });
+
+                assertEquals(result.ok, false);
+                const message = "message" in result ? result.message || "" : "";
+                assertStringIncludes(message, "image");
+                assertEquals(runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, null);
+            } finally {
+                await runtime.closeAllSessionsWhenIdle?.();
+            }
+        },
+    );
+});
+
 Deno.test("SessionRuntime persists a newly managed Pi transcript before cataloging it", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousHome = getHomeDir();
@@ -3152,4 +3338,28 @@ Deno.test("user-authorized agent switch releases active workflows", async () => 
     assertEquals(snapshot?.activeExecutionWorkflow, null);
     assertEquals(snapshot?.workflowContext?.planName, "release-plan");
     assertEquals(notices.some((message) => message.includes("/load-plan")), true);
+});
+
+Deno.test("SessionRuntime rejects image user turns before submission events", async () => {
+    const runtime = makeRuntime();
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot() });
+    /** @type {string[]} */
+    const events = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        events.push(event.type);
+    });
+
+    await assertRejects(
+        () =>
+            runtime.promptUserTurn(sessionId, {
+                initialRequest: "look before accepting",
+                initialImages: [{ base64: btoa("img"), mimeType: "image/png" }],
+                modelOverride: "agy-cli/gemini-3.8-flash",
+            }),
+        Error,
+        "Antigravity CLI sessions do not support image attachments.",
+    );
+
+    assertEquals(events.includes(RuntimeEventTypes.USER_MESSAGE), false);
+    assertEquals(events.includes(RuntimeEventTypes.TURN_START), false);
 });

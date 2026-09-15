@@ -87,7 +87,14 @@ export async function openLiveSessionConnection(
                 const result = previous?.result ||
                     runtime.steerSession(session.id, command.text || "", command.images || []);
                 steeringRequests.set(command.requestId, { input, result });
-                response.end(JSON.stringify(await result));
+                try {
+                    response.end(JSON.stringify(await result));
+                } catch (error) {
+                    if (steeringRequests.get(command.requestId)?.result === result) {
+                        steeringRequests.delete(command.requestId);
+                    }
+                    throw error;
+                }
                 return;
             }
             if (command.action === "cancel") {
