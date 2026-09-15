@@ -97,6 +97,7 @@ jobs:
                   echo "$RUNNER_TEMP/runwield-ci-bin" >> "$GITHUB_PATH"
 
             - name: Run source-quality gate
+              timeout-minutes: 15
               run: deno task ci
 
             - name: Print source-quality failure logs

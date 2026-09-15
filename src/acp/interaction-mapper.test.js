@@ -124,6 +124,7 @@ Deno.test("ACP browser fallback rejects answer submissions without same-origin p
         body: new URLSearchParams({ answer: "Ada" }),
     });
     assertEquals(noOrigin.status, 403);
+    await noOrigin.body?.cancel();
 
     controller.abort();
     assertEquals(await pending, { outcome: "canceled", message: "Interaction canceled." });
