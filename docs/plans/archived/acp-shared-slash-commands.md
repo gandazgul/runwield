@@ -63,22 +63,22 @@ selection, text question, or approval; its answer continues the same waiting com
 
 Owning requirements and proposed changes:
 
-- [ACP Session access](../prd/runwield-acp-protocol-prd.md#acp-session-access): add named requirements for advertised,
-  executable slash commands, the agreed exclusions, and the bare `/agent` regression scenario.
-- [Protocol negotiation and interactions](../prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions):
+- [ACP Session access](../../prd/runwield-acp-protocol-prd.md#acp-session-access): add named requirements for
+  advertised, executable slash commands, the agreed exclusions, and the bare `/agent` regression scenario.
+- [Protocol negotiation and interactions](../../prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions):
   add browser fallback for supported questions when client forms are absent. Local workflow reviews wait for a real
   browser decision instead of automatically sharing a Plan and returning. Preserve explicit cancellation, real approval,
   and truthful failure. A local browser fallback does not prove remote browser reachability.
-- [Core TUI conversation](../prd/runwield-core-prd.md#tui-conversation) and
-  [Agent and skill customization](../prd/runwield-core-prd.md#agent-and-skill-customization): preserve command meanings,
-  specialist follow-ups, named invocation expansion, and configured Agent defaults. Add the shared distinction between a
-  command and a User Request, with surface-specific availability linked to the surface owners.
-- [Workspace Browser Sessions](../prd/runwield-workspace-prd.md#browser-sessions): keep existing browser navigation and
-  Agent/model behavior; record the agreed exclusions and shared command catalog.
-- [Core Session continuity](../prd/runwield-core-prd.md#session-continuity),
-  [Plan review](../prd/runwield-core-prd.md#plan-review), and
-  [execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery): preserve saved
-  conversation identity and actual workflow decisions when `/load-plan` reaches these paths.
+- [Core TUI conversation](../../prd/runwield-core-prd.md#tui-conversation) and
+  [Agent and skill customization](../../prd/runwield-core-prd.md#agent-and-skill-customization): preserve command
+  meanings, specialist follow-ups, named invocation expansion, and configured Agent defaults. Add the shared distinction
+  between a command and a User Request, with surface-specific availability linked to the surface owners.
+- [Workspace Browser Sessions](../../prd/runwield-workspace-prd.md#browser-sessions): keep existing browser navigation
+  and Agent/model behavior; record the agreed exclusions and shared command catalog.
+- [Core Session continuity](../../prd/runwield-core-prd.md#session-continuity),
+  [Plan review](../../prd/runwield-core-prd.md#plan-review), and
+  [execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery): preserve
+  saved conversation identity and actual workflow decisions when `/load-plan` reaches these paths.
 
 ## Objective
 
