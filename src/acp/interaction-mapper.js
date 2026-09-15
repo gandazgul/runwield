@@ -110,6 +110,7 @@ async function requestBrowserQuestion(options) {
         }
         throw error;
     }
+    await pageResponse.body?.cancel();
     if (!pageResponse.ok) {
         await question.shutdown();
         return {

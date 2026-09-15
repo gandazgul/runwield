@@ -19,8 +19,10 @@ import { startSessionQuestionWorkspaceServer } from "../../ui/workspace/server.j
  */
 export function startBrowserQuestionServer({ interaction, acpSessionId = "", answerQuestion }) {
     const token = crypto.randomUUID();
+    const controller = new AbortController();
     const server = startSessionQuestionWorkspaceServer({
         token,
+        signal: controller.signal,
         questionPayload: {
             mode: interaction.type,
             sessionId: acpSessionId,
@@ -37,6 +39,9 @@ export function startBrowserQuestionServer({ interaction, acpSessionId = "", ans
     return {
         token,
         url: `${origin}/session-question?token=${encodeURIComponent(token)}`,
-        shutdown: () => server.shutdown(),
+        shutdown: async () => {
+            controller.abort();
+            await server.finished;
+        },
     };
 }
