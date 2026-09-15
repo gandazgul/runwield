@@ -98,6 +98,11 @@ New sessions start with the **Router** Agent.
 After Router hands off to Guide, Ideator, Operator, Planner, Architect, Engineer, or another specialist, that specialist
 remains the active root Agent. This keeps follow-up messages in useful context.
 
+**Requirement: Announce real Agent changes once.**
+
+A successful change to a different active Agent produces one conversation notice. Initial activation, reloading the same
+Agent, and ordinary commands or follow-ups do not repeat that notice.
+
 Users can:
 
 - use `/new` to start a fresh routed session
@@ -112,6 +117,8 @@ must fail visibly and must not fall through to Router.
 
 - Given a new conversation, when the user submits a request, Router handles initial triage; after a specialist handoff,
   follow-up messages stay with that specialist.
+- After switching to Guide, commands and follow-up messages produce no additional Agent notice unless the active Agent
+  changes again.
 - Given an existing topic, when the user chooses `/new`, a fresh routed conversation opens; `/agent router` instead
   routes within the same Session.
 

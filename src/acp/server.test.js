@@ -654,6 +654,23 @@ Deno.test("ACP /agent opens selection without a model turn and affects the next 
             assertEquals(result.response.result.stopReason, "end_turn");
             assertStringIncludes(JSON.stringify(result.messages), "Active agent: guide");
 
+            assertEquals(
+                result.messages.filter((message) => message.params?.update?._meta?.runwield?.type === "agent_changed")
+                    .length,
+                1,
+            );
+            for (const command of ["/version", "/session", "/agent guide"]) {
+                await sendMessage(handle, {
+                    jsonrpc: "2.0",
+                    id: "same-agent-command",
+                    method: "session/prompt",
+                    params: { sessionId, prompt: [{ type: "text", text: command }] },
+                });
+                const commandResult = await readThroughResponse(handle, "same-agent-command");
+                assertEquals(commandResult.response.result.stopReason, "end_turn");
+                assert(!joinedAgentText(commandResult.messages).includes("Active agent:"), command);
+            }
+
             fixture.setModelResponse("Guide handled this follow-up.");
             await sendMessage(handle, {
                 jsonrpc: "2.0",
@@ -663,12 +680,120 @@ Deno.test("ACP /agent opens selection without a model turn and affects the next 
             });
             const followUp = await readThroughResponse(handle, "follow-up");
             assertStringIncludes(joinedAgentText(followUp.messages), "Guide handled this follow-up.");
-            assertStringIncludes(JSON.stringify(followUp.messages), '"agentName":"guide"');
+            assert(!joinedAgentText(followUp.messages).includes("Active agent:"));
+            assertStringIncludes(JSON.stringify(followUp.messages), '"agentName":"Guide"');
         } finally {
             await closeTestServer(handle);
         }
     });
 });
+
+for (const ending of ["cancel", "decline", "expired", "other", "choice", "empty-other"]) {
+    Deno.test(`ACP ${ending} form releases the Session for the next prompt`, async () => {
+        await withRuntimeCommandFixture("runwield-acp-form-ending-", async (fixture) => {
+            fixture.setModelResponseFactories([
+                () =>
+                    fauxAssistantMessage(fauxToolCall("user_interview", {
+                        question: {
+                            type: "multiple_choice",
+                            prompt: "Which color do you prefer?",
+                            choices: [{ value: "blue", label: "Blue" }, { value: "green", label: "Green" }],
+                        },
+                    })),
+                () => fauxAssistantMessage(fauxText("The interview has ended.")),
+            ]);
+            const handle = startTestServer();
+            try {
+                await request(handle, {
+                    jsonrpc: "2.0",
+                    id: "init-form",
+                    method: "initialize",
+                    params: { protocolVersion: 1, clientCapabilities: { elicitation: { form: {} } } },
+                });
+                const { sessionId } = await createSession(handle, fixture.projectRoot);
+                await sendMessage(handle, {
+                    jsonrpc: "2.0",
+                    id: "select-ideator",
+                    method: "session/prompt",
+                    params: { sessionId, prompt: [{ type: "text", text: "/agent ideator" }] },
+                });
+                const selected = await readThroughResponse(handle, "select-ideator");
+                assertEquals(selected.response.result.stopReason, "end_turn");
+                await sendMessage(handle, {
+                    jsonrpc: "2.0",
+                    id: "question",
+                    method: "session/prompt",
+                    params: { sessionId, prompt: [{ type: "text", text: "Ask me to choose a color" }] },
+                });
+                let elicitation = null;
+                for (let index = 0; index < 40; index++) {
+                    const message = await readMessage(handle);
+                    if (message.method === "elicitation/create") {
+                        elicitation = message;
+                        break;
+                    }
+                }
+                assert(elicitation, "Expected an ACP form");
+                assertEquals(elicitation.params.requestedSchema.properties.answer.oneOf, [
+                    { const: "blue", title: "Blue" },
+                    { const: "green", title: "Green" },
+                    { const: "other", title: "Other" },
+                ]);
+                assertEquals(elicitation.params.requestedSchema.properties.otherAnswer.type, "string");
+                assertEquals(elicitation.params.requestedSchema.required, ["answer"]);
+                await sendMessage(handle, {
+                    jsonrpc: "2.0",
+                    id: elicitation.id,
+                    ...(ending === "other" || ending === "choice" || ending === "empty-other"
+                        ? {
+                            result: {
+                                action: "accept",
+                                content: {
+                                    answer: ending === "choice" ? "blue" : "other",
+                                    otherAnswer: ending === "empty-other" ? "  " : "  purple  ",
+                                },
+                            },
+                        }
+                        : ending === "expired"
+                        ? { error: { code: -32603, message: "Form expired" } }
+                        : { result: { action: ending } }),
+                });
+                const settled = await readThroughResponse(handle, "question");
+                assertEquals(settled.response.result.stopReason, "end_turn");
+                assert(!settled.messages.some((message) => message.method === "elicitation/create"));
+                const interview = settled.messages.find((message) =>
+                    message.params?.update?._meta?.runwield?.toolName === "user_interview" &&
+                    message.params?.update?.rawOutput?.details
+                )?.params.update.rawOutput.details;
+                assert(interview, "The Agent must receive the interview result");
+                if (ending === "other") {
+                    assertEquals(interview.status, "completed");
+                    assertEquals(interview.answers[0].otherText, "purple");
+                } else if (ending === "choice") {
+                    assertEquals(interview.answers[0].value, "blue");
+                    assertEquals(interview.answers[0].otherText, undefined);
+                } else if (ending === "empty-other") {
+                    assertEquals(interview.status, "validation_error");
+                    assertEquals(interview.answeredCount, 0);
+                    assertEquals(interview.errors[0].code, "EMPTY_ANSWER");
+                }
+
+                fixture.setModelResponse("The conversation is available again.");
+                await sendMessage(handle, {
+                    jsonrpc: "2.0",
+                    id: "follow-up",
+                    method: "session/prompt",
+                    params: { sessionId, prompt: [{ type: "text", text: "Continue normally" }] },
+                });
+                const followUp = await readThroughResponse(handle, "follow-up");
+                assertEquals(followUp.response.result.stopReason, "end_turn");
+                assertStringIncludes(joinedAgentText(followUp.messages), "The conversation is available again.");
+            } finally {
+                await closeTestServer(handle);
+            }
+        });
+    });
+}
 
 Deno.test("ACP /session reports real Runtime totals", async () => {
     await withRuntimeCommandFixture("runwield-acp-session-command-", async (fixture) => {
@@ -1314,6 +1439,22 @@ Deno.test("ACP session/load maps a persisted Session with no configured model to
     }, { providerState: "none" });
 });
 
+Deno.test("ACP agent notices suppress activation and same-Agent rebuilds", () => {
+    const event = {
+        type: /** @type {const} */ ("agent_changed"),
+        sessionId: "session-1",
+        messageId: "agent-1",
+        timestamp: "2026-09-15T00:00:00.000Z",
+        agentName: "guide",
+    };
+    assertEquals(mapRuntimeEventToAcpUpdate(event), null);
+    assertEquals(mapRuntimeEventToAcpUpdate({ ...event, rootHandoff: false }), null);
+    assertEquals(
+        mapRuntimeEventToAcpUpdate({ ...event, rootHandoff: true })?.content,
+        { type: "text", text: "Active agent: guide" },
+    );
+});
+
 Deno.test("ACP event mapper forwards canonical Runtime tool metadata", () => {
     const toolStart = mapRuntimeEventToAcpUpdate({
         type: "tool_start",
@@ -1466,8 +1607,8 @@ Deno.test("ACP interaction adapter distinguishes approval acceptance from declin
 });
 
 Deno.test("ACP interaction adapter falls back to a local browser question without form capabilities", async () => {
-    /** @type {Record<string, any>[]} */
-    const notifications = [];
+    /** @type {PromiseWithResolvers<string>} */
+    const notified = Promise.withResolvers();
     const adapter = createAcpInteractionAdapter({
         acpSessionId: "acp-1",
         clientCapabilities: {},
@@ -1476,7 +1617,7 @@ Deno.test("ACP interaction adapter falls back to a local browser question withou
                 /** @type {string} */ _method,
                 /** @type {Record<string, any>} */ params,
             ) => {
-                notifications.push(params);
+                notified.resolve(String(params.update?.content?.text || ""));
             },
         },
     });
@@ -1486,16 +1627,16 @@ Deno.test("ACP interaction adapter falls back to a local browser question withou
         prompt: "Choose Agent",
         options: [{ value: "guide", label: "Guide" }, { value: "planner", label: "Planner" }],
     });
-    for (let attempt = 0; attempt < 20 && notifications.length === 0; attempt++) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    if (notifications.length === 0) {
-        const response = await pending;
-        assertEquals(response.outcome, "unsupported");
-        assertStringIncludes(response.message || "", "browser question page");
+    const ready = await Promise.race([
+        notified.promise.then((text) => ({ text })),
+        Promise.resolve(pending).then((response) => ({ response })),
+    ]);
+    if ("response" in ready) {
+        assertEquals(ready.response.outcome, "unsupported");
+        assertStringIncludes(ready.response.message || "", "browser question page");
         return;
     }
-    const text = String(notifications[0]?.update?.content?.text || "");
+    const text = ready.text;
     const [questionUrl] = text.match(/http:\/\/127\.0\.0\.1:\d+\/session-question\?token=[^\s]+/) || [];
     assert(questionUrl, text);
     const page = await fetch(questionUrl);

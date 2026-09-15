@@ -150,6 +150,15 @@ function buildSchema(interaction) {
                     title: "Answer",
                     ...(oneOf.length ? { oneOf } : {}),
                 },
+                ...(interaction.otherOptionValue
+                    ? {
+                        otherAnswer: {
+                            type: "string",
+                            title: "Other answer",
+                            description: "Fill this in when you select Other. Otherwise leave it empty.",
+                        },
+                    }
+                    : {}),
             },
             required: ["answer"],
         };
@@ -290,6 +299,9 @@ export function createAcpInteractionAdapter({ context, acpSessionId, clientCapab
                 outcome: RuntimeInteractionOutcomes.SELECTED,
                 value: valueText,
                 valueLabel: option?.label || valueText,
+                ...(interaction.otherOptionValue && valueText === interaction.otherOptionValue
+                    ? { otherText: String(response?.content?.otherAnswer ?? "") }
+                    : {}),
             };
         },
     };

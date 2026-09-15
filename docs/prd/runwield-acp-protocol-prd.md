@@ -136,8 +136,14 @@ Stage 1 proves the reference journey through the shared Session experience. Prot
 - OpenAB advertises and handles generic ACP form elicitation for RunWield select, text, and approval interactions.
 - If a client has no form support, local select, text, and approval questions expose a loopback browser URL and wait for
   an explicit answer or cancellation. This does not claim remote browser reachability.
+- Form cancellation, decline, and presentation failure settle the pending interaction so the same Session can accept
+  another message without a manual cancel or reset. Multiple-choice forms preserve their labeled choices.
+- Choice interviews include an optional Other-answer text field in the same ACP form. Selecting Other uses that text and
+  requires a nonempty answer; selecting a listed choice ignores the text field.
 - Unsupported interaction capabilities fail visibly and safely rather than selecting a default.
 - Plan review links remain useful as normal text even when a client ignores `_meta.runwield` enhancements.
+- Agent notices follow [Core conversation behavior](runwield-core-prd.md#tui-conversation): announce a real Agent switch
+  once, without repeating it for activation, commands, or same-Agent rebuilds.
 - Black-box compatibility coverage exercises the actual ACP wire behavior OpenAB depends on.
 
 `session/resume` is not required for this stage. Correct durable `session/load` behavior is the interoperability
@@ -152,6 +158,11 @@ requirement.
   silently chosen.
 - When the user cancels a live turn, final updates and cancellation settle before the turn is reported available for
   another request.
+- When a user cancels or declines an interview form, or the client reports that it expired, the pending turn settles and
+  an ordinary follow-up message receives a response in the same Session.
+- When an interview asks a multiple-choice or yes/no question, the form presents the supplied choices, Other, and an
+  optional Other-answer field. Submitting Other with text returns that answer without a second form; submitting a listed
+  choice ignores stray Other text. Blank Other submissions record no answer.
 - When the client displays cost, the advertised ACP shape and cumulative USD Session cost are accurate; missing
   context-capacity support is not fabricated.
 

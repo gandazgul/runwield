@@ -132,6 +132,9 @@ export function mapRuntimeEventToAcpUpdate(event, sessionCostUsd = 0) {
             };
         }
         case RuntimeEventTypes.AGENT_CHANGED: {
+            // Activation and same-Agent rebuilds also publish profile updates.
+            // Only a committed identity change belongs in the conversation.
+            if (!event.rootHandoff) return null;
             return {
                 sessionUpdate: "agent_message_chunk",
                 messageId: event.messageId,
