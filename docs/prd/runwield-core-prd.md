@@ -385,6 +385,8 @@ Recovery requirements:
   user’s edits remain preserved.
 - When project checks or review fail, the user sees repair progress or a concrete recovery choice; implementation
   completion alone does not claim verification or delivery.
+- Given a paused Validation Repair Engineer conversation, when the user replies after compaction, RunWield continues the
+  same Session and repair worktree instead of failing because storage and execution roots differ.
 - When publication succeeds, follow-up returns to the primary checkout or the parent Epic’s next action; it does not
   operate in a removed worktree.
 - When interrupted validation resumes, preserved work is reused without silently repeating completed actions or deleting
@@ -689,6 +691,8 @@ Current requirements:
 - migrate older Pi config once when useful
 - support user-selected model overrides
 - support Agent/default/provider model resolution rules
+- when Validation Repair Engineer has no configured model or thinking level, use Engineer's configured value before the
+  default chain
 - support Pi/API-authenticated model Execution Backends through configured providers
 - support `claude-cli/sonnet`, `claude-cli/opus`, `claude-cli/haiku`, and `claude-cli/fable` as Claude CLI Core
   Execution Backend aliases
@@ -723,6 +727,8 @@ Future/open requirements:
 
 - When the user changes a model, the Session and workflow remain the same and the selected model is visible across
   clients.
+- Given Validation Repair Engineer with no configured model or thinking level, when Engineer has those values
+  configured, repair uses Engineer's values before default settings without changing the Session or workflow.
 - Given a CLI backend without its required executable or sign-in, when the first turn is attempted, the user receives
   the backend-specific setup action instead of unrelated provider-login instructions.
 - When a backend cannot replay its internal activity, history distinguishes visible RunWield activity from unavailable

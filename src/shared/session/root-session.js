@@ -161,6 +161,9 @@ export async function resolveCreatedRootSessionPath(cwd, sessionManager) {
  * @property {string} cwd
  * @property {string} sessionId
  * @property {string} [sessionPath]
+ * @property {string} [sessionDir]
+ * @property {string} [managedProjectRoot]
+ * @property {string} [managedSegmentCwd]
  */
 
 /**
@@ -300,11 +303,16 @@ export async function classifyRootSessionLocator(options) {
         if (!inspected.activation) return { kind: "blocked", reason: "missing_activation_row" };
         return { kind: "managed", session: cataloged, project: { projectId: project.projectId, cwd: realCwd } };
     }
+    const requestedSessionPath = resolve(String(options.sessionPath));
+    const projectRoot = store.requireSessionProjectRoot(project.projectId);
+    const projectSessionDir = join(store.path, encodeCwdForSessionDir(canonicalizeCwd(projectRoot)));
+    const locatorSessionDir = isPathInside(requestedSessionPath, projectSessionDir) ? projectSessionDir : undefined;
     let locator;
     try {
         locator = await readCatalogSafeRootSessionLocator({
             cwd: options.cwd,
-            sessionPath: String(options.sessionPath),
+            sessionPath: requestedSessionPath,
+            sessionDir: locatorSessionDir,
         });
     } catch {
         return { kind: "blocked", reason: "invalid_transcript_locator" };
@@ -379,17 +387,53 @@ export async function resolvePersistedRootSession(options) {
         throw new Error("resolvePersistedRootSession requires a session id");
     }
     const canonicalCwd = canonicalizeCwd(options.cwd);
-    const sessionDir = getRunWieldSessionDir(canonicalCwd);
-    const sessions = await listPersistedRootSessions(options.cwd);
+    const defaultSessionDir = getRunWieldSessionDir(canonicalCwd);
+    const sessionDir = options.sessionDir ? resolve(options.sessionDir) : defaultSessionDir;
     const requestedPath = options.sessionPath ? resolve(options.sessionPath) : "";
-    if (requestedPath && !isPathInside(requestedPath, sessionDir)) {
-        throw new Error("Persisted session path is outside the RunWield session directory for cwd");
+    const usesManagedProjectSessionDir = resolve(sessionDir) !== resolve(defaultSessionDir);
+    if (usesManagedProjectSessionDir) {
+        if (!options.managedProjectRoot || !isAbsolute(options.managedProjectRoot)) {
+            throw new Error("Cross-root persisted session path requires managed Project evidence");
+        }
+        if (!options.managedSegmentCwd || canonicalizeCwd(options.managedSegmentCwd) !== canonicalCwd) {
+            throw new Error("Cross-root persisted session path requires managed segment evidence");
+        }
+        if (basename(sessionDir) !== encodeCwdForSessionDir(canonicalizeCwd(options.managedProjectRoot))) {
+            throw new Error("Cross-root persisted session directory does not match managed Project evidence");
+        }
+    }
+    if (requestedPath) {
+        const locator = await readCatalogSafeRootSessionLocator({
+            cwd: options.cwd,
+            sessionDir,
+            sessionPath: requestedPath,
+        });
+        if (locator.piSessionId !== options.sessionId) {
+            throw new Error(`Persisted session not found for cwd: ${options.sessionId}`);
+        }
+        if (canonicalizeCwd(locator.headerCwd) !== canonicalCwd) {
+            throw new Error(
+                usesManagedProjectSessionDir
+                    ? "Cross-root persisted session header does not match managed segment cwd"
+                    : "Persisted session cwd does not match requested cwd",
+            );
+        }
+        return {
+            cwd: canonicalCwd,
+            sessionDir,
+            sessionId: locator.piSessionId,
+            sessionPath: locator.sessionPath,
+            info: {
+                id: locator.piSessionId,
+                path: locator.sessionPath,
+                cwd: locator.headerCwd,
+                modified: locator.modified || undefined,
+            },
+        };
     }
 
-    const match = sessions.find((session) => {
-        if (requestedPath) return resolve(session.path) === requestedPath && session.id === options.sessionId;
-        return session.id === options.sessionId;
-    });
+    const sessions = await listPersistedRootSessions(options.cwd);
+    const match = sessions.find((session) => session.id === options.sessionId);
     if (!match) throw new Error(`Persisted session not found for cwd: ${options.sessionId}`);
 
     return {
