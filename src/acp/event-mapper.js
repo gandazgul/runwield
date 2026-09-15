@@ -189,6 +189,20 @@ export function mapRuntimeEventToAcpUpdate(event, sessionCostUsd = 0) {
                 ],
             };
         }
+        case RuntimeEventTypes.INTERACTION_RESOLVED:
+        case RuntimeEventTypes.INTERACTION_CANCELED: {
+            if (!event.message) return null;
+            return {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: event.message },
+                _meta: runtimeMeta(event, {
+                    type: event.type,
+                    interactionId: event.interactionId,
+                    interactionType: event.interactionType,
+                    outcome: event.outcome,
+                }),
+            };
+        }
         case RuntimeEventTypes.SYSTEM_STATUS:
         case RuntimeEventTypes.CANCELLATION:
         case RuntimeEventTypes.TERMINAL_ERROR: {

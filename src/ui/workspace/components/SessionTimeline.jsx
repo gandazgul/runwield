@@ -6,6 +6,7 @@ import {
     RuntimeInteractionTypes,
 } from "../../../shared/session/session-runtime-interactions.js";
 import { MarkdownView } from "./MarkdownView.jsx";
+import { SessionQuestionForm } from "./SessionQuestionForm.tsx";
 import { RunWieldLink, RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 const MESSAGE_TYPES = new Set([
@@ -496,7 +497,7 @@ function activityRowDetail(activityItem) {
 }
 
 function SessionInteractionCard({ item }) {
-    const [value, setValue] = useState(text(item.request?.defaultValue));
+    const value = text(item.request?.defaultValue);
     const [error, setError] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const requestType = text(item.request?.type || RuntimeInteractionTypes.TEXT);
@@ -510,6 +511,7 @@ function SessionInteractionCard({ item }) {
             await answer(response);
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught || "Could not send answer."));
+            throw caught;
         } finally {
             setSubmitting(false);
         }
@@ -530,88 +532,31 @@ function SessionInteractionCard({ item }) {
                     </RunWieldLink>
                 )
                 : null}
-            {choices.length
+            {answer
                 ? (
-                    <div className="session-interaction-choice-row">
-                        {choices.map((choice) => {
+                    <SessionQuestionForm
+                        mode={requestType}
+                        state={submitting ? "submitting" : "pending"}
+                        error={error}
+                        prompt=""
+                        value={value}
+                        placeholder={item.request?.placeholder || "Answer…"}
+                        allowEmpty={item.request?.allowEmpty === true}
+                        options={choices.map((choice) => {
                             const choiceRecord = typeof choice === "string" ? { value: choice, label: choice } : choice;
-                            const choiceLabel = text(choiceRecord.label || choiceRecord.value);
-                            const choiceValue = text(choiceRecord.value || choiceLabel);
-                            return (
-                                <button
-                                    key={String(choiceValue)}
-                                    type="button"
-                                    disabled={submitting}
-                                    onClick={() =>
-                                        sendAnswer(
-                                            sessionInteractionChoiceResponse(
-                                                requestType,
-                                                asRecord(item.request),
-                                                choice,
-                                            ),
-                                        )}
-                                >
-                                    {choiceLabel}
-                                </button>
-                            );
+                            return {
+                                value: text(choiceRecord.value || choiceRecord.label),
+                                label: text(choiceRecord.label || choiceRecord.value),
+                                description: text(choiceRecord.description),
+                                ...(choiceRecord._meta && typeof choiceRecord._meta === "object"
+                                    ? { _meta: choiceRecord._meta }
+                                    : {}),
+                            };
                         })}
-                    </div>
+                        onResponse={sendAnswer}
+                    />
                 )
                 : null}
-            {answer && requestType === RuntimeInteractionTypes.APPROVAL && !choices.length
-                ? (
-                    <div className="session-interaction-choice-row">
-                        <button
-                            type="button"
-                            disabled={submitting}
-                            onClick={() => sendAnswer({ outcome: RuntimeInteractionOutcomes.ACCEPTED, value: true })}
-                        >
-                            Approve
-                        </button>
-                        <button
-                            type="button"
-                            disabled={submitting}
-                            onClick={() => sendAnswer({ outcome: RuntimeInteractionOutcomes.CANCELED, value: false })}
-                        >
-                            Decline
-                        </button>
-                    </div>
-                )
-                : null}
-            {answer && requestType !== RuntimeInteractionTypes.APPROVAL
-                ? (
-                    <form
-                        className="session-interaction-answer-form"
-                        onSubmit={(event) => {
-                            event.preventDefault();
-                            const nextValue = item.request?.allowEmpty ? value : value.trim();
-                            if (nextValue || item.request?.allowEmpty) {
-                                sendAnswer(sessionInteractionTypedResponse(requestType, nextValue, choices.length > 0));
-                            }
-                        }}
-                    >
-                        <label>
-                            <span className="sr-only">
-                                {choices.length ? "Other answer" : "Answer"}
-                            </span>
-                            <input
-                                value={value}
-                                onChange={(event) => setValue(event.currentTarget.value)}
-                                placeholder={item.request?.placeholder || (choices.length ? "Other…" : "Answer…")}
-                                disabled={submitting}
-                            />
-                        </label>
-                        <button type="submit" disabled={submitting || (!value.trim() && !item.request?.allowEmpty)}>
-                            {submitting
-                                ? <RunWieldThinkingDots label="Sending" />
-                                : choices.length
-                                ? "Send other"
-                                : "Send"}
-                        </button>
-                    </form>
-                )
-                : null}
-            {error ? <p className="session-interaction-error" role="alert">{error}</p> : null}
         </article>
     );
 }

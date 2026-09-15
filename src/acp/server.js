@@ -288,24 +288,21 @@ function extractAcpBuiltinCommand(blocks) {
     if (!Array.isArray(blocks) || blocks.length === 0) {
         throwInvalidParams("session/prompt requires at least one prompt content block");
     }
-    /** @type {{ name: string, args: string[] } | null} */
-    let command = null;
+    /** @type {string[]} */
+    const commandTexts = [];
     for (const block of blocks) {
         if (!block || typeof block !== "object") throwInvalidParams("Invalid prompt content block");
         if (block.type !== "text") continue;
-        const commandLines = String(block.text || "")
-            .split(/\r?\n/)
-            .map((line) => line.trim())
-            .filter((line) => line.startsWith("/"));
-        if (commandLines.length > 1 || (commandLines.length === 1 && command)) {
-            throwInvalidParams("ACP prompts can contain only one slash command line.");
-        }
-        if (!commandLines.length) continue;
-        const [name = "", ...args] = commandLines[0].slice(1).trim().split(/\s+/).filter(Boolean);
-        if (!name) throwInvalidParams("Slash command name is required.");
-        command = { name, args };
+        const text = String(block.text || "").trim();
+        if (text.startsWith("/")) commandTexts.push(text);
     }
-    return command;
+    if (commandTexts.length === 0) return null;
+    if (commandTexts.length > 1) throwInvalidParams("ACP prompts can include only one slash command.");
+    const text = commandTexts[0];
+    if (/\r?\n/.test(text)) throwInvalidParams("ACP slash command prompts must contain only the command line.");
+    const [name = "", ...args] = text.slice(1).trim().split(/\s+/).filter(Boolean);
+    if (!name) throwInvalidParams("Slash command name is required.");
+    return { name, args };
 }
 
 /**
@@ -356,40 +353,94 @@ async function notifyAcpCommandCatalog(context, runtime, runtimeSessionId, acpSe
 }
 
 /**
+ * @typedef {{ value: string, label: string, description?: string, [key: string]: unknown }} AcpCommandSelectOption
+ */
+
+/**
+ * @param {{ runtime: SessionRuntime, runtimeSessionId: string, sendMessage: (text: string, isError?: boolean) => void }} options
+ */
+function createAcpCommandUiAPI(options) {
+    /**
+     * @param {import('../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest['type']} type
+     * @param {string} title
+     * @param {AcpCommandSelectOption[]} choices
+     * @param {{ defaultValue?: string, placeholder?: string, allowEmpty?: boolean }} [requestOptions]
+     */
+    const requestSelection = async (type, title, choices, requestOptions = {}) => {
+        const response = await options.runtime.requestInteraction(options.runtimeSessionId, {
+            type,
+            prompt: title,
+            options: choices,
+            defaultValue: requestOptions.defaultValue,
+            placeholder: requestOptions.placeholder,
+            allowEmpty: requestOptions.allowEmpty,
+        });
+        if (
+            response.outcome === RuntimeInteractionOutcomes.CANCELED ||
+            response.outcome === RuntimeInteractionOutcomes.UNSUPPORTED ||
+            response.outcome === RuntimeInteractionOutcomes.BLOCKED
+        ) {
+            if (response.message) options.sendMessage(response.message, true);
+            return null;
+        }
+        return String(response.value || "");
+    };
+    /** @param {string} text */
+    const appendAgentText = (text) => options.sendMessage(text);
+    /** @param {string} title @param {AcpCommandSelectOption[]} choices */
+    const promptSelect = (title, choices) => requestSelection(RuntimeInteractionTypes.SELECT, title, choices);
+    /** @param {string} title @param {{ defaultValue?: string, placeholder?: string, allowEmpty?: boolean }} [textOptions] */
+    const promptText = (title, textOptions = {}) =>
+        requestSelection(RuntimeInteractionTypes.TEXT, title, [], {
+            defaultValue: textOptions.defaultValue,
+            placeholder: textOptions.placeholder,
+            allowEmpty: textOptions.allowEmpty,
+        });
+    return {
+        appendSystemMessage: options.sendMessage,
+        appendAgentMessageStart: () => ({ appendText: appendAgentText }),
+        requestRender: () => {},
+        abortActivePrompt: () => {},
+        promptSelect,
+        promptText,
+        showModelSelector: async (initialSearchInput = "") => {
+            const available = await listUserModelOptions();
+            const choices = available.map((model) => ({
+                value: `${model.provider}/${model.id}`,
+                label: model.name ? `${model.name} (${model.provider}/${model.id})` : `${model.provider}/${model.id}`,
+            }));
+            const selected = await requestSelection(RuntimeInteractionTypes.SELECT, "Select model", choices, {
+                defaultValue: initialSearchInput,
+            });
+            if (!selected) return { selected: false };
+            const parsed = parseUserModelSelection(selected);
+            const result = await applyUserModelSelection(
+                options.runtime,
+                options.runtimeSessionId,
+                parsed.model,
+                parsed.provider,
+            );
+            if (!result.ok) {
+                options.sendMessage(
+                    `Could not switch model to ${parsed.provider}/${parsed.model}: ${result.error}. The active model did not change.`,
+                    true,
+                );
+                return { selected: false };
+            }
+            return { selected: true };
+        },
+    };
+}
+
+/**
  * @param {{ context: any, runtime: SessionRuntime, sessionMap: AcpSessionMap, acpSessionId: string, runtimeSessionId: string, clientCapabilities: unknown, commandName: string, args: string[], requestId?: string, releasePromptAfterResponse?: (requestId: string, release: () => void) => void }} options
  */
 async function dispatchAcpBuiltinCommand(options) {
     let runtimeSessionId = options.runtimeSessionId;
     const definition = getSlashCommandDefinition(options.commandName, "acp");
-    if (!definition) {
-        const reserved = getCommandDefinition(options.commandName);
-        const message = reserved
-            ? `Command /${options.commandName} is not available in ACP.`
-            : `Unknown command: /${options.commandName}`;
-        await notifyClient(options.context, methods.client.session.update, {
-            sessionId: options.acpSessionId,
-            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: message } },
-        });
-        return { stopReason: "end_turn" };
-    }
-    if (["help", "--help", "-h"].includes(options.args[0] || "")) {
-        const { formatCommandHelp } = await import("../cmd/help/index.js");
-        const message = formatCommandHelp(definition.name) || `No help is available for /${definition.name}.`;
-        await notifyClient(options.context, methods.client.session.update, {
-            sessionId: options.acpSessionId,
-            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: message } },
-        });
-        return { stopReason: "end_turn" };
-    }
     /** @type {Promise<unknown>[]} */
     const pendingNotifications = [];
     let unsubscribe = () => {};
-    let commandCwd = "";
-    try {
-        commandCwd = Deno.cwd();
-    } catch {
-        commandCwd = "";
-    }
     const prompt = options.sessionMap.beginPrompt(
         options.acpSessionId,
         `command-${crypto.randomUUID()}`,
@@ -403,12 +454,28 @@ async function dispatchAcpBuiltinCommand(options) {
             update: {
                 sessionUpdate: "agent_message_chunk",
                 content: { type: "text", text },
-                _meta: { runwield: { command: definition.name, level: isError ? "error" : "info" } },
+                _meta: { runwield: { command: options.commandName, level: isError ? "error" : "info" } },
             },
         });
         pendingNotifications.push(pending);
     };
     try {
+        if (!definition) {
+            const reserved = getCommandDefinition(options.commandName);
+            sendMessage(
+                reserved
+                    ? `Command /${options.commandName} is not available in ACP.`
+                    : `Unknown command: /${options.commandName}`,
+            );
+            await Promise.allSettled(pendingNotifications);
+            return { stopReason: "end_turn" };
+        }
+        if (["help", "--help", "-h"].includes(options.args[0] || "")) {
+            const { formatCommandHelp } = await import("../cmd/help/index.js");
+            sendMessage(formatCommandHelp(definition.name) || `No help is available for /${definition.name}.`);
+            await Promise.allSettled(pendingNotifications);
+            return { stopReason: "end_turn" };
+        }
         const installInteractionAdapter = () => {
             options.runtime.setInteractionAdapter?.(
                 runtimeSessionId,
@@ -423,9 +490,10 @@ async function dispatchAcpBuiltinCommand(options) {
             unsubscribe = options.runtime.subscribeSessionEvents(runtimeSessionId, (event) => {
                 if (event.type === RuntimeEventTypes.SESSION_REPLACED) {
                     const replacement = /** @type {{ newSessionId: string }} */ (event);
+                    const replacementSnapshot = options.runtime.getSessionSnapshot(replacement.newSessionId);
                     options.sessionMap.replaceRuntimeSession(options.acpSessionId, {
                         sessionId: replacement.newSessionId,
-                        cwd: options.sessionMap.getRecord(options.acpSessionId)?.cwd,
+                        cwd: replacementSnapshot?.cwd,
                     });
                     options.runtime.setInteractionAdapter?.(runtimeSessionId, null);
                     const previousUnsubscribe = unsubscribe;
@@ -454,97 +522,28 @@ async function dispatchAcpBuiltinCommand(options) {
         };
         installInteractionAdapter();
         subscribeCurrentSession();
-        /** @type {import('../cmd/registry.js').CommandContext["uiAPI"]} */
-        const uiAPI = {
-            appendSystemMessage: sendMessage,
-            appendAgentMessageStart: () => ({ appendText: (delta) => sendMessage(delta) }),
-            requestRender: () => {},
-            promptSelect: async (title, choices) => {
-                if (prompt.cancelled) throw new Error("Command canceled.");
-                const response = await options.runtime.requestInteraction(runtimeSessionId, {
-                    type: RuntimeInteractionTypes.SELECT,
-                    prompt: title,
-                    options: choices,
-                });
-                if (response.outcome !== RuntimeInteractionOutcomes.SELECTED) {
-                    prompt.cancelled = true;
-                    throw new Error("Command canceled.");
-                }
-                return String(response.value || "");
-            },
-            promptText: async (title, textOptions = {}) => {
-                if (prompt.cancelled) throw new Error("Command canceled.");
-                const response = await options.runtime.requestInteraction(runtimeSessionId, {
-                    type: RuntimeInteractionTypes.TEXT,
-                    prompt: title,
-                    defaultValue: textOptions.defaultValue,
-                    placeholder: textOptions.placeholder,
-                    allowEmpty: textOptions.allowEmpty,
-                });
-                if (response.outcome !== RuntimeInteractionOutcomes.TEXT) {
-                    prompt.cancelled = true;
-                    throw new Error("Command canceled.");
-                }
-                return String(response.value ?? "");
-            },
-            showModelSelector: async (initialSearchInput = "") => {
-                if (prompt.cancelled) throw new Error("Command canceled.");
-                const available = await listUserModelOptions();
-                if (available.length === 0) {
-                    sendMessage("No models available.", true);
-                    return { selected: false };
-                }
-                const response = await options.runtime.requestInteraction(runtimeSessionId, {
-                    type: RuntimeInteractionTypes.SELECT,
-                    prompt: "Select model",
-                    defaultValue: initialSearchInput,
-                    options: available.map((model) => ({
-                        value: `${model.provider}/${model.id}`,
-                        label: model.name
-                            ? `${model.name} (${model.provider}/${model.id})`
-                            : `${model.provider}/${model.id}`,
-                    })),
-                });
-                if (response.outcome !== RuntimeInteractionOutcomes.SELECTED) return { selected: false };
-                const parsed = parseUserModelSelection(String(response.value || ""));
-                const result = await applyUserModelSelection(
-                    options.runtime,
-                    runtimeSessionId,
-                    parsed.model,
-                    parsed.provider,
-                );
-                if (!result.ok) {
-                    sendMessage(
-                        `Could not switch model to ${parsed.provider}/${parsed.model}: ${result.error}. The active model did not change.`,
-                        true,
-                    );
-                    return { selected: false };
-                }
-                sendMessage(`Switched model to ${result.provider}/${result.model}`);
-                return { selected: true };
-            },
-            abortActivePrompt: () => {
-                options.runtime.cancelSession(runtimeSessionId);
-            },
+        const commandUiAPI = createAcpCommandUiAPI({ runtime: options.runtime, runtimeSessionId, sendMessage });
+        const commandEditor = {
+            disableSubmit: false,
+            setText: () => {},
+            setAutocompleteProvider: () => {},
+            handleInput: () => {},
         };
-        const sessionCwd = options.sessionMap.getRecord(options.acpSessionId)?.cwd;
-        if (sessionCwd) Deno.chdir(sessionCwd);
+        const commandTui = { requestRender: () => {}, setFocus: () => {} };
         await definition.execute(options.args, {
-            uiAPI,
-            sessionId: runtimeSessionId,
+            uiAPI: commandUiAPI,
+            editor: commandEditor,
+            tui: commandTui,
             sessionRuntime: options.runtime,
-            sessionStartedAt: new Date().toISOString(),
+            sessionId: runtimeSessionId,
             slashSurface: "acp",
             replaceRuntimeSession: (nextSessionId) => {
-                options.runtime.setInteractionAdapter?.(runtimeSessionId, null);
-                unsubscribe();
-                runtimeSessionId = nextSessionId;
+                const replacementSnapshot = options.runtime.getSessionSnapshot(nextSessionId);
                 options.sessionMap.replaceRuntimeSession(options.acpSessionId, {
                     sessionId: nextSessionId,
-                    cwd: options.sessionMap.getRecord(options.acpSessionId)?.cwd,
+                    cwd: replacementSnapshot?.cwd,
                 });
-                installInteractionAdapter();
-                subscribeCurrentSession();
+                runtimeSessionId = nextSessionId;
             },
         });
         await Promise.allSettled(pendingNotifications);
@@ -554,7 +553,6 @@ async function dispatchAcpBuiltinCommand(options) {
         if (prompt.cancelled) return { stopReason: "cancelled" };
         throw error;
     } finally {
-        if (commandCwd) Deno.chdir(commandCwd);
         unsubscribe();
         options.runtime.setInteractionAdapter?.(runtimeSessionId, null);
         const release = () => options.sessionMap.endPrompt(options.acpSessionId, prompt);

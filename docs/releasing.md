@@ -153,8 +153,8 @@ point at immutable GitHub release URLs. Formula installation does not run Mnemot
 
 The tag-triggered workflow owns release qualification, builds, GitHub release creation, asset upload, and Stable-only
 Homebrew tap artifact rendering. Local release commands validate release metadata, create and push tags, and monitor
-that workflow. They must not require local qualification. They must not call `gh release create`, `gh release edit`,
-`glab release create`, or `glab release edit`.
+that workflow. They must not require local qualification. Local release commands must not call `gh release create`,
+`gh release edit`, `glab release create`, or `glab release edit`.
 
 The workflow also exposes a required-tag manual dispatch solely for recovery when a tag cannot or should not be
 moved—for example, after its GitHub Release has made it immutable, or when a workflow-only fix on the default branch can

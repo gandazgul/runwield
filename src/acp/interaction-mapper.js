@@ -53,7 +53,7 @@ async function requestBrowserQuestion(options) {
     /** @param {Request} request */
     const answerQuestion = async (request) => {
         const requestOrigin = request.headers.get("origin");
-        if (requestOrigin && requestOrigin !== origin) return new Response("Wrong origin", { status: 403 });
+        if (!requestOrigin || requestOrigin !== origin) return new Response("Wrong origin", { status: 403 });
         if (used) return new Response("This question is already answered.", { status: 409 });
         const form = await request.formData();
         if (used) return new Response("This question is already answered.", { status: 409 });
@@ -93,9 +93,22 @@ async function requestBrowserQuestion(options) {
         }
         return new Response("Answer submitted. You can close this tab.");
     };
-    const question = startBrowserQuestionServer({ interaction: options.interaction, answerQuestion });
+    const question = startBrowserQuestionServer({
+        interaction: options.interaction,
+        acpSessionId: options.acpSessionId,
+        answerQuestion,
+    });
     origin = new URL(question.url).origin;
     const questionUrl = question.url;
+    const pageResponse = await fetch(questionUrl);
+    if (!pageResponse.ok) {
+        await question.shutdown();
+        return {
+            outcome: RuntimeInteractionOutcomes.UNSUPPORTED,
+            message:
+                `RunWield could not open the browser question page (${pageResponse.status}). Use an ACP client with form elicitation or rebuild Workspace assets.`,
+        };
+    }
     const abort = () =>
         answered.resolve({ outcome: RuntimeInteractionOutcomes.CANCELED, message: "Interaction canceled." });
     if (options.signal?.aborted) abort();
@@ -174,12 +187,38 @@ export function createAcpInteractionAdapter({ context, acpSessionId, clientCapab
                     message: "ACP does not support Pair Execution checkpoints.",
                 };
             }
+            /** @param {string | { url: string }} surface */
+            const notifySurfaceReady = async (surface) => {
+                const reviewUrl = typeof surface === "string" ? surface : surface.url;
+                await notifyClient(context, methods.client.session.update, {
+                    sessionId: acpSessionId,
+                    update: {
+                        sessionUpdate: "agent_message_chunk",
+                        content: { type: "text", text: `Open this RunWield review to continue: ${reviewUrl}` },
+                        _meta: {
+                            runwield: { interactionId: interaction.id, interactionType: interaction.type, reviewUrl },
+                        },
+                    },
+                });
+            };
             if (
                 interaction.type === RuntimeInteractionTypes.PLAN_REVIEW ||
                 interaction.type === RuntimeInteractionTypes.CODE_REVIEW ||
                 interaction.type === RuntimeInteractionTypes.ARTIFACT_REVIEW
             ) {
-                return await requestLocalReviewInteraction(interaction, signal);
+                return await requestLocalReviewInteraction(interaction, signal, {
+                    onSurfaceReady: notifySurfaceReady,
+                    requestArtifactDecision: async () => {
+                        const decision = {
+                            ...interaction,
+                            type: RuntimeInteractionTypes.TEXT,
+                            prompt: interaction.prompt,
+                            allowEmpty: true,
+                            placeholder: interaction.placeholder || "Feedback (leave empty to accept)",
+                        };
+                        return await requestBrowserQuestion({ context, acpSessionId, interaction: decision, signal });
+                    },
+                });
             }
             if (
                 interaction.type !== RuntimeInteractionTypes.SELECT &&

@@ -16,6 +16,8 @@ const data = payload as {
     placeholder?: string;
     allowEmpty?: boolean;
     action?: string;
+    sessionId?: string;
+    questionId?: string;
     options?: Array<{ value: string; label: string; description?: string }>;
 };
 ---
@@ -29,6 +31,8 @@ const data = payload as {
             placeholder={data.placeholder || ""}
             allowEmpty={data.allowEmpty === true}
             action={data.action || ""}
+            sessionId={data.sessionId || ""}
+            questionId={data.questionId || ""}
             options={data.options || []}
         />
     </div>

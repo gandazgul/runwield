@@ -126,7 +126,7 @@ export async function runAgentsCommand(
         return;
     }
 
-    if (options.uiAPI && (options.slashSurface === "acp" || (options.editor && options.tui))) {
+    if (options.uiAPI && options.editor && options.tui) {
         await runAgentsCommandTUI(agentName, {
             uiAPI: options.uiAPI,
             editor: options.editor,

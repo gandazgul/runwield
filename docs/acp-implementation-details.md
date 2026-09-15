@@ -62,7 +62,7 @@ Important limitations that are not necessarily baseline v1 violations because th
 - no client filesystem or terminal delegation;
 - no standard `plan`, `available_commands_update`, `config_option_update`, `current_mode_update`, or
   `session_info_update` notifications;
-- no rich ACP-native RunWield Plan review, Feedback, or approval flow.
+- no rich ACP-native RunWield Plan review, Feedback, or approval protocol; local review uses RunWield browser pages.
 
 ## Architecture and transport
 
@@ -266,21 +266,22 @@ After the cancelled response is sent, the next prompt can start.
 
 RunWield's ACP interaction adapter maps Runtime interaction requests into client requests when possible.
 
-| Runtime interaction     | ACP behavior                                                                                                                               | Stability                                        |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| `select`                | Sends `elicitation/create` with `mode: "form"`, one `answer` string field, and `oneOf` options.                                            | ACP elicitation surface in SDK 1.4.0.            |
-| `text`                  | Sends `elicitation/create` with `mode: "form"`, one `answer` string field, default, and placeholder description.                           | ACP elicitation surface in SDK 1.4.0.            |
-| `approval`              | Sends `elicitation/create` like select, then maps accepted approval values to Runtime acceptance and non-accepted choices to cancellation. | ACP elicitation surface in SDK 1.4.0.            |
-| `plan_review`           | Calls `sharePlanForReview()` and returns an accepted Runtime interaction with a remote review URL in metadata.                             | RunWield product behavior outside stable ACP v1. |
-| Other interaction types | Returns Runtime `unsupported`.                                                                                                             | Adapter limitation.                              |
+| Runtime interaction             | ACP behavior                                                                                                                               | Stability                             |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
+| `select`                        | Sends `elicitation/create` with `mode: "form"`, one `answer` string field, and `oneOf` options.                                            | ACP elicitation surface in SDK 1.4.0. |
+| `text`                          | Sends `elicitation/create` with `mode: "form"`, one `answer` string field, default, and placeholder description.                           | ACP elicitation surface in SDK 1.4.0. |
+| `approval`                      | Sends `elicitation/create` like select, then maps accepted approval values to Runtime acceptance and non-accepted choices to cancellation. | ACP elicitation surface in SDK 1.4.0. |
+| `plan_review` and `code_review` | Opens the local RunWield review surface, sends the review URL to ACP, and waits for the browser review decision.                           | RunWield product behavior.            |
+| `artifact_review`               | Opens the local read-only artifact surface, sends the URL to ACP, then asks for feedback or an empty approval before returning.            | RunWield product behavior.            |
+| Other interaction types         | Returns Runtime `unsupported`.                                                                                                             | Adapter limitation.                   |
 
-The adapter only sends form elicitations when the client advertises `clientCapabilities.elicitation.form`. Without that
-capability, select/text/approval interactions return unsupported. Plan review is special-cased and does not require form
-elicitation support.
+The adapter sends form elicitations when the client advertises `clientCapabilities.elicitation.form`. Without that
+capability, select/text/approval interactions use a loopback browser question page. The page needs its token and rejects
+answers that do not carry the same local Origin. If the browser page is not available, ACP gets an actionable
+unsupported response instead of an unusable link.
 
-RunWield does not currently provide stable ACP-native Plan approval, returned Feedback, Plan body edits, or Workflow
-Validation controls. It can surface a review link through a text message plus `_meta.runwield`, but the actual review UX
-remains RunWield/Plannotator-specific.
+RunWield does not provide an ACP-native Plan edit protocol. Local review decisions still happen in RunWield review
+surfaces, and ACP receives usable text links plus `_meta.runwield` URLs.
 
 ## Error behavior
 
@@ -344,7 +345,7 @@ RunWield uses ACP extension points in two ways:
   approval. The URL is local-process state, requires its per-question token, and does not prove remote browser
   reachability.
 
-RunWield also surfaces Plan review through remote Plan sharing and Plannotator links. That behavior is valuable for
+RunWield also surfaces Plan, code, and artifact review through local browser review pages. That behavior is valuable for
 RunWield workflows, but it is not a stable ACP v1 Plan or approval protocol.
 
 ## Current automated coverage

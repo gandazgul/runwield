@@ -13,9 +13,10 @@ import { startArtifactReadSurface } from "../../ui/review/review-launcher.ts";
 /**
  * @param {import('./session-runtime-interactions.js').RuntimeInteractionRequest} request
  * @param {AbortSignal | undefined} signal
+ * @param {{ onSurfaceReady?: (url: string) => void | Promise<void>, requestArtifactDecision?: (url: string) => Promise<import('./session-runtime-interactions.js').RuntimeInteractionResponse> }} [options]
  * @returns {Promise<import('./session-runtime-interactions.js').RuntimeInteractionResponse>}
  */
-export async function requestLocalReviewInteraction(request, signal) {
+export async function requestLocalReviewInteraction(request, signal, options = {}) {
     const meta = /** @type {Record<string, any>} */ (request._meta || {});
     if (request.type === RuntimeInteractionTypes.PLAN_REVIEW) {
         const result = await submitPlanForReview({
@@ -29,7 +30,7 @@ export async function requestLocalReviewInteraction(request, signal) {
             agentLabel: typeof meta.agentLabel === "string" ? meta.agentLabel : undefined,
             triageMeta: meta.triageMeta,
             onOutput: typeof meta.onOutput === "function" ? meta.onOutput : undefined,
-            onSurfaceReady: typeof meta.onSurfaceReady === "function" ? meta.onSurfaceReady : undefined,
+            onSurfaceReady: typeof meta.onSurfaceReady === "function" ? meta.onSurfaceReady : options.onSurfaceReady,
             signal,
             browser: SYSTEM_BROWSER_PORT,
         });
@@ -56,7 +57,7 @@ export async function requestLocalReviewInteraction(request, signal) {
             agentLabel: typeof meta.agentLabel === "string" ? meta.agentLabel : undefined,
             signal,
             browser: SYSTEM_BROWSER_PORT,
-            onSurfaceReady: typeof meta.onSurfaceReady === "function" ? meta.onSurfaceReady : undefined,
+            onSurfaceReady: typeof meta.onSurfaceReady === "function" ? meta.onSurfaceReady : options.onSurfaceReady,
         });
         return {
             outcome: result.canceled || result.exit
@@ -79,11 +80,16 @@ export async function requestLocalReviewInteraction(request, signal) {
             browser: SYSTEM_BROWSER_PORT,
         });
         try {
-            return {
-                outcome: RuntimeInteractionOutcomes.TEXT,
-                value: "",
-                _meta: { url: surface.url },
-            };
+            await options.onSurfaceReady?.(surface.url);
+            if (!options.requestArtifactDecision) {
+                return {
+                    outcome: RuntimeInteractionOutcomes.UNSUPPORTED,
+                    message: `Review ${surface.url} and then send feedback or approval in the client.`,
+                    _meta: { url: surface.url },
+                };
+            }
+            const decision = await options.requestArtifactDecision(surface.url);
+            return { ...decision, _meta: { ...(decision._meta || {}), url: surface.url } };
         } finally {
             await surface.stop();
         }

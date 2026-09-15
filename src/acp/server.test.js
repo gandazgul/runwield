@@ -670,6 +670,171 @@ Deno.test("ACP /agent opens selection without a model turn and affects the next 
     });
 });
 
+Deno.test("ACP /session reports real Runtime totals", async () => {
+    await withRuntimeCommandFixture("runwield-acp-session-command-", async (fixture) => {
+        fixture.setModelResponse("session command fixture response");
+        const handle = startTestServer();
+        try {
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "normal-before-session",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "count this" }] },
+            });
+            await readThroughResponse(handle, "normal-before-session");
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "session-command",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "/session" }] },
+            });
+            const result = await readThroughResponse(handle, "session-command");
+            const text = joinedAgentText(result.messages);
+            assertStringIncludes(text, "Session Info");
+            assertStringIncludes(text, "Messages");
+            assertStringIncludes(text, "Tool Calls:");
+            assertStringIncludes(text, "Total:");
+            assertEquals(result.response.result.stopReason, "end_turn");
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP /reload refreshes Runtime resources and advertised commands", async () => {
+    await withRuntimeCommandFixture("runwield-acp-reload-command-", async (fixture) => {
+        const handle = startTestServer();
+        try {
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            const promptDir = join(fixture.projectRoot, ".wld", "prompts");
+            await Deno.mkdir(promptDir, { recursive: true });
+            await Deno.writeTextFile(
+                join(promptDir, "after-reload.md"),
+                ["---", "description: Loaded after reload", "---", "Template loaded after reload."].join("\n"),
+            );
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "reload-command",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "/reload" }] },
+            });
+            const result = await readThroughResponse(handle, "reload-command");
+            assertStringIncludes(joinedAgentText(result.messages), "Successfully reloaded");
+            const catalogUpdate = result.messages.findLast((message) =>
+                message.params?.update?.sessionUpdate === "available_commands_update"
+            );
+            assert(catalogUpdate, JSON.stringify(result.messages));
+            const availableCommands = /** @type {{ name: string }[]} */ (catalogUpdate.params.update.availableCommands);
+            assert(
+                availableCommands.some((command) => command.name === "after-reload"),
+                JSON.stringify(availableCommands),
+            );
+            assertEquals(result.response.result.stopReason, "end_turn");
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP /agent remains a command when a Plan attachment is present", async () => {
+    await withRuntimeCommandFixture("runwield-acp-agent-attachment-", async (fixture) => {
+        fixture.setModelResponseFactory(() => {
+            throw new Error("/agent with an attachment must not call the model");
+        });
+        const handle = startTestServer();
+        try {
+            await request(handle, {
+                jsonrpc: "2.0",
+                id: "init-form-attachment",
+                method: "initialize",
+                params: { protocolVersion: 1, clientCapabilities: { elicitation: { form: {} } } },
+            });
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "agent-attachment-command",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [
+                        { type: "text", text: "/agent" },
+                        { type: "resource_link", uri: "file://docs/plans/example.md", name: "example Plan" },
+                    ],
+                },
+            });
+            let elicitation = null;
+            for (let index = 0; index < 40; index++) {
+                const message = await readMessage(handle);
+                if (message.method === "elicitation/create") {
+                    elicitation = message;
+                    break;
+                }
+            }
+            assert(elicitation, "ACP /agent with an attachment should ask the client to choose an Agent");
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: elicitation.id,
+                result: { action: "accept", content: { answer: "guide" } },
+            });
+            const result = await readThroughResponse(handle, "agent-attachment-command");
+            assertEquals(result.response.result.stopReason, "end_turn");
+            assertStringIncludes(JSON.stringify(result.messages), "Active agent: guide");
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP rejects prompts with more than one slash command", async () => {
+    await withRuntimeCommandFixture("runwield-acp-command-ambiguity-", async (fixture) => {
+        const handle = startTestServer();
+        try {
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            const response = await request(handle, {
+                jsonrpc: "2.0",
+                id: "ambiguous-command",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "text", text: "/agent" }, { type: "text", text: "/model" }],
+                },
+            });
+            assertEquals(response.error?.code, -32602);
+            assertStringIncludes(response.error?.message || "", "only one slash command");
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP ordinary multiline prompt does not execute slash text from a later line", async () => {
+    await withRuntimeCommandFixture("runwield-acp-command-text-", async (fixture) => {
+        fixture.setModelResponse("ordinary text kept its prompt behavior");
+        const handle = startTestServer();
+        try {
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "ordinary-multiline",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "text", text: "Explain this command:\n/logout anthropic" }],
+                },
+            });
+            const result = await readThroughResponse(handle, "ordinary-multiline");
+            assertEquals(result.response.result, { stopReason: "end_turn" });
+            assertStringIncludes(joinedAgentText(result.messages), "ordinary text kept its prompt behavior");
+            assertEquals(JSON.stringify(result.messages).includes("Logged out"), false);
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
 Deno.test("ACP session/prompt resolves Prompt Template invocations through Core", async () => {
     await withRuntimeCommandFixture("runwield-acp-named-invocation-", async (fixture) => {
         const promptDir = join(fixture.projectRoot, ".wld", "prompts");
@@ -1324,14 +1489,19 @@ Deno.test("ACP interaction adapter falls back to a local browser question withou
     for (let attempt = 0; attempt < 20 && notifications.length === 0; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 10));
     }
+    if (notifications.length === 0) {
+        const response = await pending;
+        assertEquals(response.outcome, "unsupported");
+        assertStringIncludes(response.message || "", "browser question page");
+        return;
+    }
     const text = String(notifications[0]?.update?.content?.text || "");
     const [questionUrl] = text.match(/http:\/\/127\.0\.0\.1:\d+\/session-question\?token=[^\s]+/) || [];
     assert(questionUrl, text);
     const page = await fetch(questionUrl);
     const pageText = await page.text();
-    assert([200, 503].includes(page.status), pageText);
-    if (page.status === 200) assertStringIncludes(pageText, "Choose Agent");
-    else assertStringIncludes(pageText, "Workspace Astro build unavailable");
+    assertEquals(page.status, 200, pageText);
+    assertStringIncludes(pageText, "Choose Agent");
     const answerUrl = questionUrl.replace("/session-question", "/api/session-question/answer");
     const submitted = await fetch(answerUrl, {
         method: "POST",

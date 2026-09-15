@@ -666,6 +666,7 @@ export const commandRegistry = {
                     sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT,
                     sessionRuntime: options.sessionRuntime,
                     sessionId: options.sessionId,
+                    projectRoot: options.sessionRuntime.getSessionSnapshot(options.sessionId)?.cwd,
                 })
                 : runInitCommand(argv, {
                     uiAPI: options?.uiAPI,

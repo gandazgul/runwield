@@ -23,6 +23,11 @@ interface ResumeManagedFixture {
     projectId: string;
 }
 
+interface ClipboardFixtureCommands {
+    previousPath: string;
+    imageReadMarkerPath: string;
+}
+
 function deferredSignal(): DeferredSignal {
     let resolvePromise: () => void = () => {};
     const promise = new Promise<void>((resolve) => {
@@ -42,6 +47,22 @@ async function waitFor(
         await new Promise((resolve) => setTimeout(resolve, 20));
     }
     throw new Error(`Timed out waiting for ${description}.`);
+}
+
+async function waitForPath(path: string, description: string, timeoutMs = 5_000): Promise<void> {
+    await waitFor(
+        () => {
+            try {
+                Deno.statSync(path);
+                return true;
+            } catch (error) {
+                if (error instanceof Deno.errors.NotFound) return false;
+                throw error;
+            }
+        },
+        description,
+        timeoutMs,
+    );
 }
 
 async function submitText(terminal: VirtualTerminal, text: string): Promise<void> {
@@ -115,9 +136,10 @@ async function seedActiveElsewhereManagedSession(
     }
 }
 
-async function installFakeClipboardCommands(projectRoot: string): Promise<string> {
+async function installFakeClipboardCommands(projectRoot: string): Promise<ClipboardFixtureCommands> {
     const previousPath = Deno.env.get("PATH") || "";
     const binDir = `${projectRoot}/clipboard-bin`;
+    const imageReadMarkerPath = `${projectRoot}/clipboard-image-read`;
     await Deno.mkdir(binDir, { recursive: true });
     const osascriptPath = `${binDir}/osascript`;
     await Deno.writeTextFile(
@@ -136,8 +158,19 @@ async function installFakeClipboardCommands(projectRoot: string): Promise<string
         ].join("\n"),
     );
     await Deno.chmod(osascriptPath, 0o755);
+    const base64Path = `${binDir}/base64`;
+    await Deno.writeTextFile(
+        base64Path,
+        [
+            "#!/bin/sh",
+            "echo Zml4dHVyZS1wbmc=",
+            `touch "${imageReadMarkerPath}"`,
+            "",
+        ].join("\n"),
+    );
+    await Deno.chmod(base64Path, 0o755);
     Deno.env.set("PATH", `${binDir}:${previousPath}`);
-    return previousPath;
+    return { previousPath, imageReadMarkerPath };
 }
 
 Deno.test("chat input controller sends accepted editor input through the real composed Runtime", async () => {
@@ -426,7 +459,7 @@ Deno.test("chat input controller preflights pasted image attachments through the
         "chat-input-real-image-preflight-",
         async ({ projectRoot, setModelResponseFactory }) => {
             if (Deno.build.os !== "darwin") return;
-            const previousPath = await installFakeClipboardCommands(projectRoot);
+            const clipboard = await installFakeClipboardCommands(projectRoot);
             const modelRequests: string[] = [];
             setModelResponseFactory((context) => {
                 modelRequests.push(JSON.stringify(context.messages));
@@ -435,8 +468,7 @@ Deno.test("chat input controller preflights pasted image attachments through the
             const { composition, terminal } = await startComposition();
             try {
                 terminal.input("\x16");
-                await terminal.flush();
-                await new Promise((resolve) => setTimeout(resolve, 500));
+                await waitForPath(clipboard.imageReadMarkerPath, "clipboard image read");
                 await terminal.flush();
                 await submitText(terminal, "describe pasted image");
                 await waitFor(
@@ -454,7 +486,7 @@ Deno.test("chat input controller preflights pasted image attachments through the
                     ),
                 );
             } finally {
-                Deno.env.set("PATH", previousPath);
+                Deno.env.set("PATH", clipboard.previousPath);
                 await composition.dispose();
             }
         },

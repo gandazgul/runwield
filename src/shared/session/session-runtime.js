@@ -4530,8 +4530,16 @@ export class SessionRuntime {
             throw new Error("SessionRuntime.replaceSessionForExecutionFollowUp requires an execution Agent");
         }
         const originalCwd = oldSession.cwd;
+        const originalAgent = this.getRuntimeActiveAgentName(oldSession.id);
+        const originalWorkflow = oldSession.getActiveExecutionWorkflow?.() || null;
         try {
             oldSession.rebindProjectRoot(executionCwd);
+            const switched = await this.switchAgent(oldSession.id, {
+                agentName: executionAgent,
+                mcpRootTools: oldSession.getMcpRootTools?.() || [],
+            });
+            if (!switched?.ok) throw new Error(switched?.error || "Execution follow-up Agent switch failed");
+            oldSession.setActiveExecutionWorkflow(workflow);
             const managed = oldSession.getManagedMetadata?.();
             if (managed) {
                 await this.rollManagedSessionSegment(oldSession.id, {
@@ -4544,12 +4552,6 @@ export class SessionRuntime {
                     expectedGeneration: managed.generation,
                 });
             }
-            const switched = await this.switchAgent(oldSession.id, {
-                agentName: executionAgent,
-                mcpRootTools: oldSession.getMcpRootTools?.() || [],
-            });
-            if (!switched?.ok) throw new Error(switched?.error || "Execution follow-up Agent switch failed");
-            oldSession.setActiveExecutionWorkflow(workflow);
             const planId = typeof workflow?.triageMeta?.planId === "string" ? workflow.triageMeta.planId : "";
             const planName = typeof workflow?.planName === "string" ? workflow.planName : "";
             if (planId && planName) {
@@ -4571,6 +4573,32 @@ export class SessionRuntime {
             return oldSession.id;
         } catch (error) {
             oldSession.rebindProjectRoot(originalCwd);
+            oldSession.setActiveExecutionWorkflow(originalWorkflow);
+            if (originalAgent && originalAgent !== this.getRuntimeActiveAgentName(oldSession.id)) {
+                let restored;
+                try {
+                    restored = await this.switchAgent(oldSession.id, {
+                        agentName: originalAgent,
+                        mcpRootTools: oldSession.getMcpRootTools?.() || [],
+                        releaseActiveWorkflow: false,
+                    });
+                } catch (restoreError) {
+                    throw new Error(
+                        `Execution follow-up failed and the original Agent could not be restored: ${
+                            restoreError instanceof Error ? restoreError.message : String(restoreError)
+                        }`,
+                        { cause: error },
+                    );
+                }
+                if (!restored?.ok) {
+                    throw new Error(
+                        `Execution follow-up failed and the original Agent could not be restored: ${
+                            restored?.error || "restore_failed"
+                        }`,
+                        { cause: error },
+                    );
+                }
+            }
             throw error;
         }
     }

@@ -14,15 +14,17 @@ import { startSessionQuestionWorkspaceServer } from "../../ui/workspace/server.j
  */
 
 /**
- * @param {{ interaction: import('./session-runtime-interactions.js').RuntimeInteractionRequest, answerQuestion: (request: Request) => Promise<Response>|Response }} options
+ * @param {{ interaction: import('./session-runtime-interactions.js').RuntimeInteractionRequest, acpSessionId?: string, answerQuestion: (request: Request) => Promise<Response>|Response }} options
  * @returns {BrowserQuestionServer}
  */
-export function startBrowserQuestionServer({ interaction, answerQuestion }) {
+export function startBrowserQuestionServer({ interaction, acpSessionId = "", answerQuestion }) {
     const token = crypto.randomUUID();
     const server = startSessionQuestionWorkspaceServer({
         token,
         questionPayload: {
             mode: interaction.type,
+            sessionId: acpSessionId,
+            questionId: interaction.id || "",
             prompt: interaction.prompt,
             defaultValue: interaction.defaultValue || "",
             placeholder: interaction.placeholder || "",
